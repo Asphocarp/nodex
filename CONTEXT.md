@@ -492,30 +492,30 @@ state is rejected rather than replayed.
 
 ## Authority and ownership
 
-| State | Canonical authority |
-| --- | --- |
-| Profile → Library | `profiles` and `libraries` |
-| Block identity, type, lifecycle, Library, and parent | `blocks` plus typed placement detail |
-| Page title and body | Page Document (`yjs`) |
-| Ordinary Block hierarchy/order/content | nearest owning Document |
-| Canvas metadata and Library/Page placement | `blocks`, `canvas_owners`, and the exact host shell or Library placement |
-| Canvas scene and managed-file metadata | normalized Canvas scene rows |
-| Document ownership | `block_documents` |
-| Library top-level placement | Library placement records |
-| Database metadata, lifecycle, default View | Database Container records |
-| Page-key prefix registry, counter, and Database/Page assignments | Database Page-key authority records |
-| Schema, Pages, and property values | Data Source relational records |
-| View query/configuration/manual Page position | Database View records |
-| Project binding/lifecycle | Project execution records |
-| Foreign Page/Database capability | Project resource grants |
-| One-call/root-task Agent resource capability | main-owned consent overlays |
-| Page-intrinsic schedule/run behavior | generic Block properties and typed read models |
-| NFM, preview, search, schedule, asset, and Page summary | rebuildable projections |
-| Restorable Document states | immutable semantic Document revisions |
-| Presence, cursor, selection, leases | ephemeral collaboration state |
-| Project Sessions and Thread links | Project execution domain |
-| Per-window Project/Session Scene surfaces, panels, selection, and geometry | Window Session view |
-| Browser guests and Terminal PTYs | Main-process runtime Modules |
+| State                                                                      | Canonical authority                                                      |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Profile → Library                                                          | `profiles` and `libraries`                                               |
+| Block identity, type, lifecycle, Library, and parent                       | `blocks` plus typed placement detail                                     |
+| Page title and body                                                        | Page Document (`yjs`)                                                    |
+| Ordinary Block hierarchy/order/content                                     | nearest owning Document                                                  |
+| Canvas metadata and Library/Page placement                                 | `blocks`, `canvas_owners`, and the exact host shell or Library placement |
+| Canvas scene and managed-file metadata                                     | normalized Canvas scene rows                                             |
+| Document ownership                                                         | `block_documents`                                                        |
+| Library top-level placement                                                | Library placement records                                                |
+| Database metadata, lifecycle, default View                                 | Database Container records                                               |
+| Page-key prefix registry, counter, and Database/Page assignments           | Database Page-key authority records                                      |
+| Schema, Pages, and property values                                         | Data Source relational records                                           |
+| View query/configuration/manual Page position                              | Database View records                                                    |
+| Project binding/lifecycle                                                  | Project execution records                                                |
+| Foreign Page/Database capability                                           | Project resource grants                                                  |
+| One-call/root-task Agent resource capability                               | main-owned consent overlays                                              |
+| Page-intrinsic schedule/run behavior                                       | generic Block properties and typed read models                           |
+| NFM, preview, search, schedule, asset, and Page summary                    | rebuildable projections                                                  |
+| Restorable Document states                                                 | immutable semantic Document revisions                                    |
+| Presence, cursor, selection, leases                                        | ephemeral collaboration state                                            |
+| Project Sessions and Thread links                                          | Project execution domain                                                 |
+| Per-window Project/Session Scene surfaces, panels, selection, and geometry | Window Session view                                                      |
+| Browser guests and Terminal PTYs                                           | Main-process runtime Modules                                             |
 
 ## Invariants
 

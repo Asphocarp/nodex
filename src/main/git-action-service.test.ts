@@ -2,11 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  cancelGitAction,
-  commitGitChanges,
-  type GitActionWorkerPort,
-} from "./git-action-service";
+import { cancelGitAction, commitGitChanges, type GitActionWorkerPort } from "./git-action-service";
 
 const tempRoots: string[] = [];
 const unreachableGitWorker: GitActionWorkerPort = {
@@ -36,12 +32,15 @@ describe("git-action-service cancellation", () => {
   test("can cancel a commit before asynchronous preflight completes", async () => {
     const root = await createTempRoot();
     const operationId = "cancel-commit-preflight";
-    const pendingCommit = commitGitChanges({
-      cwd: root,
-      message: "feat: should not commit",
-      includeUnstaged: true,
-      operationId,
-    }, { gitWorker: unreachableGitWorker });
+    const pendingCommit = commitGitChanges(
+      {
+        cwd: root,
+        message: "feat: should not commit",
+        includeUnstaged: true,
+        operationId,
+      },
+      { gitWorker: unreachableGitWorker },
+    );
 
     const cancelResult = cancelGitAction({ operationId });
     const result = await pendingCommit;

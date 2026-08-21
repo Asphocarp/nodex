@@ -62,22 +62,30 @@ function buildPromptNode(
     return explicitReason;
   }
 
-  const actor = actorName?.trim() ? approvalQuestionActor ?? actorName.trim() : null;
+  const actor = actorName?.trim() ? (approvalQuestionActor ?? actorName.trim()) : null;
   if (request.kind === "command" && request.networkApprovalContext?.host) {
-    return actor
-      ? <>Do you want {actor} to approve network access to "{request.networkApprovalContext.host}"?</>
-      : `Do you want to approve network access to "${request.networkApprovalContext.host}"?`;
+    return actor ? (
+      <>
+        Do you want {actor} to approve network access to "{request.networkApprovalContext.host}"?
+      </>
+    ) : (
+      `Do you want to approve network access to "${request.networkApprovalContext.host}"?`
+    );
   }
 
   if (request.kind === "command") {
-    return actor
-      ? <>Do you want {actor} to run this command?</>
-      : "Do you want to run this command?";
+    return actor ? (
+      <>Do you want {actor} to run this command?</>
+    ) : (
+      "Do you want to run this command?"
+    );
   }
 
-  return actor
-    ? <>Do you want {actor} to make these changes?</>
-    : "Do you want to make these changes?";
+  return actor ? (
+    <>Do you want {actor} to make these changes?</>
+  ) : (
+    "Do you want to make these changes?"
+  );
 }
 
 function buildExecAmendmentSummary(request: CodexApprovalRequest): string | null {
@@ -92,40 +100,45 @@ function buildRequestQuestion(
   const execAmendmentSummary = buildExecAmendmentSummary(request);
   const questionId = buildCodexCanonicalRequestIdentityKey(request.requestId);
 
-  const options = request.kind === "command"
-    ? request.networkApprovalContext
-      ? [
-          { label: "Yes, just this once", description: "" },
-          { label: "Yes, and allow this host for this conversation", description: "" },
-          ...((request.proposedNetworkPolicyAmendments?.length ?? 0) > 0
-            ? [{ label: "Yes, and allow this host in the future", description: "" }]
-            : []),
-        ]
+  const options =
+    request.kind === "command"
+      ? request.networkApprovalContext
+        ? [
+            { label: "Yes, just this once", description: "" },
+            { label: "Yes, and allow this host for this conversation", description: "" },
+            ...((request.proposedNetworkPolicyAmendments?.length ?? 0) > 0
+              ? [{ label: "Yes, and allow this host in the future", description: "" }]
+              : []),
+          ]
+        : [
+            { label: "Yes", description: "" },
+            ...(execAmendmentSummary
+              ? [
+                  {
+                    label: "Yes, and don't ask again for commands that start with this",
+                    description: execAmendmentSummary,
+                  },
+                ]
+              : [{ label: "Yes, and don't ask again this session", description: "" }]),
+          ]
       : [
           { label: "Yes", description: "" },
-          ...(execAmendmentSummary
-            ? [{
-                label: "Yes, and don't ask again for commands that start with this",
-                description: execAmendmentSummary,
-              }]
-            : [{ label: "Yes, and don't ask again this session", description: "" }]),
-        ]
-    : [
-        { label: "Yes", description: "" },
-        { label: "Yes, and don't ask again this session", description: "" },
-      ];
+          { label: "Yes, and don't ask again this session", description: "" },
+        ];
 
   return {
     requestId: request.requestId,
-    questions: [{
-      id: questionId,
-      header: prompt,
-      question: prompt,
-      isOther: true,
-      isSecret: false,
-      otherPlaceholder: "No, and tell Nodex what to do differently",
-      options,
-    }],
+    questions: [
+      {
+        id: questionId,
+        header: prompt,
+        question: prompt,
+        isOther: true,
+        isSecret: false,
+        otherPlaceholder: "No, and tell Nodex what to do differently",
+        options,
+      },
+    ],
   };
 }
 
@@ -133,18 +146,23 @@ function mapApprovalResponse(
   request: CodexApprovalRequest,
   selectedOptionLabel: string,
 ): CodexApprovalResponse {
-  const scalarDecision = selectedOptionLabel === "Yes" || selectedOptionLabel === "Yes, just this once"
-    ? "accept"
-    : selectedOptionLabel === "Yes, and allow this host for this conversation"
-      || selectedOptionLabel === "Yes, and don't ask again this session"
-      ? "acceptForSession"
-      : null;
+  const scalarDecision =
+    selectedOptionLabel === "Yes" || selectedOptionLabel === "Yes, just this once"
+      ? "accept"
+      : selectedOptionLabel === "Yes, and allow this host for this conversation" ||
+          selectedOptionLabel === "Yes, and don't ask again this session"
+        ? "acceptForSession"
+        : null;
   if (scalarDecision) return { kind: request.kind, decision: scalarDecision };
 
-  if (request.kind === "command" && selectedOptionLabel === "Yes, and allow this host in the future") {
-    const amendment = request.proposedNetworkPolicyAmendments?.find((candidate) => candidate.action === "allow")
-      ?? request.proposedNetworkPolicyAmendments?.[0]
-      ?? null;
+  if (
+    request.kind === "command" &&
+    selectedOptionLabel === "Yes, and allow this host in the future"
+  ) {
+    const amendment =
+      request.proposedNetworkPolicyAmendments?.find((candidate) => candidate.action === "allow") ??
+      request.proposedNetworkPolicyAmendments?.[0] ??
+      null;
     if (!amendment) return { kind: "command", decision: "acceptForSession" };
     return {
       kind: "command",
@@ -156,7 +174,10 @@ function mapApprovalResponse(
     };
   }
 
-  if (request.kind === "command" && selectedOptionLabel === "Yes, and don't ask again for commands that start with this") {
+  if (
+    request.kind === "command" &&
+    selectedOptionLabel === "Yes, and don't ask again for commands that start with this"
+  ) {
     const execPolicyAmendment = request.proposedExecpolicyAmendment ?? null;
     if (!execPolicyAmendment || execPolicyAmendment.length === 0) {
       return { kind: "command", decision: "acceptForSession" };
@@ -180,9 +201,7 @@ function CommandPreviewBody({ request }: { request: CodexApprovalRequest }) {
 
   if (preview.kind === "network") {
     return (
-      <div className="px-3 py-2 text-sm text-token-description-foreground">
-        {preview.reason}
-      </div>
+      <div className="px-3 py-2 text-sm text-token-description-foreground">{preview.reason}</div>
     );
   }
 
@@ -201,11 +220,7 @@ function formatPatchPreviewLabel(action: CodexFileChangePatchAction): string {
   return "Edited file";
 }
 
-function PatchPreviewBody({
-  item,
-}: {
-  item: CodexConversationItem | null | undefined;
-}) {
+function PatchPreviewBody({ item }: { item: CodexConversationItem | null | undefined }) {
   if (!item) return null;
   const rows = buildCodexFileChangePatchRows(item.fileChange?.changes);
   if (rows.length === 0) return null;
@@ -219,7 +234,9 @@ function PatchPreviewBody({
         >
           <div className="min-w-0">
             <div className="text-token-foreground">{formatPatchPreviewLabel(row.action)}</div>
-            <div className="truncate text-token-description-foreground">{row.path || "Changed file"}</div>
+            <div className="truncate text-token-description-foreground">
+              {row.path || "Changed file"}
+            </div>
           </div>
           {row.summary ? (
             <div className="shrink-0 text-xs text-token-description-foreground">
@@ -242,9 +259,12 @@ export function CodexApprovalRequestCard({
 }: CodexApprovalRequestCardProps) {
   const composerRequest = buildRequestQuestion(request, actorName);
   const prompt = buildPromptNode(request, actorName, approvalQuestionActor);
-  const body = request.kind === "command"
-    ? <CommandPreviewBody request={request} />
-    : <PatchPreviewBody item={requestItem} />;
+  const body =
+    request.kind === "command" ? (
+      <CommandPreviewBody request={request} />
+    ) : (
+      <PatchPreviewBody item={requestItem} />
+    );
 
   return (
     <RequestComposerView
@@ -259,11 +279,7 @@ export function CodexApprovalRequestCard({
           await onRespond(request.requestId, { kind: request.kind, decision: "decline" });
           return;
         }
-        const answer = getRequestQuestionnaireAnswer(
-          nextRequest,
-          state,
-          questionId,
-        );
+        const answer = getRequestQuestionnaireAnswer(nextRequest, state, questionId);
         const selected = answer?.selectedOptionId;
         const freeform = answer?.freeformText?.trim() ?? "";
 

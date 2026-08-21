@@ -38,18 +38,13 @@ interface YXmlTextOperation {
 export class UnsupportedXmlNodeError extends TypeError {
   constructor(node: unknown) {
     const nodeType =
-      typeof node === "object" && node !== null
-        ? node.constructor.name
-        : typeof node;
+      typeof node === "object" && node !== null ? node.constructor.name : typeof node;
     super(`Unsupported Y.Xml subtree node: ${nodeType}`);
     this.name = "UnsupportedXmlNodeError";
   }
 }
 
-const clonePortableValue = (
-  value: unknown,
-  ancestors = new Set<object>(),
-): PortableXmlValue => {
+const clonePortableValue = (value: unknown, ancestors = new Set<object>()): PortableXmlValue => {
   if (
     value === undefined ||
     value === null ||
@@ -90,16 +85,11 @@ const clonePortableValue = (
 
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
-    throw new TypeError(
-      `Unsupported portable Y.Xml object: ${value.constructor.name}`,
-    );
+    throw new TypeError(`Unsupported portable Y.Xml object: ${value.constructor.name}`);
   }
 
   return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
-      key,
-      clonePortableValue(entry, nextAncestors),
-    ]),
+    Object.entries(value).map(([key, entry]) => [key, clonePortableValue(entry, nextAncestors)]),
   );
 };
 
@@ -107,10 +97,7 @@ const cloneAttributeRecord = (
   attributes: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, PortableXmlValue>> =>
   Object.fromEntries(
-    Object.entries(attributes).map(([key, value]) => [
-      key,
-      clonePortableValue(value),
-    ]),
+    Object.entries(attributes).map(([key, value]) => [key, clonePortableValue(value)]),
   );
 
 export const assertPortableXmlAttributes = (
@@ -130,9 +117,7 @@ export const encodeXmlSubtree = (node: unknown): PortableXmlSubtree => {
       const attributes = operation.attributes
         ? cloneAttributeRecord(operation.attributes)
         : undefined;
-      return attributes
-        ? { insert: operation.insert, attributes }
-        : { insert: operation.insert };
+      return attributes ? { insert: operation.insert, attributes } : { insert: operation.insert };
     });
     return { kind: "text", delta };
   }
@@ -163,17 +148,13 @@ const setPortableAttribute = (
   element.setAttribute(key, value as unknown as string);
 };
 
-export const decodeXmlSubtree = (
-  subtree: PortableXmlSubtree,
-): SupportedXmlNode => {
+export const decodeXmlSubtree = (subtree: PortableXmlSubtree): SupportedXmlNode => {
   if (subtree.kind === "text") {
     const text = new Y.XmlText();
     text.applyDelta(
       subtree.delta.map((operation) => ({
         insert: operation.insert,
-        ...(operation.attributes
-          ? { attributes: cloneAttributeRecord(operation.attributes) }
-          : {}),
+        ...(operation.attributes ? { attributes: cloneAttributeRecord(operation.attributes) } : {}),
       })),
     );
     return text;
@@ -199,9 +180,7 @@ const assertCaptureIndex = (parent: XmlSubtreeParent, index: number): void => {
     return;
   }
 
-  throw new RangeError(
-    `Y.Xml subtree index ${index} is outside parent length ${parent.length}`,
-  );
+  throw new RangeError(`Y.Xml subtree index ${index} is outside parent length ${parent.length}`);
 };
 
 const assertInsertIndex = (parent: XmlSubtreeParent, index: number): void => {
@@ -209,9 +188,7 @@ const assertInsertIndex = (parent: XmlSubtreeParent, index: number): void => {
     return;
   }
 
-  throw new RangeError(
-    `Y.Xml insertion index ${index} is outside parent length ${parent.length}`,
-  );
+  throw new RangeError(`Y.Xml insertion index ${index} is outside parent length ${parent.length}`);
 };
 
 export const captureXmlSubtreeAt = (
@@ -233,10 +210,7 @@ export const insertPortableXmlSubtree = (
   return node;
 };
 
-export const deleteXmlSubtreeAt = (
-  parent: XmlSubtreeParent,
-  index: number,
-): void => {
+export const deleteXmlSubtreeAt = (parent: XmlSubtreeParent, index: number): void => {
   assertCaptureIndex(parent, index);
   parent.delete(index, 1);
 };

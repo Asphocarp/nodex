@@ -47,10 +47,7 @@ export class BoundedBurstScheduler {
 
     if (this.#quietTimer !== null) clearTimeout(this.#quietTimer);
     this.#quietTimer = setTimeout(() => this.#queueReady(), this.#quietMs);
-    this.#deadlineTimer ??= setTimeout(
-      () => this.#queueReady(),
-      this.#maxMs,
-    );
+    this.#deadlineTimer ??= setTimeout(() => this.#queueReady(), this.#maxMs);
   }
 
   flush(): void {
@@ -71,9 +68,7 @@ export class BoundedBurstScheduler {
   }
 
   get scheduled(): boolean {
-    return this.#queued
-      || this.#quietTimer !== null
-      || this.#deadlineTimer !== null;
+    return this.#queued || this.#quietTimer !== null || this.#deadlineTimer !== null;
   }
 
   #queueReady(): void {
@@ -82,11 +77,7 @@ export class BoundedBurstScheduler {
     this.#queued = true;
     const generation = ++this.#generation;
     queueMicrotask(() => {
-      if (
-        this.#disposed
-        || !this.#queued
-        || generation !== this.#generation
-      ) {
+      if (this.#disposed || !this.#queued || generation !== this.#generation) {
         return;
       }
       this.#queued = false;

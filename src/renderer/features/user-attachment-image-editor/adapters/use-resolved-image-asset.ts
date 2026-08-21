@@ -2,9 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { DEFAULT_CODEX_HOST_ID } from "../../../../shared/codex-host";
 import { readManagedImageDataUrl } from "../../../lib/assets";
-import {
-  codexConversationImageAssetQueryOptions,
-} from "../../../lib/codex-conversation-image-assets";
+import { codexConversationImageAssetQueryOptions } from "../../../lib/codex-conversation-image-assets";
 import { workspaceFileBinaryQueryOptions } from "../../../lib/query-options";
 import {
   buildImageDataUrl,
@@ -70,9 +68,7 @@ export function useResolvedImageAsset(
   const shouldMaterialize = options.materialize === true;
 
   const pointerQuery = useQuery({
-    ...codexConversationImageAssetQueryOptions(
-      source.kind === "pointer" ? source.source : "",
-    ),
+    ...codexConversationImageAssetQueryOptions(source.kind === "pointer" ? source.source : ""),
     enabled: source.kind === "pointer" && isLocalHost,
   });
   const localFileQuery = useQuery({
@@ -107,39 +103,37 @@ export function useResolvedImageAsset(
   );
 
   const localDataUrl = localFileQuery.data?.contentsBase64
-    ? buildImageDataUrl(
-      localFileQuery.data.contentsBase64,
-      localFileQuery.data.mimeType,
-    )
+    ? buildImageDataUrl(localFileQuery.data.contentsBase64, localFileQuery.data.mimeType)
     : null;
   const directDataUrl = source.kind === "data" ? source.source : null;
-  const dataUrl = directDataUrl
-    ?? pointerQuery.data?.dataUrl
-    ?? localDataUrl
-    ?? managedAssetQuery.data
-    ?? remoteAssetQuery.data
-    ?? null;
-  const previewSrc = pointerObjectUrl
-    ?? pointerQuery.data?.dataUrl
-    ?? localDataUrl
-    ?? managedAssetQuery.data
-    ?? remoteAssetQuery.data
-    ?? resolveImageDisplaySource(source.source, { allowLocalPath });
-  const downloadSrc = dataUrl
-    ?? (source.kind === "managed" ? source.source : null)
-    ?? (source.kind === "remote" || source.kind === "direct" ? source.source : previewSrc);
+  const dataUrl =
+    directDataUrl ??
+    pointerQuery.data?.dataUrl ??
+    localDataUrl ??
+    managedAssetQuery.data ??
+    remoteAssetQuery.data ??
+    null;
+  const previewSrc =
+    pointerObjectUrl ??
+    pointerQuery.data?.dataUrl ??
+    localDataUrl ??
+    managedAssetQuery.data ??
+    remoteAssetQuery.data ??
+    resolveImageDisplaySource(source.source, { allowLocalPath });
+  const downloadSrc =
+    dataUrl ??
+    (source.kind === "managed" ? source.source : null) ??
+    (source.kind === "remote" || source.kind === "direct" ? source.source : previewSrc);
   const isUnsupportedPointer = source.kind === "pointer" && !isLocalHost;
   const isUnavailableLocal = source.kind === "local" && !allowLocalPath;
   const error = asError(
-    pointerQuery.error
-      ?? localFileQuery.error
-      ?? managedAssetQuery.error
-      ?? remoteAssetQuery.error,
+    pointerQuery.error ?? localFileQuery.error ?? managedAssetQuery.error ?? remoteAssetQuery.error,
   );
-  const isLoading = pointerQuery.isPending && pointerQuery.fetchStatus !== "idle"
-    || localFileQuery.isPending && localFileQuery.fetchStatus !== "idle"
-    || managedAssetQuery.isPending && managedAssetQuery.fetchStatus !== "idle"
-    || remoteAssetQuery.isPending && remoteAssetQuery.fetchStatus !== "idle";
+  const isLoading =
+    (pointerQuery.isPending && pointerQuery.fetchStatus !== "idle") ||
+    (localFileQuery.isPending && localFileQuery.fetchStatus !== "idle") ||
+    (managedAssetQuery.isPending && managedAssetQuery.fetchStatus !== "idle") ||
+    (remoteAssetQuery.isPending && remoteAssetQuery.fetchStatus !== "idle");
 
   const refetch = async () => {
     if (source.kind === "pointer" && isLocalHost) {
@@ -192,7 +186,8 @@ export function useResolvedImageAsset(
     dataUrl,
     localPath: allowLocalPath ? source.localPath : null,
     isLoading,
-    isError: source.kind === "invalid" || isUnsupportedPointer || isUnavailableLocal || error !== null,
+    isError:
+      source.kind === "invalid" || isUnsupportedPointer || isUnavailableLocal || error !== null,
     error,
     refetch,
     materialize,

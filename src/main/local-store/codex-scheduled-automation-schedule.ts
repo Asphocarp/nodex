@@ -43,14 +43,18 @@ export function computeCodexScheduledAutomationJitterMs(input: {
   jitterSalt: string;
 }): number {
   return (
-    createHash("sha256")
+    (createHash("sha256")
       .update(`${input.jitterSalt}:${input.automationId}:${input.nextRunAt}`)
       .digest()
-      .readUInt32BE(0) % CODEX_SCHEDULED_AUTOMATION_JITTER_MAX_SECONDS
-  ) * 1_000;
+      .readUInt32BE(0) %
+      CODEX_SCHEDULED_AUTOMATION_JITTER_MAX_SECONDS) *
+    1_000
+  );
 }
 
-export function computeCodexScheduledAutomationIntervalMs(rrule: string | null | undefined): number | null {
+export function computeCodexScheduledAutomationIntervalMs(
+  rrule: string | null | undefined,
+): number | null {
   const parsed = parseRruleParts(rrule);
   const freq = parsed.options.get("FREQ");
   const interval = parsePositiveInteger(parsed.options.get("INTERVAL")) ?? 1;
@@ -74,7 +78,10 @@ export function shouldJitterCodexScheduledAutomation(input: {
   automation: Pick<CodexScheduledAutomation, "id" | "kind" | "rrule">;
 }): boolean {
   const normalizedRrule = normalizeCodexScheduledAutomationRrule(input.automation.rrule);
-  if (input.automation.kind === "heartbeat" && computeCodexScheduledAutomationIntervalMs(normalizedRrule) !== null) {
+  if (
+    input.automation.kind === "heartbeat" &&
+    computeCodexScheduledAutomationIntervalMs(normalizedRrule) !== null
+  ) {
     return false;
   }
 
@@ -93,19 +100,24 @@ export function computeCodexScheduledAutomationNextRunAt(input: {
   const normalizedRrule = normalizeCodexScheduledAutomationRrule(input.automation.rrule);
   const nextRunAt = computeNextRunWithoutJitter(normalizedRrule, input.now);
   if (nextRunAt === null) return null;
-  if (!shouldJitterCodexScheduledAutomation({
-    automation: {
-      ...input.automation,
-      rrule: normalizedRrule,
-    },
-  })) {
+  if (
+    !shouldJitterCodexScheduledAutomation({
+      automation: {
+        ...input.automation,
+        rrule: normalizedRrule,
+      },
+    })
+  ) {
     return nextRunAt;
   }
-  return nextRunAt + computeCodexScheduledAutomationJitterMs({
-    automationId: input.automation.id,
-    nextRunAt,
-    jitterSalt: input.jitterSalt,
-  });
+  return (
+    nextRunAt +
+    computeCodexScheduledAutomationJitterMs({
+      automationId: input.automation.id,
+      nextRunAt,
+      jitterSalt: input.jitterSalt,
+    })
+  );
 }
 
 export function reconcileCodexScheduledAutomationRuntimeState(input: {
@@ -118,9 +130,8 @@ export function reconcileCodexScheduledAutomationRuntimeState(input: {
   const mirrorRrule = input.mirror
     ? normalizeCodexScheduledAutomationRrule(input.mirror.rrule)
     : null;
-  const scheduleChanged = !input.mirror
-    || mirrorRrule !== rrule
-    || input.mirror.status !== input.automation.status;
+  const scheduleChanged =
+    !input.mirror || mirrorRrule !== rrule || input.mirror.status !== input.automation.status;
   const lastRunAt = input.mirror?.lastRunAt ?? input.automation.lastRunAt;
   let nextRunAt = input.mirror?.nextRunAt ?? input.automation.nextRunAt;
 
@@ -169,7 +180,10 @@ function computeNextRunWithoutJitter(rrule: string, now: number): number | null 
 
   try {
     const ruleText = injectDtstartIfMissing(rrule, now);
-    return (rrulestr(ruleText, { forceset: true }) as RRuleSet).after(new Date(now), false)?.getTime() ?? null;
+    return (
+      (rrulestr(ruleText, { forceset: true }) as RRuleSet).after(new Date(now), false)?.getTime() ??
+      null
+    );
   } catch {
     return null;
   }
@@ -188,26 +202,25 @@ function computeWallClockNextRun(rrule: string, now: number): number | null {
 
   const options = rule.options;
   const origOptions = normalizeOrigOptions(rule.origOptions as Record<string, unknown>);
-  const interval = typeof options.interval === "number" && options.interval > 0
-    ? options.interval
-    : 1;
+  const interval =
+    typeof options.interval === "number" && options.interval > 0 ? options.interval : 1;
   if (interval !== 1) return null;
   if (!hasOnlyKeys(origOptions, WALL_CLOCK_KEYS)) return null;
   if (!isMissingOrZeroSecond(options.bysecond)) return null;
   if (options.freq !== RRule.DAILY && options.freq !== RRule.WEEKLY) return null;
 
-  const clockTimes = options.byhour.flatMap((hour) => (
-    options.byminute.map((minute) => ({ hour, minute }))
-  ));
+  const clockTimes = options.byhour.flatMap((hour) =>
+    options.byminute.map((minute) => ({ hour, minute })),
+  );
   if (clockTimes.length === 0) return null;
 
   const weekdays = parseByweekdayOptions(options.byweekday);
   return Math.min(
-    ...clockTimes.map((clockTime) => (
+    ...clockTimes.map((clockTime) =>
       options.freq === RRule.DAILY && weekdays.length === 0
         ? nextDailyClockTime(now, clockTime)
-        : nextWeeklyClockTime(now, clockTime, weekdays)
-    )),
+        : nextWeeklyClockTime(now, clockTime, weekdays),
+    ),
   );
 }
 
@@ -268,7 +281,8 @@ function parseRruleParts(rrule: string | null | undefined): ParsedRruleParts {
 
 function injectDtstartIfMissing(rrule: string, now: number): string {
   const parsed = parseRruleParts(rrule);
-  if (parsed.hasDtstart || /(^|[;\n])DTSTART(?:;TZID=[^:=]+)?[:=]/i.test(parsed.text)) return parsed.text;
+  if (parsed.hasDtstart || /(^|[;\n])DTSTART(?:;TZID=[^:=]+)?[:=]/i.test(parsed.text))
+    return parsed.text;
   return `${RRule.optionsToString({ dtstart: new Date(floorToMinute(now)) })}\n${parsed.text}`;
 }
 
@@ -308,7 +322,9 @@ function isMissingOrZeroSecond(bysecond: readonly number[] | null | undefined): 
 function parseByweekdayOptions(value: number[] | number | null): number[] {
   const values = Array.isArray(value) ? value : value === null ? [] : [value];
   return values
-    .map((weekday) => (Number.isInteger(weekday) && weekday >= 0 && weekday <= 6 ? (weekday + 1) % 7 : null))
+    .map((weekday) =>
+      Number.isInteger(weekday) && weekday >= 0 && weekday <= 6 ? (weekday + 1) % 7 : null,
+    )
     .filter((weekday): weekday is number => weekday !== null);
 }
 
@@ -352,7 +368,11 @@ function nextDailyClockTime(now: number, clockTime: ClockTime): number {
   return candidate.getTime();
 }
 
-function nextWeeklyClockTime(now: number, clockTime: ClockTime, weekdays: readonly number[]): number {
+function nextWeeklyClockTime(
+  now: number,
+  clockTime: ClockTime,
+  weekdays: readonly number[],
+): number {
   const date = new Date(now);
   const today = date.getDay();
   const allowedWeekdays = weekdays.length > 0 ? weekdays : [0, 1, 2, 3, 4, 5, 6];

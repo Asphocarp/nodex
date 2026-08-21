@@ -89,9 +89,9 @@ describe("legacy Canvas Y.Doc migration codec", () => {
       },
     });
     const inspection = inspectCanvasDocument(envelope.document);
-    expect(
-      JSON.stringify([...envelope.document.share.keys()].sort()),
-    ).toBe('["appState","elements","files","order"]');
+    expect(JSON.stringify([...envelope.document.share.keys()].sort())).toBe(
+      '["appState","elements","files","order"]',
+    );
     expect(JSON.stringify(inspection.materialization.appState)).toBe(
       JSON.stringify({
         gridModeEnabled: true,
@@ -100,9 +100,7 @@ describe("legacy Canvas Y.Doc migration codec", () => {
         viewBackgroundColor: "#ffffff",
       }),
     );
-    expect(
-      JSON.stringify(inspection.materialization.pageReferences),
-    ).toBe(
+    expect(JSON.stringify(inspection.materialization.pageReferences)).toBe(
       JSON.stringify([
         {
           sourceElementId: "card-element",
@@ -168,28 +166,32 @@ describe("legacy Canvas Y.Doc migration codec", () => {
         },
       },
     });
-    applyCanvasSceneSnapshot(envelope, {
-      elements: [
-        {
-          ...element("remote", { version: 1, index: "a1" }),
-          type: "image",
-          fileId: "remote-file",
-        },
-      ],
-      appState: { gridSize: 40, viewBackgroundColor: "#ffffff" },
-      files: {
-        "local-file": {
-          id: "local-file",
-          source: "nodex://assets/local.png",
-          mimeType: "image/png",
-        },
-        "remote-file": {
-          id: "remote-file",
-          source: "nodex://assets/remote.png",
-          mimeType: "image/png",
+    applyCanvasSceneSnapshot(
+      envelope,
+      {
+        elements: [
+          {
+            ...element("remote", { version: 1, index: "a1" }),
+            type: "image",
+            fileId: "remote-file",
+          },
+        ],
+        appState: { gridSize: 40, viewBackgroundColor: "#ffffff" },
+        files: {
+          "local-file": {
+            id: "local-file",
+            source: "nodex://assets/local.png",
+            mimeType: "image/png",
+          },
+          "remote-file": {
+            id: "remote-file",
+            source: "nodex://assets/remote.png",
+            mimeType: "image/png",
+          },
         },
       },
-    }, "remote-before-upload");
+      "remote-before-upload",
+    );
     let transactionCount = 0;
     envelope.document.on("afterTransaction", () => {
       transactionCount += 1;
@@ -216,21 +218,13 @@ describe("legacy Canvas Y.Doc migration codec", () => {
       },
     });
 
-    const materialization = inspectCanvasDocument(
-      envelope.document,
-    ).materialization;
+    const materialization = inspectCanvasDocument(envelope.document).materialization;
     expect(transactionCount).toBe(1);
     expect(materialization.appState.gridSize).toBe(40);
     expect(materialization.appState.viewBackgroundColor).toBe("#101010");
-    expect(Object.keys(materialization.files).sort().join(",")).toBe(
-      "local-file,remote-file",
-    );
-    expect(
-      materialization.elements.find((candidate) => candidate.id === "local")?.x,
-    ).toBe(25);
-    expect(
-      materialization.elements.some((candidate) => candidate.id === "remote"),
-    ).toBe(true);
+    expect(Object.keys(materialization.files).sort().join(",")).toBe("local-file,remote-file");
+    expect(materialization.elements.find((candidate) => candidate.id === "local")?.x).toBe(25);
+    expect(materialization.elements.some((candidate) => candidate.id === "remote")).toBe(true);
   });
 
   test("prunes an uploaded file when the post-merge remote element wins", () => {
@@ -270,9 +264,7 @@ describe("legacy Canvas Y.Doc migration codec", () => {
         },
       },
     });
-    const materialization = inspectCanvasDocument(
-      envelope.document,
-    ).materialization;
+    const materialization = inspectCanvasDocument(envelope.document).materialization;
     expect(Object.keys(materialization.files).join(",")).toBe("remote-file");
     expect(materialization.elements[0]?.fileId).toBe("remote-file");
   });
@@ -370,9 +362,7 @@ describe("legacy Canvas Y.Doc migration codec", () => {
         elements: [element("text", { text: "Derived text" })],
       },
     });
-    const materialization = inspectCanvasDocument(
-      envelope.document,
-    ).materialization;
+    const materialization = inspectCanvasDocument(envelope.document).materialization;
     let error: unknown;
     try {
       parseCanvasSceneMaterialization({
@@ -397,9 +387,7 @@ describe("legacy Canvas Y.Doc migration codec", () => {
         ],
       },
     });
-    const materialization = inspectCanvasDocument(
-      envelope.document,
-    ).materialization;
+    const materialization = inspectCanvasDocument(envelope.document).materialization;
     expect(Y.encodeStateAsUpdate(envelope.document).byteLength > 2 * 1024 * 1024).toBe(true);
     const parsed = parseCanvasSceneMaterialization({
       documentId: envelope.documentId,
@@ -449,24 +437,14 @@ describe("legacy Canvas Y.Doc migration codec", () => {
     );
     const firstUpdate = Y.encodeStateAsUpdate(first, baseline);
     const secondUpdate = Y.encodeStateAsUpdate(second, baseline);
-    const left = mergeInOrder(
-      "document:canvas:concurrent",
-      genesis,
-      [firstUpdate, secondUpdate],
-    );
-    const right = mergeInOrder(
-      "document:canvas:concurrent",
-      genesis,
-      [secondUpdate, firstUpdate],
-    );
+    const left = mergeInOrder("document:canvas:concurrent", genesis, [firstUpdate, secondUpdate]);
+    const right = mergeInOrder("document:canvas:concurrent", genesis, [secondUpdate, firstUpdate]);
     expect(materializedElementsJson(left)).toBe(materializedElementsJson(right));
-    expect(
-      inspectCanvasDocument(left).materialization.elements[0]?.text,
-    ).toBe("second");
+    expect(inspectCanvasDocument(left).materialization.elements[0]?.text).toBe("second");
     expect(inspectCanvasDocument(left).envelope.elements.size).toBe(2);
-    expect(
-      Array.from(Y.encodeStateVector(left)).join(","),
-    ).toBe(Array.from(Y.encodeStateVector(right)).join(","));
+    expect(Array.from(Y.encodeStateVector(left)).join(",")).toBe(
+      Array.from(Y.encodeStateVector(right)).join(","),
+    );
   });
 
   test("uses canonical payload as the final equal-version and nonce tie-break", () => {
@@ -490,10 +468,7 @@ describe("legacy Canvas Y.Doc migration codec", () => {
     const base = createCanvasDocument({
       documentId: "document:canvas:disjoint",
       initialScene: {
-        elements: [
-          element("one", { index: "a0" }),
-          element("two", { index: "a1" }),
-        ],
+        elements: [element("one", { index: "a0" }), element("two", { index: "a1" })],
       },
     });
     const genesis = Y.encodeStateAsUpdate(base.document);
@@ -547,18 +522,10 @@ describe("legacy Canvas Y.Doc migration codec", () => {
     });
     const editUpdate = Y.encodeStateAsUpdate(editing, baseline);
     const deleteUpdate = Y.encodeStateAsUpdate(deleting, baseline);
-    const left = mergeInOrder("document:canvas:delete-edit", genesis, [
-      editUpdate,
-      deleteUpdate,
-    ]);
-    const right = mergeInOrder("document:canvas:delete-edit", genesis, [
-      deleteUpdate,
-      editUpdate,
-    ]);
+    const left = mergeInOrder("document:canvas:delete-edit", genesis, [editUpdate, deleteUpdate]);
+    const right = mergeInOrder("document:canvas:delete-edit", genesis, [deleteUpdate, editUpdate]);
     expect(materializedElementsJson(left)).toBe(materializedElementsJson(right));
-    expect(
-      inspectCanvasDocument(left).materialization.elements[0]?.isDeleted,
-    ).toBe(true);
+    expect(inspectCanvasDocument(left).materialization.elements[0]?.isDeleted).toBe(true);
   });
 
   test("canonical contender cleanup reaches a no-op without a repair loop", () => {
@@ -650,22 +617,15 @@ describe("legacy Canvas Y.Doc migration codec", () => {
     const beforeUpdate = Y.encodeStateAsUpdate(currentEnvelope.document);
     const beforeVector = Y.encodeStateVector(currentEnvelope.document);
     applyCanvasForwardRestorePlan(currentEnvelope, plan);
-    const forwardUpdate = Y.encodeStateAsUpdate(
-      currentEnvelope.document,
-      beforeVector,
-    );
+    const forwardUpdate = Y.encodeStateAsUpdate(currentEnvelope.document, beforeVector);
     const restored = inspectCanvasDocument(currentEnvelope.document).materialization;
     const kept = restored.elements.find((entry) => entry.id === "kept");
-    const removed = restored.elements.find(
-      (entry) => entry.id === "current-only",
-    );
+    const removed = restored.elements.find((entry) => entry.id === "current-only");
     expect(kept?.text).toBe("checkpoint");
     expect(kept?.version).toBe(6);
     expect(removed?.isDeleted).toBe(true);
     expect(removed?.version).toBe(8);
-    expect(JSON.stringify(restored.appState)).toBe(
-      JSON.stringify({ gridModeEnabled: true }),
-    );
+    expect(JSON.stringify(restored.appState)).toBe(JSON.stringify({ gridModeEnabled: true }));
     expect(Object.keys(restored.files).join(",")).toBe("target");
     expect(canonicalCanvasSceneSemanticFingerprint(restored)).toBe(
       canonicalCanvasSceneSemanticFingerprint(target),

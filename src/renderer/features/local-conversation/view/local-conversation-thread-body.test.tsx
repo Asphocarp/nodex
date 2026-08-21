@@ -2,15 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
 import { NodexTooltipProvider } from "../../../components/ui/tooltip";
-import {
-  createMaitaiStore,
-  MaitaiProvider,
-  ScopeProvider,
-} from "../../../lib/maitai";
-import {
-  ThreadScope,
-  type ThreadScopeDescriptor,
-} from "../../../lib/workbench-ui-scopes";
+import { createMaitaiStore, MaitaiProvider, ScopeProvider } from "../../../lib/maitai";
+import { ThreadScope, type ThreadScopeDescriptor } from "../../../lib/workbench-ui-scopes";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
 import type {
@@ -24,7 +17,10 @@ import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { LocalConversationTestQueryProvider } from "./local-conversation-test-query.test-fixtures";
 
 let idleCallbacks: IdleRequestCallback[] = [];
-const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "offsetWidth",
+);
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const originalRangeGetClientRects = Range.prototype.getClientRects;
 const originalRangeGetBoundingClientRect = Range.prototype.getBoundingClientRect;
@@ -114,7 +110,10 @@ function restoreThreadRailLayoutGeometry() {
   if (originalOffsetWidthDescriptor) {
     Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidthDescriptor);
   } else {
-    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { offsetWidth?: number }, "offsetWidth");
+    Reflect.deleteProperty(
+      HTMLElement.prototype as HTMLElement & { offsetWidth?: number },
+      "offsetWidth",
+    );
   }
 }
 
@@ -147,9 +146,7 @@ function restoreSelectedTextRangeGeometry() {
   });
 }
 
-function buildAssistantEntry(
-  overrides?: Partial<CodexConversationItem>,
-): CodexConversationItem {
+function buildAssistantEntry(overrides?: Partial<CodexConversationItem>): CodexConversationItem {
   return {
     threadId: "thread_1",
     turnId: "turn_1",
@@ -177,7 +174,7 @@ function buildDynamicCreateThreadEntry(
       target: { type: "projectless" },
     },
     status: "completed",
-    contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread-created\"}" }],
+    contentItems: [{ type: "inputText", text: '{"threadId":"thread-created"}' }],
     success: true,
     durationMs: 8,
     completed: true,
@@ -206,9 +203,7 @@ function buildDynamicCreateThreadEntry(
   };
 }
 
-function buildUserEntry(
-  overrides?: Partial<CodexConversationItem>,
-): CodexConversationItem {
+function buildUserEntry(overrides?: Partial<CodexConversationItem>): CodexConversationItem {
   return {
     threadId: "thread_1",
     turnId: "turn_1",
@@ -224,9 +219,7 @@ function buildUserEntry(
   };
 }
 
-function buildTurn(
-  overrides?: Partial<CodexConversationTurn>,
-): CodexConversationTurn {
+function buildTurn(overrides?: Partial<CodexConversationTurn>): CodexConversationTurn {
   return {
     threadId: "thread_1",
     turnId: "turn_1",
@@ -419,7 +412,9 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    const selectedTextTarget = view.container.querySelector("[data-thread-selected-text-target='true']");
+    const selectedTextTarget = view.container.querySelector(
+      "[data-thread-selected-text-target='true']",
+    );
     if (selectedTextTarget === null) {
       throw new Error("expected selected text target");
     }
@@ -434,18 +429,22 @@ describe("LocalConversationThreadBody", () => {
     });
 
     await waitFor(() => {
-      expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBe(true);
+      expect(
+        Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']")),
+      ).toBe(true);
     });
 
     fireEvent.mouseDown(view.getByLabelText("Ask in side chat"));
     fireEvent.click(view.getByLabelText("Ask in side chat"));
 
-    expect(JSON.stringify(sideChatInputs)).toBe(JSON.stringify([
-      {
-        kind: "draft",
-        draftPrompt: "run bun test",
-      },
-    ]));
+    expect(JSON.stringify(sideChatInputs)).toBe(
+      JSON.stringify([
+        {
+          kind: "draft",
+          draftPrompt: "run bun test",
+        },
+      ]),
+    );
   });
 
   test("does not render the selected text side chat overlay inside side chats", async () => {
@@ -467,7 +466,9 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    const selectedTextTarget = view.container.querySelector("[data-thread-selected-text-target='true']");
+    const selectedTextTarget = view.container.querySelector(
+      "[data-thread-selected-text-target='true']",
+    );
     if (selectedTextTarget === null) {
       throw new Error("expected selected text target");
     }
@@ -481,62 +482,77 @@ describe("LocalConversationThreadBody", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']"))).toBe(false);
+    expect(
+      Boolean(view.container.querySelector("[data-selected-text-side-chat-overlay='true']")),
+    ).toBe(false);
   });
 
   test.each<[string, CodexCanonicalServerRequest]>([
-    ["option picker", {
-      id: "option-request",
-      method: "item/tool/requestOptionPicker",
-      params: {
-        threadId: "thread_1",
-        turnId: "turn_1",
-        question: "Which slice should we ship?",
-        options: [{ label: "UI" }, { label: "Backend" }],
+    [
+      "option picker",
+      {
+        id: "option-request",
+        method: "item/tool/requestOptionPicker",
+        params: {
+          threadId: "thread_1",
+          turnId: "turn_1",
+          question: "Which slice should we ship?",
+          options: [{ label: "UI" }, { label: "Backend" }],
+        },
       },
-    }],
-    ["setup step", {
-      id: "setup-request",
-      method: "item/tool/call",
-      params: {
-        threadId: "thread_1",
-        turnId: "turn_1",
-        callId: "setup-call",
-        namespace: "codex_app",
-        tool: "setup_codex_step",
-        arguments: { step: "task" },
+    ],
+    [
+      "setup step",
+      {
+        id: "setup-request",
+        method: "item/tool/call",
+        params: {
+          threadId: "thread_1",
+          turnId: "turn_1",
+          callId: "setup-call",
+          namespace: "codex_app",
+          tool: "setup_codex_step",
+          arguments: { step: "task" },
+        },
       },
-    }],
-  ])("blocks Thinking when a canonical %s reaches the reconstructed body", async (_label, request) => {
-    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
-    const activeConversation = buildConversation({
-      turns: [buildTurn({
-        status: "inProgress",
-        itemIds: ["user_1"],
-        items: [buildUserEntry()],
-      })],
-    });
-    const renderBody = (conversation: CodexConversationSnapshot) => (
-      <TooltipProvider>
-        <LocalConversationThreadBody
-          model={buildModel({ conversation })}
-          actions={buildActions()}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>
-    );
-    const view = render(renderBody(activeConversation));
-    await settleAsyncRender();
-    expect(view.queryAllByText("Thinking").length > 0).toBe(true);
+    ],
+  ])(
+    "blocks Thinking when a canonical %s reaches the reconstructed body",
+    async (_label, request) => {
+      const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+      const activeConversation = buildConversation({
+        turns: [
+          buildTurn({
+            status: "inProgress",
+            itemIds: ["user_1"],
+            items: [buildUserEntry()],
+          }),
+        ],
+      });
+      const renderBody = (conversation: CodexConversationSnapshot) => (
+        <TooltipProvider>
+          <LocalConversationThreadBody
+            model={buildModel({ conversation })}
+            actions={buildActions()}
+            onErrorMessage={() => {}}
+          />
+        </TooltipProvider>
+      );
+      const view = render(renderBody(activeConversation));
+      await settleAsyncRender();
+      expect(view.queryAllByText("Thinking").length > 0).toBe(true);
 
-    view.rerender(renderBody({
-      ...activeConversation,
-      canonicalRequests: [request],
-    }));
-    await settleAsyncRender();
+      view.rerender(
+        renderBody({
+          ...activeConversation,
+          canonicalRequests: [request],
+        }),
+      );
+      await settleAsyncRender();
 
-    expect(view.queryAllByText("Thinking").length).toBe(0);
-  });
+      expect(view.queryAllByText("Thinking").length).toBe(0);
+    },
+  );
 
   test("repositions the selected text side chat overlay after scroll remeasurement", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
@@ -555,7 +571,9 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    const selectedTextTarget = view.container.querySelector("[data-thread-selected-text-target='true']");
+    const selectedTextTarget = view.container.querySelector(
+      "[data-thread-selected-text-target='true']",
+    );
     if (selectedTextTarget === null) {
       throw new Error("expected selected text target");
     }
@@ -570,7 +588,9 @@ describe("LocalConversationThreadBody", () => {
     });
 
     const overlay = await waitFor(() => {
-      const currentOverlay = view.container.querySelector<HTMLElement>("[data-selected-text-side-chat-overlay='true']");
+      const currentOverlay = view.container.querySelector<HTMLElement>(
+        "[data-selected-text-side-chat-overlay='true']",
+      );
       expect(Boolean(currentOverlay)).toBe(true);
       return currentOverlay;
     });
@@ -578,7 +598,9 @@ describe("LocalConversationThreadBody", () => {
     expect(overlay?.style.top).toBe("160px");
 
     selectedRangeRect = makeRect({ left: 300, top: 260, width: 120, height: 20 });
-    const scrollElement = view.container.querySelector("[data-local-conversation-thread-body='true']");
+    const scrollElement = view.container.querySelector(
+      "[data-local-conversation-thread-body='true']",
+    );
     if (scrollElement === null) {
       throw new Error("expected thread scroll element");
     }
@@ -722,8 +744,7 @@ describe("LocalConversationThreadBody", () => {
         emptyState: {
           type: "resumingThread",
           title: "Restoring thread",
-          description:
-            "Loading the latest conversation state before rendering the thread.",
+          description: "Loading the latest conversation state before rendering the thread.",
           status: "resuming",
         },
         showThreadStartProgressPanel: false,

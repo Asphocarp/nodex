@@ -50,9 +50,7 @@ export function rewriteExecutionWorkspacePath(input: {
   if (candidate.comparable === source.comparable) return input.targetPrimary;
 
   const suffix = candidate.raw.slice(source.raw.length).replace(/^\/+/, "");
-  return suffix
-    ? `${input.targetPrimary.replace(/[\\/]+$/, "")}/${suffix}`
-    : input.targetPrimary;
+  return suffix ? `${input.targetPrimary.replace(/[\\/]+$/, "")}/${suffix}` : input.targetPrimary;
 }
 
 function dedupeExecutionWorkspaceRoots(roots: readonly string[]): string[] {
@@ -77,11 +75,12 @@ export function rewriteExecutionWorkspaceRoots(
       path: root,
       sourcePrimary: input.sourcePrimary,
       targetPrimary: input.targetPrimary,
-    })
+    }),
   );
-  const externalExplicitRoots = (input.explicitRoots ?? []).filter((root) =>
-    !isExecutionWorkspacePathWithinRoot(root, input.sourcePrimary)
-    && !isExecutionWorkspacePathWithinRoot(root, input.targetPrimary)
+  const externalExplicitRoots = (input.explicitRoots ?? []).filter(
+    (root) =>
+      !isExecutionWorkspacePathWithinRoot(root, input.sourcePrimary) &&
+      !isExecutionWorkspacePathWithinRoot(root, input.targetPrimary),
   );
   return dedupeExecutionWorkspaceRoots([
     input.targetPrimary,

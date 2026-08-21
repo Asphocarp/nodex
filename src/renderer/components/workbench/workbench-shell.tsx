@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkbenchRuntime } from "./workbench-runtime";
 import { useProjects } from "@/lib/use-projects";
 import { useWorkbenchWindowState } from "@/lib/use-workbench-window-state";
-import {
-  useWorkbenchProfilePreferences,
-} from "@/lib/use-workbench-profile-preferences";
+import { useWorkbenchProfilePreferences } from "@/lib/use-workbench-profile-preferences";
 import {
   shouldUseRendererWorkbenchCommandFallback,
   useWorkbenchShortcuts,
@@ -23,9 +21,7 @@ import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import { workspaceTextDocumentRegistry } from "@/features/workspace-files/workspace-text-document-controller";
 import { documentSessionRegistry } from "@/lib/document-session-registry";
 import { canvasSceneSurfaceRegistry } from "@/lib/canvas-scene-surface-runtime";
-import {
-  useWindowSessionLayoutPersistence,
-} from "@/lib/use-window-session-layout-persistence";
+import { useWindowSessionLayoutPersistence } from "@/lib/use-window-session-layout-persistence";
 import type { OpenPageStageOptions } from "@/components/board/open-page-stage";
 import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
 import type {
@@ -77,7 +73,11 @@ function replaceProjectQueryParam(projectId: string | null): void {
     if (url.searchParams.get("project") === projectId) return;
     if (projectId) url.searchParams.set("project", projectId);
     else url.searchParams.delete("project");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
   } catch {
     // Ignore URL replacement failures; state reconciliation still selects the canonical project.
   }
@@ -90,17 +90,11 @@ export function WorkbenchShell({
 }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const initialWindowLayoutSnapshot = useMemo(
-    () => WorkbenchLayoutSnapshotSchema.parse(
-      windowSessionBootstrap.session.layout,
-    ),
+    () => WorkbenchLayoutSnapshotSchema.parse(windowSessionBootstrap.session.layout),
     [windowSessionBootstrap.session.layout],
   );
-  const workbenchWindow = useWorkbenchWindowState(
-    initialWindowLayoutSnapshot,
-  );
-  const workbenchSceneLocation = getWorkbenchSceneReturnLocation(
-    workbenchWindow.location,
-  );
+  const workbenchWindow = useWorkbenchWindowState(initialWindowLayoutSnapshot);
+  const workbenchSceneLocation = getWorkbenchSceneReturnLocation(workbenchWindow.location);
   const {
     projects,
     hasMoreProjects,
@@ -124,10 +118,7 @@ export function WorkbenchShell({
     setSidebarCollapsibleSectionCollapsed,
     recordRecentPageLeave,
   } = useWorkbenchProfilePreferences();
-  const projectOrder = useMemo(
-    () => projects.map((project) => project.id),
-    [projects],
-  );
+  const projectOrder = useMemo(() => projects.map((project) => project.id), [projects]);
   const setDbProjectState = workbenchWindow.selectProject;
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
   const pageStageCloseRef = useRef<(() => Promise<void>) | null>(null);
@@ -159,21 +150,15 @@ export function WorkbenchShell({
     replaceProjectQueryParam(project.id);
   }, [projects, setDbProjectState]);
 
-  const snapshotForPersistence =
-    workbenchWindow.snapshotForPersistence;
-  const currentLayout = useMemo(
-    () => snapshotForPersistence(),
-    [snapshotForPersistence],
-  );
+  const snapshotForPersistence = workbenchWindow.snapshotForPersistence;
+  const currentLayout = useMemo(() => snapshotForPersistence(), [snapshotForPersistence]);
 
-  const { flush: flushWindowSessionLayout } =
-    useWindowSessionLayoutPersistence({
-      sessionId: windowSessionBootstrap.session.id,
-      initialRevision:
-        windowSessionBootstrap.session.layoutRevision,
-      initialLayout: initialWindowLayoutSnapshot,
-      layout: currentLayout,
-    });
+  const { flush: flushWindowSessionLayout } = useWindowSessionLayoutPersistence({
+    sessionId: windowSessionBootstrap.session.id,
+    initialRevision: windowSessionBootstrap.session.layoutRevision,
+    initialLayout: initialWindowLayoutSnapshot,
+    layout: currentLayout,
+  });
 
   useEffect(() => {
     return registerAppCloseFlushHandler(async () => {
@@ -183,9 +168,7 @@ export function WorkbenchShell({
       await workspaceTextDocumentRegistry.flushAll();
       await flushWindowSessionLayout();
     });
-  }, [
-    flushWindowSessionLayout,
-  ]);
+  }, [flushWindowSessionLayout]);
 
   const handleCreateProject = useCallback(
     async (input: ProjectCreateInput) => {
@@ -225,18 +208,18 @@ export function WorkbenchShell({
     [setPinnedProjectOrder],
   );
 
-  const recordPageLeave = useCallback((snapshot: PageStageSessionSnapshot) => {
-    recordRecentPageLeave(snapshot.projectId, snapshot.pageId, snapshot.titleSnapshot);
-  }, [recordRecentPageLeave]);
+  const recordPageLeave = useCallback(
+    (snapshot: PageStageSessionSnapshot) => {
+      recordRecentPageLeave(snapshot.projectId, snapshot.pageId, snapshot.titleSnapshot);
+    },
+    [recordRecentPageLeave],
+  );
 
   const handlePageDeepLinkHandled = useCallback(
     (payload: { projectId: string; pageId: string }) => {
       setPendingDeepLinkOpen((current) => {
         if (!current) return null;
-        if (
-          current.projectId !== payload.projectId ||
-          current.pageId !== payload.pageId
-        ) {
+        if (current.projectId !== payload.projectId || current.pageId !== payload.pageId) {
           return current;
         }
         return null;
@@ -249,10 +232,7 @@ export function WorkbenchShell({
     (payload: { projectId: string; viewId: string }) => {
       setPendingViewDeepLinkOpen((current) => {
         if (!current) return null;
-        if (
-          current.projectId !== payload.projectId
-          || current.viewId !== payload.viewId
-        ) {
+        if (current.projectId !== payload.projectId || current.viewId !== payload.viewId) {
           return current;
         }
         return null;
@@ -265,31 +245,38 @@ export function WorkbenchShell({
     setProjectPickerOpenTick((tick) => tick + 1);
   }, []);
 
-  const navigateToProject = useCallback((projectId: string) => {
-    setDbProjectState(projectId);
-  }, [setDbProjectState]);
-
-  const navigateToProjectIndex = useCallback((index: number) => {
-    const projectId = projectOrder[index];
-    if (!projectId) return;
-    navigateToProject(projectId);
-  }, [navigateToProject, projectOrder]);
-
-  const navigateToPage = useCallback(async (
-    projectId: string,
-    pageId: string,
-    _titleSnapshot?: string,
-    options?: OpenPageStageOptions & {
-      setDbProjectId?: string;
-      activePagesTabId?: string;
-      activeRecentSessionId?: string | null;
+  const navigateToProject = useCallback(
+    (projectId: string) => {
+      setDbProjectState(projectId);
     },
-  ) => {
-    setPendingDeepLinkOpen({ projectId, pageId });
-    setDbProjectState(options?.setDbProjectId ?? projectId);
-  }, [
-    setDbProjectState,
-  ]);
+    [setDbProjectState],
+  );
+
+  const navigateToProjectIndex = useCallback(
+    (index: number) => {
+      const projectId = projectOrder[index];
+      if (!projectId) return;
+      navigateToProject(projectId);
+    },
+    [navigateToProject, projectOrder],
+  );
+
+  const navigateToPage = useCallback(
+    async (
+      projectId: string,
+      pageId: string,
+      _titleSnapshot?: string,
+      options?: OpenPageStageOptions & {
+        setDbProjectId?: string;
+        activePagesTabId?: string;
+        activeRecentSessionId?: string | null;
+      },
+    ) => {
+      setPendingDeepLinkOpen({ projectId, pageId });
+      setDbProjectState(options?.setDbProjectId ?? projectId);
+    },
+    [setDbProjectState],
+  );
 
   const handlePageDeepLinkOpen = useCallback(
     (request: WorkbenchPageDeepLinkRequest) => {
@@ -326,9 +313,8 @@ export function WorkbenchShell({
   useEffect(() => {
     if (!pendingSessionDeepLinkOpen) return;
     if (
-      workbenchSceneLocation.kind !== "session"
-      || workbenchSceneLocation.sessionId
-        !== pendingSessionDeepLinkOpen.sessionId
+      workbenchSceneLocation.kind !== "session" ||
+      workbenchSceneLocation.sessionId !== pendingSessionDeepLinkOpen.sessionId
     ) {
       return;
     }
@@ -356,18 +342,19 @@ export function WorkbenchShell({
   });
 
   const handleOpenContentSearch = useCallback(() => {
-    workbenchCommands.openContentSearch(
-      "keyboard_shortcut",
-    );
+    workbenchCommands.openContentSearch("keyboard_shortcut");
   }, [workbenchCommands]);
 
-  const handleOpenProjectSessionInNewWindow = useCallback(async (session: { id: string; projectId: string | null }) => {
-    await flushBeforeWindowClone();
-    await invoke("window:new", {
-      activeProjectSessionId: session.id,
-      activeProjectId: session.projectId,
-    });
-  }, [flushBeforeWindowClone]);
+  const handleOpenProjectSessionInNewWindow = useCallback(
+    async (session: { id: string; projectId: string | null }) => {
+      await flushBeforeWindowClone();
+      await invoke("window:new", {
+        activeProjectSessionId: session.id,
+        activeProjectId: session.projectId,
+      });
+    },
+    [flushBeforeWindowClone],
+  );
 
   const commandKeymapQuery = useCommandKeymapState();
 
@@ -386,14 +373,10 @@ export function WorkbenchShell({
     onRequestContentSearch: handleOpenContentSearch,
     onRequestSettingsToggle: workbenchCommands.toggleSettings,
     onRequestKeyboardShortcuts: workbenchCommands.openKeyboardShortcuts,
-    onRequestCreatePage: () => workbenchCommands.execute(
-      CREATE_PAGE_COMMAND_ID,
-      "keyboard_shortcut",
-    ),
-    onRequestCreatePageExpanded: () => workbenchCommands.execute(
-      CREATE_PAGE_EXPANDED_COMMAND_ID,
-      "keyboard_shortcut",
-    ),
+    onRequestCreatePage: () =>
+      workbenchCommands.execute(CREATE_PAGE_COMMAND_ID, "keyboard_shortcut"),
+    onRequestCreatePageExpanded: () =>
+      workbenchCommands.execute(CREATE_PAGE_EXPANDED_COMMAND_ID, "keyboard_shortcut"),
     navigateBack: (source) => {
       workbenchCommands.navigate("back", source);
     },
@@ -405,10 +388,7 @@ export function WorkbenchShell({
     onRequestWorkbenchCommand: shouldUseRendererWorkbenchCommandFallback(
       Boolean(window.api?.onWorkbenchCommand),
     )
-      ? (commandId) => workbenchCommands.execute(
-          commandId,
-          "keyboard_shortcut",
-        )
+      ? (commandId) => workbenchCommands.execute(commandId, "keyboard_shortcut")
       : undefined,
     commandKeymapState: commandKeymapQuery.data,
   });

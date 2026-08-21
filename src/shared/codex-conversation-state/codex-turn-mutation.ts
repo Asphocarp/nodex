@@ -1,7 +1,4 @@
-import type {
-  CodexCanonicalItem,
-  CodexCanonicalTurnState,
-} from "./codex-conversation-state";
+import type { CodexCanonicalItem, CodexCanonicalTurnState } from "./codex-conversation-state";
 
 export function replaceCodexCanonicalTurnAt(
   turns: readonly CodexCanonicalTurnState[],

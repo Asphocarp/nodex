@@ -22,9 +22,9 @@ export function resolveDefaultRunInBaseBranch(state: BranchSelectorState): strin
     const normalized = candidate.trim();
     if (!normalized) continue;
     if (
-      normalizedBranches.includes(normalized)
-      || normalized === state.defaultBranch
-      || normalized === state.currentBranch
+      normalizedBranches.includes(normalized) ||
+      normalized === state.defaultBranch ||
+      normalized === state.currentBranch
     ) {
       return normalized;
     }

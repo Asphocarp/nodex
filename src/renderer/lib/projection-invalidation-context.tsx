@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useEffectEvent,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useEffectEvent, type ReactNode } from "react";
 import {
   ProjectionInvalidationRegistry,
   type ProjectionFenceCause,
@@ -15,9 +9,7 @@ import {
 import { getRendererProjectionInvalidationRegistry } from "./projection-invalidation-service";
 import { projectionScopeKey } from "../../shared/projection-stream";
 
-const ProjectionInvalidationContext = createContext<
-  ProjectionInvalidationRegistry | null
->(null);
+const ProjectionInvalidationContext = createContext<ProjectionInvalidationRegistry | null>(null);
 
 export function ProjectionInvalidationProvider({
   children,
@@ -46,26 +38,18 @@ export const useProjectionInvalidationRegistry = () => {
  * Owns one React projection subscription by semantic identity. Query payloads
  * and callback closures stay live without replaying the scope checkpoint.
  */
-export const useProjectionRegistration = (
-  registration: ProjectionRegistration | null,
-): void => {
+export const useProjectionRegistration = (registration: ProjectionRegistration | null): void => {
   const registry = useProjectionInvalidationRegistry();
-  const scopeKey = registration
-    ? projectionScopeKey(registration.scope)
-    : null;
+  const scopeKey = registration ? projectionScopeKey(registration.scope) : null;
   const consumerKey = registration?.consumerKey ?? null;
   const causalRuntime = registration?.causalRuntime;
   const projectionEffects = registration?.projectionEffects;
-  const getDependencies = useEffectEvent(() =>
-    registration?.getDependencies() ?? {},
-  );
+  const getDependencies = useEffectEvent(() => registration?.getDependencies() ?? {});
   const getCursor = useEffectEvent(() => registration?.getCursor() ?? null);
   const revoke = useEffectEvent((cause: ProjectionRevocationMessage) =>
     registration?.revoke?.(cause),
   );
-  const fence = useEffectEvent((cause: ProjectionFenceCause) =>
-    registration?.fence?.(cause),
-  );
+  const fence = useEffectEvent((cause: ProjectionFenceCause) => registration?.fence?.(cause));
   const invalidate = useEffectEvent((cause: ProjectionInvalidationCause) =>
     registration?.invalidate(cause),
   );
@@ -74,9 +58,7 @@ export const useProjectionRegistration = (
     return registry.register({
       scope: registration.scope,
       consumerKey: registration.consumerKey,
-      ...(registration.causalRuntime
-        ? { causalRuntime: registration.causalRuntime }
-        : {}),
+      ...(registration.causalRuntime ? { causalRuntime: registration.causalRuntime } : {}),
       ...(registration.projectionEffects
         ? { projectionEffects: registration.projectionEffects }
         : {}),

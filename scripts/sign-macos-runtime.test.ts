@@ -46,61 +46,59 @@ describe("applyMacSigningMode", () => {
   });
 
   test("local mode disables timestamping even without base per-file options", () => {
-    const local = applyMacSigningMode(
-      { app: "/tmp/Nodex.app", platform: "darwin" },
-      "local",
-    );
+    const local = applyMacSigningMode({ app: "/tmp/Nodex.app", platform: "darwin" }, "local");
     expect(local.optionsForFile?.("/tmp/anything")).toEqual({ timestamp: "none" });
   });
 
   test("rejects unknown signing modes instead of silently signing differently", () => {
-    expect(() => applyMacSigningMode(releaseOptions, "adhoc"))
-      .toThrow("Unknown NODEX_MAC_SIGN_MODE: adhoc");
+    expect(() => applyMacSigningMode(releaseOptions, "adhoc")).toThrow(
+      "Unknown NODEX_MAC_SIGN_MODE: adhoc",
+    );
   });
 });
 
 describe("desktop tool runtime vendor signing boundary", () => {
   const appPath = "/tmp/Nodex.app";
-  const vendorRuntimePath = path.join(
-    appPath,
-    "Contents/Resources/browser-runtime",
-  );
+  const vendorRuntimePath = path.join(appPath, "Contents/Resources/browser-runtime");
 
   test("preserves the complete signed runtime closure but not adjacent code", () => {
-    expect(isPreservedBrowserRuntimeVendorCode(
-      appPath,
-      path.join(
-        vendorRuntimePath,
-        "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+    expect(
+      isPreservedBrowserRuntimeVendorCode(
+        appPath,
+        path.join(
+          vendorRuntimePath,
+          "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+        ),
       ),
-    )).toBe(true);
-    expect(isPreservedBrowserRuntimeVendorCode(
-      appPath,
-      path.join(vendorRuntimePath, "native/sky.node"),
-    )).toBe(true);
-    expect(isPreservedBrowserRuntimeVendorCode(
-      appPath,
-      path.join(vendorRuntimePath, "bin/node_repl"),
-    )).toBe(true);
-    expect(isPreservedBrowserRuntimeVendorCode(
-      appPath,
-      `${vendorRuntimePath}.backup/native/sky.node`,
-    )).toBe(false);
-    expect(isPreservedBrowserRuntimeVendorCode(
-      appPath,
-      path.join(appPath, "Contents/Resources/bin/nodex"),
-    )).toBe(false);
+    ).toBe(true);
+    expect(
+      isPreservedBrowserRuntimeVendorCode(appPath, path.join(vendorRuntimePath, "native/sky.node")),
+    ).toBe(true);
+    expect(
+      isPreservedBrowserRuntimeVendorCode(appPath, path.join(vendorRuntimePath, "bin/node_repl")),
+    ).toBe(true);
+    expect(
+      isPreservedBrowserRuntimeVendorCode(appPath, `${vendorRuntimePath}.backup/native/sky.node`),
+    ).toBe(false);
+    expect(
+      isPreservedBrowserRuntimeVendorCode(
+        appPath,
+        path.join(appPath, "Contents/Resources/bin/nodex"),
+      ),
+    ).toBe(false);
   });
 });
 
 describe("Sparkle code signing", () => {
   test("uses hardened runtime without an entitlement file", () => {
-    expect(sparkleCodeSignArguments({
-      identity: "DEVELOPER-ID-HASH",
-      keychain: "/tmp/nodex.keychain-db",
-      local: false,
-      targetPath: "/tmp/Nodex.app/Contents/Frameworks/Sparkle.framework",
-    })).toEqual([
+    expect(
+      sparkleCodeSignArguments({
+        identity: "DEVELOPER-ID-HASH",
+        keychain: "/tmp/nodex.keychain-db",
+        local: false,
+        targetPath: "/tmp/Nodex.app/Contents/Frameworks/Sparkle.framework",
+      }),
+    ).toEqual([
       "--force",
       "--sign",
       "DEVELOPER-ID-HASH",
@@ -123,33 +121,32 @@ describe("Sparkle code signing", () => {
       frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
       updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
     };
-    const artifacts = Object.fromEntries(Object.entries(artifactPaths).map(([
-      name,
-      relativePath,
-    ]) => {
-      const filePath = path.join(appPath, "Contents", relativePath);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, `signed-${name}\n`);
-      return [name, { path: relativePath, sha256: "0".repeat(64), size: 1 }];
-    }));
-    const manifestPath = path.join(
-      appPath,
-      "Contents/Resources/native/sparkle-runtime.json",
+    const artifacts = Object.fromEntries(
+      Object.entries(artifactPaths).map(([name, relativePath]) => {
+        const filePath = path.join(appPath, "Contents", relativePath);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, `signed-${name}\n`);
+        return [name, { path: relativePath, sha256: "0".repeat(64), size: 1 }];
+      }),
     );
-    fs.writeFileSync(manifestPath, JSON.stringify({
-      architecture: "arm64",
-      artifacts,
-      buildChannel: "nightly",
-      feedUrls: {
-        stable: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
-        nightly: "https://nodex.jyu.app/updates/nightly/arm64/appcast.xml",
-      },
-      minimumMacOS: "12.0",
-      publicKey: "A".repeat(43) + "=",
-      schemaVersion: 3,
-      sparkleArchiveSha256: "1".repeat(64),
-      sparkleVersion: "2.9.4",
-    }));
+    const manifestPath = path.join(appPath, "Contents/Resources/native/sparkle-runtime.json");
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        architecture: "arm64",
+        artifacts,
+        buildChannel: "nightly",
+        feedUrls: {
+          stable: "https://nodex.jyu.app/updates/stable/arm64/appcast.xml",
+          nightly: "https://nodex.jyu.app/updates/nightly/arm64/appcast.xml",
+        },
+        minimumMacOS: "12.0",
+        publicKey: "A".repeat(43) + "=",
+        schemaVersion: 3,
+        sparkleArchiveSha256: "1".repeat(64),
+        sparkleVersion: "2.9.4",
+      }),
+    );
 
     refreshSignedSparkleRuntimeManifest(appPath);
 
@@ -178,15 +175,20 @@ describe("refreshSignedAgentRuntimeMetadata", () => {
     fs.mkdirSync(path.dirname(executablePath), { recursive: true });
     fs.writeFileSync(executablePath, "developer-id-signed-interpreter", { mode: 0o755 });
     const metadataPath = path.join(resourcesPath, "agent-runtime.json");
-    fs.writeFileSync(metadataPath, JSON.stringify({
-      layoutVersion: 3,
-      artifacts: [{
-        executable: true,
-        path: "bin/interpreter",
-        sha256: "0".repeat(64),
-        size: 1,
-      }],
-    }));
+    fs.writeFileSync(
+      metadataPath,
+      JSON.stringify({
+        layoutVersion: 3,
+        artifacts: [
+          {
+            executable: true,
+            path: "bin/interpreter",
+            sha256: "0".repeat(64),
+            size: 1,
+          },
+        ],
+      }),
+    );
 
     refreshSignedAgentRuntimeMetadata(appPath);
 
@@ -198,14 +200,14 @@ describe("refreshSignedAgentRuntimeMetadata", () => {
         size: number;
       }>;
     };
-    expect(metadata.artifacts).toEqual([{
-      executable: true,
-      path: "bin/interpreter",
-      sha256: createHash("sha256")
-        .update("developer-id-signed-interpreter")
-        .digest("hex"),
-      size: Buffer.byteLength("developer-id-signed-interpreter"),
-    }]);
+    expect(metadata.artifacts).toEqual([
+      {
+        executable: true,
+        path: "bin/interpreter",
+        sha256: createHash("sha256").update("developer-id-signed-interpreter").digest("hex"),
+        size: Buffer.byteLength("developer-id-signed-interpreter"),
+      },
+    ]);
   });
 });
 
@@ -221,50 +223,53 @@ describe("refreshSignedBrowserRuntimeManifest", () => {
     fs.mkdirSync(path.dirname(peerAuthorizationPath), { recursive: true });
     fs.writeFileSync(peerAuthorizationPath, "developer-id-signed-peer");
     const manifestPath = path.join(browserRoot, "browser-runtime-manifest.json");
-    fs.writeFileSync(manifestPath, JSON.stringify({
-      schemaVersion: 4,
-      artifacts: [
-        {
-          architecture: "arm64",
-          executable: true,
-          kind: "executable",
-          path: "bin/node_repl",
-          sha256: "0".repeat(64),
-          size: 1,
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        schemaVersion: 4,
+        artifacts: [
+          {
+            architecture: "arm64",
+            executable: true,
+            kind: "executable",
+            path: "bin/node_repl",
+            sha256: "0".repeat(64),
+            size: 1,
+          },
+          {
+            architecture: "arm64",
+            executable: false,
+            kind: "native-addon",
+            path: "peer/authorize.node",
+            sha256: "0".repeat(64),
+            size: 1,
+          },
+        ],
+        entrypoints: {
+          peerAuthorization: "peer/authorize.node",
         },
-        {
-          architecture: "arm64",
-          executable: false,
-          kind: "native-addon",
-          path: "peer/authorize.node",
-          sha256: "0".repeat(64),
-          size: 1,
+        peerAuthorization: {
+          nodeApiVersion: "127",
+          signingTeamId: "UPSTREAM",
         },
-      ],
-      entrypoints: {
-        peerAuthorization: "peer/authorize.node",
-      },
-      peerAuthorization: {
-        nodeApiVersion: "127",
-        signingTeamId: "UPSTREAM",
-      },
-    }));
+      }),
+    );
 
-    expect(refreshSignedBrowserRuntimeManifest(appPath, {
-      readSigningTeamIdentifier: (artifactPath: string) => {
-        expect(artifactPath).toBe(peerAuthorizationPath);
-        return "TESTTEAM";
-      },
-    })).toBe(true);
+    expect(
+      refreshSignedBrowserRuntimeManifest(appPath, {
+        readSigningTeamIdentifier: (artifactPath: string) => {
+          expect(artifactPath).toBe(peerAuthorizationPath);
+          return "TESTTEAM";
+        },
+      }),
+    ).toBe(true);
 
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
       artifacts: Array<{ sha256: string; size: number }>;
       peerAuthorization: { signingTeamId: string };
     };
     expect(manifest.artifacts[0]).toMatchObject({
-      sha256: createHash("sha256")
-        .update("developer-id-signed-node-repl")
-        .digest("hex"),
+      sha256: createHash("sha256").update("developer-id-signed-node-repl").digest("hex"),
       size: Buffer.byteLength("developer-id-signed-node-repl"),
     });
     expect(manifest.peerAuthorization.signingTeamId).toBe("TESTTEAM");

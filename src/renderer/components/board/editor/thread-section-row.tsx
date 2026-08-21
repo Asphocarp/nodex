@@ -46,17 +46,19 @@ function deriveFallbackLabel(blockId: string): string {
   return `Section ${blockId.slice(0, 4)}`;
 }
 
-function StatusIcon({ thread, pending }: { thread: ThreadSectionLinkedThreadState | null; pending: boolean }) {
+function StatusIcon({
+  thread,
+  pending,
+}: {
+  thread: ThreadSectionLinkedThreadState | null;
+  pending: boolean;
+}) {
   if (pending) return <ActivitySpinnerIcon className="size-3" />;
   if (thread?.statusType === "active") return <Play className="size-3 fill-current" />;
   return null;
 }
 
-function buildPillText(
-  stateLabel: string,
-  timeLabel: string,
-  label: string,
-): string {
+function buildPillText(stateLabel: string, timeLabel: string, label: string): string {
   const parts: string[] = [];
   if (label) parts.push(label);
   parts.push(stateLabel);

@@ -52,9 +52,7 @@ function ThreadActivityHeaderContent({
   className?: string;
 }) {
   return (
-    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
-      {children}
-    </span>
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>{children}</span>
   );
 }
 
@@ -108,12 +106,7 @@ export interface ThreadActivityShellProps {
   testId?: string;
 }
 
-export function ThreadActivityShell({
-  body,
-  className,
-  header,
-  testId,
-}: ThreadActivityShellProps) {
+export function ThreadActivityShell({ body, className, header, testId }: ThreadActivityShellProps) {
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
       <div data-testid={testId} className={cn("flex min-w-0 flex-col", className)}>
@@ -142,10 +135,12 @@ function ThreadActivitySummaryTransitionNode({
   summaryKey,
   summaryTransition,
 }: ThreadActivitySummaryTransitionProps) {
-  const [renderedSummary, setRenderedSummary] = useState<ThreadActivitySummaryTransitionState>(() => ({
-    key: summaryKey,
-    node: summary,
-  }));
+  const [renderedSummary, setRenderedSummary] = useState<ThreadActivitySummaryTransitionState>(
+    () => ({
+      key: summaryKey,
+      node: summary,
+    }),
+  );
   const lastCommitAtRef = useRef<number | null>(null);
   const timeoutRef = useRef<number | null>(null);
 
@@ -189,7 +184,9 @@ function ThreadActivitySummaryTransitionNode({
 
   return (
     <span className="flex min-h-4 max-w-full min-w-0 items-center truncate">
-      {summaryTransition === "immediate" || renderedSummary.key === summaryKey ? summary : renderedSummary.node}
+      {summaryTransition === "immediate" || renderedSummary.key === summaryKey
+        ? summary
+        : renderedSummary.node}
     </span>
   );
 }
@@ -207,13 +204,16 @@ export function ThreadActivitySummaryText({
   summaryKey,
   summaryTransition = "static",
 }: ThreadActivitySummaryTextProps) {
-  const content = summaryKey == null || summaryTransition === "static" ? children : (
-    <ThreadActivitySummaryTransitionNode
-      summary={children}
-      summaryKey={summaryKey}
-      summaryTransition={summaryTransition}
-    />
-  );
+  const content =
+    summaryKey == null || summaryTransition === "static" ? (
+      children
+    ) : (
+      <ThreadActivitySummaryTransitionNode
+        summary={children}
+        summaryKey={summaryKey}
+        summaryTransition={summaryTransition}
+      />
+    );
 
   return (
     <span
@@ -257,28 +257,34 @@ function useMeasuredThreadActivityBodyHeight(): {
   const [elementHeightPx, setElementHeightPx] = useState(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const updateHeight = useCallback((height: number) => {
-    setElementHeightPx((current) => current === height ? current : height);
+    setElementHeightPx((current) => (current === height ? current : height));
   }, []);
-  const elementRef = useCallback((element: HTMLDivElement | null) => {
-    resizeObserverRef.current?.disconnect();
-    resizeObserverRef.current = null;
-    if (!element) return;
+  const elementRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      if (!element) return;
 
-    updateHeight(element.scrollHeight);
-    if (typeof ResizeObserver === "undefined") return;
+      updateHeight(element.scrollHeight);
+      if (typeof ResizeObserver === "undefined") return;
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      updateHeight(readResizeObserverBorderBoxSize(entry).height);
-    });
-    resizeObserver.observe(element);
-    resizeObserverRef.current = resizeObserver;
-  }, [updateHeight]);
+      const resizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        updateHeight(readResizeObserverBorderBoxSize(entry).height);
+      });
+      resizeObserver.observe(element);
+      resizeObserverRef.current = resizeObserver;
+    },
+    [updateHeight],
+  );
 
-  useEffect(() => () => {
-    resizeObserverRef.current?.disconnect();
-  }, []);
+  useEffect(
+    () => () => {
+      resizeObserverRef.current?.disconnect();
+    },
+    [],
+  );
 
   return { elementHeightPx, elementRef };
 }
@@ -313,8 +319,8 @@ export function ThreadRichActivityHeader({
         className={cn(
           "min-w-0 flex-1 truncate [&_[data-codex-shimmer]]:align-top",
           semanticActivitySummaryClassName(status),
-          disclosure
-            && "[@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:!text-token-foreground [@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:[&_*:not(button)]:!text-token-foreground",
+          disclosure &&
+            "[@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:!text-token-foreground [@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:[&_*:not(button)]:!text-token-foreground",
           summaryClassName,
         )}
       >
@@ -397,24 +403,33 @@ export function ThreadActivityDisclosure({
   };
 
   const disclosure = hasBody ? { expanded, onToggle: handleToggle } : undefined;
-  const header = icon === undefined ? (
-    <ThreadActivityHeader className={headerClassName} disclosure={disclosure} testId={headerTestId}>
-      <ThreadActivitySummaryText className={summaryClassName} summaryKey={summaryKey} summaryTransition={summaryTransition}>
-        {summary}
-      </ThreadActivitySummaryText>
-    </ThreadActivityHeader>
-  ) : (
-    <ThreadRichActivityHeader
-      accessibleLabel={accessibleLabel}
-      className={headerClassName}
-      disclosure={disclosure}
-      icon={icon}
-      summary={summary}
-      summaryClassName={summaryClassName}
-      status={status}
-      testId={headerTestId}
-    />
-  );
+  const header =
+    icon === undefined ? (
+      <ThreadActivityHeader
+        className={headerClassName}
+        disclosure={disclosure}
+        testId={headerTestId}
+      >
+        <ThreadActivitySummaryText
+          className={summaryClassName}
+          summaryKey={summaryKey}
+          summaryTransition={summaryTransition}
+        >
+          {summary}
+        </ThreadActivitySummaryText>
+      </ThreadActivityHeader>
+    ) : (
+      <ThreadRichActivityHeader
+        accessibleLabel={accessibleLabel}
+        className={headerClassName}
+        disclosure={disclosure}
+        icon={icon}
+        summary={summary}
+        summaryClassName={summaryClassName}
+        status={status}
+        testId={headerTestId}
+      />
+    );
   const body = hasBody ? (
     <motion.div
       initial={false}
@@ -431,25 +446,14 @@ export function ThreadActivityDisclosure({
     >
       <div
         ref={elementRef}
-        className={cn(
-          "flex flex-col gap-2 pt-2 pb-1",
-          indentContent && "ps-6",
-          bodyClassName,
-        )}
+        className={cn("flex flex-col gap-2 pt-2 pb-1", indentContent && "ps-6", bodyClassName)}
       >
         {children}
       </div>
     </motion.div>
   ) : null;
 
-  return (
-    <ThreadActivityShell
-      body={body}
-      className={className}
-      header={header}
-      testId={testId}
-    />
-  );
+  return <ThreadActivityShell body={body} className={className} header={header} testId={testId} />;
 }
 
 export type ThreadActivityListViewState = "preview" | "collapsed" | "expanded";
@@ -501,13 +505,8 @@ export function ThreadActivityList({
 }: ThreadActivityListProps) {
   const maxHeight = maxHeightByState[viewState];
   const style = disableMaxHeight ? undefined : { maxHeight };
-  const renderedItems = viewState === "collapsed"
-    ? null
-    : items.map((item) => (
-      <div key={item.key}>
-        {item.node}
-      </div>
-    ));
+  const renderedItems =
+    viewState === "collapsed" ? null : items.map((item) => <div key={item.key}>{item.node}</div>);
 
   return (
     <div
@@ -520,7 +519,9 @@ export function ThreadActivityList({
       data-testid={testId}
       style={style}
     >
-      <div className={cn("flex flex-col gap-1", contentClassName, viewState === "preview" && "pb-1")}>
+      <div
+        className={cn("flex flex-col gap-1", contentClassName, viewState === "preview" && "pb-1")}
+      >
         {renderedItems}
       </div>
     </div>
@@ -532,16 +533,14 @@ export function ThreadActivityList({
 /* ------------------------------------------------------------------ */
 
 export function DetailLabel({ children }: { children: ReactNode }) {
-  return <div className="mb-1 text-xs font-semibold tracking-wide text-(--foreground-tertiary) uppercase">{children}</div>;
+  return (
+    <div className="mb-1 text-xs font-semibold tracking-wide text-(--foreground-tertiary) uppercase">
+      {children}
+    </div>
+  );
 }
 
-export function ToolJsonDetail({
-  label,
-  value,
-}: {
-  label: string;
-  value: unknown;
-}) {
+export function ToolJsonDetail({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="mb-2">
       <DetailLabel>{label}</DetailLabel>

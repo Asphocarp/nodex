@@ -75,17 +75,15 @@ const multiOptionRequest: CodexUserInputRequest = {
 
 describe("local-conversation request cards", () => {
   test("does not render the final freeform row for option questions when isOther is false", async () => {
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
 
     const { container } = render(
       <NodexTooltipProvider>
         <RequestComposerView
           request={optionRequestWithoutOtherFlag}
           policy={REQUEST_INPUT_COMPOSER_POLICY}
-          onSubmit={async () => { }}
+          onSubmit={async () => {}}
           submitErrorMessage="Could not submit input request"
         />
       </NodexTooltipProvider>,
@@ -95,10 +93,8 @@ describe("local-conversation request cards", () => {
   });
 
   test("allows an immediate freeform question to resolve without an answer", async () => {
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
     let respondCount = 0;
     const onRespond = async () => {
       respondCount += 1;
@@ -132,24 +128,24 @@ describe("local-conversation request cards", () => {
       await settleAsyncRender();
     });
 
-    expect(Boolean(textContent(container).includes("Enter a response before submitting."))).toBe(false);
+    expect(Boolean(textContent(container).includes("Enter a response before submitting."))).toBe(
+      false,
+    );
     expect(respondCount).toBe(1);
   });
 
   test("focuses the next question after its reduced-motion panel mounts", async () => {
     const restoreMotionPreference = installMotionPreferenceForTest(true);
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
     try {
       const view = render(
         <NodexTooltipProvider>
           <RequestComposerView
             request={multiQuestionRequest}
             policy={REQUEST_INPUT_COMPOSER_POLICY}
-            onSubmit={async () => { }}
-            onEscapeDismiss={async () => { }}
+            onSubmit={async () => {}}
+            onEscapeDismiss={async () => {}}
             submitErrorMessage="Could not submit input request"
             dismissErrorMessage="Could not dismiss input request"
           />
@@ -161,27 +157,28 @@ describe("local-conversation request cards", () => {
         await Promise.resolve();
       });
 
-      await waitFor(() => {
-        const input = view.getByPlaceholderText("Type your answer");
-        expect(document.activeElement).toBe(input);
-      }, { timeout: 2_000 });
+      await waitFor(
+        () => {
+          const input = view.getByPlaceholderText("Type your answer");
+          expect(document.activeElement).toBe(input);
+        },
+        { timeout: 2_000 },
+      );
     } finally {
       restoreMotionPreference();
     }
   });
 
   test("focuses the new option panel instead of the outgoing option panel", async () => {
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
     const view = render(
       <NodexTooltipProvider>
         <RequestComposerView
           request={multiOptionRequest}
           policy={REQUEST_INPUT_COMPOSER_POLICY}
-          onSubmit={async () => { }}
-          onEscapeDismiss={async () => { }}
+          onSubmit={async () => {}}
+          onEscapeDismiss={async () => {}}
           submitErrorMessage="Could not submit input request"
           dismissErrorMessage="Could not dismiss input request"
         />
@@ -193,17 +190,18 @@ describe("local-conversation request cards", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => {
-      expect(document.activeElement).toBe(view.getByRole("radio", { name: "Approve" }));
-    }, { timeout: 2_000 });
+    await waitFor(
+      () => {
+        expect(document.activeElement).toBe(view.getByRole("radio", { name: "Approve" }));
+      },
+      { timeout: 2_000 },
+    );
   });
 
   test("ignores activation from an outgoing wait-mode question panel", async () => {
     const restoreMatchMedia = installMotionPreferenceForTest(false);
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
     const draftChanges: unknown[] = [];
     const onSubmit = async () => {
       throw new Error("Outgoing question must not submit");
@@ -218,7 +216,7 @@ describe("local-conversation request cards", () => {
               draftChanges.push(draft);
             }}
             onSubmit={onSubmit}
-            onEscapeDismiss={async () => { }}
+            onEscapeDismiss={async () => {}}
             submitErrorMessage="Could not submit input request"
             dismissErrorMessage="Could not dismiss input request"
           />
@@ -237,26 +235,27 @@ describe("local-conversation request cards", () => {
       });
       expect(draftChanges).toHaveLength(1);
 
-      await waitFor(() => {
-        expect(view.getByPlaceholderText("Type your answer")).not.toBeNull();
-      }, { timeout: 2_000 });
+      await waitFor(
+        () => {
+          expect(view.getByPlaceholderText("Type your answer")).not.toBeNull();
+        },
+        { timeout: 2_000 },
+      );
     } finally {
       restoreMatchMedia();
     }
   });
 
   test("renders the composer-style request surface with hover metadata affordance", async () => {
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
     const { container, getByLabelText, getByText } = render(
       <NodexTooltipProvider>
         <RequestComposerView
           request={optionRequest}
           policy={REQUEST_INPUT_COMPOSER_POLICY}
-          onSubmit={async () => { }}
-          onEscapeDismiss={async () => { }}
+          onSubmit={async () => {}}
+          onEscapeDismiss={async () => {}}
           submitErrorMessage="Could not submit input request"
           dismissErrorMessage="Could not dismiss input request"
         />
@@ -265,7 +264,9 @@ describe("local-conversation request cards", () => {
 
     expect(getByText("What is 1 + 1?").textContent).toBe("What is 1 + 1?");
     expect(getByText("2 (Recommended)").textContent).toBe("2 (Recommended)");
-    expect(getByLabelText("About 2 (Recommended)").getAttribute("aria-label")).toBe("About 2 (Recommended)");
+    expect(getByLabelText("About 2 (Recommended)").getAttribute("aria-label")).toBe(
+      "About 2 (Recommended)",
+    );
     expect(textContent(container).includes("Tell Nodex what to do differently")).toBe(true);
     expect(container.querySelector('[data-user-input-focus-target="options"]')).not.toBeNull();
     expect(container.querySelector('[data-user-input-focus-target="other"]')).not.toBeNull();
@@ -275,17 +276,15 @@ describe("local-conversation request cards", () => {
   });
 
   test("dismisses user input requests through the dismiss action", async () => {
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
     const responses: string[] = [];
     const { getByText } = render(
       <NodexTooltipProvider>
         <RequestComposerView
           request={optionRequest}
           policy={REQUEST_INPUT_COMPOSER_POLICY}
-          onSubmit={async () => { }}
+          onSubmit={async () => {}}
           onEscapeDismiss={async () => {
             responses.push("{}");
           }}
@@ -304,10 +303,8 @@ describe("local-conversation request cards", () => {
   });
 
   test("does not reinterpret keyboard activation of action buttons as option activation", async () => {
-    const {
-      REQUEST_INPUT_COMPOSER_POLICY,
-      RequestComposerView,
-    } = await import("./local-conversation-request-cards");
+    const { REQUEST_INPUT_COMPOSER_POLICY, RequestComposerView } =
+      await import("./local-conversation-request-cards");
     let dismissCount = 0;
     let submitCount = 0;
     const view = render(

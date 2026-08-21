@@ -1,17 +1,10 @@
 import { toast } from "@/components/ui/toast";
 import { PageCreateDialog } from "@/components/board/page-create-dialog";
 import type { ScopeHandle } from "./maitai";
-import {
-  isModalOpen,
-  openModal,
-  updateOpenModalProps,
-} from "./modal-registry";
+import { isModalOpen, openModal, updateOpenModalProps } from "./modal-registry";
 import type { PageCreateDraftSnapshot } from "./page-create-draft";
 import type { PageCreateOrigin, PageCreateOriginKind } from "./page-create-focus";
-import {
-  capturePageCreateSeed,
-  type PageCreateSeed,
-} from "./page-create-selection";
+import { capturePageCreateSeed, type PageCreateSeed } from "./page-create-selection";
 import {
   getPageCreateTarget,
   resolveRegisteredPageCreateTarget,
@@ -24,16 +17,17 @@ interface PageCreateRequestBase {
   readonly initialExpanded?: boolean;
 }
 
-export type PageCreateRequest = PageCreateRequestBase & (
-  | {
-      readonly snapshot: PageCreateDraftSnapshot;
-      readonly seed?: never;
-    }
-  | {
-      readonly snapshot?: undefined;
-      readonly seed?: PageCreateSeed;
-    }
-);
+export type PageCreateRequest = PageCreateRequestBase &
+  (
+    | {
+        readonly snapshot: PageCreateDraftSnapshot;
+        readonly seed?: never;
+      }
+    | {
+        readonly snapshot?: undefined;
+        readonly seed?: PageCreateSeed;
+      }
+  );
 
 type PageCreateDraftRestoreRequest = PageCreateRequestBase & {
   readonly snapshot: PageCreateDraftSnapshot;
@@ -50,16 +44,15 @@ export interface PageCreateContextRequest {
 function focusOpenPageCreateDialog(): void {
   if (typeof document === "undefined") return;
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(
-      "[data-page-create-dialog] input, [data-page-create-dialog] [contenteditable='true']",
-    )?.focus();
+    document
+      .querySelector<HTMLElement>(
+        "[data-page-create-dialog] input, [data-page-create-dialog] [contenteditable='true']",
+      )
+      ?.focus();
   });
 }
 
-export function requestPageCreate(
-  appHandle: ScopeHandle,
-  request: PageCreateRequest,
-): boolean {
+export function requestPageCreate(appHandle: ScopeHandle, request: PageCreateRequest): boolean {
   if (isModalOpen(appHandle, PageCreateDialog)) {
     if (request.initialExpanded) {
       updateOpenModalProps(appHandle, PageCreateDialog, {
@@ -91,10 +84,7 @@ export function requestPageCreateFromContext(
     expanded = false,
   }: PageCreateContextRequest,
 ): boolean {
-  const resolution = resolveRegisteredPageCreateTarget(
-    appHandle,
-    activeProjectId,
-  );
+  const resolution = resolveRegisteredPageCreateTarget(appHandle, activeProjectId);
   if (resolution.status === "unavailable") {
     if (unavailableFeedback === "toast") {
       toast.info(resolution.reason, { id: "page-create-target-unavailable" });
@@ -103,9 +93,10 @@ export function requestPageCreateFromContext(
   }
 
   const { target, columnId } = resolution;
-  const seed = captureSelection && typeof window !== "undefined"
-    ? capturePageCreateSeed(window.getSelection()) ?? undefined
-    : undefined;
+  const seed =
+    captureSelection && typeof window !== "undefined"
+      ? (capturePageCreateSeed(window.getSelection()) ?? undefined)
+      : undefined;
   return requestPageCreate(appHandle, {
     target,
     seed,

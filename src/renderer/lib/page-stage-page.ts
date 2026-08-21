@@ -1,12 +1,5 @@
-import type {
-  LibraryPageDetail,
-  PageDetail,
-} from "../../shared/page-detail";
-import type {
-  PageRunInTarget,
-  RecurrenceConfig,
-  ReminderConfig,
-} from "../../shared/types";
+import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
+import type { PageRunInTarget, RecurrenceConfig, ReminderConfig } from "../../shared/types";
 import type { PortableRichText } from "../../shared/block-documents/portable-rich-text";
 import {
   buildPageStageDataSourceProperties,
@@ -15,11 +8,7 @@ import {
   type PageStageSemanticProperties,
 } from "./page-stage-properties";
 
-const RUN_TARGETS = new Set<PageRunInTarget>([
-  "localProject",
-  "newWorktree",
-  "cloud",
-]);
+const RUN_TARGETS = new Set<PageRunInTarget>(["localProject", "newWorktree", "cloud"]);
 
 export interface PageStageCorePage {
   readonly id: string;
@@ -72,13 +61,8 @@ export class PageStagePageProjectionError extends TypeError {
   }
 }
 
-const requireIntrinsic = (
-  detail: PageDetail | LibraryPageDetail,
-  key: string,
-) => {
-  const property = detail.intrinsicProperties.find(
-    (candidate) => candidate.key === key,
-  );
+const requireIntrinsic = (detail: PageDetail | LibraryPageDetail, key: string) => {
+  const property = detail.intrinsicProperties.find((candidate) => candidate.key === key);
   if (property) return property;
   throw new PageStagePageProjectionError(
     `Page ${detail.page.pageId} is missing intrinsic property ${key}`,
@@ -99,9 +83,7 @@ const requireBoolean = (value: unknown, label: string): boolean => {
 const recurrence = (value: unknown): RecurrenceConfig | undefined => {
   if (value === null) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new PageStagePageProjectionError(
-      "Page recurrence must be an object or null",
-    );
+    throw new PageStagePageProjectionError("Page recurrence must be an object or null");
   }
   const candidate = value as Readonly<Record<string, unknown>>;
   if (
@@ -127,20 +109,14 @@ const reminders = (value: unknown): readonly ReminderConfig[] => {
       entry &&
       typeof entry === "object" &&
       !Array.isArray(entry) &&
-      typeof (entry as { readonly offsetMinutes?: unknown }).offsetMinutes ===
-        "number" &&
-      Number.isFinite(
-        (entry as { readonly offsetMinutes: number }).offsetMinutes,
-      )
+      typeof (entry as { readonly offsetMinutes?: unknown }).offsetMinutes === "number" &&
+      Number.isFinite((entry as { readonly offsetMinutes: number }).offsetMinutes)
     ) {
       return {
-        offsetMinutes: (entry as { readonly offsetMinutes: number })
-          .offsetMinutes,
+        offsetMinutes: (entry as { readonly offsetMinutes: number }).offsetMinutes,
       };
     }
-    throw new PageStagePageProjectionError(
-      `Page reminder ${index} is invalid`,
-    );
+    throw new PageStagePageProjectionError(`Page reminder ${index} is invalid`);
   });
 };
 
@@ -157,9 +133,10 @@ export const projectPageDetailToStageModel = (
   }
   const page: PageStageCorePage = {
     id: detail.page.pageId,
-    pageKey: detail.dataSourceContext.kind === "member"
-      ? detail.dataSourceContext.pageKey ?? null
-      : null,
+    pageKey:
+      detail.dataSourceContext.kind === "member"
+        ? (detail.dataSourceContext.pageKey ?? null)
+        : null,
     archived: detail.page.lifecycle === "archived",
     title: detail.page.title,
     richTitle: detail.page.richTitle,
@@ -173,9 +150,7 @@ export const projectPageDetailToStageModel = (
       requireIntrinsic(detail, "schedule.timezone").value,
       "Page schedule timezone",
     ),
-    ...(runTargetValue === null
-      ? {}
-      : { runInTarget: runTargetValue as PageRunInTarget }),
+    ...(runTargetValue === null ? {} : { runInTarget: runTargetValue as PageRunInTarget }),
     runInLocalPath: optionalString(
       requireIntrinsic(detail, "run.localPath").value,
       "Page local path",

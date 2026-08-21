@@ -38,22 +38,13 @@ const APP_ICON_NAMES = [
   "ActivitySpinnerIcon",
 ] as const satisfies readonly (keyof typeof AppIcons)[];
 
-const appIconEntries = APP_ICON_NAMES.map((name) => [
-  name,
-  AppIcons[name] as PreviewIcon,
-] as const);
+const appIconEntries = APP_ICON_NAMES.map((name) => [name, AppIcons[name] as PreviewIcon] as const);
 
 const genericIconEntries = Object.entries(GenericIcons)
   .map(([name, Icon]) => [name, Icon as unknown as PreviewIcon] as const)
   .sort(([left], [right]) => left.localeCompare(right));
 
-function IconCell({
-  name,
-  Icon,
-}: {
-  readonly name: string;
-  readonly Icon: PreviewIcon;
-}) {
+function IconCell({ name, Icon }: { readonly name: string; readonly Icon: PreviewIcon }) {
   return (
     <div className="group min-w-0 rounded-lg bg-token-main-surface-primary px-3 py-2.5 shadow-[inset_0_0_0_0.5px_var(--border-token)]">
       <div className="flex h-7 items-center gap-3 text-token-text-secondary group-hover:text-token-text-primary">
@@ -98,8 +89,8 @@ function IconGallery() {
       <header className="mb-8 max-w-2xl">
         <h1 className="text-lg font-semibold tracking-[-0.01em]">Icon system</h1>
         <p className="mt-1 text-sm leading-5 text-token-text-secondary">
-          App-owned semantic glyphs lead shell and resource identity. Curated generic
-          glyphs share the same 16px default, 1.75 stroke, and decorative behavior.
+          App-owned semantic glyphs lead shell and resource identity. Curated generic glyphs share
+          the same 16px default, 1.75 stroke, and decorative behavior.
         </p>
         <div className="mt-3 flex gap-4 font-mono text-[11px] text-token-description-foreground">
           <span>14 · icon-2xs</span>

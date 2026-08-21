@@ -3,7 +3,11 @@ export const REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE = "data-pip-anchor-host";
 export const REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE = "data-pip-obstacle";
 
 export type RemoteHostedPipPresentationScope = "thread" | "all";
-export type RemoteHostedPipAnchorAlignment = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type RemoteHostedPipAnchorAlignment =
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
 
 export interface RemoteHostedPipViewportRect {
   x: number;
@@ -132,7 +136,7 @@ export function buildRemoteHostedPipHostLayout({
   return {
     anchorRect: hostRect,
     anchors: REMOTE_HOSTED_PIP_ANCHOR_ALIGNMENTS.map((alignment) =>
-      buildRemoteHostedPipAnchor(alignment, hostRect, paddedObstacleRects)
+      buildRemoteHostedPipAnchor(alignment, hostRect, paddedObstacleRects),
     ),
     animated: false,
     hostId,
@@ -140,7 +144,9 @@ export function buildRemoteHostedPipHostLayout({
   };
 }
 
-export function serializeRemoteHostedPipHostLayoutIdentity(layout: RemoteHostedPipHostLayout): string {
+export function serializeRemoteHostedPipHostLayoutIdentity(
+  layout: RemoteHostedPipHostLayout,
+): string {
   return JSON.stringify({
     anchors: layout.anchors,
     anchorRect: layout.anchorRect,
@@ -190,20 +196,28 @@ function getDefaultAnchorContentRect(
       );
     case "top-right":
       return createRelativeRect(
-        hostRect.width - REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.width - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+        hostRect.width -
+          REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.width -
+          REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
         REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
         REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT,
       );
     case "bottom-left":
       return createRelativeRect(
         REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
-        hostRect.height - REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.height - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+        hostRect.height -
+          REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.height -
+          REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
         REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT,
       );
     case "bottom-right":
       return createRelativeRect(
-        hostRect.width - REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.width - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
-        hostRect.height - REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.height - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+        hostRect.width -
+          REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.width -
+          REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+        hostRect.height -
+          REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT.height -
+          REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
         REMOTE_HOSTED_PIP_DEFAULT_CONTENT_RECT,
       );
   }
@@ -229,7 +243,9 @@ function resolveNextAnchorContentRect({
     rect: clampRelativeRectToHost(candidate.rect, hostRect),
   }));
   let bestCandidate = candidates[0];
-  let bestScore = bestCandidate ? scoreAnchorCandidate(bestCandidate, obstacles, sourceRect) : Number.POSITIVE_INFINITY;
+  let bestScore = bestCandidate
+    ? scoreAnchorCandidate(bestCandidate, obstacles, sourceRect)
+    : Number.POSITIVE_INFINITY;
 
   for (const candidate of candidates.slice(1)) {
     const score = scoreAnchorCandidate(candidate, obstacles, sourceRect);
@@ -289,14 +305,17 @@ function scoreAnchorCandidate(
   obstacles: RemoteHostedPipRelativeRect[],
   sourceRect: RemoteHostedPipRelativeRect,
 ): number {
-  const overlapArea = obstacles.reduce((sum, obstacle) => sum + getIntersectionArea(candidate.rect, obstacle), 0);
+  const overlapArea = obstacles.reduce(
+    (sum, obstacle) => sum + getIntersectionArea(candidate.rect, obstacle),
+    0,
+  );
 
   return (
-    (overlapArea > 0 ? REMOTE_HOSTED_PIP_OVERLAP_PENALTY : 0)
-    + overlapArea * REMOTE_HOSTED_PIP_OVERLAP_AREA_WEIGHT
-    + candidate.priority * REMOTE_HOSTED_PIP_PRIORITY_WEIGHT
-    + (candidate.rect.left - sourceRect.left) ** 2
-    + (candidate.rect.top - sourceRect.top) ** 2
+    (overlapArea > 0 ? REMOTE_HOSTED_PIP_OVERLAP_PENALTY : 0) +
+    overlapArea * REMOTE_HOSTED_PIP_OVERLAP_AREA_WEIGHT +
+    candidate.priority * REMOTE_HOSTED_PIP_PRIORITY_WEIGHT +
+    (candidate.rect.left - sourceRect.left) ** 2 +
+    (candidate.rect.top - sourceRect.top) ** 2
   );
 }
 
@@ -316,7 +335,8 @@ function buildPaddedObstacleRect(
   obstacleRect: RemoteHostedPipViewportRect,
 ): RemoteHostedPipRelativeRect {
   return createRelativeRectFromEdges({
-    bottom: obstacleRect.y - hostRect.y + obstacleRect.height + REMOTE_HOSTED_PIP_OBSTACLE_MARGIN_PX,
+    bottom:
+      obstacleRect.y - hostRect.y + obstacleRect.height + REMOTE_HOSTED_PIP_OBSTACLE_MARGIN_PX,
     left: obstacleRect.x - hostRect.x - REMOTE_HOSTED_PIP_OBSTACLE_MARGIN_PX,
     right: obstacleRect.x - hostRect.x + obstacleRect.width + REMOTE_HOSTED_PIP_OBSTACLE_MARGIN_PX,
     top: obstacleRect.y - hostRect.y - REMOTE_HOSTED_PIP_OBSTACLE_MARGIN_PX,
@@ -357,8 +377,22 @@ function clampRelativeRectToHost(
   hostRect: RemoteHostedPipViewportRect,
 ): RemoteHostedPipRelativeRect {
   return createRelativeRect(
-    clamp(rect.left, REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX, Math.max(REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX, hostRect.width - rect.width - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX)),
-    clamp(rect.top, REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX, Math.max(REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX, hostRect.height - rect.height - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX)),
+    clamp(
+      rect.left,
+      REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+      Math.max(
+        REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+        hostRect.width - rect.width - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+      ),
+    ),
+    clamp(
+      rect.top,
+      REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+      Math.max(
+        REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+        hostRect.height - rect.height - REMOTE_HOSTED_PIP_VIEWPORT_MARGIN_PX,
+      ),
+    ),
     rect,
   );
 }
@@ -399,9 +433,13 @@ function createRelativeRectFromEdges({
   };
 }
 
-function getIntersectionArea(leftRect: RemoteHostedPipRelativeRect, rightRect: RemoteHostedPipRelativeRect): number {
+function getIntersectionArea(
+  leftRect: RemoteHostedPipRelativeRect,
+  rightRect: RemoteHostedPipRelativeRect,
+): number {
   const width = Math.min(leftRect.right, rightRect.right) - Math.max(leftRect.left, rightRect.left);
-  const height = Math.min(leftRect.bottom, rightRect.bottom) - Math.max(leftRect.top, rightRect.top);
+  const height =
+    Math.min(leftRect.bottom, rightRect.bottom) - Math.max(leftRect.top, rightRect.top);
   return width <= 0 || height <= 0 ? 0 : width * height;
 }
 

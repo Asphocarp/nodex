@@ -22,16 +22,18 @@ describe("auth rate limits", () => {
   });
 
   test("formats a concise quota summary for the connected chip", () => {
-    expect(formatRateLimitSummary({
-      primary: {
-        usedPercent: 18,
-        windowDurationMins: 300,
-      },
-      secondary: {
-        usedPercent: 39,
-        windowDurationMins: 7 * 24 * 60,
-      },
-    })).toBe("82% · 61%");
+    expect(
+      formatRateLimitSummary({
+        primary: {
+          usedPercent: 18,
+          windowDurationMins: 300,
+        },
+        secondary: {
+          usedPercent: 39,
+          windowDurationMins: 7 * 24 * 60,
+        },
+      }),
+    ).toBe("82% · 61%");
   });
 
   test("clamps remaining percentages for quota rings", () => {

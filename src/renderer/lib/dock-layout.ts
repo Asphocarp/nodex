@@ -51,11 +51,7 @@ export function countDockLeaves(node: DockTreeNode): number {
   return countDockLeaves(node.first) + countDockLeaves(node.second);
 }
 
-export function setLeafActiveTab(
-  node: DockTreeNode,
-  leafId: string,
-  tabId: string,
-): DockTreeNode {
+export function setLeafActiveTab(node: DockTreeNode, leafId: string, tabId: string): DockTreeNode {
   if (node.type === "leaf") {
     if (node.id !== leafId) return node;
     const hasTab = node.tabs.some((tab) => tab.id === tabId);
@@ -116,10 +112,7 @@ export function splitDockLeaf(
   return changed ? next : node;
 }
 
-function removeLeafRec(
-  node: DockTreeNode,
-  leafId: string,
-): [DockTreeNode | null, boolean] {
+function removeLeafRec(node: DockTreeNode, leafId: string): [DockTreeNode | null, boolean] {
   if (node.type === "leaf") {
     if (node.id !== leafId) return [node, false];
     return [null, true];

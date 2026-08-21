@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
-  ChevronDownIcon,
-  CloseIcon,
-} from "@/components/shared/icons";
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import { ChevronDownIcon, CloseIcon } from "@/components/shared/icons";
 import type {
   CodexMcpServerElicitationRequest,
   CodexMcpServerElicitationResponse,
@@ -19,15 +23,15 @@ import {
   type CodexMcpElicitationFormField,
   type CodexMcpElicitationFormModel,
 } from "../../../../../../shared/codex-mcp-elicitation";
-import {
-  ToolActivityIcon,
-  resolveMcpElicitationIcon,
-} from "../../shared/tools/tool-call-icons";
+import { ToolActivityIcon, resolveMcpElicitationIcon } from "../../shared/tools/tool-call-icons";
 import { ToolCallCodePanel, stringifyToolCallValue } from "../../shared/tools/tool-call-inspection";
 
 interface CodexMcpElicitationRequestCardProps {
   request: CodexMcpServerElicitationRequest;
-  onRespond: (requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse) => Promise<void>;
+  onRespond: (
+    requestId: CodexProtocolRequestId,
+    response: CodexMcpServerElicitationResponse,
+  ) => Promise<void>;
 }
 
 function formatServerName(serverName: string): string {
@@ -50,7 +54,13 @@ function ErrorMessage({ visible }: { visible: boolean }) {
   );
 }
 
-function FieldDescription({ description, inset = true }: { description: string | null; inset?: boolean }) {
+function FieldDescription({
+  description,
+  inset = true,
+}: {
+  description: string | null;
+  inset?: boolean;
+}) {
   if (!description) return null;
   return (
     <div className={cn("text-size-chat-sm text-token-description-foreground", inset && "px-2")}>
@@ -128,7 +138,13 @@ function NumberField({
   );
 }
 
-function ChoiceIndicator({ selected, variant }: { selected: boolean; variant: "radio" | "checkbox" }) {
+function ChoiceIndicator({
+  selected,
+  variant,
+}: {
+  selected: boolean;
+  variant: "radio" | "checkbox";
+}) {
   return (
     <span
       aria-hidden
@@ -191,7 +207,9 @@ function SingleSelectField({
   const selectedValue = fieldValueAsString(value);
   return (
     <fieldset className="flex flex-col gap-1" aria-label={field.label}>
-      <legend className="text-size-chat-sm px-2 font-medium text-token-foreground">{field.label}</legend>
+      <legend className="text-size-chat-sm px-2 font-medium text-token-foreground">
+        {field.label}
+      </legend>
       <FieldDescription description={field.description} />
       {field.options.map((option, index) => {
         const selected = selectedValue === option.value;
@@ -229,7 +247,9 @@ function MultiSelectField({
   const selectedValues = Array.isArray(value) ? value : [];
   return (
     <fieldset className="flex flex-col gap-1" aria-label={field.label}>
-      <legend className="text-size-chat-sm px-2 font-medium text-token-foreground">{field.label}</legend>
+      <legend className="text-size-chat-sm px-2 font-medium text-token-foreground">
+        {field.label}
+      </legend>
       <FieldDescription description={field.description} />
       {field.options.map((option, index) => {
         const selected = selectedValues.includes(option.value);
@@ -303,23 +323,59 @@ function FormField({
 }) {
   switch (field.kind) {
     case "text":
-      return <TextField field={field} value={value} invalid={invalid} autoFocus={autoFocus} onChange={onChange} />;
+      return (
+        <TextField
+          field={field}
+          value={value}
+          invalid={invalid}
+          autoFocus={autoFocus}
+          onChange={onChange}
+        />
+      );
     case "number":
-      return <NumberField field={field} value={value} invalid={invalid} autoFocus={autoFocus} onChange={onChange} />;
+      return (
+        <NumberField
+          field={field}
+          value={value}
+          invalid={invalid}
+          autoFocus={autoFocus}
+          onChange={onChange}
+        />
+      );
     case "singleSelect":
-      return <SingleSelectField field={field} value={value} invalid={invalid} autoFocus={autoFocus} onChange={onChange} />;
+      return (
+        <SingleSelectField
+          field={field}
+          value={value}
+          invalid={invalid}
+          autoFocus={autoFocus}
+          onChange={onChange}
+        />
+      );
     case "multiSelect":
-      return <MultiSelectField field={field} value={value} invalid={invalid} autoFocus={autoFocus} onChange={onChange} />;
+      return (
+        <MultiSelectField
+          field={field}
+          value={value}
+          invalid={invalid}
+          autoFocus={autoFocus}
+          onChange={onChange}
+        />
+      );
     case "boolean":
-      return <BooleanField field={field} value={value} invalid={invalid} autoFocus={autoFocus} onChange={onChange} />;
+      return (
+        <BooleanField
+          field={field}
+          value={value}
+          invalid={invalid}
+          autoFocus={autoFocus}
+          onChange={onChange}
+        />
+      );
   }
 }
 
-function FormShell({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function FormShell({ children }: { children: ReactNode }) {
   return (
     <div className="border-token-border bg-token-input-background/70 text-token-foreground flex flex-col overflow-hidden rounded-2xl border backdrop-blur-sm">
       {children}
@@ -334,9 +390,14 @@ function McpFormRequestCard({
 }: {
   request: CodexMcpServerElicitationRequest;
   model: Extract<CodexMcpElicitationFormModel, { kind: "supported" }>;
-  onRespond: (requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse) => Promise<void>;
+  onRespond: (
+    requestId: CodexProtocolRequestId,
+    response: CodexMcpServerElicitationResponse,
+  ) => Promise<void>;
 }) {
-  const [values, setValues] = useState(() => createInitialCodexMcpElicitationFormValues(model.fields));
+  const [values, setValues] = useState(() =>
+    createInitialCodexMcpElicitationFormValues(model.fields),
+  );
   const [invalidFieldNames, setInvalidFieldNames] = useState<string[]>([]);
 
   useEffect(() => {
@@ -375,13 +436,17 @@ function McpFormRequestCard({
   return (
     <FormShell>
       <form className="flex flex-col" onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
-        <div className={cn(
-          "flex items-start justify-between gap-3",
-          request.mode === "openai/form" ? "px-4 pt-4 pb-3" : "px-3 pt-3 pb-2",
-        )}>
+        <div
+          className={cn(
+            "flex items-start justify-between gap-3",
+            request.mode === "openai/form" ? "px-4 pt-4 pb-3" : "px-3 pt-3 pb-2",
+          )}
+        >
           <div className="flex min-w-0 flex-col gap-1">
             <div className="text-sm font-medium">{model.message}</div>
-            <div className="text-size-chat-sm text-token-description-foreground">{model.serverLabel}</div>
+            <div className="text-size-chat-sm text-token-description-foreground">
+              {model.serverLabel}
+            </div>
           </div>
           <button
             type="button"
@@ -392,10 +457,12 @@ function McpFormRequestCard({
             <CloseIcon className="icon-xs" />
           </button>
         </div>
-        <div className={cn(
-          "flex flex-col",
-          request.mode === "openai/form" ? "gap-4 px-4 pb-3" : "gap-3 px-2 pb-2",
-        )}>
+        <div
+          className={cn(
+            "flex flex-col",
+            request.mode === "openai/form" ? "gap-4 px-4 pb-3" : "gap-3 px-2 pb-2",
+          )}
+        >
           {model.fields.map((field, index) => (
             <FormField
               key={field.name}
@@ -407,10 +474,12 @@ function McpFormRequestCard({
             />
           ))}
         </div>
-        <div className={cn(
-          "flex justify-end gap-2 border-t border-token-border/50",
-          request.mode === "openai/form" ? "px-4 py-3" : "mt-1 px-2 py-2",
-        )}>
+        <div
+          className={cn(
+            "flex justify-end gap-2 border-t border-token-border/50",
+            request.mode === "openai/form" ? "px-4 py-3" : "mt-1 px-2 py-2",
+          )}
+        >
           <button
             type="button"
             className="inline-flex h-token-button-composer items-center rounded-full border border-transparent px-2 text-sm text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground"
@@ -440,7 +509,10 @@ function UnsupportedMcpFormRequestCard({
 }: {
   request: CodexMcpServerElicitationRequest;
   model: Extract<CodexMcpElicitationFormModel, { kind: "unsupported" }>;
-  onRespond: (requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse) => Promise<void>;
+  onRespond: (
+    requestId: CodexProtocolRequestId,
+    response: CodexMcpServerElicitationResponse,
+  ) => Promise<void>;
 }) {
   const respond = (action: "decline" | "cancel") => {
     void onRespond(request.requestId, buildCodexMcpServerElicitationResponse(action));
@@ -458,7 +530,8 @@ function UnsupportedMcpFormRequestCard({
         <div className="flex flex-col gap-1 p-4">
           <div className="text-sm font-medium">Nodex can’t show this request yet</div>
           <div className="text-size-chat-sm text-token-description-foreground">
-            {model.serverName} requested this form. You can skip it and keep going, or dismiss the request.
+            {model.serverName} requested this form. You can skip it and keep going, or dismiss the
+            request.
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-token-border/50 px-4 py-3">
@@ -483,15 +556,11 @@ function UnsupportedMcpFormRequestCard({
   );
 }
 
-function CompactMcpRequestCard({
-  request,
-  onRespond,
-}: CodexMcpElicitationRequestCardProps) {
+function CompactMcpRequestCard({ request, onRespond }: CodexMcpElicitationRequestCardProps) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const serverName = formatServerName(request.serverName);
-  const hasDetails = request.mode === "url"
-    ? Boolean(request.url)
-    : request.requestedSchema !== undefined;
+  const hasDetails =
+    request.mode === "url" ? Boolean(request.url) : request.requestedSchema !== undefined;
   const detailsText = useMemo(() => {
     if (!detailsExpanded) return null;
     if (request.mode === "url") return request.url ?? "";
@@ -502,7 +571,10 @@ function CompactMcpRequestCard({
     <div className="text-size-chat border-token-border bg-token-input-background/70 flex flex-col overflow-hidden rounded-2xl border text-token-foreground backdrop-blur-sm">
       <div className="flex flex-col gap-3 p-3">
         <div className="flex items-center gap-2 text-token-description-foreground">
-          <ToolActivityIcon descriptor={resolveMcpElicitationIcon(request)} className="icon-sm text-token-text-secondary" />
+          <ToolActivityIcon
+            descriptor={resolveMcpElicitationIcon(request)}
+            className="icon-sm text-token-text-secondary"
+          />
           <span>{serverName}</span>
         </div>
         <div className="text-base leading-tight font-medium">{request.message}</div>
@@ -516,7 +588,9 @@ function CompactMcpRequestCard({
               }}
             >
               <span>Details</span>
-              <ChevronDownIcon className={cn("transition-transform duration-200", detailsExpanded && "rotate-180")} />
+              <ChevronDownIcon
+                className={cn("transition-transform duration-200", detailsExpanded && "rotate-180")}
+              />
             </button>
             {detailsExpanded && detailsText ? (
               <ToolCallCodePanel
@@ -566,7 +640,9 @@ export function CodexMcpElicitationRequestCard({
     return <McpFormRequestCard request={request} model={formModel} onRespond={onRespond} />;
   }
   if (formModel?.kind === "unsupported") {
-    return <UnsupportedMcpFormRequestCard request={request} model={formModel} onRespond={onRespond} />;
+    return (
+      <UnsupportedMcpFormRequestCard request={request} model={formModel} onRespond={onRespond} />
+    );
   }
   return <CompactMcpRequestCard request={request} onRespond={onRespond} />;
 }

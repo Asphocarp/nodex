@@ -1,30 +1,12 @@
 import { fireEvent } from "@testing-library/react";
 import { act, createRef, useState, type ReactNode } from "react";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { render } from "@/test/dom";
-import {
-  NodexHoverCard,
-  NodexHoverCardProvider,
-} from "./hover-card";
+import { NodexHoverCard, NodexHoverCardProvider } from "./hover-card";
 import { dismissNodexFloatingSurfaces } from "./floating-surface";
-import {
-  NodexTooltip,
-  NodexTooltipProvider,
-} from "./tooltip";
+import { NodexTooltip, NodexTooltipProvider } from "./tooltip";
 
-function makeRect(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): DOMRect {
+function makeRect(x: number, y: number, width: number, height: number): DOMRect {
   return {
     x,
     y,
@@ -62,9 +44,7 @@ function HoverCardHarness({
         ariaLabel="Project details"
         defaultOpen={defaultOpen}
         disabled={disabled}
-        hoverCardContent={
-          children ?? <button type="button">Open project</button>
-        }
+        hoverCardContent={children ?? <button type="button">Open project</button>}
         onOpenChange={onOpenChange}
       >
         <button type="button">Project row</button>
@@ -144,16 +124,10 @@ describe("NodexHoverCard", () => {
   test("hands an open card to a peer immediately and resets after 300 ms", async () => {
     const view = render(
       <NodexHoverCardProvider>
-        <NodexHoverCard
-          ariaLabel="First details"
-          hoverCardContent="First content"
-        >
+        <NodexHoverCard ariaLabel="First details" hoverCardContent="First content">
           <button type="button">First row</button>
         </NodexHoverCard>
-        <NodexHoverCard
-          ariaLabel="Second details"
-          hoverCardContent="Second content"
-        >
+        <NodexHoverCard ariaLabel="Second details" hoverCardContent="Second content">
           <button type="button">Second row</button>
         </NodexHoverCard>
       </NodexHoverCardProvider>,
@@ -213,9 +187,7 @@ describe("NodexHoverCard", () => {
     await act(async () => {
       view.getByRole("button", { name: "After card" }).focus();
     });
-    expect(document.activeElement).toBe(
-      view.getByRole("button", { name: "After card" }),
-    );
+    expect(document.activeElement).toBe(view.getByRole("button", { name: "After card" }));
   });
 
   test("preserves reference handlers and closes on context menu or disable", async () => {
@@ -309,9 +281,7 @@ describe("NodexHoverCard", () => {
 
   test("reports an open surface as closed when its owner unmounts", async () => {
     const onOpenChange = vi.fn();
-    const view = render(
-      <HoverCardHarness defaultOpen onOpenChange={onOpenChange} />,
-    );
+    const view = render(<HoverCardHarness defaultOpen onOpenChange={onOpenChange} />);
 
     expect(view.getByRole("dialog", { name: "Project details" })).not.toBeNull();
 

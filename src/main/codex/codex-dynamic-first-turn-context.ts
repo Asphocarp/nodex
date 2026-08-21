@@ -41,24 +41,23 @@ export function augmentCodexDynamicFirstTurnPermissionContext(input: {
     input.cwd,
     ...(input.visualizationDirectory ? [input.visualizationDirectory] : []),
   ];
-  const sandboxPolicy = input.context.sandboxPolicy.type === "workspaceWrite"
-    ? {
-        ...input.context.sandboxPolicy,
-        writableRoots: appendUniqueRoots(
-          input.context.sandboxPolicy.writableRoots,
+  const sandboxPolicy =
+    input.context.sandboxPolicy.type === "workspaceWrite"
+      ? {
+          ...input.context.sandboxPolicy,
+          writableRoots: appendUniqueRoots(input.context.sandboxPolicy.writableRoots, additions),
+        }
+      : { ...input.context.sandboxPolicy };
+  const runtimeWorkspaceRoots =
+    input.context.activePermissionProfile === null
+      ? input.context.runtimeWorkspaceRoots
+      : appendUniqueRoots(
+          input.context.runtimeWorkspaceRoots ??
+            (input.context.sandboxPolicy.type === "workspaceWrite"
+              ? input.context.sandboxPolicy.writableRoots
+              : []),
           additions,
-        ),
-      }
-    : { ...input.context.sandboxPolicy };
-  const runtimeWorkspaceRoots = input.context.activePermissionProfile === null
-    ? input.context.runtimeWorkspaceRoots
-    : appendUniqueRoots(
-        input.context.runtimeWorkspaceRoots
-          ?? (input.context.sandboxPolicy.type === "workspaceWrite"
-            ? input.context.sandboxPolicy.writableRoots
-            : []),
-        additions,
-      );
+        );
 
   return {
     ...input.context,

@@ -60,21 +60,22 @@ function buildTranscriptBlock(
   type: "exec" | "fileChange" | "webSearch",
   overrides: Partial<ThreadTranscriptBlockModel> = {},
 ): ThreadTranscriptBlockModel & { type: "exec" | "fileChange" | "webSearch" } {
-  const defaultEntry = type === "fileChange"
-    ? buildConversationItem(`${type}-1`, {
-        status: "completed",
-        fileChange: {
-          changes: {
-            "src/app.ts": {
-              type: "update",
-              unifiedDiff: "@@ -1 +1 @@",
-              movePath: null,
+  const defaultEntry =
+    type === "fileChange"
+      ? buildConversationItem(`${type}-1`, {
+          status: "completed",
+          fileChange: {
+            changes: {
+              "src/app.ts": {
+                type: "update",
+                unifiedDiff: "@@ -1 +1 @@",
+                movePath: null,
+              },
             },
+            success: true,
           },
-          success: true,
-        },
-      })
-    : buildConversationItem(`${type}-1`);
+        })
+      : buildConversationItem(`${type}-1`);
   return {
     id: `${type}-1`,
     turnId: "turn-1",
@@ -87,13 +88,15 @@ function buildTranscriptBlock(
   };
 }
 
-function buildMcpBlock(input: {
-  server?: string;
-  source?: CodexMcpToolCallSource | null;
-  mcpAppResourceUri?: string;
-  result?: NonNullable<CodexConversationItem["mcpToolCall"]>["result"];
-  superseded?: boolean;
-} = {}) {
+function buildMcpBlock(
+  input: {
+    server?: string;
+    source?: CodexMcpToolCallSource | null;
+    mcpAppResourceUri?: string;
+    result?: NonNullable<CodexConversationItem["mcpToolCall"]>["result"];
+    superseded?: boolean;
+  } = {},
+) {
   const entry = buildConversationItem("mcp-1", {
     mcpToolCall: {
       callId: "mcp-1",
@@ -122,35 +125,33 @@ function buildMcpBlock(input: {
 
 function buildMcpStatuses(resourceUri: string): ProtocolListMcpServerStatusResponse {
   return {
-    data: [{
-      name: "docs",
-      serverInfo: null,
-      tools: {
-        search: {
-          name: "search",
-          inputSchema: { type: "object" },
-          _meta: { ui: { resourceUri } },
+    data: [
+      {
+        name: "docs",
+        serverInfo: null,
+        tools: {
+          search: {
+            name: "search",
+            inputSchema: { type: "object" },
+            _meta: { ui: { resourceUri } },
+          },
         },
+        resources: [],
+        resourceTemplates: [],
+        authStatus: "unsupported",
       },
-      resources: [],
-      resourceTemplates: [],
-      authStatus: "unsupported",
-    }],
+    ],
     nextCursor: null,
   };
 }
 
-function buildDynamicBlock(input: {
-  namespace?: string;
-  tool: string;
-  completed?: boolean;
-}) {
+function buildDynamicBlock(input: { namespace?: string; tool: string; completed?: boolean }) {
   const dynamicToolCall = {
     callId: `dynamic-${input.tool}`,
     namespace: input.namespace ?? "codex_app",
     tool: input.tool,
     arguments: input.tool === "setup_codex_step" ? { step: "complete" } : {},
-    status: input.completed === false ? "inProgress" as const : "completed" as const,
+    status: input.completed === false ? ("inProgress" as const) : ("completed" as const),
     contentItems: null,
     success: true,
     durationMs: 1,
@@ -196,8 +197,11 @@ describe("agent activity v2 type boundary", () => {
       classification: ThreadAgentActivityClassification<FixtureItem>;
     }[];
 
-    expect(cases.map(({ classification }) => resolveThreadAgentActivityVisibility(classification)).join(","))
-      .toBe("hidden,groupable,standalone");
+    expect(
+      cases
+        .map(({ classification }) => resolveThreadAgentActivityVisibility(classification))
+        .join(","),
+    ).toBe("hidden,groupable,standalone");
     expect(cases[1]?.classification?.item === execItem).toBe(true);
     expect(cases[2]?.classification?.item === messageItem).toBe(true);
   });
@@ -254,9 +258,11 @@ describe("agent activity v2 type boundary", () => {
 
   test("removes the review property when every attached review is approved", () => {
     const exec = buildTranscriptBlock("exec", {
-      automaticApprovalReviews: [buildConversationItem("review-approved", {
-        rawItem: { review: { status: "approved" } },
-      })],
+      automaticApprovalReviews: [
+        buildConversationItem("review-approved", {
+          rawItem: { review: { status: "approved" } },
+        }),
+      ],
     });
 
     const cleaned = removeApprovedThreadAutomaticApprovalReviews(exec);
@@ -321,11 +327,13 @@ describe("agent activity v2 type boundary", () => {
       superseded: true,
     });
 
-    expect(classifyThreadMcpActivityItem(statusResolved, buildMcpStatuses("ui://status"))?.grouping)
-      .toBe("standalone");
+    expect(
+      classifyThreadMcpActivityItem(statusResolved, buildMcpStatuses("ui://status"))?.grouping,
+    ).toBe("standalone");
     expect(classifyThreadMcpActivityItem(direct, null)?.grouping).toBe("standalone");
-    expect(classifyThreadMcpActivityItem(superseded, buildMcpStatuses("ui://status"))?.grouping)
-      .toBe("groupable");
+    expect(
+      classifyThreadMcpActivityItem(superseded, buildMcpStatuses("ui://status"))?.grouping,
+    ).toBe("groupable");
   });
 
   test("keeps successful unknown-status MCP apps groupable until confirmed", () => {
@@ -344,8 +352,9 @@ describe("agent activity v2 type boundary", () => {
     });
 
     expect(classifyThreadMcpActivityItem(maybeApp, null)?.grouping).toBe("groupable");
-    expect(classifyThreadMcpActivityItem(maybeApp, { data: [], nextCursor: null })?.grouping)
-      .toBe("groupable");
+    expect(classifyThreadMcpActivityItem(maybeApp, { data: [], nextCursor: null })?.grouping).toBe(
+      "groupable",
+    );
   });
 
   test("classifies only the exact namespaced handoff entry as standalone", () => {
@@ -399,12 +408,24 @@ describe("agent activity v2 type boundary", () => {
       "userInput",
     ] satisfies readonly ThreadClassifiableActivityTranscriptType[];
 
-    expect(standaloneTypes.map((type) =>
-      resolveThreadAgentActivityVisibility(classifyThreadAgentActivityItem(buildClassifiableBlock(type)))
-    ).every((visibility) => visibility === "standalone")).toBe(true);
-    expect(hiddenTypes.map((type) =>
-      resolveThreadAgentActivityVisibility(classifyThreadAgentActivityItem(buildClassifiableBlock(type)))
-    ).every((visibility) => visibility === "hidden")).toBe(true);
+    expect(
+      standaloneTypes
+        .map((type) =>
+          resolveThreadAgentActivityVisibility(
+            classifyThreadAgentActivityItem(buildClassifiableBlock(type)),
+          ),
+        )
+        .every((visibility) => visibility === "standalone"),
+    ).toBe(true);
+    expect(
+      hiddenTypes
+        .map((type) =>
+          resolveThreadAgentActivityVisibility(
+            classifyThreadAgentActivityItem(buildClassifiableBlock(type)),
+          ),
+        )
+        .every((visibility) => visibility === "hidden"),
+    ).toBe(true);
   });
 
   test("classifies every automatic approval review status exactly", () => {
@@ -429,7 +450,11 @@ describe("agent activity v2 type boundary", () => {
   });
 
   test("classifies completed elicitation from exact OpenAI image-picker predicate", () => {
-    const elicitation = (completed: boolean, kind: string, properties: Record<string, unknown> = {}) =>
+    const elicitation = (
+      completed: boolean,
+      kind: string,
+      properties: Record<string, unknown> = {},
+    ) =>
       buildClassifiableBlock("mcpServerElicitation", {
         entry: buildConversationItem(`elicitation-${kind}`, {
           rawItem: {
@@ -450,7 +475,7 @@ describe("agent activity v2 type boundary", () => {
     ] as const;
 
     const actual = cases.map(([item]) =>
-      resolveThreadAgentActivityVisibility(classifyThreadAgentActivityItem(item))
+      resolveThreadAgentActivityVisibility(classifyThreadAgentActivityItem(item)),
     );
     expect(actual.join(",")).toBe(cases.map(([, expected]) => expected).join(","));
   });
@@ -471,10 +496,12 @@ describe("agent activity v2 type boundary", () => {
       entry: buildConversationItem("visualization-patch", {
         fileChange: {
           changes: {},
-          visualizationActivities: [{
-            path: ".codex/visualizations/2026/07/11/thread/chart.html",
-            kind: "create",
-          }],
+          visualizationActivities: [
+            {
+              path: ".codex/visualizations/2026/07/11/thread/chart.html",
+              kind: "create",
+            },
+          ],
           success: true,
         },
       }),
@@ -484,10 +511,7 @@ describe("agent activity v2 type boundary", () => {
       visualizationCommand("completed"),
       patch,
     ]);
-    const failed = projectThreadIndexedAgentActivityItems([
-      visualizationCommand("failed"),
-      patch,
-    ]);
+    const failed = projectThreadIndexedAgentActivityItems([visualizationCommand("failed"), patch]);
 
     expect(paired.map(({ sourceIndex }) => sourceIndex).join(",")).toBe("1");
     expect(failed.map(({ sourceIndex }) => sourceIndex).join(",")).toBe("0,1");
@@ -521,19 +545,20 @@ describe("agent activity v2 type boundary", () => {
   });
 
   test("filters only the visualize skill definition read and preserves original indexes", () => {
-    const skillRead = (skillId: string) => buildClassifiableBlock("exec", {
-      entry: buildConversationItem(`read-${skillId}`, {
-        cwd: "/workspace",
-        executionStatus: "completed",
-        parsedCmd: {
-          type: "read",
-          cmd: `cat .codex/skills/.system/${skillId}/SKILL.md`,
-          name: "SKILL.md",
-          path: `.codex/skills/.system/${skillId}/SKILL.md`,
-          isFinished: true,
-        },
-      }),
-    });
+    const skillRead = (skillId: string) =>
+      buildClassifiableBlock("exec", {
+        entry: buildConversationItem(`read-${skillId}`, {
+          cwd: "/workspace",
+          executionStatus: "completed",
+          parsedCmd: {
+            type: "read",
+            cmd: `cat .codex/skills/.system/${skillId}/SKILL.md`,
+            name: "SKILL.md",
+            path: `.codex/skills/.system/${skillId}/SKILL.md`,
+            isFinished: true,
+          },
+        }),
+      });
 
     const indexed = projectThreadIndexedAgentActivityItems([
       buildClassifiableBlock("exec"),
@@ -545,16 +570,24 @@ describe("agent activity v2 type boundary", () => {
   });
 
   test("matches visualization write and delete command kinds exactly", () => {
-    expect(resolveThreadVisualizationCommandKind(
-      "apply_patch <<'PATCH'\n*** Add File: .codex/visualizations/2026/07/11/thread/chart.html",
-    )).toBe("create");
-    expect(resolveThreadVisualizationCommandKind(
-      "apply_patch <<'PATCH'\n*** Update File: .codex/visualizations/2026/07/11/thread/chart.html",
-    )).toBe("update");
-    expect(resolveThreadVisualizationCommandKind(
-      "apply_patch <<'PATCH'\n*** Delete File: .codex/visualizations/2026/07/11/thread/chart.html",
-    )).toBe(null);
-    expect(resolveThreadVisualizationCommandKind("cat .codex/visualizations/chart.html")).toBe(null);
+    expect(
+      resolveThreadVisualizationCommandKind(
+        "apply_patch <<'PATCH'\n*** Add File: .codex/visualizations/2026/07/11/thread/chart.html",
+      ),
+    ).toBe("create");
+    expect(
+      resolveThreadVisualizationCommandKind(
+        "apply_patch <<'PATCH'\n*** Update File: .codex/visualizations/2026/07/11/thread/chart.html",
+      ),
+    ).toBe("update");
+    expect(
+      resolveThreadVisualizationCommandKind(
+        "apply_patch <<'PATCH'\n*** Delete File: .codex/visualizations/2026/07/11/thread/chart.html",
+      ),
+    ).toBe(null);
+    expect(resolveThreadVisualizationCommandKind("cat .codex/visualizations/chart.html")).toBe(
+      null,
+    );
   });
 
   test("builds maximal mixed-family groups and preserves one-item groups", () => {
@@ -574,13 +607,14 @@ describe("agent activity v2 type boundary", () => {
 
     expect(units.map(({ kind }) => kind).join(",")).toBe("group,standalone,group");
     expect(units[0]?.kind === "group" ? units[0].items.length : 0).toBe(2);
-    expect(units[0]?.kind === "group" ? units[0].items.map(({ item }) => item.type).join(",") : "")
-      .toBe("exec,webSearch");
-    expect(units[1]?.kind === "standalone" ? units[1].item.item.type : "")
-      .toBe("assistantMessage");
+    expect(
+      units[0]?.kind === "group" ? units[0].items.map(({ item }) => item.type).join(",") : "",
+    ).toBe("exec,webSearch");
+    expect(units[1]?.kind === "standalone" ? units[1].item.item.type : "").toBe("assistantMessage");
     expect(units[2]?.kind === "group" ? units[2].items.length : 0).toBe(1);
-    expect(units[2]?.kind === "group" ? units[2].items[0]?.item.type ?? "" : "")
-      .toBe("fileChange");
+    expect(units[2]?.kind === "group" ? (units[2].items[0]?.item.type ?? "") : "").toBe(
+      "fileChange",
+    );
   });
 
   test("does not deduplicate repeated source activities inside a maximal group", () => {
@@ -621,22 +655,24 @@ describe("agent activity v2 type boundary", () => {
       }),
     });
 
-    expect(resolveThreadAgentActivityIdentity(
-      createThreadAgentActivityItem(idFirst, "standalone"),
-      3,
-    )).toBe("id-first");
-    expect(resolveThreadAgentActivityIdentity(
-      createThreadAgentActivityItem(splitExec, "groupable"),
-      4,
-    )).toBe("raw-command:1");
-    expect(resolveThreadAgentActivityIdentity(
-      createThreadAgentActivityItem(numericRequest, "standalone"),
-      5,
-    )).toBe("user-input-response:5");
-    expect(resolveThreadAgentActivityIdentity(
-      createThreadAgentActivityItem(handoffFallback, "standalone"),
-      6,
-    )).toBe("handoff-only");
+    expect(
+      resolveThreadAgentActivityIdentity(createThreadAgentActivityItem(idFirst, "standalone"), 3),
+    ).toBe("id-first");
+    expect(
+      resolveThreadAgentActivityIdentity(createThreadAgentActivityItem(splitExec, "groupable"), 4),
+    ).toBe("raw-command:1");
+    expect(
+      resolveThreadAgentActivityIdentity(
+        createThreadAgentActivityItem(numericRequest, "standalone"),
+        5,
+      ),
+    ).toBe("user-input-response:5");
+    expect(
+      resolveThreadAgentActivityIdentity(
+        createThreadAgentActivityItem(handoffFallback, "standalone"),
+        6,
+      ),
+    ).toBe("handoff-only");
   });
 
   test("uses first group identity and keeps keys stable across streaming changes", () => {
@@ -674,61 +710,74 @@ describe("agent activity v2 type boundary", () => {
     const numericRequest = buildClassifiableBlock("userInputResponse", {
       entry: buildConversationItem("response", { requestId: 9, rawItem: { requestId: 9 } }),
     });
-    const units = buildThreadAgentActivityUnits(projectThreadIndexedAgentActivityItems([
-      duplicateIdA,
-      duplicateIdB,
-      numericRequest,
-    ]));
+    const units = buildThreadAgentActivityUnits(
+      projectThreadIndexedAgentActivityItems([duplicateIdA, duplicateIdB, numericRequest]),
+    );
     const group = units[0]!;
     const requestUnit = units[1]!;
 
     expect(collectThreadAgentActivityTargetIds(group).join(",")).toBe("same id,same id");
-    expect(buildThreadAgentActivityTargetAttribute(group)?.["data-local-conversation-item-target-ids"])
-      .toBe("same%20id same%20id");
+    expect(
+      buildThreadAgentActivityTargetAttribute(group)?.["data-local-conversation-item-target-ids"],
+    ).toBe("same%20id same%20id");
     expect(collectThreadAgentActivityTargetIds(requestUnit).length).toBe(0);
     expect(buildThreadAgentActivityTargetAttribute(requestUnit)).toBe(undefined);
   });
 
   test("derives the primary slice closed boundary from assistant and streaming state", () => {
-    expect(resolveThreadPrimaryActivitySliceClosed({
-      hasRenderableAssistant: false,
-      isTurnInProgress: true,
-      keepOpenWhileStreaming: false,
-    })).toBe(false);
-    expect(resolveThreadPrimaryActivitySliceClosed({
-      hasRenderableAssistant: true,
-      isTurnInProgress: true,
-      keepOpenWhileStreaming: false,
-    })).toBe(true);
-    expect(resolveThreadPrimaryActivitySliceClosed({
-      hasRenderableAssistant: true,
-      isTurnInProgress: true,
-      keepOpenWhileStreaming: true,
-    })).toBe(false);
-    expect(resolveThreadPrimaryActivitySliceClosed({
-      hasRenderableAssistant: true,
-      isTurnInProgress: false,
-      keepOpenWhileStreaming: true,
-    })).toBe(true);
+    expect(
+      resolveThreadPrimaryActivitySliceClosed({
+        hasRenderableAssistant: false,
+        isTurnInProgress: true,
+        keepOpenWhileStreaming: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveThreadPrimaryActivitySliceClosed({
+        hasRenderableAssistant: true,
+        isTurnInProgress: true,
+        keepOpenWhileStreaming: false,
+      }),
+    ).toBe(true);
+    expect(
+      resolveThreadPrimaryActivitySliceClosed({
+        hasRenderableAssistant: true,
+        isTurnInProgress: true,
+        keepOpenWhileStreaming: true,
+      }),
+    ).toBe(false);
+    expect(
+      resolveThreadPrimaryActivitySliceClosed({
+        hasRenderableAssistant: true,
+        isTurnInProgress: false,
+        keepOpenWhileStreaming: true,
+      }),
+    ).toBe(true);
   });
 
   test("models latest, open, cancelled, and exploring context per slice", () => {
-    const mainUnits = buildThreadAgentActivityUnits(projectThreadIndexedAgentActivityItems([
-      buildClassifiableBlock("exec"),
-      buildClassifiableBlock("assistantMessage"),
-    ]));
-    const persistentUnits = buildThreadAgentActivityUnits(projectThreadIndexedAgentActivityItems([
-      buildClassifiableBlock("exec", {
-        entry: buildConversationItem("persistent", { callId: "persistent" }),
-      }),
-    ]));
-    const postAssistantUnits = buildThreadAgentActivityUnits(projectThreadIndexedAgentActivityItems([
-      buildClassifiableBlock("automaticApprovalReview", {
-        entry: buildConversationItem("review-denied", {
-          rawItem: { review: { status: "denied" } },
+    const mainUnits = buildThreadAgentActivityUnits(
+      projectThreadIndexedAgentActivityItems([
+        buildClassifiableBlock("exec"),
+        buildClassifiableBlock("assistantMessage"),
+      ]),
+    );
+    const persistentUnits = buildThreadAgentActivityUnits(
+      projectThreadIndexedAgentActivityItems([
+        buildClassifiableBlock("exec", {
+          entry: buildConversationItem("persistent", { callId: "persistent" }),
         }),
-      }),
-    ]));
+      ]),
+    );
+    const postAssistantUnits = buildThreadAgentActivityUnits(
+      projectThreadIndexedAgentActivityItems([
+        buildClassifiableBlock("automaticApprovalReview", {
+          entry: buildConversationItem("review-denied", {
+            rawItem: { review: { status: "denied" } },
+          }),
+        }),
+      ]),
+    );
 
     const contexts = buildThreadAgentActivityUnitContexts({
       slices: [
@@ -755,28 +804,32 @@ describe("agent activity v2 type boundary", () => {
       isTurnCancelled: false,
     });
 
-    expect(contexts.map(({ sliceKind }) => sliceKind).join(","))
-      .toBe("main,main,persistent,postAssistant");
-    expect(contexts.map(({ isLatestVisibleUnit }) => isLatestVisibleUnit).join(","))
-      .toBe("false,true,true,true");
-    expect(contexts.map(({ isActivitySliceOpen }) => isActivitySliceOpen).join(","))
-      .toBe("true,true,true,false");
-    expect(contexts.map(({ isExploring }) => isExploring).join(","))
-      .toBe("true,true,false,false");
+    expect(contexts.map(({ sliceKind }) => sliceKind).join(",")).toBe(
+      "main,main,persistent,postAssistant",
+    );
+    expect(contexts.map(({ isLatestVisibleUnit }) => isLatestVisibleUnit).join(",")).toBe(
+      "false,true,true,true",
+    );
+    expect(contexts.map(({ isActivitySliceOpen }) => isActivitySliceOpen).join(",")).toBe(
+      "true,true,true,false",
+    );
+    expect(contexts.map(({ isExploring }) => isExploring).join(",")).toBe("true,true,false,false");
     expect(contexts.every(({ isTurnCancelled }) => !isTurnCancelled)).toBe(true);
   });
 
   test("never marks a non-progress turn slice open even before assistant closure", () => {
-    const units = buildThreadAgentActivityUnits(projectThreadIndexedAgentActivityItems([
-      buildClassifiableBlock("exec"),
-    ]));
+    const units = buildThreadAgentActivityUnits(
+      projectThreadIndexedAgentActivityItems([buildClassifiableBlock("exec")]),
+    );
     const [context] = buildThreadAgentActivityUnitContexts({
-      slices: [{
-        kind: "main",
-        units,
-        isActivitySliceClosed: false,
-        isExploring: false,
-      }],
+      slices: [
+        {
+          kind: "main",
+          units,
+          isActivitySliceClosed: false,
+          isExploring: false,
+        },
+      ],
       isTurnInProgress: false,
       isTurnCancelled: true,
     });
@@ -792,19 +845,28 @@ describe("agent activity v2 type boundary", () => {
       status: "inProgress",
       entry: buildConversationItem("search", {
         status: "inProgress",
-        parsedCmd: { type: "search", cmd: "rg parity", query: "parity", path: null, isFinished: false },
+        parsedCmd: {
+          type: "search",
+          cmd: "rg parity",
+          query: "parity",
+          path: null,
+          isFinished: false,
+        },
       }),
     });
     const summaryOnly = buildDynamicBlock({ tool: "get_handoff_status" });
     const ordinaryDynamic = buildDynamicBlock({ tool: "read_thread" });
-    const filteredSummaryOnly = filterThreadAgentActivityGroupBodyItems([
-      createThreadAgentActivityItem(unfinishedSearch, "groupable"),
-      createThreadAgentActivityItem(summaryOnly, "groupable"),
-    ], false);
-    const expandableMixed = filterThreadAgentActivityGroupBodyItems([
-      ...filteredSummaryOnly.items,
-      createThreadAgentActivityItem(ordinaryDynamic, "groupable"),
-    ], false);
+    const filteredSummaryOnly = filterThreadAgentActivityGroupBodyItems(
+      [
+        createThreadAgentActivityItem(unfinishedSearch, "groupable"),
+        createThreadAgentActivityItem(summaryOnly, "groupable"),
+      ],
+      false,
+    );
+    const expandableMixed = filterThreadAgentActivityGroupBodyItems(
+      [...filteredSummaryOnly.items, createThreadAgentActivityItem(ordinaryDynamic, "groupable")],
+      false,
+    );
     const cancelledEmptyPatch = buildTranscriptBlock("fileChange", {
       status: "inProgress",
       entry: buildConversationItem("visualization", {
@@ -815,9 +877,10 @@ describe("agent activity v2 type boundary", () => {
         },
       }),
     });
-    const filteredCancelledPatch = filterThreadAgentActivityGroupBodyItems([
-      createThreadAgentActivityItem(cancelledEmptyPatch, "groupable"),
-    ], true);
+    const filteredCancelledPatch = filterThreadAgentActivityGroupBodyItems(
+      [createThreadAgentActivityItem(cancelledEmptyPatch, "groupable")],
+      true,
+    );
 
     expect(filteredSummaryOnly.items.length).toBe(1);
     expect(filteredSummaryOnly.canExpand).toBe(false);

@@ -1,9 +1,4 @@
-import {
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   findNearestWorkbenchPanelLeafToRight,
   findWorkbenchPanelLeafForTab,
@@ -24,15 +19,13 @@ function createHarness() {
   const scenes: Record<string, WorkbenchSceneSnapshot> = {};
   const previews: Record<string, WorkbenchScenePreviewEntry> = {};
   const selectLocation = vi.fn();
-  const setSceneAndSelect: WorkbenchSceneNavigatorPort["setSceneAndSelect"] = vi.fn((
-    owner,
-    update,
-    location,
-  ) => {
-    const key = makeWorkbenchSceneKey(owner);
-    scenes[key] = update(scenes[key]);
-    selectLocation(location);
-  });
+  const setSceneAndSelect: WorkbenchSceneNavigatorPort["setSceneAndSelect"] = vi.fn(
+    (owner, update, location) => {
+      const key = makeWorkbenchSceneKey(owner);
+      scenes[key] = update(scenes[key]);
+      selectLocation(location);
+    },
+  );
   const port: WorkbenchSceneNavigatorPort = {
     setScene(owner, update) {
       const key = makeWorkbenchSceneKey(owner);
@@ -44,7 +37,7 @@ function createHarness() {
       list(owner) {
         const prefix = `${makeWorkbenchSceneKey(owner)}:`;
         return Object.entries(previews).flatMap(([key, entry]) =>
-          key.startsWith(prefix) ? [entry] : []
+          key.startsWith(prefix) ? [entry] : [],
         );
       },
       set(owner, panelId, leafId, surface) {
@@ -110,23 +103,21 @@ describe("WorkbenchSceneNavigator", () => {
   test("keeps Scene previews ephemeral, replaces them per leaf, and promotes the same identity", async () => {
     const harness = createHarness();
     const owner = { kind: "project" as const, projectId: "alpha" };
-    const present = (
-      pageId: string,
-      mode: "preview" | "durable" = "preview",
-    ) => harness.navigator.presentPanelSurface({
-      owner,
-      request: {
-        kind: "page_stage" as const,
-        config: {
-          accessContext: { kind: "project" as const, projectId: "alpha" },
-          pageId,
+    const present = (pageId: string, mode: "preview" | "durable" = "preview") =>
+      harness.navigator.presentPanelSurface({
+        owner,
+        request: {
+          kind: "page_stage" as const,
+          config: {
+            accessContext: { kind: "project" as const, projectId: "alpha" },
+            pageId,
+          },
+          titleSnapshot: pageId,
         },
-        titleSnapshot: pageId,
-      },
-      target: { panelId: "right" as const },
-      mode,
-      navigation: "background" as const,
-    });
+        target: { panelId: "right" as const },
+        mode,
+        navigation: "background" as const,
+      });
 
     const first = await present("page:one");
     const second = await present("page:two");
@@ -152,8 +143,10 @@ describe("WorkbenchSceneNavigator", () => {
       surfaceId: previewBeforePin?.surface.id,
     });
     expect(harness.previews).toEqual({});
-    expect(sceneAfterPin.panelSurfacesById[previewBeforePin!.surface.id])
-      .toMatchObject({ kind: "page_stage", config: { pageId: "page:two" } });
+    expect(sceneAfterPin.panelSurfacesById[previewBeforePin!.surface.id]).toMatchObject({
+      kind: "page_stage",
+      config: { pageId: "page:two" },
+    });
 
     await present("page:two", "preview");
     expect(harness.previews).toEqual({});
@@ -180,37 +173,44 @@ describe("WorkbenchSceneNavigator", () => {
     const entry = Object.values(harness.previews)[0];
     if (!entry) throw new Error("Expected preview entry");
 
-    expect(harness.navigator.clearPreview({
-      owner,
-      panelId: entry.panelId,
-      leafId: entry.leafId,
-      surfaceId: "another-surface",
-    })).toBe(false);
-    expect(harness.navigator.pinPreview({
-      owner,
-      panelId: entry.panelId,
-      leafId: entry.leafId,
-      surfaceId: result.surfaceId,
-    })).toBe(true);
+    expect(
+      harness.navigator.clearPreview({
+        owner,
+        panelId: entry.panelId,
+        leafId: entry.leafId,
+        surfaceId: "another-surface",
+      }),
+    ).toBe(false);
+    expect(
+      harness.navigator.pinPreview({
+        owner,
+        panelId: entry.panelId,
+        leafId: entry.leafId,
+        surfaceId: result.surfaceId,
+      }),
+    ).toBe(true);
     expect(harness.previews).toEqual({});
-    expect(harness.scenes.pages?.panelSurfacesById[result.surfaceId])
-      .toMatchObject({ kind: "page_stage" });
+    expect(harness.scenes.pages?.panelSurfacesById[result.surfaceId]).toMatchObject({
+      kind: "page_stage",
+    });
   });
 
   test("rejects Conversation surfaces in a Project Scene", async () => {
     const harness = createHarness();
     const owner = { kind: "project" as const, projectId: "alpha" };
 
-    await expect(harness.navigator.presentPanelSurface({
-      owner,
-      request: {
-        kind: "conversation",
-        sessionId: "session-1",
-      },
-      target: { panelId: "right" },
-      mode: "durable",
-      navigation: "background",
-    })).resolves.toEqual({
+    await expect(
+      harness.navigator.presentPanelSurface({
+        owner,
+        request: {
+          kind: "conversation",
+          sessionId: "session-1",
+        },
+        target: { panelId: "right" },
+        mode: "durable",
+        navigation: "background",
+      }),
+    ).resolves.toEqual({
       status: "unavailable",
       reason: "Project conversations belong to Agent Dock",
     });
@@ -233,10 +233,7 @@ describe("WorkbenchSceneNavigator", () => {
     harness.scenes[ownerKey] = initial;
     if (!initial.primary) throw new Error("Expected Project primary");
     const primaryId = initial.primary.id;
-    const sourceLeaf = findWorkbenchPanelLeafForTab(
-      initial.panels.right.layout,
-      primaryId,
-    );
+    const sourceLeaf = findWorkbenchPanelLeafForTab(initial.panels.right.layout, primaryId);
     if (!sourceLeaf) throw new Error("Expected Project Home source leaf");
 
     const presentPage = (pageId: string) =>
@@ -264,14 +261,10 @@ describe("WorkbenchSceneNavigator", () => {
     const first = await presentPage("page:one");
     expect(first).toMatchObject({ status: "presented", reused: false });
     const afterFirst = harness.scenes[ownerKey];
-    const afterFirstLeaves = listWorkbenchPanelLeaves(
-      afterFirst.panels.right.layout,
-    );
+    const afterFirstLeaves = listWorkbenchPanelLeaves(afterFirst.panels.right.layout);
     expect(afterFirstLeaves).toHaveLength(2);
     const firstSurface = Object.values(afterFirst.panelSurfacesById).find(
-      (surface) =>
-        surface.kind === "page_stage"
-        && surface.config.pageId === "page:one",
+      (surface) => surface.kind === "page_stage" && surface.config.pageId === "page:one",
     );
     if (!firstSurface) throw new Error("Expected first Page surface");
     const firstPageLeaf = findWorkbenchPanelLeafForTab(
@@ -279,19 +272,14 @@ describe("WorkbenchSceneNavigator", () => {
       firstSurface.id,
     );
     expect(firstPageLeaf?.id).toBe(
-      findNearestWorkbenchPanelLeafToRight(
-        afterFirst.panels.right.layout,
-        sourceLeaf.id,
-      ),
+      findNearestWorkbenchPanelLeafToRight(afterFirst.panels.right.layout, sourceLeaf.id),
     );
 
     await presentPage("page:two");
     const afterSecond = harness.scenes[ownerKey];
     expect(listWorkbenchPanelLeaves(afterSecond.panels.right.layout)).toHaveLength(2);
     const secondSurface = Object.values(afterSecond.panelSurfacesById).find(
-      (surface) =>
-        surface.kind === "page_stage"
-        && surface.config.pageId === "page:two",
+      (surface) => surface.kind === "page_stage" && surface.config.pageId === "page:two",
     );
     if (!secondSurface) throw new Error("Expected second Page surface");
     const secondPageLeaf = findWorkbenchPanelLeafForTab(
@@ -299,10 +287,7 @@ describe("WorkbenchSceneNavigator", () => {
       secondSurface.id,
     );
     expect(secondPageLeaf?.id).toBe(firstPageLeaf?.id);
-    expect(secondPageLeaf?.tabIds).toEqual([
-      firstSurface.id,
-      secondSurface.id,
-    ]);
+    expect(secondPageLeaf?.tabIds).toEqual([firstSurface.id, secondSurface.id]);
   });
 
   test("preserves Project context when selecting a Session owner", () => {
@@ -369,20 +354,21 @@ describe("WorkbenchSceneNavigator", () => {
   test("opens and focuses Library targets in one Pages tablist", async () => {
     const harness = createHarness();
     const owner = { kind: "pages" as const };
-    const present = (pageId: string) => harness.navigator.presentPanelSurface({
-      owner,
-      request: {
-        kind: "page_stage" as const,
-        config: {
-          accessContext: { kind: "library" as const },
-          pageId,
+    const present = (pageId: string) =>
+      harness.navigator.presentPanelSurface({
+        owner,
+        request: {
+          kind: "page_stage" as const,
+          config: {
+            accessContext: { kind: "library" as const },
+            pageId,
+          },
+          titleSnapshot: pageId,
         },
-        titleSnapshot: pageId,
-      },
-      target: { panelId: "right" as const },
-      mode: "durable" as const,
-      navigation: "select-owner" as const,
-    });
+        target: { panelId: "right" as const },
+        mode: "durable" as const,
+        navigation: "select-owner" as const,
+      });
 
     const first = await present("page:one");
     await present("page:two");
@@ -432,14 +418,10 @@ describe("WorkbenchSceneNavigator", () => {
     if (second.status !== "presented") throw new Error("Expected child Page");
 
     const scene = harness.scenes.pages!;
-    expect(findWorkbenchPanelLeafForTab(
-      scene.panels.bottom.layout,
-      second.surfaceId,
-    )?.tabIds).toEqual([first.surfaceId, second.surfaceId]);
-    expect(findWorkbenchPanelLeafForTab(
-      scene.panels.right.layout,
-      second.surfaceId,
-    )).toBeNull();
+    expect(
+      findWorkbenchPanelLeafForTab(scene.panels.bottom.layout, second.surfaceId)?.tabIds,
+    ).toEqual([first.surfaceId, second.surfaceId]);
+    expect(findWorkbenchPanelLeafForTab(scene.panels.right.layout, second.surfaceId)).toBeNull();
   });
 
   test("rejects execution-only surfaces in the Pages Scene", async () => {
@@ -448,16 +430,18 @@ describe("WorkbenchSceneNavigator", () => {
       kind: "pages" as const,
     };
 
-    await expect(harness.navigator.presentPanelSurface({
-      owner,
-      request: {
-        kind: "terminal",
-        config: {},
-      },
-      target: { panelId: "right" },
-      mode: "durable",
-      navigation: "background",
-    })).resolves.toEqual({
+    await expect(
+      harness.navigator.presentPanelSurface({
+        owner,
+        request: {
+          kind: "terminal",
+          config: {},
+        },
+        target: { panelId: "right" },
+        mode: "durable",
+        navigation: "background",
+      }),
+    ).resolves.toEqual({
       status: "unavailable",
       reason: "Pages only accepts Library content surfaces",
     });

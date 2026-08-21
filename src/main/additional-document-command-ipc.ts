@@ -7,8 +7,7 @@ import {
   type TrustedAdditionalDocumentCommandIdentity,
 } from "../shared/additional-document-command-transport";
 
-export const ADDITIONAL_DOCUMENT_COMMAND_IPC_CHANNEL =
-  "block-documents:command" as const;
+export const ADDITIONAL_DOCUMENT_COMMAND_IPC_CHANNEL = "block-documents:command" as const;
 
 export type AdditionalDocumentCommandIpcHandler = (
   event: unknown,
@@ -46,11 +45,7 @@ export const registerAdditionalDocumentCommandIpcHandler = (
         };
       }
 
-      const bound = bindAdditionalDocumentCommandToProject(
-        rawRequest,
-        projectId,
-        identity,
-      );
+      const bound = bindAdditionalDocumentCommandToProject(rawRequest, projectId, identity);
       if (!bound.ok) return bound;
 
       try {

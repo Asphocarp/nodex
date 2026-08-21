@@ -29,5 +29,4 @@ export const isCursorRejectionCode = (
   code: CoreErrorDetail["code"],
   options: { readonly requestHadCursor: boolean },
 ): boolean =>
-  CURSOR_REJECTION_CODES.has(code)
-  || (options.requestHadCursor && code === "invalid_input");
+  CURSOR_REJECTION_CODES.has(code) || (options.requestHadCursor && code === "invalid_input");

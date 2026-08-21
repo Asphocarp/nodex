@@ -51,23 +51,14 @@ function patchCachedProjectAppearance(
 ): void {
   queryClient.setQueriesData<InfiniteData<ProjectWindow, string | null>>(
     { queryKey: queryKeys.projects.lists() },
-    (current) => patchProjectAppearanceInWindow(
-      current,
-      projectId,
-      appearance,
-    ),
+    (current) => patchProjectAppearanceInWindow(current, projectId, appearance),
   );
-  queryClient.setQueryData<Project | null>(
-    queryKeys.projects.detail(projectId),
-    (current) => current
-      ? { ...current, appearance }
-      : current,
+  queryClient.setQueryData<Project | null>(queryKeys.projects.detail(projectId), (current) =>
+    current ? { ...current, appearance } : current,
   );
 }
 
-export function useProjectAppearanceMutation(
-  project: Project,
-) {
+export function useProjectAppearanceMutation(project: Project) {
   const queryClient = useQueryClient();
   const projectId = project.id;
   const latestSequenceRef = useRef(0);
@@ -83,9 +74,8 @@ export function useProjectAppearanceMutation(
   >({
     scope: { id: `project-appearance:${projectId}` },
     mutationFn: async ({ appearance }) => {
-      const project = await runSerializedProjectCatalogUpdate(
-        projectId,
-        () => invokeCoreResult("projects:update", projectId, {
+      const project = await runSerializedProjectCatalogUpdate(projectId, () =>
+        invokeCoreResult("projects:update", projectId, {
           appearance,
         }),
       );
@@ -98,20 +88,12 @@ export function useProjectAppearanceMutation(
     onMutate: async ({ appearance, sequence }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.projects.all() });
       if (sequence !== latestSequenceRef.current) return { sequence };
-      patchCachedProjectAppearance(
-        queryClient,
-        projectId,
-        appearance,
-      );
+      patchCachedProjectAppearance(queryClient, projectId, appearance);
       return { sequence };
     },
     onSuccess: (project, _variables, context) => {
       if (context.sequence !== latestSequenceRef.current) return;
-      patchCachedProjectAppearance(
-        queryClient,
-        projectId,
-        project.appearance,
-      );
+      patchCachedProjectAppearance(queryClient, projectId, project.appearance);
     },
     onError: (error, _variables, context) => {
       if (context?.sequence === latestSequenceRef.current) {
@@ -140,9 +122,7 @@ export function useProjectAppearanceMutation(
     latestSettlementRef.current = Promise.resolve(project);
   }, [project]);
 
-  const makeVariables = (
-    appearance: ProjectAppearance,
-  ): ProjectAppearanceMutationVariables => {
+  const makeVariables = (appearance: ProjectAppearance): ProjectAppearanceMutationVariables => {
     const sequence = latestSequenceRef.current + 1;
     latestSequenceRef.current = sequence;
     pendingCountRef.current += 1;

@@ -1,8 +1,5 @@
 import { resolveDraggedBlockIds } from "./drag-source-resolver";
-import type {
-  DragSessionBlock,
-  EditorForExternalBlockDrop,
-} from "./external-block-drag-session";
+import type { DragSessionBlock, EditorForExternalBlockDrop } from "./external-block-drag-session";
 
 export interface SendBlockSelection {
   blockIds: string[];

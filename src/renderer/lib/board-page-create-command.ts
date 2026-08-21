@@ -45,12 +45,7 @@ function materializeCommittedCreateFallback(
   input: PageCreateInput,
   committed: PageLifecycleExecutionResultV2,
 ): DatabasePage {
-  const {
-    descriptionPreview,
-    descriptionLength,
-    hasDescription,
-    ...page
-  } = optimisticPage;
+  const { descriptionPreview, descriptionLength, hasDescription, ...page } = optimisticPage;
   void descriptionPreview;
   void descriptionLength;
   void hasDescription;
@@ -75,8 +70,8 @@ async function requireWritableSelectedView(
   const databaseView = store.getSnapshot().databaseView;
   if (databaseView?.readOnlyReason === null) return { ok: true };
 
-  const error = databaseView?.readOnlyReason
-    ?? "The selected Database View is not ready for writes";
+  const error =
+    databaseView?.readOnlyReason ?? "The selected Database View is not ready for writes";
   store.setError(error);
   return { ok: false, error };
 }
@@ -155,12 +150,9 @@ export async function createBoardPage({
     return { status: "error", error: "Missing Page create result" };
   }
 
-  const page = outcome.result.boardProjection
-    ?? materializeCommittedCreateFallback(
-      optimisticPage,
-      createInput,
-      outcome.result,
-    );
+  const page =
+    outcome.result.boardProjection ??
+    materializeCommittedCreateFallback(optimisticPage, createInput, outcome.result);
   if (outcome.result.boardProjection && !outcome.superseded) {
     setDatabaseRowDetail(projectId, outcome.result.boardProjection);
   }

@@ -30,18 +30,22 @@ describe("Core IPC result envelope", () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(cancellableCoreResultFrom(controller.signal, async () => {
-      throw new CoreTransportError("aborted", "connect", "ABORT_ERR", null);
-    })).resolves.toEqual({ status: "cancelled" });
+    await expect(
+      cancellableCoreResultFrom(controller.signal, async () => {
+        throw new CoreTransportError("aborted", "connect", "ABORT_ERR", null);
+      }),
+    ).resolves.toEqual({ status: "cancelled" });
   });
 
   test("treats Core HTTP 499 as the cancellation response", async () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(cancellableCoreResultFrom(controller.signal, async () => {
-      throw new CoreHttpError(499, "Core request was cancelled");
-    })).resolves.toEqual({ status: "cancelled" });
+    await expect(
+      cancellableCoreResultFrom(controller.signal, async () => {
+        throw new CoreHttpError(499, "Core request was cancelled");
+      }),
+    ).resolves.toEqual({ status: "cancelled" });
   });
 
   test("does not hide unrelated failures after a caller abort", async () => {
@@ -49,8 +53,10 @@ describe("Core IPC result envelope", () => {
     controller.abort();
     const failure = new Error("search adapter invariant failed");
 
-    await expect(cancellableCoreResultFrom(controller.signal, async () => {
-      throw failure;
-    })).rejects.toBe(failure);
+    await expect(
+      cancellableCoreResultFrom(controller.signal, async () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
   });
 });

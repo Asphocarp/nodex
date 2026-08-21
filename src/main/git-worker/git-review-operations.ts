@@ -93,27 +93,15 @@ interface GitReviewOperationContext {
 }
 
 const gitReviewOperationContext = new AsyncLocalStorage<GitReviewOperationContext>();
-const gitReviewRepositoryIdentitiesByKey = new Map<
-  string,
-  GitReviewRepositoryIdentity
->();
-const gitReviewRepositoryPathsByKey = new Map<
-  string,
-  GitReviewRepositoryPaths
->();
+const gitReviewRepositoryIdentitiesByKey = new Map<string, GitReviewRepositoryIdentity>();
+const gitReviewRepositoryPathsByKey = new Map<string, GitReviewRepositoryPaths>();
 const gitReviewRepositoryKeysByCwd = new Map<string, string>();
-const gitReviewRepositoryPathReads = new Map<
-  string,
-  Promise<GitReviewRepositoryPaths | null>
->();
+const gitReviewRepositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
 interface GitReviewSnapshotGenerationProvider {
   advance(): number;
   current(): number;
 }
-const gitReviewSnapshotGenerationProviders = new Map<
-  string,
-  GitReviewSnapshotGenerationProvider
->();
+const gitReviewSnapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
 const GIT_CONFIG_OVERRIDES = [
   "-c",
   "diff.mnemonicPrefix=false",
@@ -175,14 +163,8 @@ function normalizeGitReviewRepositoryPath(value: string): string {
   return path.resolve(value.trim());
 }
 
-function buildGitReviewRepositoryKey(
-  identity: GitReviewRepositoryIdentity,
-): string {
-  return JSON.stringify([
-    identity.hostId,
-    identity.commonDir,
-    identity.root,
-  ]);
+function buildGitReviewRepositoryKey(identity: GitReviewRepositoryIdentity): string {
+  return JSON.stringify([identity.hostId, identity.commonDir, identity.root]);
 }
 
 function buildGitReviewRepositoryCwdKey(hostId: string, cwd: string): string {
@@ -205,10 +187,7 @@ export function registerGitReviewRepositoryIdentity(
     key,
   );
   gitReviewRepositoryKeysByCwd.set(
-    buildGitReviewRepositoryCwdKey(
-      normalizedIdentity.hostId,
-      normalizedIdentity.root,
-    ),
+    buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, normalizedIdentity.root),
     key,
   );
   if (identity.gitDir) {
@@ -224,10 +203,7 @@ export function registerGitReviewSnapshotGenerationProvider(
   identity: GitReviewRepositoryIdentity,
   provider: GitReviewSnapshotGenerationProvider,
 ): () => void {
-  const normalizedIdentity = registerGitReviewRepositoryIdentity(
-    identity.root,
-    identity,
-  );
+  const normalizedIdentity = registerGitReviewRepositoryIdentity(identity.root, identity);
   const key = buildGitReviewRepositoryKey(normalizedIdentity);
   gitReviewSnapshotGenerationProviders.set(key, provider);
   return () => {
@@ -243,9 +219,7 @@ function findRegisteredGitReviewRepository(
 ): GitReviewRepositoryIdentity | null {
   const cwdKey = buildGitReviewRepositoryCwdKey(hostId, cwd);
   const registeredKey = gitReviewRepositoryKeysByCwd.get(cwdKey);
-  return registeredKey
-    ? gitReviewRepositoryIdentitiesByKey.get(registeredKey) ?? null
-    : null;
+  return registeredKey ? (gitReviewRepositoryIdentitiesByKey.get(registeredKey) ?? null) : null;
 }
 
 async function ensureDirectory(cwd: string): Promise<string> {
@@ -297,9 +271,9 @@ function runGitCommand(
     }
     signal?.throwIfAborted();
     const failure = new Error(
-      result.stderr.trim()
-      || result.stdout.trim()
-      || `Git command failed: ${result.failureReason ?? "unknown"}`,
+      result.stderr.trim() ||
+        result.stdout.trim() ||
+        `Git command failed: ${result.failureReason ?? "unknown"}`,
     ) as GitCommandError;
     failure.stderr = result.stderr;
     failure.exitCode = result.code;
@@ -324,20 +298,23 @@ async function readGitBranchState(
     ),
   ]);
   const currentBranch = current.stdout.trim() || null;
-  const branchNames = [...new Set(
-    branches.stdout
-      .split(/\r?\n/)
-      .map((branch) => branch.trim())
-      .filter(Boolean),
-  )];
+  const branchNames = [
+    ...new Set(
+      branches.stdout
+        .split(/\r?\n/)
+        .map((branch) => branch.trim())
+        .filter(Boolean),
+    ),
+  ];
   const remoteName = remoteDefault.stdout.trim();
   const defaultBranch = remoteName.startsWith("origin/")
     ? remoteName.slice("origin/".length)
-    : remoteName || (branchNames.includes("main")
-      ? "main"
-      : branchNames.includes("master")
-        ? "master"
-        : currentBranch);
+    : remoteName ||
+      (branchNames.includes("main")
+        ? "main"
+        : branchNames.includes("master")
+          ? "master"
+          : currentBranch);
   return {
     currentBranch,
     defaultBranch,
@@ -351,10 +328,7 @@ export async function resolveGitReviewRepositoryPaths(
 ): Promise<GitReviewRepositoryPaths | null> {
   const normalizedCwd = await ensureDirectory(cwd);
   const normalizedHostId = hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID;
-  const registered = findRegisteredGitReviewRepository(
-    normalizedCwd,
-    normalizedHostId,
-  );
+  const registered = findRegisteredGitReviewRepository(normalizedCwd, normalizedHostId);
   if (registered) {
     const registeredPaths = gitReviewRepositoryPathsByKey.get(
       buildGitReviewRepositoryKey(registered),
@@ -362,18 +336,11 @@ export async function resolveGitReviewRepositoryPaths(
     if (registeredPaths) return registeredPaths;
   }
 
-  const readKey = buildGitReviewRepositoryCwdKey(
-    normalizedHostId,
-    normalizedCwd,
-  );
+  const readKey = buildGitReviewRepositoryCwdKey(normalizedHostId, normalizedCwd);
   const existing = gitReviewRepositoryPathReads.get(readKey);
   if (existing) return existing;
 
-  const promise = runGitCommand(
-    ["rev-parse", "--show-toplevel"],
-    normalizedCwd,
-    [0, 128],
-  )
+  const promise = runGitCommand(["rev-parse", "--show-toplevel"], normalizedCwd, [0, 128])
     .then(async (rootResult) => {
       const rawRoot = rootResult.stdout.trim();
       if (!rawRoot) return null;
@@ -397,10 +364,7 @@ export async function resolveGitReviewRepositoryPaths(
         gitDir,
         commonDir,
       };
-      const identity = registerGitReviewRepositoryIdentity(
-        normalizedCwd,
-        paths,
-      );
+      const identity = registerGitReviewRepositoryIdentity(normalizedCwd, paths);
       return { ...paths, ...identity };
     })
     .catch(() => null);
@@ -417,10 +381,7 @@ export async function resolveGitReviewRepositoryPaths(
 async function resolveGitReviewRepositoryIdentity(
   cwd: string,
 ): Promise<GitReviewRepositoryIdentity> {
-  const registered = findRegisteredGitReviewRepository(
-    cwd,
-    GIT_REVIEW_LOCAL_HOST_ID,
-  );
+  const registered = findRegisteredGitReviewRepository(cwd, GIT_REVIEW_LOCAL_HOST_ID);
   if (registered) return registered;
   const paths = await resolveGitReviewRepositoryPaths(cwd);
   if (paths) return paths;
@@ -437,16 +398,12 @@ class GitReviewStaleSnapshotError extends Error {
     readonly expectedGeneration: number,
     readonly actualGeneration: number,
   ) {
-    super(
-      `Git review snapshot changed (${expectedGeneration} -> ${actualGeneration}).`,
-    );
+    super(`Git review snapshot changed (${expectedGeneration} -> ${actualGeneration}).`);
     this.name = "GitReviewStaleSnapshotError";
   }
 }
 
-export function isGitReviewStaleSnapshotError(
-  error: unknown,
-): error is Error & {
+export function isGitReviewStaleSnapshotError(error: unknown): error is Error & {
   expectedGeneration: number;
   actualGeneration: number;
 } {
@@ -463,10 +420,7 @@ function parseDirtyWorktreePaths(status: string): string[] {
     const statusCode = record.slice(0, 2);
     const filePath = record.slice(3);
     if (filePath) paths.push(filePath);
-    if (
-      statusCode.includes("R") ||
-      statusCode.includes("C")
-    ) {
+    if (statusCode.includes("R") || statusCode.includes("C")) {
       const previousPath = records[index + 1] ?? "";
       if (previousPath) paths.push(previousPath);
       index += 1;
@@ -479,15 +433,16 @@ function parseDirtyWorktreePaths(status: string): string[] {
 function pathsOverlap(first: string, second: string): boolean {
   const firstToSecond = path.relative(first, second);
   if (
-    firstToSecond === ""
-    || (!firstToSecond.startsWith("..") && !path.isAbsolute(firstToSecond))
+    firstToSecond === "" ||
+    (!firstToSecond.startsWith("..") && !path.isAbsolute(firstToSecond))
   ) {
     return true;
   }
 
   const secondToFirst = path.relative(second, first);
-  return secondToFirst === ""
-    || (!secondToFirst.startsWith("..") && !path.isAbsolute(secondToFirst));
+  return (
+    secondToFirst === "" || (!secondToFirst.startsWith("..") && !path.isAbsolute(secondToFirst))
+  );
 }
 
 export async function filterGitReviewWorkingTreePaths(input: {
@@ -515,14 +470,7 @@ export async function filterGitReviewWorkingTreePaths(input: {
 
   if (changedPaths.length === 0) return { type: "full" };
   const status = await runGitCommand(
-    [
-      "status",
-      "--porcelain=v1",
-      "-z",
-      "--untracked-files=all",
-      "--",
-      ...pathspecs,
-    ],
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...pathspecs],
     root,
     [0],
     { literalPathspecs: true },
@@ -530,20 +478,17 @@ export async function filterGitReviewWorkingTreePaths(input: {
   if (!status) return { type: "full" };
 
   const dirtyPaths = parseDirtyWorktreePaths(status.stdout).map((filePath) =>
-    path.resolve(root, filePath)
+    path.resolve(root, filePath),
   );
   return {
     type: "filtered",
     changedPaths: changedPaths.filter((changedPath) =>
-      dirtyPaths.some((dirtyPath) => pathsOverlap(changedPath, dirtyPath))
+      dirtyPaths.some((dirtyPath) => pathsOverlap(changedPath, dirtyPath)),
     ),
   };
 }
 
-async function readGitReviewSnapshotGeneration(
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<number> {
+async function readGitReviewSnapshotGeneration(cwd: string, signal?: AbortSignal): Promise<number> {
   signal?.throwIfAborted();
   const repository = await resolveGitReviewRepositoryIdentity(cwd);
   const repositoryKey = buildGitReviewRepositoryKey(repository);
@@ -586,17 +531,11 @@ async function assertGitReviewSnapshotGeneration(
   if (provider) {
     const actualGeneration = provider.current();
     if (actualGeneration === expectedGeneration) return;
-    throw new GitReviewStaleSnapshotError(
-      expectedGeneration,
-      actualGeneration,
-    );
+    throw new GitReviewStaleSnapshotError(expectedGeneration, actualGeneration);
   }
   const actualGeneration = fallbackSnapshotGenerations.get(repositoryKey) ?? 1;
   if (actualGeneration === expectedGeneration) return;
-  throw new GitReviewStaleSnapshotError(
-    expectedGeneration,
-    actualGeneration,
-  );
+  throw new GitReviewStaleSnapshotError(expectedGeneration, actualGeneration);
 }
 
 async function runGitReviewRequest<T>(
@@ -619,8 +558,7 @@ export function runGitReviewOperationWithSignal<Result>(
 function isNotGitRepositoryError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
-  const stderr =
-    "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
   const message = `${error.message}\n${stderr}`.toLowerCase();
   return message.includes("not a git repository");
 }
@@ -628,8 +566,7 @@ function isNotGitRepositoryError(error: unknown): boolean {
 function resolvePatchErrorCode(error: unknown): string {
   if (!(error instanceof Error)) return "gitApplyFailed";
 
-  const stderr =
-    "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
   const message = `${error.message}\n${stderr}`.toLowerCase();
   if (message.includes("patch does not apply")) return "patchDoesNotApply";
   if (message.includes("already exists in index")) return "alreadyApplied";
@@ -638,16 +575,10 @@ function resolvePatchErrorCode(error: unknown): string {
   return "gitApplyFailed";
 }
 
-async function isGitRepository(
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  const result = await runGitCommand(
-    ["rev-parse", "--is-inside-work-tree"],
-    cwd,
-    [0],
-    { signal },
-  ).catch((error) => {
+async function isGitRepository(cwd: string, signal?: AbortSignal): Promise<boolean> {
+  const result = await runGitCommand(["rev-parse", "--is-inside-work-tree"], cwd, [0], {
+    signal,
+  }).catch((error) => {
     signal?.throwIfAborted();
     if (error instanceof Error && error.name === "AbortError") throw error;
     return null;
@@ -701,9 +632,7 @@ function parseNameStatusZ(
   stdout: string,
 ): Array<Pick<GitDiffFileMetadata, "path" | "previousPath" | "status">> {
   const tokens = splitNul(stdout);
-  const rows: Array<
-    Pick<GitDiffFileMetadata, "path" | "previousPath" | "status">
-  > = [];
+  const rows: Array<Pick<GitDiffFileMetadata, "path" | "previousPath" | "status">> = [];
   let index = 0;
 
   while (index < tokens.length) {
@@ -786,15 +715,10 @@ function parseNumstatCount(value: string | undefined): number | null {
 
 function parseNumstatZ(
   stdout: string,
-): Array<
-  Pick<GitDiffFileMetadata, "path" | "previousPath" | "additions" | "deletions">
-> {
+): Array<Pick<GitDiffFileMetadata, "path" | "previousPath" | "additions" | "deletions">> {
   const tokens = splitNul(stdout);
   const rows: Array<
-    Pick<
-      GitDiffFileMetadata,
-      "path" | "previousPath" | "additions" | "deletions"
-    >
+    Pick<GitDiffFileMetadata, "path" | "previousPath" | "additions" | "deletions">
   > = [];
   let index = 0;
 
@@ -833,9 +757,7 @@ async function hashWorktreePaths(
   paths: string[],
   signal?: AbortSignal,
 ): Promise<Map<string, string>> {
-  const uniquePaths = Array.from(
-    new Set(paths.filter((entry) => entry.trim().length > 0)),
-  );
+  const uniquePaths = Array.from(new Set(paths.filter((entry) => entry.trim().length > 0)));
   if (uniquePaths.length === 0) return new Map();
 
   const result = await runGitCommand(
@@ -879,10 +801,7 @@ async function buildGitFileRevision(input: {
 }): Promise<string | null> {
   if (input.status === "untracked") {
     if (input.worktreeHash) return `untracked:${input.worktreeHash}`;
-    const statRevisionPart = await buildWorktreeStatRevisionPart(
-      input.cwd,
-      input.path,
-    );
+    const statRevisionPart = await buildWorktreeStatRevisionPart(input.cwd, input.path);
     return statRevisionPart
       ? `untracked:${statRevisionPart}:${input.path}`
       : `untracked:${input.path}`;
@@ -896,10 +815,7 @@ async function buildGitFileRevision(input: {
     return `${input.source}:${input.status}:${input.oldOid ?? ""}:worktree:${input.worktreeHash}`;
   }
 
-  const statRevisionPart = await buildWorktreeStatRevisionPart(
-    input.cwd,
-    input.path,
-  );
+  const statRevisionPart = await buildWorktreeStatRevisionPart(input.cwd, input.path);
   if (statRevisionPart) {
     return `${input.source}:${input.status}:${input.oldOid ?? ""}:worktree:${statRevisionPart}`;
   }
@@ -910,22 +826,15 @@ async function buildGitFileRevision(input: {
 async function mergeGitDiffMetadata(input: {
   cwd: string;
   source: GitReviewSource;
-  nameStatusRows: Array<
-    Pick<GitDiffFileMetadata, "path" | "previousPath" | "status">
-  >;
+  nameStatusRows: Array<Pick<GitDiffFileMetadata, "path" | "previousPath" | "status">>;
   numstatRows: Array<
-    Pick<
-      GitDiffFileMetadata,
-      "path" | "previousPath" | "additions" | "deletions"
-    >
+    Pick<GitDiffFileMetadata, "path" | "previousPath" | "additions" | "deletions">
   >;
   rawRows: GitDiffRawMetadata[];
   signal?: AbortSignal;
 }): Promise<GitDiffFileMetadata[]> {
   const statsByPath = new Map(input.numstatRows.map((row) => [row.path, row]));
-  const statusByPath = new Map(
-    input.nameStatusRows.map((row) => [row.path, row]),
-  );
+  const statusByPath = new Map(input.nameStatusRows.map((row) => [row.path, row]));
   const rawByPath = new Map(input.rawRows.map((row) => [row.path, row]));
   const orderedPaths =
     input.nameStatusRows.length > 0
@@ -937,56 +846,47 @@ async function mergeGitDiffMetadata(input: {
       ? await hashWorktreePaths(input.cwd, orderedPaths, input.signal)
       : new Map<string, string>();
   const rows = await Promise.all(
-    orderedPaths.flatMap(
-      (filePath): Array<Promise<GitDiffFileMetadata | null>> => {
-        if (seen.has(filePath)) return [];
-        seen.add(filePath);
-        const statusRow = statusByPath.get(filePath) ?? null;
-        const statsRow = statsByPath.get(filePath) ?? null;
-        const rawRow = rawByPath.get(filePath) ?? null;
-        const pathName =
-          statusRow?.path ?? statsRow?.path ?? rawRow?.path ?? filePath;
-        const previousPath =
-          statusRow?.previousPath ??
-          statsRow?.previousPath ??
-          rawRow?.previousPath ??
-          null;
-        const status =
-          statusRow?.status ??
-          mapNameStatusCode(rawRow?.rawStatus ?? "") ??
-          "modified";
-        const additions = statsRow?.additions ?? 0;
-        const deletions = statsRow?.deletions ?? 0;
-        const safety = classifyReviewFileMetadata({
-          path: pathName,
-          additions,
-          deletions,
-        });
+    orderedPaths.flatMap((filePath): Array<Promise<GitDiffFileMetadata | null>> => {
+      if (seen.has(filePath)) return [];
+      seen.add(filePath);
+      const statusRow = statusByPath.get(filePath) ?? null;
+      const statsRow = statsByPath.get(filePath) ?? null;
+      const rawRow = rawByPath.get(filePath) ?? null;
+      const pathName = statusRow?.path ?? statsRow?.path ?? rawRow?.path ?? filePath;
+      const previousPath =
+        statusRow?.previousPath ?? statsRow?.previousPath ?? rawRow?.previousPath ?? null;
+      const status = statusRow?.status ?? mapNameStatusCode(rawRow?.rawStatus ?? "") ?? "modified";
+      const additions = statsRow?.additions ?? 0;
+      const deletions = statsRow?.deletions ?? 0;
+      const safety = classifyReviewFileMetadata({
+        path: pathName,
+        additions,
+        deletions,
+      });
 
-        return [
-          buildGitFileRevision({
-            cwd: input.cwd,
-            source: input.source,
-            path: pathName,
-            status,
-            oldOid: rawRow?.oldOid ?? null,
-            newOid: rawRow?.newOid ?? null,
-            worktreeHash: worktreeHashByPath.get(pathName) ?? null,
-          }).then((revision) => ({
-            path: pathName,
-            previousPath,
-            status,
-            rawStatus: rawRow?.rawStatus ?? null,
-            oldOid: rawRow?.oldOid ?? null,
-            newOid: rawRow?.newOid ?? null,
-            revision,
-            additions: safety.binary ? null : additions,
-            deletions: safety.binary ? null : deletions,
-            safety,
-          })),
-        ];
-      },
-    ),
+      return [
+        buildGitFileRevision({
+          cwd: input.cwd,
+          source: input.source,
+          path: pathName,
+          status,
+          oldOid: rawRow?.oldOid ?? null,
+          newOid: rawRow?.newOid ?? null,
+          worktreeHash: worktreeHashByPath.get(pathName) ?? null,
+        }).then((revision) => ({
+          path: pathName,
+          previousPath,
+          status,
+          rawStatus: rawRow?.rawStatus ?? null,
+          oldOid: rawRow?.oldOid ?? null,
+          newOid: rawRow?.newOid ?? null,
+          revision,
+          additions: safety.binary ? null : additions,
+          deletions: safety.binary ? null : deletions,
+          safety,
+        })),
+      ];
+    }),
   );
 
   return rows.filter((row): row is GitDiffFileMetadata => row !== null);
@@ -1042,10 +942,7 @@ async function readGeneratedReviewPaths(
         const filePath = records[index] ?? "";
         const attribute = records[index + 1] ?? "";
         const value = (records[index + 2] ?? "").toLowerCase();
-        if (
-          attribute === "linguist-generated" &&
-          (value === "set" || value === "true")
-        ) {
+        if (attribute === "linguist-generated" && (value === "set" || value === "true")) {
           generated.add(filePath);
         }
       }
@@ -1068,8 +965,7 @@ async function annotateGeneratedReviewFiles(
   );
   return files.map((file) => ({
     ...file,
-    generated:
-      generatedPaths === null ? null : generatedPaths.has(file.path),
+    generated: generatedPaths === null ? null : generatedPaths.has(file.path),
   }));
 }
 
@@ -1145,13 +1041,9 @@ function resolveDiffLoadStatus(input: {
 }): ReviewDiffEntry["loadStatus"] {
   if (input.safety.skipReason === "binary") return "binary";
   if (input.safety.skipReason === "tooLarge") return "diff-too-large";
-  if (
-    input.safety.skipReason === "invalidText" ||
-    input.safety.skipReason === "unsupported"
-  )
+  if (input.safety.skipReason === "invalidText" || input.safety.skipReason === "unsupported")
     return "unsupported";
-  if (input.changedLines > REVIEW_FILE_CHANGED_LINES_LIMIT)
-    return "diff-too-large";
+  if (input.changedLines > REVIEW_FILE_CHANGED_LINES_LIMIT) return "diff-too-large";
   return "loaded";
 }
 
@@ -1162,9 +1054,7 @@ function toReviewDiffEntries(
   const diffsByPath = splitPatchFileDiffsByPath(patch);
 
   return summaries.map((file) => {
-    const diff = file.safety.renderable
-      ? (diffsByPath.get(file.path) ?? "")
-      : "";
+    const diff = file.safety.renderable ? (diffsByPath.get(file.path) ?? "") : "";
     const diffSafety =
       diff.trim().length > 0
         ? classifyReviewTextPayload({
@@ -1186,9 +1076,7 @@ function toReviewDiffEntries(
       diffBytes: Buffer.byteLength(diff, "utf8"),
       diffError: null,
       canApplyPatchActions:
-        file.safety.renderable &&
-        diff.trim().length > 0 &&
-        loadStatus === "loaded",
+        file.safety.renderable && diff.trim().length > 0 && loadStatus === "loaded",
       changedBytes: Buffer.byteLength(diff, "utf8"),
       tooLarge,
       tooLargeReason: tooLarge
@@ -1270,9 +1158,7 @@ async function buildGitReviewSourceDiffArgs(input: {
       [0, 1, 128],
       { signal: input.signal },
     ).catch(() => null);
-    const parentSha = parentResult?.exitCode === 0
-      ? parentResult.stdout.trim()
-      : "";
+    const parentSha = parentResult?.exitCode === 0 ? parentResult.stdout.trim() : "";
     return buildGitReviewDiffArgs({
       hideWhitespace: input.hideWhitespace,
       revisions: [parentSha || GIT_EMPTY_TREE_SHA, normalizedCommitSha],
@@ -1287,10 +1173,7 @@ async function buildGitReviewSourceDiffArgs(input: {
   });
 }
 
-async function listUntrackedFiles(
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<string[]> {
+async function listUntrackedFiles(cwd: string, signal?: AbortSignal): Promise<string[]> {
   const result = await runGitCommand(
     ["ls-files", "--others", "--exclude-standard", "-z"],
     cwd,
@@ -1383,9 +1266,7 @@ async function readUntrackedFileMetadata(
       oldOid: null,
       newOid: null,
       worktreeHash:
-        (await hashWorktreePaths(cwd, [relativePath], signal)).get(
-          relativePath,
-        ) ?? null,
+        (await hashWorktreePaths(cwd, [relativePath], signal)).get(relativePath) ?? null,
     }),
     additions: safety.binary ? null : additions,
     deletions: safety.binary ? null : deletions,
@@ -1402,15 +1283,13 @@ async function readUntrackedMetadata(
   if (precomputedUntrackedPaths === null) {
     throw new Error("Could not read untracked Git paths.");
   }
-  const untrackedFiles = precomputedUntrackedPaths
-    ?? await listUntrackedFiles(cwd, signal);
+  const untrackedFiles = precomputedUntrackedPaths ?? (await listUntrackedFiles(cwd, signal));
   if (untrackedFiles.length === 0) return [];
 
   return mapWithConcurrency(
     [...untrackedFiles],
     REVIEW_UNTRACKED_DIFF_CONCURRENCY,
-    (relativePath) =>
-      readUntrackedFileMetadata(cwd, relativePath, hideWhitespace, signal),
+    (relativePath) => readUntrackedFileMetadata(cwd, relativePath, hideWhitespace, signal),
   );
 }
 
@@ -1434,17 +1313,13 @@ async function readGitReviewFiles(
       input.includeUntrackedFiles === false
         ? Promise.resolve([])
         : readUntrackedMetadata(
-          input.cwd,
-          input.hideWhitespace,
-          signal,
-          input.precomputedUntrackedPaths,
-        ),
+            input.cwd,
+            input.hideWhitespace,
+            signal,
+            input.precomputedUntrackedPaths,
+          ),
     ]);
-    return annotateGeneratedReviewFiles(
-      input.cwd,
-      [...trackedFiles, ...untrackedFiles],
-      signal,
-    );
+    return annotateGeneratedReviewFiles(input.cwd, [...trackedFiles, ...untrackedFiles], signal);
   }
 
   const diffArgs = await buildGitReviewSourceDiffArgs({
@@ -1456,12 +1331,7 @@ async function readGitReviewFiles(
     signal,
   });
   if (!diffArgs) return [];
-  const files = await readGitDiffMetadata(
-    input.cwd,
-    input.source,
-    diffArgs,
-    signal,
-  );
+  const files = await readGitDiffMetadata(input.cwd, input.source, diffArgs, signal);
   return annotateGeneratedReviewFiles(input.cwd, files, signal);
 }
 
@@ -1500,8 +1370,7 @@ async function resolveBranchComparisonBase(
   explicitBaseBranch: string | null | undefined,
   signal?: AbortSignal,
 ): Promise<{ baseBranch: string | null; baseSha: string | null }> {
-  const baseBranch =
-    explicitBaseBranch?.trim() || (await resolveBaseRef(cwd, null, signal));
+  const baseBranch = explicitBaseBranch?.trim() || (await resolveBaseRef(cwd, null, signal));
   if (!baseBranch) {
     return {
       baseBranch: null,
@@ -1509,12 +1378,9 @@ async function resolveBranchComparisonBase(
     };
   }
 
-  const mergeBase = await runGitCommand(
-    ["merge-base", "HEAD", baseBranch],
-    cwd,
-    [0, 1, 128],
-    { signal },
-  ).catch(() => null);
+  const mergeBase = await runGitCommand(["merge-base", "HEAD", baseBranch], cwd, [0, 1, 128], {
+    signal,
+  }).catch(() => null);
   const baseSha = mergeBase?.exitCode === 0 ? mergeBase.stdout.trim() : "";
   return {
     baseBranch,
@@ -1552,20 +1418,15 @@ function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer>
   signal?.throwIfAborted();
 
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      "git",
-      [...GIT_CONFIG_OVERRIDES, "cat-file", "--batch"],
-      {
-        cwd,
-        env: GIT_READ_ENVIRONMENT,
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-      },
-    );
+    const child = spawn("git", [...GIT_CONFIG_OVERRIDES, "cat-file", "--batch"], {
+      cwd,
+      env: GIT_READ_ENVIRONMENT,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
     const outputChunks: Buffer[] = [];
     const errorChunks: Buffer[] = [];
-    const outputLimit =
-      objectSpecs.length * (REVIEW_CAT_FILE_MAX_BYTES + 512);
+    const outputLimit = objectSpecs.length * (REVIEW_CAT_FILE_MAX_BYTES + 512);
     let outputBytes = 0;
     let settled = false;
     let outputLimitReached = false;
@@ -1616,8 +1477,7 @@ function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer>
       }
       reject(
         new Error(
-          Buffer.concat(errorChunks).toString("utf8").trim() ||
-            "Could not read Git objects.",
+          Buffer.concat(errorChunks).toString("utf8").trim() || "Could not read Git objects.",
         ),
       );
     });
@@ -1688,10 +1548,7 @@ async function readGitCatFileObjectBatch(
     const output = await runGitCatFileBatch(cwd, objectSpecs);
     const parsed = parseGitCatFileBatch(output, objectSpecs.length);
     if (parsed.processed >= objectSpecs.length) return parsed.results;
-    const remaining = await readGitCatFileObjectBatch(
-      cwd,
-      objectSpecs.slice(parsed.processed),
-    );
+    const remaining = await readGitCatFileObjectBatch(cwd, objectSpecs.slice(parsed.processed));
     return [...parsed.results, ...remaining];
   } catch {
     return objectSpecs.map(() => ({
@@ -1753,10 +1610,7 @@ export async function readGitReviewCatFile(
 ): Promise<GitReviewCatFileOutput> {
   const cwd = await ensureDirectory(input.cwd);
   try {
-    await assertGitReviewSnapshotGeneration(
-      cwd,
-      input.snapshotGeneration,
-    );
+    await assertGitReviewSnapshotGeneration(cwd, input.snapshotGeneration);
   } catch (error) {
     if (!(error instanceof GitReviewStaleSnapshotError)) throw error;
     return {
@@ -1787,8 +1641,7 @@ export async function readGitReviewCatFile(
       batch.map((request) => request.objectSpec),
     );
     batch.forEach((request, index) => {
-      results[request.index] =
-        batchResults[index] ?? { type: "error", error: { type: "unknown" } };
+      results[request.index] = batchResults[index] ?? { type: "error", error: { type: "unknown" } };
     });
   }
 
@@ -1830,20 +1683,14 @@ async function readGitReviewSnapshotWithSignal(
   const branchState = gitRepository
     ? await readGitBranchState(cwd, signal)
     : { currentBranch: null, defaultBranch: null, branches: [] };
-  const snapshotGeneration = gitRepository
-    ? await readGitReviewSnapshotGeneration(cwd, signal)
-    : 0;
+  const snapshotGeneration = gitRepository ? await readGitReviewSnapshotGeneration(cwd, signal) : 0;
 
   if (
     gitRepository &&
     input.snapshotGeneration !== undefined &&
     input.snapshotGeneration !== null
   ) {
-    await assertGitReviewSnapshotGeneration(
-      cwd,
-      input.snapshotGeneration,
-      signal,
-    );
+    await assertGitReviewSnapshotGeneration(cwd, input.snapshotGeneration, signal);
   }
 
   if (!gitRepository) {
@@ -1863,9 +1710,7 @@ async function readGitReviewSnapshotWithSignal(
 
   try {
     const baseRef =
-      input.source === "branch"
-        ? await resolveBaseRef(cwd, input.baseRef, signal)
-        : null;
+      input.source === "branch" ? await resolveBaseRef(cwd, input.baseRef, signal) : null;
     const files = await readGitReviewFiles(
       {
         ...input,
@@ -1915,10 +1760,7 @@ async function readGitReviewSnapshotWithSignal(
       baseRef: input.baseRef?.trim() || null,
       currentBranch: branchState.currentBranch,
       defaultBranch: branchState.defaultBranch,
-      errorMessage:
-        error instanceof Error
-          ? error.message
-          : "Could not load Git review snapshot.",
+      errorMessage: error instanceof Error ? error.message : "Could not load Git review snapshot.",
       snapshotGeneration,
     };
   }
@@ -1939,34 +1781,33 @@ function buildRequestedGitReviewFileSummaries(
     const pathName = file.path.trim();
     if (!pathName) return [];
     const previousPath = file.previousPath?.trim() || null;
-    return [{
-      path: pathName,
-      previousPath,
-      status: file.status,
-      rawStatus: null,
-      oldOid: null,
-      newOid: null,
-      revision: file.revision?.trim() || null,
-      additions: null,
-      deletions: null,
-      safety: classifyReviewFileMetadata({ path: pathName }),
-    }];
+    return [
+      {
+        path: pathName,
+        previousPath,
+        status: file.status,
+        rawStatus: null,
+        oldOid: null,
+        newOid: null,
+        revision: file.revision?.trim() || null,
+        additions: null,
+        deletions: null,
+        safety: classifyReviewFileMetadata({ path: pathName }),
+      },
+    ];
   });
 }
 
 function shouldLoadReviewFilePatch(file: GitReviewFileSummary): boolean {
   return (
-    file.safety.renderable &&
-    countNullableChangedLines(file) <= REVIEW_FILE_CHANGED_LINES_LIMIT
+    file.safety.renderable && countNullableChangedLines(file) <= REVIEW_FILE_CHANGED_LINES_LIMIT
   );
 }
 
 function buildDiffPathspecs(files: GitReviewFileSummary[]): string[] {
   return Array.from(
     new Set(
-      files.flatMap((file) =>
-        file.previousPath ? [file.previousPath, file.path] : [file.path],
-      ),
+      files.flatMap((file) => (file.previousPath ? [file.previousPath, file.path] : [file.path])),
     ),
   );
 }
@@ -2025,16 +1866,8 @@ async function readUntrackedReviewPatchForFiles(input: {
   hideWhitespace?: boolean;
   signal?: AbortSignal;
 }): Promise<string> {
-  const patches = await mapWithConcurrency(
-    input.files,
-    REVIEW_UNTRACKED_DIFF_CONCURRENCY,
-    (file) =>
-      readUntrackedFilePatch(
-        input.cwd,
-        file.path,
-        input.hideWhitespace,
-        input.signal,
-      ),
+  const patches = await mapWithConcurrency(input.files, REVIEW_UNTRACKED_DIFF_CONCURRENCY, (file) =>
+    readUntrackedFilePatch(input.cwd, file.path, input.hideWhitespace, input.signal),
   );
   return patches.filter((patch) => patch.trim().length > 0).join("\n");
 }
@@ -2058,9 +1891,7 @@ async function readReviewPatchForFileSummaries(input: {
   }
 
   const untrackedFiles =
-    input.source === "unstaged"
-      ? loadableFiles.filter((file) => file.status === "untracked")
-      : [];
+    input.source === "unstaged" ? loadableFiles.filter((file) => file.status === "untracked") : [];
   const trackedFiles =
     input.source === "unstaged"
       ? loadableFiles.filter((file) => file.status !== "untracked")
@@ -2094,17 +1925,14 @@ async function readReviewPatchForFileSummaries(input: {
         : Promise.resolve(""),
     ]);
     return {
-      patch: [trackedPatch, untrackedPatch]
-        .filter((patch) => patch.trim().length > 0)
-        .join("\n"),
+      patch: [trackedPatch, untrackedPatch].filter((patch) => patch.trim().length > 0).join("\n"),
       errorMessage: null,
       outputLimitExceeded: false,
     };
   } catch (error) {
     return {
       patch: "",
-      errorMessage:
-        error instanceof Error ? error.message : "Could not load review diff.",
+      errorMessage: error instanceof Error ? error.message : "Could not load review diff.",
       outputLimitExceeded: isGitOutputLimitError(error),
     };
   }
@@ -2144,9 +1972,7 @@ async function readFullReviewPatch(input: {
   outputLimitExceeded: boolean;
 }> {
   const untrackedFiles =
-    input.source === "unstaged"
-      ? input.files.filter((file) => file.status === "untracked")
-      : [];
+    input.source === "unstaged" ? input.files.filter((file) => file.status === "untracked") : [];
   const trackedFiles =
     input.source === "unstaged"
       ? input.files.filter((file) => file.status !== "untracked")
@@ -2192,8 +2018,7 @@ async function readFullReviewPatch(input: {
   } catch (error) {
     return {
       patch: "",
-      errorMessage:
-        error instanceof Error ? error.message : "Could not load review patch.",
+      errorMessage: error instanceof Error ? error.message : "Could not load review patch.",
       outputLimitExceeded: isGitOutputLimitError(error),
     };
   }
@@ -2255,9 +2080,7 @@ export async function readGitReviewPatch(
   });
 }
 
-export async function readGitReviewDiff(
-  input: ReviewDiffRequest,
-): Promise<ReviewDiffResult> {
+export async function readGitReviewDiff(input: ReviewDiffRequest): Promise<ReviewDiffResult> {
   try {
     return await runGitReviewRequest(input.requestId, async (signal) => {
       const cwd = await ensureDirectory(input.cwd);
@@ -2281,14 +2104,8 @@ export async function readGitReviewDiff(
         };
       }
 
-      await assertGitReviewSnapshotGeneration(
-        cwd,
-        snapshotGeneration,
-        signal,
-      );
-      const requestedFiles = buildRequestedGitReviewFileSummaries(
-        input.files ?? [],
-      );
+      await assertGitReviewSnapshotGeneration(cwd, snapshotGeneration, signal);
+      const requestedFiles = buildRequestedGitReviewFileSummaries(input.files ?? []);
       const baseRef = input.baseBranch?.trim() || input.baseRef?.trim() || null;
       const patchResult = await readReviewPatchForFileSummaries({
         cwd,
@@ -2301,9 +2118,7 @@ export async function readGitReviewDiff(
       });
       const filteredEntries = patchResult.errorMessage
         ? buildFailedReviewDiffEntries(requestedFiles, {
-            loadStatus: patchResult.outputLimitExceeded
-              ? "diff-too-large"
-              : "load-failed",
+            loadStatus: patchResult.outputLimitExceeded ? "diff-too-large" : "load-failed",
             errorMessage: patchResult.errorMessage,
           })
         : toReviewDiffEntries(patchResult.patch, requestedFiles);
@@ -2391,23 +2206,19 @@ export async function readGitReviewSummary(
         throw new Error("Could not read Git stage counts.");
       }
       const stageCounts = snapshot.isGitRepository
-        ? input.precomputedStageCounts ?? {
-          ...(await readGitReviewStageCounts(snapshot.cwd, signal)),
-          untrackedFileCount: snapshot.files.filter(
-            (file) => file.status === "untracked",
-          ).length + (input.untrackedFilesOmitted ?? 0),
-        }
+        ? (input.precomputedStageCounts ?? {
+            ...(await readGitReviewStageCounts(snapshot.cwd, signal)),
+            untrackedFileCount:
+              snapshot.files.filter((file) => file.status === "untracked").length +
+              (input.untrackedFilesOmitted ?? 0),
+          })
         : {
             stagedFileCount: 0,
             unstagedFileCount: 0,
             untrackedFileCount: 0,
           };
       if (snapshot.isGitRepository) {
-        await assertGitReviewSnapshotGeneration(
-          snapshot.cwd,
-          snapshot.snapshotGeneration,
-          signal,
-        );
+        await assertGitReviewSnapshotGeneration(snapshot.cwd, snapshot.snapshotGeneration, signal);
       }
 
       return {
@@ -2425,9 +2236,7 @@ export async function readGitReviewSummary(
         type: "error",
         source: input.source,
         errorMessage:
-          error instanceof Error
-            ? error.message
-            : "Could not load the Git review summary.",
+          error instanceof Error ? error.message : "Could not load the Git review summary.",
       };
     }
   });
@@ -2477,9 +2286,7 @@ export async function readGitReviewRepositoryMetadata(
         currentBranch: null,
         defaultBranch: null,
         errorMessage:
-          error instanceof Error
-            ? error.message
-            : "Could not read Git repository metadata.",
+          error instanceof Error ? error.message : "Could not read Git repository metadata.",
       };
     }
   });
@@ -2511,14 +2318,13 @@ async function readGitReviewBaseBranchWithSignal(
     ]);
     signal?.throwIfAborted();
     const remote = remoteResult?.stdout.trim() || null;
-    const remoteLocal = remote?.includes("/")
-      ? remote.slice(remote.indexOf("/") + 1)
-      : null;
-    const local = remoteLocal
-      ?? branchState.defaultBranch
-      ?? (branchState.branches.includes("main") ? "main" : null)
-      ?? (branchState.branches.includes("master") ? "master" : null)
-      ?? branchState.currentBranch;
+    const remoteLocal = remote?.includes("/") ? remote.slice(remote.indexOf("/") + 1) : null;
+    const local =
+      remoteLocal ??
+      branchState.defaultBranch ??
+      (branchState.branches.includes("main") ? "main" : null) ??
+      (branchState.branches.includes("master") ? "master" : null) ??
+      branchState.currentBranch;
     return { cwd, local, remote, errorMessage: null };
   } catch (error) {
     if (signal?.aborted) throw error;
@@ -2526,10 +2332,7 @@ async function readGitReviewBaseBranchWithSignal(
       cwd: input.cwd,
       local: null,
       remote: null,
-      errorMessage:
-        error instanceof Error
-          ? error.message
-          : "Could not resolve the base branch.",
+      errorMessage: error instanceof Error ? error.message : "Could not resolve the base branch.",
     };
   }
 }
@@ -2558,14 +2361,8 @@ export async function readBranchDiffStats(
       },
       signal,
     );
-    const additions = snapshot.files.reduce(
-      (total, file) => total + (file.additions ?? 0),
-      0,
-    );
-    const deletions = snapshot.files.reduce(
-      (total, file) => total + (file.deletions ?? 0),
-      0,
-    );
+    const additions = snapshot.files.reduce((total, file) => total + (file.additions ?? 0), 0);
+    const deletions = snapshot.files.reduce((total, file) => total + (file.deletions ?? 0), 0);
 
     return {
       cwd: snapshot.cwd,
@@ -2634,18 +2431,13 @@ export async function readGitReviewBranchCommits(
         cwd,
         baseBranch,
         commits: [],
-        errorMessage:
-          error instanceof Error
-            ? error.message
-            : "Could not load branch commits.",
+        errorMessage: error instanceof Error ? error.message : "Could not load branch commits.",
       };
     }
   });
 }
 
-export async function resolveGitMergeBase(
-  input: GitMergeBaseRequest,
-): Promise<GitMergeBaseResult> {
+export async function resolveGitMergeBase(input: GitMergeBaseRequest): Promise<GitMergeBaseResult> {
   const cwd = await ensureDirectory(input.gitRoot?.trim() || input.cwd);
   const baseBranch = input.baseBranch.trim();
   if (!baseBranch) {
@@ -2680,10 +2472,7 @@ export async function resolveGitMergeBase(
       cwd,
       baseBranch,
       mergeBaseSha: null,
-      errorMessage:
-        error instanceof Error
-          ? error.message
-          : "Could not resolve merge base.",
+      errorMessage: error instanceof Error ? error.message : "Could not resolve merge base.",
     };
   }
 }
@@ -2777,10 +2566,7 @@ function decodeQuotedGitPath(
   return null;
 }
 
-function normalizeGitDiffHeaderPaths(
-  oldPath: string,
-  newPath: string,
-): GitDiffHeaderPaths | null {
+function normalizeGitDiffHeaderPaths(oldPath: string, newPath: string): GitDiffHeaderPaths | null {
   if (!oldPath.startsWith("a/") || !newPath.startsWith("b/")) return null;
   return {
     oldPath: oldPath.slice(2),
@@ -2813,10 +2599,7 @@ function buildGitReviewSearchSnippet(
   end: number,
 ): GitReviewSearchMatch["snippet"] {
   const snippetStart = Math.max(0, start - GIT_REVIEW_SEARCH_SNIPPET_CONTEXT);
-  const snippetEnd = Math.min(
-    value.length,
-    end + GIT_REVIEW_SEARCH_SNIPPET_CONTEXT,
-  );
+  const snippetEnd = Math.min(value.length, end + GIT_REVIEW_SEARCH_SNIPPET_CONTEXT);
   return {
     before: value.slice(snippetStart, start),
     match: value.slice(start, end),
@@ -2909,9 +2692,7 @@ function scanGitReviewPatchLines(input: {
     const hunkHeader = GIT_REVIEW_SEARCH_HUNK_HEADER.exec(line);
     if (hunkHeader?.groups) {
       input.state.hunkOffset = 0;
-      input.state.currentHunkId = String(
-        input.state.hunkIndex,
-      ) as `${number}`;
+      input.state.currentHunkId = String(input.state.hunkIndex) as `${number}`;
       input.state.hunkIndex += 1;
       const additionStart = Number(hunkHeader.groups.additionStart);
       const deletionStart = Number(hunkHeader.groups.deletionStart);
@@ -2921,18 +2702,10 @@ function scanGitReviewPatchLines(input: {
       const additionEnd = additionStart + Math.max(additionCount, 0) - 1;
       const deletionEnd = deletionStart + Math.max(deletionCount, 0) - 1;
       input.state.hunkLineStart = lineStart;
-      input.state.hunkLineEnd = Math.max(
-        lineStart,
-        additionEnd,
-        deletionEnd,
-      );
+      input.state.hunkLineEnd = Math.max(lineStart, additionEnd, deletionEnd);
       continue;
     }
-    if (
-      input.state.currentHunkId === null ||
-      line.startsWith("+++") ||
-      line.startsWith("---")
-    ) {
+    if (input.state.currentHunkId === null || line.startsWith("+++") || line.startsWith("---")) {
       continue;
     }
     const prefix = line.charAt(0);
@@ -2960,12 +2733,7 @@ function streamTrackedGitReviewSearch(input: {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "git",
-      [
-        ...GIT_CONFIG_OVERRIDES,
-        "diff",
-        ...input.diffArgs,
-        "--unified=3",
-      ],
+      [...GIT_CONFIG_OVERRIDES, "diff", ...input.diffArgs, "--unified=3"],
       {
         cwd: input.cwd,
         env: GIT_READ_ENVIRONMENT,
@@ -2987,9 +2755,7 @@ function streamTrackedGitReviewSearch(input: {
       const lines = pending.split("\n");
       pending = lines.pop() ?? "";
       scanGitReviewPatchLines({
-        lines: lines.map((line) =>
-          line.endsWith("\r") ? line.slice(0, -1) : line,
-        ),
+        lines: lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),
         generatedPaths: input.generatedPaths,
         accumulator: input.accumulator,
         state,
@@ -3037,9 +2803,7 @@ function streamTrackedGitReviewSearch(input: {
   });
 }
 
-export async function searchGitReview(
-  input: GitReviewSearchInput,
-): Promise<GitReviewSearchResult> {
+export async function searchGitReview(input: GitReviewSearchInput): Promise<GitReviewSearchResult> {
   const query = input.query.trim();
   if (!query) {
     return {
@@ -3062,15 +2826,10 @@ export async function searchGitReview(
           query,
         };
       }
-      const snapshotGeneration = await readGitReviewSnapshotGeneration(
-        cwd,
-        signal,
-      );
+      const snapshotGeneration = await readGitReviewSnapshotGeneration(cwd, signal);
 
       const baseRef =
-        input.source === "branch"
-          ? await resolveBaseRef(cwd, input.baseBranch ?? null)
-          : null;
+        input.source === "branch" ? await resolveBaseRef(cwd, input.baseBranch ?? null) : null;
       const diffArgs = await buildGitReviewSourceDiffArgs({
         cwd,
         source: input.source,
@@ -3080,24 +2839,20 @@ export async function searchGitReview(
       });
       const trackedPaths = diffArgs
         ? (
-            await runGitCommand(
-              ["diff", ...diffArgs, "--name-only", "-z"],
-              cwd,
-              [0, 1],
-              { signal },
-            )
-          ).stdout.split("\0").filter(Boolean)
+            await runGitCommand(["diff", ...diffArgs, "--name-only", "-z"], cwd, [0, 1], { signal })
+          ).stdout
+            .split("\0")
+            .filter(Boolean)
         : [];
       const untrackedPaths =
         input.source === "unstaged"
           ? (
-              await runGitCommand(
-                ["ls-files", "--others", "--exclude-standard", "-z"],
-                cwd,
-                [0],
-                { signal },
-              )
-            ).stdout.split("\0").filter(Boolean)
+              await runGitCommand(["ls-files", "--others", "--exclude-standard", "-z"], cwd, [0], {
+                signal,
+              })
+            ).stdout
+              .split("\0")
+              .filter(Boolean)
           : [];
       const paths = Array.from(new Set([...trackedPaths, ...untrackedPaths]));
       const generatedPaths = await readGeneratedReviewPaths(cwd, paths, signal);
@@ -3143,15 +2898,9 @@ export async function searchGitReview(
           includePathMatches: false,
         });
       }
-      const committedGeneration = await readGitReviewSnapshotGeneration(
-        cwd,
-        signal,
-      );
+      const committedGeneration = await readGitReviewSnapshotGeneration(cwd, signal);
       if (committedGeneration !== snapshotGeneration) {
-        throw new GitReviewStaleSnapshotError(
-          snapshotGeneration,
-          committedGeneration,
-        );
+        throw new GitReviewStaleSnapshotError(snapshotGeneration, committedGeneration);
       }
 
       return {
@@ -3233,13 +2982,7 @@ export async function readGitReviewBlameFile(
   }
 
   try {
-    const args = [
-      "blame",
-      "--line-porcelain",
-      ...(ref ? [ref] : []),
-      "--",
-      normalizedPath,
-    ];
+    const args = ["blame", "--line-porcelain", ...(ref ? [ref] : []), "--", normalizedPath];
     const result = await runGitCommand(args, cwd);
     return {
       cwd,
@@ -3254,8 +2997,7 @@ export async function readGitReviewBlameFile(
       path: normalizedPath,
       ref,
       lines: [],
-      errorMessage:
-        error instanceof Error ? error.message : "Could not load Git blame.",
+      errorMessage: error instanceof Error ? error.message : "Could not load Git blame.",
     };
   }
 }
@@ -3266,17 +3008,13 @@ export async function initializeGitRepositoryAndReadReviewSnapshot(
   const normalizedCwd = await ensureDirectory(cwd);
   const alreadyRepository = await isGitRepository(normalizedCwd);
   if (!alreadyRepository) {
-    await runGitCommand(["init", "-b", "main"], normalizedCwd).catch(
-      async () => {
-        await runGitCommand(["init"], normalizedCwd);
-        const branchState = await readGitBranchState(normalizedCwd);
-        if (!branchState.currentBranch) {
-          await runGitCommand(["checkout", "-b", "main"], normalizedCwd).catch(
-            () => undefined,
-          );
-        }
-      },
-    );
+    await runGitCommand(["init", "-b", "main"], normalizedCwd).catch(async () => {
+      await runGitCommand(["init"], normalizedCwd);
+      const branchState = await readGitBranchState(normalizedCwd);
+      if (!branchState.currentBranch) {
+        await runGitCommand(["checkout", "-b", "main"], normalizedCwd).catch(() => undefined);
+      }
+    });
     invalidateGitReviewSnapshot(normalizedCwd);
   }
 
@@ -3286,9 +3024,7 @@ export async function initializeGitRepositoryAndReadReviewSnapshot(
   });
 }
 
-export async function applyGitReviewPatch(
-  input: GitApplyPatchInput,
-): Promise<GitApplyPatchResult> {
+export async function applyGitReviewPatch(input: GitApplyPatchInput): Promise<GitApplyPatchResult> {
   const cwd = await ensureDirectory(input.cwd);
   const diff = input.diff.trim();
   if (!diff) {
@@ -3336,8 +3072,7 @@ export async function applyGitReviewPatch(
       skippedPaths: [],
       conflictedPaths: [],
       errorCode: resolvePatchErrorCode(error),
-      errorMessage:
-        error instanceof Error ? error.message : "Could not apply patch.",
+      errorMessage: error instanceof Error ? error.message : "Could not apply patch.",
     };
   } finally {
     await rm(patchFilePath, { force: true }).catch(() => undefined);

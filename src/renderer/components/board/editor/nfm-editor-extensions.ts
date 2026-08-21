@@ -8,10 +8,7 @@ import {
 import type { BlockNoteEditor } from "@blocknote/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "prosemirror-view";
-import {
-  handleNotionPasteFromClipboard,
-  type ClipboardEditorBlock,
-} from "./notion-paste";
+import { handleNotionPasteFromClipboard, type ClipboardEditorBlock } from "./notion-paste";
 import type { TypedOwnerBlockLike } from "@/lib/typed-owner-blocks";
 import { splitGfmTableRow } from "@/lib/nfm/table";
 import { getNfmSearchState, nfmSearchExtension } from "./search-extension";
@@ -162,38 +159,34 @@ function writeStructuredSelectionToClipboard(
 
 const structuredPlainTextCopyExt = createExtension(
   ({ editor, options }: ExtensionOptions<NfmEditorExtensionOptions>) => ({
-  key: "structured-plain-text-copy",
-  runsBefore: ["copyToClipboard"],
-  prosemirrorPlugins: [
-    new Plugin({
-      props: {
-        handleDOMEvents: {
-          copy(view, event) {
-            return writeStructuredSelectionToClipboard(
-              view,
-              event as ClipboardEvent,
-              editor,
-            );
-          },
-          cut(view, event) {
-            const clipboardEvent = event as ClipboardEvent;
-            if (!writeStructuredSelectionToClipboard(view, clipboardEvent, editor)) {
-              return false;
-            }
+    key: "structured-plain-text-copy",
+    runsBefore: ["copyToClipboard"],
+    prosemirrorPlugins: [
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            copy(view, event) {
+              return writeStructuredSelectionToClipboard(view, event as ClipboardEvent, editor);
+            },
+            cut(view, event) {
+              const clipboardEvent = event as ClipboardEvent;
+              if (!writeStructuredSelectionToClipboard(view, clipboardEvent, editor)) {
+                return false;
+              }
 
-            if (options.onCutTypedBlocks?.(editor)) {
+              if (options.onCutTypedBlocks?.(editor)) {
+                return true;
+              }
+
+              if (view.editable) {
+                view.dispatch(view.state.tr.deleteSelection());
+              }
               return true;
-            }
-
-            if (view.editable) {
-              view.dispatch(view.state.tr.deleteSelection());
-            }
-            return true;
+            },
           },
         },
-      },
-    }),
-  ],
+      }),
+    ],
   }),
 );
 
@@ -257,9 +250,11 @@ const childGroupEnterExt = createExtension({
       const wrapped = Object.create(editor);
       wrapped.splitParentIntoFirstChild = (parentId: string) =>
         splitParentIntoFirstChild(editor, parentId);
-      return handleChildGroupEmptyEnter(wrapped)
-        || handleParentEnterSplitToFirstChild(wrapped)
-        || handleToggleEnterToChild(wrapped);
+      return (
+        handleChildGroupEmptyEnter(wrapped) ||
+        handleParentEnterSplitToFirstChild(wrapped) ||
+        handleToggleEnterToChild(wrapped)
+      );
     },
   },
 });
@@ -348,9 +343,7 @@ export interface NfmEditorExtensionOptions {
   readonly onCutTypedBlocks?: (editor: BlockNoteEditor) => boolean;
 }
 
-export function createNfmEditorExtensions(
-  options: NfmEditorExtensionOptions = {},
-) {
+export function createNfmEditorExtensions(options: NfmEditorExtensionOptions = {}) {
   return [
     nfmSearchExtension(),
     canvasCreatePendingExtension(),
@@ -369,17 +362,11 @@ export function createNfmEditorExtensions(
 }
 
 export interface NfmPasteHandlerOptions {
-  readonly onBeforeReplaceBlocks?: (
-    blocks: readonly ClipboardEditorBlock[],
-  ) => boolean;
-  readonly onBeforeInsertBlocks?: (
-    blocks: readonly TypedOwnerBlockLike[],
-  ) => boolean;
+  readonly onBeforeReplaceBlocks?: (blocks: readonly ClipboardEditorBlock[]) => boolean;
+  readonly onBeforeInsertBlocks?: (blocks: readonly TypedOwnerBlockLike[]) => boolean;
 }
 
-export function createNfmPasteHandler(
-  options: NfmPasteHandlerOptions = {},
-): NfmPasteHandler {
+export function createNfmPasteHandler(options: NfmPasteHandlerOptions = {}): NfmPasteHandler {
   return ({ event, editor, defaultPasteHandler }) => {
     const handled = handleNotionPasteFromClipboard(
       editor as Parameters<typeof handleNotionPasteFromClipboard>[0],
@@ -392,9 +379,9 @@ export function createNfmPasteHandler(
 
     const blocknoteHtml = event.clipboardData?.getData("blocknote/html") ?? "";
     if (
-      blocknoteHtml.length > 0
-      && options.onBeforeInsertBlocks
-      && typeof editor.tryParseHTMLToBlocks === "function"
+      blocknoteHtml.length > 0 &&
+      options.onBeforeInsertBlocks &&
+      typeof editor.tryParseHTMLToBlocks === "function"
     ) {
       try {
         const pastedBlocks = editor.tryParseHTMLToBlocks(blocknoteHtml);

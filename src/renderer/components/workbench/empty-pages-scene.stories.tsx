@@ -1,26 +1,25 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
-import {
-  EmptyPagesScene,
-  type PagesTabPickerDataSource,
-} from "./pages-tab-picker";
+import { EmptyPagesScene, type PagesTabPickerDataSource } from "./pages-tab-picker";
 
 const queryClient = new QueryClient();
 const emptyDataSource = {
   useCatalog: () => ({
     data: {
-      pages: [{
-        kind: "catalog" as const,
-        libraryId: "library:storybook",
-        storeEpoch: "epoch:storybook",
-        commitSeq: 1,
-        authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
-        items: [],
-        nextCursor: null,
-        hasMore: false,
-        total: 0,
-      }],
+      pages: [
+        {
+          kind: "catalog" as const,
+          libraryId: "library:storybook",
+          storeEpoch: "epoch:storybook",
+          commitSeq: 1,
+          authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+          total: 0,
+        },
+      ],
       pageParams: [undefined],
     },
     isPending: false,

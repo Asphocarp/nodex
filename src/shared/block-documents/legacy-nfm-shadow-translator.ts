@@ -9,16 +9,10 @@ import {
   materializePageDocument,
 } from "./block-document-codec";
 import { BLOCK_GROUP_NODE_NAME } from "./block-structure";
-import {
-  assertValidPageDocumentRoots,
-  createPageDocument,
-} from "./page-document";
+import { assertValidPageDocumentRoots, createPageDocument } from "./page-document";
 import { MAX_BLOCK_ID_LENGTH, type BlockId } from "./contracts";
 import { headlessBlockDocumentSchema } from "./headless-blocknote-schema";
-import {
-  nfmToBlockNote,
-  type BlockNoteBlockValue,
-} from "./nfm-blocknote-adapter";
+import { nfmToBlockNote, type BlockNoteBlockValue } from "./nfm-blocknote-adapter";
 import { cloneXmlSubtree } from "./xml-subtree-codec";
 
 export type LegacyNfmShadowDocumentAuthority = "legacy_shadow" | "ydoc_primary";
@@ -88,10 +82,7 @@ const MAX_DYNAMIC_ALIGNMENT_CELLS = 100_000;
 const LARGE_ALIGNMENT_LOOKAHEAD = 8;
 const MAX_IDENTITY_MATCH_TEXT_LENGTH = 512;
 
-const stableSignature = (
-  value: unknown,
-  ancestors = new Set<object>(),
-): string => {
+const stableSignature = (value: unknown, ancestors = new Set<object>()): string => {
   if (value === undefined) return "u";
   if (value === null) return "n";
   if (typeof value === "string") return `s:${JSON.stringify(value)}`;
@@ -110,17 +101,13 @@ const stableSignature = (
     );
   }
   if (ancestors.has(value)) {
-    throw new LegacyNfmShadowTranslationError(
-      "Legacy NFM candidate contains cyclic data",
-    );
+    throw new LegacyNfmShadowTranslationError("Legacy NFM candidate contains cyclic data");
   }
 
   const nextAncestors = new Set(ancestors);
   nextAncestors.add(value);
   if (Array.isArray(value)) {
-    return `a:[${value
-      .map((entry) => stableSignature(entry, nextAncestors))
-      .join(",")}]`;
+    return `a:[${value.map((entry) => stableSignature(entry, nextAncestors)).join(",")}]`;
   }
 
   const prototype = Object.getPrototypeOf(value);
@@ -132,10 +119,7 @@ const stableSignature = (
 
   return `o:{${Object.entries(value)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(
-      ([key, entry]) =>
-        `${JSON.stringify(key)}:${stableSignature(entry, nextAncestors)}`,
-    )
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableSignature(entry, nextAncestors)}`)
     .join(",")}}`;
 };
 
@@ -184,8 +168,7 @@ const createIdentityForest = (
       const propsSignature = stableSignature(props);
       const contentSignature = stableSignature(content);
       const children = visit(source.children ?? [], key);
-      const blockId =
-        side === "source" ? (source as BlockTreeNode).id : undefined;
+      const blockId = side === "source" ? (source as BlockTreeNode).id : undefined;
       const node: IdentityNode = {
         key,
         ...(parentKey === undefined ? {} : { parentKey }),
@@ -253,13 +236,9 @@ const diceCoefficient = (left: string, right: string): number => {
 };
 
 const hasMeaningfulContent = (node: IdentityNode): boolean =>
-  node.searchText.length > 0 ||
-  (node.content !== undefined && node.content !== null);
+  node.searchText.length > 0 || (node.content !== undefined && node.content !== null);
 
-const identityMatchScore = (
-  source: IdentityNode,
-  target: IdentityNode,
-): number | null => {
+const identityMatchScore = (source: IdentityNode, target: IdentityNode): number | null => {
   const sameType = source.type === target.type;
   const sameContent = source.contentSignature === target.contentSignature;
   if (!sameType && !(sameContent && hasMeaningfulContent(source))) return null;
@@ -267,9 +246,7 @@ const identityMatchScore = (
   let score = sameType ? 58 : 42;
   if (sameContent && hasMeaningfulContent(source)) score += 26;
   if (source.propsSignature === target.propsSignature) score += 10;
-  score += Math.round(
-    diceCoefficient(source.searchText, target.searchText) * 24,
-  );
+  score += Math.round(diceCoefficient(source.searchText, target.searchText) * 24);
   score += Math.max(0, 6 - Math.abs(source.siblingIndex - target.siblingIndex));
   return Math.min(score, 100);
 };
@@ -351,8 +328,7 @@ const alignLargeSequence = (
     let nextTargetScore = currentScore ?? -1;
     for (
       let offset = 1;
-      offset <= LARGE_ALIGNMENT_LOOKAHEAD &&
-      targetIndex + offset < target.length;
+      offset <= LARGE_ALIGNMENT_LOOKAHEAD && targetIndex + offset < target.length;
       offset += 1
     ) {
       const candidate = target[targetIndex + offset];
@@ -367,8 +343,7 @@ const alignLargeSequence = (
     let nextSourceScore = currentScore ?? -1;
     for (
       let offset = 1;
-      offset <= LARGE_ALIGNMENT_LOOKAHEAD &&
-      sourceIndex + offset < source.length;
+      offset <= LARGE_ALIGNMENT_LOOKAHEAD && sourceIndex + offset < source.length;
       offset += 1
     ) {
       const candidate = source[sourceIndex + offset];
@@ -421,9 +396,7 @@ const inferTargetIdentities = (
   pinnedMatches: ReadonlyMap<number, IdentityNode> = new Map(),
 ): ReadonlyMap<number, IdentityNode> => {
   const matches = new Map<number, IdentityNode>(pinnedMatches);
-  const claimedSource = new Set(
-    [...pinnedMatches.values()].map((source) => source.key),
-  );
+  const claimedSource = new Set([...pinnedMatches.values()].map((source) => source.key));
   const pendingPairs: [readonly IdentityNode[], readonly IdentityNode[]][] = [];
   for (const [targetKey, source] of pinnedMatches) {
     const target = targetForest.nodes.find((node) => node.key === targetKey);
@@ -440,9 +413,7 @@ const inferTargetIdentities = (
     return true;
   };
 
-  const pairSignatureGroups = (
-    signature: (node: IdentityNode) => string,
-  ): void => {
+  const pairSignatureGroups = (signature: (node: IdentityNode) => string): void => {
     const sourceGroups = groupBySignature(
       sourceForest.nodes.filter((node) => !claimedSource.has(node.key)),
       signature,
@@ -480,15 +451,11 @@ const inferTargetIdentities = (
       if (processedParents.has(pairKey)) continue;
       processedParents.add(pairKey);
 
-      const source = sourceChildren.filter(
-        (node) => !claimedSource.has(node.key),
-      );
+      const source = sourceChildren.filter((node) => !claimedSource.has(node.key));
       const target = targetChildren.filter((node) => !matches.has(node.key));
-      alignIdentitySequence(source, target).forEach(
-        ([sourceNode, targetNode]) => {
-          claim(sourceNode, targetNode);
-        },
-      );
+      alignIdentitySequence(source, target).forEach(([sourceNode, targetNode]) => {
+        claim(sourceNode, targetNode);
+      });
     }
   };
 
@@ -528,9 +495,7 @@ const inferConservativeTargetIdentities = (
   pinnedMatches: ReadonlyMap<number, IdentityNode> = new Map(),
 ): ReadonlyMap<number, IdentityNode> => {
   const matches = new Map<number, IdentityNode>(pinnedMatches);
-  const claimedSource = new Set(
-    [...pinnedMatches.values()].map((source) => source.key),
-  );
+  const claimedSource = new Set([...pinnedMatches.values()].map((source) => source.key));
   const pendingPairs: [readonly IdentityNode[], readonly IdentityNode[]][] = [
     [sourceForest.roots, targetForest.roots],
   ];
@@ -571,31 +536,15 @@ const inferConservativeTargetIdentities = (
   };
 
   // Preserve globally unique exact/mere-prop-edit anchors across reordering.
-  claimUniqueGroups(
-    sourceForest.nodes,
-    targetForest.nodes,
-    (node) => node.localSignature,
-  );
-  claimUniqueGroups(
-    sourceForest.nodes,
-    targetForest.nodes,
-    (node) => node.semanticSignature,
-  );
+  claimUniqueGroups(sourceForest.nodes, targetForest.nodes, (node) => node.localSignature);
+  claimUniqueGroups(sourceForest.nodes, targetForest.nodes, (node) => node.semanticSignature);
 
   while (nextPair < pendingPairs.length) {
     const pair = pendingPairs[nextPair++];
     if (!pair) continue;
     const [sourceChildren, targetChildren] = pair;
-    claimUniqueGroups(
-      sourceChildren,
-      targetChildren,
-      (node) => node.localSignature,
-    );
-    claimUniqueGroups(
-      sourceChildren,
-      targetChildren,
-      (node) => node.semanticSignature,
-    );
+    claimUniqueGroups(sourceChildren, targetChildren, (node) => node.localSignature);
+    claimUniqueGroups(sourceChildren, targetChildren, (node) => node.semanticSignature);
 
     const remainingSourceByType = groupBySignature(
       sourceChildren.filter((node) => !claimedSource.has(node.key)),
@@ -669,9 +618,7 @@ const collectExplicitCardIdentityPins = (
       );
     }
     if (seen.has(explicitId)) {
-      throw new LegacyNfmShadowTranslationError(
-        `NFM repeats owning Page uuid ${explicitId}`,
-      );
+      throw new LegacyNfmShadowTranslationError(`NFM repeats owning Page uuid ${explicitId}`);
     }
     seen.add(explicitId);
 
@@ -698,12 +645,8 @@ const expandCardPinsThroughCompatibleParents = (
   pins: ReadonlyMap<number, IdentityNode>,
 ): ReadonlyMap<number, IdentityNode> => {
   const anchors = new Map(pins);
-  const sourceByKey = new Map(
-    sourceForest.nodes.map((source) => [source.key, source] as const),
-  );
-  const targetByKey = new Map(
-    targetForest.nodes.map((target) => [target.key, target] as const),
-  );
+  const sourceByKey = new Map(sourceForest.nodes.map((source) => [source.key, source] as const));
+  const targetByKey = new Map(targetForest.nodes.map((target) => [target.key, target] as const));
   const targetClaimBySourceKey = new Map(
     [...anchors].map(([targetKey, source]) => [source.key, targetKey] as const),
   );
@@ -749,19 +692,13 @@ const assertPinnedCardsKeepTheirParent = (
   pins: ReadonlyMap<number, IdentityNode>,
   matches: ReadonlyMap<number, IdentityNode>,
 ): void => {
-  const targetByKey = new Map(
-    targetForest.nodes.map((target) => [target.key, target] as const),
-  );
-  const sourceByKey = new Map(
-    sourceForest.nodes.map((source) => [source.key, source] as const),
-  );
+  const targetByKey = new Map(targetForest.nodes.map((target) => [target.key, target] as const));
+  const sourceByKey = new Map(sourceForest.nodes.map((source) => [source.key, source] as const));
 
   for (const [targetKey, source] of pins) {
     const target = targetByKey.get(targetKey);
     if (!target) {
-      throw new LegacyNfmShadowTranslationError(
-        "Explicit Card identity pin has no target Block",
-      );
+      throw new LegacyNfmShadowTranslationError("Explicit Card identity pin has no target Block");
     }
     if (source.parentKey === undefined && target.parentKey === undefined) {
       continue;
@@ -826,9 +763,7 @@ const assignTargetIdentities = (
     const target = node.target;
     const id = assignedIds.get(node.key);
     if (!target || !id) {
-      throw new LegacyNfmShadowTranslationError(
-        "Legacy NFM identity assignment is incomplete",
-      );
+      throw new LegacyNfmShadowTranslationError("Legacy NFM identity assignment is incomplete");
     }
     return {
       ...target,
@@ -915,10 +850,7 @@ const translateNfmIntoPageDocument = ({
   let targetBlocks: readonly BlockNoteBlockValue[];
   try {
     currentMaterialization = materializePageDocument(document);
-    if (
-      title === currentMaterialization.title &&
-      nfm === currentMaterialization.nfm
-    ) {
+    if (title === currentMaterialization.title && nfm === currentMaterialization.nfm) {
       return {
         changed: false,
         update: EMPTY_UPDATE,
@@ -926,9 +858,10 @@ const translateNfmIntoPageDocument = ({
       };
     }
     const parsedTargetBlocks = nfmToBlockNote(parseNfm(nfm));
-    targetBlocks = parsedTargetBlocks.length > 0
-      ? parsedTargetBlocks
-      : [{ type: "paragraph", content: [], children: [] }];
+    targetBlocks =
+      parsedTargetBlocks.length > 0
+        ? parsedTargetBlocks
+        : [{ type: "paragraph", content: [], children: [] }];
   } catch (error) {
     throw new LegacyNfmShadowTranslationError(
       `Could not read legacy NFM translation input for Document ${document.guid}`,
@@ -936,15 +869,9 @@ const translateNfmIntoPageDocument = ({
     );
   }
 
-  const sourceForest = createIdentityForest(
-    currentMaterialization.blockTree,
-    "source",
-  );
+  const sourceForest = createIdentityForest(currentMaterialization.blockTree, "source");
   const targetForest = createIdentityForest(targetBlocks, "target");
-  const pinnedMatches = collectExplicitCardIdentityPins(
-    sourceForest,
-    targetForest,
-  );
+  const pinnedMatches = collectExplicitCardIdentityPins(sourceForest, targetForest);
   const identityAnchors = expandCardPinsThroughCompatibleParents(
     sourceForest,
     targetForest,
@@ -952,36 +879,18 @@ const translateNfmIntoPageDocument = ({
   );
   const matches =
     identityPolicy === "conservative"
-      ? inferConservativeTargetIdentities(
-          sourceForest,
-          targetForest,
-          identityAnchors,
-        )
+      ? inferConservativeTargetIdentities(sourceForest, targetForest, identityAnchors)
       : inferTargetIdentities(sourceForest, targetForest, identityAnchors);
-  assertPinnedCardsKeepTheirParent(
-    sourceForest,
-    targetForest,
-    pinnedMatches,
-    matches,
-  );
+  assertPinnedCardsKeepTheirParent(sourceForest, targetForest, pinnedMatches, matches);
   const identifiedTarget = assignTargetIdentities(
     sourceForest,
     targetForest,
     matches,
     allocateBlockId,
   );
-  const candidate = buildValidatedCandidate(
-    document.guid,
-    title,
-    identifiedTarget,
-  );
+  const candidate = buildValidatedCandidate(document.guid, title, identifiedTarget);
 
-  if (
-    materializationsHaveSameContent(
-      currentMaterialization,
-      candidate.materialization,
-    )
-  ) {
+  if (materializationsHaveSameContent(currentMaterialization, candidate.materialization)) {
     candidate.document.destroy();
     return {
       changed: false,

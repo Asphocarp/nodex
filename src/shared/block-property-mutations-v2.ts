@@ -1,7 +1,4 @@
-import {
-  parseLocalCommitApply,
-  type LocalCommitCommandSuccess,
-} from "./local-commit-delivery";
+import { parseLocalCommitApply, type LocalCommitCommandSuccess } from "./local-commit-delivery";
 
 export const MAX_BLOCK_PROPERTY_MUTATION_V2_FIELDS = 256;
 
@@ -57,8 +54,7 @@ export interface IntrinsicBlockPropertyMutationFieldResultV2 {
   readonly value: BlockPropertyJsonValueV2;
 }
 
-export type BlockPropertyMutationFieldResultV2 =
-  IntrinsicBlockPropertyMutationFieldResultV2;
+export type BlockPropertyMutationFieldResultV2 = IntrinsicBlockPropertyMutationFieldResultV2;
 
 export interface BlockPropertyMutationResultV2 {
   readonly mutationId: string;
@@ -71,8 +67,10 @@ export interface BlockPropertyMutationResultV2 {
   readonly committedAt: string;
 }
 
-export interface LibraryBlockPropertyMutationResultV2
-  extends Omit<BlockPropertyMutationResultV2, "projectId"> {
+export interface LibraryBlockPropertyMutationResultV2 extends Omit<
+  BlockPropertyMutationResultV2,
+  "projectId"
+> {
   readonly accessContext: { readonly kind: "library" };
 }
 
@@ -128,10 +126,7 @@ const compareStrings = (left: string, right: string): number =>
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const readRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new BlockPropertyMutationV2ContractError(`${label} must be an object`);
 };
@@ -149,9 +144,7 @@ const assertExactKeys = (
   }
   for (const key of Object.keys(record)) {
     if (allowed.has(key)) continue;
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.${key} is not supported`,
-    );
+    throw new BlockPropertyMutationV2ContractError(`${label}.${key} is not supported`);
   }
 };
 
@@ -192,11 +185,7 @@ const readSafeInteger = (
   minimum: number,
 ): number => {
   const value = record[key];
-  if (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= minimum
-  ) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
   throw new BlockPropertyMutationV2ContractError(
@@ -228,28 +217,20 @@ const readJsonValue = (
 ): BlockPropertyJsonValueV2 => {
   state.nodes += 1;
   if (state.nodes > MAX_JSON_NODES) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} exceeds the JSON node limit`,
-    );
+    throw new BlockPropertyMutationV2ContractError(`${label} exceeds the JSON node limit`);
   }
   if (depth > MAX_JSON_DEPTH) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} exceeds the JSON depth limit`,
-    );
+    throw new BlockPropertyMutationV2ContractError(`${label} exceeds the JSON depth limit`);
   }
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.length <= MAX_JSON_STRING_LENGTH) {
     state.characters += value.length;
     if (state.characters <= MAX_CANONICAL_REQUEST_LENGTH) return value;
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} exceeds the JSON character limit`,
-    );
+    throw new BlockPropertyMutationV2ContractError(`${label} exceeds the JSON character limit`);
   }
   if (typeof value !== "object" || value === null) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label} must contain only JSON values`,
-    );
+    throw new BlockPropertyMutationV2ContractError(`${label} must contain only JSON values`);
   }
   if (state.seen.has(value)) {
     throw new BlockPropertyMutationV2ContractError(`${label} must not be cyclic`);
@@ -268,28 +249,16 @@ const readJsonValue = (
       );
     }
     const record = value as Readonly<Record<string, unknown>>;
-    const result = Object.create(null) as Record<
-      string,
-      BlockPropertyJsonValueV2
-    >;
+    const result = Object.create(null) as Record<string, BlockPropertyJsonValueV2>;
     for (const key of Object.keys(record).sort(compareStrings)) {
       if (key.length > MAX_JSON_KEY_LENGTH) {
-        throw new BlockPropertyMutationV2ContractError(
-          `${label} contains an oversized JSON key`,
-        );
+        throw new BlockPropertyMutationV2ContractError(`${label} contains an oversized JSON key`);
       }
       state.characters += key.length;
       if (state.characters > MAX_CANONICAL_REQUEST_LENGTH) {
-        throw new BlockPropertyMutationV2ContractError(
-          `${label} exceeds the JSON character limit`,
-        );
+        throw new BlockPropertyMutationV2ContractError(`${label} exceeds the JSON character limit`);
       }
-      result[key] = readJsonValue(
-        record[key],
-        `${label}.${key}`,
-        depth + 1,
-        state,
-      );
+      result[key] = readJsonValue(record[key], `${label}.${key}`, depth + 1, state);
     }
     return result;
   } finally {
@@ -311,9 +280,7 @@ const readActor = (
   if (isRecord(actor)) {
     return actor as Readonly<Record<string, BlockPropertyJsonValueV2>>;
   }
-  throw new BlockPropertyMutationV2ContractError(
-    "propertyMutationV2.actor must be a JSON object",
-  );
+  throw new BlockPropertyMutationV2ContractError("propertyMutationV2.actor must be a JSON object");
 };
 
 const parseField = (
@@ -340,25 +307,16 @@ const parseField = (
     return {
       scope: "intrinsic",
       blockId: readBoundedString(field, "blockId", label),
-      propertyKey: readBoundedString(
-        field,
-        "propertyKey",
-        label,
-        MAX_PROPERTY_KEY_LENGTH,
-      ),
+      propertyKey: readBoundedString(field, "propertyKey", label, MAX_PROPERTY_KEY_LENGTH),
       operation: "set",
       expectedRevision: readSafeInteger(field, "expectedRevision", label, 0),
       value: parseJsonValue(field.value, `${label}.value`, state),
     };
   }
-  throw new BlockPropertyMutationV2ContractError(
-    `${label}.scope must be intrinsic`,
-  );
+  throw new BlockPropertyMutationV2ContractError(`${label}.scope must be intrinsic`);
 };
 
-export const makeBlockPropertyFieldPathV2 = (
-  field: BlockPropertyFieldMutationV2,
-): string => {
+export const makeBlockPropertyFieldPathV2 = (field: BlockPropertyFieldMutationV2): string => {
   return `intrinsic/${encodeURIComponent(field.blockId)}/${encodeURIComponent(field.propertyKey)}`;
 };
 
@@ -366,9 +324,7 @@ const stableStringifyJson = (value: BlockPropertyJsonValueV2): string => {
   if (value === null || typeof value !== "object") {
     const serialized = JSON.stringify(value);
     if (serialized !== undefined) return serialized;
-    throw new BlockPropertyMutationV2ContractError(
-      "Cannot serialize a non-JSON property value",
-    );
+    throw new BlockPropertyMutationV2ContractError("Cannot serialize a non-JSON property value");
   }
   if (Array.isArray(value)) {
     return `[${value.map(stableStringifyJson).join(",")}]`;
@@ -376,10 +332,7 @@ const stableStringifyJson = (value: BlockPropertyJsonValueV2): string => {
   const record = value as Readonly<Record<string, BlockPropertyJsonValueV2>>;
   return `{${Object.keys(record)
     .sort(compareStrings)
-    .map(
-      (key) =>
-        `${JSON.stringify(key)}:${stableStringifyJson(record[key] ?? null)}`,
-    )
+    .map((key) => `${JSON.stringify(key)}:${stableStringifyJson(record[key] ?? null)}`)
     .join(",")}}`;
 };
 
@@ -408,10 +361,7 @@ const parseBlockPropertyMutationRequestBody = (
   const fields = request.fields
     .map((field, index) => parseField(field, index, state))
     .sort((left, right) =>
-      compareStrings(
-        makeBlockPropertyFieldPathV2(left),
-        makeBlockPropertyFieldPathV2(right),
-      ),
+      compareStrings(makeBlockPropertyFieldPathV2(left), makeBlockPropertyFieldPathV2(right)),
     );
   const paths = fields.map(makeBlockPropertyFieldPathV2);
   if (new Set(paths).size !== paths.length) {
@@ -425,20 +375,13 @@ const parseBlockPropertyMutationRequestBody = (
     ...(request.clientSessionId === undefined
       ? {}
       : {
-          clientSessionId: readOptionalBoundedString(
-            request,
-            "clientSessionId",
-            label,
-          ),
+          clientSessionId: readOptionalBoundedString(request, "clientSessionId", label),
         }),
     fields,
   };
 };
 
-const assertCanonicalMutationRequestSize = (
-  value: unknown,
-  label: string,
-): void => {
+const assertCanonicalMutationRequestSize = (value: unknown, label: string): void => {
   const canonical = stableStringifyBlockPropertyJsonV2(value);
   if (canonical.length <= MAX_CANONICAL_REQUEST_LENGTH) return;
   throw new BlockPropertyMutationV2ContractError(
@@ -448,8 +391,7 @@ const assertCanonicalMutationRequestSize = (
 
 export const parseBlockPropertyMutationActorV2 = (
   value: unknown,
-): BlockPropertyMutationRequestV2["actor"] =>
-  readActor(value, newJsonReadState());
+): BlockPropertyMutationRequestV2["actor"] => readActor(value, newJsonReadState());
 
 export const parseBlockPropertyMutationRequestV2 = (
   value: unknown,
@@ -476,12 +418,7 @@ export const parseLibraryBlockPropertyMutationRequestV2 = (
 ): LibraryBlockPropertyMutationRequestV2 => {
   const label = "libraryPropertyMutationV2";
   const request = readRecord(value, label);
-  assertExactKeys(
-    request,
-    label,
-    ["mutationId", "storeEpoch", "fields"],
-    ["clientSessionId"],
-  );
+  assertExactKeys(request, label, ["mutationId", "storeEpoch", "fields"], ["clientSessionId"]);
   const parsed = parseBlockPropertyMutationRequestBody(request, label);
   assertCanonicalMutationRequestSize(parsed, label);
   return parsed;
@@ -494,9 +431,7 @@ export const assertLibraryBlockPropertyMutationExecutionV2 = (
   assertCanonicalMutationRequestSize({ ...request, actor }, "libraryPropertyMutationV2");
 };
 
-export const canonicalizeBlockPropertyMutationRequestV2 = (
-  value: unknown,
-): string =>
+export const canonicalizeBlockPropertyMutationRequestV2 = (value: unknown): string =>
   stableStringifyBlockPropertyJsonV2(parseBlockPropertyMutationRequestV2(value));
 
 const parseFieldResult = (
@@ -522,12 +457,7 @@ const parseFieldResult = (
       );
     }
     const blockId = readBoundedString(field, "blockId", label);
-    const propertyKey = readBoundedString(
-      field,
-      "propertyKey",
-      label,
-      MAX_PROPERTY_KEY_LENGTH,
-    );
+    const propertyKey = readBoundedString(field, "propertyKey", label, MAX_PROPERTY_KEY_LENGTH);
     const path = readBoundedString(field, "path", label, MAX_FIELD_PATH_LENGTH);
     const expectedPath = makeBlockPropertyFieldPathV2({
       scope: "intrinsic",
@@ -552,38 +482,25 @@ const parseFieldResult = (
       value: parseJsonValue(field.value, `${label}.value`),
     };
   }
-  throw new BlockPropertyMutationV2ContractError(
-    `${label}.scope must be intrinsic`,
-  );
+  throw new BlockPropertyMutationV2ContractError(`${label}.scope must be intrinsic`);
 };
 
 const readBlockMetadataRevisions = (
   value: unknown,
   resultLabel: string,
 ): Readonly<Record<string, number>> => {
-  const revisions = readRecord(
-    value,
-    `${resultLabel}.blockMetadataRevisions`,
-  );
+  const revisions = readRecord(value, `${resultLabel}.blockMetadataRevisions`);
   return Object.fromEntries(
     Object.keys(revisions)
       .sort(compareStrings)
       .map((blockId) => {
-        if (
-          blockId.length < 1 ||
-          blockId.length > MAX_ID_LENGTH ||
-          blockId !== blockId.trim()
-        ) {
+        if (blockId.length < 1 || blockId.length > MAX_ID_LENGTH || blockId !== blockId.trim()) {
           throw new BlockPropertyMutationV2ContractError(
             `${resultLabel} contains an invalid Block ID`,
           );
         }
         const revision = revisions[blockId];
-        if (
-          typeof revision !== "number" ||
-          !Number.isSafeInteger(revision) ||
-          revision < 1
-        ) {
+        if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1) {
           throw new BlockPropertyMutationV2ContractError(
             `${resultLabel} contains an invalid metadata revision`,
           );
@@ -599,10 +516,7 @@ const readCanonicalTimestamp = (
   label: string,
 ): string => {
   const timestamp = readBoundedString(record, key, label, 128);
-  if (
-    Number.isFinite(Date.parse(timestamp)) &&
-    new Date(timestamp).toISOString() === timestamp
-  ) {
+  if (Number.isFinite(Date.parse(timestamp)) && new Date(timestamp).toISOString() === timestamp) {
     return timestamp;
   }
   throw new BlockPropertyMutationV2ContractError(
@@ -610,19 +524,14 @@ const readCanonicalTimestamp = (
   );
 };
 
-type ParsedBlockPropertyMutationResultBody = Omit<
-  BlockPropertyMutationResultV2,
-  "projectId"
->;
+type ParsedBlockPropertyMutationResultBody = Omit<BlockPropertyMutationResultV2, "projectId">;
 
 const parseBlockPropertyMutationResultBody = (
   result: Readonly<Record<string, unknown>>,
   label: string,
 ): ParsedBlockPropertyMutationResultBody => {
   if (typeof result.duplicate !== "boolean") {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.duplicate must be a boolean`,
-    );
+    throw new BlockPropertyMutationV2ContractError(`${label}.duplicate must be a boolean`);
   }
   if (
     !Array.isArray(result.fields) ||
@@ -633,26 +542,14 @@ const parseBlockPropertyMutationResultBody = (
       `${label}.fields must contain 1-${MAX_BLOCK_PROPERTY_MUTATION_V2_FIELDS} entries`,
     );
   }
-  const fields = result.fields.map((field, index) =>
-    parseFieldResult(field, index, label)
-  );
+  const fields = result.fields.map((field, index) => parseFieldResult(field, index, label));
   const fieldPaths = fields.map((field) => field.path);
   if (new Set(fieldPaths).size !== fieldPaths.length) {
-    throw new BlockPropertyMutationV2ContractError(
-      `${label}.fields contains a duplicate path`,
-    );
+    throw new BlockPropertyMutationV2ContractError(`${label}.fields contains a duplicate path`);
   }
-  const blockMetadataRevisions = readBlockMetadataRevisions(
-    result.blockMetadataRevisions,
-    label,
-  );
-  const targetBlockIds = [...new Set(fields.map((field) => field.blockId))].sort(
-    compareStrings,
-  );
-  if (
-    JSON.stringify(Object.keys(blockMetadataRevisions)) !==
-    JSON.stringify(targetBlockIds)
-  ) {
+  const blockMetadataRevisions = readBlockMetadataRevisions(result.blockMetadataRevisions, label);
+  const targetBlockIds = [...new Set(fields.map((field) => field.blockId))].sort(compareStrings);
+  if (JSON.stringify(Object.keys(blockMetadataRevisions)) !== JSON.stringify(targetBlockIds)) {
     throw new BlockPropertyMutationV2ContractError(
       `${label} metadata revisions must match target Blocks`,
     );
@@ -663,12 +560,7 @@ const parseBlockPropertyMutationResultBody = (
     duplicate: result.duplicate,
     fields,
     blockMetadataRevisions,
-    commitSeq: readSafeInteger(
-      result,
-      "commitSeq",
-      label,
-      1,
-    ),
+    commitSeq: readSafeInteger(result, "commitSeq", label, 1),
     committedAt: readCanonicalTimestamp(result, "committedAt", label),
   };
 };
@@ -722,24 +614,16 @@ export const parseBlockPropertyMutationCommandErrorV2 = (
   );
   if (
     typeof error.code !== "string" ||
-    !SUPPORTED_ERROR_CODES.includes(
-      error.code as BlockPropertyMutationErrorCodeV2,
-    )
+    !SUPPORTED_ERROR_CODES.includes(error.code as BlockPropertyMutationErrorCodeV2)
   ) {
-    throw new BlockPropertyMutationV2ContractError(
-      "propertyMutationErrorV2.code is not supported",
-    );
+    throw new BlockPropertyMutationV2ContractError("propertyMutationErrorV2.code is not supported");
   }
   if (typeof error.retryable !== "boolean") {
     throw new BlockPropertyMutationV2ContractError(
       "propertyMutationErrorV2.retryable must be a boolean",
     );
   }
-  const mutationId = readOptionalBoundedString(
-    error,
-    "mutationId",
-    "propertyMutationErrorV2",
-  );
+  const mutationId = readOptionalBoundedString(error, "mutationId", "propertyMutationErrorV2");
   const fieldPath = readOptionalBoundedString(
     error,
     "fieldPath",
@@ -760,9 +644,7 @@ export const parseBlockPropertyMutationCommandErrorV2 = (
   );
   if (
     error.code === "property_conflict" &&
-    (fieldPath === undefined ||
-      expectedRevision === undefined ||
-      actualRevision === undefined)
+    (fieldPath === undefined || expectedRevision === undefined || actualRevision === undefined)
   ) {
     throw new BlockPropertyMutationV2ContractError(
       "property_conflict must carry its path and both revisions",
@@ -770,12 +652,7 @@ export const parseBlockPropertyMutationCommandErrorV2 = (
   }
   return {
     code: error.code as BlockPropertyMutationErrorCodeV2,
-    message: readBoundedString(
-      error,
-      "message",
-      "propertyMutationErrorV2",
-      MAX_FIELD_PATH_LENGTH,
-    ),
+    message: readBoundedString(error, "message", "propertyMutationErrorV2", MAX_FIELD_PATH_LENGTH),
     retryable: error.retryable,
     ...(mutationId === undefined ? {} : { mutationId }),
     ...(fieldPath === undefined ? {} : { fieldPath }),
@@ -789,11 +666,7 @@ export const parseBlockPropertyMutationCommandResultV2 = (
 ): BlockPropertyMutationCommandResultV2 => {
   const result = readRecord(value, "propertyMutationCommandResultV2");
   if (result.ok === true) {
-    assertExactKeys(result, "propertyMutationCommandResultV2", [
-      "ok",
-      "value",
-      "localCommit",
-    ]);
+    assertExactKeys(result, "propertyMutationCommandResultV2", ["ok", "value", "localCommit"]);
     return {
       ok: true,
       value: parseBlockPropertyMutationResultV2(result.value),
@@ -827,10 +700,7 @@ const parseLibraryBlockPropertyMutationResultV2 = (
     "commitSeq",
     "committedAt",
   ]);
-  const accessContext = readRecord(
-    receipt.accessContext,
-    `${label}.accessContext`,
-  );
+  const accessContext = readRecord(receipt.accessContext, `${label}.accessContext`);
   assertExactKeys(accessContext, `${label}.accessContext`, ["kind"]);
   if (accessContext.kind !== "library") {
     throw new BlockPropertyMutationV2ContractError(
@@ -848,10 +718,7 @@ export const parseLibraryBlockPropertyMutationCommandResultV2 = (
 ): LibraryBlockPropertyMutationCommandResultV2 => {
   const result = readRecord(value, "libraryPropertyMutationCommandResultV2");
   if (result.ok === false) {
-    assertExactKeys(result, "libraryPropertyMutationCommandResultV2", [
-      "ok",
-      "error",
-    ]);
+    assertExactKeys(result, "libraryPropertyMutationCommandResultV2", ["ok", "error"]);
     return {
       ok: false,
       error: parseBlockPropertyMutationCommandErrorV2(result.error),
@@ -862,11 +729,7 @@ export const parseLibraryBlockPropertyMutationCommandResultV2 = (
       "libraryPropertyMutationCommandResultV2.ok must be a boolean",
     );
   }
-  assertExactKeys(result, "libraryPropertyMutationCommandResultV2", [
-    "ok",
-    "value",
-    "localCommit",
-  ]);
+  assertExactKeys(result, "libraryPropertyMutationCommandResultV2", ["ok", "value", "localCommit"]);
   return {
     ok: true,
     localCommit: parseLocalCommitApply(result.localCommit),

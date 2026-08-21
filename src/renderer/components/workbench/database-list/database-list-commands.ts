@@ -49,11 +49,7 @@ export function databaseListMoveDirection(
   commandId: DatabaseListCommandId,
 ): DatabaseListMoveDirection | null {
   const direction = commandId.slice("move-".length);
-  if (
-    direction === "top"
-    || direction === "up"
-    || direction === "down"
-    || direction === "bottom"
-  ) return direction;
+  if (direction === "top" || direction === "up" || direction === "down" || direction === "bottom")
+    return direction;
   return null;
 }

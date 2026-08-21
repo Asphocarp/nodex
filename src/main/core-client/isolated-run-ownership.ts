@@ -28,8 +28,7 @@ const PRIVATE_FILE_MODE = 0o600;
 const MAX_METADATA_BYTES = 4 * 1024;
 const OWNER_PUBLICATION_RETRIES = 10;
 const OWNER_PUBLICATION_RETRY_MS = 10;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 
 export interface IsolatedRunLeaseOwner {
   readonly version: 1;
@@ -66,10 +65,7 @@ interface IsolatedRunPaths {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isFileSystemError = (
-  error: unknown,
-  code: string,
-): error is NodeJS.ErrnoException =>
+const isFileSystemError = (error: unknown, code: string): error is NodeJS.ErrnoException =>
   error instanceof Error && "code" in error && error.code === code;
 
 const assertOnlyKeys = (
@@ -106,10 +102,7 @@ const requireIsoTimestamp = (value: unknown, label: string): string => {
   return value;
 };
 
-const requireNullableIsoTimestamp = (
-  value: unknown,
-  label: string,
-): string | null => {
+const requireNullableIsoTimestamp = (value: unknown, label: string): string | null => {
   if (value === null) return null;
   return requireIsoTimestamp(value, label);
 };
@@ -122,10 +115,7 @@ const requireAbsoluteNodexHome = (nodexHome: string): string => {
 const isolatedRunPaths = (nodexHome: string): IsolatedRunPaths => {
   const normalizedHome = requireAbsoluteNodexHome(nodexHome);
   const runDirectory = path.join(normalizedHome, "run");
-  const leaseDirectory = path.join(
-    runDirectory,
-    ISOLATED_RUN_LEASE_DIRECTORY_NAME,
-  );
+  const leaseDirectory = path.join(runDirectory, ISOLATED_RUN_LEASE_DIRECTORY_NAME);
   return {
     runDirectory,
     leaseDirectory,
@@ -146,9 +136,7 @@ const assertOwned = (stats: Stats, label: string): void => {
 const assertMode = (stats: Stats, expected: number, label: string): void => {
   const actual = stats.mode & 0o777;
   if (actual === expected) return;
-  throw new Error(
-    `${label} has mode ${actual.toString(8)}; expected ${expected.toString(8)}`,
-  );
+  throw new Error(`${label} has mode ${actual.toString(8)}; expected ${expected.toString(8)}`);
 };
 
 const inspectDirectory = (directory: string, label: string): Stats => {
@@ -172,11 +160,7 @@ const inspectPrivateFile = (filePath: string, label: string): Stats => {
 
 const readMetadata = (filePath: string, label: string): unknown => {
   inspectPrivateFile(filePath, label);
-  return decodeBoundedJson<unknown>(
-    readFileSync(filePath),
-    MAX_METADATA_BYTES,
-    label,
-  );
+  return decodeBoundedJson<unknown>(readFileSync(filePath), MAX_METADATA_BYTES, label);
 };
 
 const parseOwner = (value: unknown): IsolatedRunLeaseOwner => {
@@ -194,14 +178,8 @@ const parseOwner = (value: unknown): IsolatedRunLeaseOwner => {
   return {
     version: 1,
     runId: requireCanonicalRunId(value.runId),
-    supervisorPid: requirePid(
-      value.supervisorPid,
-      "Isolated run supervisor PID",
-    ),
-    acquiredAt: requireIsoTimestamp(
-      value.acquiredAt,
-      "Isolated run lease acquisition time",
-    ),
+    supervisorPid: requirePid(value.supervisorPid, "Isolated run supervisor PID"),
+    acquiredAt: requireIsoTimestamp(value.acquiredAt, "Isolated run lease acquisition time"),
   };
 };
 
@@ -219,14 +197,8 @@ const parseClaim = (value: unknown): IsolatedRunClaim => {
   if (phase !== "starting" && phase !== "ready") {
     throw new Error("Isolated run claim phase is invalid");
   }
-  const readyAt = requireNullableIsoTimestamp(
-    value.readyAt,
-    "Isolated run ready time",
-  );
-  if (
-    (phase === "starting" && readyAt !== null) ||
-    (phase === "ready" && readyAt === null)
-  ) {
+  const readyAt = requireNullableIsoTimestamp(value.readyAt, "Isolated run ready time");
+  if ((phase === "starting" && readyAt !== null) || (phase === "ready" && readyAt === null)) {
     throw new Error("Isolated run claim phase and ready time disagree");
   }
   return {
@@ -234,10 +206,7 @@ const parseClaim = (value: unknown): IsolatedRunClaim => {
     runId: requireCanonicalRunId(value.runId),
     hostPid: requirePid(value.hostPid, "Isolated run host PID"),
     phase,
-    claimedAt: requireIsoTimestamp(
-      value.claimedAt,
-      "Isolated run claim time",
-    ),
+    claimedAt: requireIsoTimestamp(value.claimedAt, "Isolated run claim time"),
     readyAt,
   };
 };
@@ -257,16 +226,9 @@ const fsyncDirectory = (directory: string): void => {
   }
 };
 
-const writePrivateTemporaryFile = (
-  directory: string,
-  prefix: string,
-  value: unknown,
-): string => {
+const writePrivateTemporaryFile = (directory: string, prefix: string, value: unknown): string => {
   const bytes = encodeBoundedJson(value, MAX_METADATA_BYTES, prefix);
-  const temporaryPath = path.join(
-    directory,
-    `.${prefix}.${process.pid}.${randomUUID()}.tmp`,
-  );
+  const temporaryPath = path.join(directory, `.${prefix}.${process.pid}.${randomUUID()}.tmp`);
   const descriptor = openSync(temporaryPath, "wx", PRIVATE_FILE_MODE);
   try {
     writeFileSync(descriptor, bytes);
@@ -287,15 +249,8 @@ const ensureNodexHomeAndRunDirectory = (paths: IsolatedRunPaths): void => {
   inspectDirectory(paths.runDirectory, "Nodex run directory");
 };
 
-const publishOwner = (
-  paths: IsolatedRunPaths,
-  owner: IsolatedRunLeaseOwner,
-): void => {
-  const temporaryPath = writePrivateTemporaryFile(
-    paths.leaseDirectory,
-    "owner",
-    owner,
-  );
+const publishOwner = (paths: IsolatedRunPaths, owner: IsolatedRunLeaseOwner): void => {
+  const temporaryPath = writePrivateTemporaryFile(paths.leaseDirectory, "owner", owner);
   try {
     renameSync(temporaryPath, paths.ownerPath);
     fsyncDirectory(paths.leaseDirectory);
@@ -313,9 +268,7 @@ const waitForOwnerPublication = (): void => {
   Atomics.wait(signal, 0, 0, OWNER_PUBLICATION_RETRY_MS);
 };
 
-const readExistingOwnerAfterContention = (
-  paths: IsolatedRunPaths,
-): IsolatedRunLeaseOwner => {
+const readExistingOwnerAfterContention = (paths: IsolatedRunPaths): IsolatedRunLeaseOwner => {
   for (let attempt = 0; attempt <= OWNER_PUBLICATION_RETRIES; attempt += 1) {
     inspectDirectory(paths.leaseDirectory, "Isolated run lease directory");
     try {
@@ -355,9 +308,7 @@ const releaseLease = (paths: IsolatedRunPaths, runId: string): void => {
   const allowedEntries = new Set([OWNER_FILE_NAME, CLAIM_FILE_NAME]);
   const unknownEntry = entries.find((entry) => !allowedEntries.has(entry));
   if (unknownEntry) {
-    throw new Error(
-      `Isolated run lease contains an unexpected entry: ${unknownEntry}`,
-    );
+    throw new Error(`Isolated run lease contains an unexpected entry: ${unknownEntry}`);
   }
 
   if (entries.includes(CLAIM_FILE_NAME)) {
@@ -381,10 +332,7 @@ export function acquireIsolatedRunLease(input: {
 }): IsolatedRunLease {
   const paths = isolatedRunPaths(input.nodexHome);
   const runId = requireCanonicalRunId(input.runId);
-  const supervisorPid = requirePid(
-    input.supervisorPid,
-    "Isolated run supervisor PID",
-  );
+  const supervisorPid = requirePid(input.supervisorPid, "Isolated run supervisor PID");
   const owner: IsolatedRunLeaseOwner = {
     version: 1,
     runId,
@@ -431,9 +379,7 @@ export function acquireIsolatedRunLease(input: {
   };
 }
 
-export function readIsolatedRunLeaseOwner(
-  nodexHome: string,
-): IsolatedRunLeaseOwner | null {
+export function readIsolatedRunLeaseOwner(nodexHome: string): IsolatedRunLeaseOwner | null {
   const paths = isolatedRunPaths(nodexHome);
   try {
     inspectDirectory(paths.leaseDirectory, "Isolated run lease directory");
@@ -444,9 +390,7 @@ export function readIsolatedRunLeaseOwner(
   return readOwnerAtPath(paths.ownerPath);
 }
 
-export function readIsolatedRunClaim(
-  nodexHome: string,
-): IsolatedRunClaim | null {
+export function readIsolatedRunClaim(nodexHome: string): IsolatedRunClaim | null {
   const paths = isolatedRunPaths(nodexHome);
   const owner = readIsolatedRunLeaseOwner(nodexHome);
   if (!owner) return null;
@@ -488,11 +432,7 @@ export function publishIsolatedRunClaim(input: {
     claimedAt: (input.now ?? new Date()).toISOString(),
     readyAt: null,
   };
-  const temporaryPath = writePrivateTemporaryFile(
-    paths.leaseDirectory,
-    "host-claim",
-    claim,
-  );
+  const temporaryPath = writePrivateTemporaryFile(paths.leaseDirectory, "host-claim", claim);
   try {
     try {
       linkSync(temporaryPath, paths.claimPath);

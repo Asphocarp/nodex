@@ -1,6 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
-import { AlertTriangle, Bot, Gauge, RotateCcw, Settings2 } from "@/components/shared/icons/generic-icons";
+import {
+  AlertTriangle,
+  Bot,
+  Gauge,
+  RotateCcw,
+  Settings2,
+} from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownButtonTrigger,
   NodexOptionPicker,
@@ -53,7 +59,9 @@ const MODE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "plan", label: "Plan" },
 ];
 
-export function normalizeAgentConfigProps(input: Partial<AgentConfigProps> | undefined): AgentConfigProps {
+export function normalizeAgentConfigProps(
+  input: Partial<AgentConfigProps> | undefined,
+): AgentConfigProps {
   return {
     mode: typeof input?.mode === "string" ? input.mode : "",
     model: typeof input?.model === "string" ? input.model : "",
@@ -91,14 +99,16 @@ export function resolveAgentConfigChip(
   invalid: boolean;
 } {
   const props = normalizeAgentConfigProps(input);
-  const invalid = props.unknownAttributes.trim().length > 0
-    || !isKnownAgentConfigMode(props.mode)
-    || !isKnownAgentConfigReasoning(props.reasoning);
-  const label = props.mode === "plan"
-    ? "Plan mode"
-    : props.mode === "default"
-      ? "Default mode"
-      : "Agent config";
+  const invalid =
+    props.unknownAttributes.trim().length > 0 ||
+    !isKnownAgentConfigMode(props.mode) ||
+    !isKnownAgentConfigReasoning(props.reasoning);
+  const label =
+    props.mode === "plan"
+      ? "Plan mode"
+      : props.mode === "default"
+        ? "Default mode"
+        : "Agent config";
   const modelLabel = props.model ? formatCodexModelLabel(props.model, models) : "";
   const detail = [modelLabel, formatReasoningLabel(props.reasoning)]
     .filter((value) => value.trim().length > 0)
@@ -166,13 +176,7 @@ function getReasoningOptions(
   return resolveCodexReasoningEffortOptions(modelId, models);
 }
 
-function AgentConfigControlRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function AgentConfigControlRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 px-2 py-1.5">
       <div className="text-xs text-token-description-foreground">{label}</div>
@@ -203,7 +207,8 @@ function ModeSegmentedControl({
             "h-6 rounded-md px-2 text-xs text-token-description-foreground outline-hidden",
             "hover:bg-token-foreground/5 hover:text-token-foreground",
             "focus-visible:ring-token-focus focus-visible:ring-2",
-            value === option.value && "bg-token-bg text-token-foreground shadow-[0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_10%,transparent)]",
+            value === option.value &&
+              "bg-token-bg text-token-foreground shadow-[0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_10%,transparent)]",
           )}
           onClick={() => onValueChange(option.value)}
         >
@@ -290,13 +295,18 @@ function AgentConfigPopoverBody({
 
     return options;
   }, [availableModels, props.model, props.reasoning]);
-  const modelLabel = props.model ? formatCodexModelLabel(props.model, availableModels) : "Use current/default";
-  const reasoningLabel = props.reasoning ? formatReasoningLabel(props.reasoning) : "Use current/default";
-  const modelHelp = visibleModels.length === 0
-    ? "Model list unavailable. Existing values are preserved until changed."
-    : props.model && !modelIsVisible
-      ? "This model is not currently available in Nodex."
-      : null;
+  const modelLabel = props.model
+    ? formatCodexModelLabel(props.model, availableModels)
+    : "Use current/default";
+  const reasoningLabel = props.reasoning
+    ? formatReasoningLabel(props.reasoning)
+    : "Use current/default";
+  const modelHelp =
+    visibleModels.length === 0
+      ? "Model list unavailable. Existing values are preserved until changed."
+      : props.model && !modelIsVisible
+        ? "This model is not currently available in Nodex."
+        : null;
 
   return (
     <div className="w-[min(22rem,calc(100vw-2rem))] p-1 text-sm">
@@ -309,7 +319,11 @@ function AgentConfigPopoverBody({
               : "bg-token-charts-blue/10 text-token-charts-blue",
           )}
         >
-          {chip.invalid ? <AlertTriangle className="size-3.5" /> : <Settings2 className="size-3.5" />}
+          {chip.invalid ? (
+            <AlertTriangle className="size-3.5" />
+          ) : (
+            <Settings2 className="size-3.5" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <NodexPopoverTitle className="truncate text-sm font-medium text-token-foreground">
@@ -355,7 +369,7 @@ function AgentConfigPopoverBody({
           searchAriaLabel="Search agent models"
           onValueChange={(model) => onPatch({ model })}
           contentWidth="menu"
-          triggerButton={(
+          triggerButton={
             <NodexDropdownButtonTrigger
               size="xs"
               aria-label="Agent config model"
@@ -364,7 +378,7 @@ function AgentConfigPopoverBody({
             >
               <span className="min-w-0 truncate">{modelLabel}</span>
             </NodexDropdownButtonTrigger>
-          )}
+          }
         />
         {modelHelp ? (
           <div className="mt-1 text-[11px] leading-4 text-token-description-foreground">
@@ -379,7 +393,7 @@ function AgentConfigPopoverBody({
           options={reasoningOptions}
           onValueChange={(reasoning) => onPatch({ reasoning })}
           contentWidth="menu"
-          triggerButton={(
+          triggerButton={
             <NodexDropdownButtonTrigger
               size="xs"
               aria-label="Agent config reasoning"
@@ -388,7 +402,7 @@ function AgentConfigPopoverBody({
             >
               <span className="min-w-0 truncate">{reasoningLabel}</span>
             </NodexDropdownButtonTrigger>
-          )}
+          }
         />
       </AgentConfigControlRow>
     </div>
@@ -445,7 +459,9 @@ export function AgentConfigInlineContentView({
             <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
             <span className="blend truncate leading-[inherit]">{chip.label}</span>
             {chip.detail ? (
-              <span className="blend ml-1 truncate leading-[inherit] opacity-70">{chip.detail}</span>
+              <span className="blend ml-1 truncate leading-[inherit] opacity-70">
+                {chip.detail}
+              </span>
             ) : null}
           </button>
         </NodexPopoverTrigger>
@@ -487,25 +503,26 @@ function AgentConfigInlineContent({
 }
 
 export function createAgentConfigInlineContentSpec() {
-  return createReactInlineContentSpec(
-    agentConfigInlineContentConfig,
-    {
-      render: ({ inlineContent, updateInlineContent }) => (
-        <AgentConfigInlineContent
-          inlineContent={inlineContent as { props: Partial<AgentConfigProps> }}
-          updateInlineContent={updateInlineContent as (update: AgentConfigInlineContentUpdate) => void}
-        />
-      ),
-      toExternalHTML: ({ inlineContent }) => {
-        const chip = resolveAgentConfigChip((inlineContent as { props: Partial<AgentConfigProps> }).props);
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 text-xs text-[var(--foreground)]">
-            <Settings2 className="size-3" />
-            <span>{chip.label}</span>
-            {chip.detail ? <span className="opacity-60">({chip.detail})</span> : null}
-          </span>
-        );
-      },
+  return createReactInlineContentSpec(agentConfigInlineContentConfig, {
+    render: ({ inlineContent, updateInlineContent }) => (
+      <AgentConfigInlineContent
+        inlineContent={inlineContent as { props: Partial<AgentConfigProps> }}
+        updateInlineContent={
+          updateInlineContent as (update: AgentConfigInlineContentUpdate) => void
+        }
+      />
+    ),
+    toExternalHTML: ({ inlineContent }) => {
+      const chip = resolveAgentConfigChip(
+        (inlineContent as { props: Partial<AgentConfigProps> }).props,
+      );
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 text-xs text-[var(--foreground)]">
+          <Settings2 className="size-3" />
+          <span>{chip.label}</span>
+          {chip.detail ? <span className="opacity-60">({chip.detail})</span> : null}
+        </span>
+      );
     },
-  );
+  });
 }

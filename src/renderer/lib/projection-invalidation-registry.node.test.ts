@@ -108,26 +108,21 @@ const flush = async (): Promise<void> => {
   await Promise.resolve();
 };
 
-const harness = (effectRepairBurst?: {
-  readonly quietMs: number;
-  readonly maxMs: number;
-}) => {
+const harness = (effectRepairBurst?: { readonly quietMs: number; readonly maxMs: number }) => {
   const projectionListeners = new Set<(message: ProjectionStreamMessage) => void>();
   const revocationListeners = new Set<(message: ResourceRevocationMessage) => void>();
-  const subscribeProjection = vi.fn((
-    _scope: ProjectionScope,
-    listener: (message: ProjectionStreamMessage) => void,
-  ) => {
-    projectionListeners.add(listener);
-    return () => projectionListeners.delete(listener);
-  });
-  const subscribeRevocations = vi.fn((
-    _scope: ProjectionScope,
-    listener: (message: ResourceRevocationMessage) => void,
-  ) => {
-    revocationListeners.add(listener);
-    return () => revocationListeners.delete(listener);
-  });
+  const subscribeProjection = vi.fn(
+    (_scope: ProjectionScope, listener: (message: ProjectionStreamMessage) => void) => {
+      projectionListeners.add(listener);
+      return () => projectionListeners.delete(listener);
+    },
+  );
+  const subscribeRevocations = vi.fn(
+    (_scope: ProjectionScope, listener: (message: ResourceRevocationMessage) => void) => {
+      revocationListeners.add(listener);
+      return () => revocationListeners.delete(listener);
+    },
+  );
   return {
     registry: new ProjectionInvalidationRegistry({
       subscribeProjection,
@@ -149,15 +144,19 @@ const harness = (effectRepairBurst?: {
 
 describe("ProjectionInvalidationRegistry", () => {
   test("keeps delimiter-bearing Library and Project scope identities distinct", () => {
-    expect(projectionScopeKey({
-      kind: "project",
-      libraryId: "library:a",
-      projectId: "project",
-    })).not.toBe(projectionScopeKey({
-      kind: "project",
-      libraryId: "library",
-      projectId: "a:project",
-    }));
+    expect(
+      projectionScopeKey({
+        kind: "project",
+        libraryId: "library:a",
+        projectId: "project",
+      }),
+    ).not.toBe(
+      projectionScopeKey({
+        kind: "project",
+        libraryId: "library",
+        projectId: "a:project",
+      }),
+    );
   });
   test("matches every impact identity dimension", () => {
     const value = impact({
@@ -165,12 +164,14 @@ describe("ProjectionInvalidationRegistry", () => {
       database_ids: ["database-1"],
       data_source_ids: ["source-1"],
       view_ids: ["view-1"],
-      document_heads: [{
-        page_id: "page-1",
-        document_id: "document-1",
-        generation: 1,
-        head_seq: 2,
-      }],
+      document_heads: [
+        {
+          page_id: "page-1",
+          document_id: "document-1",
+          generation: 1,
+          head_seq: 2,
+        },
+      ],
     });
     expect(impactMatches({ pageIds: ["page-1"] }, value)).toBe(true);
     expect(impactMatches({ databaseIds: ["database-1"] }, value)).toBe(true);
@@ -185,11 +186,16 @@ describe("ProjectionInvalidationRegistry", () => {
     expect(revocationMatches({ pageIds: ["page-1"] }, revocation)).toBe(true);
     expect(revocationMatches({ pageIds: ["other"] }, revocation)).toBe(false);
     expect(revocationMatches({ aggregate: true }, revocation)).toBe(true);
-    expect(revocationMatches({ canvasIds: ["canvas-1"] }, {
-      ...revocation,
-      resource_kind: "canvas",
-      resource_id: "canvas-1",
-    })).toBe(true);
+    expect(
+      revocationMatches(
+        { canvasIds: ["canvas-1"] },
+        {
+          ...revocation,
+          resource_kind: "canvas",
+          resource_id: "canvas-1",
+        },
+      ),
+    ).toBe(true);
   });
 
   test("separates Database View effects from Page Detail structure", () => {
@@ -235,60 +241,68 @@ describe("ProjectionInvalidationRegistry", () => {
     };
 
     expect(projectionEffectMatches(dependencies, rowDelivery)).toBe(false);
-    expect(projectionEffectMatches(dependencies, {
-      ...rowDelivery,
-      effect: { ...rowDelivery.effect, patch: null },
-    })).toBe(false);
-    expect(projectionEffectMatches(dependencies, {
-      ...rowDelivery,
-      impact: impact({
-        page_ids: [],
-        database_ids: ["database-1"],
-        data_source_ids: ["source-1"],
-        view_ids: [],
+    expect(
+      projectionEffectMatches(dependencies, {
+        ...rowDelivery,
+        effect: { ...rowDelivery.effect, patch: null },
       }),
-      effect: {
-        ...rowDelivery.effect,
-        scope: {
-          schema_version: 1,
-          canonical_key: "scope:page-data-source-1",
+    ).toBe(false);
+    expect(
+      projectionEffectMatches(dependencies, {
+        ...rowDelivery,
+        impact: impact({
+          page_ids: [],
+          database_ids: ["database-1"],
+          data_source_ids: ["source-1"],
+          view_ids: [],
+        }),
+        effect: {
+          ...rowDelivery.effect,
           scope: {
-            kind: "page_detail_data_source",
-            project_id: "project-1",
-            database_id: "database-1",
-            data_source_id: "source-1",
+            schema_version: 1,
+            canonical_key: "scope:page-data-source-1",
+            scope: {
+              kind: "page_detail_data_source",
+              project_id: "project-1",
+              database_id: "database-1",
+              data_source_id: "source-1",
+            },
           },
+          patch: null,
         },
-        patch: null,
-      },
-    })).toBe(true);
-    expect(projectionEffectMatches(dependencies, {
-      ...rowDelivery,
-      impact: impact({
-        page_ids: [],
-        database_ids: ["database-1"],
-        data_source_ids: [],
-        view_ids: [],
       }),
-      effect: {
-        ...rowDelivery.effect,
-        scope: {
-          schema_version: 1,
-          canonical_key: "scope:page-database-1",
+    ).toBe(true);
+    expect(
+      projectionEffectMatches(dependencies, {
+        ...rowDelivery,
+        impact: impact({
+          page_ids: [],
+          database_ids: ["database-1"],
+          data_source_ids: [],
+          view_ids: [],
+        }),
+        effect: {
+          ...rowDelivery.effect,
           scope: {
-            kind: "page_detail_database",
-            project_id: "project-1",
-            database_id: "database-1",
+            schema_version: 1,
+            canonical_key: "scope:page-database-1",
+            scope: {
+              kind: "page_detail_database",
+              project_id: "project-1",
+              database_id: "database-1",
+            },
           },
+          patch: null,
         },
-        patch: null,
-      },
-    })).toBe(true);
-    expect(revocationMatches(dependencies, {
-      ...revocationMessage(2).delivery.revocation,
-      resource_kind: "data_source",
-      resource_id: "source-1",
-    })).toBe(true);
+      }),
+    ).toBe(true);
+    expect(
+      revocationMatches(dependencies, {
+        ...revocationMessage(2).delivery.revocation,
+        resource_kind: "data_source",
+        resource_id: "source-1",
+      }),
+    ).toBe(true);
   });
 
   test("shares one access subscription and reference-counts one consumer", async () => {
@@ -431,9 +445,11 @@ describe("ProjectionInvalidationRegistry", () => {
       await vi.runAllTicks();
 
       expect(invalidate).toHaveBeenCalledOnce();
-      expect(invalidate).toHaveBeenLastCalledWith(expect.objectContaining({
-        stream: { storeEpoch: "epoch-1", commitSeq: 300 },
-      }));
+      expect(invalidate).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          stream: { storeEpoch: "epoch-1", commitSeq: 300 },
+        }),
+      );
       expect(cursor.commitSeq).toBe(300);
       stream.registry.dispose();
     } finally {
@@ -461,16 +477,16 @@ describe("ProjectionInvalidationRegistry", () => {
         stream.publish(effectMessage(commitSeq));
         await vi.advanceTimersByTimeAsync(100);
       }
-      await vi.advanceTimersByTimeAsync(
-        INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs,
-      );
+      await vi.advanceTimersByTimeAsync(INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs);
       await vi.runAllTicks();
 
       expect(invalidate.mock.calls.length).toBeGreaterThan(1);
       expect(invalidate.mock.calls.length).toBeLessThanOrEqual(9);
-      expect(invalidate).toHaveBeenLastCalledWith(expect.objectContaining({
-        stream: { storeEpoch: "epoch-1", commitSeq: 400 },
-      }));
+      expect(invalidate).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          stream: { storeEpoch: "epoch-1", commitSeq: 400 },
+        }),
+      );
       expect(cursor.commitSeq).toBe(400);
       stream.registry.dispose();
     } finally {
@@ -550,11 +566,7 @@ describe("ProjectionInvalidationRegistry", () => {
     stream.publish(second);
     stream.publish(third);
 
-    expect(revoke.mock.calls.map((call) => call[0])).toEqual([
-      first,
-      second,
-      third,
-    ]);
+    expect(revoke.mock.calls.map((call) => call[0])).toEqual([first, second, third]);
     expect(invalidate).toHaveBeenCalledOnce();
     release();
     await flush();

@@ -25,24 +25,16 @@ export interface BrowserViewportLayout {
   y: number;
 }
 
-function clampDimension(
-  value: number,
-  minimum: number,
-): number {
+function clampDimension(value: number, minimum: number): number {
   if (!Number.isFinite(value)) return minimum;
-  return Math.min(
-    BROWSER_VIEWPORT_MAX_DIMENSION,
-    Math.max(minimum, Math.round(value)),
-  );
+  return Math.min(BROWSER_VIEWPORT_MAX_DIMENSION, Math.max(minimum, Math.round(value)));
 }
 
 export function computeBrowserViewportLayout(
   input: BrowserViewportLayoutInput,
 ): BrowserViewportLayout {
   const containerWidth = Math.max(0, input.containerWidth);
-  const toolbarReserve = input.deviceToolbarVisible
-    ? BROWSER_DEVICE_TOOLBAR_HEIGHT
-    : 0;
+  const toolbarReserve = input.deviceToolbarVisible ? BROWSER_DEVICE_TOOLBAR_HEIGHT : 0;
   const containerHeight = Math.max(
     0,
     input.containerHeight - toolbarReserve - Math.max(0, input.composerReserve),
@@ -59,24 +51,13 @@ export function computeBrowserViewportLayout(
     };
   }
 
-  const logicalWidth = clampDimension(
-    input.viewport.width,
-    BROWSER_VIEWPORT_MIN_WIDTH,
-  );
-  const logicalHeight = clampDimension(
-    input.viewport.height,
-    BROWSER_VIEWPORT_MIN_HEIGHT,
-  );
+  const logicalWidth = clampDimension(input.viewport.width, BROWSER_VIEWPORT_MIN_WIDTH);
+  const logicalHeight = clampDimension(input.viewport.height, BROWSER_VIEWPORT_MIN_HEIGHT);
   const availableWidth = Math.max(1, containerWidth - FIXED_VIEWPORT_PADDING * 2);
   const availableHeight = Math.max(1, containerHeight - FIXED_VIEWPORT_PADDING * 2);
-  const fitScale = Math.min(
-    1,
-    availableWidth / logicalWidth,
-    availableHeight / logicalHeight,
-  );
-  const windowZoom = Number.isFinite(input.windowZoom) && input.windowZoom > 0
-    ? input.windowZoom
-    : 1;
+  const fitScale = Math.min(1, availableWidth / logicalWidth, availableHeight / logicalHeight);
+  const windowZoom =
+    Number.isFinite(input.windowZoom) && input.windowZoom > 0 ? input.windowZoom : 1;
   const scale = Math.max(0.01, fitScale / windowZoom);
   const visualWidth = logicalWidth * scale;
   const visualHeight = logicalHeight * scale;

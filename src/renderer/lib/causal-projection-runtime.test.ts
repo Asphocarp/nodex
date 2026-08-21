@@ -1,8 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import type {
-  ProjectionCoordinate,
-  ProjectionDelivery,
-} from "../../shared/projection-stream";
+import type { ProjectionCoordinate, ProjectionDelivery } from "../../shared/projection-stream";
 import {
   CausalProjectionRuntime,
   INTERACTIVE_PROJECTION_REPAIR_BURST,
@@ -18,18 +15,13 @@ const scope = {
   },
 };
 
-const coordinate = (
-  revision: number,
-  coveredCommitSeq = revision,
-): ProjectionCoordinate => ({
+const coordinate = (revision: number, coveredCommitSeq = revision): ProjectionCoordinate => ({
   storeEpoch: "epoch-1",
   scopeKey: scope.canonical_key,
   schemaVersion: scope.schema_version,
   revision,
   coveredCommitSeq,
-  effectHash: revision === 0
-    ? null
-    : String(revision).padStart(64, "a").slice(-64),
+  effectHash: revision === 0 ? null : String(revision).padStart(64, "a").slice(-64),
 });
 
 const delivery = (
@@ -58,16 +50,16 @@ const delivery = (
     baseRevision: resultRevision - 1,
     resultRevision,
     coveredCommitSeq: resultRevision,
-    patch: options.patch === false
-      ? null
-      : {
-          kind: "page_changed",
-          projectId: "project-1",
-          pageId: "page-1",
-        },
+    patch:
+      options.patch === false
+        ? null
+        : {
+            kind: "page_changed",
+            projectId: "project-1",
+            pageId: "page-1",
+          },
     requiresReadAtLeast: options.requiresRead ?? false,
-    effectHash: options.hash
-      ?? String(resultRevision).padStart(64, "a").slice(-64),
+    effectHash: options.hash ?? String(resultRevision).padStart(64, "a").slice(-64),
   },
 });
 
@@ -180,25 +172,26 @@ describe("CausalProjectionRuntime", () => {
     await flush();
 
     expect(repair).toHaveBeenCalledOnce();
-    expect(repair).toHaveBeenCalledWith(expect.objectContaining({
-      minimumCommitSeq: 5,
-      reason: "initial_subscription_gap",
-    }));
+    expect(repair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        minimumCommitSeq: 5,
+        reason: "initial_subscription_gap",
+      }),
+    );
   });
 
   test("bounds buffered effects and canonical reads during a sustained patchless burst", async () => {
     vi.useFakeTimers();
     try {
       let current = coordinate(0, 0);
-      const repair = vi.fn(async (request: {
-        readonly minimumRevision: number;
-        readonly minimumCommitSeq: number;
-      }) => {
-        current = coordinate(
-          request.minimumRevision,
-          request.minimumCommitSeq,
-        );
-      });
+      const repair = vi.fn(
+        async (request: {
+          readonly minimumRevision: number;
+          readonly minimumCommitSeq: number;
+        }) => {
+          current = coordinate(request.minimumRevision, request.minimumCommitSeq);
+        },
+      );
       const runtime = new CausalProjectionRuntime({
         scopeKey: scope.canonical_key,
         schemaVersion: 1,
@@ -213,16 +206,16 @@ describe("CausalProjectionRuntime", () => {
       }
 
       expect(runtime.diagnostics().bufferedEffects).toBeLessThanOrEqual(128);
-      await vi.advanceTimersByTimeAsync(
-        INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs,
-      );
+      await vi.advanceTimersByTimeAsync(INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs);
       await vi.runAllTicks();
 
       expect(repair).toHaveBeenCalledOnce();
-      expect(repair).toHaveBeenLastCalledWith(expect.objectContaining({
-        minimumRevision: 300,
-        minimumCommitSeq: 300,
-      }));
+      expect(repair).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          minimumRevision: 300,
+          minimumCommitSeq: 300,
+        }),
+      );
       expect(current.revision).toBe(300);
       expect(runtime.diagnostics().bufferedEffects).toBe(0);
       runtime.dispose();
@@ -235,15 +228,14 @@ describe("CausalProjectionRuntime", () => {
     vi.useFakeTimers();
     try {
       let current = coordinate(0, 0);
-      const repair = vi.fn(async (request: {
-        readonly minimumRevision: number;
-        readonly minimumCommitSeq: number;
-      }) => {
-        current = coordinate(
-          request.minimumRevision,
-          request.minimumCommitSeq,
-        );
-      });
+      const repair = vi.fn(
+        async (request: {
+          readonly minimumRevision: number;
+          readonly minimumCommitSeq: number;
+        }) => {
+          current = coordinate(request.minimumRevision, request.minimumCommitSeq);
+        },
+      );
       const runtime = new CausalProjectionRuntime({
         scopeKey: scope.canonical_key,
         schemaVersion: 1,
@@ -256,17 +248,17 @@ describe("CausalProjectionRuntime", () => {
         runtime.accept(delivery(revision, { patch: false }));
         await vi.advanceTimersByTimeAsync(100);
       }
-      await vi.advanceTimersByTimeAsync(
-        INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs,
-      );
+      await vi.advanceTimersByTimeAsync(INTERACTIVE_PROJECTION_REPAIR_BURST.quietMs);
       await vi.runAllTicks();
 
       expect(repair.mock.calls.length).toBeGreaterThan(1);
       expect(repair.mock.calls.length).toBeLessThanOrEqual(9);
-      expect(repair).toHaveBeenLastCalledWith(expect.objectContaining({
-        minimumRevision: 400,
-        minimumCommitSeq: 400,
-      }));
+      expect(repair).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          minimumRevision: 400,
+          minimumCommitSeq: 400,
+        }),
+      );
       expect(current.revision).toBe(400);
       expect(runtime.diagnostics().bufferedEffects).toBe(0);
       runtime.dispose();

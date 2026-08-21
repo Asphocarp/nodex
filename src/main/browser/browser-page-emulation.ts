@@ -22,8 +22,7 @@ export type BrowserPageEmulationResult =
   | { ok: true }
   | { ok: false; reason: "debugger-unavailable" | "target-destroyed" | "cdp-failed" };
 
-const MOBILE_PRESET_PATTERN =
-  /(iphone|pixel|samsung|ipad|surface-duo|surface-pro)/i;
+const MOBILE_PRESET_PATTERN = /(iphone|pixel|samsung|ipad|surface-duo|surface-pro)/i;
 const COLOR_SCHEME_SYNC_TIMEOUT_MS = 1_000;
 
 function isMobileViewport(viewport: BrowserSidebarViewport): boolean {
@@ -43,9 +42,7 @@ export class BrowserPageEmulationController {
   >();
   private readonly retainedTargets = new WeakSet<BrowserPageEmulationTarget>();
 
-  retainDebugger(
-    target: BrowserPageEmulationTarget,
-  ): BrowserPageEmulationResult {
+  retainDebugger(target: BrowserPageEmulationTarget): BrowserPageEmulationResult {
     const debuggerPort = target.debugger;
     if (!debuggerPort) {
       return { ok: false, reason: "debugger-unavailable" };
@@ -88,9 +85,7 @@ export class BrowserPageEmulationController {
     });
   }
 
-  clearDeviceMetrics(
-    target: BrowserPageEmulationTarget,
-  ): Promise<BrowserPageEmulationResult> {
+  clearDeviceMetrics(target: BrowserPageEmulationTarget): Promise<BrowserPageEmulationResult> {
     return this.withDebugger(target, async (debuggerPort) => {
       await debuggerPort.sendCommand("Emulation.clearDeviceMetricsOverride");
       await debuggerPort.sendCommand("Emulation.setTouchEmulationEnabled", {
@@ -106,10 +101,12 @@ export class BrowserPageEmulationController {
     return this.withDebugger(target, async (debuggerPort) => {
       await withTimeout(
         debuggerPort.sendCommand("Emulation.setEmulatedMedia", {
-          features: [{
-            name: "prefers-color-scheme",
-            value: themeVariant,
-          }],
+          features: [
+            {
+              name: "prefers-color-scheme",
+              value: themeVariant,
+            },
+          ],
         }),
         COLOR_SCHEME_SYNC_TIMEOUT_MS,
       );
@@ -158,10 +155,7 @@ export class BrowserPageEmulationController {
   }
 }
 
-async function withTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-): Promise<T> {
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
     return await Promise.race([

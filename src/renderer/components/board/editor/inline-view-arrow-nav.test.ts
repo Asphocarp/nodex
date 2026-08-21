@@ -21,7 +21,8 @@ function makeCollapsedToggleArrowDom({
   const insideHeaderTarget = { id: "inside-header" };
   const outsideTarget = { id: "outside-target" };
   const commonBlockContent = {
-    querySelector: (selector: string) => (selector === ".bn-inline-content" ? { id: "inline" } : null),
+    querySelector: (selector: string) =>
+      selector === ".bn-inline-content" ? { id: "inline" } : null,
   } as unknown as HTMLElement;
   const nonCommonBlockContent = {
     querySelector: () => null,
@@ -42,9 +43,7 @@ function makeCollapsedToggleArrowDom({
 
   const toggleWrapper = {
     getAttribute: (name: string) =>
-      name === "data-show-children"
-        ? (collapsed ? "false" : "true")
-        : null,
+      name === "data-show-children" ? (collapsed ? "false" : "true") : null,
   };
 
   const currentBlock = {
@@ -52,7 +51,8 @@ function makeCollapsedToggleArrowDom({
       candidate === selectionAnchor || candidate === insideHeaderTarget,
     querySelector: (selector: string) => {
       if (selector === ".bn-toggle-wrapper") return toggleWrapper;
-      if (selector === ":scope > .bn-block-group" || selector === ".bn-block-group") return childGroup;
+      if (selector === ":scope > .bn-block-group" || selector === ".bn-block-group")
+        return childGroup;
       return null;
     },
   };
@@ -96,20 +96,22 @@ function makeArrowEditor({
       prevBlock,
       nextBlock,
     }),
-    transact: <T,>(fn: (tr: {
-      selection: {
-        anchor: number;
-        head: number;
-        $anchor: {
-          parentOffset: number;
-          parent: {
-            content: {
-              size: number;
+    transact: <T>(
+      fn: (tr: {
+        selection: {
+          anchor: number;
+          head: number;
+          $anchor: {
+            parentOffset: number;
+            parent: {
+              content: {
+                size: number;
+              };
             };
           };
         };
-      };
-    }) => T) =>
+      }) => T,
+    ) =>
       fn({
         selection: {
           anchor: 1,

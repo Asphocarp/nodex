@@ -93,8 +93,7 @@ const APP_UPDATES_AUTO_CHECK_DEFAULT = true;
 const WINDOW_RESTORE_POLICY_DEFAULT: WindowRestorePolicy = "all";
 export const DEFAULT_SENTRY_DSN =
   "https://ecf630563128267bf9798a10b45a089a@o4511580306014208.ingest.us.sentry.io/4511580310011904";
-export const DEFAULT_STATSIG_CLIENT_KEY =
-  "client-wpoc5Yx721NAMgJde6jcWUTiEP9kp2Ll9nr4EUxdmiP";
+export const DEFAULT_STATSIG_CLIENT_KEY = "client-wpoc5Yx721NAMgJde6jcWUTiEP9kp2Ll9nr4EUxdmiP";
 const DIAGNOSTICS_ENVIRONMENT_DEFAULT = "production";
 const DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT = 0;
 const DIAGNOSTICS_REPLAY_ENABLED_DEFAULT = false;
@@ -220,11 +219,7 @@ function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean 
   return fallback;
 }
 
-function parseIntegerEnv(
-  value: string | undefined,
-  fallback: number,
-  minimum: number
-): number {
+function parseIntegerEnv(value: string | undefined, fallback: number, minimum: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) return fallback;
@@ -289,12 +284,14 @@ function backupSettingsFromConfig(config: ServerTomlConfig): Omit<BackupSettings
   };
 }
 
-function threadNotificationSettingsFromConfig(config: ServerTomlConfig): ThreadNotificationSettings {
+function threadNotificationSettingsFromConfig(
+  config: ServerTomlConfig,
+): ThreadNotificationSettings {
   return {
     turnMode:
-      config.thread_notifications_turn_mode === "off"
-      || config.thread_notifications_turn_mode === "unfocused"
-      || config.thread_notifications_turn_mode === "always"
+      config.thread_notifications_turn_mode === "off" ||
+      config.thread_notifications_turn_mode === "unfocused" ||
+      config.thread_notifications_turn_mode === "always"
         ? config.thread_notifications_turn_mode
         : THREAD_NOTIFICATIONS_TURN_MODE_DEFAULT,
     permissionsEnabled:
@@ -317,37 +314,42 @@ function appUpdateSettingsFromConfig(
       typeof config.app_updates_auto_check_enabled === "boolean"
         ? config.app_updates_auto_check_enabled
         : APP_UPDATES_AUTO_CHECK_DEFAULT,
-    channel: config.app_updates_channel === "stable" || config.app_updates_channel === "nightly"
-      ? config.app_updates_channel
-      : buildDefaultChannel,
+    channel:
+      config.app_updates_channel === "stable" || config.app_updates_channel === "nightly"
+        ? config.app_updates_channel
+        : buildDefaultChannel,
   };
 }
 
 function windowRestoreSettingsFromConfig(config: ServerTomlConfig): WindowRestoreSettings {
   return {
     policy:
-      config.window_restore_policy === "all"
-      || config.window_restore_policy === "last-window"
-      || config.window_restore_policy === "none"
+      config.window_restore_policy === "all" ||
+      config.window_restore_policy === "last-window" ||
+      config.window_restore_policy === "none"
         ? config.window_restore_policy
         : WINDOW_RESTORE_POLICY_DEFAULT,
   };
 }
 
-function diagnosticsSettingsFromConfig(config: ServerTomlConfig): Omit<DiagnosticsSettings, "envOverrides"> {
+function diagnosticsSettingsFromConfig(
+  config: ServerTomlConfig,
+): Omit<DiagnosticsSettings, "envOverrides"> {
   const enabled = config.diagnostics_enabled === true;
-  const configuredDsn = typeof config.diagnostics_dsn === "string"
-    ? config.diagnostics_dsn.trim()
-    : "";
-  const environment = typeof config.diagnostics_environment === "string" && config.diagnostics_environment.trim()
-    ? config.diagnostics_environment.trim()
-    : DIAGNOSTICS_ENVIRONMENT_DEFAULT;
-  const release = typeof config.diagnostics_release === "string" && config.diagnostics_release.trim()
-    ? config.diagnostics_release.trim()
-    : null;
-  const tracesSampleRate = typeof config.diagnostics_traces_sample_rate === "number"
-    ? Math.min(1, Math.max(0, config.diagnostics_traces_sample_rate))
-    : DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT;
+  const configuredDsn =
+    typeof config.diagnostics_dsn === "string" ? config.diagnostics_dsn.trim() : "";
+  const environment =
+    typeof config.diagnostics_environment === "string" && config.diagnostics_environment.trim()
+      ? config.diagnostics_environment.trim()
+      : DIAGNOSTICS_ENVIRONMENT_DEFAULT;
+  const release =
+    typeof config.diagnostics_release === "string" && config.diagnostics_release.trim()
+      ? config.diagnostics_release.trim()
+      : null;
+  const tracesSampleRate =
+    typeof config.diagnostics_traces_sample_rate === "number"
+      ? Math.min(1, Math.max(0, config.diagnostics_traces_sample_rate))
+      : DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT;
   const replayEnabled =
     typeof config.diagnostics_replay_enabled === "boolean"
       ? config.diagnostics_replay_enabled
@@ -373,11 +375,12 @@ function diagnosticsSettingsFromConfig(config: ServerTomlConfig): Omit<Diagnosti
   };
 }
 
-function telemetrySettingsFromConfig(config: ServerTomlConfig): Omit<TelemetrySettings, "envOverrides"> {
+function telemetrySettingsFromConfig(
+  config: ServerTomlConfig,
+): Omit<TelemetrySettings, "envOverrides"> {
   const enabled = config.telemetry_enabled === true;
-  const configuredClientKey = typeof config.telemetry_client_key === "string"
-    ? config.telemetry_client_key.trim()
-    : "";
+  const configuredClientKey =
+    typeof config.telemetry_client_key === "string" ? config.telemetry_client_key.trim() : "";
   const environment =
     typeof config.telemetry_environment === "string" && config.telemetry_environment.trim()
       ? config.telemetry_environment.trim()
@@ -499,47 +502,55 @@ export function getDiagnosticsSettings(): DiagnosticsSettings {
     release: process.env.SENTRY_RELEASE !== undefined,
     tracesSampleRate: process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE !== undefined,
     replayEnabled: process.env.NODEX_SENTRY_REPLAY_ENABLED !== undefined,
-    replaysSessionSampleRate:
-      process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE !== undefined,
-    replaysOnErrorSampleRate:
-      process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE !== undefined,
+    replaysSessionSampleRate: process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE !== undefined,
+    replaysOnErrorSampleRate: process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE !== undefined,
   };
 
   const enabled = envOverrides.enabled
     ? parseBooleanEnv(process.env.NODEX_SENTRY_ENABLED, fromToml.enabled)
     : fromToml.enabled;
   const dsnFromEnv = process.env.SENTRY_DSN?.trim() ?? "";
-  const dsn = envOverrides.dsn
-    ? dsnFromEnv
-    : fromToml.dsn || (enabled ? DEFAULT_SENTRY_DSN : "");
+  const dsn = envOverrides.dsn ? dsnFromEnv : fromToml.dsn || (enabled ? DEFAULT_SENTRY_DSN : "");
   const environmentFromEnv = process.env.SENTRY_ENVIRONMENT?.trim() ?? "";
-  const environment = envOverrides.environment && environmentFromEnv
-    ? environmentFromEnv
-    : fromToml.environment;
+  const environment =
+    envOverrides.environment && environmentFromEnv ? environmentFromEnv : fromToml.environment;
   const releaseFromEnv = process.env.SENTRY_RELEASE?.trim() ?? "";
-  const release = envOverrides.release
-    ? (releaseFromEnv || null)
-    : fromToml.release;
+  const release = envOverrides.release ? releaseFromEnv || null : fromToml.release;
   const tracesSampleRate = envOverrides.tracesSampleRate
-    ? Math.min(1, Math.max(0, parseNumberEnv(
-        process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE,
-        fromToml.tracesSampleRate,
-      )))
+    ? Math.min(
+        1,
+        Math.max(
+          0,
+          parseNumberEnv(process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE, fromToml.tracesSampleRate),
+        ),
+      )
     : fromToml.tracesSampleRate;
   const replayEnabled = envOverrides.replayEnabled
     ? parseBooleanEnv(process.env.NODEX_SENTRY_REPLAY_ENABLED, fromToml.replayEnabled)
     : fromToml.replayEnabled;
   const replaysSessionSampleRate = envOverrides.replaysSessionSampleRate
-    ? Math.min(1, Math.max(0, parseNumberEnv(
-        process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
-        fromToml.replaysSessionSampleRate,
-      )))
+    ? Math.min(
+        1,
+        Math.max(
+          0,
+          parseNumberEnv(
+            process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+            fromToml.replaysSessionSampleRate,
+          ),
+        ),
+      )
     : fromToml.replaysSessionSampleRate;
   const replaysOnErrorSampleRate = envOverrides.replaysOnErrorSampleRate
-    ? Math.min(1, Math.max(0, parseNumberEnv(
-        process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
-        fromToml.replaysOnErrorSampleRate,
-      )))
+    ? Math.min(
+        1,
+        Math.max(
+          0,
+          parseNumberEnv(
+            process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+            fromToml.replaysOnErrorSampleRate,
+          ),
+        ),
+      )
     : fromToml.replaysOnErrorSampleRate;
 
   return {
@@ -565,8 +576,8 @@ export function updateDiagnosticsSettings(
     enabled: input.enabled,
     dsn: normalizeOptionalStringInput(input.dsn, "dsn"),
     environment:
-      normalizeOptionalStringInput(input.environment, "environment")
-      ?? DIAGNOSTICS_ENVIRONMENT_DEFAULT,
+      normalizeOptionalStringInput(input.environment, "environment") ??
+      DIAGNOSTICS_ENVIRONMENT_DEFAULT,
     release: normalizeOptionalStringInput(input.release, "release"),
     tracesSampleRate: normalizeSampleRate(input.tracesSampleRate, "tracesSampleRate"),
     replayEnabled: input.replayEnabled,
@@ -634,14 +645,10 @@ export function getTelemetrySettings(): TelemetrySettings {
     ? clientKeyFromEnv
     : fromToml.clientKey || (enabled ? DEFAULT_STATSIG_CLIENT_KEY : "");
   const environmentFromEnv = process.env.STATSIG_ENVIRONMENT?.trim() ?? "";
-  const environment = envOverrides.environment && environmentFromEnv
-    ? environmentFromEnv
-    : fromToml.environment;
+  const environment =
+    envOverrides.environment && environmentFromEnv ? environmentFromEnv : fromToml.environment;
   const autoCaptureEnabled = envOverrides.autoCaptureEnabled
-    ? parseBooleanEnv(
-        process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED,
-        fromToml.autoCaptureEnabled,
-      )
+    ? parseBooleanEnv(process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED, fromToml.autoCaptureEnabled)
     : fromToml.autoCaptureEnabled;
 
   return {
@@ -653,9 +660,7 @@ export function getTelemetrySettings(): TelemetrySettings {
   };
 }
 
-export function updateTelemetrySettings(
-  input: UpdateTelemetrySettingsInput,
-): TelemetrySettings {
+export function updateTelemetrySettings(input: UpdateTelemetrySettingsInput): TelemetrySettings {
   if (typeof input.enabled !== "boolean") {
     throw new Error("enabled must be a boolean");
   }
@@ -667,8 +672,8 @@ export function updateTelemetrySettings(
     enabled: input.enabled,
     clientKey: normalizeOptionalStringInput(input.clientKey, "clientKey"),
     environment:
-      normalizeOptionalStringInput(input.environment, "environment")
-      ?? TELEMETRY_ENVIRONMENT_DEFAULT,
+      normalizeOptionalStringInput(input.environment, "environment") ??
+      TELEMETRY_ENVIRONMENT_DEFAULT,
     autoCaptureEnabled: input.autoCaptureEnabled,
   };
 
@@ -703,9 +708,7 @@ export function getThreadNotificationSettings(): ThreadNotificationSettings {
 }
 
 function isCodexThreadDetailLevel(value: unknown): value is CodexThreadDetailLevel {
-  return value === "STEPS_PROSE"
-    || value === "STEPS_COMMANDS"
-    || value === "STEPS_EXECUTION";
+  return value === "STEPS_PROSE" || value === "STEPS_COMMANDS" || value === "STEPS_EXECUTION";
 }
 
 export function getCodexDeveloperInstructionSettings(): CodexDeveloperInstructionSettings {
@@ -731,15 +734,18 @@ export function updateCodexDeveloperInstructionSettings(
 
 export function getCodexGitSettings(): CodexGitSettings {
   return {
-    branchPrefix: typeof userServerToml.git_branch_prefix === "string"
-      ? userServerToml.git_branch_prefix
-      : CODEX_GIT_BRANCH_PREFIX_DEFAULT,
-    commitInstructions: typeof userServerToml.git_commit_instructions === "string"
-      ? userServerToml.git_commit_instructions
-      : "",
-    pullRequestInstructions: typeof userServerToml.git_pr_instructions === "string"
-      ? userServerToml.git_pr_instructions
-      : "",
+    branchPrefix:
+      typeof userServerToml.git_branch_prefix === "string"
+        ? userServerToml.git_branch_prefix
+        : CODEX_GIT_BRANCH_PREFIX_DEFAULT,
+    commitInstructions:
+      typeof userServerToml.git_commit_instructions === "string"
+        ? userServerToml.git_commit_instructions
+        : "",
+    pullRequestInstructions:
+      typeof userServerToml.git_pr_instructions === "string"
+        ? userServerToml.git_pr_instructions
+        : "",
   };
 }
 
@@ -756,44 +762,48 @@ export function updateCodexGitSettings(input: UpdateCodexGitSettingsInput): Code
 
   const next = { ...loadUserServerTomlConfig() };
   if (input.branchPrefix !== undefined) next.git_branch_prefix = input.branchPrefix;
-  if (input.commitInstructions !== undefined) next.git_commit_instructions = input.commitInstructions;
-  if (input.pullRequestInstructions !== undefined) next.git_pr_instructions = input.pullRequestInstructions;
+  if (input.commitInstructions !== undefined)
+    next.git_commit_instructions = input.commitInstructions;
+  if (input.pullRequestInstructions !== undefined)
+    next.git_pr_instructions = input.pullRequestInstructions;
   writeUserServerTomlConfig(next);
   return getCodexGitSettings();
 }
 
 export function getManagedWorktreeSettings(): ManagedWorktreeSettings {
   return {
-    worktreeRoot: typeof userServerToml.worktree_root === "string"
-      && userServerToml.worktree_root.trim()
-      ? path.resolve(userServerToml.worktree_root.trim())
-      : null,
-    autoDeleteEnabled: typeof userServerToml.worktree_auto_delete_enabled === "boolean"
-      ? userServerToml.worktree_auto_delete_enabled
-      : true,
-    autoDeleteLimit: typeof userServerToml.worktree_auto_delete_limit === "number"
-      && Number.isSafeInteger(userServerToml.worktree_auto_delete_limit)
-      && userServerToml.worktree_auto_delete_limit >= 1
-      ? userServerToml.worktree_auto_delete_limit
-      : WORKTREE_AUTO_DELETE_LIMIT_DEFAULT,
+    worktreeRoot:
+      typeof userServerToml.worktree_root === "string" && userServerToml.worktree_root.trim()
+        ? path.resolve(userServerToml.worktree_root.trim())
+        : null,
+    autoDeleteEnabled:
+      typeof userServerToml.worktree_auto_delete_enabled === "boolean"
+        ? userServerToml.worktree_auto_delete_enabled
+        : true,
+    autoDeleteLimit:
+      typeof userServerToml.worktree_auto_delete_limit === "number" &&
+      Number.isSafeInteger(userServerToml.worktree_auto_delete_limit) &&
+      userServerToml.worktree_auto_delete_limit >= 1
+        ? userServerToml.worktree_auto_delete_limit
+        : WORKTREE_AUTO_DELETE_LIMIT_DEFAULT,
   };
 }
 
 export function getKnownManagedWorktreeRoots(): string[] {
   if (!Array.isArray(userServerToml.worktree_known_roots)) return [];
-  return Array.from(new Set(userServerToml.worktree_known_roots
-    .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
-    .map((root) => path.resolve(root.trim()))));
+  return Array.from(
+    new Set(
+      userServerToml.worktree_known_roots
+        .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
+        .map((root) => path.resolve(root.trim())),
+    ),
+  );
 }
 
 export function updateManagedWorktreeSettings(
   input: UpdateManagedWorktreeSettingsInput,
 ): ManagedWorktreeSettings {
-  const allowedKeys = new Set([
-    "worktreeRoot",
-    "autoDeleteEnabled",
-    "autoDeleteLimit",
-  ]);
+  const allowedKeys = new Set(["worktreeRoot", "autoDeleteEnabled", "autoDeleteLimit"]);
   if (Object.keys(input).some((key) => !allowedKeys.has(key))) {
     throw new Error("Unknown managed worktree setting");
   }
@@ -801,15 +811,15 @@ export function updateManagedWorktreeSettings(
     throw new Error("autoDeleteEnabled must be a boolean");
   }
   if (
-    input.autoDeleteLimit !== undefined
-    && (!Number.isSafeInteger(input.autoDeleteLimit) || input.autoDeleteLimit < 1)
+    input.autoDeleteLimit !== undefined &&
+    (!Number.isSafeInteger(input.autoDeleteLimit) || input.autoDeleteLimit < 1)
   ) {
     throw new Error("autoDeleteLimit must be an integer of at least one");
   }
   if (
-    input.worktreeRoot !== undefined
-    && input.worktreeRoot !== null
-    && typeof input.worktreeRoot !== "string"
+    input.worktreeRoot !== undefined &&
+    input.worktreeRoot !== null &&
+    typeof input.worktreeRoot !== "string"
   ) {
     throw new Error("worktreeRoot must be a string or null");
   }
@@ -827,8 +837,7 @@ export function updateManagedWorktreeSettings(
     if (normalized) {
       next.worktree_root = path.resolve(normalized);
       knownRoots.add(next.worktree_root);
-    }
-    else delete next.worktree_root;
+    } else delete next.worktree_root;
     next.worktree_known_roots = [...knownRoots].sort();
   }
   if (input.autoDeleteEnabled !== undefined) {
@@ -842,9 +851,7 @@ export function updateManagedWorktreeSettings(
 }
 
 export function getCodexExecutionHostSettings(): CodexExecutionHostSettings {
-  const hosts = Array.isArray(userServerToml.execution_hosts)
-    ? userServerToml.execution_hosts
-    : [];
+  const hosts = Array.isArray(userServerToml.execution_hosts) ? userServerToml.execution_hosts : [];
   const sshHosts = hosts.map((candidate, index) => {
     try {
       return normalizeCodexSshExecutionHostConfig(candidate as never);
@@ -866,11 +873,11 @@ export function updateCodexExecutionHostSettings(
   input: UpdateCodexExecutionHostSettingsInput,
 ): CodexExecutionHostSettings {
   if (
-    typeof input !== "object"
-    || input === null
-    || Array.isArray(input)
-    || Object.keys(input).some((key) => key !== "sshHosts")
-    || !Array.isArray(input.sshHosts)
+    typeof input !== "object" ||
+    input === null ||
+    Array.isArray(input) ||
+    Object.keys(input).some((key) => key !== "sshHosts") ||
+    !Array.isArray(input.sshHosts)
   ) {
     throw new Error("Invalid execution host settings update");
   }
@@ -972,10 +979,16 @@ export function updateAppUpdateSettings(
     throw new Error("App update settings input must be an object");
   }
   const keys = Object.keys(input);
-  if (keys.length === 0 || keys.some((key) => key !== "automaticChecksEnabled" && key !== "channel")) {
+  if (
+    keys.length === 0 ||
+    keys.some((key) => key !== "automaticChecksEnabled" && key !== "channel")
+  ) {
     throw new Error("App update settings input contains unsupported keys");
   }
-  if (input.automaticChecksEnabled !== undefined && typeof input.automaticChecksEnabled !== "boolean") {
+  if (
+    input.automaticChecksEnabled !== undefined &&
+    typeof input.automaticChecksEnabled !== "boolean"
+  ) {
     throw new Error("automaticChecksEnabled must be a boolean");
   }
   if (input.channel !== undefined && input.channel !== "stable" && input.channel !== "nightly") {
@@ -986,9 +999,11 @@ export function updateAppUpdateSettings(
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
-    ...(input.automaticChecksEnabled === undefined ? {} : {
-      app_updates_auto_check_enabled: input.automaticChecksEnabled,
-    }),
+    ...(input.automaticChecksEnabled === undefined
+      ? {}
+      : {
+          app_updates_auto_check_enabled: input.automaticChecksEnabled,
+        }),
     ...(input.channel === undefined ? {} : { app_updates_channel: input.channel }),
   };
 

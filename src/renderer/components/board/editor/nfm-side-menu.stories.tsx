@@ -36,7 +36,12 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
+function makeCard(
+  id: string,
+  title: string,
+  status: DatabasePageSummary["status"],
+  order: number,
+): DatabasePageSummary {
   return {
     id,
     pageKey: null,
@@ -140,28 +145,35 @@ function SideMenuStorySurface({
   const [query, setQuery] = useState(initialQuery);
   const [focusedIndex, setFocusedIndex] = useState(query ? 0 : -1);
   const [activeSubmenu, setActiveSubmenu] = useState<NfmSideMenuSubmenuKey | null>(initialSubmenu);
-  const baseSections = useMemo(() => buildNfmSideMenuSections({
-    currentBlockId: "block-1",
-    currentBlockType,
-    selectionTitle,
-    selectedTopLevelBlockCount,
-    isEditable: true,
-    canUseColor,
-    canSendBlocks,
-    hasConvertDividerToThreadSection: currentBlockType === "divider",
-    isTableBlock,
-    canUseTableHeaders,
-    showMockActions: true,
-  }), [
-    canSendBlocks,
-    canUseColor,
-    canUseTableHeaders,
-    currentBlockType,
-    isTableBlock,
-    selectedTopLevelBlockCount,
-    selectionTitle,
-  ]);
-  const sections = useMemo(() => filterNfmSideMenuSections(baseSections, query), [baseSections, query]);
+  const baseSections = useMemo(
+    () =>
+      buildNfmSideMenuSections({
+        currentBlockId: "block-1",
+        currentBlockType,
+        selectionTitle,
+        selectedTopLevelBlockCount,
+        isEditable: true,
+        canUseColor,
+        canSendBlocks,
+        hasConvertDividerToThreadSection: currentBlockType === "divider",
+        isTableBlock,
+        canUseTableHeaders,
+        showMockActions: true,
+      }),
+    [
+      canSendBlocks,
+      canUseColor,
+      canUseTableHeaders,
+      currentBlockType,
+      isTableBlock,
+      selectedTopLevelBlockCount,
+      selectionTitle,
+    ],
+  );
+  const sections = useMemo(
+    () => filterNfmSideMenuSections(baseSections, query),
+    [baseSections, query],
+  );
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
 
   return (
@@ -174,13 +186,39 @@ function SideMenuStorySurface({
           activeSubmenu={activeSubmenu}
           listboxId="storybook-side-menu-listbox"
           comboboxId="storybook-side-menu-combobox"
-          activeDescendantId={focusedIndex >= 0 ? `storybook-side-menu-listbox-option-${focusedIndex}` : undefined}
+          activeDescendantId={
+            focusedIndex >= 0 ? `storybook-side-menu-listbox-option-${focusedIndex}` : undefined
+          }
           turnIntoItems={[
             { key: "paragraph", label: "Text", type: "paragraph", enabled: true },
-            { key: "heading-1", label: "Heading 1", type: "heading", props: { level: 1, isToggleable: false }, enabled: true },
-            { key: "toggle-heading-1", label: "Toggle heading 1", type: "heading", props: { level: 1, isToggleable: true }, enabled: true },
-            { key: "toggle-heading-2", label: "Toggle heading 2", type: "heading", props: { level: 2, isToggleable: true }, enabled: true },
-            { key: "toggle-heading-3", label: "Toggle heading 3", type: "heading", props: { level: 3, isToggleable: true }, enabled: true },
+            {
+              key: "heading-1",
+              label: "Heading 1",
+              type: "heading",
+              props: { level: 1, isToggleable: false },
+              enabled: true,
+            },
+            {
+              key: "toggle-heading-1",
+              label: "Toggle heading 1",
+              type: "heading",
+              props: { level: 1, isToggleable: true },
+              enabled: true,
+            },
+            {
+              key: "toggle-heading-2",
+              label: "Toggle heading 2",
+              type: "heading",
+              props: { level: 2, isToggleable: true },
+              enabled: true,
+            },
+            {
+              key: "toggle-heading-3",
+              label: "Toggle heading 3",
+              type: "heading",
+              props: { level: 3, isToggleable: true },
+              enabled: true,
+            },
             { key: "bullet-list", label: "Bulleted list", type: "bulletListItem", enabled: true },
             { key: "code", label: "Code", type: "codeBlock", enabled: true },
             { key: "callout", label: "Callout", type: "callout", enabled: true },
@@ -207,7 +245,9 @@ function SideMenuStorySurface({
           }}
           onFocusIndexChange={setFocusedIndex}
           onMoveFocus={(direction) => {
-            setFocusedIndex((currentIndex) => moveNfmSideMenuFocus(currentIndex, direction, flatRows));
+            setFocusedIndex((currentIndex) =>
+              moveNfmSideMenuFocus(currentIndex, direction, flatRows),
+            );
           }}
           onActivateFocused={() => undefined}
           onClose={() => undefined}

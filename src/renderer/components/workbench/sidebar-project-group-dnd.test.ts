@@ -20,11 +20,11 @@ describe("project group insertion targeting", () => {
     });
 
     expect(target?.beforeGroupId).toBe("alpha");
-    expect(JSON.stringify(moveSidebarGroupBefore(
-      ["alpha", "beta", "gamma"],
-      "gamma",
-      target?.beforeGroupId ?? null,
-    ))).toBe(JSON.stringify(["gamma", "alpha", "beta"]));
+    expect(
+      JSON.stringify(
+        moveSidebarGroupBefore(["alpha", "beta", "gamma"], "gamma", target?.beforeGroupId ?? null),
+      ),
+    ).toBe(JSON.stringify(["gamma", "alpha", "beta"]));
   });
 
   test("places the insertion target after the hovered row below its midpoint", () => {
@@ -75,13 +75,9 @@ describe("replaceVisibleOrder", () => {
       ["beta", "alpha"],
     );
 
-    expect(JSON.stringify(result)).toBe(JSON.stringify([
-      "pinned-a",
-      "beta",
-      "pinned-b",
-      "alpha",
-      "gamma",
-    ]));
+    expect(JSON.stringify(result)).toBe(
+      JSON.stringify(["pinned-a", "beta", "pinned-b", "alpha", "gamma"]),
+    );
   });
 
   test("keeps the current order when the visible id set changes", () => {

@@ -118,44 +118,59 @@ export function ImageViewSurface({ imagePaths }: { imagePaths: readonly string[]
   const handleOpenChange = (open: boolean) => {
     if (!open) setOpenIndex(null);
   };
-  const activeSource = openIndex === null ? null : sources[openIndex] ?? null;
+  const activeSource = openIndex === null ? null : (sources[openIndex] ?? null);
 
   return (
     <>
       <ThreadActivityShell
         className="overflow-clip"
-        header={(
+        header={
           <ThreadRichActivityHeader
             status="completed"
-            icon={<ImageIcon aria-hidden="true" className="icon-xs shrink-0 text-token-conversation-body" />}
-            summary={<span className="block truncate text-token-conversation-summary-trailing">{summary}</span>}
-            disclosure={canExpand ? {
-              expanded,
-              onToggle: () => {
-                setExpanded((current) => !current);
-              },
-            } : undefined}
+            icon={
+              <ImageIcon
+                aria-hidden="true"
+                className="icon-xs shrink-0 text-token-conversation-body"
+              />
+            }
+            summary={
+              <span className="block truncate text-token-conversation-summary-trailing">
+                {summary}
+              </span>
+            }
+            disclosure={
+              canExpand
+                ? {
+                    expanded,
+                    onToggle: () => {
+                      setExpanded((current) => !current);
+                    },
+                  }
+                : undefined
+            }
           />
-        )}
-        body={expanded ? (
-          <div className="min-w-0">
-            <div className="hide-scrollbar flex max-w-full overflow-x-auto pb-1">
-              <div className="flex min-w-max gap-2">
-                {sources.map((source, index) => (
-                  <InspectedImageThumbnail
-                    key={`${source}:${index}`}
-                    alt="Inspected image"
-                    source={source}
-                    onOpen={(trigger) => {
-                      previewTriggerRef.current = trigger;
-                      setOpenIndex(index);
-                    }}
-                  />
-                ))}
+        }
+        body={
+          expanded ? (
+            <div className="min-w-0">
+              <div className="hide-scrollbar flex max-w-full overflow-x-auto pb-1">
+                <div className="flex min-w-max gap-2">
+                  {sources.map((source, index) => (
+                    <InspectedImageThumbnail
+                      key={`${source}:${index}`}
+                      alt="Inspected image"
+                      source={source}
+                      onOpen={(trigger) => {
+                        previewTriggerRef.current = trigger;
+                        setOpenIndex(index);
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null
+        }
       />
       {activeSource ? (
         <ImagePreviewDialog
@@ -168,12 +183,20 @@ export function ImageViewSurface({ imagePaths }: { imagePaths: readonly string[]
             event.preventDefault();
             previewTriggerRef.current?.focus();
           }}
-          onPreviousImage={openIndex !== null && openIndex > 0 ? () => {
-            setOpenIndex(openIndex - 1);
-          } : undefined}
-          onNextImage={openIndex !== null && openIndex < sources.length - 1 ? () => {
-            setOpenIndex(openIndex + 1);
-          } : undefined}
+          onPreviousImage={
+            openIndex !== null && openIndex > 0
+              ? () => {
+                  setOpenIndex(openIndex - 1);
+                }
+              : undefined
+          }
+          onNextImage={
+            openIndex !== null && openIndex < sources.length - 1
+              ? () => {
+                  setOpenIndex(openIndex + 1);
+                }
+              : undefined
+          }
         />
       ) : null}
     </>

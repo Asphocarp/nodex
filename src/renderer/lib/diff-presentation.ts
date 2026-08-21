@@ -1,9 +1,4 @@
-import type {
-  CodeViewProps,
-  FileDiffProps,
-  ThemeTypes,
-  ThemesType,
-} from "@pierre/diffs/react";
+import type { CodeViewProps, FileDiffProps, ThemeTypes, ThemesType } from "@pierre/diffs/react";
 import type { CSSProperties } from "react";
 
 type DiffThemeType = Exclude<ThemeTypes, "system">;
@@ -32,8 +27,7 @@ const NODEX_DIFF_HOST_STYLE_BASE: DiffHostStyle = {
   "--codex-diffs-surface":
     "var(--codex-diffs-surface-override, var(--color-token-main-surface-primary))",
   "--diffs-font-size": "var(--vscode-editor-font-size, 14px)",
-  "--diffs-line-height":
-    "calc(var(--diffs-font-size, var(--vscode-editor-font-size, 14px)) * 1.8)",
+  "--diffs-line-height": "calc(var(--diffs-font-size, var(--vscode-editor-font-size, 14px)) * 1.8)",
   "--diffs-gap-inline": "6px",
   "--diffs-gap-block": "0",
   "--diffs-min-number-column-width": "4ch",

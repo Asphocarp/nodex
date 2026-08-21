@@ -59,7 +59,10 @@ function createLogger() {
   };
 }
 
-function createOptions(logger: ReturnType<typeof createLogger>["logger"], nowMs = 1_000): SafeSendOptions {
+function createOptions(
+  logger: ReturnType<typeof createLogger>["logger"],
+  nowMs = 1_000,
+): SafeSendOptions {
   return {
     logger,
     nowMs: () => nowMs,
@@ -77,7 +80,12 @@ describe("ipc-safe-send", () => {
     contents.destroyed = true;
     const logger = createLogger();
 
-    const sent = safeSendToWebContents(contents, "project-sessions-changed", [{ projectId: "p1" }], createOptions(logger.logger));
+    const sent = safeSendToWebContents(
+      contents,
+      "project-sessions-changed",
+      [{ projectId: "p1" }],
+      createOptions(logger.logger),
+    );
 
     expect(sent).toBe(false);
     expect(contents.sendCalls.length).toBe(0);
@@ -109,10 +117,17 @@ describe("ipc-safe-send", () => {
 
   test("treats disposed renderer frame errors as lifecycle races", () => {
     const contents = new FakeWebContents(4);
-    contents.throwOnSend = new Error("Render frame was disposed before WebFrameMain could be accessed");
+    contents.throwOnSend = new Error(
+      "Render frame was disposed before WebFrameMain could be accessed",
+    );
     const logger = createLogger();
 
-    const sent = safeSendToWindow(new FakeWindow(5, contents), "project-sessions-changed", [], createOptions(logger.logger));
+    const sent = safeSendToWindow(
+      new FakeWindow(5, contents),
+      "project-sessions-changed",
+      [],
+      createOptions(logger.logger),
+    );
 
     expect(sent).toBe(false);
     expect(logger.debugCalls.length).toBe(1);

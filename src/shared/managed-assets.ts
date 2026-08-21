@@ -57,14 +57,14 @@ export interface ManagedFolderManifest {
 
 export type ManagedAssetPreview =
   | {
-    readonly kind: "text";
-    readonly content: string;
-    readonly truncated: boolean;
-  }
+      readonly kind: "text";
+      readonly content: string;
+      readonly truncated: boolean;
+    }
   | {
-    readonly kind: "folder";
-    readonly manifest: ManagedFolderManifest;
-  };
+      readonly kind: "folder";
+      readonly manifest: ManagedFolderManifest;
+    };
 
 export interface ManagedAssetPreviewInput {
   readonly source: string;
@@ -94,20 +94,15 @@ function truncateToUtf8Bytes(value: string, maxBytes: number): string {
   }
 
   let end = lower;
-  if (
-    end > 0
-    && end < value.length
-    && /[\uD800-\uDBFF]/u.test(value[end - 1] ?? "")
-  ) {
+  if (end > 0 && end < value.length && /[\uD800-\uDBFF]/u.test(value[end - 1] ?? "")) {
     end -= 1;
   }
   return value.slice(0, end);
 }
 
-export function createManagedTextPreview(value: string): Extract<
-  ManagedAssetPreview,
-  { kind: "text" }
-> {
+export function createManagedTextPreview(
+  value: string,
+): Extract<ManagedAssetPreview, { kind: "text" }> {
   const lines = value.split("\n");
   const lineBounded = lines.slice(0, MAX_MANAGED_PREVIEW_LINES).join("\n");
   const content = truncateToUtf8Bytes(lineBounded, MAX_MANAGED_PREVIEW_BYTES);

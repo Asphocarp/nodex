@@ -12,10 +12,7 @@ import {
   updateBrowserAnnotationDesignChange,
 } from "./browser-annotation-state";
 
-function elementAnchor(
-  id: string,
-  selector = "#target",
-): BrowserAnnotationAnchor {
+function elementAnchor(id: string, selector = "#target"): BrowserAnnotationAnchor {
   return {
     id,
     kind: "element",
@@ -73,10 +70,12 @@ describe("Browser annotation draft state", () => {
       width: 60,
       height: 70,
     });
-    expect(applyBrowserAnnotationAnchorUpdate(updated, {
-      ...elementAnchor("one"),
-      pageUrl: "https://other.test/",
-    })).toBe(updated);
+    expect(
+      applyBrowserAnnotationAnchorUpdate(updated, {
+        ...elementAnchor("one"),
+        pageUrl: "https://other.test/",
+      }),
+    ).toBe(updated);
   });
 
   test("invalidates all anchors and design state on navigation", () => {
@@ -89,10 +88,7 @@ describe("Browser annotation draft state", () => {
       property: "fontSize",
       after: "20px",
     });
-    const navigated = navigateBrowserAnnotationDraft(
-      designed,
-      "https://example.test/next",
-    );
+    const navigated = navigateBrowserAnnotationDraft(designed, "https://example.test/next");
     expect(navigated.anchors).toEqual([]);
     expect(navigated.designChange).toBeNull();
     expect(navigated.pageUrl).toBe("https://example.test/next");

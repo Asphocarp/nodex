@@ -48,10 +48,12 @@ describe("Project Page-key editor model", () => {
     });
     expect(used.impactText).toContain("7 Pages");
     expect(used.impactText).toContain("keep working and remain reserved");
-    expect(used.history).toEqual([{
-      prefix: "OLD",
-      detail: "Numbers through 4 still resolve",
-    }]);
+    expect(used.history).toEqual([
+      {
+        prefix: "OLD",
+        detail: "Numbers through 4 still resolve",
+      },
+    ]);
   });
 
   test("keeps concurrency and reservation failures distinct", () => {
@@ -70,21 +72,25 @@ describe("Project Page-key editor model", () => {
       settings: settings(),
       settingsStatus: "ready" as const,
     };
-    expect(projectPageKeyEditorModel({
-      ...base,
-      saveFailure: {
-        code: "identity_conflict",
-        message: "reserved",
-        retryable: false,
-      },
-    }).prefixError).toContain("claimed in another window");
-    expect(projectPageKeyEditorModel({
-      ...base,
-      saveFailure: {
-        code: "revision_conflict",
-        message: "stale",
-        retryable: false,
-      },
-    }).formError).toContain("changed in another window");
+    expect(
+      projectPageKeyEditorModel({
+        ...base,
+        saveFailure: {
+          code: "identity_conflict",
+          message: "reserved",
+          retryable: false,
+        },
+      }).prefixError,
+    ).toContain("claimed in another window");
+    expect(
+      projectPageKeyEditorModel({
+        ...base,
+        saveFailure: {
+          code: "revision_conflict",
+          message: "stale",
+          retryable: false,
+        },
+      }).formError,
+    ).toContain("changed in another window");
   });
 });

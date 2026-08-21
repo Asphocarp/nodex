@@ -90,6 +90,8 @@ export function resolveNfmSideMenuReference({
   blockId: string | null | undefined;
   fallbackRect?: NfmSideMenuRect | null;
 }): NfmPopoverReference | null {
-  return resolveNfmSideMenuBlockReference(root, blockId)
-    ?? (fallbackRect ? createNfmSideMenuStaticReference(fallbackRect) : null);
+  return (
+    resolveNfmSideMenuBlockReference(root, blockId) ??
+    (fallbackRect ? createNfmSideMenuStaticReference(fallbackRect) : null)
+  );
 }

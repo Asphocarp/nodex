@@ -129,26 +129,28 @@ describe("nfm send-to-thread menu model", () => {
       query: "needle",
       threads,
       threadSearchIndex: createCommandPaletteThreadSearchIndex(threads),
-      threadSearchBatch: makeThreadContentBatch("needle", [{
-        thread: {
-          threadId: "content-hit",
-          sessionId: "session-existing",
-          projectId: "project-1",
-          projectName: "Launch project",
-          title: "General investigation",
-          preview: "",
-          cwd: "/repo",
-          gitBranch: null,
-          projectless: false,
-          pinned: false,
-          pinnedOrder: null,
-          statusType: "idle",
-          statusActiveFlags: [],
-          createdAt: 0,
-          updatedAt: 0,
+      threadSearchBatch: makeThreadContentBatch("needle", [
+        {
+          thread: {
+            threadId: "content-hit",
+            sessionId: "session-existing",
+            projectId: "project-1",
+            projectName: "Launch project",
+            title: "General investigation",
+            preview: "",
+            cwd: "/repo",
+            gitBranch: null,
+            projectless: false,
+            pinned: false,
+            pinnedOrder: null,
+            statusType: "idle",
+            statusActiveFlags: [],
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          snippet: "backend needle snippet",
         },
-        snippet: "backend needle snippet",
-      }]),
+      ]),
       threadLimit: 24,
     });
     const rows = buildNfmSendToThreadRows({
@@ -168,26 +170,28 @@ describe("nfm send-to-thread menu model", () => {
     const visibleThreads = selectCommandPaletteChatResults({
       query: "handoff",
       threads: [],
-      threadSearchBatch: makeThreadContentBatch("handoff", [{
-        thread: {
-          threadId: "server-only-target",
-          sessionId: null,
-          projectId: "project-1",
-          projectName: "Launch project",
-          title: "Historical handoff",
-          preview: "Not loaded in the sidebar",
-          cwd: "/repo/archive",
-          gitBranch: "archive/handoff",
-          projectless: false,
-          pinned: false,
-          pinnedOrder: null,
-          statusType: "notLoaded",
-          statusActiveFlags: [],
-          createdAt: 1,
-          updatedAt: 2,
+      threadSearchBatch: makeThreadContentBatch("handoff", [
+        {
+          thread: {
+            threadId: "server-only-target",
+            sessionId: null,
+            projectId: "project-1",
+            projectName: "Launch project",
+            title: "Historical handoff",
+            preview: "Not loaded in the sidebar",
+            cwd: "/repo/archive",
+            gitBranch: "archive/handoff",
+            projectless: false,
+            pinned: false,
+            pinnedOrder: null,
+            statusType: "notLoaded",
+            statusActiveFlags: [],
+            createdAt: 1,
+            updatedAt: 2,
+          },
+          snippet: "The handoff target exists only in app-server history.",
         },
-        snippet: "The handoff target exists only in app-server history.",
-      }]),
+      ]),
       activeProjectId: "project-1",
     });
 
@@ -323,9 +327,7 @@ describe("nfm send-to-thread menu model", () => {
           thread,
           meta: "Current section",
         },
-        threads: [
-          makeThread({ threadId: "other", title: "Other", updatedAt: 1 }),
-        ],
+        threads: [makeThread({ threadId: "other", title: "Other", updatedAt: 1 })],
       });
 
       expect(rows.map((row) => row.id).join(",")).toBe("thread:other,new-thread");
@@ -335,9 +337,7 @@ describe("nfm send-to-thread menu model", () => {
   test("focus starts on a matching existing thread for search and wraps during keyboard movement", () => {
     const rows = buildNfmSendToThreadRows({
       query: "build",
-      threads: [
-        makeThread({ threadId: "build-thread", title: "Build flow", updatedAt: 1 }),
-      ],
+      threads: [makeThread({ threadId: "build-thread", title: "Build flow", updatedAt: 1 })],
     });
 
     const initial = resolveNfmSendToThreadFocusedRowId(null, "build", rows);

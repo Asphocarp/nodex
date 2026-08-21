@@ -1,7 +1,6 @@
 import type { LibraryPageDetailResult } from "../shared/page-detail";
 
-export const LIBRARY_PAGE_DETAIL_IPC_CHANNEL =
-  "library-pages:detail:get" as const;
+export const LIBRARY_PAGE_DETAIL_IPC_CHANNEL = "library-pages:detail:get" as const;
 
 export interface LibraryPageDetailIpcDependencies {
   readonly registerHandle: (
@@ -13,10 +12,7 @@ export interface LibraryPageDetailIpcDependencies {
     ) => Promise<LibraryPageDetailResult>,
   ) => void;
   readonly isTrustedEvent: (event: unknown) => boolean;
-  readonly read: (
-    pageId: string,
-    minimumCommitSeq?: number,
-  ) => Promise<LibraryPageDetailResult>;
+  readonly read: (pageId: string, minimumCommitSeq?: number) => Promise<LibraryPageDetailResult>;
 }
 
 export const registerLibraryPageDetailIpcHandler = (
@@ -42,9 +38,7 @@ export const registerLibraryPageDetailIpcHandler = (
           ok: false,
           error: {
             code: "unknown",
-            message: error instanceof Error
-              ? error.message
-              : "Library Page Detail is unavailable",
+            message: error instanceof Error ? error.message : "Library Page Detail is unavailable",
             retryable: true,
           },
         };

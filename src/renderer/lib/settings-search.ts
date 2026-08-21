@@ -27,8 +27,9 @@ export interface SettingsSearchResult<TSectionId extends string = string> {
   label: string;
 }
 
-interface ScoredSettingsSearchResult<TSectionId extends string = string>
-  extends SettingsSearchResult<TSectionId> {
+interface ScoredSettingsSearchResult<
+  TSectionId extends string = string,
+> extends SettingsSearchResult<TSectionId> {
   matchPriority: 0 | 1;
   score: number;
 }
@@ -87,10 +88,7 @@ export function buildSettingsSearchResults<TSectionId extends string>({
         return right.score - left.score;
       }
 
-      return (
-        (visibleOrder.get(left.sectionId) ?? 0) -
-        (visibleOrder.get(right.sectionId) ?? 0)
-      );
+      return (visibleOrder.get(left.sectionId) ?? 0) - (visibleOrder.get(right.sectionId) ?? 0);
     })
     .map(({ label, panelLabel, sectionId }) => ({
       label,
@@ -139,9 +137,7 @@ function scoreSettingsSearchTarget<TSectionId extends string>(
 
   return {
     label:
-      bestMessage === null || /[<{]/u.test(bestMessage.text)
-        ? target.panelLabel
-        : bestMessage.text,
+      bestMessage === null || /[<{]/u.test(bestMessage.text) ? target.panelLabel : bestMessage.text,
     matchPriority: 1,
     panelLabel: target.panelLabel,
     score: multiTermScore,
@@ -163,10 +159,7 @@ function scoreMessageLabelCandidate(
   return termScores.reduce((sum, score) => sum + score, 0);
 }
 
-function scoreAllQueryTerms(
-  texts: readonly string[],
-  queryTerms: readonly string[],
-): number {
+function scoreAllQueryTerms(texts: readonly string[], queryTerms: readonly string[]): number {
   const scores = queryTerms.map((term) =>
     Math.max(0, ...texts.map((text) => scoreSettingsQueryMatch(text, term))),
   );

@@ -3,10 +3,7 @@ import type { ImageComment, ImageCommentGroup } from "./types";
 
 export type ImageCommentLocale = string | readonly string[];
 
-export function formatImageCommentPercent(
-  value: number,
-  locales?: ImageCommentLocale,
-): string {
+export function formatImageCommentPercent(value: number, locales?: ImageCommentLocale): string {
   return new Intl.NumberFormat(locales, {
     style: "percent",
     maximumFractionDigits: 1,

@@ -5,10 +5,7 @@ import { selectTieredTestFiles } from "./config/vitest-test-tier";
 assertElectronTestRuntime("main");
 
 const testFiles = selectTieredTestFiles({
-  defaultExclude: [
-    "src/main/**/*.integration.ts",
-    "src/main/core-client/**/*.node.test.ts",
-  ],
+  defaultExclude: ["src/main/**/*.integration.ts", "src/main/core-client/**/*.node.test.ts"],
   defaultInclude: ["src/main/**/*.test.ts"],
   stressExclude: ["src/main/core-client/**/*.node.test.ts"],
   stressInclude: ["src/main/**/*.stress*.test.ts"],

@@ -6,10 +6,7 @@ import {
   superviseIsolatedRunEffect,
 } from "./effect-control-plane/isolated-run";
 import { runScriptControlPlanePromise } from "./effect-control-plane/runtime";
-import type {
-  SuperviseIsolatedRunInput,
-  SupervisedRunResult,
-} from "./isolated-run-contract";
+import type { SuperviseIsolatedRunInput, SupervisedRunResult } from "./isolated-run-contract";
 
 export type {
   IsolatedRunSupervisorDependencies,

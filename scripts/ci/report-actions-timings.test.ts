@@ -84,10 +84,13 @@ describe("GitHub Actions timing reports", () => {
   });
 
   test("filters event and branch before summarizing", () => {
-    const report = summarizeWorkflowRuns([
-      run({ id: 20, terminalAt: "2026-08-20T00:01:00.000Z" }),
-      { ...run({ id: 21, terminalAt: "2026-08-20T00:02:00.000Z" }), branch: "feature" },
-    ], { branch: "main", event: "push" });
+    const report = summarizeWorkflowRuns(
+      [
+        run({ id: 20, terminalAt: "2026-08-20T00:01:00.000Z" }),
+        { ...run({ id: 21, terminalAt: "2026-08-20T00:02:00.000Z" }), branch: "feature" },
+      ],
+      { branch: "main", event: "push" },
+    );
     expect(report.runs.map(({ id }) => id)).toEqual([20]);
   });
 
@@ -97,18 +100,20 @@ describe("GitHub Actions timing reports", () => {
       calls.push([...args]);
       if (args[2]?.includes("/actions/workflows/")) {
         return {
-          workflow_runs: [{
-            conclusion: "success",
-            created_at: "2026-08-20T00:00:00.000Z",
-            event: "push",
-            head_branch: "main",
-            head_sha: "sha-30",
-            html_url: "https://example.test/runs/30",
-            id: 30,
-            run_attempt: 2,
-            run_started_at: "2026-08-20T00:00:05.000Z",
-            updated_at: "2026-08-20T00:03:00.000Z",
-          }],
+          workflow_runs: [
+            {
+              conclusion: "success",
+              created_at: "2026-08-20T00:00:00.000Z",
+              event: "push",
+              head_branch: "main",
+              head_sha: "sha-30",
+              html_url: "https://example.test/runs/30",
+              id: 30,
+              run_attempt: 2,
+              run_started_at: "2026-08-20T00:00:05.000Z",
+              updated_at: "2026-08-20T00:03:00.000Z",
+            },
+          ],
         } as T;
       }
       const ordinaryJobs = Array.from({ length: 100 }, (_, index) => ({
@@ -120,23 +125,21 @@ describe("GitHub Actions timing reports", () => {
       }));
       return [
         { jobs: ordinaryJobs },
-        { jobs: [{
-          completed_at: "2026-08-20T00:02:00.000Z",
-          conclusion: "success",
-          name: "required",
-          started_at: "2026-08-20T00:01:59.000Z",
-          status: "completed",
-        }] },
+        {
+          jobs: [
+            {
+              completed_at: "2026-08-20T00:02:00.000Z",
+              conclusion: "success",
+              name: "required",
+              started_at: "2026-08-20T00:01:59.000Z",
+              status: "completed",
+            },
+          ],
+        },
       ] as T;
     };
 
-    const [fetched] = fetchRuns(
-      "owner/repo",
-      7,
-      20,
-      { branch: "main", event: "push" },
-      request,
-    );
+    const [fetched] = fetchRuns("owner/repo", 7, 20, { branch: "main", event: "push" }, request);
     expect(calls[0]).toEqual([
       "--method",
       "GET",
@@ -162,9 +165,9 @@ describe("GitHub Actions timing reports", () => {
   });
 
   test("requires an explicit workflow, sample limit, and output", () => {
-    expect(parseReportArguments([
-      "--workflow", "CI", "--limit", "20", "--output", "report.json",
-    ])).toMatchObject({ limit: 20, output: "report.json", workflow: "CI" });
+    expect(
+      parseReportArguments(["--workflow", "CI", "--limit", "20", "--output", "report.json"]),
+    ).toMatchObject({ limit: 20, output: "report.json", workflow: "CI" });
     expect(() => parseReportArguments(["--workflow", "CI"])).toThrow("Usage:");
   });
 });

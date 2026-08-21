@@ -10,16 +10,9 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useReducedMotion } from "motion/react";
-import {
-  ImageCanvasViewIcon,
-  ImageFocusedViewIcon,
-} from "@/components/shared/icons";
+import { ImageCanvasViewIcon, ImageFocusedViewIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
-import {
-  NodexPopover,
-  NodexPopoverAnchor,
-  NodexPopoverContent,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
   getImageEditComposerDraftSnapshot,
@@ -30,10 +23,7 @@ import {
   type ImageEditComposerDraftSnapshot,
 } from "@/lib/image-edit-composer-channel";
 import { useCodexConversationValue } from "@/features/local-conversation/local-conversation-store";
-import {
-  trackImageToolOpen,
-  trackImageView,
-} from "../analytics/image-editor-analytics";
+import { trackImageToolOpen, trackImageView } from "../analytics/image-editor-analytics";
 import { useImageEditSubmission } from "../adapters/use-image-edit-submission";
 import {
   getGeneratedImageLiveCollectionSnapshot,
@@ -74,8 +64,7 @@ import {
 import { GeneratedImageRail } from "./generated-image-rail";
 import { SingleImageEditor } from "./single-image-editor";
 
-const CANVAS_COACHMARK_STORAGE_KEY =
-  "has-dismissed-image-canvas-view-coachmark-v1";
+const CANVAS_COACHMARK_STORAGE_KEY = "has-dismissed-image-canvas-view-coachmark-v1";
 
 export interface UserAttachmentImageEditorSurfaceProps {
   fullWidth?: boolean;
@@ -88,15 +77,8 @@ export interface UserAttachmentImageEditorSurfaceProps {
   onTitleChange?: (title: string) => void;
 }
 
-function toGeneratedImage(
-  image: EditableImageDescriptor,
-  index: number,
-): GeneratedImageDescriptor {
-  if (
-    "groupId" in image
-    && "generatedOrdinal" in image
-    && "status" in image
-  ) {
+function toGeneratedImage(image: EditableImageDescriptor, index: number): GeneratedImageDescriptor {
+  if ("groupId" in image && "generatedOrdinal" in image && "status" in image) {
     return image as GeneratedImageDescriptor;
   }
   return {
@@ -134,13 +116,15 @@ function resolveEditorAttachmentSource(
   image: EditableImageDescriptor,
   resolvedSources: Readonly<Record<string, string>>,
 ): string {
-  return resolvedSources[image.id]
-    ?? image.dataUrl
-    ?? image.localPath
-    ?? image.downloadSrc
-    ?? image.previewSrc
-    ?? image.attachmentSrc
-    ?? image.src;
+  return (
+    resolvedSources[image.id] ??
+    image.dataUrl ??
+    image.localPath ??
+    image.downloadSrc ??
+    image.previewSrc ??
+    image.attachmentSrc ??
+    image.src
+  );
 }
 
 function makeComposerAttachment(
@@ -164,9 +148,7 @@ function makeComposerAttachment(
 }
 
 function makeComposerAttachmentId(imageId: string): string {
-  return imageId.startsWith("image-playground:")
-    ? imageId
-    : `image-playground:${imageId}`;
+  return imageId.startsWith("image-playground:") ? imageId : `image-playground:${imageId}`;
 }
 
 function restoreCommentsFromComposerDraft(
@@ -189,38 +171,45 @@ function restoreSelectionFromComposerDraft(
   draft: ImageEditComposerDraftSnapshot,
   images: readonly EditableImageDescriptor[],
 ): ReadonlySet<string> {
-  const attachmentIds = new Set(
-    draft.attachments.map((attachment) => attachment.id),
+  const attachmentIds = new Set(draft.attachments.map((attachment) => attachment.id));
+  return new Set(
+    images.flatMap((image) =>
+      attachmentIds.has(makeComposerAttachmentId(image.id)) ? [image.id] : [],
+    ),
   );
-  return new Set(images.flatMap((image) => (
-    attachmentIds.has(makeComposerAttachmentId(image.id)) ? [image.id] : []
-  )));
 }
 
 function composerAttachmentsMatch(
   left: readonly ImageEditComposerAttachment[],
   right: readonly ImageEditComposerAttachment[],
 ): boolean {
-  return left.length === right.length && left.every((attachment, index) => {
-    const candidate = right[index];
-    return candidate !== undefined
-      && attachment.id === candidate.id
-      && attachment.filename === candidate.filename
-      && attachment.imageSource === candidate.imageSource
-      && attachment.asset.src === candidate.asset.src
-      && attachment.asset.hostId === candidate.asset.hostId
-      && attachment.asset.localPath === candidate.asset.localPath
-      && attachment.asset.managedSource === candidate.asset.managedSource
-      && attachment.comments.length === candidate.comments.length
-      && attachment.comments.every((comment, commentIndex) => {
-        const other = candidate.comments[commentIndex];
-        return other !== undefined
-          && comment.id === other.id
-          && comment.text === other.text
-          && comment.x === other.x
-          && comment.y === other.y;
-      });
-  });
+  return (
+    left.length === right.length &&
+    left.every((attachment, index) => {
+      const candidate = right[index];
+      return (
+        candidate !== undefined &&
+        attachment.id === candidate.id &&
+        attachment.filename === candidate.filename &&
+        attachment.imageSource === candidate.imageSource &&
+        attachment.asset.src === candidate.asset.src &&
+        attachment.asset.hostId === candidate.asset.hostId &&
+        attachment.asset.localPath === candidate.asset.localPath &&
+        attachment.asset.managedSource === candidate.asset.managedSource &&
+        attachment.comments.length === candidate.comments.length &&
+        attachment.comments.every((comment, commentIndex) => {
+          const other = candidate.comments[commentIndex];
+          return (
+            other !== undefined &&
+            comment.id === other.id &&
+            comment.text === other.text &&
+            comment.x === other.x &&
+            comment.y === other.y
+          );
+        })
+      );
+    })
+  );
 }
 
 function composerDraftMatches(
@@ -230,8 +219,9 @@ function composerDraftMatches(
     mode: "comment" | "selection" | null;
   },
 ): boolean {
-  return draft.mode === input.mode
-    && composerAttachmentsMatch(draft.attachments, input.attachments);
+  return (
+    draft.mode === input.mode && composerAttachmentsMatch(draft.attachments, input.attachments)
+  );
 }
 
 function ImageViewToggle({
@@ -274,9 +264,7 @@ function ImageViewToggle({
     </div>
   );
 
-  const coachmarkLabel = view === "single"
-    ? "Try Canvas view"
-    : "Try focused view";
+  const coachmarkLabel = view === "single" ? "Try Canvas view" : "Try focused view";
 
   return (
     <div className="absolute top-2 left-2 z-40">
@@ -295,9 +283,7 @@ function ImageViewToggle({
           sideOffset={12}
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
-          <div className="font-medium text-token-foreground">
-            {coachmarkLabel}
-          </div>
+          <div className="font-medium text-token-foreground">{coachmarkLabel}</div>
           <p className="mt-1 text-token-text-secondary">
             Switch between a focused image and all generated images
           </p>
@@ -338,15 +324,10 @@ export function UserAttachmentImageEditorSurface({
   );
   useEffect(() => {
     if (!options.threadId) return undefined;
-    return replaceGeneratedImageCanonicalGroups(
-      options.threadId,
-      canonicalGeneratedGroups,
-    );
+    return replaceGeneratedImageCanonicalGroups(options.threadId, canonicalGeneratedGroups);
   }, [canonicalGeneratedGroups, options.threadId]);
   const generatedImages = useMemo(() => {
-    const fallbackImages = (options.generatedImages ?? options.images).map(
-      toGeneratedImage,
-    );
+    const fallbackImages = (options.generatedImages ?? options.images).map(toGeneratedImage);
     if (liveCollection.images.length === 0) return fallbackImages;
     const hasCanonicalOrMountedGroup = liveCollection.groups.some(
       (group) => !group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX),
@@ -354,33 +335,17 @@ export function UserAttachmentImageEditorSurface({
     return hasCanonicalOrMountedGroup
       ? liveCollection.images
       : [...fallbackImages, ...liveCollection.images];
-  }, [
-    liveCollection.groups,
-    liveCollection.images,
-    options.generatedImages,
-    options.images,
-  ]);
-  const generatedGroups = useMemo(
-    () => groupGeneratedImages(generatedImages),
-    [generatedImages],
-  );
-  const canUsePlayground = options.imageSource === "generated"
-    && generatedImages.length > 0;
-  const editorImages = options.imageSource === "generated"
-    ? generatedImages
-    : options.images;
-  const composerChannelId = options.composerTarget?.channelId
-    ?? options.threadId
-    ?? "";
+  }, [liveCollection.groups, liveCollection.images, options.generatedImages, options.images]);
+  const generatedGroups = useMemo(() => groupGeneratedImages(generatedImages), [generatedImages]);
+  const canUsePlayground = options.imageSource === "generated" && generatedImages.length > 0;
+  const editorImages = options.imageSource === "generated" ? generatedImages : options.images;
+  const composerChannelId = options.composerTarget?.channelId ?? options.threadId ?? "";
   const getComposerDraftSnapshot = useCallback(
     () => getImageEditComposerDraftSnapshot(composerChannelId),
     [composerChannelId],
   );
   const subscribeComposerDraft = useCallback(
-    (listener: () => void) => subscribeImageEditComposerDraft(
-      composerChannelId,
-      listener,
-    ),
+    (listener: () => void) => subscribeImageEditComposerDraft(composerChannelId, listener),
     [composerChannelId],
   );
   const composerDraft = useSyncExternalStore(
@@ -392,50 +357,38 @@ export function UserAttachmentImageEditorSurface({
   const [view, setView] = useState<ImageEditorView>(
     canUsePlayground ? options.initialView : "single",
   );
-  const [singleTool, setSingleTool] = useState<SingleImageTool>(() => (
-    composerDraft.mode === "comment" && options.initialView === "single"
-      ? "comment"
-      : "navigate"
-  ));
+  const [singleTool, setSingleTool] = useState<SingleImageTool>(() =>
+    composerDraft.mode === "comment" && options.initialView === "single" ? "comment" : "navigate",
+  );
   const [playgroundTool, setPlaygroundTool] = useState<PlaygroundTool>(
     composerDraft.mode === "comment" && options.initialView === "playground"
       ? "comment"
       : options.initialPlaygroundTool,
   );
   const [playgroundZoomPercent, setPlaygroundZoomPercent] = useState(100);
-  const [selectedImageIds, setSelectedImageIds] = useState<ReadonlySet<string>>(
-    () => {
-      const restored = restoreSelectionFromComposerDraft(
-        composerDraft,
-        editorImages,
-      );
-      return composerDraft.mode === "selection" && restored.size > 0
-        ? restored
-        : new Set([options.initialImageId]);
-    },
-  );
+  const [selectedImageIds, setSelectedImageIds] = useState<ReadonlySet<string>>(() => {
+    const restored = restoreSelectionFromComposerDraft(composerDraft, editorImages);
+    return composerDraft.mode === "selection" && restored.size > 0
+      ? restored
+      : new Set([options.initialImageId]);
+  });
   const [commentsByImageId, setCommentsByImageId] = useState<
     Readonly<Record<string, readonly ImageComment[]>>
   >(() => restoreCommentsFromComposerDraft(composerDraft, editorImages));
-  const [resolvedSources, setResolvedSources] = useState<
-    Readonly<Record<string, string>>
-  >({});
-  const [activeDraftImageId, setActiveDraftImageId] = useState<string | null>(
-    null,
-  );
+  const [resolvedSources, setResolvedSources] = useState<Readonly<Record<string, string>>>({});
+  const [activeDraftImageId, setActiveDraftImageId] = useState<string | null>(null);
   const [isViewTransitioning, setIsViewTransitioning] = useState(false);
   const [coachmarkReady, setCoachmarkReady] = useState(false);
-  const [coachmarkDismissed, setCoachmarkDismissed] = useState(() => (
-    typeof window === "undefined"
-      || window.localStorage.getItem(CANVAS_COACHMARK_STORAGE_KEY) === "true"
-  ));
+  const [coachmarkDismissed, setCoachmarkDismissed] = useState(
+    () =>
+      typeof window === "undefined" ||
+      window.localStorage.getItem(CANVAS_COACHMARK_STORAGE_KEY) === "true",
+  );
   const focusedElementRef = useRef<HTMLElement | null>(null);
   const viewAnimationRef = useRef<Animation | null>(null);
   const previousGeneratedImagesRef = useRef(generatedImages);
   const previousGeneratedGroupsRef = useRef(generatedGroups);
-  const optimisticFocusRef = useRef<GeneratedImageOptimisticFocus | null>(
-    null,
-  );
+  const optimisticFocusRef = useRef<GeneratedImageOptimisticFocus | null>(null);
   const activeImageIdRef = useRef(activeImageId);
   activeImageIdRef.current = activeImageId;
   const didTrackInitialViewRef = useRef(false);
@@ -446,23 +399,23 @@ export function UserAttachmentImageEditorSurface({
     projectId: options.projectId,
     threadId: options.threadId,
   });
-  const activeImage = editorImages.find((image) => image.id === activeImageId)
-    ?? editorImages.find((image) => !image.loading)
-    ?? editorImages[0]
-    ?? null;
-  const activeGeneratedImage = generatedImages.find(
-    (image) => image.id === activeImageId,
-  ) ?? generatedImages[0] ?? null;
-  const hasImageRail = canUsePlayground
-    && fullWidth
-    && generatedImages.length > 1;
-  const publishStateChange = useEffectEvent((state: {
-    readonly activeImageId: string;
-    readonly playgroundTool: PlaygroundTool;
-    readonly view: ImageEditorView;
-  }) => {
-    onStateChange?.(state);
-  });
+  const activeImage =
+    editorImages.find((image) => image.id === activeImageId) ??
+    editorImages.find((image) => !image.loading) ??
+    editorImages[0] ??
+    null;
+  const activeGeneratedImage =
+    generatedImages.find((image) => image.id === activeImageId) ?? generatedImages[0] ?? null;
+  const hasImageRail = canUsePlayground && fullWidth && generatedImages.length > 1;
+  const publishStateChange = useEffectEvent(
+    (state: {
+      readonly activeImageId: string;
+      readonly playgroundTool: PlaygroundTool;
+      readonly view: ImageEditorView;
+    }) => {
+      onStateChange?.(state);
+    },
+  );
 
   useEffect(() => {
     if (!activeImage) return;
@@ -485,17 +438,15 @@ export function UserAttachmentImageEditorSurface({
     previousGeneratedGroupsRef.current = generatedGroups;
     const nextIds = new Set(generatedImages.map((image) => image.id));
     const previousIds = new Set(previousImages.map((image) => image.id));
-    const removedOptimistic = previousImages.filter((image) => (
-      image.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX)
-      && !nextIds.has(image.id)
-    ));
-    const addedReady = generatedImages.filter((image) => (
-      !previousIds.has(image.id) && image.status === "ready"
-    ));
-    const addedOptimistic = generatedImages.findLast((image) => (
-      !previousIds.has(image.id)
-      && image.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX)
-    ));
+    const removedOptimistic = previousImages.filter(
+      (image) => image.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX) && !nextIds.has(image.id),
+    );
+    const addedReady = generatedImages.filter(
+      (image) => !previousIds.has(image.id) && image.status === "ready",
+    );
+    const addedOptimistic = generatedImages.findLast(
+      (image) => !previousIds.has(image.id) && image.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX),
+    );
     if (addedOptimistic) {
       optimisticFocusRef.current = captureGeneratedImageOptimisticFocus({
         groups: previousGroups,
@@ -504,27 +455,25 @@ export function UserAttachmentImageEditorSurface({
       });
     }
     const focus = optimisticFocusRef.current;
-    const resolvedFocusImageId = focus && removedOptimistic.some(
-      (image) => image.id === focus.optimisticImageId,
-    )
-      ? resolveGeneratedImageOptimisticFocus({ focus, groups: generatedGroups })
-      : null;
-    if (focus && removedOptimistic.some(
-      (image) => image.id === focus.optimisticImageId,
-    )) {
+    const resolvedFocusImageId =
+      focus && removedOptimistic.some((image) => image.id === focus.optimisticImageId)
+        ? resolveGeneratedImageOptimisticFocus({ focus, groups: generatedGroups })
+        : null;
+    if (focus && removedOptimistic.some((image) => image.id === focus.optimisticImageId)) {
       optimisticFocusRef.current = null;
     }
-    const optimistic = focus && resolvedFocusImageId
-      ? removedOptimistic.find((image) => image.id === focus.optimisticImageId)
-      : removedOptimistic.length === 1
-        ? removedOptimistic[0]
-        : undefined;
-    const replacementImage = optimistic && resolvedFocusImageId
-      && !previousIds.has(resolvedFocusImageId)
-      ? generatedImages.find((image) => image.id === resolvedFocusImageId)
-      : !focus && optimistic
-        ? addedReady.at(-1)
-        : undefined;
+    const optimistic =
+      focus && resolvedFocusImageId
+        ? removedOptimistic.find((image) => image.id === focus.optimisticImageId)
+        : removedOptimistic.length === 1
+          ? removedOptimistic[0]
+          : undefined;
+    const replacementImage =
+      optimistic && resolvedFocusImageId && !previousIds.has(resolvedFocusImageId)
+        ? generatedImages.find((image) => image.id === resolvedFocusImageId)
+        : !focus && optimistic
+          ? addedReady.at(-1)
+          : undefined;
     const replacement: GeneratedImageReplacement | undefined =
       optimistic && replacementImage
         ? {
@@ -533,12 +482,15 @@ export function UserAttachmentImageEditorSurface({
           }
         : undefined;
 
-    setActiveImageId((current) => resolveGeneratedActiveImageId({
-      currentActiveImageId: addedOptimistic?.id ?? current,
-      images: generatedImages,
-      preferredImageId: resolvedFocusImageId,
-      replacement,
-    }) ?? current);
+    setActiveImageId(
+      (current) =>
+        resolveGeneratedActiveImageId({
+          currentActiveImageId: addedOptimistic?.id ?? current,
+          images: generatedImages,
+          preferredImageId: resolvedFocusImageId,
+          replacement,
+        }) ?? current,
+    );
     if (addedOptimistic) {
       setSelectedImageIds(new Set());
       setActiveDraftImageId(null);
@@ -568,9 +520,7 @@ export function UserAttachmentImageEditorSurface({
   useEffect(() => {
     trackImageView({
       availableImageCount: options.availableImageCount,
-      entrypoint: didTrackInitialViewRef.current
-        ? "view_toggle"
-        : options.entrypoint,
+      entrypoint: didTrackInitialViewRef.current ? "view_toggle" : options.entrypoint,
       imageSource: options.imageSource,
       view: view === "playground" ? "canvas" : "single",
     });
@@ -579,29 +529,25 @@ export function UserAttachmentImageEditorSurface({
 
   useEffect(() => {
     if (!canUsePlayground || coachmarkDismissed) return undefined;
-    const timeout = window.setTimeout(
-      () => setCoachmarkReady(true),
-      reducedMotion ? 0 : 450,
-    );
+    const timeout = window.setTimeout(() => setCoachmarkReady(true), reducedMotion ? 0 : 450);
     return () => window.clearTimeout(timeout);
   }, [canUsePlayground, coachmarkDismissed, reducedMotion]);
 
-  useEffect(() => () => {
-    viewAnimationRef.current?.cancel();
-  }, []);
+  useEffect(
+    () => () => {
+      viewAnimationRef.current?.cancel();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (composerDraft.revision === observedComposerRevisionRef.current) return;
     observedComposerRevisionRef.current = composerDraft.revision;
     skipComposerPublishRevisionRef.current = composerDraft.revision;
 
-    setCommentsByImageId(
-      restoreCommentsFromComposerDraft(composerDraft, editorImages),
-    );
+    setCommentsByImageId(restoreCommentsFromComposerDraft(composerDraft, editorImages));
     if (composerDraft.mode === "selection") {
-      setSelectedImageIds(
-        restoreSelectionFromComposerDraft(composerDraft, editorImages),
-      );
+      setSelectedImageIds(restoreSelectionFromComposerDraft(composerDraft, editorImages));
     }
     if (composerDraft.mode === "comment") {
       if (view === "playground") setPlaygroundTool("comment");
@@ -609,8 +555,8 @@ export function UserAttachmentImageEditorSurface({
       return;
     }
     setActiveDraftImageId(null);
-    setSingleTool((current) => current === "comment" ? "navigate" : current);
-    setPlaygroundTool((current) => current === "comment" ? "navigate" : current);
+    setSingleTool((current) => (current === "comment" ? "navigate" : current));
+    setPlaygroundTool((current) => (current === "comment" ? "navigate" : current));
   }, [composerDraft, editorImages, view]);
 
   useEffect(() => {
@@ -620,11 +566,13 @@ export function UserAttachmentImageEditorSurface({
 
     if (view === "single" && singleTool === "comment") {
       mode = "comment";
-      attachments = [makeComposerAttachment(
-        activeImage,
-        commentsByImageId[activeImage.id] ?? [],
-        resolvedSources,
-      )];
+      attachments = [
+        makeComposerAttachment(
+          activeImage,
+          commentsByImageId[activeImage.id] ?? [],
+          resolvedSources,
+        ),
+      ];
     } else if (view === "playground" && playgroundTool === "comment") {
       mode = "comment";
       attachments = generatedImages.flatMap((image) => {
@@ -633,15 +581,12 @@ export function UserAttachmentImageEditorSurface({
           ? []
           : [makeComposerAttachment(image, comments, resolvedSources)];
       });
-    } else if (
-      options.imageSource === "generated"
-      && submission.supportsImageInputs
-    ) {
-      attachments = generatedImages.flatMap((image) => (
+    } else if (options.imageSource === "generated" && submission.supportsImageInputs) {
+      attachments = generatedImages.flatMap((image) =>
         selectedImageIds.has(image.id) && image.status === "ready"
           ? [makeComposerAttachment(image, [], resolvedSources)]
-          : []
-      ));
+          : [],
+      );
       mode = attachments.length > 0 ? "selection" : null;
     }
 
@@ -651,9 +596,8 @@ export function UserAttachmentImageEditorSurface({
     }
     if (composerDraftMatches(composerDraft, { attachments, mode })) return;
     replaceImageEditComposerDraft(composerChannelId, { attachments, mode });
-    observedComposerRevisionRef.current = getImageEditComposerDraftSnapshot(
-      composerChannelId,
-    ).revision;
+    observedComposerRevisionRef.current =
+      getImageEditComposerDraftSnapshot(composerChannelId).revision;
   }, [
     activeImage,
     commentsByImageId,
@@ -671,9 +615,9 @@ export function UserAttachmentImageEditorSurface({
 
   const recordResolvedSource = useCallback((imageId: string, submissionSrc: string) => {
     if (!submissionSrc.startsWith("data:image/")) return;
-    setResolvedSources((current) => current[imageId] === submissionSrc
-      ? current
-      : { ...current, [imageId]: submissionSrc });
+    setResolvedSources((current) =>
+      current[imageId] === submissionSrc ? current : { ...current, [imageId]: submissionSrc },
+    );
   }, []);
 
   const setFocusedSingleImageRef = useCallback((element: HTMLImageElement | null) => {
@@ -685,9 +629,7 @@ export function UserAttachmentImageEditorSurface({
 
   const changeView = (nextView: ImageEditorView) => {
     if (nextView === view || !canUsePlayground) return;
-    const nextPlaygroundTool = nextView === "single"
-      ? "navigate"
-      : playgroundTool;
+    const nextPlaygroundTool = nextView === "single" ? "navigate" : playgroundTool;
     viewAnimationRef.current?.cancel();
     const before = focusedElementRef.current?.getBoundingClientRect() ?? null;
     setIsViewTransitioning(true);
@@ -709,11 +651,11 @@ export function UserAttachmentImageEditorSurface({
     }
     const after = element?.getBoundingClientRect() ?? null;
     if (
-      reducedMotion
-      || !isUsableGeneratedImageTransitionRect(before)
-      || !isUsableGeneratedImageTransitionRect(after)
-      || !element
-      || typeof element.animate !== "function"
+      reducedMotion ||
+      !isUsableGeneratedImageTransitionRect(before) ||
+      !isUsableGeneratedImageTransitionRect(after) ||
+      !element ||
+      typeof element.animate !== "function"
     ) {
       setIsViewTransitioning(false);
       return;
@@ -750,13 +692,9 @@ export function UserAttachmentImageEditorSurface({
     );
   }
 
-  const withResolvedSource = (
-    image: EditableImageDescriptor,
-  ): EditableImageDescriptor => {
+  const withResolvedSource = (image: EditableImageDescriptor): EditableImageDescriptor => {
     const source = resolveEditorAttachmentSource(image, resolvedSources);
-    return source.startsWith("data:image/")
-      ? { ...image, dataUrl: source }
-      : image;
+    return source.startsWith("data:image/") ? { ...image, dataUrl: source } : image;
   };
 
   const renderSingle = (image: EditableImageDescriptor) => (
@@ -772,18 +710,15 @@ export function UserAttachmentImageEditorSurface({
         setCommentsByImageId((current) => ({ ...current, [image.id]: comments }));
       }}
       onResolvedSource={(displaySrc) => recordResolvedSource(image.id, displaySrc)}
-      onRequestCommentSubmit={composerChannelId
-        ? () => requestImageEditComposerSubmit(
-            composerChannelId,
-            { source: "single" },
-          )
-        : undefined}
+      onRequestCommentSubmit={
+        composerChannelId
+          ? () => requestImageEditComposerSubmit(composerChannelId, { source: "single" })
+          : undefined
+      }
       onSubmitIntent={submission.submit}
       onToolChange={(tool) => {
         if (tool !== "navigate" && !submission.supportsImageInputs) {
-          submission.notifyImageInputUnsupported(
-            tool === "comment" ? "comment" : "edit",
-          );
+          submission.notifyImageInputUnsupported(tool === "comment" ? "comment" : "edit");
           return;
         }
         setSingleTool(tool);
@@ -798,118 +733,111 @@ export function UserAttachmentImageEditorSurface({
     />
   );
 
-  const content = view === "playground" ? (
-    <GeneratedImagePlayground
-      activeDraftImageId={activeDraftImageId}
-      activeImageId={activeGeneratedImage.id}
-      commentsByImageId={commentsByImageId}
-      focusedImageRef={setFocusedPlaygroundImageRef}
-      groups={generatedGroups}
-      isSubmitting={submission.isSubmitting}
-      isViewTransitioning={isViewTransitioning && !reducedMotion}
-      selectedImageIds={selectedImageIds}
-      tool={playgroundTool}
-      zoomPercent={playgroundZoomPercent}
-      onActiveDraftImageIdChange={setActiveDraftImageId}
-      onCommentsChange={(imageId, comments) => {
-        setCommentsByImageId((current) => ({ ...current, [imageId]: comments }));
-      }}
-      onImageActivate={(image, displaySrc) => {
-        recordResolvedSource(image.id, displaySrc);
-        if (playgroundTool === "navigate") {
-          setActiveImageId(image.id);
-          setSelectedImageIds(new Set([image.id]));
-          return;
-        }
-        if (playgroundTool !== "select") return;
-        if (!submission.supportsImageInputs) {
-          submission.notifyImageInputUnsupported("select");
-          return;
-        }
-        setSelectedImageIds((current) => {
-          const next = new Set(current);
-          if (next.has(image.id)) next.delete(image.id);
-          else next.add(image.id);
-          return next;
-        });
-      }}
-      onResolvedSource={recordResolvedSource}
-      onSendComments={() => {
-        const commentedImages = generatedImages.flatMap((image) => {
-          const comments = commentsByImageId[image.id] ?? [];
-          return comments.length === 0
-            ? []
-            : [{ comments, image: withResolvedSource(image) }];
-        });
-        void (async () => {
-          const composerResult = composerChannelId
-            ? await requestImageEditComposerSubmit(
-                composerChannelId,
-                { source: "canvas" },
-              )
-            : { status: "unavailable" as const, reason: "composer-unmounted" as const };
-          if (
-            composerResult.status === "submitted"
-            || composerResult.status === "queued"
-          ) return true;
-          if (composerResult.status === "failed") return false;
-          return submission.submit(
-            buildCommentSubmissionIntent({
-              commentedImages,
-              entrypoint: options.entrypoint,
-            }),
-          );
-        })().then((submitted) => {
-          if (!submitted) return;
-          setCommentsByImageId({});
-          setPlaygroundTool("navigate");
-          setActiveDraftImageId(null);
-        });
-      }}
-      onToolChange={(tool) => {
-        if (tool !== "navigate" && !submission.supportsImageInputs) {
-          submission.notifyImageInputUnsupported(
-            tool === "comment" ? "comment" : "select",
-          );
-          return;
-        }
-        const previousTool = playgroundTool;
-        setPlaygroundTool(tool);
-        if (previousTool === "comment" && tool !== "comment") {
-          setCommentsByImageId({});
-        }
-        if (tool !== "navigate") {
-          trackImageToolOpen({
-            imageSource: "generated",
-            mode: tool === "select" ? "select" : "comment",
-            view: "canvas",
-          });
-        }
-        if (tool !== "comment") setActiveDraftImageId(null);
-        if (tool !== "navigate") return;
-        const selected = [...selectedImageIds].at(-1)
-          ?? activeGeneratedImage.id;
-        setActiveImageId(selected);
-        setSelectedImageIds(new Set([selected]));
-      }}
-      onZoomPercentChange={setPlaygroundZoomPercent}
-    />
-  ) : hasImageRail ? (
-    <div className="flex h-full min-h-0">
-      <GeneratedImageRail
-        activeId={activeImage.id}
-        autoScrollImageId={activeImage.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX)
-          ? activeImage.id
-          : null}
-        images={generatedImages}
-        onSelect={(image) => {
-          setActiveImageId(image.id);
-          setSelectedImageIds(new Set([image.id]));
+  const content =
+    view === "playground" ? (
+      <GeneratedImagePlayground
+        activeDraftImageId={activeDraftImageId}
+        activeImageId={activeGeneratedImage.id}
+        commentsByImageId={commentsByImageId}
+        focusedImageRef={setFocusedPlaygroundImageRef}
+        groups={generatedGroups}
+        isSubmitting={submission.isSubmitting}
+        isViewTransitioning={isViewTransitioning && !reducedMotion}
+        selectedImageIds={selectedImageIds}
+        tool={playgroundTool}
+        zoomPercent={playgroundZoomPercent}
+        onActiveDraftImageIdChange={setActiveDraftImageId}
+        onCommentsChange={(imageId, comments) => {
+          setCommentsByImageId((current) => ({ ...current, [imageId]: comments }));
         }}
+        onImageActivate={(image, displaySrc) => {
+          recordResolvedSource(image.id, displaySrc);
+          if (playgroundTool === "navigate") {
+            setActiveImageId(image.id);
+            setSelectedImageIds(new Set([image.id]));
+            return;
+          }
+          if (playgroundTool !== "select") return;
+          if (!submission.supportsImageInputs) {
+            submission.notifyImageInputUnsupported("select");
+            return;
+          }
+          setSelectedImageIds((current) => {
+            const next = new Set(current);
+            if (next.has(image.id)) next.delete(image.id);
+            else next.add(image.id);
+            return next;
+          });
+        }}
+        onResolvedSource={recordResolvedSource}
+        onSendComments={() => {
+          const commentedImages = generatedImages.flatMap((image) => {
+            const comments = commentsByImageId[image.id] ?? [];
+            return comments.length === 0 ? [] : [{ comments, image: withResolvedSource(image) }];
+          });
+          void (async () => {
+            const composerResult = composerChannelId
+              ? await requestImageEditComposerSubmit(composerChannelId, { source: "canvas" })
+              : { status: "unavailable" as const, reason: "composer-unmounted" as const };
+            if (composerResult.status === "submitted" || composerResult.status === "queued")
+              return true;
+            if (composerResult.status === "failed") return false;
+            return submission.submit(
+              buildCommentSubmissionIntent({
+                commentedImages,
+                entrypoint: options.entrypoint,
+              }),
+            );
+          })().then((submitted) => {
+            if (!submitted) return;
+            setCommentsByImageId({});
+            setPlaygroundTool("navigate");
+            setActiveDraftImageId(null);
+          });
+        }}
+        onToolChange={(tool) => {
+          if (tool !== "navigate" && !submission.supportsImageInputs) {
+            submission.notifyImageInputUnsupported(tool === "comment" ? "comment" : "select");
+            return;
+          }
+          const previousTool = playgroundTool;
+          setPlaygroundTool(tool);
+          if (previousTool === "comment" && tool !== "comment") {
+            setCommentsByImageId({});
+          }
+          if (tool !== "navigate") {
+            trackImageToolOpen({
+              imageSource: "generated",
+              mode: tool === "select" ? "select" : "comment",
+              view: "canvas",
+            });
+          }
+          if (tool !== "comment") setActiveDraftImageId(null);
+          if (tool !== "navigate") return;
+          const selected = [...selectedImageIds].at(-1) ?? activeGeneratedImage.id;
+          setActiveImageId(selected);
+          setSelectedImageIds(new Set([selected]));
+        }}
+        onZoomPercentChange={setPlaygroundZoomPercent}
       />
-      <div className="min-w-0 flex-1">{renderSingle(activeImage)}</div>
-    </div>
-  ) : renderSingle(activeImage);
+    ) : hasImageRail ? (
+      <div className="flex h-full min-h-0">
+        <GeneratedImageRail
+          activeId={activeImage.id}
+          autoScrollImageId={
+            activeImage.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX) ? activeImage.id : null
+          }
+          images={generatedImages}
+          onSelect={(image) => {
+            setActiveImageId(image.id);
+            setSelectedImageIds(new Set([image.id]));
+          }}
+        />
+        <div className="min-w-0 flex-1">{renderSingle(activeImage)}</div>
+      </div>
+    ) : (
+      renderSingle(activeImage)
+    );
 
   return (
     <div

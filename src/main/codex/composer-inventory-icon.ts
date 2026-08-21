@@ -12,18 +12,14 @@ const COMPOSER_INVENTORY_ICON_MIME_TYPES: Readonly<Record<string, string>> = {
   ".webp": "image/webp",
 };
 
-export type ComposerInventoryIconLoader = (
-  filePath: string,
-) => Promise<Uint8Array | null>;
+export type ComposerInventoryIconLoader = (filePath: string) => Promise<Uint8Array | null>;
 
-async function readComposerInventoryIcon(
-  filePath: string,
-): Promise<Uint8Array | null> {
+async function readComposerInventoryIcon(filePath: string): Promise<Uint8Array | null> {
   const metadata = await stat(filePath).catch(() => null);
   if (
-    !metadata?.isFile()
-    || metadata.size <= 0
-    || metadata.size > COMPOSER_INVENTORY_ICON_MAX_BYTES
+    !metadata?.isFile() ||
+    metadata.size <= 0 ||
+    metadata.size > COMPOSER_INVENTORY_ICON_MAX_BYTES
   ) {
     return null;
   }
@@ -36,17 +32,11 @@ export async function loadComposerInventoryIconDataUrl(
 ): Promise<string | null> {
   const normalizedPath = filePath?.trim() ?? "";
   if (!normalizedPath || !isAbsolute(normalizedPath)) return null;
-  const mimeType = COMPOSER_INVENTORY_ICON_MIME_TYPES[
-    extname(normalizedPath).toLocaleLowerCase()
-  ];
+  const mimeType = COMPOSER_INVENTORY_ICON_MIME_TYPES[extname(normalizedPath).toLocaleLowerCase()];
   if (!mimeType) return null;
 
   const bytes = await loadIcon(normalizedPath).catch(() => null);
-  if (
-    !bytes
-    || bytes.byteLength === 0
-    || bytes.byteLength > COMPOSER_INVENTORY_ICON_MAX_BYTES
-  ) {
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > COMPOSER_INVENTORY_ICON_MAX_BYTES) {
     return null;
   }
   return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;

@@ -22,9 +22,7 @@ describe("cross-surface Block transfer in Chromium", () => {
     );
 
     expect(
-      parseBlockTransferDragPayload(
-        transfer.getData(NODEX_BLOCK_TRANSFER_DRAG_MIME),
-      ),
+      parseBlockTransferDragPayload(transfer.getData(NODEX_BLOCK_TRANSFER_DRAG_MIME)),
     ).toMatchObject({ rootBlockIds: ["block-a"] });
   });
 });

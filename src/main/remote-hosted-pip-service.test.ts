@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 import type { RemoteHostedPipHostLayout } from "../shared/remote-hosted-pip";
-import { RemoteHostedPipService, type RemoteHostedPipWebContentsLike, type RemoteHostedPipWindowLike } from "./remote-hosted-pip-service";
+import {
+  RemoteHostedPipService,
+  type RemoteHostedPipWebContentsLike,
+  type RemoteHostedPipWindowLike,
+} from "./remote-hosted-pip-service";
 import type { SkyNativeAddon, SkyRemoteHostedPipHostRegistration } from "./sky-native";
 
 class FakeSender implements RemoteHostedPipWebContentsLike {
@@ -23,7 +27,10 @@ class FakeWindow implements RemoteHostedPipWindowLike {
   destroyed = false;
   focused = true;
 
-  constructor(readonly id: number, readonly webContents = new FakeSender(id * 10)) {}
+  constructor(
+    readonly id: number,
+    readonly webContents = new FakeSender(id * 10),
+  ) {}
 
   getContentBounds() {
     return { height: 800, width: 1200, x: 10, y: 20 };
@@ -87,11 +94,15 @@ class FakeSkyAddon implements SkyNativeAddon {
     return true;
   }
 
-  computerUseServiceProcessMatchesExecutablePath(): boolean { return true; }
+  computerUseServiceProcessMatchesExecutablePath(): boolean {
+    return true;
+  }
   getRemoteHostedPIPContentActiveTaskIDs(): string[] {
     return this.activeTaskIds;
   }
-  hasRemoteHostedPIPContentAnyPresentation(): boolean { return this.anyPresentation; }
+  hasRemoteHostedPIPContentAnyPresentation(): boolean {
+    return this.anyPresentation;
+  }
   invalidateBrowserUsePIPContent(id: string): boolean {
     this.invalidatedPresentations.push(id);
     return true;
@@ -111,7 +122,9 @@ class FakeSkyAddon implements SkyNativeAddon {
     this.activeThreadIds.push(threadId);
     return true;
   }
-  setRemoteHostedPIPContentComputerUseCursorLocationHandler(): boolean { return true; }
+  setRemoteHostedPIPContentComputerUseCursorLocationHandler(): boolean {
+    return true;
+  }
   setRemoteHostedPIPContentMaxDisplaySize(size: number): boolean {
     this.maxDisplaySizes.push(size);
     return true;
@@ -122,7 +135,9 @@ class FakeSkyAddon implements SkyNativeAddon {
     this.maxDisplaySizeChangedHandler = handler;
     return true;
   }
-  setRemoteHostedPIPContentPetWakeRequestHandler(): boolean { return true; }
+  setRemoteHostedPIPContentPetWakeRequestHandler(): boolean {
+    return true;
+  }
   setRemoteHostedPIPContentSuppressedThreadIDs(threadIds: string[]): boolean {
     this.suppressedThreadIds.push(threadIds);
     return true;
@@ -143,9 +158,15 @@ class FakeSkyAddon implements SkyNativeAddon {
     this.shouldShowTaskHandler = handler;
     return true;
   }
-  async spawnComputerUseService(): Promise<number | null> { return 123; }
-  startRemoteHostedPIPContentHost(): boolean { return true; }
-  stopRemoteHostedPIPContentHost(): boolean { return true; }
+  async spawnComputerUseService(): Promise<number | null> {
+    return 123;
+  }
+  startRemoteHostedPIPContentHost(): boolean {
+    return true;
+  }
+  stopRemoteHostedPIPContentHost(): boolean {
+    return true;
+  }
   unregisterRemoteHostedPIPContentHost(hostId: string): boolean {
     this.unregisteredHostIds.push(hostId);
     return true;
@@ -181,14 +202,18 @@ function createHarness() {
   const service = new RemoteHostedPipService({
     addon,
     broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
-    getFocusedWindow: () => window.focused && !window.destroyed ? window : null,
-    getWindowForSender: (sender) => sender.id === window.webContents.id ? window : null,
+    getFocusedWindow: () => (window.focused && !window.destroyed ? window : null),
+    getWindowForSender: (sender) => (sender.id === window.webContents.id ? window : null),
     isThreadSurfacePresented: () => surfacePresented,
     readAlwaysHide: () => alwaysHide,
     readMaxDisplaySize: () => maxDisplaySize,
     sendToSender: (_sender, channel, payload) => sent.push({ channel, payload }),
-    writeAlwaysHide: (value) => { alwaysHide = value; },
-    writeMaxDisplaySize: (size) => { maxDisplaySize = size; },
+    writeAlwaysHide: (value) => {
+      alwaysHide = value;
+    },
+    writeMaxDisplaySize: (size) => {
+      maxDisplaySize = size;
+    },
   });
   return {
     addon,
@@ -197,7 +222,9 @@ function createHarness() {
     service,
     getMaxDisplaySize: () => maxDisplaySize,
     getAlwaysHide: () => alwaysHide,
-    setSurfacePresented(value: boolean) { surfacePresented = value; },
+    setSurfacePresented(value: boolean) {
+      surfacePresented = value;
+    },
     window,
   };
 }
@@ -218,7 +245,16 @@ function browserNotification(surface: Record<string, unknown>): unknown {
     method: "item/completed",
     params: {
       item: {
-        result: { _meta: { "codex/toolSurface": { backend: "iab", browserId: "browser-1", kind: "browserUse", ...surface } } },
+        result: {
+          _meta: {
+            "codex/toolSurface": {
+              backend: "iab",
+              browserId: "browser-1",
+              kind: "browserUse",
+              ...surface,
+            },
+          },
+        },
         server: "node_repl",
         type: "mcpToolCall",
       },
@@ -245,9 +281,11 @@ describe("RemoteHostedPipService", () => {
 
     addon.activeTaskIds = ["thread-1"];
     addon.anyPresentation = true;
-    service.handleCodexNotification(browserNotification({
-      screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
-    }));
+    service.handleCodexNotification(
+      browserNotification({
+        screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
+      }),
+    );
     expect(broadcasts.at(-1)).toEqual({
       channel: "remote-hosted-pip-stream-state-changed",
       payload: {
@@ -291,25 +329,25 @@ describe("RemoteHostedPipService", () => {
   test("ingests completed Browser metadata and prunes or ends exact presentations", () => {
     const { addon, service, window } = createHarness();
     attachThread(service, window);
-    service.handleCodexNotification(browserNotification({
-      screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
-    }));
-    service.handleCodexNotification(browserNotification({
-      screenshot: { tabId: "tab-2", url: "data:image/png;base64,Yg==" },
-    }));
+    service.handleCodexNotification(
+      browserNotification({
+        screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
+      }),
+    );
+    service.handleCodexNotification(
+      browserNotification({
+        screenshot: { tabId: "tab-2", url: "data:image/png;base64,Yg==" },
+      }),
+    );
     expect(addon.upserts.map(([id]) => id)).toEqual([
       'browser:["thread-1","browser-1","tab-1"]',
       'browser:["thread-1","browser-1","tab-2"]',
     ]);
 
     service.handleCodexNotification(browserNotification({ openTabIds: ["tab-2"] }));
-    expect(addon.invalidatedPresentations).toEqual([
-      'browser:["thread-1","browser-1","tab-1"]',
-    ]);
+    expect(addon.invalidatedPresentations).toEqual(['browser:["thread-1","browser-1","tab-1"]']);
     service.handleCodexNotification(browserNotification({ sessionEnded: true }));
-    expect(addon.invalidatedPresentations.at(-1)).toBe(
-      'browser:["thread-1","browser-1","tab-2"]',
-    );
+    expect(addon.invalidatedPresentations.at(-1)).toBe('browser:["thread-1","browser-1","tab-2"]');
     service.dispose();
   });
 

@@ -24,10 +24,7 @@ interface BrowserDownloadItem {
   ): void;
   on(
     event: "done",
-    listener: (
-      event: unknown,
-      state: "completed" | "cancelled" | "interrupted",
-    ) => void,
+    listener: (event: unknown, state: "completed" | "cancelled" | "interrupted") => void,
   ): void;
   pause(): void;
   resume(): void;
@@ -68,8 +65,10 @@ interface BrowserDownloadGrant {
 }
 
 function identityKey(identity: BrowserSidebarTabIdentity): string {
-  return `${identity.browserConversationId}\0${identity.browserViewScopeId}`
-    + `\0${identity.browserTabId}`;
+  return (
+    `${identity.browserConversationId}\0${identity.browserViewScopeId}` +
+    `\0${identity.browserTabId}`
+  );
 }
 
 function readSourceOrigin(item: BrowserDownloadItem): string {
@@ -83,7 +82,9 @@ function readSourceOrigin(item: BrowserDownloadItem): string {
 }
 
 function safeDownloadFilename(value: string): string {
-  const fileName = basename(value).replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  const fileName = basename(value)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
   return fileName || "download";
 }
 
@@ -93,10 +94,7 @@ function uniqueSavePath(downloadsDirectory: string, fileName: string): string {
   const extension = extname(fileName);
   const stem = extension ? fileName.slice(0, -extension.length) : fileName;
   for (let sequence = 1; sequence <= 10_000; sequence += 1) {
-    const candidate = join(
-      downloadsDirectory,
-      `${stem} (${sequence})${extension}`,
-    );
+    const candidate = join(downloadsDirectory, `${stem} (${sequence})${extension}`);
     if (!existsSync(candidate)) return candidate;
   }
   return join(downloadsDirectory, `${stem}-${randomUUID()}${extension}`);
@@ -105,9 +103,7 @@ function uniqueSavePath(downloadsDirectory: string, fileName: string): string {
 export class BrowserDownloadService {
   private readonly downloadsDirectory: string;
   private readonly idFactory: () => string;
-  private readonly isAgentControlled: (
-    identity: BrowserSidebarTabIdentity,
-  ) => boolean;
+  private readonly isAgentControlled: (identity: BrowserSidebarTabIdentity) => boolean;
   private readonly now: () => number;
   private readonly onSnapshot: (snapshot: BrowserDownloadsSnapshot) => void;
   private readonly resolveIdentity: BrowserDownloadServiceOptions["resolveIdentity"];
@@ -141,11 +137,7 @@ export class BrowserDownloadService {
     });
   }
 
-  grantAgentDownload(
-    identity: BrowserSidebarTabIdentity,
-    sourceUrl: string,
-    ttlMs = 10_000,
-  ): void {
+  grantAgentDownload(identity: BrowserSidebarTabIdentity, sourceUrl: string, ttlMs = 10_000): void {
     try {
       const parsed = new URL(sourceUrl);
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
@@ -161,14 +153,11 @@ export class BrowserDownloadService {
 
   snapshot(): BrowserDownloadsSnapshot {
     return {
-      downloads: [...this.records.values()]
-        .sort((left, right) => right.startedAt - left.startedAt),
+      downloads: [...this.records.values()].sort((left, right) => right.startedAt - left.startedAt),
     };
   }
 
-  async handleAction(
-    request: BrowserDownloadActionRequest,
-  ): Promise<BrowserDownloadActionResult> {
+  async handleAction(request: BrowserDownloadActionRequest): Promise<BrowserDownloadActionResult> {
     const record = this.records.get(request.downloadId);
     if (!record) return { ok: false, message: "Download was not found" };
     const item = this.liveItems.get(request.downloadId);
@@ -193,9 +182,7 @@ export class BrowserDownloadService {
     }
     if (request.action === "open") {
       const error = await this.shell.openPath(record.savePath);
-      return error
-        ? { ok: false, message: error.slice(0, 512) }
-        : { ok: true };
+      return error ? { ok: false, message: error.slice(0, 512) } : { ok: true };
     }
     if (request.action === "show-in-folder") {
       this.shell.showItemInFolder(record.savePath);
@@ -300,9 +287,7 @@ export class BrowserDownloadService {
     const grant = this.grants.get(key);
     this.grants.delete(key);
     return Boolean(
-      grant
-      && grant.expiresAt >= this.now()
-      && sourceUrlChain.includes(grant.sourceUrl),
+      grant && grant.expiresAt >= this.now() && sourceUrlChain.includes(grant.sourceUrl),
     );
   }
 
@@ -327,9 +312,7 @@ export class BrowserDownloadService {
 
 let configuredBrowserDownloadService: BrowserDownloadService | null = null;
 
-export function configureBrowserDownloadService(
-  service: BrowserDownloadService,
-): void {
+export function configureBrowserDownloadService(service: BrowserDownloadService): void {
   configuredBrowserDownloadService = service;
 }
 

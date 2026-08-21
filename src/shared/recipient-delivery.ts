@@ -6,37 +6,32 @@ import type { ProjectionScope } from "./projection-stream";
 export const RECIPIENT_DELIVERY_VERSION = 2 as const;
 
 export type DeliveryAddress = components["schemas"]["DeliveryAddress"];
-export type DeliveryAuthorizationScope =
-  components["schemas"]["DeliveryAuthorizationScope"];
-export type AuthorizedRecipientLease =
-  components["schemas"]["AuthorizedRecipientLease"];
+export type DeliveryAuthorizationScope = components["schemas"]["DeliveryAuthorizationScope"];
+export type AuthorizedRecipientLease = components["schemas"]["AuthorizedRecipientLease"];
 export type AddressReset = components["schemas"]["AddressReset"];
 export type AddressResetReason = components["schemas"]["AddressResetReason"];
 
-export const deliveryAddressKey = (address: DeliveryAddress): string =>
-  JSON.stringify(address);
+export const deliveryAddressKey = (address: DeliveryAddress): string => JSON.stringify(address);
 
-export const projectionScopeDeliveryAddress = (
-  scope: ProjectionScope,
-): DeliveryAddress => scope.kind === "library"
-  ? { kind: "library", library_id: scope.libraryId }
-  : {
-      kind: "project",
-      library_id: scope.libraryId,
-      project_id: scope.projectId,
-    };
-
-export const deliveryAddressProjectionScope = (
-  address: DeliveryAddress,
-): ProjectionScope | null => address.kind === "library"
-  ? { kind: "library", libraryId: address.library_id }
-  : address.kind === "project"
-    ? {
+export const projectionScopeDeliveryAddress = (scope: ProjectionScope): DeliveryAddress =>
+  scope.kind === "library"
+    ? { kind: "library", library_id: scope.libraryId }
+    : {
         kind: "project",
-        libraryId: address.library_id,
-        projectId: address.project_id,
-      }
-    : null;
+        library_id: scope.libraryId,
+        project_id: scope.projectId,
+      };
+
+export const deliveryAddressProjectionScope = (address: DeliveryAddress): ProjectionScope | null =>
+  address.kind === "library"
+    ? { kind: "library", libraryId: address.library_id }
+    : address.kind === "project"
+      ? {
+          kind: "project",
+          libraryId: address.library_id,
+          projectId: address.project_id,
+        }
+      : null;
 
 export type RecipientDeliveryPayload =
   | {

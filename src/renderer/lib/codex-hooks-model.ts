@@ -1,10 +1,7 @@
 import type { HookEventName } from "@nodex/codex-app-server-protocol/v2/HookEventName";
 import type { HookMetadata } from "@nodex/codex-app-server-protocol/v2/HookMetadata";
 import type { HooksListEntry } from "@nodex/codex-app-server-protocol/v2/HooksListEntry";
-import type {
-  CodexHooksSettingsSelection,
-  CodexHooksSettingsSource,
-} from "./codex-hooks-route";
+import type { CodexHooksSettingsSelection, CodexHooksSettingsSource } from "./codex-hooks-route";
 import { normalizeCodexHooksSettingsSource } from "./codex-hooks-route";
 
 export const CODEX_HOOK_EVENT_ORDER: readonly HookEventName[] = [
@@ -52,8 +49,7 @@ export function doesCodexHookNeedReview(hook: HookMetadata): boolean {
 }
 
 export function isCodexHookActive(hook: HookMetadata): boolean {
-  return hook.trustStatus === "managed"
-    || (hook.enabled && hook.trustStatus === "trusted");
+  return hook.trustStatus === "managed" || (hook.enabled && hook.trustStatus === "trusted");
 }
 
 function dedupeHooks(hooks: readonly HookMetadata[]): HookMetadata[] {
@@ -108,15 +104,13 @@ function buildProjectSection(entries: readonly HooksListEntry[]): CodexHooksSour
     return [withSelection({ ...entry, hooks }, { source: "project", projectRoot: entry.cwd })];
   });
 
-  return projectEntries.length === 0
-    ? null
-    : { source: "project", projectEntries };
+  return projectEntries.length === 0 ? null : { source: "project", projectEntries };
 }
 
 function buildPluginSection(entries: readonly HooksListEntry[]): CodexHooksSourceSection | null {
-  const pluginHooks = entries.flatMap((entry) => entry.hooks.filter(
-    (hook) => normalizeCodexHooksSettingsSource(hook.source) === "plugin",
-  ));
+  const pluginHooks = entries.flatMap((entry) =>
+    entry.hooks.filter((hook) => normalizeCodexHooksSettingsSource(hook.source) === "plugin"),
+  );
   if (pluginHooks.length === 0) return null;
 
   const hooksByPlugin = new Map<string | null, HookMetadata[]>();
@@ -127,20 +121,14 @@ function buildPluginSection(entries: readonly HooksListEntry[]): CodexHooksSourc
   }
 
   const pluginEntries = Array.from(hooksByPlugin.entries())
-    .sort(([left], [right]) => (
-      left == null ? 1 : right == null ? -1 : left.localeCompare(right)
-    ))
-    .map(([pluginId, hooks]) => withSelection(
-      aggregateHooksEntry(entries, hooks),
-      { source: "plugin", pluginId },
-    ));
+    .sort(([left], [right]) => (left == null ? 1 : right == null ? -1 : left.localeCompare(right)))
+    .map(([pluginId, hooks]) =>
+      withSelection(aggregateHooksEntry(entries, hooks), { source: "plugin", pluginId }),
+    );
 
   return {
     source: "plugin",
-    entry: withSelection(
-      aggregateHooksEntry(entries, pluginHooks),
-      { source: "plugin" },
-    ),
+    entry: withSelection(aggregateHooksEntry(entries, pluginHooks), { source: "plugin" }),
     pluginEntries,
   };
 }
@@ -149,23 +137,21 @@ function buildAggregateSection(
   entries: readonly HooksListEntry[],
   source: Exclude<CodexHooksSettingsSource, "plugin" | "project">,
 ): CodexHooksSourceSection | null {
-  const hooks = entries.flatMap((entry) => entry.hooks.filter(
-    (hook) => normalizeCodexHooksSettingsSource(hook.source) === source,
-  ));
-  const extraIssueEntries = source === "unknown"
-    ? entries.filter((entry) => (
-        entry.hooks.length === 0
-        && (entry.warnings.length > 0 || entry.errors.length > 0)
-      ))
-    : [];
+  const hooks = entries.flatMap((entry) =>
+    entry.hooks.filter((hook) => normalizeCodexHooksSettingsSource(hook.source) === source),
+  );
+  const extraIssueEntries =
+    source === "unknown"
+      ? entries.filter(
+          (entry) =>
+            entry.hooks.length === 0 && (entry.warnings.length > 0 || entry.errors.length > 0),
+        )
+      : [];
   if (hooks.length === 0 && extraIssueEntries.length === 0) return null;
 
   return {
     source,
-    entry: withSelection(
-      aggregateHooksEntry(entries, hooks, extraIssueEntries),
-      { source },
-    ),
+    entry: withSelection(aggregateHooksEntry(entries, hooks, extraIssueEntries), { source }),
   };
 }
 
@@ -210,17 +196,19 @@ export function resolveSelectedCodexHooksEntry(
   if (!section) return null;
 
   if (selection.source === "project") {
-    return section.projectEntries?.find((entry) => selectionsEqual(entry.selection, selection)) ?? null;
+    return (
+      section.projectEntries?.find((entry) => selectionsEqual(entry.selection, selection)) ?? null
+    );
   }
   if (selection.source === "plugin" && selection.pluginId !== undefined) {
-    return section.pluginEntries?.find((entry) => selectionsEqual(entry.selection, selection)) ?? null;
+    return (
+      section.pluginEntries?.find((entry) => selectionsEqual(entry.selection, selection)) ?? null
+    );
   }
   return section.entry ?? null;
 }
 
-export function summarizeCodexHookEvents(
-  hooks: readonly HookMetadata[],
-): CodexHookEventSummary[] {
+export function summarizeCodexHookEvents(hooks: readonly HookMetadata[]): CodexHookEventSummary[] {
   return CODEX_HOOK_EVENT_ORDER.map((eventName) => {
     const eventHooks = hooks.filter((hook) => hook.eventName === eventName);
     return {
@@ -238,7 +226,7 @@ export function sortCodexHooksForEvent(
 ): HookMetadata[] {
   return hooks
     .filter((hook) => hook.eventName === eventName)
-    .sort((left, right) => (
-      left.displayOrder < right.displayOrder ? -1 : left.displayOrder > right.displayOrder ? 1 : 0
-    ));
+    .sort((left, right) =>
+      left.displayOrder < right.displayOrder ? -1 : left.displayOrder > right.displayOrder ? 1 : 0,
+    );
 }

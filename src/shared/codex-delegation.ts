@@ -6,17 +6,11 @@ export interface CodexDelegationPayload {
 }
 
 function escapeCodexDelegationXml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function unescapeCodexDelegationXml(value: string): string {
-  return value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
+  return value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 }
 
 function readCodexDelegationTag(value: string, tag: string): string | null {
@@ -37,20 +31,19 @@ export function buildCodexDelegationText(payload: CodexDelegationPayload): strin
 
 /** Exact `qVe`: the delegation envelope is one ordinary text input item. */
 export function buildCodexDelegationInput(payload: CodexDelegationPayload): UserInput[] {
-  return [{
-    type: "text",
-    text: buildCodexDelegationText(payload),
-    text_elements: [],
-  }];
+  return [
+    {
+      type: "text",
+      text: buildCodexDelegationText(payload),
+      text_elements: [],
+    },
+  ];
 }
 
 /** Exact `JVe/YVe`: recognize only a complete delegation envelope and unescape its fields. */
 export function parseCodexDelegationText(value: string): CodexDelegationPayload | null {
   const normalized = value.trim();
-  if (
-    !normalized.startsWith("<codex_delegation>")
-    || !normalized.endsWith("</codex_delegation>")
-  ) {
+  if (!normalized.startsWith("<codex_delegation>") || !normalized.endsWith("</codex_delegation>")) {
     return null;
   }
 

@@ -6,9 +6,7 @@ import type {
   CodexHooksStateUpdateInput,
 } from "../shared/codex-hooks";
 
-export type CodexHooksIpcChannel =
-  | "codex:hooks:list"
-  | "codex:hooks:state:update";
+export type CodexHooksIpcChannel = "codex:hooks:list" | "codex:hooks:state:update";
 
 export type CodexHooksIpcHandler<Channel extends CodexHooksIpcChannel> = (
   event: unknown,
@@ -25,12 +23,8 @@ export interface CodexHooksIpcRegistration {
   broadcastHooksChanged: (event: CodexHooksChangedEvent) => void;
 }
 
-export function registerCodexHooksIpcHandlers(
-  options: CodexHooksIpcRegistration,
-): void {
-  options.registerHandle("codex:hooks:list", (_, input) =>
-    options.listHooks(input),
-  );
+export function registerCodexHooksIpcHandlers(options: CodexHooksIpcRegistration): void {
+  options.registerHandle("codex:hooks:list", (_, input) => options.listHooks(input));
 
   options.registerHandle("codex:hooks:state:update", async (_, input) => {
     await options.updateHooksState(input);

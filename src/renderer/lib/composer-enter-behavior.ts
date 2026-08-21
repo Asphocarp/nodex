@@ -1,22 +1,19 @@
 export type ComposerEnterBehavior = "enter" | "cmdIfMultiline";
 
-export const COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY =
-  "nodex-composer-enter-behavior-v1";
+export const COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY = "nodex-composer-enter-behavior-v1";
 export const DEFAULT_COMPOSER_ENTER_BEHAVIOR: ComposerEnterBehavior = "enter";
 
-export function normalizeComposerEnterBehavior(
-  value: unknown,
-): ComposerEnterBehavior {
+export function normalizeComposerEnterBehavior(value: unknown): ComposerEnterBehavior {
   if (value === "enter" || value === "cmdIfMultiline") return value;
 
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
     if (normalized === "enter") return "enter";
     if (
-      normalized === "cmdifmultiline"
-      || normalized === "cmd-if-multiline"
-      || normalized === "cmd_if_multiline"
-      || normalized === "cmd+enter-long-prompts"
+      normalized === "cmdifmultiline" ||
+      normalized === "cmd-if-multiline" ||
+      normalized === "cmd_if_multiline" ||
+      normalized === "cmd+enter-long-prompts"
     ) {
       return "cmdIfMultiline";
     }
@@ -34,9 +31,7 @@ export function readComposerEnterBehavior(): ComposerEnterBehavior {
   }
 }
 
-export function writeComposerEnterBehavior(
-  value: ComposerEnterBehavior,
-): ComposerEnterBehavior {
+export function writeComposerEnterBehavior(value: ComposerEnterBehavior): ComposerEnterBehavior {
   const normalized = normalizeComposerEnterBehavior(value);
   try {
     localStorage.setItem(COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY, normalized);

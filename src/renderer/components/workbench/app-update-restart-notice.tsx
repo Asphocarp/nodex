@@ -25,9 +25,7 @@ export function AppUpdateRestartNotice({
         "border-(--accent-blue)/25 bg-(--accent-blue)/10 text-(--foreground)",
       )}
     >
-      <span className="text-xs font-medium">
-        {versionLabel} is ready.
-      </span>
+      <span className="text-xs font-medium">{versionLabel} is ready.</span>
       <button
         type="button"
         onClick={onRestart}

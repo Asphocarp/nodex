@@ -53,9 +53,7 @@ export function CoreAuthorityStatusNotice({
         )}
         <span className="shrink-0 font-medium">{presentation.label}</span>
         {presentation.detail ? (
-          <span className="truncate text-token-description-foreground">
-            {presentation.detail}
-          </span>
+          <span className="truncate text-token-description-foreground">{presentation.detail}</span>
         ) : null}
         {presentation.kind === "unavailable" ? (
           <div className="ml-1 flex shrink-0 items-center gap-0.5">

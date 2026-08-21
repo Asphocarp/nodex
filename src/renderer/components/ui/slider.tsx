@@ -1,9 +1,5 @@
 import * as SliderPrimitive from "@radix-ui/react-slider";
-import {
-  forwardRef,
-  type ComponentPropsWithoutRef,
-  type ComponentRef,
-} from "react";
+import { forwardRef, type ComponentPropsWithoutRef, type ComponentRef } from "react";
 import { cn } from "@/lib/utils";
 
 export const NodexSlider = forwardRef<

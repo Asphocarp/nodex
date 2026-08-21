@@ -1,10 +1,5 @@
 import { toDatabasePageSummary } from "../../shared/page-summary";
-import type {
-  DatabasePage,
-  PageInput,
-  PageUpdateField,
-  PageUpdateResult,
-} from "./types";
+import type { DatabasePage, PageInput, PageUpdateField, PageUpdateResult } from "./types";
 import { invoke } from "./api";
 import {
   commitPageDetailMetadataPatchWithReceipt,
@@ -51,15 +46,9 @@ const readScopedBoardProjection = async (
   dependencies: PageMetadataBoardRuntimeDependencies,
   minimumCommitCursor?: PageMetadataCommitCursor,
 ): Promise<DatabasePage | null> => {
-  const card = await dependencies.readBoardProjection(
-    projectId,
-    pageId,
-    minimumCommitCursor,
-  );
+  const card = await dependencies.readBoardProjection(projectId, pageId, minimumCommitCursor);
   if (!card || card.id === pageId) return card;
-  throw new Error(
-    `Board projection returned Page ${card.id} for requested Page ${pageId}`,
-  );
+  throw new Error(`Board projection returned Page ${card.id} for requested Page ${pageId}`);
 };
 
 const readBoardProjectionBestEffort = async (
@@ -83,8 +72,7 @@ const readBoardProjectionBestEffort = async (
 const changedFields = (
   patch: Partial<PageInput>,
   didMutate: boolean,
-): readonly PageUpdateField[] =>
-  didMutate ? Object.keys(patch) as PageUpdateField[] : [];
+): readonly PageUpdateField[] => (didMutate ? (Object.keys(patch) as PageUpdateField[]) : []);
 
 /**
  * Adapts the canonical Page metadata command to the Board result shape without
@@ -106,9 +94,7 @@ export const commitPageMetadataPatchForBoardWithReceipt = async (input: {
     projectId: input.projectId,
     pageId: input.pageId,
     operationId: input.operationId,
-    ...(input.clientSessionId
-      ? { clientSessionId: input.clientSessionId }
-      : {}),
+    ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
     patch: input.patch,
   });
   const { result, commitCursor } = committed;
@@ -118,11 +104,7 @@ export const commitPageMetadataPatchForBoardWithReceipt = async (input: {
   if (result.status === "error") throw new Error(result.error);
 
   if (result.status === "conflict") {
-    const page = await readScopedBoardProjection(
-      input.projectId,
-      input.pageId,
-      dependencies,
-    );
+    const page = await readScopedBoardProjection(input.projectId, input.pageId, dependencies);
     return {
       result: page ? { status: "conflict", page } : { status: "not_found" },
       commitCursor: null,

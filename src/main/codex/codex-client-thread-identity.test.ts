@@ -36,11 +36,13 @@ describe("Codex client-thread identity", () => {
     useTempPersistedAtoms();
     const clientThreadId = "client-new-thread:11111111-1111-4111-8111-111111111111";
 
-    expect(setCodexClientThreadIdentity({
-      hostId: "local",
-      threadId: "conversation with spaces",
-      clientThreadId,
-    })).toBe(true);
+    expect(
+      setCodexClientThreadIdentity({
+        hostId: "local",
+        threadId: "conversation with spaces",
+        clientThreadId,
+      }),
+    ).toBe(true);
     expect(codexClientThreadIdentityAtomKey("local", "conversation with spaces")).toBe(
       "thread-client-id-v1:local%3Aconversation%20with%20spaces",
     );
@@ -76,15 +78,19 @@ describe("Codex client-thread identity", () => {
 
   test("rejects blank identities and client ids outside the exact namespace", () => {
     useTempPersistedAtoms();
-    expect(setCodexClientThreadIdentity({
-      hostId: "local",
-      threadId: "thread",
-      clientThreadId: "thread",
-    })).toBe(false);
-    expect(setCodexClientThreadIdentity({
-      hostId: " ",
-      threadId: "thread",
-      clientThreadId: "client-new-thread:value",
-    })).toBe(false);
+    expect(
+      setCodexClientThreadIdentity({
+        hostId: "local",
+        threadId: "thread",
+        clientThreadId: "thread",
+      }),
+    ).toBe(false);
+    expect(
+      setCodexClientThreadIdentity({
+        hostId: " ",
+        threadId: "thread",
+        clientThreadId: "client-new-thread:value",
+      }),
+    ).toBe(false);
   });
 });

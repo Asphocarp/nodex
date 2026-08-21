@@ -12,17 +12,9 @@ const config: StorybookConfig = {
     name: "@storybook/react-vite",
     options: {},
   },
-  addons: [
-    "@storybook/addon-docs",
-    "@storybook/addon-links",
-    "@storybook/addon-a11y",
-  ],
-  staticDirs: [
-    path.resolve(repoRoot, "public"),
-  ],
-  stories: [
-    "../../../src/renderer/**/*.stories.@(ts|tsx)",
-  ],
+  addons: ["@storybook/addon-docs", "@storybook/addon-links", "@storybook/addon-a11y"],
+  staticDirs: [path.resolve(repoRoot, "public")],
+  stories: ["../../../src/renderer/**/*.stories.@(ts|tsx)"],
   async viteFinal(baseConfig) {
     const { mergeConfig, searchForWorkspaceRoot } = await import("vite");
 

@@ -39,11 +39,7 @@ export function readBrowserConfigDeviceToolbarState(
   return result.success ? result.data : undefined;
 }
 
-export function readBrowserConfigStorageId(
-  tab: BrowserTabConfigCarrier,
-): string | undefined {
+export function readBrowserConfigStorageId(tab: BrowserTabConfigCarrier): string | undefined {
   const value = readBrowserConfig(tab).browserStorageId;
-  return typeof value === "string" && value.trim().length > 0
-    ? value
-    : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

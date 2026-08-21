@@ -14,9 +14,7 @@ type StableWorktreeEntry = Extract<
   { readonly launchMode: "create-stable-worktree" }
 >;
 
-function makeEntry(
-  overrides: Partial<StableWorktreeEntry> = {},
-): StableWorktreeEntry {
+function makeEntry(overrides: Partial<StableWorktreeEntry> = {}): StableWorktreeEntry {
   return {
     id: "local:stable-story",
     hostId: "local",
@@ -48,9 +46,7 @@ function makeEntry(
   };
 }
 
-function makeTransport(
-  entry: StableWorktreeEntry,
-): StableWorktreeStatusDialogTransport {
+function makeTransport(entry: StableWorktreeEntry): StableWorktreeStatusDialogTransport {
   return {
     list: async () => [entry],
     subscribe: () => () => undefined,
@@ -72,8 +68,7 @@ const failedEntry = makeEntry({
   worktreeWorkspaceRoot: "/Users/asc/.codex/worktrees/7e3a/nodex",
   worktreeGitRoot: "/Users/asc/.codex/worktrees/7e3a/nodex",
   worktreeOutputText: "[info] Worktree created\n",
-  setupOutputText:
-    "bun install v1.2.18\nerror: postinstall script failed with exit code 1\n",
+  setupOutputText: "bun install v1.2.18\nerror: postinstall script failed with exit code 1\n",
   errorMessage: "Local environment setup exited with status 1",
   needsAttention: true,
 });
@@ -168,13 +163,8 @@ function ProjectsSidebarStory() {
         <div className="mb-1 px-2 text-xs font-medium text-token-description-foreground">
           Projects
         </div>
-        <StableWorktreeSidebarRows
-          entries={[creatingEntry]}
-          onOpen={setSelectedId}
-        />
-        <div className="flex h-token-nav-row items-center px-2 text-sm">
-          Nodex
-        </div>
+        <StableWorktreeSidebarRows entries={[creatingEntry]} onOpen={setSelectedId} />
+        <div className="flex h-token-nav-row items-center px-2 text-sm">Nodex</div>
       </aside>
       {selectedId ? (
         <StableWorktreeStatusDialog
@@ -205,15 +195,11 @@ export const Create: Story = {
 };
 
 export const Creating: Story = {
-  render: () => (
-    <StatusDialogStory entry={creatingEntry} transport={creatingTransport} />
-  ),
+  render: () => <StatusDialogStory entry={creatingEntry} transport={creatingTransport} />,
 };
 
 export const SetupFailed: Story = {
-  render: () => (
-    <StatusDialogStory entry={failedEntry} transport={failedTransport} />
-  ),
+  render: () => <StatusDialogStory entry={failedEntry} transport={failedTransport} />,
 };
 
 export const SetupFailedWithoutAutoFix: Story = {

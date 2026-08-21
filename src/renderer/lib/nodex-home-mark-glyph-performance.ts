@@ -55,14 +55,12 @@ export const NODEX_HOME_MARK_HELLO_BOUNDARIES = [
 ] as const satisfies readonly HelloBoundary[];
 
 function elapsedFrame(elapsedMs: number): number {
-  const frame = Math.max(0, elapsedMs) * NODEX_HOME_MARK_CUE_FPS / 1_000;
+  const frame = (Math.max(0, elapsedMs) * NODEX_HOME_MARK_CUE_FPS) / 1_000;
   const nearestFrame = Math.round(frame);
   return Math.abs(frame - nearestFrame) < 0.000001 ? nearestFrame : frame;
 }
 
-export function resolveNodexHomeMarkHelloFrame(
-  elapsedMs: number,
-): NodexHomeMarkCueFrame {
+export function resolveNodexHomeMarkHelloFrame(elapsedMs: number): NodexHomeMarkCueFrame {
   const frame = elapsedFrame(elapsedMs);
   if (frame >= NODEX_HOME_MARK_HELLO_DURATION_FRAMES) {
     return {
@@ -78,21 +76,19 @@ export function resolveNodexHomeMarkHelloFrame(
     const candidate = NODEX_HOME_MARK_HELLO_BOUNDARIES[index];
     if (frame < candidate.atFrame) continue;
     boundary = candidate;
-    nextFrame = NODEX_HOME_MARK_HELLO_BOUNDARIES[index + 1]?.atFrame
-      ?? NODEX_HOME_MARK_HELLO_DURATION_FRAMES;
+    nextFrame =
+      NODEX_HOME_MARK_HELLO_BOUNDARIES[index + 1]?.atFrame ?? NODEX_HOME_MARK_HELLO_DURATION_FRAMES;
     break;
   }
   return {
     complete: false,
     frame,
-    nextChangeMs: Math.max(8, (nextFrame - frame) / NODEX_HOME_MARK_CUE_FPS * 1_000),
+    nextChangeMs: Math.max(8, ((nextFrame - frame) / NODEX_HOME_MARK_CUE_FPS) * 1_000),
     sceneId: boundary.sceneId,
   };
 }
 
-export function resolveNodexHomeMarkLoaderFrame(
-  elapsedMs: number,
-): NodexHomeMarkCueFrame {
+export function resolveNodexHomeMarkLoaderFrame(elapsedMs: number): NodexHomeMarkCueFrame {
   const frame = elapsedFrame(elapsedMs);
   if (frame >= NODEX_HOME_MARK_LOADER_DURATION_FRAMES) {
     return {
@@ -110,7 +106,7 @@ export function resolveNodexHomeMarkLoaderFrame(
   return {
     complete: false,
     frame,
-    nextChangeMs: Math.max(8, (nextFrame - frame) / NODEX_HOME_MARK_CUE_FPS * 1_000),
+    nextChangeMs: Math.max(8, ((nextFrame - frame) / NODEX_HOME_MARK_CUE_FPS) * 1_000),
     sceneId: hold % 2 === 0 ? "prompt" : "prompt-no-cursor",
   };
 }
@@ -139,10 +135,7 @@ export interface NodexHomeMarkGlyphPerformance {
 
 /** Runs only at authored cue boundaries; idle and in-between frames do no work. */
 export function createNodexHomeMarkGlyphPerformance(input: {
-  onScene: (
-    sceneId: NodexHomeMarkGlyphSceneId,
-    scene: NodexHomeMarkGlyphScene,
-  ) => void;
+  onScene: (sceneId: NodexHomeMarkGlyphSceneId, scene: NodexHomeMarkGlyphScene) => void;
   random?: () => number;
   now?: () => number;
 }): NodexHomeMarkGlyphPerformance {
@@ -162,10 +155,7 @@ export function createNodexHomeMarkGlyphPerformance(input: {
   const tick = () => {
     timer = null;
     if (!activeCue || disposed) return;
-    const frame = resolveNodexHomeMarkCueFrame(
-      activeCue.id,
-      now() - activeCue.startedAt,
-    );
+    const frame = resolveNodexHomeMarkCueFrame(activeCue.id, now() - activeCue.startedAt);
     setScene(frame.sceneId);
     if (frame.complete) {
       activeCue = null;

@@ -1,10 +1,5 @@
 import { useQueries } from "@tanstack/react-query";
-import {
-  CanvasIcon,
-  ChevronRightIcon,
-  DatabaseIcon,
-  PageIcon,
-} from "@/components/shared/icons";
+import { CanvasIcon, ChevronRightIcon, DatabaseIcon, PageIcon } from "@/components/shared/icons";
 import { libraryPathQueryOptions } from "@/lib/use-library-navigation";
 import {
   areLibraryResourceTargetsEqual,
@@ -29,9 +24,8 @@ export function activePagesSceneSurface(
 ): WorkbenchSurfaceDescriptor | null {
   if (!scene || scene.owner.kind !== "pages") return null;
   const preferredPanelId = scene.lastFocusedPanelId ?? "right";
-  const panelIds = preferredPanelId === "right"
-    ? (["right", "bottom"] as const)
-    : (["bottom", "right"] as const);
+  const panelIds =
+    preferredPanelId === "right" ? (["right", "bottom"] as const) : (["bottom", "right"] as const);
   for (const panelId of panelIds) {
     const panel = scene.panels[panelId];
     if (panel.collapsed) continue;
@@ -96,27 +90,18 @@ export function usePagesSceneNavigation(scene: WorkbenchSceneSnapshot | null): {
   })[0];
   return {
     activeSurface,
-    activeRoot: target && path?.data
-      ? resolveLibraryPathRoot(target, path.data.nodes)
-      : null,
+    activeRoot: target && path?.data ? resolveLibraryPathRoot(target, path.data.nodes) : null,
     activeRootNode: path?.data?.nodes[0] ?? null,
   };
 }
 
-export function PagesSceneBreadcrumb({
-  scene,
-}: {
-  readonly scene: WorkbenchSceneSnapshot;
-}) {
+export function PagesSceneBreadcrumb({ scene }: { readonly scene: WorkbenchSceneSnapshot }) {
   const navigation = usePagesSceneNavigation(scene);
   const surface = navigation.activeSurface;
   const target = libraryTargetForPagesSurface(surface);
   const root = navigation.activeRoot;
-  const Icon = root?.kind === "database"
-    ? DatabaseIcon
-    : root?.kind === "canvas"
-      ? CanvasIcon
-      : PageIcon;
+  const Icon =
+    root?.kind === "database" ? DatabaseIcon : root?.kind === "canvas" ? CanvasIcon : PageIcon;
   const surfaceTitle = usePresentedPageTitle(
     surface?.kind === "page_stage" ? surface.config.pageId : null,
     surface?.titleSnapshot ?? "Untitled",
@@ -125,20 +110,19 @@ export function PagesSceneBreadcrumb({
     root?.kind === "page" ? root.pageId : null,
     navigation.activeRootNode?.title ?? surfaceTitle,
   );
-  const childTitle = target && root && (
-      target.kind === "view"
-      || !areLibraryResourceTargetsEqual(target, root)
-    )
-    ? surfaceTitle
-    : null;
+  const childTitle =
+    target && root && (target.kind === "view" || !areLibraryResourceTargetsEqual(target, root))
+      ? surfaceTitle
+      : null;
 
   return (
     <AppShellHeaderContentRegistrar
-      content={(
+      content={
         <div className="no-drag flex h-full min-w-0 items-center gap-1.5 text-sm">
-          <span className={surface
-            ? "shrink-0 text-token-text-secondary"
-            : "shrink-0 text-token-text-primary"}
+          <span
+            className={
+              surface ? "shrink-0 text-token-text-secondary" : "shrink-0 text-token-text-primary"
+            }
           >
             Pages
           </span>
@@ -148,28 +132,21 @@ export function PagesSceneBreadcrumb({
                 className="icon-2xs shrink-0 text-token-description-foreground"
                 aria-hidden
               />
-              <Icon
-                className="icon-2xs shrink-0 text-token-text-secondary"
-                aria-hidden
-              />
-              <span className="min-w-0 truncate text-token-text-primary">
-                {rootTitle}
-              </span>
+              <Icon className="icon-2xs shrink-0 text-token-text-secondary" aria-hidden />
+              <span className="min-w-0 truncate text-token-text-primary">{rootTitle}</span>
               {childTitle ? (
                 <>
                   <ChevronRightIcon
                     className="icon-2xs shrink-0 text-token-description-foreground"
                     aria-hidden
                   />
-                  <span className="min-w-0 truncate text-token-text-secondary">
-                    {childTitle}
-                  </span>
+                  <span className="min-w-0 truncate text-token-text-secondary">{childTitle}</span>
                 </>
               ) : null}
             </>
           ) : null}
         </div>
-      )}
+      }
     />
   );
 }

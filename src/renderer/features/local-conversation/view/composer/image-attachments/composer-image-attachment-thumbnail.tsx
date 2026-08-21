@@ -36,12 +36,14 @@ export function ComposerImageAttachmentThumbnail({
     handleOpen();
   };
   const isUploading = attachment.uploadStatus === "uploading";
-  const uploadProgress = attachment.uploadProgress === undefined
-    ? undefined
-    : Math.min(100, Math.max(0, attachment.uploadProgress));
-  const displaySrc = resolveImageDisplaySource(attachment.src, {
-    allowLocalPath: true,
-  }) ?? attachment.src;
+  const uploadProgress =
+    attachment.uploadProgress === undefined
+      ? undefined
+      : Math.min(100, Math.max(0, attachment.uploadProgress));
+  const displaySrc =
+    resolveImageDisplaySource(attachment.src, {
+      allowLocalPath: true,
+    }) ?? attachment.src;
 
   return (
     <div

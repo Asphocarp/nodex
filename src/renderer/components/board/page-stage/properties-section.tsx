@@ -1,10 +1,7 @@
 import { BranchSelectorPopover } from "@/features/local-conversation/view/shared/branch-selector-popover";
 import { EnvironmentSelectorPopover } from "@/features/local-conversation/view/shared/environment-selector-popover";
 import { ThreadsIcon } from "@/components/workbench/threads-icon";
-import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "@/components/ui/dropdown";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
 import { SchedulePopover } from "@/components/board/schedule-popover";
 import { dataSourcePropertyIcon } from "@/components/database/data-source-property-presentation";
 import { ChevronDownIcon } from "@/components/shared/icons";
@@ -64,24 +61,31 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
             }}
             options={[
               { value: "localProject", label: "Local project" },
-              { value: "newWorktree", label: runInWorktreePathDisplay ? "Worktree" : "New worktree" },
+              {
+                value: "newWorktree",
+                label: runInWorktreePathDisplay ? "Worktree" : "New worktree",
+              },
               { value: "cloud", label: "Cloud (mock)" },
             ]}
-            triggerButton={(
-              <NodexDropdownButtonTrigger className={cn(
-                pageStagePropertyTriggerChrome,
-                pageStagePropertyValueHoverSurface,
-                "gap-1 px-0",
-              )}>
+            triggerButton={
+              <NodexDropdownButtonTrigger
+                className={cn(
+                  pageStagePropertyTriggerChrome,
+                  pageStagePropertyValueHoverSurface,
+                  "gap-1 px-0",
+                )}
+              >
                 <span className="inline-flex h-5 items-center rounded-sm bg-(--gray-bg) px-1.5 text-xs text-(--foreground-secondary)">
                   {runInTarget === "localProject"
                     ? "Local project"
                     : runInTarget === "newWorktree"
-                      ? runInWorktreePathDisplay ? "Worktree" : "New worktree"
+                      ? runInWorktreePathDisplay
+                        ? "Worktree"
+                        : "New worktree"
                       : "Cloud (mock)"}
                 </span>
               </NodexDropdownButtonTrigger>
-            )}
+            }
           />
 
           {runInTarget === "localProject" ? (
@@ -99,7 +103,9 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
                   type="button"
                   onClick={handleClearRunInLocalPath}
                   className="text-xs text-(--foreground-tertiary) hover:text-(--foreground-secondary)"
-                >Clear</button>
+                >
+                  Clear
+                </button>
               ) : null}
             </>
           ) : null}
@@ -135,7 +141,9 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
               onClick={handleResetRunInWorktreePath}
               className="inline-flex h-5 items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary)"
               title={runInWorktreePathDisplay}
-            >Reset worktree</button>
+            >
+              Reset worktree
+            </button>
           ) : null}
 
           {linkedCodexThreads.length > 0 ? (
@@ -149,7 +157,9 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
               onClick={onOpenNewCodexThread}
               disabled={saving}
               className="inline-flex h-5 items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary) disabled:opacity-40"
-            >New</button>
+            >
+              New
+            </button>
           ) : null}
         </div>
       </div>
@@ -171,7 +181,9 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
             >
               <div className="truncate text-xs/4 text-(--foreground)">{thread.title}</div>
               {thread.preview ? (
-                <div className="truncate text-xs/4 text-(--foreground-tertiary)">{thread.preview}</div>
+                <div className="truncate text-xs/4 text-(--foreground-tertiary)">
+                  {thread.preview}
+                </div>
               ) : null}
             </button>
           ))}
@@ -184,9 +196,10 @@ function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
 export function PageStagePropertiesSection({ controller }: PageStagePropertiesSectionProps) {
   if (!controller.page) return null;
   const { propertyControls } = controller;
-  const hasSectionRows = propertyControls.sectionProperties.length > 0
-    || controller.hasThreadsRow
-    || propertyControls.hasScheduleCapability;
+  const hasSectionRows =
+    propertyControls.sectionProperties.length > 0 ||
+    controller.hasThreadsRow ||
+    propertyControls.hasScheduleCapability;
   if (!hasSectionRows) return null;
 
   const isCollapsed = (propertyId: string): boolean => {
@@ -226,16 +239,16 @@ export function PageStagePropertiesSection({ controller }: PageStagePropertiesSe
           );
         })}
 
-        {controller.hasThreadsRow
-          && (controller.showCollapsedProperties || !controller.collapseThreadsByDefault)
-          ? <ThreadsPropertyRow controller={controller} />
-          : null}
+        {controller.hasThreadsRow &&
+        (controller.showCollapsedProperties || !controller.collapseThreadsByDefault) ? (
+          <ThreadsPropertyRow controller={controller} />
+        ) : null}
 
-        {propertyControls.hasScheduleCapability
-          && controller.schedulePage
-          && (controller.showCollapsedProperties || !controller.collapseScheduleByDefault)
-          ? <SchedulePopover schedule={controller.schedule} page={controller.schedulePage} />
-          : null}
+        {propertyControls.hasScheduleCapability &&
+        controller.schedulePage &&
+        (controller.showCollapsedProperties || !controller.collapseScheduleByDefault) ? (
+          <SchedulePopover schedule={controller.schedule} page={controller.schedulePage} />
+        ) : null}
       </div>
 
       {controller.collapsedPropertyCount > 0 ? (
@@ -244,10 +257,12 @@ export function PageStagePropertiesSection({ controller }: PageStagePropertiesSe
           onClick={() => controller.setPropertiesExpanded((current) => !current)}
           className="flex h-8 items-center gap-1.5 rounded-sm px-1.5 text-sm text-(--foreground-tertiary) hover:bg-(--background-tertiary)"
         >
-          <ChevronDownIcon className={cn(
-            "icon-2xs shrink-0 transition-transform duration-150",
-            controller.propertiesExpanded ? "rotate-180" : "-rotate-90",
-          )} />
+          <ChevronDownIcon
+            className={cn(
+              "icon-2xs shrink-0 transition-transform duration-150",
+              controller.propertiesExpanded ? "rotate-180" : "-rotate-90",
+            )}
+          />
           {controller.collapsedPropertyLabel}
         </button>
       ) : null}

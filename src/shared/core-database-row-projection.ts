@@ -1,8 +1,5 @@
 import type { components } from "@nodex/core-protocol";
-import type {
-  DataSourcePageRowV2,
-  DataSourcePropertyRecordV2,
-} from "./database-module-v2";
+import type { DataSourcePageRowV2, DataSourcePropertyRecordV2 } from "./database-module-v2";
 import type { DataSourceId } from "./database-identities";
 import type { DatabaseJsonValue } from "./database-kernel";
 
@@ -34,9 +31,7 @@ export const projectCoreDatabaseQueryRow = (
         dataSourceId: input.dataSourceId,
       },
       lifecycle:
-        row.lifecycle === "archived" || row.lifecycle === "deleted"
-          ? row.lifecycle
-          : "active",
+        row.lifecycle === "archived" || row.lifecycle === "deleted" ? row.lifecycle : "active",
       parentRevision: row.parent_revision,
       metadataRevision: row.metadata_revision,
       documentId: row.document_id,
@@ -58,12 +53,15 @@ export const projectCoreDatabaseQueryRow = (
     values: Object.fromEntries(
       Object.entries(row.database_values).map(([propertyId, propertyValue]) => {
         const property = propertiesById.get(propertyId as never);
-        return [propertyId, {
-          propertyId: propertyId as never,
-          valueType: property?.valueType ?? "text",
-          value: propertyValue as DatabaseJsonValue,
-          revision: row.database_value_revisions[propertyId] ?? 0,
-        }];
+        return [
+          propertyId,
+          {
+            propertyId: propertyId as never,
+            valueType: property?.valueType ?? "text",
+            value: propertyValue as DatabaseJsonValue,
+            revision: row.database_value_revisions[propertyId] ?? 0,
+          },
+        ];
       }),
     ),
     position: row.rank_key
@@ -79,13 +77,11 @@ export const projectCoreDatabaseQueryRow = (
       siblingRank: row.task_sibling_rank ?? null,
       valueRevision: row.task_parent_value_revision,
     },
-    intrinsicProperties: Object.entries(row.intrinsic_properties).map(
-      ([key, propertyValue]) => ({
-        key,
-        valueType: "json",
-        value: propertyValue as DatabaseJsonValue,
-        revision: 0,
-      }),
-    ),
+    intrinsicProperties: Object.entries(row.intrinsic_properties).map(([key, propertyValue]) => ({
+      key,
+      valueType: "json",
+      value: propertyValue as DatabaseJsonValue,
+      revision: 0,
+    })),
   };
 };

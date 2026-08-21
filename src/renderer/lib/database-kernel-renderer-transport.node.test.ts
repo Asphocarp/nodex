@@ -30,10 +30,7 @@ describe("Database event renderer IPC", () => {
       projectId: "project-1",
     };
     const messages: unknown[] = [];
-    const release = transport.subscribeProjectionStream(
-      scope,
-      (message) => messages.push(message),
-    );
+    const release = transport.subscribeProjectionStream(scope, (message) => messages.push(message));
     await Promise.resolve();
     const address = {
       kind: "project" as const,
@@ -43,27 +40,29 @@ describe("Database event renderer IPC", () => {
     const packet = createCoreLocalCommitFixture({
       authorizationScope: address,
       commitSeq: 73,
-      projectionEffects: [{
-        scope: {
-          schema_version: 1,
-          canonical_key: "page:project-1:page-1",
+      projectionEffects: [
+        {
           scope: {
-            kind: "page",
+            schema_version: 1,
+            canonical_key: "page:project-1:page-1",
+            scope: {
+              kind: "page",
+              project_id: "project-1",
+              page_id: "page-1",
+            },
+          },
+          base_revision: 0,
+          result_revision: 1,
+          covered_commit_seq: 73,
+          patch: {
+            kind: "page_changed",
             project_id: "project-1",
             page_id: "page-1",
           },
+          requires_read_at_least: false,
+          effect_hash: "b".repeat(64),
         },
-        base_revision: 0,
-        result_revision: 1,
-        covered_commit_seq: 73,
-        patch: {
-          kind: "page_changed",
-          project_id: "project-1",
-          page_id: "page-1",
-        },
-        requires_read_at_least: false,
-        effect_hash: "b".repeat(64),
-      }],
+      ],
     });
     recipient.listener?.({
       version: 2,
@@ -73,12 +72,14 @@ describe("Database event renderer IPC", () => {
       authorizationScope: address,
       payload: { kind: "packet", packet },
     });
-    await vi.waitFor(() => expect(messages).toEqual([
-      expect.objectContaining({
-        kind: "effect",
-        stream: expect.objectContaining({ commitSeq: 73 }),
-      }),
-    ]));
+    await vi.waitFor(() =>
+      expect(messages).toEqual([
+        expect.objectContaining({
+          kind: "effect",
+          stream: expect.objectContaining({ commitSeq: 73 }),
+        }),
+      ]),
+    );
 
     release();
     await Promise.resolve();
@@ -86,11 +87,13 @@ describe("Database event renderer IPC", () => {
       { channel: "local-commit-audience:subscribe", args: [address] },
       {
         channel: "recipient-delivery:admit",
-        args: [{
-          version: 2,
-          deliveryId: "a".repeat(64),
-          outcome: "ack",
-        }],
+        args: [
+          {
+            version: 2,
+            deliveryId: "a".repeat(64),
+            outcome: "ack",
+          },
+        ],
       },
       { channel: "local-commit-audience:unsubscribe", args: [address] },
     ]);

@@ -14,11 +14,7 @@ import type { PublicBlockTransferIntent } from "../../shared/block-transfer-tran
 import type { DocumentSyncCommandError } from "../../shared/block-documents/document-sync";
 import type { ProjectAccessedDocumentDescriptor } from "../../shared/block-documents/contracts";
 import type { DocumentHeadFence } from "./block-document-surface-runtime";
-import {
-  prepareOwnedBlockDocument,
-  readDatabaseModule,
-  transferBlocks,
-} from "./api";
+import { prepareOwnedBlockDocument, readDatabaseModule, transferBlocks } from "./api";
 
 const STATUS_PROPERTY_ID = "status";
 
@@ -93,36 +89,31 @@ const defaultDependencies: NfmBlockMoveRuntimeDependencies = {
   createOperationId: () => crypto.randomUUID(),
 };
 
-const commandError = (
-  error: BlockTransferCommandError,
-): NfmBlockMoveError => new NfmBlockMoveError({
-  code: `block_transfer.${error.code}`,
-  message: error.message,
-  retryable: error.retryable,
-  reloadRequired: error.reloadRequired,
-  operationId: error.operationId,
-});
+const commandError = (error: BlockTransferCommandError): NfmBlockMoveError =>
+  new NfmBlockMoveError({
+    code: `block_transfer.${error.code}`,
+    message: error.message,
+    retryable: error.retryable,
+    reloadRequired: error.reloadRequired,
+    operationId: error.operationId,
+  });
 
-const documentError = (
-  error: DocumentSyncCommandError,
-  operationId: string,
-): NfmBlockMoveError => new NfmBlockMoveError({
-  code: `document.${error.code}`,
-  message: error.message,
-  retryable: error.retryable,
-  reloadRequired: error.resetRequired,
-  operationId,
-});
+const documentError = (error: DocumentSyncCommandError, operationId: string): NfmBlockMoveError =>
+  new NfmBlockMoveError({
+    code: `document.${error.code}`,
+    message: error.message,
+    retryable: error.retryable,
+    reloadRequired: error.resetRequired,
+    operationId,
+  });
 
-const databaseError = (
-  error: DatabaseModuleErrorV2,
-  operationId: string,
-): NfmBlockMoveError => new NfmBlockMoveError({
-  code: `database.${error.code}`,
-  message: error.message,
-  retryable: error.retryable,
-  operationId: error.operationId ?? operationId,
-});
+const databaseError = (error: DatabaseModuleErrorV2, operationId: string): NfmBlockMoveError =>
+  new NfmBlockMoveError({
+    code: `database.${error.code}`,
+    message: error.message,
+    retryable: error.retryable,
+    operationId: error.operationId ?? operationId,
+  });
 
 const fail = (
   code: string,
@@ -150,15 +141,14 @@ const activeStatusView = (
       .filter((source) => source.lifecycle === "active")
       .map((source) => source.dataSourceId),
   );
-  const candidates = descriptor.views.filter((view) => (
-    view.lifecycle === "active"
-    && activeSourceIds.has(view.dataSourceId)
-    && view.config.presentation.group?.propertyId === STATUS_PROPERTY_ID
-  ));
+  const candidates = descriptor.views.filter(
+    (view) =>
+      view.lifecycle === "active" &&
+      activeSourceIds.has(view.dataSourceId) &&
+      view.config.presentation.group?.propertyId === STATUS_PROPERTY_ID,
+  );
   const defaultViewId = descriptor.database.defaultViewId;
-  return candidates.find((view) => view.viewId === defaultViewId)
-    ?? candidates[0]
-    ?? null;
+  return candidates.find((view) => view.viewId === defaultViewId) ?? candidates[0] ?? null;
 };
 
 const requireSourceFence = (
@@ -167,9 +157,9 @@ const requireSourceFence = (
 ): BlockTransferDocumentHead => {
   const { sourceHead } = request;
   if (
-    sourceHead.storeEpoch !== request.storeEpoch
-    || sourceHead.documentId !== request.sourceDocumentId
-    || sourceHead.generation !== request.sourceDocumentGeneration
+    sourceHead.storeEpoch !== request.storeEpoch ||
+    sourceHead.documentId !== request.sourceDocumentId ||
+    sourceHead.generation !== request.sourceDocumentGeneration
   ) {
     fail(
       "source.changed",
@@ -215,11 +205,7 @@ const readProjectDefaultDatabase = async (
   }
   const descriptor = readValue.value;
   if (descriptor.database.lifecycle !== "active") {
-    fail(
-      "database.unavailable",
-      "The destination Database is not active.",
-      operationId,
-    );
+    fail("database.unavailable", "The destination Database is not active.", operationId);
   }
   return {
     snapshot: result.value,
@@ -241,11 +227,7 @@ export const moveNfmBlocks = async (
     fail("selection.empty", "No blocks selected.", operationId);
   }
   if (request.destination.projectId !== request.projectId) {
-    fail(
-      "destination.cross_project",
-      "Choose a destination in the current Project.",
-      operationId,
-    );
+    fail("destination.cross_project", "Choose a destination in the current Project.", operationId);
   }
   const sourceHead = requireSourceFence(request, operationId);
 
@@ -256,10 +238,7 @@ export const moveNfmBlocks = async (
     if (request.destination.pageId === request.sourcePageId) {
       fail("destination.same_page", "Choose a different destination Page.", operationId);
     }
-    const prepared = await dependencies.preparePage(
-      request.projectId,
-      request.destination.pageId,
-    );
+    const prepared = await dependencies.preparePage(request.projectId, request.destination.pageId);
     if (!prepared.ok) throw documentError(prepared.error, operationId);
     if (prepared.value.documentId === request.sourceDocumentId) {
       fail("destination.same_document", "Choose a different destination Page.", operationId);

@@ -15,21 +15,23 @@ const surfaceState = vi.hoisted(() => ({ value: null as unknown }));
 const bodyBoundaryFocus = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("@/components/block-documents/owned-block-document-boundary", () => ({
-  OwnedBlockDocumentBoundary: ({ children }: {
+  OwnedBlockDocumentBoundary: ({
+    children,
+  }: {
     children: (
       model: { status: "ready"; descriptor: Record<string, unknown> },
       controls: { reload: () => Promise<void> },
     ) => React.ReactNode;
-  }) => children(
-    { status: "ready", descriptor: { documentId: "document:nested" } },
-    { reload: () => Promise.resolve() },
-  ),
+  }) =>
+    children(
+      { status: "ready", descriptor: { documentId: "document:nested" } },
+      { reload: () => Promise.resolve() },
+    ),
 }));
 
 vi.mock("@/components/block-documents/block-document-surface", () => ({
-  BlockDocumentSurface: ({ children }: {
-    children: (surface: unknown) => React.ReactNode;
-  }) => children(surfaceState.value),
+  BlockDocumentSurface: ({ children }: { children: (surface: unknown) => React.ReactNode }) =>
+    children(surfaceState.value),
 }));
 
 vi.mock("@/components/block-documents/block-document-sync-status", () => ({
@@ -45,7 +47,9 @@ vi.mock("@/lib/use-projects", () => ({
 vi.mock("./nfm-editor", async () => {
   const React = await import("react");
   return {
-    NfmEditor: ({ embeddedBoundary }: {
+    NfmEditor: ({
+      embeddedBoundary,
+    }: {
       embeddedBoundary: {
         navigationRef: React.Ref<{ focusBoundary: (direction: "up" | "down") => boolean }>;
         onBoundaryArrow: (direction: "up" | "down") => boolean;
@@ -158,9 +162,7 @@ describe("ActivePageOutlinerDocument", () => {
       const editor = globalThis.document.querySelector<HTMLElement>(
         '[aria-label="Edit Nested Page title"]',
       );
-      const text = editor
-        ?.querySelector<HTMLElement>("[data-rich-title-kind='text']")
-        ?.firstChild;
+      const text = editor?.querySelector<HTMLElement>("[data-rich-title-kind='text']")?.firstChild;
       if (!(text instanceof Text)) return null;
       const range = globalThis.document.createRange();
       range.setStart(text, 6);

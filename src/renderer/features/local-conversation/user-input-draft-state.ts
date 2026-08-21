@@ -46,28 +46,24 @@ export function useCodexUserInputDraft(
   saveDraft: (draft: RequestQuestionnaireDraft) => void;
   clearDraft: () => void;
 } {
-  const requestIdentity = buildCodexCanonicalRequestIdentityKey(
-    request.requestId,
-  );
+  const requestIdentity = buildCodexCanonicalRequestIdentityKey(request.requestId);
   const questionSignature = buildRequestQuestionSignature(request);
   const entry = useSyncExternalStore(
     subscribe,
     () => entries.get(conversationId),
     () => undefined,
   );
-  const initialDraft = entry?.requestIdentity === requestIdentity
-      && entry.questionSignature === questionSignature
-    ? entry.draft
-    : undefined;
+  const initialDraft =
+    entry?.requestIdentity === requestIdentity && entry.questionSignature === questionSignature
+      ? entry.draft
+      : undefined;
 
   useLayoutEffect(() => {
     const current = entries.get(conversationId);
     if (
-      !current
-      || (
-        current.requestIdentity === requestIdentity
-        && current.questionSignature === questionSignature
-      )
+      !current ||
+      (current.requestIdentity === requestIdentity &&
+        current.questionSignature === questionSignature)
     ) {
       return;
     }

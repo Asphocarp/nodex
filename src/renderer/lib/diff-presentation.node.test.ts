@@ -57,9 +57,9 @@ describe("getNodexDiffOptions", () => {
     const options = getNodexReviewDiffOptions("dark", true);
     const unsafeCss = String(options.unsafeCSS);
 
-    expect(
-      unsafeCss.includes("grid-template-columns: var(--diffs-column-number-width) auto"),
-    ).toBe(true);
+    expect(unsafeCss.includes("grid-template-columns: var(--diffs-column-number-width) auto")).toBe(
+      true,
+    );
     expect(unsafeCss.includes("padding-inline: 2px")).toBe(true);
     expect(unsafeCss.includes("margin-left: 34px")).toBe(false);
     expect(unsafeCss.includes("width: 44px")).toBe(false);
@@ -73,9 +73,7 @@ describe("getNodexDiffOptions", () => {
     expect(unsafeCss.includes("--diffs-bg-buffer-override")).toBe(false);
     expect(unsafeCss.includes("--diffs-bg-selection-override")).toBe(false);
     expect(
-      unsafeCss.includes(
-        '+ [data-line-type="change-addition"][data-column-number]::before',
-      ),
+      unsafeCss.includes('+ [data-line-type="change-addition"][data-column-number]::before'),
     ).toBe(true);
     expect(unsafeCss.includes("contain: none")).toBe(true);
     expect(unsafeCss.includes("height: calc(100% + 1px)")).toBe(true);

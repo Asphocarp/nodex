@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { ChevronDownIcon, CloseIcon } from "@/components/shared/icons";
 import { LoadingResultsShimmer } from "@/components/ui/loading-results-shimmer";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { useCodexMcpApps } from "../../../use-codex-mcp-apps";
 import type {
   CodexCanonicalSetupCodexStepResponse,
@@ -19,10 +15,7 @@ import {
   shuffleCodexSetupRoles,
   type CodexSetupRoleId,
 } from "../../../setup-codex-onboarding";
-import {
-  useCodexSetupRoleState,
-  useSetCodexSetupRoles,
-} from "../../../setup-codex-role-state";
+import { useCodexSetupRoleState, useSetCodexSetupRoles } from "../../../setup-codex-role-state";
 import {
   buildCodexSetupSelectedSourceIds,
   resolveCodexSetupBrowseSources,
@@ -45,10 +38,7 @@ interface CodexSetupCodexStepRequestCardProps {
   ) => Promise<void>;
 }
 
-function CodexSetupRoleRequestCard({
-  request,
-  onRespond,
-}: CodexSetupCodexStepRequestCardProps) {
+function CodexSetupRoleRequestCard({ request, onRespond }: CodexSetupCodexStepRequestCardProps) {
   const [roles] = useState<CodexSetupRoleId[]>(() => shuffleCodexSetupRoles());
   const setSetupRoles = useSetCodexSetupRoles();
   const roleByLabel = new Map(roles.map((role) => [getCodexSetupRoleLabel(role), role]));
@@ -70,12 +60,13 @@ function CodexSetupRoleRequestCard({
       request={optionRequest}
       showFreeform={false}
       onRespond={async (requestId, response) => {
-        const selectedRoles = response.action === "submit"
-          ? response.selectedOptions.flatMap((label) => {
-              const role = roleByLabel.get(label);
-              return role ? [role] : [];
-            })
-          : [];
+        const selectedRoles =
+          response.action === "submit"
+            ? response.selectedOptions.flatMap((label) => {
+                const role = roleByLabel.get(label);
+                return role ? [role] : [];
+              })
+            : [];
         if (response.action === "submit") {
           await setSetupRoles(selectedRoles);
         }
@@ -89,36 +80,30 @@ function CodexSetupRoleRequestCard({
   );
 }
 
-function CodexSetupTaskRequestCard({
-  request,
-  onRespond,
-}: CodexSetupCodexStepRequestCardProps) {
+function CodexSetupTaskRequestCard({ request, onRespond }: CodexSetupCodexStepRequestCardProps) {
   const roleState = useCodexSetupRoleState();
   const taskRequest: RequestComposerRequest = {
     requestId: request.requestId,
-    questions: [{
-      id: "first_task",
-      header: "First task",
-      question: "What's something we can knock off your list today?",
-      isOther: true,
-      otherPlaceholder: "No, and tell Nodex what to do differently",
-      options: resolveCodexSetupTaskSuggestions(roleState.roles).map((suggestion) => ({
-        label: suggestion.title,
-        description: suggestion.prompt,
-      })),
-    }],
+    questions: [
+      {
+        id: "first_task",
+        header: "First task",
+        question: "What's something we can knock off your list today?",
+        isOther: true,
+        otherPlaceholder: "No, and tell Nodex what to do differently",
+        options: resolveCodexSetupTaskSuggestions(roleState.roles).map((suggestion) => ({
+          label: suggestion.title,
+          description: suggestion.prompt,
+        })),
+      },
+    ],
   };
 
-  const respond = async (
-    action: "submit" | "skip" | "dismiss",
-    answer: string | null = null,
-  ) => {
+  const respond = async (action: "submit" | "skip" | "dismiss", answer: string | null = null) => {
     await onRespond(request.requestId, {
       step: "task",
       action,
-      answers: answer
-        ? { first_task: { answers: [answer] } }
-        : {},
+      answers: answer ? { first_task: { answers: [answer] } } : {},
     });
   };
 
@@ -142,7 +127,10 @@ function CodexSetupTaskRequestCard({
 
 function ComposerKeycap() {
   return (
-    <kbd aria-hidden className="inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-current/10 px-1.5 font-sans text-xs leading-4">
+    <kbd
+      aria-hidden
+      className="inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-current/10 px-1.5 font-sans text-xs leading-4"
+    >
       ⏎
     </kbd>
   );
@@ -159,7 +147,9 @@ function ContextSourceLogo({ source }: { source: CodexSetupContextSource }) {
 
   return (
     <picture>
-      {source.logoUrlDark ? <source media="(prefers-color-scheme: dark)" srcSet={source.logoUrlDark} /> : null}
+      {source.logoUrlDark ? (
+        <source media="(prefers-color-scheme: dark)" srcSet={source.logoUrlDark} />
+      ) : null}
       <img
         src={source.logoUrl ?? source.logoUrlDark ?? undefined}
         alt={source.name}
@@ -231,13 +221,14 @@ export function CodexSetupContextRequestCardView({
   const filteredBrowseSources = browseSources.filter((source) => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return true;
-    return [source.id, source.name, source.description ?? ""]
-      .some((value) => value.toLowerCase().includes(normalizedQuery));
+    return [source.id, source.name, source.description ?? ""].some((value) =>
+      value.toLowerCase().includes(normalizedQuery),
+    );
   });
 
   const connect = (source: CodexSetupContextSource) => {
     if (source.connected) return;
-    setSelectedIds((current) => current.includes(source.id) ? current : [...current, source.id]);
+    setSelectedIds((current) => (current.includes(source.id) ? current : [...current, source.id]));
     onConnectSource?.(source);
   };
 
@@ -245,9 +236,10 @@ export function CodexSetupContextRequestCardView({
     await onRespond(request.requestId, {
       step: "context",
       action,
-      selectedSources: action === "continue"
-        ? buildCodexSetupSelectedSourceIds(selectedIds, recommendedSources)
-        : [],
+      selectedSources:
+        action === "continue"
+          ? buildCodexSetupSelectedSourceIds(selectedIds, recommendedSources)
+          : [],
     });
   };
 
@@ -272,11 +264,17 @@ export function CodexSetupContextRequestCardView({
         className="flex flex-col gap-2 px-4"
         role={isLoading ? "status" : undefined}
       >
-        {isLoading
-          ? <ContextSkeleton />
-          : recommendedSources.map((source) => (
-              <ContextSourceRow key={source.id} source={source} onConnect={onConnectSource ? connect : undefined} />
-            ))}
+        {isLoading ? (
+          <ContextSkeleton />
+        ) : (
+          recommendedSources.map((source) => (
+            <ContextSourceRow
+              key={source.id}
+              source={source}
+              onConnect={onConnectSource ? connect : undefined}
+            />
+          ))
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-4">
@@ -303,7 +301,9 @@ export function CodexSetupContextRequestCardView({
             </div>
             <div className="max-h-64 overflow-y-auto pb-1">
               {isLoading ? (
-                <div className="px-3 py-4 text-center text-sm text-token-text-tertiary">Loading apps...</div>
+                <div className="px-3 py-4 text-center text-sm text-token-text-tertiary">
+                  Loading apps...
+                </div>
               ) : filteredBrowseSources.length > 0 ? (
                 filteredBrowseSources.map((source) => (
                   <button
@@ -317,15 +317,27 @@ export function CodexSetupContextRequestCardView({
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-sm">{source.name}</span>
-                        {source.connected ? <span className="shrink-0 text-xs text-token-text-tertiary">Connected</span> : null}
+                        {source.connected ? (
+                          <span className="shrink-0 text-xs text-token-text-tertiary">
+                            Connected
+                          </span>
+                        ) : null}
                       </span>
-                      {source.description ? <span className="line-clamp-1 text-xs text-token-text-tertiary">{source.description}</span> : null}
+                      {source.description ? (
+                        <span className="line-clamp-1 text-xs text-token-text-tertiary">
+                          {source.description}
+                        </span>
+                      ) : null}
                     </span>
-                    {!source.connected && selectedIds.includes(source.id) ? <span aria-label="Selected">✓</span> : null}
+                    {!source.connected && selectedIds.includes(source.id) ? (
+                      <span aria-label="Selected">✓</span>
+                    ) : null}
                   </button>
                 ))
               ) : (
-                <div className="px-3 py-4 text-center text-sm text-token-text-tertiary">No apps found</div>
+                <div className="px-3 py-4 text-center text-sm text-token-text-tertiary">
+                  No apps found
+                </div>
               )}
             </div>
           </NodexPopoverContent>
@@ -354,10 +366,7 @@ export function CodexSetupContextRequestCardView({
   );
 }
 
-function CodexSetupContextRequestCard({
-  request,
-  onRespond,
-}: CodexSetupCodexStepRequestCardProps) {
+function CodexSetupContextRequestCard({ request, onRespond }: CodexSetupCodexStepRequestCardProps) {
   const { data: apps = [], isPending } = useCodexMcpApps();
   const connectedApps = apps.filter((app) => app.isAccessible && app.isEnabled);
   return (
@@ -371,9 +380,7 @@ function CodexSetupContextRequestCard({
   );
 }
 
-export function CodexSetupCodexStepRequestCard(
-  props: CodexSetupCodexStepRequestCardProps,
-) {
+export function CodexSetupCodexStepRequestCard(props: CodexSetupCodexStepRequestCardProps) {
   switch (props.request.step) {
     case "role":
       return <CodexSetupRoleRequestCard {...props} />;

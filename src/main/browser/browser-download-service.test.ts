@@ -6,12 +6,18 @@ import { BrowserDownloadService } from "./browser-download-service";
 
 class MemoryDownloadStore implements BrowserDownloadStore {
   records = new Map<string, BrowserDownloadRecord>();
-  async list() { return [...this.records.values()]; }
+  async list() {
+    return [...this.records.values()];
+  }
   async upsert(record: BrowserDownloadRecord) {
     this.records.set(record.id, record);
   }
-  async remove(downloadId: string) { this.records.delete(downloadId); }
-  async clear() { this.records.clear(); }
+  async remove(downloadId: string) {
+    this.records.delete(downloadId);
+  }
+  async clear() {
+    this.records.clear();
+  }
 }
 
 class FakeDownloadItem extends EventEmitter {
@@ -20,16 +26,36 @@ class FakeDownloadItem extends EventEmitter {
   savePath = "";
   receivedBytes = 0;
   totalBytes = 100;
-  canResume() { return this.paused; }
-  cancel() { this.cancelled = true; }
-  getFilename() { return "report.pdf"; }
-  getReceivedBytes() { return this.receivedBytes; }
-  getTotalBytes() { return this.totalBytes; }
-  getURLChain() { return ["https://example.com/download?secret=1"]; }
-  isPaused() { return this.paused; }
-  pause() { this.paused = true; }
-  resume() { this.paused = false; }
-  setSavePath(path: string) { this.savePath = path; }
+  canResume() {
+    return this.paused;
+  }
+  cancel() {
+    this.cancelled = true;
+  }
+  getFilename() {
+    return "report.pdf";
+  }
+  getReceivedBytes() {
+    return this.receivedBytes;
+  }
+  getTotalBytes() {
+    return this.totalBytes;
+  }
+  getURLChain() {
+    return ["https://example.com/download?secret=1"];
+  }
+  isPaused() {
+    return this.paused;
+  }
+  pause() {
+    this.paused = true;
+  }
+  resume() {
+    this.paused = false;
+  }
+  setSavePath(path: string) {
+    this.savePath = path;
+  }
 }
 
 class FakeSession extends EventEmitter {}
@@ -92,10 +118,7 @@ describe("BrowserDownloadService", () => {
     expect(deniedEvent.preventDefault).toHaveBeenCalledOnce();
     expect(denied.cancelled).toBe(true);
 
-    test.service.grantAgentDownload(
-      identity,
-      "https://example.com/download?secret=1",
-    );
+    test.service.grantAgentDownload(identity, "https://example.com/download?secret=1");
     const allowed = new FakeDownloadItem();
     const allowedEvent = { preventDefault: vi.fn() };
     test.session.emit("will-download", allowedEvent, allowed, { id: 7 });

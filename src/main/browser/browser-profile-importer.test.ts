@@ -20,17 +20,20 @@ function makeSourceRoot(source: "atlas" | "chrome") {
   fs.mkdirSync(profilePath);
   fs.writeFileSync(path.join(profilePath, "Cookies"), "fixture");
   fs.writeFileSync(path.join(profilePath, "Login Data"), "fixture");
-  fs.writeFileSync(path.join(root, "Local State"), JSON.stringify({
-    profile: {
-      info_cache: {
-        Default: {
-          name: source === "atlas" ? "Your ChatGPT Atlas" : "Person 1",
-          gaia_name: "Example Person",
-          user_name: "person@example.com",
+  fs.writeFileSync(
+    path.join(root, "Local State"),
+    JSON.stringify({
+      profile: {
+        info_cache: {
+          Default: {
+            name: source === "atlas" ? "Your ChatGPT Atlas" : "Person 1",
+            gaia_name: "Example Person",
+            user_name: "person@example.com",
+          },
         },
       },
-    },
-  }));
+    }),
+  );
   return {
     root,
     profilePath: fs.realpathSync(profilePath),
@@ -90,21 +93,25 @@ describe("BrowserProfileImporter", () => {
       readProfile: vi.fn(async () => ({
         schemaVersion: 1 as const,
         ok: true,
-        cookies: [{
-          domain: ".example.com",
-          name: "session",
-          value: "cookie-secret",
-          path: "/",
-          secure: true,
-          httpOnly: true,
-          expirationDate: 2_000_000_000,
-          sameSite: "lax" as const,
-        }],
-        credentials: [{
-          origin: "https://example.com",
-          username: "person",
-          password: "password-secret",
-        }],
+        cookies: [
+          {
+            domain: ".example.com",
+            name: "session",
+            value: "cookie-secret",
+            path: "/",
+            secure: true,
+            httpOnly: true,
+            expirationDate: 2_000_000_000,
+            sameSite: "lax" as const,
+          },
+        ],
+        credentials: [
+          {
+            origin: "https://example.com",
+            username: "person",
+            password: "password-secret",
+          },
+        ],
         cookieFailures: 0,
         passwordFailures: 0,
         errorCode: null,
@@ -129,13 +136,17 @@ describe("BrowserProfileImporter", () => {
       cookieDomainAllowlist: ["example.com"],
     });
 
-    expect(helper.readProfile).toHaveBeenCalledWith(expect.objectContaining({
-      cookieDomainAllowlist: ["example.com"],
-    }));
-    expect(setCookie).toHaveBeenCalledWith(expect.objectContaining({
-      url: "https://example.com/",
-      value: "cookie-secret",
-    }));
+    expect(helper.readProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cookieDomainAllowlist: ["example.com"],
+      }),
+    );
+    expect(setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://example.com/",
+        value: "cookie-secret",
+      }),
+    );
     expect(await vault.listForOrigin("https://example.com")).toHaveLength(1);
     expect(result.cookies).toMatchObject({ imported: 1, status: "success" });
     expect(result.passwords).toMatchObject({ imported: 1, status: "success" });
@@ -156,12 +167,14 @@ describe("BrowserProfileImporter", () => {
       sourceRoots: { chrome: chrome.root, atlas: "/missing" },
     });
 
-    await expect(importer.import({
-      source: "chrome",
-      profilePath: chrome.profilePath,
-      importCookies: true,
-      importPasswords: false,
-    })).rejects.toThrow("Close Google Chrome");
+    await expect(
+      importer.import({
+        source: "chrome",
+        profilePath: chrome.profilePath,
+        importCookies: true,
+        importPasswords: false,
+      }),
+    ).rejects.toThrow("Close Google Chrome");
     expect(helper.readProfile).not.toHaveBeenCalled();
   });
 
@@ -177,11 +190,13 @@ describe("BrowserProfileImporter", () => {
       sourceRoots: { chrome: chrome.root, atlas: "/missing" },
     });
 
-    await expect(importer.import({
-      source: "chrome",
-      profilePath: path.join(chrome.root, "..", "other"),
-      importCookies: true,
-      importPasswords: false,
-    })).rejects.toThrow("no longer importable");
+    await expect(
+      importer.import({
+        source: "chrome",
+        profilePath: path.join(chrome.root, "..", "other"),
+        importCookies: true,
+        importPasswords: false,
+      }),
+    ).rejects.toThrow("no longer importable");
   });
 });

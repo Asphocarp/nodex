@@ -47,8 +47,7 @@ function translateBrowserUseInputCommand(input: {
     if (typeof value !== "string") return fail(`${label} must be a string`);
     return value;
   };
-  const viewFor = (element: Element): Window =>
-    element.ownerDocument.defaultView ?? window;
+  const viewFor = (element: Element): Window => element.ownerDocument.defaultView ?? window;
   const modifierState = (value: unknown) => {
     const modifiers = Number(value ?? 0);
     const has = (bit: number) => Math.floor(modifiers / bit) % 2 === 1;
@@ -68,9 +67,11 @@ function translateBrowserUseInputCommand(input: {
     return fail(`Unsupported mouse button: ${String(button)}`);
   };
   const targetToken = (element: Element): string | null => {
-    const value = (element as Element & {
-      __codexIabInputTargetToken?: unknown;
-    }).__codexIabInputTargetToken;
+    const value = (
+      element as Element & {
+        __codexIabInputTargetToken?: unknown;
+      }
+    ).__codexIabInputTargetToken;
     return typeof value === "string" ? value : null;
   };
   const assertExpectedTarget = (element: Element): void => {
@@ -98,13 +99,18 @@ function translateBrowserUseInputCommand(input: {
       try {
         const frameDocument = target.contentWindow?.document;
         if (!frameDocument) {
-          return fail("Input targets inside cross-origin or inaccessible iframes are not currently supported in the in-app browser");
+          return fail(
+            "Input targets inside cross-origin or inaccessible iframes are not currently supported in the in-app browser",
+          );
         }
         const rect = target.getBoundingClientRect();
-        return deepestElementAtPoint(frameDocument, x - rect.left, y - rect.top)
-          ?? { target, x, y };
+        return (
+          deepestElementAtPoint(frameDocument, x - rect.left, y - rect.top) ?? { target, x, y }
+        );
       } catch {
-        fail("Input targets inside cross-origin or inaccessible iframes are not currently supported in the in-app browser");
+        fail(
+          "Input targets inside cross-origin or inaccessible iframes are not currently supported in the in-app browser",
+        );
       }
     }
     return { target, x, y };
@@ -122,9 +128,9 @@ function translateBrowserUseInputCommand(input: {
       for (let current: Element | null = element; current; current = current.parentElement) {
         if (!(current instanceof HTMLElement)) continue;
         if (
-          current.isContentEditable
-          || current.tabIndex >= 0
-          || ["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA"].includes(current.tagName)
+          current.isContentEditable ||
+          current.tabIndex >= 0 ||
+          ["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA"].includes(current.tagName)
         ) {
           focusable = current;
           break;
@@ -138,36 +144,30 @@ function translateBrowserUseInputCommand(input: {
       focusable.focus();
     }
   };
-  const dispatchMouse = (
-    element: Element,
-    eventName: string,
-    init: MouseEventInit,
-  ): boolean => {
+  const dispatchMouse = (element: Element, eventName: string, init: MouseEventInit): boolean => {
     const targetView = viewFor(element) as Window & {
       MouseEvent: typeof MouseEvent;
       PointerEvent?: typeof PointerEvent;
     };
     const PointerEventConstructor = targetView.PointerEvent;
-    const EventConstructor = eventName.startsWith("pointer")
-      && typeof PointerEventConstructor === "function"
-      ? PointerEventConstructor
-      : targetView.MouseEvent;
-    return element.dispatchEvent(new EventConstructor(eventName, {
-      ...init,
-      ...(EventConstructor === PointerEventConstructor
-        ? {
-            isPrimary: true,
-            pointerId: 1,
-            pointerType: "mouse",
-          }
-        : {}),
-    } as PointerEventInit));
+    const EventConstructor =
+      eventName.startsWith("pointer") && typeof PointerEventConstructor === "function"
+        ? PointerEventConstructor
+        : targetView.MouseEvent;
+    return element.dispatchEvent(
+      new EventConstructor(eventName, {
+        ...init,
+        ...(EventConstructor === PointerEventConstructor
+          ? {
+              isPrimary: true,
+              pointerId: 1,
+              pointerType: "mouse",
+            }
+          : {}),
+      } as PointerEventInit),
+    );
   };
-  const mouseInit = (
-    element: Element,
-    x: number,
-    y: number,
-  ): MouseEventInit => ({
+  const mouseInit = (element: Element, x: number, y: number): MouseEventInit => ({
     ...modifierState(params.modifiers),
     bubbles: true,
     button: buttonNumber(params.button),
@@ -195,12 +195,7 @@ function translateBrowserUseInputCommand(input: {
     global.__codexIabInputTranslationState ??= {};
     return global.__codexIabInputTranslationState;
   };
-  const scroll = (
-    element: Element,
-    init: WheelEventInit,
-    deltaX: number,
-    deltaY: number,
-  ): void => {
+  const scroll = (element: Element, init: WheelEventInit, deltaX: number, deltaY: number): void => {
     const targetView = viewFor(element) as Window & {
       WheelEvent: typeof WheelEvent;
     };
@@ -213,14 +208,16 @@ function translateBrowserUseInputCommand(input: {
     if (!element.dispatchEvent(wheel)) return;
     for (let current: Element | null = element; current; current = current.parentElement) {
       const style = getComputedStyle(current);
-      const canScrollY = deltaY !== 0
-        && /(auto|scroll|overlay)/u.test(style.overflowY)
-        && (deltaY > 0
+      const canScrollY =
+        deltaY !== 0 &&
+        /(auto|scroll|overlay)/u.test(style.overflowY) &&
+        (deltaY > 0
           ? current.scrollTop < current.scrollHeight - current.clientHeight
           : current.scrollTop > 0);
-      const canScrollX = deltaX !== 0
-        && /(auto|scroll|overlay)/u.test(style.overflowX)
-        && (deltaX > 0
+      const canScrollX =
+        deltaX !== 0 &&
+        /(auto|scroll|overlay)/u.test(style.overflowX) &&
+        (deltaX > 0
           ? current.scrollLeft < current.scrollWidth - current.clientWidth
           : current.scrollLeft > 0);
       if (!canScrollX && !canScrollY) continue;
@@ -235,21 +232,23 @@ function translateBrowserUseInputCommand(input: {
     if (active instanceof HTMLIFrameElement) {
       try {
         const frameDocument = active.contentWindow?.document;
-        return frameDocument ? activeElement(frameDocument) ?? active : active;
+        return frameDocument ? (activeElement(frameDocument) ?? active) : active;
       } catch {
-        return fail("Input targets inside cross-origin or inaccessible iframes are not currently supported in the in-app browser");
+        return fail(
+          "Input targets inside cross-origin or inaccessible iframes are not currently supported in the in-app browser",
+        );
       }
     }
     return active instanceof HTMLElement && active.shadowRoot
-      ? activeElement(active.shadowRoot) ?? active
+      ? (activeElement(active.shadowRoot) ?? active)
       : active;
   };
   const editable = (): HTMLInputElement | HTMLTextAreaElement | HTMLElement | null => {
     const active = activeElement(document);
     if (
-      active instanceof HTMLInputElement
-      || active instanceof HTMLTextAreaElement
-      || (active instanceof HTMLElement && active.isContentEditable)
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      (active instanceof HTMLElement && active.isContentEditable)
     ) {
       assertExpectedTarget(active);
       return active;
@@ -290,12 +289,14 @@ function translateBrowserUseInputCommand(input: {
       selection?.removeAllRanges();
       selection?.addRange(range);
     }
-    element.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      composed: true,
-      data: text,
-      inputType,
-    }));
+    element.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        data: text,
+        inputType,
+      }),
+    );
   };
   const deleteText = (direction: "backward" | "forward"): void => {
     const element = editable();
@@ -303,20 +304,17 @@ function translateBrowserUseInputCommand(input: {
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
       const start = element.selectionStart ?? element.value.length;
       const end = element.selectionEnd ?? element.value.length;
-      const nextStart = start === end && direction === "backward"
-        ? Math.max(0, start - 1)
-        : start;
-      const nextEnd = start === end && direction === "forward"
-        ? Math.min(element.value.length, end + 1)
-        : end;
+      const nextStart = start === end && direction === "backward" ? Math.max(0, start - 1) : start;
+      const nextEnd =
+        start === end && direction === "forward" ? Math.min(element.value.length, end + 1) : end;
       element.setRangeText("", nextStart, nextEnd, "end");
-      element.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        composed: true,
-        inputType: direction === "forward"
-          ? "deleteContentForward"
-          : "deleteContentBackward",
-      }));
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          composed: true,
+          inputType: direction === "forward" ? "deleteContentForward" : "deleteContentBackward",
+        }),
+      );
     }
   };
 
@@ -342,8 +340,8 @@ function translateBrowserUseInputCommand(input: {
           y: pageY,
         };
         if (
-          dispatchMouse(target, "pointerdown", init)
-          && dispatchMouse(target, "mousedown", init)
+          dispatchMouse(target, "pointerdown", init) &&
+          dispatchMouse(target, "mousedown", init)
         ) {
           focusTarget(target);
         }
@@ -352,11 +350,12 @@ function translateBrowserUseInputCommand(input: {
         dispatchMouse(target, "mouseup", init);
         const press = state.mousePress;
         state.mousePress = null;
-        const isClick = press
-          && !press.moved
-          && press.button === (params.button ?? "left")
-          && Math.abs(press.x - pageX) <= 1
-          && Math.abs(press.y - pageY) <= 1;
+        const isClick =
+          press &&
+          !press.moved &&
+          press.button === (params.button ?? "left") &&
+          Math.abs(press.x - pageX) <= 1 &&
+          Math.abs(press.y - pageY) <= 1;
         if (isClick && params.button === "right") {
           dispatchMouse(target, "contextmenu", init);
         } else if (isClick && params.button === "middle") {
@@ -388,11 +387,12 @@ function translateBrowserUseInputCommand(input: {
       const type = string(params.type, "type");
       const target = activeElement(document) ?? document.body ?? document.documentElement;
       assertExpectedTarget(target);
-      const key = typeof params.key === "string"
-        ? params.key
-        : typeof params.code === "string"
-          ? params.code
-          : "";
+      const key =
+        typeof params.key === "string"
+          ? params.key
+          : typeof params.code === "string"
+            ? params.code
+            : "";
       const keyCode = Number(params.windowsVirtualKeyCode ?? 0);
       const init: KeyboardEventInit = {
         ...modifierState(params.modifiers),
@@ -430,8 +430,8 @@ function translateBrowserUseInputCommand(input: {
       if (!text && key === "Enter") {
         const element = editable();
         if (
-          element instanceof HTMLTextAreaElement
-          || (element instanceof HTMLElement && element.isContentEditable)
+          element instanceof HTMLTextAreaElement ||
+          (element instanceof HTMLElement && element.isContentEditable)
         ) {
           setEditableText(element, "\n", "insertLineBreak");
         }

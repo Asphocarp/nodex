@@ -56,29 +56,26 @@ const envelope = <Result>(
 const operationIdFor = (
   request: Pick<PrepareNodexAgentMovePagesRequest, "threadId" | "callId">,
 ): string =>
-  `nodex-agent-move-pages:${createHash("sha256").update(JSON.stringify([
-    request.threadId,
-    request.callId,
-    "move_pages",
-  ])).digest("hex")}`;
+  `nodex-agent-move-pages:${createHash("sha256")
+    .update(JSON.stringify([request.threadId, request.callId, "move_pages"]))
+    .digest("hex")}`;
 
-const coreRequest = (
-  request: PrepareNodexAgentMovePagesRequest,
-): CoreMoveRequest => ({
+const coreRequest = (request: PrepareNodexAgentMovePagesRequest): CoreMoveRequest => ({
   page_ids: [...request.input.pageIds],
   destination: toCoreAgentPageDestination(request.input.destination),
 });
 
-const output = (result: CoreMoveResult) => MovePagesV6OutputSchema.parse({
-  data: {
-    pages: result.pages.map((page) => ({
-      pageId: page.page_id,
-      pageKey: page.page_key ?? null,
-      location: nativeAgentPageLocation(page.location),
-    })),
-    moved: result.pages.length,
-  },
-});
+const output = (result: CoreMoveResult) =>
+  MovePagesV6OutputSchema.parse({
+    data: {
+      pages: result.pages.map((page) => ({
+        pageId: page.page_id,
+        pageKey: page.page_key ?? null,
+        location: nativeAgentPageLocation(page.location),
+      })),
+      moved: result.pages.length,
+    },
+  });
 
 const sourceInput = (page: CoreMovePagePreparation) => {
   if (page.source.kind === "library") {
@@ -96,9 +93,8 @@ const sourceInput = (page: CoreMovePagePreparation) => {
       dataSourceId: page.source.data_source_id,
     };
   }
-  const documentId = page.source.kind === "document"
-    ? page.source.document_id
-    : page.source_document_id;
+  const documentId =
+    page.source.kind === "document" ? page.source.document_id : page.source_document_id;
   if (!documentId) {
     throw new Error(`Core Agent Page move omitted source Document for ${page.page_id}`);
   }
@@ -203,15 +199,17 @@ export class NativeNodexAgentPageMoveRuntime {
         const committed = preparation.committed?.outcome.agent_move_pages;
         if (!committed) throw new Error("Core Agent Page-move replay omitted its result");
         this.pending.delete(operationId);
-        return envelope({
-          ok: true,
-          value: { kind: "completed", output: output(committed) },
-        }, operationId);
+        return envelope(
+          {
+            ok: true,
+            value: { kind: "completed", output: output(committed) },
+          },
+          operationId,
+        );
       }
       const token = preparation.preparation.token;
       if (!token) throw new Error("Core Agent Page-move preparation omitted its token");
-      if (!this.pending.has(operationId)
-        && this.pending.size >= MAX_PENDING_NATIVE_PAGE_MOVES) {
+      if (!this.pending.has(operationId) && this.pending.size >= MAX_PENDING_NATIVE_PAGE_MOVES) {
         throw new Error("Native Agent Page-move preparation capacity is exhausted");
       }
       const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
@@ -222,20 +220,25 @@ export class NativeNodexAgentPageMoveRuntime {
         coreRequest: moveRequest,
         documentHeads,
       });
-      return envelope({
-        ok: true,
-        value: {
-          kind: "prepared",
-          command: command(request, operationId, preparation),
-          authorization: {
-            roots: Object.fromEntries(request.input.pageIds.map((pageId) => [
-              pageId,
-              { type: "page" as const, transformation: "preserved" as const },
-            ])),
-            documentIds: documentHeads.map((head) => head.documentId),
+      return envelope(
+        {
+          ok: true,
+          value: {
+            kind: "prepared",
+            command: command(request, operationId, preparation),
+            authorization: {
+              roots: Object.fromEntries(
+                request.input.pageIds.map((pageId) => [
+                  pageId,
+                  { type: "page" as const, transformation: "preserved" as const },
+                ]),
+              ),
+              documentIds: documentHeads.map((head) => head.documentId),
+            },
           },
         },
-      }, operationId);
+        operationId,
+      );
     } catch (error) {
       return envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId);
     }
@@ -243,15 +246,14 @@ export class NativeNodexAgentPageMoveRuntime {
 
   async execute(command: NodexAgentMovePagesCommand): Promise<ExecuteNodexAgentMovePagesResult> {
     const pending = this.pending.get(command.mutationId);
-    if (!pending
-      || pending.request.projectId !== command.projectId
-      || pending.request.callId !== command.callId
-      || pending.request.threadId !== command.threadId
-      || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentDocumentHeads(
-        pending.documentHeads,
-        command.documentHeads,
-      )) {
+    if (
+      !pending ||
+      pending.request.projectId !== command.projectId ||
+      pending.request.callId !== command.callId ||
+      pending.request.threadId !== command.threadId ||
+      pending.request.authority?.storeEpoch !== command.storeEpoch ||
+      !hasExactNativeAgentDocumentHeads(pending.documentHeads, command.documentHeads)
+    ) {
       return {
         ok: false,
         error: {
@@ -275,7 +277,8 @@ export class NativeNodexAgentPageMoveRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
+      const committed = await this.runtime
+        .clientForProject(pending.request.projectId)
         .libraryApply({
           operationId: pending.operationId,
           intent: {

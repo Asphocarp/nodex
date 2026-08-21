@@ -24,12 +24,16 @@ describe("Page Detail projection dependencies", () => {
     const value = detail();
     expect(pageDetailDataDependencies(value, value.page.pageId)).toEqual({
       pageIds: [value.page.pageId],
-      databaseIds: [value.dataSourceContext.kind === "member"
-        ? value.dataSourceContext.database.databaseId
-        : ""],
-      dataSourceIds: [value.dataSourceContext.kind === "member"
-        ? value.dataSourceContext.dataSource.dataSourceId
-        : ""],
+      databaseIds: [
+        value.dataSourceContext.kind === "member"
+          ? value.dataSourceContext.database.databaseId
+          : "",
+      ],
+      dataSourceIds: [
+        value.dataSourceContext.kind === "member"
+          ? value.dataSourceContext.dataSource.dataSourceId
+          : "",
+      ],
     });
   });
 

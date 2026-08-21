@@ -8,12 +8,7 @@ export type CoreModuleName =
   | "automation"
   | "store_administration";
 
-export type CoreAdapterKind =
-  | "electron_host"
-  | "loopback_http"
-  | "native_cli"
-  | "agent"
-  | "test";
+export type CoreAdapterKind = "electron_host" | "loopback_http" | "native_cli" | "agent" | "test";
 
 /** Trusted transport identity. This context is never caller-authored JSON. */
 export interface BoundModuleContext {
@@ -99,32 +94,16 @@ export type CoreModuleResult<Value> =
   | { readonly ok: true; readonly value: Value }
   | { readonly ok: false; readonly error: CoreModuleError };
 
-export interface DeepCoreModule<
-  ReadRequest,
-  ReadResult,
-  ApplyRequest,
-  ApplyResult,
-> {
-  read(
-    context: BoundModuleContext,
-    request: ReadRequest,
-  ): Promise<ReadResult>;
-  apply(
-    context: BoundModuleContext,
-    request: ApplyRequest,
-  ): Promise<ApplyResult>;
+export interface DeepCoreModule<ReadRequest, ReadResult, ApplyRequest, ApplyResult> {
+  read(context: BoundModuleContext, request: ReadRequest): Promise<ReadResult>;
+  apply(context: BoundModuleContext, request: ApplyRequest): Promise<ApplyResult>;
 }
 
 /**
  * In-process oracle Adapter. It can bind a trusted host identity, but cannot
  * construct receipts, events, projections, or transaction steps.
  */
-export const bindInProcessModule = <
-  ReadRequest,
-  ReadResult,
-  ApplyRequest,
-  ApplyResult,
->(
+export const bindInProcessModule = <ReadRequest, ReadResult, ApplyRequest, ApplyResult>(
   module: DeepCoreModule<ReadRequest, ReadResult, ApplyRequest, ApplyResult>,
   bindContext: () => BoundModuleContext,
 ): {

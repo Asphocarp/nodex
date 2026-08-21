@@ -1,30 +1,26 @@
 import type { BrowserRuntimeBackend } from "./browser-runtime-metadata";
 
-export const BROWSER_USE_PEER_AUTHORIZATION_ENV =
-  "CODEX_BROWSER_USE_PEER_AUTHORIZATION";
+export const BROWSER_USE_PEER_AUTHORIZATION_ENV = "CODEX_BROWSER_USE_PEER_AUTHORIZATION";
 
 export type BrowserUseHostCapabilityUnavailableReason =
   | "platform-unsupported"
   | "runtime-unavailable";
 
-export type BrowserUsePeerAuthorizationMode =
-  | "development"
-  | "disabled"
-  | "packaged";
+export type BrowserUsePeerAuthorizationMode = "development" | "disabled" | "packaged";
 
 export type BrowserUseHostCapability =
   | {
-    readonly availableBackends: readonly BrowserRuntimeBackend[];
-    readonly peerAuthorizationMode: BrowserUsePeerAuthorizationMode;
-    readonly status: "available";
-  }
+      readonly availableBackends: readonly BrowserRuntimeBackend[];
+      readonly peerAuthorizationMode: BrowserUsePeerAuthorizationMode;
+      readonly status: "available";
+    }
   | {
-    readonly availableBackends: readonly [];
-    readonly message: string;
-    readonly peerAuthorizationMode: "disabled";
-    readonly reason: BrowserUseHostCapabilityUnavailableReason;
-    readonly status: "unavailable";
-  };
+      readonly availableBackends: readonly [];
+      readonly message: string;
+      readonly peerAuthorizationMode: "disabled";
+      readonly reason: BrowserUseHostCapabilityUnavailableReason;
+      readonly status: "unavailable";
+    };
 
 export function resolveBrowserUseHostCapability(input: {
   readonly browserRuntimeStatus: "available" | "unavailable";
@@ -60,9 +56,7 @@ export function resolveBrowserUseHostCapability(input: {
   return {
     availableBackends: ["iab"],
     peerAuthorizationMode:
-      input.environment[BROWSER_USE_PEER_AUTHORIZATION_ENV] === "1"
-        ? "development"
-        : "disabled",
+      input.environment[BROWSER_USE_PEER_AUTHORIZATION_ENV] === "1" ? "development" : "disabled",
     status: "available",
   };
 }

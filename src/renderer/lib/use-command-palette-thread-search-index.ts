@@ -7,16 +7,18 @@ import {
 
 function buildThreadsKey(threads: CommandPaletteThread[]): string {
   return threads
-    .map((item) => [
-      item.id,
-      item.title,
-      item.preview,
-      item.projectName,
-      item.cwd ?? "",
-      item.statusType,
-      item.statusActiveFlags.join(","),
-      item.updatedAt,
-    ].join("\u0001"))
+    .map((item) =>
+      [
+        item.id,
+        item.title,
+        item.preview,
+        item.projectName,
+        item.cwd ?? "",
+        item.statusType,
+        item.statusActiveFlags.join(","),
+        item.updatedAt,
+      ].join("\u0001"),
+    )
     .join("\u0002");
 }
 
@@ -25,11 +27,8 @@ export function useCommandPaletteThreadSearchIndex(
 ): CommandPaletteThreadSearchIndex {
   const threadsKey = useMemo(() => buildThreadsKey(threads), [threads]);
 
-  return useMemo(
-    () => {
-      void threadsKey;
-      return createCommandPaletteThreadSearchIndex(threads);
-    },
-    [threads, threadsKey],
-  );
+  return useMemo(() => {
+    void threadsKey;
+    return createCommandPaletteThreadSearchIndex(threads);
+  }, [threads, threadsKey]);
 }

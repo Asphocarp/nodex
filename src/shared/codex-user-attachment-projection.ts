@@ -30,9 +30,7 @@ function buildUserAttachmentId(itemId: string, kind: string, index: number): str
 }
 
 function normalizeRemotePointerId(value: string): string {
-  return value
-    .replace(/^file-service:\/\//, "")
-    .replace(/^sediment:\/\//, "");
+  return value.replace(/^file-service:\/\//, "").replace(/^sediment:\/\//, "");
 }
 
 export function buildCodexUserAttachmentsFromContent(
@@ -118,7 +116,7 @@ function buildSidecarUserAttachments(
 
   const contentPaths = new Set([
     ...contentAttachments.flatMap((attachment) =>
-      attachment.type === "file" ? [attachment.path] : []
+      attachment.type === "file" ? [attachment.path] : [],
     ),
     ...content.flatMap((entry) => {
       const candidate = asRecord(entry);
@@ -138,13 +136,15 @@ function buildSidecarUserAttachments(
       return [];
     }
 
-    return [{
-      type: "file",
-      id: buildUserAttachmentId(itemId, "file", index),
-      label: getString(candidate ?? {}, ["label", "name"])?.trim() || attachmentPath,
-      path: attachmentPath,
-      sourceKind: "mention",
-    }];
+    return [
+      {
+        type: "file",
+        id: buildUserAttachmentId(itemId, "file", index),
+        label: getString(candidate ?? {}, ["label", "name"])?.trim() || attachmentPath,
+        path: attachmentPath,
+        sourceKind: "mention",
+      },
+    ];
   });
 }
 

@@ -8,10 +8,7 @@ export interface PageCreateSeed {
 const normalizeWhitespace = (value: string): string =>
   value.replace(/\p{White_Space}+/gu, " ").trim();
 
-const truncateUtf16WithoutSplittingSurrogate = (
-  value: string,
-  maxLength: number,
-): string => {
+const truncateUtf16WithoutSplittingSurrogate = (value: string, maxLength: number): string => {
   if (value.length <= maxLength) return value;
   const truncated = value.slice(0, maxLength);
   const finalCodeUnit = truncated.charCodeAt(truncated.length - 1);
@@ -19,15 +16,10 @@ const truncateUtf16WithoutSplittingSurrogate = (
   return truncated.slice(0, -1);
 };
 
-export function normalizePageCreateSelectionText(
-  text: string,
-): string | null {
+export function normalizePageCreateSelectionText(text: string): string | null {
   const normalized = normalizeWhitespace(text);
   if (!normalized) return null;
-  return truncateUtf16WithoutSplittingSurrogate(
-    normalized,
-    MAX_PAGE_TITLE_LENGTH,
-  );
+  return truncateUtf16WithoutSplittingSurrogate(normalized, MAX_PAGE_TITLE_LENGTH);
 }
 
 function nodePath(node: Node | null): readonly EventTarget[] {
@@ -45,21 +37,16 @@ const nodeIsGloballyOwned = (node: Node | null): boolean =>
 
 function rangeCrossesOwnedSurface(range: Range): boolean {
   const commonAncestor = range.commonAncestorContainer;
-  const root: Element | null = commonAncestor.nodeType === Node.ELEMENT_NODE
-    ? commonAncestor as Element
-    : commonAncestor.parentElement;
+  const root: Element | null =
+    commonAncestor.nodeType === Node.ELEMENT_NODE
+      ? (commonAncestor as Element)
+      : commonAncestor.parentElement;
   if (!root) return false;
 
-  const walker = root.ownerDocument.createTreeWalker(
-    root,
-    NodeFilter.SHOW_ELEMENT,
-  );
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
   let element: Node | null = root;
   while (element) {
-    if (
-      range.intersectsNode(element)
-      && !nodeIsGloballyOwned(element)
-    ) {
+    if (range.intersectsNode(element) && !nodeIsGloballyOwned(element)) {
       return true;
     }
     element = walker.nextNode();
@@ -67,9 +54,7 @@ function rangeCrossesOwnedSurface(range: Range): boolean {
   return false;
 }
 
-export function capturePageCreateSeed(
-  selection: Selection | null,
-): PageCreateSeed | null {
+export function capturePageCreateSeed(selection: Selection | null): PageCreateSeed | null {
   if (!selection || selection.isCollapsed || selection.rangeCount < 1) {
     return null;
   }

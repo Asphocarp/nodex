@@ -12,7 +12,8 @@ export const NODEX_DAY_PICKER_CLASS_NAMES = {
   [UI.CaptionLabel]: "sr-only",
   [UI.MonthGrid]: "w-full table-fixed border-separate border-spacing-0",
   [UI.Weekdays]: "grid grid-cols-7",
-  [UI.Weekday]: "flex h-6 items-center justify-center text-[11px] font-normal text-token-description-foreground",
+  [UI.Weekday]:
+    "flex h-6 items-center justify-center text-[11px] font-normal text-token-description-foreground",
   [UI.Weeks]: "block",
   [UI.Week]: "grid grid-cols-7",
   [UI.Day]: "rdp-day flex size-8 items-center justify-center p-0 text-center text-sm leading-none",
@@ -21,12 +22,17 @@ export const NODEX_DAY_PICKER_CLASS_NAMES = {
     "hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-2",
   ),
   [DayFlag.outside]: "rdp-day_outside [&>button]:text-token-description-foreground/55",
-  [DayFlag.today]: "rdp-day_today [&>button]:font-medium [&>button]:ring-[0.5px] [&>button]:ring-token-border",
+  [DayFlag.today]:
+    "rdp-day_today [&>button]:font-medium [&>button]:ring-[0.5px] [&>button]:ring-token-border",
   [DayFlag.focused]: "rdp-day_focused",
-  [SelectionState.selected]: "rdp-day_selected [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
-  [SelectionState.range_start]: "rdp-day_start [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
-  [SelectionState.range_middle]: "rdp-day_range_middle [&>button]:bg-token-charts-blue/10 [&>button]:text-token-charts-blue [&>button]:ring-0",
-  [SelectionState.range_end]: "rdp-day_end [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
+  [SelectionState.selected]:
+    "rdp-day_selected [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
+  [SelectionState.range_start]:
+    "rdp-day_start [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
+  [SelectionState.range_middle]:
+    "rdp-day_range_middle [&>button]:bg-token-charts-blue/10 [&>button]:text-token-charts-blue [&>button]:ring-0",
+  [SelectionState.range_end]:
+    "rdp-day_end [&>button]:bg-token-charts-blue [&>button]:text-white [&>button]:ring-0",
 } as const;
 
 export function NodexDateCalendar({

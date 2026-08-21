@@ -15,10 +15,7 @@ export interface LocalConversationSearchSource {
   projectlessOutputDirectory?: string | null;
   getTurns: () => LocalConversationSearchSourceTurn[];
   scrollAdapter: {
-    scrollToTurn: (
-      turnKey: string,
-      options?: { signal?: AbortSignal },
-    ) => Promise<void>;
+    scrollToTurn: (turnKey: string, options?: { signal?: AbortSignal }) => Promise<void>;
     getTurnContainer: (turnKey: string) => HTMLElement | null;
   };
 }
@@ -49,9 +46,7 @@ export function createLocalConversationSearchSource(input: LocalConversationSear
           cachedUnitsByTurnKey.set(entry.turnKey, { entry, units });
         }
 
-        return units.filter((unit) =>
-          unit.text.toLowerCase().includes(normalizedQuery),
-        );
+        return units.filter((unit) => unit.text.toLowerCase().includes(normalizedQuery));
       });
     },
   };

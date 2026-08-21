@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
-import {
-  modifyCurrentBlock,
-  type ModifyShortcutEditor,
-} from "./modify-block-shortcut";
+import { modifyCurrentBlock, type ModifyShortcutEditor } from "./modify-block-shortcut";
 
 type TestBlock = NonNullable<ReturnType<ModifyShortcutEditor["getTextCursorPosition"]>["block"]>;
 
-function makeEditor(block: TestBlock, overrides: Partial<ModifyShortcutEditor> = {}): ModifyShortcutEditor {
+function makeEditor(
+  block: TestBlock,
+  overrides: Partial<ModifyShortcutEditor> = {},
+): ModifyShortcutEditor {
   return {
     getTextCursorPosition: () => ({ block }),
     ...overrides,
@@ -16,21 +16,14 @@ function makeEditor(block: TestBlock, overrides: Partial<ModifyShortcutEditor> =
 function makeToggleRoot(blockId: string, button: HTMLButtonElement): ParentNode {
   const expectedSelector = `.bn-block[data-id="${blockId}"] .bn-toggle-button`;
   return {
-    querySelector: (selector: string) => (
-      selector === expectedSelector ? button : null
-    ),
+    querySelector: (selector: string) => (selector === expectedSelector ? button : null),
   } as unknown as ParentNode;
 }
 
-function makePageRoot(
-  blockId: string,
-  button: HTMLButtonElement | null,
-): ParentNode {
+function makePageRoot(blockId: string, button: HTMLButtonElement | null): ParentNode {
   const expectedSelector = `.bn-block[data-id="${blockId}"] [data-page-outliner-caret]`;
   return {
-    querySelector: (selector: string) => (
-      selector === expectedSelector ? button : null
-    ),
+    querySelector: (selector: string) => (selector === expectedSelector ? button : null),
   } as unknown as ParentNode;
 }
 
@@ -146,32 +139,27 @@ describe("modifyCurrentBlock", () => {
     expect(handled).toBe(false);
   });
 
-  test.each(["page", "pageRef"])(
-    "toggles the current %s occurrence disclosure",
-    (type) => {
-      const button = document.createElement("button");
-      let clickCount = 0;
-      button.addEventListener("click", () => {
-        clickCount += 1;
-      });
-      const blockId = `${type}-1`;
-      const editor = makeEditor(
-        {
-          id: blockId,
-          type,
-          props: type === "pageRef"
-            ? { sourceProjectId: "project-2", targetBlockId: "page-1" }
-            : {},
-        },
-        { domElement: makePageRoot(blockId, button) },
-      );
+  test.each(["page", "pageRef"])("toggles the current %s occurrence disclosure", (type) => {
+    const button = document.createElement("button");
+    let clickCount = 0;
+    button.addEventListener("click", () => {
+      clickCount += 1;
+    });
+    const blockId = `${type}-1`;
+    const editor = makeEditor(
+      {
+        id: blockId,
+        type,
+        props: type === "pageRef" ? { sourceProjectId: "project-2", targetBlockId: "page-1" } : {},
+      },
+      { domElement: makePageRoot(blockId, button) },
+    );
 
-      const handled = modifyCurrentBlock(editor, {});
+    const handled = modifyCurrentBlock(editor, {});
 
-      expect(handled).toBe(true);
-      expect(clickCount).toBe(1);
-    },
-  );
+    expect(handled).toBe(true);
+    expect(clickCount).toBe(1);
+  });
 
   test.each(["page", "pageRef"])(
     "consumes the current unavailable %s occurrence without falling through",
@@ -253,21 +241,24 @@ describe("modifyCurrentBlock", () => {
 
   test("does not modify a multi-block selection", () => {
     let updateCount = 0;
-    const editor = makeEditor({
-      id: "check-1",
-      type: "checkListItem",
-      props: { checked: false },
-    }, {
-      getSelection: () => ({
-        blocks: [
-          { id: "check-1", type: "checkListItem", props: { checked: false } },
-          { id: "check-2", type: "checkListItem", props: { checked: true } },
-        ],
-      }),
-      updateBlock: () => {
-        updateCount += 1;
+    const editor = makeEditor(
+      {
+        id: "check-1",
+        type: "checkListItem",
+        props: { checked: false },
       },
-    });
+      {
+        getSelection: () => ({
+          blocks: [
+            { id: "check-1", type: "checkListItem", props: { checked: false } },
+            { id: "check-2", type: "checkListItem", props: { checked: true } },
+          ],
+        }),
+        updateBlock: () => {
+          updateCount += 1;
+        },
+      },
+    );
 
     const handled = modifyCurrentBlock(editor, {});
 

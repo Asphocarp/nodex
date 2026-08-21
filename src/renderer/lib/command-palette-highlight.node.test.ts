@@ -7,7 +7,10 @@ import {
 } from "./command-palette-highlight";
 
 function highlightedText(segments: readonly CommandPaletteHighlightSegment[]): string {
-  return segments.filter((segment) => segment.highlight).map((segment) => segment.text).join("");
+  return segments
+    .filter((segment) => segment.highlight)
+    .map((segment) => segment.text)
+    .join("");
 }
 
 function fullText(segments: readonly CommandPaletteHighlightSegment[]): string {

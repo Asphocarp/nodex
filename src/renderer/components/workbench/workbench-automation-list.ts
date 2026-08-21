@@ -31,7 +31,9 @@ function basename(path: string): string {
   return parts.at(-1) ?? normalized;
 }
 
-export function formatWorkbenchAutomationWorkspaceLabel(automation: CodexScheduledAutomation): string | null {
+export function formatWorkbenchAutomationWorkspaceLabel(
+  automation: CodexScheduledAutomation,
+): string | null {
   if (automation.cwds.length === 1) return basename(automation.cwds[0]) || automation.cwds[0];
   if (automation.cwds.length > 1) {
     const first = basename(automation.cwds[0]) || automation.cwds[0];
@@ -54,7 +56,8 @@ export function buildWorkbenchAutomationRowModel({
 }): WorkbenchAutomationRowModel {
   const isPaused = automation.status === "PAUSED";
   const isInProgress = runningAutomationIds.has(automation.id);
-  const scheduleLabel = formatCodexScheduledAutomationRruleSummary(automation.rrule) ?? "Custom schedule";
+  const scheduleLabel =
+    formatCodexScheduledAutomationRruleSummary(automation.rrule) ?? "Custom schedule";
   const secondaryStatusLabel = isInProgress
     ? "In progress"
     : !isPaused && automation.nextRunAt !== null
@@ -87,7 +90,9 @@ export function workbenchAutomationRowMatchesSearch(
     row.automation.targetThreadId ?? "",
     row.automation.rrule ?? "",
     row.automation.cwds.join(" "),
-  ].join(" ").toLowerCase();
+  ]
+    .join(" ")
+    .toLowerCase();
   return searchable.includes(normalizedQuery);
 }
 
@@ -106,12 +111,14 @@ export function buildWorkbenchAutomationListModel({
 }): WorkbenchAutomationListModel {
   const normalizedQuery = normalizeAutomationListSearchText(searchQuery);
   const rows = automations
-    .map((automation) => buildWorkbenchAutomationRowModel({
-      automation,
-      runningAutomationIds,
-      unreadAutomationIds,
-      now,
-    }))
+    .map((automation) =>
+      buildWorkbenchAutomationRowModel({
+        automation,
+        runningAutomationIds,
+        unreadAutomationIds,
+        now,
+      }),
+    )
     .filter((row) => workbenchAutomationRowMatchesSearch(row, normalizedQuery));
 
   return {

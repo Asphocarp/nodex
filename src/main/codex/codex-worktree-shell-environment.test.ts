@@ -20,15 +20,23 @@ describe("Codex worktree shell environment", () => {
   });
 
   test("parses the exact interactive login-shell delimiter section", () => {
-    expect(JSON.stringify(parseCodexInteractiveShellEnvironment([
-      "shell startup chatter",
-      "_SHELL_ENV_DELIMITER_PATH=/opt/homebrew/bin:/usr/bin",
-      "TOKEN=a=b  ",
-      "_SHELL_ENV_DELIMITER_trailing chatter",
-    ].join("\n")))).toBe(JSON.stringify({
-      PATH: "/opt/homebrew/bin:/usr/bin",
-      TOKEN: "a=b",
-    }));
+    expect(
+      JSON.stringify(
+        parseCodexInteractiveShellEnvironment(
+          [
+            "shell startup chatter",
+            "_SHELL_ENV_DELIMITER_PATH=/opt/homebrew/bin:/usr/bin",
+            "TOKEN=a=b  ",
+            "_SHELL_ENV_DELIMITER_trailing chatter",
+          ].join("\n"),
+        ),
+      ),
+    ).toBe(
+      JSON.stringify({
+        PATH: "/opt/homebrew/bin:/usr/bin",
+        TOKEN: "a=b",
+      }),
+    );
   });
 
   test("merges the interactive login-shell environment over the Electron environment", async () => {
@@ -46,11 +54,13 @@ describe("Codex worktree shell environment", () => {
       }),
     });
 
-    expect(JSON.stringify(environment)).toBe(JSON.stringify({
-      APP_ONLY: "present",
-      PATH: "/opt/homebrew/bin:/usr/bin",
-      HOMEBREW_PREFIX: "/opt/homebrew",
-    }));
+    expect(JSON.stringify(environment)).toBe(
+      JSON.stringify({
+        APP_ONLY: "present",
+        PATH: "/opt/homebrew/bin:/usr/bin",
+        HOMEBREW_PREFIX: "/opt/homebrew",
+      }),
+    );
   });
 
   test("falls back to the Electron environment when login-shell loading fails", async () => {
@@ -83,46 +93,56 @@ describe("Codex worktree shell environment", () => {
       loadInteractiveEnvironment: async () => ({ Path: "should-not-load" }),
     });
 
-    expect(JSON.stringify(environment)).toBe(JSON.stringify({
-      CODEX_SHELL: "preserved-on-windows",
-      Path: "C:\\Windows",
-    }));
+    expect(JSON.stringify(environment)).toBe(
+      JSON.stringify({
+        CODEX_SHELL: "preserved-on-windows",
+        Path: "C:\\Windows",
+      }),
+    );
   });
 
   test("captures sorted stable changes and removals while filtering volatile setup keys", () => {
-    const delta = captureCodexShellEnvironmentDelta({
-      KEEP: "same",
-      REMOVE: "old",
-      UPDATE: "old",
-      PWD: "/before",
-      BASH_FUNC_fixture: "() { echo before; }",
-      MULTILINE: "before\nvalue",
-    }, {
-      KEEP: "same",
-      UPDATE: "new",
-      ADD: "value",
-      PWD: "/after",
-      BASH_FUNC_fixture: "() { echo after; }",
-      MULTILINE: "after\nvalue",
-    }, "darwin");
+    const delta = captureCodexShellEnvironmentDelta(
+      {
+        KEEP: "same",
+        REMOVE: "old",
+        UPDATE: "old",
+        PWD: "/before",
+        BASH_FUNC_fixture: "() { echo before; }",
+        MULTILINE: "before\nvalue",
+      },
+      {
+        KEEP: "same",
+        UPDATE: "new",
+        ADD: "value",
+        PWD: "/after",
+        BASH_FUNC_fixture: "() { echo after; }",
+        MULTILINE: "after\nvalue",
+      },
+      "darwin",
+    );
 
-    expect(JSON.stringify(delta)).toBe(JSON.stringify({
-      version: 1,
-      set: { ADD: "value", UPDATE: "new" },
-      exclude: ["REMOVE"],
-    }));
+    expect(JSON.stringify(delta)).toBe(
+      JSON.stringify({
+        version: 1,
+        set: { ADD: "value", UPDATE: "new" },
+        exclude: ["REMOVE"],
+      }),
+    );
   });
 
   test("matches Windows environment keys case-insensitively and preserves the after key", () => {
-    expect(JSON.stringify(captureCodexShellEnvironmentDelta(
-      { Path: "before" },
-      { PATH: "after" },
-      "win32",
-    ))).toBe(JSON.stringify({
-      version: 1,
-      set: { PATH: "after" },
-      exclude: [],
-    }));
+    expect(
+      JSON.stringify(
+        captureCodexShellEnvironmentDelta({ Path: "before" }, { PATH: "after" }, "win32"),
+      ),
+    ).toBe(
+      JSON.stringify({
+        version: 1,
+        set: { PATH: "after" },
+        exclude: [],
+      }),
+    );
   });
 
   test("returns null when setup leaves no stable environment difference", () => {
@@ -130,18 +150,22 @@ describe("Codex worktree shell environment", () => {
   });
 
   test("builds the exact POSIX source-and-trap wrapper with safe path quoting", () => {
-    expect(buildCodexPosixSetupCaptureWrapper({
-      scriptPath: "/tmp/it's/setup.sh",
-      capturePath: "/tmp/after env",
-      beforeCapturePath: "/tmp/before env",
-    })).toBe([
-      "set -xeo pipefail",
-      "capture_path='/tmp/after env'",
-      "before_capture_path='/tmp/before env'",
-      'env > "$before_capture_path"',
-      `trap 'code=$?; if [ "$code" -eq 0 ]; then env > "$capture_path"; fi' EXIT`,
-      ". '/tmp/it'\\''s/setup.sh'",
-    ].join("\n"));
+    expect(
+      buildCodexPosixSetupCaptureWrapper({
+        scriptPath: "/tmp/it's/setup.sh",
+        capturePath: "/tmp/after env",
+        beforeCapturePath: "/tmp/before env",
+      }),
+    ).toBe(
+      [
+        "set -xeo pipefail",
+        "capture_path='/tmp/after env'",
+        "before_capture_path='/tmp/before env'",
+        'env > "$before_capture_path"',
+        `trap 'code=$?; if [ "$code" -eq 0 ]; then env > "$capture_path"; fi' EXIT`,
+        ". '/tmp/it'\\''s/setup.sh'",
+      ].join("\n"),
+    );
   });
 
   test("sources setup in a real shell and captures exported and removed variables", async () => {
@@ -163,15 +187,15 @@ describe("Codex worktree shell environment", () => {
         onOutput: (chunk) => output.push(chunk.data),
       });
 
-      expect(JSON.stringify(delta)).toBe(JSON.stringify({
-        version: 1,
-        set: { NODEX_CAPTURE_TEST: "ready" },
-        exclude: ["NODEX_REMOVE_TEST"],
-      }));
+      expect(JSON.stringify(delta)).toBe(
+        JSON.stringify({
+          version: 1,
+          set: { NODEX_CAPTURE_TEST: "ready" },
+          exclude: ["NODEX_REMOVE_TEST"],
+        }),
+      );
       expect(
-        output.join("").includes(
-          "captured-output:xterm-256color:1:truecolor:from-login-shell",
-        ),
+        output.join("").includes("captured-output:xterm-256color:1:truecolor:from-login-shell"),
       ).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -299,18 +323,20 @@ describe("Codex worktree shell environment", () => {
         },
         resolveGitPath,
       });
-      expect(await readFile(configPath, "utf8")).toBe([
-        "{",
-        '  "version": 1,',
-        '  "set": {',
-        '    "CAPTURED": "yes"',
-        "  },",
-        '  "exclude": [',
-        '    "REMOVED"',
-        "  ]",
-        "}",
-        "",
-      ].join("\n"));
+      expect(await readFile(configPath, "utf8")).toBe(
+        [
+          "{",
+          '  "version": 1,',
+          '  "set": {',
+          '    "CAPTURED": "yes"',
+          "  },",
+          '  "exclude": [',
+          '    "REMOVED"',
+          "  ]",
+          "}",
+          "",
+        ].join("\n"),
+      );
 
       await persistCodexWorktreeShellEnvironment({
         cwd,

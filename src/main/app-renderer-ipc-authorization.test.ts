@@ -3,12 +3,14 @@ import { isTrustedAppRendererIpcSender } from "./app-renderer-ipc-authorization"
 
 describe("isTrustedAppRendererIpcSender", () => {
   test("accepts only the top-level frame of an owned app window", () => {
-    expect(isTrustedAppRendererIpcSender({
-      hasOwnerWindow: true,
-      senderType: "window",
-      senderUrl: "app://-/index.html",
-      isMainFrame: true,
-    })).toBe(true);
+    expect(
+      isTrustedAppRendererIpcSender({
+        hasOwnerWindow: true,
+        senderType: "window",
+        senderUrl: "app://-/index.html",
+        isMainFrame: true,
+      }),
+    ).toBe(true);
   });
 
   test.each([
@@ -47,19 +49,23 @@ describe("isTrustedAppRendererIpcSender", () => {
   });
 
   test("accepts only the exact configured development origin", () => {
-    expect(isTrustedAppRendererIpcSender({
-      developmentOrigin: "http://localhost:51284",
-      hasOwnerWindow: true,
-      senderType: "window",
-      senderUrl: "http://localhost:51284/thread/1",
-      isMainFrame: true,
-    })).toBe(true);
-    expect(isTrustedAppRendererIpcSender({
-      developmentOrigin: "http://localhost:51284",
-      hasOwnerWindow: true,
-      senderType: "window",
-      senderUrl: "http://localhost:51285/thread/1",
-      isMainFrame: true,
-    })).toBe(false);
+    expect(
+      isTrustedAppRendererIpcSender({
+        developmentOrigin: "http://localhost:51284",
+        hasOwnerWindow: true,
+        senderType: "window",
+        senderUrl: "http://localhost:51284/thread/1",
+        isMainFrame: true,
+      }),
+    ).toBe(true);
+    expect(
+      isTrustedAppRendererIpcSender({
+        developmentOrigin: "http://localhost:51284",
+        hasOwnerWindow: true,
+        senderType: "window",
+        senderUrl: "http://localhost:51285/thread/1",
+        isMainFrame: true,
+      }),
+    ).toBe(false);
   });
 });

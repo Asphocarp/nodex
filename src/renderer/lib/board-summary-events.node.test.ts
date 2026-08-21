@@ -2,12 +2,13 @@ import { describe, expect, test } from "vitest";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import { plainTextToPortableRichText } from "../../shared/block-documents/portable-rich-text";
 import type { BoardSummary, DatabasePageSummary } from "./types";
-import {
-  applyBoardChangeEventToBoard,
-  upsertCardSummaryInBoard,
-} from "./board-summary-events";
+import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 
-function makeCard(id: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
+function makeCard(
+  id: string,
+  status: DatabasePageSummary["status"],
+  order: number,
+): DatabasePageSummary {
   return {
     id,
     pageKey: null,
@@ -99,7 +100,10 @@ describe("board summary events", () => {
 
   test("preserves Board identity for a repeated canonical summary", () => {
     const board = makeBoard();
-    const repeated = upsertCardSummaryInBoard(board, board.columns[0]?.cards[0] as DatabasePageSummary);
+    const repeated = upsertCardSummaryInBoard(
+      board,
+      board.columns[0]?.cards[0] as DatabasePageSummary,
+    );
 
     expect(repeated).toBe(board);
   });

@@ -2,14 +2,8 @@ import { act } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, test } from "vitest";
 
-import type {
-  DatabasePage,
-  PageInput,
-} from "@/lib/types";
-import {
-  projectPageDetailToStageModel,
-  type PageStagePageModel,
-} from "@/lib/page-stage-page";
+import type { DatabasePage, PageInput } from "@/lib/types";
+import { projectPageDetailToStageModel, type PageStagePageModel } from "@/lib/page-stage-page";
 import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
 import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../../../shared/block-documents/page-document";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";
@@ -39,10 +33,7 @@ function buildPage(overrides: Partial<DatabasePage> = {}): DatabasePage {
   };
 }
 
-function updatedResult(
-  page: DatabasePage,
-  updates: Partial<PageInput>,
-) {
+function updatedResult(page: DatabasePage, updates: Partial<PageInput>) {
   void page;
   void updates;
   return { status: "updated", didMutate: true } as const;
@@ -85,8 +76,7 @@ function buildProps(overrides: Partial<PageStageProps> = {}): PageStageProps {
     contentAccessContext: { kind: "project", projectId: "project-1" },
     documentAuthority: documentAuthority(),
     onClose: () => undefined,
-    onUpdate: async (_pageId, updates) =>
-      updatedResult(sourcePage, updates),
+    onUpdate: async (_pageId, updates) => updatedResult(sourcePage, updates),
     onUpdateProperty: async () => ({ status: "updated", didMutate: true }),
     onDelete: async () => undefined,
     onMove: async () => undefined,
@@ -101,10 +91,7 @@ function renderController(
   let controller: PageStageController | null = null;
   let renderCount = 0;
 
-  function Harness({ nextProps, children }: {
-    nextProps: PageStageProps;
-    children?: ReactNode;
-  }) {
+  function Harness({ nextProps, children }: { nextProps: PageStageProps; children?: ReactNode }) {
     renderCount += 1;
     controller = usePageStageController(nextProps, dependencies);
     return <>{children}</>;
@@ -131,19 +118,23 @@ function renderController(
 describe("usePageStageController", () => {
   test("does not resynchronize an unchanged metadata revision when command props are recreated", async () => {
     const initialPage = buildPage();
-    const result = renderController(buildProps({
-      page: toStageModel(initialPage),
-      onUpdate: async (_pageId, patch) => updatedResult(initialPage, patch),
-    }));
+    const result = renderController(
+      buildProps({
+        page: toStageModel(initialPage),
+        onUpdate: async (_pageId, patch) => updatedResult(initialPage, patch),
+      }),
+    );
     await settleAsyncRender();
     act(() => result.controller.handleDocumentTitleChange("Live collaborative title"));
 
     const equivalentPage = buildPage();
     await act(async () => {
-      result.rerender(buildProps({
-        page: toStageModel(equivalentPage),
-        onUpdate: async (_pageId, patch) => updatedResult(equivalentPage, patch),
-      }));
+      result.rerender(
+        buildProps({
+          page: toStageModel(equivalentPage),
+          onUpdate: async (_pageId, patch) => updatedResult(equivalentPage, patch),
+        }),
+      );
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -181,10 +172,12 @@ describe("usePageStageController", () => {
 
   test("does not publish a Project session snapshot for Library authority", async () => {
     const snapshots: PageStageSessionSnapshot[] = [];
-    const result = renderController(buildProps({
-      contentAccessContext: { kind: "library" },
-      onLeavePage: (snapshot) => snapshots.push(snapshot),
-    }));
+    const result = renderController(
+      buildProps({
+        contentAccessContext: { kind: "library" },
+        onLeavePage: (snapshot) => snapshots.push(snapshot),
+      }),
+    );
     await settleAsyncRender();
 
     await act(async () => result.controller.handleClose());
@@ -195,19 +188,21 @@ describe("usePageStageController", () => {
   test("commits a generic Property edit without writing whole-page metadata", async () => {
     const updates: Partial<PageInput>[] = [];
     const propertyUpdates: Array<{ propertyId: string; value: unknown }> = [];
-    const result = renderController(buildProps({
-      onUpdate: async (_pageId, patch) => {
-        updates.push(patch);
-        return updatedResult(buildPage(), patch);
-      },
-      onUpdateProperty: async (_pageId, propertyId, edit) => {
-        propertyUpdates.push({
-          propertyId,
-          value: edit.kind === "replace" ? edit.value : edit,
-        });
-        return { status: "updated", didMutate: true };
-      },
-    }));
+    const result = renderController(
+      buildProps({
+        onUpdate: async (_pageId, patch) => {
+          updates.push(patch);
+          return updatedResult(buildPage(), patch);
+        },
+        onUpdateProperty: async (_pageId, propertyId, edit) => {
+          propertyUpdates.push({
+            propertyId,
+            value: edit.kind === "replace" ? edit.value : edit,
+          });
+          return { status: "updated", didMutate: true };
+        },
+      }),
+    );
     await settleAsyncRender();
 
     const assignee = result.controller.propertyControls.properties.find(
@@ -228,15 +223,17 @@ describe("usePageStageController", () => {
 
   test("isolates a Property conflict without exposing a whole-page overwrite", async () => {
     const propertyUpdates: string[] = [];
-    const result = renderController(buildProps({
-      onUpdateProperty: async (_pageId, propertyId) => {
-        propertyUpdates.push(propertyId);
-        return {
-          status: "conflict",
-          error: "Property changed elsewhere",
-        };
-      },
-    }));
+    const result = renderController(
+      buildProps({
+        onUpdateProperty: async (_pageId, propertyId) => {
+          propertyUpdates.push(propertyId);
+          return {
+            status: "conflict",
+            error: "Property changed elsewhere",
+          };
+        },
+      }),
+    );
     await settleAsyncRender();
 
     const priority = result.controller.propertyControls.properties.find(

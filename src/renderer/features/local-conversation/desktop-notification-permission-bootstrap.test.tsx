@@ -14,24 +14,25 @@ beforeEach(() => {
 describe("desktop notification permission bootstrap", () => {
   it("reports a missing browser API without requesting permission", async () => {
     const logger = { debug: vi.fn(), warn: vi.fn() };
-    await expect(bootstrapDesktopNotificationPermission(null, logger))
-      .resolves.toBeNull();
+    await expect(bootstrapDesktopNotificationPermission(null, logger)).resolves.toBeNull();
     expect(logger.debug).toHaveBeenCalledWith(
       "[desktop-notifications] browser permission API missing",
     );
   });
 
-  it.each(["granted", "denied"] as const)(
-    "returns an existing %s decision",
-    async (permission) => {
-      const requestPermission = vi.fn(async () => permission);
-      await expect(bootstrapDesktopNotificationPermission({
-        permission,
-        requestPermission,
-      }, { debug: vi.fn(), warn: vi.fn() })).resolves.toBe(permission);
-      expect(requestPermission).not.toHaveBeenCalled();
-    },
-  );
+  it.each(["granted", "denied"] as const)("returns an existing %s decision", async (permission) => {
+    const requestPermission = vi.fn(async () => permission);
+    await expect(
+      bootstrapDesktopNotificationPermission(
+        {
+          permission,
+          requestPermission,
+        },
+        { debug: vi.fn(), warn: vi.fn() },
+      ),
+    ).resolves.toBe(permission);
+    expect(requestPermission).not.toHaveBeenCalled();
+  });
 
   it("requests a default permission once per constructor identity", async () => {
     const api = {
@@ -56,11 +57,9 @@ describe("desktop notification permission bootstrap", () => {
       value: TestNotification,
     });
     try {
-      render(createElement(
-        StrictMode,
-        null,
-        createElement(DesktopNotificationPermissionBootstrap),
-      ));
+      render(
+        createElement(StrictMode, null, createElement(DesktopNotificationPermissionBootstrap)),
+      );
       expect(requestPermission).toHaveBeenCalledOnce();
     } finally {
       Object.defineProperty(globalThis, "Notification", {
@@ -73,12 +72,17 @@ describe("desktop notification permission bootstrap", () => {
   it("logs request failure and returns null", async () => {
     const error = new Error("permission failed");
     const logger = { debug: vi.fn(), warn: vi.fn() };
-    await expect(bootstrapDesktopNotificationPermission({
-      permission: "default",
-      requestPermission: vi.fn(async () => {
-        throw error;
-      }),
-    }, logger)).resolves.toBeNull();
+    await expect(
+      bootstrapDesktopNotificationPermission(
+        {
+          permission: "default",
+          requestPermission: vi.fn(async () => {
+            throw error;
+          }),
+        },
+        logger,
+      ),
+    ).resolves.toBeNull();
     expect(logger.warn).toHaveBeenCalledWith(
       "[desktop-notifications] browser permission request failed",
       { error },

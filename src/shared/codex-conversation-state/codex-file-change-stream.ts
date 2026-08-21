@@ -1,8 +1,5 @@
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
-import type {
-  FileUpdateChange,
-  ThreadItem,
-} from "@nodex/codex-app-server-protocol/v2";
+import type { FileUpdateChange, ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type {
   CodexCanonicalConversationState,
   CodexCanonicalItem,
@@ -56,15 +53,9 @@ export interface CodexFileChangeRawTurn extends CodexTurnReference {
   readonly hookRuns?: readonly unknown[];
 }
 
-export type CodexFileChangeItemMutation =
-  | "updatedExact"
-  | "replacedSameId"
-  | "appended";
+export type CodexFileChangeItemMutation = "updatedExact" | "replacedSameId" | "appended";
 
-export type CodexFileChangeRawMutationDisposition =
-  | "applied"
-  | "noTurns"
-  | "missingTurn";
+export type CodexFileChangeRawMutationDisposition = "applied" | "noTurns" | "missingTurn";
 
 export interface CodexFileChangeRawMutationResult {
   readonly disposition: CodexFileChangeRawMutationDisposition;
@@ -115,9 +106,7 @@ interface RawItemIdentity {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
-    ? value as Record<string, unknown>
-    : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function asRawItemIdentity(value: unknown): RawItemIdentity | null {
@@ -147,16 +136,11 @@ function findReverseExactItemIndex(
   return -1;
 }
 
-function findFirstSameIdIndex(
-  items: readonly unknown[],
-  itemId: string,
-): number {
+function findFirstSameIdIndex(items: readonly unknown[], itemId: string): number {
   return items.findIndex((item) => asRawItemIdentity(item)?.id === itemId);
 }
 
-function emptyRawResult(
-  disposition: "noTurns" | "missingTurn",
-): CodexFileChangeRawMutationResult {
+function emptyRawResult(disposition: "noTurns" | "missingTurn"): CodexFileChangeRawMutationResult {
   return {
     disposition,
     resolutionKind: "none",
@@ -199,8 +183,8 @@ function applyTurnRebind(
   context: CodexFileChangeMutationContext,
 ): CodexFileChangeRawTurn {
   if (
-    resolution.kind !== "reboundInProgressPlaceholder"
-    && resolution.kind !== "reboundCompletedEmptyPlaceholder"
+    resolution.kind !== "reboundInProgressPlaceholder" &&
+    resolution.kind !== "reboundCompletedEmptyPlaceholder"
   ) {
     return turn;
   }
@@ -211,16 +195,12 @@ function applyTurnRebind(
     ...turn,
     turnId,
     turnStartedAtMs,
-    status: resolution.kind === "reboundCompletedEmptyPlaceholder"
-      ? "inProgress"
-      : turn.status,
+    status: resolution.kind === "reboundCompletedEmptyPlaceholder" ? "inProgress" : turn.status,
   };
 }
 
 /** Exact `_1`: every `updateTurnState` callback sees initialized collections. */
-function ensureRawTurnCollections(
-  turn: CodexFileChangeRawTurn,
-): CodexFileChangeRawTurn {
+function ensureRawTurnCollections(turn: CodexFileChangeRawTurn): CodexFileChangeRawTurn {
   if (turn.hookRuns !== undefined) return turn;
   return { ...turn, hookRuns: [] };
 }
@@ -246,11 +226,7 @@ export function reduceCodexFileChangePatchRawTurns(
     };
   }
 
-  const exactItemIndex = findReverseExactItemIndex(
-    nextTurn.items,
-    update.itemId,
-    "fileChange",
-  );
+  const exactItemIndex = findReverseExactItemIndex(nextTurn.items, update.itemId, "fileChange");
   let itemIndex = exactItemIndex;
   let itemMutation: CodexFileChangeItemMutation;
   let rawItem: CodexRawFileChange;
@@ -258,9 +234,8 @@ export function reduceCodexFileChangePatchRawTurns(
   if (exactItemIndex >= 0) {
     const existing = asRawFileChange(nextTurn.items[exactItemIndex]);
     if (!existing) return emptyRawResult("missingTurn");
-    rawItem = existing.changes === update.changes
-      ? existing
-      : { ...existing, changes: update.changes };
+    rawItem =
+      existing.changes === update.changes ? existing : { ...existing, changes: update.changes };
     itemMutation = "updatedExact";
   } else {
     rawItem = {
@@ -309,22 +284,13 @@ export function reduceCodexMcpToolCallProgressRawTurns(
   const sourceTurn = turns[resolution.turnIndex];
   if (!sourceTurn) return emptyProgressResult("missingTurn");
 
-  const reboundTurn = applyTurnRebind(
-    sourceTurn,
-    resolution,
-    update.turnId,
-    context,
-  );
+  const reboundTurn = applyTurnRebind(sourceTurn, resolution, update.turnId, context);
   const turn = ensureRawTurnCollections(reboundTurn);
   return {
     disposition: "applied",
     resolutionKind: resolution.kind,
     turnIndex: resolution.turnIndex,
-    matchedItemIndex: findReverseExactItemIndex(
-      turn.items,
-      update.itemId,
-      "mcpToolCall",
-    ),
+    matchedItemIndex: findReverseExactItemIndex(turn.items, update.itemId, "mcpToolCall"),
     turn,
     stateChanged: turn !== sourceTurn,
   };
@@ -367,8 +333,7 @@ function replaceCanonicalTurn(
       ...(rawTurn.firstTurnWorkItemStartedAtMs === undefined
         ? {}
         : {
-            firstTurnWorkItemStartedAtMs:
-              rawTurn.firstTurnWorkItemStartedAtMs,
+            firstTurnWorkItemStartedAtMs: rawTurn.firstTurnWorkItemStartedAtMs,
           }),
       ...(rawTurn.hookRuns === undefined
         ? {}
@@ -397,14 +362,11 @@ export function reduceCodexConversationFileChangePatch(
     };
   }
 
-  const result = reduceCodexFileChangePatchRawTurns(
-    buildCanonicalRawTurns(state),
-    update,
-    context,
-  );
-  const nextState = result.stateChanged && result.turn
-    ? replaceCanonicalTurn(state, result.turnIndex, result.turn)
-    : state;
+  const result = reduceCodexFileChangePatchRawTurns(buildCanonicalRawTurns(state), update, context);
+  const nextState =
+    result.stateChanged && result.turn
+      ? replaceCanonicalTurn(state, result.turnIndex, result.turn)
+      : state;
   return {
     state: nextState,
     disposition: result.disposition,
@@ -437,9 +399,10 @@ export function reduceCodexConversationMcpToolCallProgress(
     update,
     context,
   );
-  const nextState = result.stateChanged && result.turn
-    ? replaceCanonicalTurn(state, result.turnIndex, result.turn)
-    : state;
+  const nextState =
+    result.stateChanged && result.turn
+      ? replaceCanonicalTurn(state, result.turnIndex, result.turn)
+      : state;
   return {
     state: nextState,
     disposition: result.disposition,
@@ -474,9 +437,7 @@ export function toCodexFileChangePatchUpdate(
 ): CodexFileChangePatchUpdate {
   return {
     conversationId: notification.params.threadId,
-    turnId: turnIdOverride === undefined
-      ? notification.params.turnId
-      : turnIdOverride,
+    turnId: turnIdOverride === undefined ? notification.params.turnId : turnIdOverride,
     itemId: notification.params.itemId,
     changes: notification.params.changes,
   };
@@ -488,9 +449,7 @@ export function toCodexMcpToolCallProgressUpdate(
 ): CodexMcpToolCallProgressUpdate {
   return {
     conversationId: notification.params.threadId,
-    turnId: turnIdOverride === undefined
-      ? notification.params.turnId
-      : turnIdOverride,
+    turnId: turnIdOverride === undefined ? notification.params.turnId : turnIdOverride,
     itemId: notification.params.itemId,
     message: notification.params.message,
   };

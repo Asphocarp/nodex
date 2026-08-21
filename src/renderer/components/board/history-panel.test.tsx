@@ -19,12 +19,14 @@ const callHistoryPanelApi = async (
   operation: HistoryPanelApiOperation,
   ...args: unknown[]
 ): Promise<unknown> => {
-  const handler = (globalThis as {
-    __historyPanelApi?: (
-      operation: HistoryPanelApiOperation,
-      ...args: unknown[]
-    ) => Promise<unknown> | unknown;
-  }).__historyPanelApi;
+  const handler = (
+    globalThis as {
+      __historyPanelApi?: (
+        operation: HistoryPanelApiOperation,
+        ...args: unknown[]
+      ) => Promise<unknown> | unknown;
+    }
+  ).__historyPanelApi;
   if (!handler) throw new Error(`Unhandled HistoryPanel API: ${operation}`);
   return await handler(operation, ...args);
 };
@@ -129,9 +131,9 @@ describe("canonical Page history panel", () => {
     expect(restoreRequests[0]?.mutationId).toBe(restoreRequests[1]?.mutationId);
     expect(restoreRequests[0]?.versionId).toBe("version-1");
     expect(restoreRequests[0]?.expectedHeadSeq).toBe(14);
-    expect(
-      (restoreRequests[0]?.actor as Record<string, unknown> | undefined)?.kind,
-    ).toBe("renderer_history_restore");
+    expect((restoreRequests[0]?.actor as Record<string, unknown> | undefined)?.kind).toBe(
+      "renderer_history_restore",
+    );
   });
 
   test("submits a successful restore exactly once", async () => {
@@ -153,12 +155,7 @@ describe("canonical Page history panel", () => {
     });
 
     const view = render(
-      <HistoryPanel
-        projectId="project-1"
-        pageId="card-1"
-        open
-        onClose={() => undefined}
-      />,
+      <HistoryPanel projectId="project-1" pageId="card-1" open onClose={() => undefined} />,
     );
     await selectCheckpoint(view);
 
@@ -217,12 +214,7 @@ describe("canonical Page history panel", () => {
     });
 
     const view = render(
-      <HistoryPanel
-        projectId="project-1"
-        pageId="card-1"
-        open
-        onClose={() => undefined}
-      />,
+      <HistoryPanel projectId="project-1" pageId="card-1" open onClose={() => undefined} />,
     );
     await selectCheckpoint(view);
     await act(async () => {
@@ -239,11 +231,7 @@ describe("canonical Page history panel", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      if (
-        !textContent(document.body).includes(
-          "exact restore retry is still pending",
-        )
-      ) {
+      if (!textContent(document.body).includes("exact restore retry is still pending")) {
         throw new Error("Retryable delivery was not surfaced");
       }
     });
@@ -296,12 +284,7 @@ describe("canonical Page history panel", () => {
     });
 
     const view = render(
-      <HistoryPanel
-        projectId="project-1"
-        pageId="card-1"
-        open
-        onClose={() => undefined}
-      />,
+      <HistoryPanel projectId="project-1" pageId="card-1" open onClose={() => undefined} />,
     );
     await selectCheckpoint(view);
     await act(async () => {
@@ -367,12 +350,7 @@ describe("canonical Page history panel", () => {
     });
 
     const view = render(
-      <HistoryPanel
-        projectId="project-1"
-        pageId="card-1"
-        open
-        onClose={() => undefined}
-      />,
+      <HistoryPanel projectId="project-1" pageId="card-1" open onClose={() => undefined} />,
     );
     const activityButton = await view.findByRole("button", { name: "Activity" });
     await act(async () => {
@@ -405,10 +383,7 @@ describe("canonical Page history panel", () => {
     const mutation = makeMutationEntry();
     const relocation = makeRelocationEntry();
 
-    const merged = mergePageHistoryEntries(
-      [mutation],
-      [mutation, relocation],
-    );
+    const merged = mergePageHistoryEntries([mutation], [mutation, relocation]);
 
     expect(merged.length).toBe(2);
     expect(merged[0]?.id).toBe(mutation.id);
@@ -417,10 +392,7 @@ describe("canonical Page history panel", () => {
 });
 
 function setHistoryPanelApi(
-  handler: (
-    operation: HistoryPanelApiOperation,
-    ...args: unknown[]
-  ) => Promise<unknown> | unknown,
+  handler: (operation: HistoryPanelApiOperation, ...args: unknown[]) => Promise<unknown> | unknown,
 ): void {
   (globalThis as { __historyPanelApi?: typeof handler }).__historyPanelApi = handler;
 }
@@ -559,9 +531,7 @@ function makeVersionDetail(): DocumentVersionDetail {
       kind: "page",
       schemaVersion: 1,
       title: "Checkpoint title",
-      richTitle: [
-        { type: "text", text: "Checkpoint title", styles: {} },
-      ],
+      richTitle: [{ type: "text", text: "Checkpoint title", styles: {} }],
       blockTree: [],
       nfm: "Checkpoint body",
       plainText: "Checkpoint body",

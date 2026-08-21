@@ -27,8 +27,7 @@ describe("Review diff expansion", () => {
     expect(withOneExpanded.allDiffsExpanded).toBe(false);
     expect(isReviewDiffExpanded(withOneExpanded, "src/a.ts")).toBe(true);
     expect(isReviewDiffExpanded(withOneExpanded, "src/b.ts")).toBe(false);
-    expect(toggleReviewDiffExpanded(withOneExpanded, "src/a.ts"))
-      .toEqual(collapsed);
+    expect(toggleReviewDiffExpanded(withOneExpanded, "src/a.ts")).toEqual(collapsed);
   });
 
   test("makes newly arriving files inherit the current collapse-all state", () => {
@@ -45,16 +44,11 @@ describe("Review diff expansion", () => {
 
   test("supports intrinsically collapsed rows without changing the global action", () => {
     const state = buildExpansionState();
-    const expandedDeletedFile = toggleReviewDiffExpanded(
-      state,
-      "src/deleted.ts",
-      false,
-    );
+    const expandedDeletedFile = toggleReviewDiffExpanded(state, "src/deleted.ts", false);
 
     expect(isReviewDiffExpanded(state, "src/deleted.ts", false)).toBe(false);
     expect(expandedDeletedFile.allDiffsExpanded).toBe(true);
-    expect(isReviewDiffExpanded(expandedDeletedFile, "src/deleted.ts", false))
-      .toBe(true);
+    expect(isReviewDiffExpanded(expandedDeletedFile, "src/deleted.ts", false)).toBe(true);
   });
 
   test("resets expansion on source changes and prunes overrides for removed files", () => {
@@ -65,20 +59,10 @@ describe("Review diff expansion", () => {
         { key: "src/removed.ts", expanded: true },
       ],
     });
-    const pruned = reconcileReviewDiffExpansionSource(
-      state,
-      "source:a",
-      new Set(["src/kept.ts"]),
-    );
-    const reset = reconcileReviewDiffExpansionSource(
-      pruned,
-      "source:b",
-      new Set(["src/kept.ts"]),
-    );
+    const pruned = reconcileReviewDiffExpansionSource(state, "source:a", new Set(["src/kept.ts"]));
+    const reset = reconcileReviewDiffExpansionSource(pruned, "source:b", new Set(["src/kept.ts"]));
 
-    expect(pruned.diffExpansionOverrides).toEqual([
-      { key: "src/kept.ts", expanded: true },
-    ]);
+    expect(pruned.diffExpansionOverrides).toEqual([{ key: "src/kept.ts", expanded: true }]);
     expect(reset).toEqual({
       allDiffsExpanded: true,
       diffExpansionOverrides: [],

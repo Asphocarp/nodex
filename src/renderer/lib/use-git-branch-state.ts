@@ -20,35 +20,38 @@ export function useGitBranchState(
   const normalizedCwd = cwd?.trim() ?? "";
   const enabled = options.enabled !== false && normalizedCwd.length > 0;
   const metadata = useQuery({
-    ...(options.watch === true ? createGitLiveWorkerQuery({
-      method: "stable-metadata",
-      params: { cwd: normalizedCwd },
-    }) : createGitWorkerQuery({
-      method: "stable-metadata",
-      params: { cwd: normalizedCwd },
-    })),
+    ...(options.watch === true
+      ? createGitLiveWorkerQuery({
+          method: "stable-metadata",
+          params: { cwd: normalizedCwd },
+        })
+      : createGitWorkerQuery({
+          method: "stable-metadata",
+          params: { cwd: normalizedCwd },
+        })),
     enabled,
   });
   const repository = useMemo<GitQueryRepositoryIdentity | null>(() => {
-    if (
-      !metadata.data?.isGitRepository
-      || !metadata.data.commonDir
-      || !metadata.data.root
-    ) return null;
+    if (!metadata.data?.isGitRepository || !metadata.data.commonDir || !metadata.data.root)
+      return null;
     return {
       hostId: "local",
       commonDir: metadata.data.commonDir,
       root: metadata.data.root,
     };
   }, [metadata.data]);
-  const branchInput = useMemo(() => ({
-    method: "branch-metadata" as const,
-    params: { cwd: repository?.root ?? normalizedCwd },
-    repository,
-  }), [normalizedCwd, repository]);
-  const branchOptions = options.watch === true
-    ? createGitLiveWorkerQuery(branchInput)
-    : createGitWorkerQuery(branchInput);
+  const branchInput = useMemo(
+    () => ({
+      method: "branch-metadata" as const,
+      params: { cwd: repository?.root ?? normalizedCwd },
+      repository,
+    }),
+    [normalizedCwd, repository],
+  );
+  const branchOptions =
+    options.watch === true
+      ? createGitLiveWorkerQuery(branchInput)
+      : createGitWorkerQuery(branchInput);
   const branch = useQuery({
     ...branchOptions,
     enabled: enabled && repository !== null,

@@ -7,11 +7,7 @@ import {
   getThreadUserMessageNavigationVisibleOutputs,
 } from "./thread-user-message-navigation-items";
 
-function buildUserItem(
-  turnId: string,
-  index: number,
-  markdownText: string,
-): CodexConversationItem {
+function buildUserItem(turnId: string, index: number, markdownText: string): CodexConversationItem {
   return {
     threadId: "thread_1",
     turnId,
@@ -60,7 +56,9 @@ function buildFileChangeItem(turnId: string): CodexConversationItem {
     semanticKind: "patch",
     status: "completed",
     fileChange: {
-      changes: buildCodexFileChangeMap([{ type: "add", path: "src/app.ts", content: "export {};" }]),
+      changes: buildCodexFileChangeMap([
+        { type: "add", path: "src/app.ts", content: "export {};" },
+      ]),
       label: "src/app.ts",
     },
     createdAt: 3,
@@ -186,7 +184,10 @@ function buildTurn(turnId: string, items: CodexConversationItem[]): CodexConvers
   };
 }
 
-function buildEntry(turn: CodexConversationTurn, isMostRecentTurn = false): VisibleConversationTurnEntry {
+function buildEntry(
+  turn: CodexConversationTurn,
+  isMostRecentTurn = false,
+): VisibleConversationTurnEntry {
   const turnKey = turn.turnId ?? "turn-index-0";
   return {
     turn,
@@ -202,10 +203,13 @@ describe("thread user message navigation items", () => {
   test("builds one rail item for each rendered user message", () => {
     const entries = [1, 2, 3, 4].map((index) => {
       const turnId = `turn_${index}`;
-      return buildEntry(buildTurn(turnId, [
-        buildUserItem(turnId, 1, `Message ${index}`),
-        buildAssistantItem(turnId, 2, `Answer ${index}`),
-      ]), index === 4);
+      return buildEntry(
+        buildTurn(turnId, [
+          buildUserItem(turnId, 1, `Message ${index}`),
+          buildAssistantItem(turnId, 2, `Answer ${index}`),
+        ]),
+        index === 4,
+      );
     });
 
     const items = buildThreadUserMessageNavigationItems(entries);
@@ -220,14 +224,18 @@ describe("thread user message navigation items", () => {
 
   test("uses Codex-compatible labels for empty and implement-plan prompts", () => {
     const items = buildThreadUserMessageNavigationItems([
-      buildEntry(buildTurn("turn_empty", [
-        buildUserItem("turn_empty", 1, ""),
-        buildAssistantItem("turn_empty", 2, "Empty handled"),
-      ])),
-      buildEntry(buildTurn("turn_plan", [
-        buildUserItem("turn_plan", 1, "PLEASE IMPLEMENT THIS PLAN:\n- ship it"),
-        buildAssistantItem("turn_plan", 2, "Plan implemented"),
-      ])),
+      buildEntry(
+        buildTurn("turn_empty", [
+          buildUserItem("turn_empty", 1, ""),
+          buildAssistantItem("turn_empty", 2, "Empty handled"),
+        ]),
+      ),
+      buildEntry(
+        buildTurn("turn_plan", [
+          buildUserItem("turn_plan", 1, "PLEASE IMPLEMENT THIS PLAN:\n- ship it"),
+          buildAssistantItem("turn_plan", 2, "Plan implemented"),
+        ]),
+      ),
     ]);
 
     expect(items[0]?.label).toBe("(No content)");
@@ -237,12 +245,14 @@ describe("thread user message navigation items", () => {
 
   test("keeps later user messages addressable inside the same turn", () => {
     const items = buildThreadUserMessageNavigationItems([
-      buildEntry(buildTurn("turn_multi", [
-        buildUserItem("turn_multi", 1, "First request"),
-        buildAssistantItem("turn_multi", 2, "First answer"),
-        buildUserItem("turn_multi", 3, "Follow-up"),
-        buildAssistantItem("turn_multi", 4, "Second answer"),
-      ])),
+      buildEntry(
+        buildTurn("turn_multi", [
+          buildUserItem("turn_multi", 1, "First request"),
+          buildAssistantItem("turn_multi", 2, "First answer"),
+          buildUserItem("turn_multi", 3, "Follow-up"),
+          buildAssistantItem("turn_multi", 4, "Second answer"),
+        ]),
+      ),
     ]);
 
     expect(items.length).toBe(2);
@@ -253,15 +263,17 @@ describe("thread user message navigation items", () => {
   test("sorts, dedupes, and caps output pills", () => {
     const turnId = "turn_outputs";
     const items = buildThreadUserMessageNavigationItems([
-      buildEntry(buildTurn(turnId, [
-        buildUserItem(turnId, 1, "Create outputs"),
-        buildMcpAppItem(turnId),
-        buildWebsiteItem(turnId),
-        buildFileChangeItem(turnId),
-        buildImageItem(turnId),
-        buildGitItem(turnId, "commit_1", "::git-commit{cwd=\"/tmp\"}"),
-        buildGitItem(turnId, "pr_1", "::git-create-pr{url=\"https://example.com/pr\"}"),
-      ])),
+      buildEntry(
+        buildTurn(turnId, [
+          buildUserItem(turnId, 1, "Create outputs"),
+          buildMcpAppItem(turnId),
+          buildWebsiteItem(turnId),
+          buildFileChangeItem(turnId),
+          buildImageItem(turnId),
+          buildGitItem(turnId, "commit_1", '::git-commit{cwd="/tmp"}'),
+          buildGitItem(turnId, "pr_1", '::git-create-pr{url="https://example.com/pr"}'),
+        ]),
+      ),
     ]);
 
     const outputs = items[0]?.outputs ?? [];

@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { APP_TEST_SUITES, STATIC_GROUPS } from "./ci-gate-plan";
-import {
-  buildChangeClassificationDocument,
-  classifyChangedPaths,
-} from "./classify-change";
+import { buildChangeClassificationDocument, classifyChangedPaths } from "./classify-change";
 
 describe("CI change classification", () => {
   test("keeps documentation out of executable gates", () => {
@@ -35,8 +32,14 @@ describe("CI change classification", () => {
   });
 
   test("routes the exact release metadata set to the narrow transition guard", () => {
-    expect(classifyChangedPaths(["Cargo.lock", "Cargo.toml", "CHANGELOG.md", "package.json"]))
-      .toMatchObject({ releaseTransition: true, rustFast: false, staticGroups: [], testMode: "none" });
+    expect(
+      classifyChangedPaths(["Cargo.lock", "Cargo.toml", "CHANGELOG.md", "package.json"]),
+    ).toMatchObject({
+      releaseTransition: true,
+      rustFast: false,
+      staticGroups: [],
+      testMode: "none",
+    });
   });
 
   test("uses Vitest related selection for ordinary application source", () => {
@@ -83,15 +86,20 @@ describe("CI change classification", () => {
   });
 
   test("leaves explicit stress tests to their nightly owner", () => {
-    expect(classifyChangedPaths(["src/main/git-worker/example.stress.test.ts"]))
-      .toMatchObject({ appTestSuites: [], staticGroups: ["types", "repository-contracts"], testMode: "none" });
+    expect(classifyChangedPaths(["src/main/git-worker/example.stress.test.ts"])).toMatchObject({
+      appTestSuites: [],
+      staticGroups: ["types", "repository-contracts"],
+      testMode: "none",
+    });
   });
 
   test("routes Rust and protocol ownership without UI, stress, or macOS gates", () => {
-    expect(classifyChangedPaths(["crates/nodex-core/src/database/relation_projection.rs"]))
-      .toMatchObject({ appTestSuites: [], rustFast: true, rustMigration: false, testMode: "none" });
-    expect(classifyChangedPaths(["crates/nodex-core/src/infrastructure/migration.rs"]))
-      .toMatchObject({ rustFast: true, rustMigration: true });
+    expect(
+      classifyChangedPaths(["crates/nodex-core/src/database/relation_projection.rs"]),
+    ).toMatchObject({ appTestSuites: [], rustFast: true, rustMigration: false, testMode: "none" });
+    expect(
+      classifyChangedPaths(["crates/nodex-core/src/infrastructure/migration.rs"]),
+    ).toMatchObject({ rustFast: true, rustMigration: true });
     expect(classifyChangedPaths(["src/main/core-client/core-client.ts"])).toMatchObject({
       appTestSuites: ["core-client", "main", "integration"],
       protocolContracts: true,
@@ -110,23 +118,30 @@ describe("CI change classification", () => {
       staticGroups: STATIC_GROUPS,
       testMode: "full",
     });
-    expect(classifyChangedPaths(["Cargo.lock", "crates/nodex-core/Cargo.toml"]))
-      .toMatchObject({
-        appTestSuites: [],
-        dependencyKind: "rust",
-        rustFast: true,
-        rustMigration: true,
-        testMode: "none",
-      });
+    expect(classifyChangedPaths(["Cargo.lock", "crates/nodex-core/Cargo.toml"])).toMatchObject({
+      appTestSuites: [],
+      dependencyKind: "rust",
+      rustFast: true,
+      rustMigration: true,
+      testMode: "none",
+    });
   });
 
   test("routes local actions to their remaining consumers", () => {
-    expect(classifyChangedPaths([".github/actions/run-stress-tests/action.yml"]))
-      .toMatchObject({ appTestSuites: [], rustFast: false, staticGroups: ["ci-contracts"] });
-    expect(classifyChangedPaths([".github/actions/setup-playwright/action.yml"]))
-      .toMatchObject({ appTestSuites: ["browser"], testMode: "full" });
-    expect(classifyChangedPaths([".github/actions/setup-rust-ci/action.yml"]))
-      .toMatchObject({ appTestSuites: [], protocolContracts: true, rustFast: true });
+    expect(classifyChangedPaths([".github/actions/run-stress-tests/action.yml"])).toMatchObject({
+      appTestSuites: [],
+      rustFast: false,
+      staticGroups: ["ci-contracts"],
+    });
+    expect(classifyChangedPaths([".github/actions/setup-playwright/action.yml"])).toMatchObject({
+      appTestSuites: ["browser"],
+      testMode: "full",
+    });
+    expect(classifyChangedPaths([".github/actions/setup-rust-ci/action.yml"])).toMatchObject({
+      appTestSuites: [],
+      protocolContracts: true,
+      rustFast: true,
+    });
   });
 
   test("routes CI orchestration to contracts and only exercises changed reusable owners", () => {
@@ -191,10 +206,10 @@ describe("CI change classification", () => {
   });
 
   test("does not publish an affected-path closure for explicit full gates", () => {
-    const document = buildChangeClassificationDocument([
-      "crates/nodex-core/src/lib.rs",
-      "src/renderer/app.tsx",
-    ], { full: true });
+    const document = buildChangeClassificationDocument(
+      ["crates/nodex-core/src/lib.rs", "src/renderer/app.tsx"],
+      { full: true },
+    );
 
     expect(document.changedPaths).toEqual([]);
     expect(document.plan).toMatchObject({

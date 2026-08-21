@@ -25,10 +25,7 @@ export function clearBrowserDocumentBottom(identity: BrowserSidebarTabIdentity) 
   documentBottomByTabId.delete(key);
 }
 
-function subscribeBrowserDocumentBottom(
-  browserTabId: string | null,
-  listener: () => void,
-) {
+function subscribeBrowserDocumentBottom(browserTabId: string | null, listener: () => void) {
   if (!browserTabId) return () => {};
 
   const listeners = listenersByTabId.get(browserTabId) ?? new Set();
@@ -41,20 +38,14 @@ function subscribeBrowserDocumentBottom(
 }
 
 function readBrowserDocumentBottom(browserTabId: string | null) {
-  return browserTabId
-    ? documentBottomByTabId.get(browserTabId) ?? false
-    : false;
+  return browserTabId ? (documentBottomByTabId.get(browserTabId) ?? false) : false;
 }
 
-export function getBrowserDocumentBottomKey(
-  identity: BrowserSidebarTabIdentity | null,
-) {
+export function getBrowserDocumentBottomKey(identity: BrowserSidebarTabIdentity | null) {
   return identity ? makeBrowserSidebarTabKey(identity) : null;
 }
 
-export function useBrowserDocumentBottom(
-  identity: BrowserSidebarTabIdentity | null,
-) {
+export function useBrowserDocumentBottom(identity: BrowserSidebarTabIdentity | null) {
   const key = getBrowserDocumentBottomKey(identity);
   return useSyncExternalStore(
     (listener) => subscribeBrowserDocumentBottom(key, listener),

@@ -43,9 +43,7 @@ export interface BrowserNativeCapabilityProbe {
   };
 }
 
-function available(
-  provider: BrowserNativeCapabilityProvider,
-): BrowserNativeCapability {
+function available(provider: BrowserNativeCapabilityProvider): BrowserNativeCapability {
   return { available: true, provider };
 }
 
@@ -62,9 +60,9 @@ export function probeBrowserNativeCapabilities(
 ): BrowserNativeCapabilities {
   const history = probe.webContents?.navigationHistory;
   const navigationHistoryRestore =
-    hasFunction(history?.getAllEntries)
-    && hasFunction(history?.getActiveIndex)
-    && hasFunction(history?.restore)
+    hasFunction(history?.getAllEntries) &&
+    hasFunction(history?.getActiveIndex) &&
+    hasFunction(history?.restore)
       ? available("electron-public-api")
       : unavailable("Electron navigationHistory.restore is unavailable");
   const cookies = probe.electronSession?.cookies;
@@ -81,26 +79,26 @@ export function probeBrowserNativeCapabilities(
     livePopupTransfer: unavailable(
       "Stock Electron cannot adopt a live popup WebContents without reload",
     ),
-    profileCookiesImport: profileCookiesImport.available
-      && probe.profileImportProviderAvailable === true
-      ? profileCookiesImport
-      : unavailable("Profile import provider is unavailable"),
+    profileCookiesImport:
+      profileCookiesImport.available && probe.profileImportProviderAvailable === true
+        ? profileCookiesImport
+        : unavailable("Profile import provider is unavailable"),
     profilePasswordsImport:
-      probe.safeStorageEncryptionAvailable
-      && probe.profileImportProviderAvailable === true
-      ? available("nodex-profile-import")
-      : unavailable("Encrypted credential storage is unavailable"),
+      probe.safeStorageEncryptionAvailable && probe.profileImportProviderAvailable === true
+        ? available("nodex-profile-import")
+        : unavailable("Encrypted credential storage is unavailable"),
     passwordAutofill:
-      probe.safeStorageEncryptionAvailable
-      && probe.credentialVaultProviderAvailable === true
-      ? available("nodex-encrypted-vault")
-      : unavailable("Encrypted credential storage is unavailable"),
-    nativeDownloadHistory: probe.downloadStoreAvailable === true
-      ? available("nodex-download-store")
-      : unavailable("Nodex download history store is unavailable"),
-    siteInfo: probe.siteInfoProviderAvailable === true
-      ? available("electron-public-api")
-      : unavailable("Site information provider is unavailable"),
+      probe.safeStorageEncryptionAvailable && probe.credentialVaultProviderAvailable === true
+        ? available("nodex-encrypted-vault")
+        : unavailable("Encrypted credential storage is unavailable"),
+    nativeDownloadHistory:
+      probe.downloadStoreAvailable === true
+        ? available("nodex-download-store")
+        : unavailable("Nodex download history store is unavailable"),
+    siteInfo:
+      probe.siteInfoProviderAvailable === true
+        ? available("electron-public-api")
+        : unavailable("Site information provider is unavailable"),
     extensions: probe.electronSession?.extensions
       ? available("electron-public-api")
       : unavailable("Electron session extensions API is unavailable"),

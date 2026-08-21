@@ -117,7 +117,9 @@ function inferMimeType(filePath: string): string | null {
 
 function hasBinaryExtension(filePath: string): boolean {
   const extension = getExtension(filePath);
-  return extension.length > 0 && BINARY_EXTENSIONS.has(extension) && !TEXT_EXTENSIONS.has(extension);
+  return (
+    extension.length > 0 && BINARY_EXTENSIONS.has(extension) && !TEXT_EXTENSIONS.has(extension)
+  );
 }
 
 function resolveSkipReason(input: {
@@ -145,19 +147,22 @@ export function buildReviewFileSafety(input?: {
   const binary = input?.binary === true;
   const tooLarge = input?.tooLarge === true;
   const invalidText = input?.invalidText === true;
-  const skipReason = input?.skipReason ?? resolveSkipReason({
-    binary,
-    tooLarge,
-    invalidText,
-    unsupported: input?.unsupported,
-  });
+  const skipReason =
+    input?.skipReason ??
+    resolveSkipReason({
+      binary,
+      tooLarge,
+      invalidText,
+      unsupported: input?.unsupported,
+    });
 
   return {
     binary,
     tooLarge,
     invalidText,
     renderable: skipReason === null,
-    sizeBytes: typeof input?.sizeBytes === "number" && input.sizeBytes >= 0 ? input.sizeBytes : null,
+    sizeBytes:
+      typeof input?.sizeBytes === "number" && input.sizeBytes >= 0 ? input.sizeBytes : null,
     mimeType: input?.mimeType ?? null,
     skipReason,
   };
@@ -188,9 +193,10 @@ export function classifyReviewTextPayload(input: {
 }): ReviewFileSafety {
   const sizeBytes = byteLength(input.text);
   const mimeType = input.mimeType ?? inferMimeType(input.path);
-  const binary = hasBinaryExtension(input.path)
-    || input.text.includes("GIT binary patch")
-    || /^Binary files .+ differ$/m.test(input.text);
+  const binary =
+    hasBinaryExtension(input.path) ||
+    input.text.includes("GIT binary patch") ||
+    /^Binary files .+ differ$/m.test(input.text);
   const tooLarge = sizeBytes > (input.maxBytes ?? REVIEW_RENDERABLE_TEXT_MAX_BYTES);
   const invalidText = looksLikeInvalidText(input.text);
 
@@ -215,13 +221,15 @@ export function classifyReviewFileMetadata(input: {
   const mimeType = input.mimeType ?? inferMimeType(input.path);
   const binaryFromStats = input.additions === null || input.deletions === null;
   const binary = binaryFromStats || hasBinaryExtension(input.path);
-  const sizeBytes = typeof input.sizeBytes === "number" && input.sizeBytes >= 0
-    ? input.sizeBytes
-    : input.diffText
-      ? byteLength(input.diffText)
-      : null;
-  const tooLarge = typeof sizeBytes === "number"
-    && sizeBytes > (input.maxBytes ?? REVIEW_RENDERABLE_TEXT_MAX_BYTES);
+  const sizeBytes =
+    typeof input.sizeBytes === "number" && input.sizeBytes >= 0
+      ? input.sizeBytes
+      : input.diffText
+        ? byteLength(input.diffText)
+        : null;
+  const tooLarge =
+    typeof sizeBytes === "number" &&
+    sizeBytes > (input.maxBytes ?? REVIEW_RENDERABLE_TEXT_MAX_BYTES);
   const invalidText = input.diffText ? looksLikeInvalidText(input.diffText) : false;
 
   return buildReviewFileSafety({

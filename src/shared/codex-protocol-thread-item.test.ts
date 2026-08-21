@@ -23,18 +23,22 @@ describe("generated Codex ThreadItem runtime boundary", () => {
   });
 
   it("rejects an invalid nested field", () => {
-    expect(isCodexProtocolThreadItem({
-      type: "userMessage",
-      id: "user-1",
-      clientId: null,
-      content: [{ type: "text", text: 42, text_elements: [] }],
-    })).toBe(false);
+    expect(
+      isCodexProtocolThreadItem({
+        type: "userMessage",
+        id: "user-1",
+        clientId: null,
+        content: [{ type: "text", text: 42, text_elements: [] }],
+      }),
+    ).toBe(false);
   });
 
   it("rejects an unknown variant instead of casting it into the generated union", () => {
-    expect(parseCodexProtocolThreadItem({
-      type: "futureItem",
-      id: "future-1",
-    })).toBeNull();
+    expect(
+      parseCodexProtocolThreadItem({
+        type: "futureItem",
+        id: "future-1",
+      }),
+    ).toBeNull();
   });
 });

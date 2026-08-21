@@ -149,8 +149,8 @@ function normalizeEnvironmentName(value: unknown, absolutePath: string): string 
 
 function normalizeActionIcon(value: unknown): WorktreeEnvironmentActionIcon | null {
   if (
-    typeof value === "string"
-    && WORKTREE_ENVIRONMENT_ACTION_ICONS.includes(value as WorktreeEnvironmentActionIcon)
+    typeof value === "string" &&
+    WORKTREE_ENVIRONMENT_ACTION_ICONS.includes(value as WorktreeEnvironmentActionIcon)
   ) {
     return value as WorktreeEnvironmentActionIcon;
   }
@@ -161,8 +161,8 @@ function normalizeActionIcon(value: unknown): WorktreeEnvironmentActionIcon | nu
 function normalizeActionPlatform(value: unknown): WorktreeEnvironmentPlatform | null {
   if (value === undefined) return null;
   if (
-    typeof value === "string"
-    && WORKTREE_ENVIRONMENT_PLATFORMS.includes(value as WorktreeEnvironmentPlatform)
+    typeof value === "string" &&
+    WORKTREE_ENVIRONMENT_PLATFORMS.includes(value as WorktreeEnvironmentPlatform)
   ) {
     return value as WorktreeEnvironmentPlatform;
   }
@@ -183,12 +183,14 @@ function parseActions(value: unknown): WorktreeEnvironmentActionDefinition[] {
     const command = candidate.command.trim();
     if (!name || !command) return [];
 
-    return [{
-      name,
-      icon: normalizeActionIcon(candidate.icon),
-      command,
-      platform: normalizeActionPlatform(candidate.platform),
-    }];
+    return [
+      {
+        name,
+        icon: normalizeActionIcon(candidate.icon),
+        command,
+        platform: normalizeActionPlatform(candidate.platform),
+      },
+    ];
   });
 }
 
@@ -203,11 +205,7 @@ export function parseWorktreeEnvironmentToml(
 
   const source = parsed as ParsedEnvironmentToml;
   const parsedVersion = source.version === undefined ? 1 : source.version;
-  if (
-    typeof parsedVersion !== "number"
-    || !Number.isInteger(parsedVersion)
-    || parsedVersion < 1
-  ) {
+  if (typeof parsedVersion !== "number" || !Number.isInteger(parsedVersion) || parsedVersion < 1) {
     throw new Error("version must be a positive integer");
   }
   if (source.setup === undefined) throw new Error("setup is required");
@@ -215,9 +213,10 @@ export function parseWorktreeEnvironmentToml(
     version: parsedVersion,
     name: normalizeEnvironmentName(source.name, absolutePath),
     setup: parseScriptDefinition(source.setup, "setup"),
-    cleanup: source.cleanup === undefined
-      ? { script: null, platformScripts: {} }
-      : parseScriptDefinition(source.cleanup, "cleanup"),
+    cleanup:
+      source.cleanup === undefined
+        ? { script: null, platformScripts: {} }
+        : parseScriptDefinition(source.cleanup, "cleanup"),
     actions: parseActions(source.actions),
   };
 
@@ -231,9 +230,7 @@ function serializeTomlString(value: string): string {
 
   if (!normalized.includes("'''")) return `'''\n${normalized}'''`;
 
-  const escaped = normalized
-    .replace(/\\/g, "\\\\")
-    .replace(/"""/g, '\\"""');
+  const escaped = normalized.replace(/\\/g, "\\\\").replace(/"""/g, '\\"""');
   return `"""\n${escaped}"""`;
 }
 
@@ -256,10 +253,7 @@ function appendScriptSection(
 
   lines.push("");
   for (const [index, entry] of platformScripts.entries()) {
-    lines.push(
-      `[${section}.${entry.platform}]`,
-      `script = ${serializeTomlString(entry.script)}`,
-    );
+    lines.push(`[${section}.${entry.platform}]`, `script = ${serializeTomlString(entry.script)}`);
     if (index < platformScripts.length - 1) lines.push("");
   }
 }
@@ -272,9 +266,10 @@ export function serializeWorktreeEnvironmentDefinition(
   const name = environment.name.trim();
   if (!name) throw new Error("Environment name is required");
 
-  const version = Number.isFinite(environment.version) && environment.version > 0
-    ? Math.trunc(environment.version)
-    : 1;
+  const version =
+    Number.isFinite(environment.version) && environment.version > 0
+      ? Math.trunc(environment.version)
+      : 1;
   const actions = environment.actions.flatMap((action) => {
     const normalizedName = action.name.trim();
     const command = action.command.trim();
@@ -292,10 +287,7 @@ export function serializeWorktreeEnvironmentDefinition(
   if (actions.length > 0) lines.push("");
 
   for (const action of actions) {
-    lines.push(
-      "[[actions]]",
-      `name = ${serializeTomlString(action.name)}`,
-    );
+    lines.push("[[actions]]", `name = ${serializeTomlString(action.name)}`);
     if (action.icon) lines.push(`icon = ${serializeTomlString(action.icon)}`);
     lines.push(`command = ${serializeTomlString(action.command)}`);
     if (action.platform !== null) {

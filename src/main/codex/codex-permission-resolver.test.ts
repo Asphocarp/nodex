@@ -40,9 +40,7 @@ function buildConfig(
   } as ConfigReadResponse["config"];
 }
 
-function buildRequirements(
-  overrides?: Partial<ConfigRequirements>,
-): ConfigRequirements {
+function buildRequirements(overrides?: Partial<ConfigRequirements>): ConfigRequirements {
   return {
     allowedApprovalPolicies: null,
     allowedApprovalsReviewers: null,

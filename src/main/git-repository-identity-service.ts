@@ -62,18 +62,18 @@ function runGitCommand(
 function isNotGitRepositoryError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
-  const stderr = "stderr" in error && typeof error.stderr === "string"
-    ? error.stderr
-    : "";
+  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
   return `${error.message}\n${stderr}`.toLowerCase().includes("not a git repository");
 }
 
-async function readRemoteUrl(
-  repositoryRoot: string,
-  signal?: AbortSignal,
-): Promise<string | null> {
+async function readRemoteUrl(repositoryRoot: string, signal?: AbortSignal): Promise<string | null> {
   const remoteList: string[] = await runGitCommand(["remote"], repositoryRoot, signal)
-    .then(({ stdout }) => stdout.split(/\r?\n/).map((remote) => remote.trim()).filter(Boolean))
+    .then(({ stdout }) =>
+      stdout
+        .split(/\r?\n/)
+        .map((remote) => remote.trim())
+        .filter(Boolean),
+    )
     .catch((error) => {
       signal?.throwIfAborted();
       if (error instanceof Error && error.name === "AbortError") throw error;

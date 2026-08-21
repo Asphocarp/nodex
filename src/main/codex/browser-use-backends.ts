@@ -6,7 +6,6 @@ export function resolveAvailableBrowserUseBackends(
 ): BrowserRuntimeBackend[] {
   const supported = new Set(supportedBackends);
   return requestedBackends.filter(
-    (backend, index) =>
-      supported.has(backend) && requestedBackends.indexOf(backend) === index,
+    (backend, index) => supported.has(backend) && requestedBackends.indexOf(backend) === index,
   );
 }

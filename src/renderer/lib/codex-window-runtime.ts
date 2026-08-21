@@ -13,7 +13,9 @@ export function resolveCodexRendererOsFromText(platformText: string): CodexRende
   return "unknown";
 }
 
-export function resolveCodexRendererOs(navigatorLike: Pick<Navigator, "platform" | "userAgent"> = navigator): CodexRendererOs {
+export function resolveCodexRendererOs(
+  navigatorLike: Pick<Navigator, "platform" | "userAgent"> = navigator,
+): CodexRendererOs {
   const platform = navigatorLike.platform || navigatorLike.userAgent || "";
   return resolveCodexRendererOsFromText(platform);
 }
@@ -29,7 +31,9 @@ export function resolveCodexRendererWindowChrome(
 
 function isCompactRoute(route: string): boolean {
   if (route === "/avatar-overlay") return true;
-  return COMPACT_ROUTE_PREFIXES.some((prefix) => route === prefix || route.startsWith(`${prefix}/`));
+  return COMPACT_ROUTE_PREFIXES.some(
+    (prefix) => route === prefix || route.startsWith(`${prefix}/`),
+  );
 }
 
 function normalizeInitialRoute(route: string | null): string | null {

@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
-import { AutomaticApprovalReviewRow, AutomaticApprovalReviewSurface } from "./automatic-approval-review-surface";
+import {
+  AutomaticApprovalReviewRow,
+  AutomaticApprovalReviewSurface,
+} from "./automatic-approval-review-surface";
 
 function buildReviewItem(overrides?: Partial<CodexConversationItem>): CodexConversationItem {
   return {
@@ -60,8 +63,10 @@ describe("AutomaticApprovalReviewSurface", () => {
     });
     expect(disclosureBody(trigger)?.getAttribute("aria-hidden")).toBe("false");
 
-    const reviewTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"))
-      .find((button) => textContent(button).includes("Auto-review approved")) ?? null;
+    const reviewTrigger =
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")).find(
+        (button) => textContent(button).includes("Auto-review approved"),
+      ) ?? null;
     expect(reviewTrigger === null).toBe(false);
     expect(reviewTrigger?.getAttribute("aria-expanded") ?? "").toBe("false");
 
@@ -142,7 +147,9 @@ describe("AutomaticApprovalReviewSurface", () => {
 
   test("renders the compact non-expandable branch as title text only", () => {
     const item = buildReviewItem();
-    const { container, queryByRole } = render(<AutomaticApprovalReviewRow item={item} isExpandable={false} />);
+    const { container, queryByRole } = render(
+      <AutomaticApprovalReviewRow item={item} isExpandable={false} />,
+    );
 
     expect(queryByRole("button") === null).toBe(true);
     expect(textContent(container).includes("Auto-review approved")).toBe(true);

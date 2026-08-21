@@ -58,27 +58,35 @@ describe("local environment form model", () => {
     const valid = validateLocalEnvironmentDraft(draft);
     const base = { dirty: true, isSaving: false, ready: true, validation: valid };
 
-    expect(resolveLocalEnvironmentSaveDisabledReason({ ...base, isSaving: true, readError: true }))
-      .toBe("saving");
-    expect(resolveLocalEnvironmentSaveDisabledReason({ ...base, ready: false, projectError: true }))
-      .toBe("project-error");
-    expect(resolveLocalEnvironmentSaveDisabledReason({ ...base, ready: false }))
-      .toBe("loading-project");
-    expect(resolveLocalEnvironmentSaveDisabledReason({ ...base, readError: true }))
-      .toBe("read-error");
+    expect(
+      resolveLocalEnvironmentSaveDisabledReason({ ...base, isSaving: true, readError: true }),
+    ).toBe("saving");
+    expect(
+      resolveLocalEnvironmentSaveDisabledReason({ ...base, ready: false, projectError: true }),
+    ).toBe("project-error");
+    expect(resolveLocalEnvironmentSaveDisabledReason({ ...base, ready: false })).toBe(
+      "loading-project",
+    );
+    expect(resolveLocalEnvironmentSaveDisabledReason({ ...base, readError: true })).toBe(
+      "read-error",
+    );
 
     draft.name = "";
-    expect(resolveLocalEnvironmentSaveDisabledReason({
-      ...base,
-      validation: validateLocalEnvironmentDraft(draft),
-    })).toBe("missing-name");
+    expect(
+      resolveLocalEnvironmentSaveDisabledReason({
+        ...base,
+        validation: validateLocalEnvironmentDraft(draft),
+      }),
+    ).toBe("missing-name");
 
     draft.name = "Example";
     draft.actions = [{ ...createLocalEnvironmentDraftAction(), name: "Run" }];
-    expect(resolveLocalEnvironmentSaveDisabledReason({
-      ...base,
-      validation: validateLocalEnvironmentDraft(draft),
-    })).toBe("incomplete-action");
+    expect(
+      resolveLocalEnvironmentSaveDisabledReason({
+        ...base,
+        validation: validateLocalEnvironmentDraft(draft),
+      }),
+    ).toBe("incomplete-action");
     expect(resolveLocalEnvironmentSaveDisabledReason({ ...base, dirty: false })).toBe("no-changes");
     expect(resolveLocalEnvironmentSaveDisabledReason(base)).toBeNull();
   });
@@ -102,7 +110,8 @@ describe("local environment form model", () => {
     expect(readLocalEnvironmentPlatformSlot(next, "win32")).toBe("  windows\r\n");
 
     draft.setup = next;
-    expect(toPersistedLocalEnvironmentDefinition(draft).setup.platformScripts.win32)
-      .toBe("  windows\r\n");
+    expect(toPersistedLocalEnvironmentDefinition(draft).setup.platformScripts.win32).toBe(
+      "  windows\r\n",
+    );
   });
 });

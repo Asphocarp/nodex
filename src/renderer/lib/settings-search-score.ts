@@ -18,7 +18,10 @@ class CombinedMatcher {
   matchingDegree(candidate: string): number {
     const mainMatch = this.mainMatcher.match(candidate);
     if (mainMatch !== null) {
-      return addStartMatchBonus(this.mainMatcher.matchingDegree(candidate, false, mainMatch), mainMatch);
+      return addStartMatchBonus(
+        this.mainMatcher.matchingDegree(candidate, false, mainMatch),
+        mainMatch,
+      );
     }
 
     if (this.fallbackMatcher === null) return NO_MATCH;
@@ -159,9 +162,11 @@ class PatternMatcher {
     }
 
     const firstOffset = firstMatch.startOffset;
-    const hasPreviousHardSeparator = indexOfAny(candidate, this.hardSeparators, 0, firstOffset) >= 0;
+    const hasPreviousHardSeparator =
+      indexOfAny(candidate, this.hardSeparators, 0, firstOffset) >= 0;
     const beginsAtWordStart =
-      firstOffset === 0 || (isWordStart(candidate, firstOffset) && !isWordStart(candidate, firstOffset - 1));
+      firstOffset === 0 ||
+      (isWordStart(candidate, firstOffset) && !isWordStart(candidate, firstOffset - 1));
     const endsAtCandidateEnd = match[match.length - 1].endOffset === candidate.length;
 
     return (
@@ -218,7 +223,8 @@ class PatternMatcher {
       return 0;
     }
 
-    if (isWordStartCandidate || (this.isLowerCase[patternIndex] && previousWasUpperPattern)) return -1;
+    if (isWordStartCandidate || (this.isLowerCase[patternIndex] && previousWasUpperPattern))
+      return -1;
     return 0;
   }
 
@@ -250,13 +256,19 @@ class PatternMatcher {
       : null;
   }
 
-  private matchWildcards(candidate: string, patternIndex: number, candidateIndex: number): MatchRange[] | null {
+  private matchWildcards(
+    candidate: string,
+    patternIndex: number,
+    candidateIndex: number,
+  ): MatchRange[] | null {
     let index = patternIndex;
 
     if (candidateIndex < 0) return null;
 
     if (!this.isWildcard(index)) {
-      return index === this.myPattern.length ? [] : this.matchFragment(candidate, index, candidateIndex);
+      return index === this.myPattern.length
+        ? []
+        : this.matchFragment(candidate, index, candidateIndex);
     }
 
     do {
@@ -321,7 +333,12 @@ class PatternMatcher {
           longestFragment = fragmentLength;
         }
 
-        const insideMatch = this.matchInsideFragment(candidate, patternIndex, index, fragmentLength);
+        const insideMatch = this.matchInsideFragment(
+          candidate,
+          patternIndex,
+          index,
+          fragmentLength,
+        );
         if (insideMatch !== null) return insideMatch;
       }
 
@@ -334,7 +351,11 @@ class PatternMatcher {
     return null;
   }
 
-  private findNextPatternCharOccurrence(candidate: string, candidateIndex: number, patternIndex: number): number {
+  private findNextPatternCharOccurrence(
+    candidate: string,
+    candidateIndex: number,
+    patternIndex: number,
+  ): number {
     return !this.isPatternChar(patternIndex - 1, "*") && !this.isWordSeparator[patternIndex]
       ? this.indexOfWordStart(candidate, patternIndex, candidateIndex)
       : this.indexOfIgnoreCase(candidate, candidateIndex, patternIndex);
@@ -361,35 +382,72 @@ class PatternMatcher {
     return candidateIndex;
   }
 
-  private seemsLikeFragmentStart(candidate: string, patternIndex: number, candidateIndex: number): boolean {
-    if (!this.isUpperCase[patternIndex] || isUpperCase(candidate[candidateIndex]) || isWordStart(candidate, candidateIndex)) {
+  private seemsLikeFragmentStart(
+    candidate: string,
+    patternIndex: number,
+    candidateIndex: number,
+  ): boolean {
+    if (
+      !this.isUpperCase[patternIndex] ||
+      isUpperCase(candidate[candidateIndex]) ||
+      isWordStart(candidate, candidateIndex)
+    ) {
       return true;
     }
 
     return !this.mixedCase && this.matchingMode !== "MATCH_CASE";
   }
 
-  private charEquals(patternChar: string, patternIndex: number, candidateChar: string, ignoreCase: boolean): boolean {
+  private charEquals(
+    patternChar: string,
+    patternIndex: number,
+    candidateChar: string,
+    ignoreCase: boolean,
+  ): boolean {
     if (patternChar === candidateChar) return true;
     if (!ignoreCase) return false;
-    return this.toLowerCase[patternIndex] === candidateChar || this.toUpperCase[patternIndex] === candidateChar;
+    return (
+      this.toLowerCase[patternIndex] === candidateChar ||
+      this.toUpperCase[patternIndex] === candidateChar
+    );
   }
 
-  private matchFragment(candidate: string, patternIndex: number, candidateIndex: number): MatchRange[] | null {
+  private matchFragment(
+    candidate: string,
+    patternIndex: number,
+    candidateIndex: number,
+  ): MatchRange[] | null {
     const fragmentLength = this.maxMatchingFragment(candidate, patternIndex, candidateIndex);
-    return fragmentLength === 0 ? null : this.matchInsideFragment(candidate, patternIndex, candidateIndex, fragmentLength);
+    return fragmentLength === 0
+      ? null
+      : this.matchInsideFragment(candidate, patternIndex, candidateIndex, fragmentLength);
   }
 
-  private maxMatchingFragment(candidate: string, patternIndex: number, candidateIndex: number): number {
+  private maxMatchingFragment(
+    candidate: string,
+    patternIndex: number,
+    candidateIndex: number,
+  ): number {
     if (!this.isFirstCharMatching(candidate, candidateIndex, patternIndex)) return 0;
 
     let length = 1;
     const ignoreCase = this.matchingMode !== "MATCH_CASE";
 
-    while (candidateIndex + length < candidate.length && patternIndex + length < this.myPattern.length) {
+    while (
+      candidateIndex + length < candidate.length &&
+      patternIndex + length < this.myPattern.length
+    ) {
       const candidateChar = candidate[candidateIndex + length];
-      if (!this.charEquals(this.myPattern[patternIndex + length], patternIndex + length, candidateChar, ignoreCase)) {
-        if (this.isSkippingDigitBetweenPatternDigits(patternIndex + length, candidateChar)) return 0;
+      if (
+        !this.charEquals(
+          this.myPattern[patternIndex + length],
+          patternIndex + length,
+          candidateChar,
+          ignoreCase,
+        )
+      ) {
+        if (this.isSkippingDigitBetweenPatternDigits(patternIndex + length, candidateChar))
+          return 0;
         break;
       }
 
@@ -399,8 +457,15 @@ class PatternMatcher {
     return length;
   }
 
-  private isSkippingDigitBetweenPatternDigits(patternIndex: number, candidateChar: string): boolean {
-    return isDigit(this.myPattern[patternIndex]) && isDigit(this.myPattern[patternIndex - 1]) && isDigit(candidateChar);
+  private isSkippingDigitBetweenPatternDigits(
+    patternIndex: number,
+    candidateChar: string,
+  ): boolean {
+    return (
+      isDigit(this.myPattern[patternIndex]) &&
+      isDigit(this.myPattern[patternIndex - 1]) &&
+      isDigit(candidateChar)
+    );
   }
 
   private matchInsideFragment(
@@ -411,13 +476,29 @@ class PatternMatcher {
   ): MatchRange[] | null {
     const minimumPrefix = this.isMiddleMatch(candidate, patternIndex, candidateIndex) ? 3 : 1;
     return (
-      this.improveCamelHumps(candidate, patternIndex, candidateIndex, fragmentLength, minimumPrefix) ??
-      this.findLongestMatchingPrefix(candidate, patternIndex, candidateIndex, fragmentLength, minimumPrefix)
+      this.improveCamelHumps(
+        candidate,
+        patternIndex,
+        candidateIndex,
+        fragmentLength,
+        minimumPrefix,
+      ) ??
+      this.findLongestMatchingPrefix(
+        candidate,
+        patternIndex,
+        candidateIndex,
+        fragmentLength,
+        minimumPrefix,
+      )
     );
   }
 
   private isMiddleMatch(candidate: string, patternIndex: number, candidateIndex: number): boolean {
-    if (!this.isPatternChar(patternIndex - 1, "*") || this.isWildcard(patternIndex + 1) || !isAlphaNumeric(candidate[candidateIndex])) {
+    if (
+      !this.isPatternChar(patternIndex - 1, "*") ||
+      this.isWildcard(patternIndex + 1) ||
+      !isAlphaNumeric(candidate[candidateIndex])
+    ) {
       return false;
     }
 
@@ -446,8 +527,17 @@ class PatternMatcher {
       if (this.isWildcard(patternIndex + length)) {
         rest = this.matchWildcards(candidate, patternIndex + length, candidateIndex + length);
       } else {
-        let nextIndex = this.findNextPatternCharOccurrence(candidate, candidateIndex + length + 1, patternIndex + length);
-        nextIndex = this.checkForSpecialChars(candidate, candidateIndex + length, nextIndex, patternIndex + length);
+        let nextIndex = this.findNextPatternCharOccurrence(
+          candidate,
+          candidateIndex + length + 1,
+          patternIndex + length,
+        );
+        nextIndex = this.checkForSpecialChars(
+          candidate,
+          candidateIndex + length,
+          nextIndex,
+          patternIndex + length,
+        );
         if (nextIndex >= 0) {
           rest = this.matchSkippingWords(candidate, patternIndex + length, nextIndex, false);
         }
@@ -468,8 +558,18 @@ class PatternMatcher {
     minimumPrefix: number,
   ): MatchRange[] | null {
     for (let index = minimumPrefix; index < fragmentLength; index += 1) {
-      if (this.isUppercasePatternVsLowercaseNameChar(candidate, patternIndex + index, candidateIndex + index)) {
-        const upperMatch = this.findUppercaseMatchFurther(candidate, patternIndex + index, candidateIndex + index);
+      if (
+        this.isUppercasePatternVsLowercaseNameChar(
+          candidate,
+          patternIndex + index,
+          candidateIndex + index,
+        )
+      ) {
+        const upperMatch = this.findUppercaseMatchFurther(
+          candidate,
+          patternIndex + index,
+          candidateIndex + index,
+        );
         if (upperMatch !== null) return joinMatchRanges(upperMatch, candidateIndex, index);
       }
     }
@@ -477,22 +577,37 @@ class PatternMatcher {
     return null;
   }
 
-  private isUppercasePatternVsLowercaseNameChar(candidate: string, patternIndex: number, candidateIndex: number): boolean {
-    return this.isUpperCase[patternIndex] && this.myPattern[patternIndex] !== candidate[candidateIndex];
+  private isUppercasePatternVsLowercaseNameChar(
+    candidate: string,
+    patternIndex: number,
+    candidateIndex: number,
+  ): boolean {
+    return (
+      this.isUpperCase[patternIndex] && this.myPattern[patternIndex] !== candidate[candidateIndex]
+    );
   }
 
-  private findUppercaseMatchFurther(candidate: string, patternIndex: number, candidateIndex: number): MatchRange[] | null {
+  private findUppercaseMatchFurther(
+    candidate: string,
+    patternIndex: number,
+    candidateIndex: number,
+  ): MatchRange[] | null {
     const wordStartIndex = this.indexOfWordStart(candidate, patternIndex, candidateIndex);
     return this.matchWildcards(candidate, patternIndex, wordStartIndex);
   }
 
-  private isFirstCharMatching(candidate: string, candidateIndex: number, patternIndex: number): boolean {
+  private isFirstCharMatching(
+    candidate: string,
+    candidateIndex: number,
+    patternIndex: number,
+  ): boolean {
     if (candidateIndex >= candidate.length) return false;
 
     const ignoreCase = this.matchingMode !== "MATCH_CASE";
     const patternChar = this.myPattern[patternIndex];
 
-    if (!this.charEquals(patternChar, patternIndex, candidate[candidateIndex], ignoreCase)) return false;
+    if (!this.charEquals(patternChar, patternIndex, candidate[candidateIndex], ignoreCase))
+      return false;
 
     if (
       this.matchingMode === "FIRST_LETTER" &&
@@ -517,12 +632,18 @@ class PatternMatcher {
     return index >= 0 && index < this.myPattern.length && this.myPattern[index] === char;
   }
 
-  private indexOfWordStart(candidate: string, patternIndex: number, candidateIndex: number): number {
+  private indexOfWordStart(
+    candidate: string,
+    patternIndex: number,
+    candidateIndex: number,
+  ): number {
     const patternChar = this.myPattern[patternIndex];
 
     if (
       candidateIndex >= candidate.length ||
-      (this.mixedCase && this.isLowerCase[patternIndex] && !(patternIndex > 0 && this.isWordSeparator[patternIndex - 1]))
+      (this.mixedCase &&
+        this.isLowerCase[patternIndex] &&
+        !(patternIndex > 0 && this.isWordSeparator[patternIndex - 1]))
     ) {
       return -1;
     }
@@ -538,7 +659,11 @@ class PatternMatcher {
     }
   }
 
-  private indexOfIgnoreCase(candidate: string, candidateIndex: number, patternIndex: number): number {
+  private indexOfIgnoreCase(
+    candidate: string,
+    candidateIndex: number,
+    patternIndex: number,
+  ): number {
     const patternChar = this.myPattern[patternIndex];
 
     if (isAscii(patternChar)) {
@@ -661,10 +786,20 @@ function isWordStart(candidate: string, index: number): boolean {
   if (index === 0) return true;
 
   const previous = candidate[index - 1];
-  return Boolean(!isAlphaNumeric(previous) || (isUpperCase(char) && isLowerCase(previous)) || (isDigit(char) && !isDigit(previous)));
+  return Boolean(
+    !isAlphaNumeric(previous) ||
+    (isUpperCase(char) && isLowerCase(previous)) ||
+    (isDigit(char) && !isDigit(previous)),
+  );
 }
 
-function indexOfPatternChar(pattern: string[], char: string, startIndex: number, endIndex: number, ignoreCase: boolean): number {
+function indexOfPatternChar(
+  pattern: string[],
+  char: string,
+  startIndex: number,
+  endIndex: number,
+  ignoreCase: boolean,
+): number {
   if (!ignoreCase) {
     for (let index = startIndex; index < endIndex; index += 1) {
       if (pattern[index] === char) return index;
@@ -685,28 +820,48 @@ function isWildcard(char: string): boolean {
   return char === " " || char === "*";
 }
 
-function indexOfAny(candidate: string, chars: string[], startIndex: number, endIndex: number): number {
+function indexOfAny(
+  candidate: string,
+  chars: string[],
+  startIndex: number,
+  endIndex: number,
+): number {
   for (let index = startIndex; index < endIndex; index += 1) {
     if (chars.includes(candidate[index])) return index;
   }
   return -1;
 }
 
-function indexOfChar(candidate: string, char: string, startIndex: number, endIndex: number): number {
+function indexOfChar(
+  candidate: string,
+  char: string,
+  startIndex: number,
+  endIndex: number,
+): number {
   for (let index = startIndex; index < endIndex; index += 1) {
     if (candidate[index] === char) return index;
   }
   return -1;
 }
 
-function indexOfSubstring(candidate: string, pattern: string, startIndex: number, endIndex: number): number {
+function indexOfSubstring(
+  candidate: string,
+  pattern: string,
+  startIndex: number,
+  endIndex: number,
+): number {
   const candidateLower = candidate.toLowerCase();
   const patternLower = pattern.toLowerCase();
   const index = candidateLower.indexOf(patternLower, startIndex);
   return index < 0 || index + pattern.length > endIndex ? -1 : index;
 }
 
-function equalsIgnoreCase(candidate: string, startIndex: number, length: number, pattern: string): boolean {
+function equalsIgnoreCase(
+  candidate: string,
+  startIndex: number,
+  length: number,
+  pattern: string,
+): boolean {
   return startIndex + length <= candidate.length
     ? candidate.slice(startIndex, startIndex + length).toLowerCase() === pattern.toLowerCase()
     : false;

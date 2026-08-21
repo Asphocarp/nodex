@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
-import type {
-  CodexItemView,
-  CodexTranscriptEntry,
-} from "../types";
+import type { CodexItemView, CodexTranscriptEntry } from "../types";
 import { projectCodexCanonicalTurnItemViews } from "../codex-canonical-item-projector";
 import { projectCodexItemViewToTranscriptEntry } from "../codex-transcript-entry-projection";
 import type {
@@ -180,12 +177,14 @@ describe("scoped canonical lifecycle projection diff", () => {
 
   test("projects a nullable local occurrence through the same params-first typed boundary", () => {
     const afterTurn = {
-      ...buildTurn([{
-        id: "pending-worktree:1",
-        type: "worktreeInit",
-        worktreeOutputText: "Worktree created",
-        setup: null,
-      }]),
+      ...buildTurn([
+        {
+          id: "pending-worktree:1",
+          type: "worktreeInit",
+          worktreeOutputText: "Worktree created",
+          setup: null,
+        },
+      ]),
       protocol: {
         ...buildTurn([]).protocol,
         id: null,
@@ -327,9 +326,7 @@ describe("scoped canonical lifecycle projection diff", () => {
       currentTranscript: optimistic.transcript,
       observedAtMs: 2_500,
     });
-    expect(paramsChanged.views.map((view) => view.markdownText)).toEqual([
-      "Updated edited prompt",
-    ]);
+    expect(paramsChanged.views.map((view) => view.markdownText)).toEqual(["Updated edited prompt"]);
 
     const serverEcho = {
       type: "userMessage",
@@ -632,10 +629,12 @@ describe("scoped canonical lifecycle projection diff", () => {
       observedAtMs: 3_000,
     });
 
-    expect(collectCodexLifecycleChangedRawOwnerIds(
-      [firstStarted, secondStarted],
-      [firstCompleted, secondStarted],
-    )).toEqual(["duplicate"]);
+    expect(
+      collectCodexLifecycleChangedRawOwnerIds(
+        [firstStarted, secondStarted],
+        [firstCompleted, secondStarted],
+      ),
+    ).toEqual(["duplicate"]);
     expect(result.itemIds).toEqual(["duplicate", "duplicate"]);
     expect(result.views).toHaveLength(2);
     expect(result.views[0]?.rawItem).toBe(firstCompleted);
@@ -660,11 +659,7 @@ describe("scoped canonical lifecycle projection diff", () => {
     });
 
     expect(result.changedRawOwnerIds).toEqual(["first", "second"]);
-    expect(result.views.map((view) => view.itemId)).toEqual([
-      "second",
-      "first",
-      "review-overlay",
-    ]);
+    expect(result.views.map((view) => view.itemId)).toEqual(["second", "first", "review-overlay"]);
     expect(result.views[2]).toBe(review);
     expect(result.transcript.map((entry) => entry.itemId)).toEqual([
       "second",
@@ -857,10 +852,7 @@ describe("scoped canonical lifecycle projection diff", () => {
       observedAtMs: 3_000,
     });
 
-    expect(result.views.map((view) => view.itemId)).toEqual([
-      "hook-feedback",
-      "generated-image",
-    ]);
+    expect(result.views.map((view) => view.itemId)).toEqual(["hook-feedback", "generated-image"]);
     expect(result.views[0]?.hookFeedback).toBe(true);
     expect(result.views[1]?.generatedImage?.src).toBe("data:image/png;base64,aW1hZ2U=");
   });
@@ -965,10 +957,6 @@ describe("scoped canonical lifecycle projection diff", () => {
     });
 
     expect(result.views.map((view) => view.createdAt)).toEqual([1_100, 1_101]);
-    expect(result.views.map((view) => view.itemId)).toEqual([
-      "split-command:0",
-      "split-command:1",
-    ]);
+    expect(result.views.map((view) => view.itemId)).toEqual(["split-command:0", "split-command:1"]);
   });
-
 });

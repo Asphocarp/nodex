@@ -33,9 +33,11 @@ describe("ComputerUseSettingsView", () => {
     );
 
     fireEvent.click(screen.getByRole("switch", { name: "Enable Locked use" }));
-    fireEvent.click(screen.getByRole("switch", {
-      name: "Always hide picture in picture",
-    }));
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "Always hide picture in picture",
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Remove Safari" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove Family" }));
 

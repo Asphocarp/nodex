@@ -2,18 +2,13 @@ import type {
   BrowserSidebarTabSnapshot,
   BrowserUsePresentationRequest,
 } from "../../shared/browser-sidebar";
-import type {
-  WorkbenchTabCreateInput,
-  WorkbenchTabProjection,
-} from "./types";
+import type { WorkbenchTabCreateInput, WorkbenchTabProjection } from "./types";
 
 export function findWorkbenchBrowserTabByRuntimeId(
   tabs: readonly WorkbenchTabProjection[],
   browserTabId: string,
 ): WorkbenchTabProjection | null {
-  return tabs.find((tab) =>
-    tab.kind === "browser" && tab.browserTabId === browserTabId
-  ) ?? null;
+  return tabs.find((tab) => tab.kind === "browser" && tab.browserTabId === browserTabId) ?? null;
 }
 
 export function buildBrowserUseWorkbenchTabCreateInput({
@@ -27,9 +22,8 @@ export function buildBrowserUseWorkbenchTabCreateInput({
   snapshot: BrowserSidebarTabSnapshot | null;
   targetLeafId?: string;
 }): WorkbenchTabCreateInput {
-  const title = snapshot?.title.trim()
-    || request.browserTabId.replace(/^browser-use:/u, "")
-    || "Browser";
+  const title =
+    snapshot?.title.trim() || request.browserTabId.replace(/^browser-use:/u, "") || "Browser";
   return {
     sessionId,
     panelId: "right",
@@ -43,13 +37,10 @@ export function buildBrowserUseWorkbenchTabCreateInput({
       browserUseSource: {
         codexSessionId: request.codexSessionId,
       },
-      browserStorageId:
-        snapshot?.browserStorageId ?? `browser:use:${request.browserTabId}`,
+      browserStorageId: snapshot?.browserStorageId ?? `browser:use:${request.browserTabId}`,
       ...(snapshot?.url ? { url: snapshot.url } : {}),
       ...(snapshot?.title ? { title: snapshot.title } : {}),
-      ...(snapshot?.faviconUrl
-        ? { faviconUrl: snapshot.faviconUrl }
-        : {}),
+      ...(snapshot?.faviconUrl ? { faviconUrl: snapshot.faviconUrl } : {}),
       ...(snapshot
         ? {
             deviceToolbarVisible: snapshot.deviceToolbarVisible,

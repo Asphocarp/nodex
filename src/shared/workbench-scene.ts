@@ -1,10 +1,7 @@
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type { CodexForkBrowserSidePanelSnapshot } from "./codex-fork-browser-transfer";
 import type { InitialProjectPresentation } from "./initial-project-welcome";
-import {
-  contentAccessContextKey,
-  type ContentAccessContext,
-} from "./content-access-context";
+import { contentAccessContextKey, type ContentAccessContext } from "./content-access-context";
 import type { DatabaseId } from "./database-identities";
 import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 import type { LibraryResourceTarget } from "./library-module";
@@ -88,9 +85,7 @@ export interface WorkbenchComposerOverlayState {
   readonly visible: boolean;
 }
 
-export function makeWorkbenchSceneKey(
-  owner: WorkbenchSceneOwner,
-): WorkbenchSceneKey {
+export function makeWorkbenchSceneKey(owner: WorkbenchSceneOwner): WorkbenchSceneKey {
   if (owner.kind === "project") return `project:${owner.projectId}`;
   if (owner.kind === "session") return `session:${owner.sessionId}`;
   return "pages";
@@ -121,7 +116,7 @@ export interface WorkbenchDbViewSurfaceConfig {
       }
     | {
         readonly kind: "database-view";
-      readonly databaseViewId: string;
+        readonly databaseViewId: string;
       };
 }
 
@@ -203,9 +198,7 @@ export interface WorkbenchSceneSnapshot {
   readonly version: typeof WORKBENCH_SCENE_VERSION;
   readonly owner: WorkbenchSceneOwner;
   readonly primary: WorkbenchSurfaceDescriptor | null;
-  readonly panelSurfacesById: Readonly<
-    Record<string, WorkbenchSurfaceDescriptor>
-  >;
+  readonly panelSurfacesById: Readonly<Record<string, WorkbenchSurfaceDescriptor>>;
   readonly panels: Readonly<Record<WorkbenchPanelId, WorkbenchPanelState>>;
   readonly lastFocusedPanelId: WorkbenchPanelId | null;
   readonly composerOverlay: WorkbenchComposerOverlayState;
@@ -217,9 +210,7 @@ export interface WorkbenchSceneSnapshotV4 {
   readonly version: 4;
   readonly owner: WorkbenchSceneOwnerV4;
   readonly primary: WorkbenchSurfaceDescriptor;
-  readonly panelSurfacesById: Readonly<
-    Record<string, WorkbenchSurfaceDescriptor>
-  >;
+  readonly panelSurfacesById: Readonly<Record<string, WorkbenchSurfaceDescriptor>>;
   readonly panels: Readonly<Record<WorkbenchPanelId, WorkbenchPanelState>>;
   readonly lastFocusedPanelId: WorkbenchPanelId | null;
   readonly composerOverlay: WorkbenchComposerOverlayState;
@@ -228,10 +219,7 @@ export interface WorkbenchSceneSnapshotV4 {
 }
 
 type WorkbenchLegacyResourceSurfaceDescriptor =
-  | (Omit<
-      Extract<WorkbenchSurfaceDescriptor, { readonly kind: "db_view" }>,
-      "config"
-    > & {
+  | (Omit<Extract<WorkbenchSurfaceDescriptor, { readonly kind: "db_view" }>, "config"> & {
       readonly config: {
         readonly projectId: string;
         readonly target:
@@ -243,34 +231,22 @@ type WorkbenchLegacyResourceSurfaceDescriptor =
         readonly view: "board" | "list" | "toggle-list" | "calendar";
       };
     })
-  | (Omit<
-      Extract<WorkbenchSurfaceDescriptor, { readonly kind: "page_stage" }>,
-      "config"
-    > & {
-      readonly config: Omit<
-        WorkbenchPageStageSurfaceConfig,
-        "accessContext"
-      > & { readonly projectId: string };
+  | (Omit<Extract<WorkbenchSurfaceDescriptor, { readonly kind: "page_stage" }>, "config"> & {
+      readonly config: Omit<WorkbenchPageStageSurfaceConfig, "accessContext"> & {
+        readonly projectId: string;
+      };
     })
-  | (Omit<
-      Extract<WorkbenchSurfaceDescriptor, { readonly kind: "canvas_stage" }>,
-      "config"
-    > & {
-      readonly config: Omit<
-        WorkbenchCanvasStageSurfaceConfig,
-        "accessContext"
-      > & { readonly projectId: string };
+  | (Omit<Extract<WorkbenchSurfaceDescriptor, { readonly kind: "canvas_stage" }>, "config"> & {
+      readonly config: Omit<WorkbenchCanvasStageSurfaceConfig, "accessContext"> & {
+        readonly projectId: string;
+      };
     });
 
 export type WorkbenchSurfaceDescriptorV3 =
   | Exclude<
       WorkbenchSurfaceDescriptor,
       {
-        readonly kind:
-          | "db_view"
-          | "page_stage"
-          | "canvas_stage"
-          | "image_editor";
+        readonly kind: "db_view" | "page_stage" | "canvas_stage" | "image_editor";
       }
     >
   | WorkbenchLegacyResourceSurfaceDescriptor;
@@ -279,9 +255,7 @@ export interface WorkbenchSceneSnapshotV3 {
   readonly version: 3;
   readonly owner: Exclude<WorkbenchSceneOwner, { readonly kind: "pages" }>;
   readonly primary: WorkbenchSurfaceDescriptorV3;
-  readonly panelSurfacesById: Readonly<
-    Record<string, WorkbenchSurfaceDescriptorV3>
-  >;
+  readonly panelSurfacesById: Readonly<Record<string, WorkbenchSurfaceDescriptorV3>>;
   readonly panels: Readonly<Record<WorkbenchPanelId, WorkbenchPanelState>>;
   readonly lastFocusedPanelId: WorkbenchPanelId | null;
   readonly composerOverlay: WorkbenchComposerOverlayState;
@@ -294,15 +268,14 @@ export type WorkbenchSceneSnapshotV2 = Omit<
   "version" | "composerOverlay" | "agentDock"
 > & {
   readonly version: 2;
-  readonly agentDock: (WorkbenchAgentDockState & {
-    readonly visible: boolean;
-  }) | null;
+  readonly agentDock:
+    | (WorkbenchAgentDockState & {
+        readonly visible: boolean;
+      })
+    | null;
 };
 
-export type WorkbenchSceneSnapshotV1 = Omit<
-  WorkbenchSceneSnapshotV2,
-  "version" | "agentDock"
-> & {
+export type WorkbenchSceneSnapshotV1 = Omit<WorkbenchSceneSnapshotV2, "version" | "agentDock"> & {
   readonly version: 1;
 };
 
@@ -353,9 +326,7 @@ export interface WorkbenchScenePanelPatch {
 }
 
 export interface CloneWorkbenchSceneLayout {
-  readonly scenesByOwnerKey: Readonly<
-    Record<WorkbenchSceneKey, WorkbenchSceneSnapshot>
-  >;
+  readonly scenesByOwnerKey: Readonly<Record<WorkbenchSceneKey, WorkbenchSceneSnapshot>>;
 }
 
 function currentIso(): string {
@@ -365,8 +336,9 @@ function currentIso(): string {
 function defaultIdentityFactory(): WorkbenchSceneIdentityFactory {
   return {
     createId(kind) {
-      const id = globalThis.crypto?.randomUUID?.()
-        ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      const id =
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       return `${kind}:${id}`;
     },
   };
@@ -389,50 +361,38 @@ function isSurfacePlaced(
   surfaceId: string,
 ): boolean {
   return PANEL_IDS.some((panelId) =>
-    flattenWorkbenchPanelTabIds(scene.panels[panelId].layout).includes(surfaceId)
+    flattenWorkbenchPanelTabIds(scene.panels[panelId].layout).includes(surfaceId),
   );
 }
 
-function toLegacyPanelView(
-  scene: WorkbenchSceneSnapshot,
-): WorkbenchSessionViewSnapshot {
-  const tabsById = scene.primary && isSurfacePlaced(scene, scene.primary.id)
-    ? {
-        ...scene.panelSurfacesById,
-        [scene.primary.id]: scene.primary,
-      }
-    : scene.panelSurfacesById;
+function toLegacyPanelView(scene: WorkbenchSceneSnapshot): WorkbenchSessionViewSnapshot {
+  const tabsById =
+    scene.primary && isSurfacePlaced(scene, scene.primary.id)
+      ? {
+          ...scene.panelSurfacesById,
+          [scene.primary.id]: scene.primary,
+        }
+      : scene.panelSurfacesById;
   return {
     version: WORKBENCH_SESSION_VIEW_VERSION,
     sessionId: makeWorkbenchSceneKey(scene.owner),
-    tabsById: tabsById as Record<
-      string,
-      WorkbenchSessionViewTab
-    >,
+    tabsById: tabsById as Record<string, WorkbenchSessionViewTab>,
     panels: scene.panels as Record<WorkbenchPanelId, WorkbenchPanelState>,
     lastFocusedPanelId: scene.lastFocusedPanelId,
     touchedAt: scene.touchedAt,
   };
 }
 
-function enforceProjectSceneInvariants(
-  scene: WorkbenchSceneSnapshot,
-): WorkbenchSceneSnapshot {
+function enforceProjectSceneInvariants(scene: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
   if (!scene.primary) return scene;
   const panelSurfacesById = Object.fromEntries(
-    Object.entries(scene.panelSurfacesById).filter(([, surface]) =>
-      surface.kind !== "conversation"
+    Object.entries(scene.panelSurfacesById).filter(
+      ([, surface]) => surface.kind !== "conversation",
     ),
   );
-  const knownIds = new Set([
-    scene.primary.id,
-    ...Object.keys(panelSurfacesById),
-  ]);
+  const knownIds = new Set([scene.primary.id, ...Object.keys(panelSurfacesById)]);
   let rightLayout = scene.panels.right.layout;
-  let bottomLayout = removeWorkbenchPanelTab(
-    scene.panels.bottom.layout,
-    scene.primary.id,
-  );
+  let bottomLayout = removeWorkbenchPanelTab(scene.panels.bottom.layout, scene.primary.id);
 
   for (const panelId of PANEL_IDS) {
     const layout = panelId === "right" ? rightLayout : bottomLayout;
@@ -458,14 +418,10 @@ function enforceProjectSceneInvariants(
   }
   if (rootLeaf) {
     const primaryId = scene.primary.id;
-    rightLayout = reorderWorkbenchPanelLeafTabs(
-      rightLayout,
-      rootLeaf.id,
-      [
-        primaryId,
-        ...rootLeaf.tabIds.filter((surfaceId) => surfaceId !== primaryId),
-      ],
-    );
+    rightLayout = reorderWorkbenchPanelLeafTabs(rightLayout, rootLeaf.id, [
+      primaryId,
+      ...rootLeaf.tabIds.filter((surfaceId) => surfaceId !== primaryId),
+    ]);
   }
 
   return {
@@ -486,10 +442,10 @@ function enforceProjectSceneInvariants(
         layout: bottomLayout,
       },
     },
-    lastFocusedPanelId: scene.lastFocusedPanelId === "right"
-      || scene.lastFocusedPanelId === "bottom"
-      ? scene.lastFocusedPanelId
-      : null,
+    lastFocusedPanelId:
+      scene.lastFocusedPanelId === "right" || scene.lastFocusedPanelId === "bottom"
+        ? scene.lastFocusedPanelId
+        : null,
     agentDock: scene.agentDock ?? {
       binding: { kind: "new" },
       newDraftId: `agent-draft:${scene.primary.id}`,
@@ -497,18 +453,13 @@ function enforceProjectSceneInvariants(
   };
 }
 
-function enforceSessionSceneInvariants(
-  scene: WorkbenchSceneSnapshot,
-): WorkbenchSceneSnapshot {
+function enforceSessionSceneInvariants(scene: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
   if (!scene.primary) return scene;
   const panels = { ...scene.panels };
   for (const panelId of PANEL_IDS) {
     panels[panelId] = {
       ...panels[panelId],
-      layout: removeWorkbenchPanelTab(
-        panels[panelId].layout,
-        scene.primary.id,
-      ),
+      layout: removeWorkbenchPanelTab(panels[panelId].layout, scene.primary.id),
     };
   }
   return {
@@ -518,23 +469,21 @@ function enforceSessionSceneInvariants(
   };
 }
 
-export function isPagesSceneSurfaceAllowed(
-  surface: WorkbenchSurfaceDescriptor,
-): boolean {
+export function isPagesSceneSurfaceAllowed(surface: WorkbenchSurfaceDescriptor): boolean {
   if (surface.kind === "page_stage" || surface.kind === "canvas_stage") {
     return surface.config.accessContext.kind === "library";
   }
-  return surface.kind === "db_view"
-    && surface.config.accessContext.kind === "library"
-    && surface.config.target.kind !== "project-default";
+  return (
+    surface.kind === "db_view" &&
+    surface.config.accessContext.kind === "library" &&
+    surface.config.target.kind !== "project-default"
+  );
 }
 
-function enforcePagesSceneInvariants(
-  scene: WorkbenchSceneSnapshot,
-): WorkbenchSceneSnapshot {
+function enforcePagesSceneInvariants(scene: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
   const panelSurfacesById = Object.fromEntries(
     Object.entries(scene.panelSurfacesById).filter(([, surface]) =>
-      isPagesSceneSurfaceAllowed(surface)
+      isPagesSceneSurfaceAllowed(surface),
     ),
   );
   const knownIds = new Set(Object.keys(panelSurfacesById));
@@ -567,9 +516,7 @@ function enforcePagesSceneInvariants(
   };
 }
 
-function enforceWorkbenchSceneInvariants(
-  scene: WorkbenchSceneSnapshot,
-): WorkbenchSceneSnapshot {
+function enforceWorkbenchSceneInvariants(scene: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
   if (scene.owner.kind === "project") {
     return enforceProjectSceneInvariants(scene);
   }
@@ -583,13 +530,11 @@ function fromLegacyPanelView(
   scene: WorkbenchSceneSnapshot,
   view: WorkbenchSessionViewSnapshot,
 ): WorkbenchSceneSnapshot {
-  const primary = scene.primary && view.tabsById[scene.primary.id]
-    ? view.tabsById[scene.primary.id] as WorkbenchSurfaceDescriptor
-    : scene.primary;
-  const panelSurfacesById = { ...view.tabsById } as Record<
-    string,
-    WorkbenchSurfaceDescriptor
-  >;
+  const primary =
+    scene.primary && view.tabsById[scene.primary.id]
+      ? (view.tabsById[scene.primary.id] as WorkbenchSurfaceDescriptor)
+      : scene.primary;
+  const panelSurfacesById = { ...view.tabsById } as Record<string, WorkbenchSurfaceDescriptor>;
   if (primary) delete panelSurfacesById[primary.id];
   return enforceWorkbenchSceneInvariants({
     ...scene,
@@ -605,9 +550,7 @@ export function resolveWorkbenchSceneSurface(
   scene: WorkbenchSceneSnapshot,
   surfaceId: string,
 ): WorkbenchSurfaceDescriptor | undefined {
-  return surfaceId === scene.primary?.id
-    ? scene.primary
-    : scene.panelSurfacesById[surfaceId];
+  return surfaceId === scene.primary?.id ? scene.primary : scene.panelSurfacesById[surfaceId];
 }
 
 /**
@@ -641,9 +584,7 @@ export function collectWorkbenchScenePresentedPageIds(
   return pageIds;
 }
 
-function toLegacyPanelTab(
-  surface: WorkbenchSurfaceDescriptor,
-): WorkbenchSessionViewTab {
+function toLegacyPanelTab(surface: WorkbenchSurfaceDescriptor): WorkbenchSessionViewTab {
   if (surface.kind !== "db_view") {
     return surface as WorkbenchSessionViewTab;
   }
@@ -655,13 +596,14 @@ function toLegacyPanelTab(
   return {
     ...surface,
     config: {
-      projectId: surface.config.accessContext.kind === "project"
-        ? surface.config.accessContext.projectId
-        : (() => {
-            throw new Error(
-              "A Library Database surface cannot be projected as a legacy Session tab",
-            );
-          })(),
+      projectId:
+        surface.config.accessContext.kind === "project"
+          ? surface.config.accessContext.projectId
+          : (() => {
+              throw new Error(
+                "A Library Database surface cannot be projected as a legacy Session tab",
+              );
+            })(),
       databaseViewId: surface.config.target.databaseViewId,
     },
   };
@@ -713,10 +655,7 @@ export function applyLegacySessionViewToWorkbenchScene(
   scene: WorkbenchSceneSnapshot,
   view: WorkbenchSessionViewSnapshot,
 ): WorkbenchSceneSnapshot {
-  if (
-    scene.owner.kind !== "session"
-    || scene.owner.sessionId !== view.sessionId
-  ) {
+  if (scene.owner.kind !== "session" || scene.owner.sessionId !== view.sessionId) {
     return scene;
   }
   const panelSurfacesById = Object.fromEntries(
@@ -752,14 +691,15 @@ function ownerRootPrimary(
     };
   }
 
-  if (owner.kind === "session") return {
-    id: identityFactory.createId("surface"),
-    kind: "conversation",
-    titleSnapshot: "Conversation",
-    config: { sessionId: owner.sessionId },
-    stateKey: 0,
-    state: null,
-  };
+  if (owner.kind === "session")
+    return {
+      id: identityFactory.createId("surface"),
+      kind: "conversation",
+      titleSnapshot: "Conversation",
+      config: { sessionId: owner.sessionId },
+      stateKey: 0,
+      state: null,
+    };
 
   return null;
 }
@@ -784,12 +724,13 @@ export function createEmptyWorkbenchScene(
     panels: view.panels,
     lastFocusedPanelId: null,
     composerOverlay: { visible: owner.kind !== "pages" },
-    agentDock: owner.kind === "project"
-      ? {
-          binding: { kind: "new" },
-          newDraftId: identityFactory.createId("draft"),
-        }
-      : null,
+    agentDock:
+      owner.kind === "project"
+        ? {
+            binding: { kind: "new" },
+            newDraftId: identityFactory.createId("draft"),
+          }
+        : null,
     touchedAt: view.touchedAt,
   });
 }
@@ -846,14 +787,10 @@ export function materializeInitialProjectWelcomeScene(
     collapsed: false,
     size: { fullWidth: true },
   });
-  return options.touchedAt
-    ? { ...maximized, touchedAt: options.touchedAt }
-    : maximized;
+  return options.touchedAt ? { ...maximized, touchedAt: options.touchedAt } : maximized;
 }
 
-export function normalizeWorkbenchScene(
-  value: WorkbenchSceneSnapshot,
-): WorkbenchSceneSnapshot {
+export function normalizeWorkbenchScene(value: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
   const normalized = normalizeWorkbenchSessionView(toLegacyPanelView(value));
   return fromLegacyPanelView(value, normalized);
 }
@@ -862,9 +799,9 @@ function migrateWorkbenchSurfaceV3ToV4(
   surface: WorkbenchSurfaceDescriptorV3,
 ): WorkbenchSurfaceDescriptor {
   if (
-    surface.kind !== "db_view"
-    && surface.kind !== "page_stage"
-    && surface.kind !== "canvas_stage"
+    surface.kind !== "db_view" &&
+    surface.kind !== "page_stage" &&
+    surface.kind !== "canvas_stage"
   ) {
     return surface;
   }
@@ -899,12 +836,10 @@ function migrateLegacySceneBase(input: {
     version: WORKBENCH_SCENE_VERSION,
     primary: migrateWorkbenchSurfaceV3ToV4(input.legacy.primary),
     panelSurfacesById: Object.fromEntries(
-      Object.entries(input.legacy.panelSurfacesById).map(
-        ([surfaceId, surface]) => [
-          surfaceId,
-          migrateWorkbenchSurfaceV3ToV4(surface),
-        ],
-      ),
+      Object.entries(input.legacy.panelSurfacesById).map(([surfaceId, surface]) => [
+        surfaceId,
+        migrateWorkbenchSurfaceV3ToV4(surface),
+      ]),
     ),
     composerOverlay: input.composerOverlay,
     agentDock: input.agentDock,
@@ -938,9 +873,7 @@ export function migrateWorkbenchSceneV2ToV4(
   return migrateLegacySceneBase({
     legacy: scene,
     composerOverlay: {
-      visible: legacy.owner.kind === "project"
-        ? legacyAgentDock?.visible ?? true
-        : true,
+      visible: legacy.owner.kind === "project" ? (legacyAgentDock?.visible ?? true) : true,
     },
     agentDock: legacyAgentDock
       ? {
@@ -971,26 +904,20 @@ export function migrateWorkbenchSceneV1ToV4(
   const activeSurface = activeLeaf.activeTabId
     ? legacy.panelSurfacesById[activeLeaf.activeTabId]
     : undefined;
-  const boundSessionId = activeSurface?.kind === "conversation"
-    ? activeSurface.config.sessionId
-    : null;
+  const boundSessionId =
+    activeSurface?.kind === "conversation" ? activeSurface.config.sessionId : null;
   const migrated = migrateLegacySceneBase({
     legacy,
     composerOverlay: { visible: true },
     agentDock: {
-      binding: boundSessionId
-        ? { kind: "session", sessionId: boundSessionId }
-        : { kind: "new" },
+      binding: boundSessionId ? { kind: "session", sessionId: boundSessionId } : { kind: "new" },
       newDraftId: `agent-draft:${legacy.primary.id}`,
     },
   });
 
   if (!rightWasCollapsed && !boundSessionId) return migrated;
   if (!migrated.primary) return migrated;
-  const rootLeaf = findWorkbenchPanelLeafForTab(
-    migrated.panels.right.layout,
-    migrated.primary.id,
-  );
+  const rootLeaf = findWorkbenchPanelLeafForTab(migrated.panels.right.layout, migrated.primary.id);
   if (!rootLeaf) return migrated;
   return {
     ...migrated,
@@ -1041,10 +968,7 @@ export function createWorkbenchSceneSurface(
   scene: WorkbenchSceneSnapshot,
   input: WorkbenchSceneSurfaceCreateInput,
 ): WorkbenchSceneSnapshot {
-  if (
-    input.surface.id === scene.primary?.id
-    || scene.panelSurfacesById[input.surface.id]
-  ) {
+  if (input.surface.id === scene.primary?.id || scene.panelSurfacesById[input.surface.id]) {
     return scene;
   }
   const view = createWorkbenchSessionViewTab(toLegacyPanelView(scene), {
@@ -1103,12 +1027,7 @@ export function activateWorkbenchSceneSurface(
 ): WorkbenchSceneSnapshot {
   return fromLegacyPanelView(
     scene,
-    activateWorkbenchSessionViewTab(
-      toLegacyPanelView(scene),
-      panelId,
-      leafId,
-      surfaceId,
-    ),
+    activateWorkbenchSessionViewTab(toLegacyPanelView(scene), panelId, leafId, surfaceId),
   );
 }
 
@@ -1154,15 +1073,9 @@ export function mergeWorkbenchSceneLeaf(
   scene: WorkbenchSceneSnapshot,
   input: WorkbenchSceneLeafInput,
 ): WorkbenchSceneSnapshot {
-  const leaf = findWorkbenchPanelLeaf(
-    scene.panels[input.panelId].layout,
-    input.leafId,
-  );
+  const leaf = findWorkbenchPanelLeaf(scene.panels[input.panelId].layout, input.leafId);
   if (scene.primary && leaf?.tabIds.includes(scene.primary.id)) return scene;
-  return fromLegacyPanelView(
-    scene,
-    mergeWorkbenchSessionViewLeaf(toLegacyPanelView(scene), input),
-  );
+  return fromLegacyPanelView(scene, mergeWorkbenchSessionViewLeaf(toLegacyPanelView(scene), input));
 }
 
 export function moveWorkbenchSceneSurface(
@@ -1193,19 +1106,12 @@ export function reorderWorkbenchSceneSurfaces(
     readonly orderedSurfaceIds: string[];
   },
 ): WorkbenchSceneSnapshot {
-  const leaf = findWorkbenchPanelLeaf(
-    scene.panels[input.panelId].layout,
-    input.leafId,
-  );
+  const leaf = findWorkbenchPanelLeaf(scene.panels[input.panelId].layout, input.leafId);
   const primaryId = scene.primary?.id ?? null;
-  const orderedSurfaceIds = primaryId && leaf?.tabIds.includes(primaryId)
-    ? [
-        primaryId,
-        ...input.orderedSurfaceIds.filter((surfaceId) =>
-          surfaceId !== primaryId
-        ),
-      ]
-    : input.orderedSurfaceIds;
+  const orderedSurfaceIds =
+    primaryId && leaf?.tabIds.includes(primaryId)
+      ? [primaryId, ...input.orderedSurfaceIds.filter((surfaceId) => surfaceId !== primaryId)]
+      : input.orderedSurfaceIds;
   return fromLegacyPanelView(
     scene,
     reorderWorkbenchSessionViewTabs(toLegacyPanelView(scene), {
@@ -1248,22 +1154,19 @@ export function patchWorkbenchScenePanel(
   panelId: WorkbenchPanelId,
   patch: WorkbenchScenePanelPatch,
 ): WorkbenchSceneSnapshot {
-  const adjustedPatch = patch.collapsed === true && panelId === "right"
-    ? {
-        ...patch,
-        size: {
-          ...patch.size,
-          fullWidth: false,
-        },
-      }
-    : patch;
+  const adjustedPatch =
+    patch.collapsed === true && panelId === "right"
+      ? {
+          ...patch,
+          size: {
+            ...patch.size,
+            fullWidth: false,
+          },
+        }
+      : patch;
   return fromLegacyPanelView(
     scene,
-    patchWorkbenchSessionViewPanel(
-      toLegacyPanelView(scene),
-      panelId,
-      adjustedPatch,
-    ),
+    patchWorkbenchSessionViewPanel(toLegacyPanelView(scene), panelId, adjustedPatch),
   );
 }
 
@@ -1298,24 +1201,23 @@ function cloneWorkbenchScene(
     toLegacyIdentityFactory(identityFactory),
   ).sessionViewsBySessionId[sceneKey];
   if (!legacy) throw new Error(`Missing cloned Workbench Scene ${sceneKey}`);
-  const projectId = scene.owner.kind === "project"
-    ? scene.owner.projectId
-    : null;
+  const projectId = scene.owner.kind === "project" ? scene.owner.projectId : null;
   const clonedPlacedPrimary = projectId
-    ? Object.values(legacy.tabsById).find((tab) => {
+    ? (Object.values(legacy.tabsById).find((tab) => {
         const surface = tab as WorkbenchSurfaceDescriptor;
-        return surface.kind === "db_view"
-          && surface.config.target.kind === "project-default"
-          && surface.config.accessContext.kind === "project"
-          && surface.config.accessContext.projectId === projectId;
-      }) as WorkbenchSurfaceDescriptor | undefined
+        return (
+          surface.kind === "db_view" &&
+          surface.config.target.kind === "project-default" &&
+          surface.config.accessContext.kind === "project" &&
+          surface.config.accessContext.projectId === projectId
+        );
+      }) as WorkbenchSurfaceDescriptor | undefined)
     : undefined;
   return fromLegacyPanelView(
     {
       ...scene,
       primary: scene.primary
-        ? clonedPlacedPrimary
-          ?? clonePrimarySurface(scene.primary, identityFactory)
+        ? (clonedPlacedPrimary ?? clonePrimarySurface(scene.primary, identityFactory))
         : null,
       agentDock: scene.agentDock
         ? {
@@ -1329,9 +1231,7 @@ function cloneWorkbenchScene(
   );
 }
 
-export function cloneWorkbenchSceneLayoutForNewWindow<
-  Layout extends CloneWorkbenchSceneLayout,
->(
+export function cloneWorkbenchSceneLayoutForNewWindow<Layout extends CloneWorkbenchSceneLayout>(
   layout: Layout,
   identityFactory: WorkbenchSceneIdentityFactory = defaultIdentityFactory(),
 ): Layout {
@@ -1346,9 +1246,7 @@ export function cloneWorkbenchSceneLayoutForNewWindow<
   };
 }
 
-export function getWorkbenchSurfaceReuseKey(
-  surface: WorkbenchSurfaceDescriptor,
-): string | null {
+export function getWorkbenchSurfaceReuseKey(surface: WorkbenchSurfaceDescriptor): string | null {
   switch (surface.kind) {
     case "conversation":
       return `conversation:${surface.config.sessionId}`;
@@ -1386,9 +1284,7 @@ export function applyForkBrowserTransferToWorkbenchScene(
 ): WorkbenchSceneSnapshot {
   let next = scene;
   for (const descriptor of snapshot.tabs) {
-    const targetLeafId = getWorkbenchPanelActiveLeaf(
-      next.panels[descriptor.panel].layout,
-    ).id;
+    const targetLeafId = getWorkbenchPanelActiveLeaf(next.panels[descriptor.panel].layout).id;
     next = createWorkbenchSceneSurface(next, {
       panelId: descriptor.panel,
       targetLeafId,
@@ -1398,11 +1294,11 @@ export function applyForkBrowserTransferToWorkbenchScene(
         titleSnapshot: "Browser",
         config: {
           browserTabId: descriptor.browserTabId,
-          browserStorageId: `browser:${globalThis.crypto?.randomUUID?.()
-            ?? `${Date.now()}-${Math.random()}`}`,
+          browserStorageId: `browser:${
+            globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+          }`,
           ...(descriptor.initialUrl ? { url: descriptor.initialUrl } : {}),
-          deviceToolbarVisible:
-            descriptor.deviceToolbarState.toolbarState.isEnabled,
+          deviceToolbarVisible: descriptor.deviceToolbarState.toolbarState.isEnabled,
           deviceToolbarState: descriptor.deviceToolbarState,
         },
         stateKey: 0,
@@ -1410,12 +1306,7 @@ export function applyForkBrowserTransferToWorkbenchScene(
       },
     });
     if (!descriptor.active) continue;
-    next = activateWorkbenchSceneSurface(
-      next,
-      descriptor.panel,
-      targetLeafId,
-      descriptor.tabId,
-    );
+    next = activateWorkbenchSceneSurface(next, descriptor.panel, targetLeafId, descriptor.tabId);
   }
 
   next = patchWorkbenchScenePanel(next, "right", {
@@ -1427,10 +1318,11 @@ export function applyForkBrowserTransferToWorkbenchScene(
   });
   return {
     ...next,
-    lastFocusedPanelId: snapshot.focusArea === "right-panel"
-      ? "right"
-      : snapshot.focusArea === "bottom-panel"
-        ? "bottom"
-        : null,
+    lastFocusedPanelId:
+      snapshot.focusArea === "right-panel"
+        ? "right"
+        : snapshot.focusArea === "bottom-panel"
+          ? "bottom"
+          : null,
   };
 }

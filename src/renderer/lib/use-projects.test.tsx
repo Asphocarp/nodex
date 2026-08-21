@@ -34,7 +34,9 @@ function ProjectsHarness() {
 
   return (
     <div>
-      <span data-testid="project-count">{first.projects.length}:{second.projects.length}</span>
+      <span data-testid="project-count">
+        {first.projects.length}:{second.projects.length}
+      </span>
       <span data-testid="projects-ready">{String(first.ready)}</span>
       <span data-testid="projects-error">{first.error ?? ""}</span>
       <span data-testid="projects-has-more">{String(first.hasMoreProjects)}</span>
@@ -162,11 +164,7 @@ describe("useProjects", () => {
 
   test("loads a continuation only after an explicit request", async () => {
     paginateProjects = true;
-    projects = [
-      makeProject("alpha"),
-      makeProject("beta"),
-      makeProject("gamma"),
-    ];
+    projects = [makeProject("alpha"), makeProject("beta"), makeProject("gamma")];
     const view = render(
       <TestQueryProvider>
         <ProjectsHarness />

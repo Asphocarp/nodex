@@ -111,10 +111,7 @@ import {
   updateBrowserViewportDimension,
   type BrowserLocalServerSettings,
 } from "./browser-sidebar-ui-model";
-import type {
-  WorkbenchTabProjection,
-  WorkbenchTabUpdateInput,
-} from "@/lib/types";
+import type { WorkbenchTabProjection, WorkbenchTabUpdateInput } from "@/lib/types";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { invoke } from "@/lib/api";
 import { useRegisterContentSearchBrowserTarget } from "@/features/content-search/content-search-context";
@@ -182,11 +179,7 @@ const BROWSER_DROPDOWN_CONTENT_STYLE: CSSProperties = {
 };
 const DEFAULT_BROWSER_SNAPSHOT: Omit<
   BrowserSidebarTabSnapshot,
-  | "browserConversationId"
-  | "browserViewScopeId"
-  | "browserTabId"
-  | "projectId"
-  | "updatedAt"
+  "browserConversationId" | "browserViewScopeId" | "browserTabId" | "projectId" | "updatedAt"
 > = {
   webContentsId: null,
   mountGeneration: 0,
@@ -236,27 +229,19 @@ export function BrowserSidebarPanel({
   activeSession?: WorkbenchSessionRenderProjection;
   surfaceContext?: BrowserSurfaceContext;
   browserViewScopeId: string;
-  onRefreshSessions: (
-    projectId: string | null,
-  ) => Promise<WorkbenchSessionRenderProjection[]>;
-  onUpdateTab?: (
-    tabId: string,
-    patch: WorkbenchTabUpdateInput,
-  ) => WorkbenchTabProjection | null;
-  onOpenNewTab?: (
-    request: BrowserSidebarOpenNewTabRequest,
-  ) => void | Promise<void>;
+  onRefreshSessions: (projectId: string | null) => Promise<WorkbenchSessionRenderProjection[]>;
+  onUpdateTab?: (tabId: string, patch: WorkbenchTabUpdateInput) => WorkbenchTabProjection | null;
+  onOpenNewTab?: (request: BrowserSidebarOpenNewTabRequest) => void | Promise<void>;
   onOpenBrowserSettings?: (sectionId: BrowserSettingsDestination) => void;
   boundsSyncTrigger?: MotionValue<number>;
   activeForContentSearch?: boolean;
   isVisible: boolean;
 }) {
-  const browserConversationId = surfaceContext?.browserConversationId
-    ?? activeSession?.id
-    ?? browserViewScopeId;
+  const browserConversationId =
+    surfaceContext?.browserConversationId ?? activeSession?.id ?? browserViewScopeId;
   const fallbackCodexSessionId = surfaceContext
     ? surfaceContext.codexSessionId
-    : activeSession?.thread?.threadId ?? activeSession?.id ?? null;
+    : (activeSession?.thread?.threadId ?? activeSession?.id ?? null);
   const browserRuntimeAvailable = typeof window !== "undefined" && Boolean(window.api);
   const browserRuntime = useBrowserSidebarRendererState();
   const { resolved: themeVariant } = useTheme();
@@ -267,7 +252,7 @@ export function BrowserSidebarPanel({
   isVisibleRef.current = isVisible;
   themeVariantRef.current = themeVariant;
   const [snapshot, setSnapshot] = useState<BrowserSidebarTabSnapshot>(() =>
-    makeInitialSnapshot(tab, browserConversationId, browserViewScopeId)
+    makeInitialSnapshot(tab, browserConversationId, browserViewScopeId),
   );
   const [addressValue, setAddressValue] = useState(readBrowserAddressValue(snapshot.url));
   const [addressFocused, setAddressFocused] = useState(false);
@@ -280,7 +265,8 @@ export function BrowserSidebarPanel({
   const [eventBrowserUseState, setEventBrowserUseState] =
     useState<BrowserSidebarBrowserUseStateSnapshot | null>(null);
   const [browserUseCursor, setBrowserUseCursor] = useState<BrowserUseCursorState | null>(null);
-  const [browserUseViewport, setBrowserUseViewport] = useState<BrowserSidebarBrowserUseViewportEvent | null>(null);
+  const [browserUseViewport, setBrowserUseViewport] =
+    useState<BrowserSidebarBrowserUseViewportEvent | null>(null);
   const [registeredBrowserKey, setRegisteredBrowserKey] = useState<string | null>(null);
   const [clearDataStatus, setClearDataStatus] = useState<string | null>(null);
   const [downloadsOpen, setDownloadsOpen] = useState(false);
@@ -288,14 +274,15 @@ export function BrowserSidebarPanel({
   const [siteInfo, setSiteInfo] = useState<BrowserSiteInfo | null>(null);
   const [credentialCandidate, setCredentialCandidate] =
     useState<BrowserCredentialSaveCandidate | null>(null);
-  const [downloadsSnapshot, setDownloadsSnapshot] =
-    useState<BrowserDownloadsSnapshot>({ downloads: [] });
+  const [downloadsSnapshot, setDownloadsSnapshot] = useState<BrowserDownloadsSnapshot>({
+    downloads: [],
+  });
   const annotationSessionIdRef = useRef(
-    globalThis.crypto?.randomUUID?.()
-      ?? `browser-annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    globalThis.crypto?.randomUUID?.() ??
+      `browser-annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   const [annotationDraft, setAnnotationDraft] = useState(() =>
-    createBrowserAnnotationDraftState(snapshot.url)
+    createBrowserAnnotationDraftState(snapshot.url),
   );
   const {
     anchors: annotationAnchors,
@@ -315,18 +302,19 @@ export function BrowserSidebarPanel({
     initialWebviewUrlRef.current = snapshot.url;
   }
 
-  const command = useCallback(async (input: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> => {
-    return invoke("browser-sidebar-command", input) as Promise<BrowserSidebarCommandResult>;
-  }, []);
-  const updateLocalServerPreferences = useCallback(async (
-    update: BrowserLocalServerPreferencesUpdate,
-  ) => {
-    const preferences = await invoke(
-      "browser-local-server-preferences-update",
-      update,
-    );
-    setLocalServerPreferences(preferences);
-  }, []);
+  const command = useCallback(
+    async (input: BrowserSidebarCommand): Promise<BrowserSidebarCommandResult> => {
+      return invoke("browser-sidebar-command", input) as Promise<BrowserSidebarCommandResult>;
+    },
+    [],
+  );
+  const updateLocalServerPreferences = useCallback(
+    async (update: BrowserLocalServerPreferencesUpdate) => {
+      const preferences = await invoke("browser-local-server-preferences-update", update);
+      setLocalServerPreferences(preferences);
+    },
+    [],
+  );
   const browserTabId = requireWorkbenchBrowserTabProjectionId(tab);
   const tabInitialUrl = readBrowserConfigUrl(tab);
   const tabFaviconUrl = readBrowserConfigFavicon(tab);
@@ -334,58 +322,51 @@ export function BrowserSidebarPanel({
   const tabDeviceToolbarState = readBrowserConfigDeviceToolbarState(tab);
   const tabDeviceToolbarStateRef = useRef(tabDeviceToolbarState);
   tabDeviceToolbarStateRef.current = tabDeviceToolbarState;
-  const tabDeviceToolbarStateKey = JSON.stringify(
-    tabDeviceToolbarState ?? null,
-  );
-  const browserStorageId = readBrowserConfigStorageId(tab)
-    ?? `browser:legacy:${browserTabId}`;
+  const tabDeviceToolbarStateKey = JSON.stringify(tabDeviceToolbarState ?? null);
+  const browserStorageId = readBrowserConfigStorageId(tab) ?? `browser:legacy:${browserTabId}`;
   const tabProjectId = tab.projectId;
   const tabTitle = tab.title;
-  const browserIdentity = useMemo(() => ({
-    browserConversationId,
-    browserViewScopeId,
-    browserTabId,
-  }), [browserConversationId, browserTabId, browserViewScopeId]);
+  const browserIdentity = useMemo(
+    () => ({
+      browserConversationId,
+      browserViewScopeId,
+      browserTabId,
+    }),
+    [browserConversationId, browserTabId, browserViewScopeId],
+  );
   const browserIdentityKey = makeBrowserSidebarTabKey(browserIdentity);
-  const browserUseState =
-    eventBrowserUseState ?? browserRuntime.browserUseState;
-  const activeBrowserUseTabId = browserUseState
-    .activeBrowserTabIdsByConversationScope[
+  const browserUseState = eventBrowserUseState ?? browserRuntime.browserUseState;
+  const activeBrowserUseTabId =
+    browserUseState.activeBrowserTabIdsByConversationScope[
       `${browserIdentity.browserConversationId}\0${browserIdentity.browserViewScopeId}`
     ] ?? null;
-  const exactBrowserUseTab = browserUseState.tabs.find((item) =>
-    matchesBrowserSidebarTabIdentity(item, browserIdentity)
-  ) ?? null;
-  const activeBrowserUseTab = activeBrowserUseTabId === browserIdentity.browserTabId
-    ? exactBrowserUseTab
-    : null;
-  const codexSessionId = exactBrowserUseTab?.codexSessionId
-    ?? (tab.kind === "browser"
-      ? tab.config.browserUseSource?.codexSessionId
-      : null)
-    ?? fallbackCodexSessionId;
+  const exactBrowserUseTab =
+    browserUseState.tabs.find((item) => matchesBrowserSidebarTabIdentity(item, browserIdentity)) ??
+    null;
+  const activeBrowserUseTab =
+    activeBrowserUseTabId === browserIdentity.browserTabId ? exactBrowserUseTab : null;
+  const codexSessionId =
+    exactBrowserUseTab?.codexSessionId ??
+    (tab.kind === "browser" ? tab.config.browserUseSource?.codexSessionId : null) ??
+    fallbackCodexSessionId;
   const shouldMountWebview = !isBlank || activeBrowserUseTab !== null;
-  const handleOpenNewTab = useEffectEvent((
-    request: BrowserSidebarOpenNewTabRequest,
-  ) => {
+  const handleOpenNewTab = useEffectEvent((request: BrowserSidebarOpenNewTabRequest) => {
     void onOpenNewTab?.(request);
   });
 
   useEffect(() => {
-    if (
-      !browserRuntimeAvailable
-      || isBlank
-      || registeredBrowserKey !== browserIdentityKey
-    ) {
+    if (!browserRuntimeAvailable || isBlank || registeredBrowserKey !== browserIdentityKey) {
       setSiteInfo(null);
       return;
     }
     let cancelled = false;
-    void invoke("browser-site-info", browserIdentity).then((nextSiteInfo) => {
-      if (!cancelled) setSiteInfo(nextSiteInfo);
-    }).catch(() => {
-      if (!cancelled) setSiteInfo(null);
-    });
+    void invoke("browser-site-info", browserIdentity)
+      .then((nextSiteInfo) => {
+        if (!cancelled) setSiteInfo(nextSiteInfo);
+      })
+      .catch(() => {
+        if (!cancelled) setSiteInfo(null);
+      });
     return () => {
       cancelled = true;
     };
@@ -400,14 +381,11 @@ export function BrowserSidebarPanel({
 
   useEffect(() => {
     if (!browserRuntimeAvailable) return undefined;
-    const unsubscribe = window.api?.on(
-      "browser-credential-save-candidate",
-      (payload) => {
-        const candidate = payload as BrowserCredentialSaveCandidate | undefined;
-        if (!matchesBrowserSidebarTabIdentity(candidate, browserIdentity)) return;
-        setCredentialCandidate(candidate);
-      },
-    );
+    const unsubscribe = window.api?.on("browser-credential-save-candidate", (payload) => {
+      const candidate = payload as BrowserCredentialSaveCandidate | undefined;
+      if (!matchesBrowserSidebarTabIdentity(candidate, browserIdentity)) return;
+      setCredentialCandidate(candidate);
+    });
     return () => unsubscribe?.();
   }, [browserIdentity, browserRuntimeAvailable]);
 
@@ -418,24 +396,22 @@ export function BrowserSidebarPanel({
       setCredentialCandidate(null);
       return undefined;
     }
-    const timeout = window.setTimeout(
-      () => setCredentialCandidate(null),
-      remaining,
-    );
+    const timeout = window.setTimeout(() => setCredentialCandidate(null), remaining);
     return () => window.clearTimeout(timeout);
   }, [credentialCandidate]);
 
-  const actOnCredentialCandidate = useCallback(async (
-    action: "dismiss" | "save",
-  ) => {
-    if (!credentialCandidate) return;
-    const result = await invoke("browser-credential-candidate-action", {
-      candidateId: credentialCandidate.candidateId,
-      action,
-    });
-    setCredentialCandidate(null);
-    if (!result.ok) setClearDataStatus(result.message ?? "Unable to save password");
-  }, [credentialCandidate]);
+  const actOnCredentialCandidate = useCallback(
+    async (action: "dismiss" | "save") => {
+      if (!credentialCandidate) return;
+      const result = await invoke("browser-credential-candidate-action", {
+        candidateId: credentialCandidate.candidateId,
+        action,
+      });
+      setCredentialCandidate(null);
+      if (!result.ok) setClearDataStatus(result.message ?? "Unable to save password");
+    },
+    [credentialCandidate],
+  );
   const contentSearchBrowserTarget = useMemo(() => {
     if (!activeForContentSearch || pageActionsDisabled) return null;
     return {
@@ -444,7 +420,15 @@ export function BrowserSidebarPanel({
       findState: snapshot.findState,
       command,
     };
-  }, [activeForContentSearch, browserIdentity, command, isBlank, pageActionsDisabled, snapshot.findState, snapshot.hasBrowserPage]);
+  }, [
+    activeForContentSearch,
+    browserIdentity,
+    command,
+    isBlank,
+    pageActionsDisabled,
+    snapshot.findState,
+    snapshot.hasBrowserPage,
+  ]);
   useRegisterContentSearchBrowserTarget(contentSearchBrowserTarget);
 
   useEffect(() => {
@@ -454,12 +438,9 @@ export function BrowserSidebarPanel({
         if (preferences) setLocalServerPreferences(preferences);
       })
       .catch(() => undefined);
-    return window.api?.on(
-      "browser-local-server-preferences-changed",
-      (preferences) => {
-        setLocalServerPreferences(preferences as BrowserLocalServerPreferences);
-      },
-    );
+    return window.api?.on("browser-local-server-preferences-changed", (preferences) => {
+      setLocalServerPreferences(preferences as BrowserLocalServerPreferences);
+    });
   }, [browserRuntimeAvailable]);
 
   useEffect(() => {
@@ -494,13 +475,7 @@ export function BrowserSidebarPanel({
         annotationSelectionMode,
       );
     };
-  }, [
-    annotationSelectionMode,
-    browserIdentity,
-    browserRuntimeAvailable,
-    commentMode,
-    isBlank,
-  ]);
+  }, [annotationSelectionMode, browserIdentity, browserRuntimeAvailable, commentMode, isBlank]);
 
   useEffect(() => {
     if (!browserRuntimeAvailable) return undefined;
@@ -508,9 +483,7 @@ export function BrowserSidebarPanel({
       const event = payload as BrowserAnnotationRoutedSelectionEvent;
       if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
       if (event.selection.sessionId !== annotationSessionIdRef.current) return;
-      setAnnotationDraft((current) =>
-        applyBrowserAnnotationSelection(current, event.selection)
-      );
+      setAnnotationDraft((current) => applyBrowserAnnotationSelection(current, event.selection));
     });
   }, [browserIdentity, browserRuntimeAvailable]);
 
@@ -521,7 +494,7 @@ export function BrowserSidebarPanel({
       if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
       if (event.update.sessionId !== annotationSessionIdRef.current) return;
       setAnnotationDraft((current) =>
-        applyBrowserAnnotationAnchorUpdate(current, event.update.anchor)
+        applyBrowserAnnotationAnchorUpdate(current, event.update.anchor),
       );
     });
   }, [browserIdentity, browserRuntimeAvailable]);
@@ -532,9 +505,7 @@ export function BrowserSidebarPanel({
     browserSidebarRendererWebviewManager.setAnnotationDesignPreview(
       browserIdentity,
       annotationSessionId,
-      commentMode && annotationIntent === "designChange"
-        ? annotationDesignChange
-        : null,
+      commentMode && annotationIntent === "designChange" ? annotationDesignChange : null,
       annotationOriginalView,
     );
     return () => {
@@ -561,16 +532,9 @@ export function BrowserSidebarPanel({
       const event = payload as BrowserSidebarImageDragStateEvent;
       if (!matchesBrowserSidebarTabIdentity(event, browserIdentity)) return;
       if (!codexSessionId) return;
-      publishBrowserImageDragState(
-        codexSessionId,
-        event,
-      );
+      publishBrowserImageDragState(codexSessionId, event);
     });
-  }, [
-    browserIdentity,
-    browserRuntimeAvailable,
-    codexSessionId,
-  ]);
+  }, [browserIdentity, browserRuntimeAvailable, codexSessionId]);
 
   useEffect(() => {
     if (!browserRuntimeAvailable) return undefined;
@@ -582,14 +546,11 @@ export function BrowserSidebarPanel({
           setClearDataStatus("Open a Conversation to add browser context");
           return;
         }
-        publishBrowserImageAttachment(
-          codexSessionId,
-          {
-            id: event.attachment.id,
-            filename: event.attachment.fileName,
-            source: event.attachment.source,
-          },
-        );
+        publishBrowserImageAttachment(codexSessionId, {
+          id: event.attachment.id,
+          filename: event.attachment.fileName,
+          source: event.attachment.source,
+        });
         setClearDataStatus("Browser image added to composer");
         return;
       }
@@ -619,17 +580,10 @@ export function BrowserSidebarPanel({
         if (!result.ok) setClearDataStatus(result.message);
       });
     });
-  }, [
-    browserIdentity,
-    browserRuntimeAvailable,
-    codexSessionId,
-    command,
-  ]);
+  }, [browserIdentity, browserRuntimeAvailable, codexSessionId, command]);
 
   useEffect(() => {
-    setAnnotationDraft((current) =>
-      navigateBrowserAnnotationDraft(current, snapshot.url)
-    );
+    setAnnotationDraft((current) => navigateBrowserAnnotationDraft(current, snapshot.url));
   }, [snapshot.url]);
 
   useEffect(() => {
@@ -650,12 +604,7 @@ export function BrowserSidebarPanel({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [
-    annotationAnchors.length,
-    browserIdentity,
-    command,
-    commentMode,
-  ]);
+  }, [annotationAnchors.length, browserIdentity, command, commentMode]);
 
   useEffect(() => {
     if (!browserRuntimeAvailable) return undefined;
@@ -665,8 +614,7 @@ export function BrowserSidebarPanel({
       const rendererResult = await command({
         type: "register-renderer-session",
         browserViewScopeId,
-        rendererInstanceId:
-          browserSidebarRendererWebviewManager.getRendererInstanceId(),
+        rendererInstanceId: browserSidebarRendererWebviewManager.getRendererInstanceId(),
       });
       if (!rendererResult.ok || cancelled) return;
       const result = await command({
@@ -711,7 +659,7 @@ export function BrowserSidebarPanel({
     const unsubscribeState = window.api?.on("browser-sidebar-state", (payload) => {
       const state = payload as { tabs?: BrowserSidebarTabSnapshot[] } | undefined;
       const next = state?.tabs?.find((item) =>
-        matchesBrowserSidebarTabIdentity(item, browserIdentity)
+        matchesBrowserSidebarTabIdentity(item, browserIdentity),
       );
       if (!next) return;
       setSnapshot(next);
@@ -726,35 +674,36 @@ export function BrowserSidebarPanel({
       setEventBrowserUseState(next);
       if (
         next.cursors.some((candidate) =>
-          matchesBrowserSidebarTabIdentity(candidate, browserIdentity)
+          matchesBrowserSidebarTabIdentity(candidate, browserIdentity),
         )
       ) {
         return;
       }
       setBrowserUseCursor((current) =>
-        matchesBrowserSidebarTabIdentity(current, browserIdentity)
-          ? null
-          : current
+        matchesBrowserSidebarTabIdentity(current, browserIdentity) ? null : current,
       );
     });
-    const unsubscribeBrowserUseViewport = window.api?.on("browser-sidebar-browser-use-viewport", (payload) => {
-      const next = payload as BrowserSidebarBrowserUseViewportEvent | undefined;
-      if (!matchesBrowserSidebarTabIdentity(next, browserIdentity)) return;
-      setBrowserUseViewport(next);
-    });
-    const unsubscribeBrowserUseCursor = window.api?.on("browser-sidebar-browser-use-cursor-state", (payload) => {
-      const next = payload as BrowserUseCursorState | undefined;
-      if (!matchesBrowserSidebarTabIdentity(next, browserIdentity)) return;
-      setBrowserUseCursor(next);
-    });
-    const unsubscribeOpenNewTab = window.api?.on(
-      "browser-sidebar-open-new-tab",
+    const unsubscribeBrowserUseViewport = window.api?.on(
+      "browser-sidebar-browser-use-viewport",
       (payload) => {
-        const request = payload as BrowserSidebarOpenNewTabRequest;
-        if (!matchesBrowserSidebarTabIdentity(request, browserIdentity)) return;
-        handleOpenNewTab(request);
+        const next = payload as BrowserSidebarBrowserUseViewportEvent | undefined;
+        if (!matchesBrowserSidebarTabIdentity(next, browserIdentity)) return;
+        setBrowserUseViewport(next);
       },
     );
+    const unsubscribeBrowserUseCursor = window.api?.on(
+      "browser-sidebar-browser-use-cursor-state",
+      (payload) => {
+        const next = payload as BrowserUseCursorState | undefined;
+        if (!matchesBrowserSidebarTabIdentity(next, browserIdentity)) return;
+        setBrowserUseCursor(next);
+      },
+    );
+    const unsubscribeOpenNewTab = window.api?.on("browser-sidebar-open-new-tab", (payload) => {
+      const request = payload as BrowserSidebarOpenNewTabRequest;
+      if (!matchesBrowserSidebarTabIdentity(request, browserIdentity)) return;
+      handleOpenNewTab(request);
+    });
     return () => {
       unsubscribeState?.();
       unsubscribeLocalServers?.();
@@ -763,20 +712,16 @@ export function BrowserSidebarPanel({
       unsubscribeBrowserUseCursor?.();
       unsubscribeOpenNewTab?.();
     };
-  }, [
-    browserIdentity,
-    browserRuntimeAvailable,
-    tabProjectId,
-  ]);
+  }, [browserIdentity, browserRuntimeAvailable, tabProjectId]);
 
   useLayoutEffect(() => {
     if (
-      !browserRuntimeAvailable
-      || registeredBrowserKey !== browserIdentityKey
-      || !shouldMountWebview
-      || downloadsOpen
-      || profileImportOpen
-      || snapshot.failure !== undefined
+      !browserRuntimeAvailable ||
+      registeredBrowserKey !== browserIdentityKey ||
+      !shouldMountWebview ||
+      downloadsOpen ||
+      profileImportOpen ||
+      snapshot.failure !== undefined
     ) {
       return undefined;
     }
@@ -789,8 +734,7 @@ export function BrowserSidebarPanel({
     const hostGeneration = browserSidebarRendererWebviewManager.claimHostGeneration({
       ...browserIdentity,
     });
-    const rendererInstanceId =
-      browserSidebarRendererWebviewManager.getRendererInstanceId();
+    const rendererInstanceId = browserSidebarRendererWebviewManager.getRendererInstanceId();
     let disposed = false;
     let started = false;
     let lastHostStateKey: string | null = null;
@@ -801,12 +745,7 @@ export function BrowserSidebarPanel({
       if (!started || disposed) return;
       const visible = isVisibleRef.current;
       const bounds = visible ? readWebviewHostBounds(container) : null;
-      const presented = Boolean(
-        visible
-        && bounds
-        && bounds.width > 0
-        && bounds.height > 0,
-      );
+      const presented = Boolean(visible && bounds && bounds.width > 0 && bounds.height > 0);
       browserSidebarRendererWebviewManager.syncWebview({
         ...browserIdentity,
         browserStorageId,
@@ -821,8 +760,7 @@ export function BrowserSidebarPanel({
           void invoke("browser-sidebar-webview-host-created", event);
         },
       });
-      const nextHostStateKey =
-        `${visible}:${presented}:${themeVariantRef.current}`;
+      const nextHostStateKey = `${visible}:${presented}:${themeVariantRef.current}`;
       if (lastHostStateKey === nextHostStateKey) return;
       lastHostStateKey = nextHostStateKey;
       void command({
@@ -860,14 +798,10 @@ export function BrowserSidebarPanel({
       if (!result.ok || disposed) return;
       started = true;
       syncCurrentPresentation();
-      resizeObserver = typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(scheduleSyncBounds);
+      resizeObserver =
+        typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleSyncBounds);
       resizeObserver?.observe(container);
-      unsubscribeBoundsSyncTrigger = boundsSyncTrigger?.on(
-        "change",
-        scheduleSyncBounds,
-      );
+      unsubscribeBoundsSyncTrigger = boundsSyncTrigger?.on("change", scheduleSyncBounds);
       window.addEventListener("resize", scheduleSyncBounds);
       window.addEventListener("scroll", scheduleSyncBounds, true);
       scheduleSyncBounds();
@@ -875,9 +809,7 @@ export function BrowserSidebarPanel({
 
     return () => {
       disposed = true;
-      if (
-        syncWebviewPresentationRef.current === syncCurrentPresentation
-      ) {
+      if (syncWebviewPresentationRef.current === syncCurrentPresentation) {
         syncWebviewPresentationRef.current = null;
       }
       if (animationFrame !== null) {
@@ -899,9 +831,12 @@ export function BrowserSidebarPanel({
         themeVariant: themeVariantRef.current,
         visible: false,
       });
-      browserSidebarRendererWebviewManager.detachWebview({
-        ...browserIdentity,
-      }, mountGeneration);
+      browserSidebarRendererWebviewManager.detachWebview(
+        {
+          ...browserIdentity,
+        },
+        mountGeneration,
+      );
     };
   }, [
     browserIdentity,
@@ -929,10 +864,10 @@ export function BrowserSidebarPanel({
 
   useEffect(() => {
     if (
-      !browserRuntimeAvailable
-      || !activeForContentSearch
-      || isBlank
-      || snapshot.deviceToolbarVisible
+      !browserRuntimeAvailable ||
+      !activeForContentSearch ||
+      isBlank ||
+      snapshot.deviceToolbarVisible
     ) {
       publishBrowserDocumentBottom(browserIdentity, false);
       return;
@@ -941,9 +876,7 @@ export function BrowserSidebarPanel({
     let disposed = false;
     const sampleDocumentBottom = async () => {
       const isAtDocumentBottom =
-        await browserSidebarRendererWebviewManager.readIsAtDocumentBottom(
-          browserIdentity,
-        );
+        await browserSidebarRendererWebviewManager.readIsAtDocumentBottom(browserIdentity);
       if (disposed || isAtDocumentBottom === null) return;
       publishBrowserDocumentBottom(browserIdentity, isAtDocumentBottom);
     };
@@ -1002,28 +935,31 @@ export function BrowserSidebarPanel({
     tab.projectId,
   ]);
 
-  const navigateTo = useCallback((rawUrl: string) => {
-    const url = normalizeBrowserNavigationUrl(rawUrl);
-    const hasBrowserPage = !isBlankBrowserUrl(url);
-    setSnapshot((current) => ({
-      ...current,
-      url,
-      pendingUrl: hasBrowserPage ? url : undefined,
-      hasBrowserPage,
-      pageActionsDisabled: !hasBrowserPage,
-      isLoading: hasBrowserPage,
-      updatedAt: Date.now(),
-    }));
-    setAddressValue(readBrowserAddressValue(url));
-    void command({
-      type: "navigate",
-      ...browserIdentity,
-      url,
-      source: "manual",
-      initiator: "address_bar",
-      originalUrl: rawUrl,
-    });
-  }, [browserIdentity, command]);
+  const navigateTo = useCallback(
+    (rawUrl: string) => {
+      const url = normalizeBrowserNavigationUrl(rawUrl);
+      const hasBrowserPage = !isBlankBrowserUrl(url);
+      setSnapshot((current) => ({
+        ...current,
+        url,
+        pendingUrl: hasBrowserPage ? url : undefined,
+        hasBrowserPage,
+        pageActionsDisabled: !hasBrowserPage,
+        isLoading: hasBrowserPage,
+        updatedAt: Date.now(),
+      }));
+      setAddressValue(readBrowserAddressValue(url));
+      void command({
+        type: "navigate",
+        ...browserIdentity,
+        url,
+        source: "manual",
+        initiator: "address_bar",
+        originalUrl: rawUrl,
+      });
+    },
+    [browserIdentity, command],
+  );
 
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
@@ -1054,18 +990,30 @@ export function BrowserSidebarPanel({
 
   const toggleDeviceToolbar = () => {
     const visible = !snapshot.deviceToolbarVisible;
-    setSnapshot((current) => ({ ...current, deviceToolbarVisible: visible, updatedAt: Date.now() }));
+    setSnapshot((current) => ({
+      ...current,
+      deviceToolbarVisible: visible,
+      updatedAt: Date.now(),
+    }));
     void command({ type: "set-device-toolbar-visible", ...browserIdentity, visible });
   };
 
   const updateViewport = (viewport: BrowserSidebarViewport) => {
-    setSnapshot((current) => ({ ...current, viewport, zoomPercent: viewport.zoomPercent, updatedAt: Date.now() }));
+    setSnapshot((current) => ({
+      ...current,
+      viewport,
+      zoomPercent: viewport.zoomPercent,
+      updatedAt: Date.now(),
+    }));
     void command({ type: "set-viewport", ...browserIdentity, viewport });
   };
 
   const clearBrowsingData = async (kind: BrowserBrowsingDataKind) => {
     setClearDataStatus(null);
-    const result = await invoke("browser-browsing-data-clear", kind) as { ok: boolean; message?: string };
+    const result = (await invoke("browser-browsing-data-clear", kind)) as {
+      ok: boolean;
+      message?: string;
+    };
     if (result.ok) {
       const labels: Record<BrowserBrowsingDataKind, string> = {
         cookies: "Cookies cleared",
@@ -1089,37 +1037,40 @@ export function BrowserSidebarPanel({
     setClearDataStatus(result.message);
   };
 
-  const cursor = (
-    matchesBrowserSidebarTabIdentity(browserUseCursor, browserIdentity)
+  const cursor =
+    (matchesBrowserSidebarTabIdentity(browserUseCursor, browserIdentity)
       ? browserUseCursor
       : browserUseState.cursors.find((candidate) =>
-          matchesBrowserSidebarTabIdentity(candidate, browserIdentity)
-        )
-  ) ?? null;
-  const reportedBrowserUseViewportSize =
-    matchesBrowserSidebarTabIdentity(browserUseViewport, browserIdentity)
-      ? browserUseViewport.viewportSize
-      : null;
-  const browserUseViewportSize = reportedBrowserUseViewportSize
-    ?? (activeBrowserUseTab
+          matchesBrowserSidebarTabIdentity(candidate, browserIdentity),
+        )) ?? null;
+  const reportedBrowserUseViewportSize = matchesBrowserSidebarTabIdentity(
+    browserUseViewport,
+    browserIdentity,
+  )
+    ? browserUseViewport.viewportSize
+    : null;
+  const browserUseViewportSize =
+    reportedBrowserUseViewportSize ??
+    (activeBrowserUseTab
       ? {
           width: activeBrowserUseTab.viewport.width,
           height: activeBrowserUseTab.viewport.height,
         }
       : null);
   const activeDownloadCount = downloadsSnapshot.downloads.filter(
-    (download) =>
-      download.status === "progressing"
-      || download.status === "paused",
+    (download) => download.status === "progressing" || download.status === "paused",
   ).length;
 
-  const handleBrowserUseCursorArrived = useCallback((moveSequence: number) => {
-    void command({
-      type: "browser-use-cursor-arrived",
-      ...browserIdentity,
-      moveSequence,
-    });
-  }, [browserIdentity, command]);
+  const handleBrowserUseCursorArrived = useCallback(
+    (moveSequence: number) => {
+      void command({
+        type: "browser-use-cursor-arrived",
+        ...browserIdentity,
+        moveSequence,
+      });
+    },
+    [browserIdentity, command],
+  );
 
   if (!browserRuntimeAvailable) {
     return <BrowserUnavailableState />;
@@ -1158,7 +1109,11 @@ export function BrowserSidebarPanel({
               void command({ type: "reload", ...browserIdentity });
             }}
           >
-            {snapshot.isLoading ? <StopIcon className="icon-sm" /> : <BrowserReloadIcon className="icon-sm" />}
+            {snapshot.isLoading ? (
+              <StopIcon className="icon-sm" />
+            ) : (
+              <BrowserReloadIcon className="icon-sm" />
+            )}
           </BrowserToolbarButton>
           <form
             className="no-drag flex min-w-0 flex-1 items-center justify-center px-1 text-sm text-token-text-primary"
@@ -1185,10 +1140,16 @@ export function BrowserSidebarPanel({
                   !addressFocused && "text-center",
                   addressValue.trim().length > 0 && "pr-3",
                 )}
-                style={addressValue.trim().length > 0 ? {
-                  WebkitMaskImage: "linear-gradient(to right, black calc(100% - 18px), transparent)",
-                  maskImage: "linear-gradient(to right, black calc(100% - 18px), transparent)",
-                } : undefined}
+                style={
+                  addressValue.trim().length > 0
+                    ? {
+                        WebkitMaskImage:
+                          "linear-gradient(to right, black calc(100% - 18px), transparent)",
+                        maskImage:
+                          "linear-gradient(to right, black calc(100% - 18px), transparent)",
+                      }
+                    : undefined
+                }
                 value={addressValue}
                 placeholder="Enter a URL"
                 onFocus={() => setAddressFocused(true)}
@@ -1228,7 +1189,12 @@ export function BrowserSidebarPanel({
               </button>
             </div>
           </form>
-          <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0" : "max-w-7 opacity-100")}>
+          <div
+            className={cn(
+              BROWSER_COLLAPSIBLE_ACTION_CLASS,
+              pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0" : "max-w-7 opacity-100",
+            )}
+          >
             <BrowserCredentialMenu
               identity={browserIdentity}
               disabled={pageActionsDisabled}
@@ -1236,12 +1202,32 @@ export function BrowserSidebarPanel({
               onOpenContactInfo={() => onOpenBrowserSettings?.("contact-info")}
             />
           </div>
-          <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5" : "max-w-7 opacity-100 translate-y-0")}>
-            <BrowserToolbarButton label="Capture screenshot" disabled={pageActionsDisabled} onClick={() => void captureScreenshot()}>
+          <div
+            className={cn(
+              BROWSER_COLLAPSIBLE_ACTION_CLASS,
+              pageActionsDisabled
+                ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5"
+                : "max-w-7 opacity-100 translate-y-0",
+            )}
+          >
+            <BrowserToolbarButton
+              label="Capture screenshot"
+              disabled={pageActionsDisabled}
+              onClick={() => void captureScreenshot()}
+            >
               <BrowserScreenshotIcon className="icon-sm" />
             </BrowserToolbarButton>
           </div>
-          <div className={cn(BROWSER_COLLAPSIBLE_ACTION_CLASS, pageActionsDisabled ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5" : commentMode ? "max-w-[112px] opacity-100 translate-y-0" : "max-w-7 opacity-100 translate-y-0")}>
+          <div
+            className={cn(
+              BROWSER_COLLAPSIBLE_ACTION_CLASS,
+              pageActionsDisabled
+                ? "pointer-events-none max-w-0 opacity-0 -translate-y-0.5"
+                : commentMode
+                  ? "max-w-[112px] opacity-100 translate-y-0"
+                  : "max-w-7 opacity-100 translate-y-0",
+            )}
+          >
             <BrowserToolbarButton
               label={commentMode ? "Exit comment mode" : "Annotate"}
               disabled={pageActionsDisabled}
@@ -1261,7 +1247,12 @@ export function BrowserSidebarPanel({
               }}
             >
               <BrowserAnnotateIcon className="icon-sm shrink-0" />
-              <span className={cn("overflow-hidden whitespace-nowrap text-sm transition-[max-width,opacity] duration-150", commentMode ? "max-w-20 opacity-100" : "max-w-0 opacity-0")}>
+              <span
+                className={cn(
+                  "overflow-hidden whitespace-nowrap text-sm transition-[max-width,opacity] duration-150",
+                  commentMode ? "max-w-20 opacity-100" : "max-w-0 opacity-0",
+                )}
+              >
                 Annotating
               </span>
             </BrowserToolbarButton>
@@ -1393,7 +1384,12 @@ export function BrowserSidebarPanel({
             }}
             onRemoveRoute={(serverUrl, routeUrl) => {
               if (tab.projectId !== null) {
-                void command({ type: "remove-local-server-route", projectId: tab.projectId, serverUrl, routeUrl });
+                void command({
+                  type: "remove-local-server-route",
+                  projectId: tab.projectId,
+                  serverUrl,
+                  routeUrl,
+                });
               }
             }}
           />
@@ -1418,7 +1414,7 @@ export function BrowserSidebarPanel({
                   selectionMode={annotationSelectionMode}
                   onDesignChange={(input) => {
                     setAnnotationDraft((current) =>
-                      updateBrowserAnnotationDesignChange(current, input)
+                      updateBrowserAnnotationDesignChange(current, input),
                     );
                   }}
                   onIntentChange={(intent) => {
@@ -1445,13 +1441,11 @@ export function BrowserSidebarPanel({
                   }}
                   onRemoveAnchor={(anchorId) => {
                     setAnnotationDraft((current) =>
-                      removeBrowserAnnotationAnchor(current, anchorId)
+                      removeBrowserAnnotationAnchor(current, anchorId),
                     );
                   }}
                   onDiscard={() => {
-                    setAnnotationDraft((current) =>
-                      resetBrowserAnnotationDraft(current)
-                    );
+                    setAnnotationDraft((current) => resetBrowserAnnotationDraft(current));
                   }}
                   onAddToComposer={() => {
                     if (!codexSessionId) {
@@ -1460,10 +1454,10 @@ export function BrowserSidebarPanel({
                     }
                     if (annotationAnchors.length === 0) return;
                     if (
-                      annotationIntent === "designChange"
-                      && (!annotationDesignChange?.after.trim()
-                        || !annotationAnchors.some((anchor) =>
-                          anchor.id === annotationDesignChange.anchorId
+                      annotationIntent === "designChange" &&
+                      (!annotationDesignChange?.after.trim() ||
+                        !annotationAnchors.some(
+                          (anchor) => anchor.id === annotationDesignChange.anchorId,
                         ))
                     ) {
                       setClearDataStatus("Choose a design property and value");
@@ -1472,18 +1466,16 @@ export function BrowserSidebarPanel({
                     void invoke("browser-annotation-capture-evidence", {
                       ...browserIdentity,
                       anchors: annotationAnchors,
-                    }).then((evidence) => {
-                      publishBrowserAnnotationAttachment(
-                        codexSessionId,
-                        {
+                    })
+                      .then((evidence) => {
+                        publishBrowserAnnotationAttachment(codexSessionId, {
                           schemaVersion: 1,
-                          id: globalThis.crypto?.randomUUID?.()
-                            ?? `browser-annotation-${Date.now()}`,
+                          id:
+                            globalThis.crypto?.randomUUID?.() ?? `browser-annotation-${Date.now()}`,
                           browserTabId,
                           createdAt: Date.now(),
                           intent: annotationIntent,
-                          ...(annotationIntent === "designChange"
-                            && annotationDesignChange
+                          ...(annotationIntent === "designChange" && annotationDesignChange
                             ? { designChange: annotationDesignChange }
                             : {}),
                           note: annotationNote.trim(),
@@ -1491,23 +1483,21 @@ export function BrowserSidebarPanel({
                           pageUrl: snapshot.url,
                           anchors: annotationAnchors,
                           evidence,
-                        },
-                      );
-                      setAnnotationDraft((current) =>
-                        resetBrowserAnnotationDraft(current)
-                      );
-                      setClearDataStatus(
-                        annotationIntent === "designChange"
-                          ? "Browser design change added to composer"
-                          : "Browser annotation added to composer",
-                      );
-                    }).catch((error) => {
-                      setClearDataStatus(
-                        error instanceof Error
-                          ? error.message
-                          : "Could not capture Browser annotation evidence",
-                      );
-                    });
+                        });
+                        setAnnotationDraft((current) => resetBrowserAnnotationDraft(current));
+                        setClearDataStatus(
+                          annotationIntent === "designChange"
+                            ? "Browser design change added to composer"
+                            : "Browser annotation added to composer",
+                        );
+                      })
+                      .catch((error) => {
+                        setClearDataStatus(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not capture Browser annotation evidence",
+                        );
+                      });
                   }}
                 />
               </BrowserCommentOverlay>
@@ -1523,17 +1513,16 @@ export function BrowserSidebarPanel({
         )}
       </div>
       {clearDataStatus ? (
-        <div className={cn(
-          "pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full bg-token-dropdown-background/90 px-3 py-1 text-xs text-token-text-secondary shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-sm",
-          snapshot.deviceToolbarVisible ? "bottom-[46px]" : "bottom-3",
-        )}>
+        <div
+          className={cn(
+            "pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full bg-token-dropdown-background/90 px-3 py-1 text-xs text-token-text-secondary shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-sm",
+            snapshot.deviceToolbarVisible ? "bottom-[46px]" : "bottom-3",
+          )}
+        >
           {clearDataStatus}
         </div>
       ) : null}
-      <BrowserProfileImportDialog
-        open={profileImportOpen}
-        onOpenChange={setProfileImportOpen}
-      />
+      <BrowserProfileImportDialog open={profileImportOpen} onOpenChange={setProfileImportOpen} />
     </div>
   );
 }
@@ -1588,15 +1577,16 @@ function BrowserSiteInfoMenu({
   const connectionLabel = siteInfo?.connection
     ? browserConnectionLabel(siteInfo.connection)
     : "Checking connection…";
-  const allowedPermissions = siteInfo?.permissions
-    ?.filter((permission) => permission.state === "allow")
-    .map((permission) => permission.permission) ?? [];
+  const allowedPermissions =
+    siteInfo?.permissions
+      ?.filter((permission) => permission.state === "allow")
+      .map((permission) => permission.permission) ?? [];
   return (
     <NodexDropdownMenu
       align="start"
       contentWidth="menuWide"
       contentStyle={BROWSER_DROPDOWN_CONTENT_STYLE}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           data-browser-sidebar-skip-address-commit
@@ -1605,19 +1595,13 @@ function BrowserSiteInfoMenu({
           disabled={disabled}
           onMouseDown={(event) => event.preventDefault()}
         >
-          {secure
-            ? <LockKeyhole className="icon-xs" />
-            : <Info className="icon-xs" />}
+          {secure ? <LockKeyhole className="icon-xs" /> : <Info className="icon-xs" />}
         </button>
-      )}
+      }
     >
       <div className="px-[var(--padding-row-x)] py-2">
-        <div className="truncate text-sm font-medium text-token-text-primary">
-          {origin}
-        </div>
-        <div className="mt-1 text-xs text-token-text-secondary">
-          {connectionLabel}
-        </div>
+        <div className="truncate text-sm font-medium text-token-text-primary">{origin}</div>
+        <div className="mt-1 text-xs text-token-text-secondary">{connectionLabel}</div>
       </div>
       <NodexDropdownSeparator />
       <div className="px-[var(--padding-row-x)] py-2 text-xs leading-5 text-token-text-secondary">
@@ -1646,9 +1630,7 @@ function readBrowserOriginLabel(url: string): string {
   }
 }
 
-function browserConnectionLabel(
-  connection: BrowserSiteInfo["connection"],
-): string {
+function browserConnectionLabel(connection: BrowserSiteInfo["connection"]): string {
   if (connection === "secure") return "Connection is secure";
   if (connection === "local") return "Local connection";
   if (connection === "insecure") return "Connection is not secure";
@@ -1701,7 +1683,7 @@ function BrowserCredentialMenu({
       disabled={disabled}
       open={open}
       onOpenChange={setOpen}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           data-browser-sidebar-skip-address-commit
@@ -1710,7 +1692,7 @@ function BrowserCredentialMenu({
         >
           <KeyRound className="icon-sm" />
         </button>
-      )}
+      }
     >
       <div className="px-[var(--padding-row-x)] py-2">
         <div className="text-sm font-medium text-token-text-primary">Passwords and autofill</div>
@@ -1723,27 +1705,29 @@ function BrowserCredentialMenu({
         <div className="px-[var(--padding-row-x)] py-2 text-xs text-token-text-secondary">
           {message ?? "No saved password for this site."}
         </div>
-      ) : credentials.map((credential) => (
-        <NodexDropdownItem
-          key={credential.id}
-          leftSlot={<KeyRound className="icon-xs" />}
-          onSelect={() => {
-            void invoke("browser-credential-fill", {
-              ...identity,
-              credentialId: credential.id,
-            }).then((result) => {
-              if (!result.ok) setMessage(result.message ?? "Unable to fill password");
-            });
-          }}
-        >
-          <span className="flex min-w-0 flex-col">
-            <span className="truncate">{credential.label}</span>
-            <span className="truncate text-xs text-token-text-secondary">
-              {credential.username || "No username"}
+      ) : (
+        credentials.map((credential) => (
+          <NodexDropdownItem
+            key={credential.id}
+            leftSlot={<KeyRound className="icon-xs" />}
+            onSelect={() => {
+              void invoke("browser-credential-fill", {
+                ...identity,
+                credentialId: credential.id,
+              }).then((result) => {
+                if (!result.ok) setMessage(result.message ?? "Unable to fill password");
+              });
+            }}
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate">{credential.label}</span>
+              <span className="truncate text-xs text-token-text-secondary">
+                {credential.username || "No username"}
+              </span>
             </span>
-          </span>
-        </NodexDropdownItem>
-      ))}
+          </NodexDropdownItem>
+        ))
+      )}
       <NodexDropdownItem
         leftSlot={<KeyRound className="icon-xs" />}
         onSelect={() => {
@@ -1783,7 +1767,10 @@ function BrowserCredentialMenu({
       <NodexDropdownItem leftSlot={<KeyRound className="icon-xs" />} onSelect={onOpenPasswords}>
         Manage passwords
       </NodexDropdownItem>
-      <NodexDropdownItem leftSlot={<ContactRound className="icon-xs" />} onSelect={onOpenContactInfo}>
+      <NodexDropdownItem
+        leftSlot={<ContactRound className="icon-xs" />}
+        onSelect={onOpenContactInfo}
+      >
         Contact info
       </NodexDropdownItem>
     </NodexDropdownMenu>
@@ -1868,7 +1855,7 @@ function BrowserOverflowMenu({
       align="end"
       contentWidth="menuWide"
       contentStyle={BROWSER_DROPDOWN_CONTENT_STYLE}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           data-browser-sidebar-skip-address-commit
@@ -1877,12 +1864,20 @@ function BrowserOverflowMenu({
         >
           <BrowserMoreIcon className="icon-sm" />
         </button>
-      )}
+      }
     >
-      <NodexDropdownItem disabled={disabled} leftSlot={<BrowserReloadIcon className="icon-xs" />} onSelect={onHardReload}>
+      <NodexDropdownItem
+        disabled={disabled}
+        leftSlot={<BrowserReloadIcon className="icon-xs" />}
+        onSelect={onHardReload}
+      >
         Force reload
       </NodexDropdownItem>
-      <NodexDropdownItem disabled={disabled} leftSlot={<Smartphone className="icon-xs" />} onSelect={onToggleDeviceToolbar}>
+      <NodexDropdownItem
+        disabled={disabled}
+        leftSlot={<Smartphone className="icon-xs" />}
+        onSelect={onToggleDeviceToolbar}
+      >
         {snapshot.deviceToolbarVisible ? "Hide device toolbar" : "Show device toolbar"}
       </NodexDropdownItem>
       <NodexDropdownItem
@@ -1918,7 +1913,9 @@ function BrowserOverflowMenu({
           onChange={(event) => onSetZoom(Number.parseInt(event.target.value, 10))}
         >
           {zoomOptions.map((zoom) => (
-            <option key={zoom} value={zoom}>{zoom}%</option>
+            <option key={zoom} value={zoom}>
+              {zoom}%
+            </option>
           ))}
         </select>
         <button
@@ -1941,16 +1938,10 @@ function BrowserOverflowMenu({
         </button>
       </div>
       <NodexDropdownSeparator />
-      <NodexDropdownItem
-        leftSlot={<Download className="icon-xs" />}
-        onSelect={onOpenDownloads}
-      >
+      <NodexDropdownItem leftSlot={<Download className="icon-xs" />} onSelect={onOpenDownloads}>
         Downloads
       </NodexDropdownItem>
-      <NodexDropdownItem
-        leftSlot={<Download className="icon-xs" />}
-        onSelect={onOpenProfileImport}
-      >
+      <NodexDropdownItem leftSlot={<Download className="icon-xs" />} onSelect={onOpenProfileImport}>
         Import browser data
       </NodexDropdownItem>
       <NodexDropdownSeparator />
@@ -1985,11 +1976,21 @@ function BrowserOverflowMenu({
         Browser settings
       </NodexDropdownItem>
       <NodexDropdownSeparator />
-      <NodexDropdownItem disabled={disabled} onSelect={() => onClearBrowsingData("cookies")}>Clear cookies</NodexDropdownItem>
-      <NodexDropdownItem disabled={disabled} onSelect={() => onClearBrowsingData("cache")}>Clear cache</NodexDropdownItem>
-      <NodexDropdownItem onSelect={() => onClearBrowsingData("site-data")}>Clear site data</NodexDropdownItem>
-      <NodexDropdownItem onSelect={() => onClearBrowsingData("history")}>Clear history</NodexDropdownItem>
-      <NodexDropdownItem onSelect={() => onClearBrowsingData("downloads")}>Clear download history</NodexDropdownItem>
+      <NodexDropdownItem disabled={disabled} onSelect={() => onClearBrowsingData("cookies")}>
+        Clear cookies
+      </NodexDropdownItem>
+      <NodexDropdownItem disabled={disabled} onSelect={() => onClearBrowsingData("cache")}>
+        Clear cache
+      </NodexDropdownItem>
+      <NodexDropdownItem onSelect={() => onClearBrowsingData("site-data")}>
+        Clear site data
+      </NodexDropdownItem>
+      <NodexDropdownItem onSelect={() => onClearBrowsingData("history")}>
+        Clear history
+      </NodexDropdownItem>
+      <NodexDropdownItem onSelect={() => onClearBrowsingData("downloads")}>
+        Clear download history
+      </NodexDropdownItem>
     </NodexDropdownMenu>
   );
 }
@@ -2009,9 +2010,7 @@ export function BrowserPageFailureState({
     <section className="grid h-full place-items-center bg-token-main-surface-primary px-6 py-10">
       <div className="w-full max-w-md text-center">
         <Icon className="mx-auto size-8 text-token-text-tertiary" />
-        <h2 className="mt-4 text-lg font-semibold text-token-text-primary">
-          {content.title}
-        </h2>
+        <h2 className="mt-4 text-lg font-semibold text-token-text-primary">{content.title}</h2>
         <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-token-text-secondary">
           {content.description}
         </p>
@@ -2099,19 +2098,14 @@ export function BrowserDownloadsPage({
 }: {
   snapshot: BrowserDownloadsSnapshot;
   onClose: () => void;
-  onAction: (
-    downloadId: string,
-    action: BrowserDownloadAction,
-  ) => Promise<void>;
+  onAction: (downloadId: string, action: BrowserDownloadAction) => Promise<void>;
   onClearHistory: () => Promise<void>;
 }) {
   return (
     <section className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-token-border px-4">
         <Download className="icon-sm text-token-text-tertiary" />
-        <h2 className="min-w-0 flex-1 text-sm font-semibold text-token-text-primary">
-          Downloads
-        </h2>
+        <h2 className="min-w-0 flex-1 text-sm font-semibold text-token-text-primary">Downloads</h2>
         <button
           type="button"
           className="rounded-md px-2 py-1 text-xs text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary"
@@ -2137,11 +2131,7 @@ export function BrowserDownloadsPage({
         ) : (
           <div className="divide-y divide-token-border">
             {snapshot.downloads.map((download) => (
-              <BrowserDownloadRow
-                key={download.id}
-                download={download}
-                onAction={onAction}
-              />
+              <BrowserDownloadRow key={download.id} download={download} onAction={onAction} />
             ))}
           </div>
         )}
@@ -2155,17 +2145,16 @@ function BrowserDownloadRow({
   onAction,
 }: {
   download: BrowserDownloadRecord;
-  onAction: (
-    downloadId: string,
-    action: BrowserDownloadAction,
-  ) => Promise<void>;
+  onAction: (downloadId: string, action: BrowserDownloadAction) => Promise<void>;
 }) {
-  const active = download.status === "starting"
-    || download.status === "progressing"
-    || download.status === "paused";
-  const progress = download.totalBytes > 0
-    ? Math.min(100, download.receivedBytes / download.totalBytes * 100)
-    : 0;
+  const active =
+    download.status === "starting" ||
+    download.status === "progressing" ||
+    download.status === "paused";
+  const progress =
+    download.totalBytes > 0
+      ? Math.min(100, (download.receivedBytes / download.totalBytes) * 100)
+      : 0;
   const action = (nextAction: BrowserDownloadAction) => {
     void onAction(download.id, nextAction);
   };
@@ -2181,9 +2170,7 @@ function BrowserDownloadRow({
         <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-token-text-tertiary">
           <span className="truncate">{download.sourceOrigin}</span>
           <span aria-hidden>·</span>
-          <span className="shrink-0">
-            {formatDownloadProgress(download)}
-          </span>
+          <span className="shrink-0">{formatDownloadProgress(download)}</span>
         </div>
         {active ? (
           <div className="mt-2 h-1 overflow-hidden rounded-full bg-token-foreground/10">
@@ -2199,18 +2186,15 @@ function BrowserDownloadRow({
           <>
             <BrowserDownloadActionButton
               label={download.status === "paused" ? "Resume" : "Pause"}
-              onClick={() => action(
-                download.status === "paused" ? "resume" : "pause",
+              onClick={() => action(download.status === "paused" ? "resume" : "pause")}
+            >
+              {download.status === "paused" ? (
+                <Play className="icon-xs" />
+              ) : (
+                <Pause className="icon-xs" />
               )}
-            >
-              {download.status === "paused"
-                ? <Play className="icon-xs" />
-                : <Pause className="icon-xs" />}
             </BrowserDownloadActionButton>
-            <BrowserDownloadActionButton
-              label="Cancel"
-              onClick={() => action("cancel")}
-            >
+            <BrowserDownloadActionButton label="Cancel" onClick={() => action("cancel")}>
               <X className="icon-xs" />
             </BrowserDownloadActionButton>
           </>
@@ -2218,10 +2202,7 @@ function BrowserDownloadRow({
           <>
             {download.status === "completed" ? (
               <>
-                <BrowserDownloadActionButton
-                  label="Open"
-                  onClick={() => action("open")}
-                >
+                <BrowserDownloadActionButton label="Open" onClick={() => action("open")}>
                   <Play className="icon-xs" />
                 </BrowserDownloadActionButton>
                 <BrowserDownloadActionButton
@@ -2294,8 +2275,9 @@ export function BrowserDeviceToolbar({
   onViewportChange: (viewport: BrowserSidebarViewport) => void;
   onClose: () => void;
 }) {
-  const selectedPreset = BROWSER_SIDEBAR_DEVICE_PRESETS.find((preset) => preset.id === viewport.presetId)
-    ?? BROWSER_SIDEBAR_DEVICE_PRESETS[0];
+  const selectedPreset =
+    BROWSER_SIDEBAR_DEVICE_PRESETS.find((preset) => preset.id === viewport.presetId) ??
+    BROWSER_SIDEBAR_DEVICE_PRESETS[0];
   const zoomOptions = resolveBrowserZoomOptions(viewport.zoomPercent);
 
   return (
@@ -2304,22 +2286,28 @@ export function BrowserDeviceToolbar({
         align="start"
         contentWidth="menuWide"
         contentStyle={BROWSER_DROPDOWN_CONTENT_STYLE}
-        triggerButton={(
-          <NodexDropdownButtonTrigger size="xs" chrome="transparent" className="h-6 min-w-[138px] justify-between rounded-lg text-token-foreground">
+        triggerButton={
+          <NodexDropdownButtonTrigger
+            size="xs"
+            chrome="transparent"
+            className="h-6 min-w-[138px] justify-between rounded-lg text-token-foreground"
+          >
             {selectedPreset.label}
           </NodexDropdownButtonTrigger>
-        )}
+        }
       >
         {BROWSER_SIDEBAR_DEVICE_PRESETS.map((preset) => (
           <NodexDropdownItem
             key={preset.id}
             rightSlot={preset.id === selectedPreset.id ? <Check className="icon-xs" /> : null}
-            onSelect={() => onViewportChange({
-              width: preset.width,
-              height: preset.height,
-              zoomPercent: viewport.zoomPercent,
-              presetId: preset.id,
-            })}
+            onSelect={() =>
+              onViewportChange({
+                width: preset.width,
+                height: preset.height,
+                zoomPercent: viewport.zoomPercent,
+                presetId: preset.id,
+              })
+            }
           >
             {preset.label}
           </NodexDropdownItem>
@@ -2329,14 +2317,18 @@ export function BrowserDeviceToolbar({
         label="Width"
         value={viewport.width}
         placeholder="auto"
-        onChange={(width) => onViewportChange(updateBrowserViewportDimension(viewport, "width", width))}
+        onChange={(width) =>
+          onViewportChange(updateBrowserViewportDimension(viewport, "width", width))
+        }
       />
       <span className="text-token-description-foreground">x</span>
       <DimensionInput
         label="Height"
         value={viewport.height}
         placeholder="auto"
-        onChange={(height) => onViewportChange(updateBrowserViewportDimension(viewport, "height", height))}
+        onChange={(height) =>
+          onViewportChange(updateBrowserViewportDimension(viewport, "height", height))
+        }
       />
       <button
         type="button"
@@ -2350,7 +2342,9 @@ export function BrowserDeviceToolbar({
         type="button"
         className="inline-flex size-6 items-center justify-center rounded-lg hover:bg-token-list-hover-background"
         aria-label="Responsive"
-        onClick={() => onViewportChange({ width: 0, height: 0, zoomPercent: 100, presetId: "responsive" })}
+        onClick={() =>
+          onViewportChange({ width: 0, height: 0, zoomPercent: 100, presetId: "responsive" })
+        }
       >
         <Maximize2 className="icon-xs" />
       </button>
@@ -2358,10 +2352,14 @@ export function BrowserDeviceToolbar({
         aria-label="Viewport zoom"
         className="ml-auto h-6 rounded-lg border border-transparent bg-token-foreground/5 px-2 text-center text-xs font-semibold text-token-foreground tabular-nums outline-none hover:bg-token-list-hover-background focus:border-token-focus-border focus:bg-token-bg-primary"
         value={viewport.zoomPercent}
-        onChange={(event) => onViewportChange({ ...viewport, zoomPercent: Number.parseInt(event.target.value, 10) })}
+        onChange={(event) =>
+          onViewportChange({ ...viewport, zoomPercent: Number.parseInt(event.target.value, 10) })
+        }
       >
         {zoomOptions.map((zoom) => (
-          <option key={zoom} value={zoom}>{zoom}%</option>
+          <option key={zoom} value={zoom}>
+            {zoom}%
+          </option>
         ))}
       </select>
       <button
@@ -2449,9 +2447,8 @@ export function BrowserWebviewStage({
     viewport,
     windowZoom: 1,
   });
-  const showDeviceFrame = deviceToolbarVisible
-    && viewportAreaSize.width > 0
-    && viewportAreaSize.height > 0;
+  const showDeviceFrame =
+    deviceToolbarVisible && viewportAreaSize.width > 0 && viewportAreaSize.height > 0;
   const visualFrameStyle: CSSProperties | undefined = showDeviceFrame
     ? {
         width: viewportLayout.visualWidth,
@@ -2489,14 +2486,14 @@ export function BrowserWebviewStage({
             "relative h-full w-full overflow-hidden",
             deviceToolbarVisible && "flex items-center justify-center overflow-auto p-6",
           )}
-          style={deviceToolbarVisible ? RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE : undefined}
+          style={
+            deviceToolbarVisible ? RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE : undefined
+          }
         >
           <div
             className={cn(
               "relative shrink-0 overflow-hidden bg-token-main-surface-primary",
-              deviceToolbarVisible
-                ? "shadow-sm ring-[0.5px] ring-token-border"
-                : "h-full w-full",
+              deviceToolbarVisible ? "shadow-sm ring-[0.5px] ring-token-border" : "h-full w-full",
             )}
             style={visualFrameStyle}
           >
@@ -2516,7 +2513,10 @@ export function BrowserWebviewStage({
               />
               {children}
               {deviceToolbarVisible && viewport.presetId === "responsive" ? (
-                <BrowserViewportResizeHandles viewport={viewport} onViewportChange={onViewportChange} />
+                <BrowserViewportResizeHandles
+                  viewport={viewport}
+                  onViewportChange={onViewportChange}
+                />
               ) : null}
             </div>
           </div>
@@ -2539,75 +2539,65 @@ function BrowserViewportResizeHandles({
     const current = dimension === "width" ? viewport.width || 1024 : viewport.height || 768;
     onViewportChange(updateBrowserViewportDimension(viewport, dimension, current + delta));
   };
-  const beginDrag = (
-    dimension: "width" | "height",
-    direction: -1 | 1,
-  ) => (event: React.PointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    activeCleanupRef.current?.();
-    const target = event.currentTarget;
-    const pointerId = event.pointerId;
-    const startPointer = dimension === "width" ? event.clientX : event.clientY;
-    const startValue = dimension === "width" ? viewport.width : viewport.height;
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = dimension === "width" ? "ew-resize" : "ns-resize";
-    document.body.style.userSelect = "none";
-    target.setPointerCapture?.(pointerId);
-    let latestPointer = startPointer;
-    let frame: number | null = null;
-    const commit = () => {
-      frame = null;
-      const delta = (latestPointer - startPointer) * direction;
-      onViewportChange(
-        updateBrowserViewportDimension(
-          viewport,
-          dimension,
-          startValue + delta,
-        ),
-      );
+  const beginDrag =
+    (dimension: "width" | "height", direction: -1 | 1) =>
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      activeCleanupRef.current?.();
+      const target = event.currentTarget;
+      const pointerId = event.pointerId;
+      const startPointer = dimension === "width" ? event.clientX : event.clientY;
+      const startValue = dimension === "width" ? viewport.width : viewport.height;
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = dimension === "width" ? "ew-resize" : "ns-resize";
+      document.body.style.userSelect = "none";
+      target.setPointerCapture?.(pointerId);
+      let latestPointer = startPointer;
+      let frame: number | null = null;
+      const commit = () => {
+        frame = null;
+        const delta = (latestPointer - startPointer) * direction;
+        onViewportChange(updateBrowserViewportDimension(viewport, dimension, startValue + delta));
+      };
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) return;
+        latestPointer = dimension === "width" ? moveEvent.clientX : moveEvent.clientY;
+        if (frame === null) frame = window.requestAnimationFrame(commit);
+      };
+      const cleanup = () => {
+        if (frame !== null) window.cancelAnimationFrame(frame);
+        target.removeEventListener("pointermove", onPointerMove);
+        target.removeEventListener("pointerup", cleanup);
+        target.removeEventListener("pointercancel", cleanup);
+        if (target.hasPointerCapture?.(pointerId)) {
+          target.releasePointerCapture?.(pointerId);
+        }
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        if (activeCleanupRef.current === cleanup) {
+          activeCleanupRef.current = null;
+        }
+      };
+      activeCleanupRef.current = cleanup;
+      target.addEventListener("pointermove", onPointerMove);
+      target.addEventListener("pointerup", cleanup);
+      target.addEventListener("pointercancel", cleanup);
     };
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      if (moveEvent.pointerId !== pointerId) return;
-      latestPointer = dimension === "width"
-        ? moveEvent.clientX
-        : moveEvent.clientY;
-      if (frame === null) frame = window.requestAnimationFrame(commit);
-    };
-    const cleanup = () => {
-      if (frame !== null) window.cancelAnimationFrame(frame);
-      target.removeEventListener("pointermove", onPointerMove);
-      target.removeEventListener("pointerup", cleanup);
-      target.removeEventListener("pointercancel", cleanup);
-      if (target.hasPointerCapture?.(pointerId)) {
-        target.releasePointerCapture?.(pointerId);
+  const onResizeKeyDown =
+    (dimension: "width" | "height", direction: -1 | 1) =>
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (
+        event.key !== "ArrowLeft" &&
+        event.key !== "ArrowRight" &&
+        event.key !== "ArrowUp" &&
+        event.key !== "ArrowDown"
+      ) {
+        return;
       }
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      if (activeCleanupRef.current === cleanup) {
-        activeCleanupRef.current = null;
-      }
+      event.preventDefault();
+      bump(dimension, direction * 10);
     };
-    activeCleanupRef.current = cleanup;
-    target.addEventListener("pointermove", onPointerMove);
-    target.addEventListener("pointerup", cleanup);
-    target.addEventListener("pointercancel", cleanup);
-  };
-  const onResizeKeyDown = (
-    dimension: "width" | "height",
-    direction: -1 | 1,
-  ) => (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (
-      event.key !== "ArrowLeft"
-      && event.key !== "ArrowRight"
-      && event.key !== "ArrowUp"
-      && event.key !== "ArrowDown"
-    ) {
-      return;
-    }
-    event.preventDefault();
-    bump(dimension, direction * 10);
-  };
 
   return (
     <>
@@ -2651,29 +2641,24 @@ export function BrowserNewTabState({
   projectId: string | null;
   localServers: BrowserSidebarLocalServersSnapshot | null;
   preferences?: BrowserLocalServerPreferences;
-  onPreferencesChange?: (
-    update: BrowserLocalServerPreferencesUpdate,
-  ) => void;
+  onPreferencesChange?: (update: BrowserLocalServerPreferencesUpdate) => void;
   onRefresh: () => void;
   onOpen: (url: string) => void;
-  onRequestThumbnail?: (
-    url: string,
-  ) => Promise<BrowserSidebarLocalServerThumbnailResult>;
+  onRequestThumbnail?: (url: string) => Promise<BrowserSidebarLocalServerThumbnailResult>;
   onHideServer: (server: BrowserSidebarLocalServer) => void;
   onUnhideServer: (url: string) => void;
   onRemoveRoute: (serverUrl: string, routeUrl: string) => void;
 }) {
-  const [fallbackPreferences, setFallbackPreferences] =
-    useState<BrowserLocalServerPreferences>(() => ({
+  const [fallbackPreferences, setFallbackPreferences] = useState<BrowserLocalServerPreferences>(
+    () => ({
       ...DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES,
       expandedProjectIds: [],
-    }));
+    }),
+  );
   const resolvedPreferences = preferences ?? fallbackPreferences;
   const settings: BrowserLocalServerSettings =
     resolveBrowserLocalServerSettings(resolvedPreferences);
-  const updatePreferences = (
-    update: BrowserLocalServerPreferencesUpdate,
-  ) => {
+  const updatePreferences = (update: BrowserLocalServerPreferencesUpdate) => {
     if (onPreferencesChange) {
       onPreferencesChange(update);
       return;
@@ -2681,8 +2666,7 @@ export function BrowserNewTabState({
     setFallbackPreferences((current) => ({
       ...current,
       ...update,
-      expandedProjectIds:
-        update.expandedProjectIds ?? current.expandedProjectIds,
+      expandedProjectIds: update.expandedProjectIds ?? current.expandedProjectIds,
     }));
   };
   const visible = useMemo(
@@ -2690,11 +2674,8 @@ export function BrowserNewTabState({
     [localServers, settings],
   );
   const servers = settings.showMode === "hidden" ? visible.hiddenServers : visible.servers;
-  const showModeLabel = settings.showMode === "online"
-    ? "Online"
-    : settings.showMode === "hidden"
-      ? "Hidden"
-      : "All";
+  const showModeLabel =
+    settings.showMode === "online" ? "Online" : settings.showMode === "hidden" ? "Hidden" : "All";
   const setShowMode = (showMode: BrowserLocalServerShowMode) => {
     updatePreferences({ showMode });
   };
@@ -2704,9 +2685,7 @@ export function BrowserNewTabState({
   const expandProject = () => {
     if (projectId === null) return;
     updatePreferences({
-      expandedProjectIds: [
-        ...new Set([...resolvedPreferences.expandedProjectIds, projectId]),
-      ],
+      expandedProjectIds: [...new Set([...resolvedPreferences.expandedProjectIds, projectId])],
     });
   };
 
@@ -2728,7 +2707,7 @@ export function BrowserNewTabState({
             <NodexDropdownMenu
               align="end"
               contentWidth="menuWide"
-              triggerButton={(
+              triggerButton={
                 <button
                   type="button"
                   className="inline-flex size-6 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
@@ -2737,7 +2716,7 @@ export function BrowserNewTabState({
                 >
                   <BrowserLocalServerFilterIcon className="icon-xs" />
                 </button>
-              )}
+              }
             >
               <NodexDropdownItem
                 rightSlot={settings.showMode === "online" ? <Check className="icon-xs" /> : null}
@@ -2759,7 +2738,9 @@ export function BrowserNewTabState({
               </NodexDropdownItem>
               <NodexDropdownSeparator />
               <NodexDropdownItem
-                rightSlot={settings.sortMode === "recently-used" ? <Check className="icon-xs" /> : null}
+                rightSlot={
+                  settings.sortMode === "recently-used" ? <Check className="icon-xs" /> : null
+                }
                 onSelect={() => setSortMode("recently-used")}
               >
                 Recently used
@@ -2780,20 +2761,24 @@ export function BrowserNewTabState({
             </div>
           ) : servers.length === 0 ? (
             <div className="rounded-lg border border-token-border bg-token-main-surface-primary px-3 py-3 text-sm text-token-text-secondary">
-              {settings.showMode === "hidden" ? "No hidden local servers." : `No ${showModeLabel.toLowerCase()} local servers.`}
+              {settings.showMode === "hidden"
+                ? "No hidden local servers."
+                : `No ${showModeLabel.toLowerCase()} local servers.`}
             </div>
-          ) : servers.map((server) => (
-            <LocalServerCard
-              key={server.id}
-              server={server}
-              hiddenMode={settings.showMode === "hidden"}
-              onOpen={onOpen}
-              onRequestThumbnail={onRequestThumbnail}
-              onHide={() => onHideServer(server)}
-              onUnhide={() => onUnhideServer(server.origin)}
-              onRemoveRoute={(routePath) => onRemoveRoute(server.origin, routePath)}
-            />
-          ))}
+          ) : (
+            servers.map((server) => (
+              <LocalServerCard
+                key={server.id}
+                server={server}
+                hiddenMode={settings.showMode === "hidden"}
+                onOpen={onOpen}
+                onRequestThumbnail={onRequestThumbnail}
+                onHide={() => onHideServer(server)}
+                onUnhide={() => onUnhideServer(server.origin)}
+                onRemoveRoute={(routePath) => onRemoveRoute(server.origin, routePath)}
+              />
+            ))
+          )}
           {visible.hasMore ? (
             <button
               type="button"
@@ -2818,9 +2803,7 @@ function LocalServerThumbnail({
   origin: string;
   online: boolean;
   lastSeenAt: number;
-  onRequest?: (
-    url: string,
-  ) => Promise<BrowserSidebarLocalServerThumbnailResult>;
+  onRequest?: (url: string) => Promise<BrowserSidebarLocalServerThumbnailResult>;
 }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2833,15 +2816,17 @@ function LocalServerThumbnail({
     }
     let cancelled = false;
     setLoading(true);
-    void onRequest(origin).then((result) => {
-      if (cancelled) return;
-      setDataUrl(result.status === "ready" ? result.dataUrl : null);
-      setLoading(false);
-    }).catch(() => {
-      if (cancelled) return;
-      setDataUrl(null);
-      setLoading(false);
-    });
+    void onRequest(origin)
+      .then((result) => {
+        if (cancelled) return;
+        setDataUrl(result.status === "ready" ? result.dataUrl : null);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDataUrl(null);
+        setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -2887,9 +2872,7 @@ function LocalServerCard({
   server: BrowserSidebarLocalServer;
   hiddenMode: boolean;
   onOpen: (url: string) => void;
-  onRequestThumbnail?: (
-    url: string,
-  ) => Promise<BrowserSidebarLocalServerThumbnailResult>;
+  onRequestThumbnail?: (url: string) => Promise<BrowserSidebarLocalServerThumbnailResult>;
   onHide: () => void;
   onUnhide: () => void;
   onRemoveRoute: (routePath: string) => void;
@@ -2910,33 +2893,47 @@ function LocalServerCard({
         />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className={cn("size-1.5 shrink-0 rounded-full", server.online ? "bg-emerald-500" : "bg-token-text-tertiary")} />
-            <span className="truncate text-sm font-medium text-token-text-primary">{formatLocalServerTitle(server.origin)}</span>
+            <span
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                server.online ? "bg-emerald-500" : "bg-token-text-tertiary",
+              )}
+            />
+            <span className="truncate text-sm font-medium text-token-text-primary">
+              {formatLocalServerTitle(server.origin)}
+            </span>
           </span>
-          <span className="mt-1 block truncate text-xs text-token-text-secondary">{server.origin}</span>
+          <span className="mt-1 block truncate text-xs text-token-text-secondary">
+            {server.origin}
+          </span>
         </span>
       </button>
       <div className="flex items-center justify-between gap-2 px-3 pb-2">
         <div className="min-w-0 flex-1">
-          {visibleRoutes.length > 0 ? visibleRoutes.map((route) => (
-            <div key={route.id} className="flex min-w-0 items-center gap-1 text-xs text-token-text-secondary">
-              <button
-                type="button"
-                className="min-w-0 truncate text-left hover:text-token-text-primary"
-                onClick={() => onOpen(`${server.origin}${route.path}`)}
+          {visibleRoutes.length > 0 ? (
+            visibleRoutes.map((route) => (
+              <div
+                key={route.id}
+                className="flex min-w-0 items-center gap-1 text-xs text-token-text-secondary"
               >
-                {route.path}
-              </button>
-              <button
-                type="button"
-                className="inline-flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 hover:bg-token-foreground/5 group-hover/local-server:opacity-100"
-                aria-label={`Remove route ${route.path}`}
-                onClick={() => onRemoveRoute(route.path)}
-              >
-                <X className="icon-2xs" />
-              </button>
-            </div>
-          )) : (
+                <button
+                  type="button"
+                  className="min-w-0 truncate text-left hover:text-token-text-primary"
+                  onClick={() => onOpen(`${server.origin}${route.path}`)}
+                >
+                  {route.path}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 hover:bg-token-foreground/5 group-hover/local-server:opacity-100"
+                  aria-label={`Remove route ${route.path}`}
+                  onClick={() => onRemoveRoute(route.path)}
+                >
+                  <X className="icon-2xs" />
+                </button>
+              </div>
+            ))
+          ) : (
             <div className="truncate text-xs text-token-text-secondary">/</div>
           )}
         </div>
@@ -2962,11 +2959,7 @@ function formatLocalServerTitle(origin: string): string {
   }
 }
 
-export function BrowserCommentOverlay({
-  children,
-}: {
-  children?: ReactNode;
-}) {
+export function BrowserCommentOverlay({ children }: { children?: ReactNode }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20 cursor-crosshair">
       <div id="browser-sidebar-comment-popup-root" className="absolute inset-0">
@@ -3032,12 +3025,11 @@ export function BrowserAnnotationComposer({
       </div>
     );
   }
-  const designableAnchors = anchors.filter((anchor) =>
-    anchor.kind === "element"
-  );
-  const designAnchor = designableAnchors.find((anchor) =>
-    anchor.id === designChange?.anchorId
-  ) ?? designableAnchors[0] ?? null;
+  const designableAnchors = anchors.filter((anchor) => anchor.kind === "element");
+  const designAnchor =
+    designableAnchors.find((anchor) => anchor.id === designChange?.anchorId) ??
+    designableAnchors[0] ??
+    null;
   const designProperty = designChange?.property ?? "color";
   const designBefore = designAnchor?.computedStyle?.[designProperty] ?? "";
   const designAfter = designChange?.after ?? "";
@@ -3179,11 +3171,7 @@ export function BrowserAnnotationComposer({
         className="mt-2 min-h-16 w-full resize-none rounded-lg border border-token-border bg-token-main-surface-primary px-2.5 py-2 text-sm text-token-text-primary outline-none placeholder:text-token-text-tertiary focus:border-token-focus-border"
         value={note}
         maxLength={8_192}
-        placeholder={
-          intent === "designChange"
-            ? "Describe the design change…"
-            : "Leave a comment…"
-        }
+        placeholder={intent === "designChange" ? "Describe the design change…" : "Leave a comment…"}
         onChange={(event) => onNoteChange(event.target.value)}
       />
       <div className="mt-2 flex items-center justify-end gap-2">
@@ -3234,7 +3222,9 @@ function AnnotationModeButton({
 export function BrowserUnavailableState() {
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center bg-token-main-surface-primary p-6 text-center">
-      <div className="text-base font-medium text-token-text-primary">Browser is available in the desktop app</div>
+      <div className="text-base font-medium text-token-text-primary">
+        Browser is available in the desktop app
+      </div>
       <div className="mt-1 max-w-sm text-sm text-token-text-secondary">
         The browser tab uses Electron webview isolation and cannot run in this renderer.
       </div>
@@ -3249,8 +3239,9 @@ function makeInitialSnapshot(
 ): BrowserSidebarTabSnapshot {
   const url = normalizeBrowserNavigationUrl(readBrowserConfigUrl(tab));
   const persistedDeviceToolbarState = readBrowserConfigDeviceToolbarState(tab);
-  const deviceToolbarVisible = persistedDeviceToolbarState?.toolbarState.isEnabled
-    ?? readBrowserConfigDeviceToolbarVisible(tab);
+  const deviceToolbarVisible =
+    persistedDeviceToolbarState?.toolbarState.isEnabled ??
+    readBrowserConfigDeviceToolbarVisible(tab);
   return {
     ...DEFAULT_BROWSER_SNAPSHOT,
     browserConversationId,
@@ -3270,14 +3261,16 @@ function makeInitialSnapshot(
     },
     viewport: persistedDeviceToolbarState
       ? {
-          width: persistedDeviceToolbarState.toolbarState.presetId === "responsive"
-            ? persistedDeviceToolbarState.responsiveViewportSize?.width
-              ?? persistedDeviceToolbarState.toolbarState.width
-            : persistedDeviceToolbarState.toolbarState.width,
-          height: persistedDeviceToolbarState.toolbarState.presetId === "responsive"
-            ? persistedDeviceToolbarState.responsiveViewportSize?.height
-              ?? persistedDeviceToolbarState.toolbarState.height
-            : persistedDeviceToolbarState.toolbarState.height,
+          width:
+            persistedDeviceToolbarState.toolbarState.presetId === "responsive"
+              ? (persistedDeviceToolbarState.responsiveViewportSize?.width ??
+                persistedDeviceToolbarState.toolbarState.width)
+              : persistedDeviceToolbarState.toolbarState.width,
+          height:
+            persistedDeviceToolbarState.toolbarState.presetId === "responsive"
+              ? (persistedDeviceToolbarState.responsiveViewportSize?.height ??
+                persistedDeviceToolbarState.toolbarState.height)
+              : persistedDeviceToolbarState.toolbarState.height,
           presetId: persistedDeviceToolbarState.toolbarState.presetId,
           zoomPercent: 100,
         }

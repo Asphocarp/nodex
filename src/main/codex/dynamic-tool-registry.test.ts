@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
-import {
-  DynamicToolRegistry,
-  DynamicToolRegistryError,
-} from "./dynamic-tool-registry";
+import { DynamicToolRegistry, DynamicToolRegistryError } from "./dynamic-tool-registry";
 
 interface TestContext {
   readonly trace: string[];
@@ -40,16 +37,24 @@ describe("DynamicToolRegistry", () => {
     registerEcho(registry, "nodex_app", 2, "nodex-v2");
     const context: TestContext = { trace: [] };
 
-    const codex = await registry.execute({
-      namespace: "codex_app",
-      toolsetRevision: 1,
-      tool: "echo",
-    }, { value: "one" }, context);
-    const nodex = await registry.execute({
-      namespace: "nodex_app",
-      toolsetRevision: 2,
-      tool: "echo",
-    }, { value: "two" }, context);
+    const codex = await registry.execute(
+      {
+        namespace: "codex_app",
+        toolsetRevision: 1,
+        tool: "echo",
+      },
+      { value: "one" },
+      context,
+    );
+    const nodex = await registry.execute(
+      {
+        namespace: "nodex_app",
+        toolsetRevision: 2,
+        tool: "echo",
+      },
+      { value: "two" },
+      context,
+    );
 
     expect(codex).toEqual({ effect: "read", output: { echoed: "codex:one" } });
     expect(nodex).toEqual({ effect: "read", output: { echoed: "nodex-v2:two" } });
@@ -60,10 +65,12 @@ describe("DynamicToolRegistry", () => {
     const registry = new DynamicToolRegistry<TestContext>();
     registerEcho(registry, "nodex_app", 1, "nodex");
 
-    const catalog = registry.buildCatalog([{
-      namespace: "nodex_app",
-      toolsetRevision: 1,
-    }]);
+    const catalog = registry.buildCatalog([
+      {
+        namespace: "nodex_app",
+        toolsetRevision: 1,
+      },
+    ]);
     const namespace = catalog[0];
     expect(namespace?.type).toBe("namespace");
     if (!namespace || namespace.type !== "namespace") return;
@@ -80,11 +87,17 @@ describe("DynamicToolRegistry", () => {
     registerEcho(registry, "nodex_app", 1, "nodex");
     const context: TestContext = { trace: [] };
 
-    await expect(registry.execute({
-      namespace: "nodex_app",
-      toolsetRevision: 1,
-      tool: "echo",
-    }, { value: "hello", projectId: "forged" }, context)).rejects.toMatchObject({
+    await expect(
+      registry.execute(
+        {
+          namespace: "nodex_app",
+          toolsetRevision: 1,
+          tool: "echo",
+        },
+        { value: "hello", projectId: "forged" },
+        context,
+      ),
+    ).rejects.toMatchObject({
       code: "invalid_arguments",
     });
     expect(context.trace).toEqual([]);
@@ -95,18 +108,30 @@ describe("DynamicToolRegistry", () => {
     registerEcho(registry, "nodex_app", 1, "nodex");
     const context: TestContext = { trace: [] };
 
-    await expect(registry.execute({
-      namespace: "nodex_app",
-      toolsetRevision: 99,
-      tool: "echo",
-    }, { value: "hello" }, context)).rejects.toMatchObject({
+    await expect(
+      registry.execute(
+        {
+          namespace: "nodex_app",
+          toolsetRevision: 99,
+          tool: "echo",
+        },
+        { value: "hello" },
+        context,
+      ),
+    ).rejects.toMatchObject({
       code: "tool_catalog_stale",
     });
-    await expect(registry.execute({
-      namespace: "nodex_app",
-      toolsetRevision: 1,
-      tool: "missing",
-    }, { value: "hello" }, context)).rejects.toMatchObject({
+    await expect(
+      registry.execute(
+        {
+          namespace: "nodex_app",
+          toolsetRevision: 1,
+          tool: "missing",
+        },
+        { value: "hello" },
+        context,
+      ),
+    ).rejects.toMatchObject({
       code: "tool_not_found",
     });
   });
@@ -130,10 +155,16 @@ describe("DynamicToolRegistry", () => {
       execute: () => ({ ok: false }) as unknown as { ok: true },
     });
 
-    await expect(registry.execute({
-      namespace: "nodex_app",
-      toolsetRevision: 1,
-      tool: "broken",
-    }, {}, { trace: [] })).rejects.toMatchObject({ code: "invalid_output" });
+    await expect(
+      registry.execute(
+        {
+          namespace: "nodex_app",
+          toolsetRevision: 1,
+          tool: "broken",
+        },
+        {},
+        { trace: [] },
+      ),
+    ).rejects.toMatchObject({ code: "invalid_output" });
   });
 });

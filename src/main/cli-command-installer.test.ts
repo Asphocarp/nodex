@@ -66,15 +66,19 @@ describe("installCliCommand", () => {
     mkdirSync(dirname(targetPath), { recursive: true });
     symlinkSync(previousSource, targetPath);
 
-    expect(installCliCommand({
-      sourcePath,
-      targetPath,
-    }).status).toBe("updated");
+    expect(
+      installCliCommand({
+        sourcePath,
+        targetPath,
+      }).status,
+    ).toBe("updated");
     expect(readlinkSync(targetPath)).toBe(sourcePath);
-    expect(installCliCommand({
-      sourcePath,
-      targetPath,
-    }).status).toBe("already-installed");
+    expect(
+      installCliCommand({
+        sourcePath,
+        targetPath,
+      }).status,
+    ).toBe("already-installed");
   });
 
   test("refuses to overwrite files and unrelated symlinks", () => {
@@ -84,16 +88,20 @@ describe("installCliCommand", () => {
     mkdirSync(dirname(targetPath), { recursive: true });
     writeFileSync(targetPath, "unrelated");
 
-    expect(() => installCliCommand({
-      sourcePath,
-      targetPath,
-    })).toThrow("existing non-symlink");
+    expect(() =>
+      installCliCommand({
+        sourcePath,
+        targetPath,
+      }),
+    ).toThrow("existing non-symlink");
 
     rmSync(targetPath);
     symlinkSync("/usr/bin/true", targetPath);
-    expect(() => installCliCommand({
-      sourcePath,
-      targetPath,
-    })).toThrow("not managed by Nodex");
+    expect(() =>
+      installCliCommand({
+        sourcePath,
+        targetPath,
+      }),
+    ).toThrow("not managed by Nodex");
   });
 });

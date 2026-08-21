@@ -18,7 +18,7 @@ export function PageStageDataSourcePropertyControl({
   const propertyId = item.property.propertyId;
   const error = item.error
     ? "This property value has an unsupported format."
-    : controls.errors[propertyId] ?? null;
+    : (controls.errors[propertyId] ?? null);
   const pending = controls.busyPropertyIds.has(propertyId);
   const disabled = item.error !== null;
   return (
@@ -63,20 +63,17 @@ export function PageStageDataSourcePropertyControl({
         onPatchOptions={(delta) => {
           void controls.patchMultiSelect(item, delta);
         }}
-        onLoadRelationTargets={(after) =>
-          controls.loadRelationTargets(item, after)}
+        onLoadRelationTargets={(after) => controls.loadRelationTargets(item, after)}
         onSearchRelationCandidates={(query, after) =>
-          controls.searchRelationCandidates(item, query, after)}
-        onLoadRelationTargetDescriptor={() =>
-          controls.loadRelationTargetDescriptor(item)}
+          controls.searchRelationCandidates(item, query, after)
+        }
+        onLoadRelationTargetDescriptor={() => controls.loadRelationTargetDescriptor(item)}
         onOpenRelationPage={controls.openRelationPage}
         onRelationValueStale={() => {
           void controls.refreshRelationValue();
         }}
       />
-      {error ? (
-        <PropertyEditorFeedback message={error} />
-      ) : null}
+      {error ? <PropertyEditorFeedback message={error} /> : null}
     </div>
   );
 }

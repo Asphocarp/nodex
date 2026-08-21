@@ -10,12 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import {
-  ThreadIcon,
-  ActivitySpinnerIcon,
-  PlusIcon,
-  SearchIcon,
-} from "@/components/shared/icons";
+import { ThreadIcon, ActivitySpinnerIcon, PlusIcon, SearchIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   selectCommandPaletteChatResults,
@@ -94,7 +89,11 @@ function renderSendToThreadPreviewSegments(
   return segments.map((segment, index) => (
     <span
       key={`${keyPrefix}:${index}`}
-      className={segment.highlight ? "rounded-[3px] bg-token-foreground/8 px-0.5 text-token-foreground" : undefined}
+      className={
+        segment.highlight
+          ? "rounded-[3px] bg-token-foreground/8 px-0.5 text-token-foreground"
+          : undefined
+      }
     >
       {segment.text}
     </span>
@@ -194,7 +193,9 @@ function SendToThreadRow({
         "group flex w-full select-none gap-1.5 rounded-[7px] px-1.5 text-left text-[14px] outline-hidden",
         hasPreview ? "min-h-9 items-start py-1" : "h-7 items-center leading-7",
         "text-token-foreground",
-        disabled ? "cursor-default opacity-55" : "cursor-interaction hover:bg-token-list-hover-background",
+        disabled
+          ? "cursor-default opacity-55"
+          : "cursor-interaction hover:bg-token-list-hover-background",
         focused && "bg-token-list-hover-background",
       )}
       onPointerDown={keepEditorSelection}
@@ -205,10 +206,12 @@ function SendToThreadRow({
         onAccept(row);
       }}
     >
-      <span className={cn(
-        "flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground",
-        hasPreview && "mt-0.5",
-      )}>
+      <span
+        className={cn(
+          "flex h-[18px] w-[22px] shrink-0 items-center justify-center text-token-description-foreground",
+          hasPreview && "mt-0.5",
+        )}
+      >
         {row.kind === "new-thread" ? (
           <PlusIcon className="size-4" aria-hidden="true" />
         ) : (
@@ -229,10 +232,12 @@ function SendToThreadRow({
         ) : null}
       </span>
       {accepting ? (
-        <ActivitySpinnerIcon className={cn(
-          "size-3.5 shrink-0 text-token-description-foreground",
-          hasPreview && "mt-1",
-        )} />
+        <ActivitySpinnerIcon
+          className={cn(
+            "size-3.5 shrink-0 text-token-description-foreground",
+            hasPreview && "mt-1",
+          )}
+        />
       ) : null}
     </button>
   );
@@ -288,10 +293,7 @@ export function NfmSendToThreadMenuSurface({
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [pendingAcceptQuery, setPendingAcceptQuery] = useState<string | null>(null);
-  const normalizedThreadItems = useMemo(
-    () => [...threadItems],
-    [threadItems],
-  );
+  const normalizedThreadItems = useMemo(() => [...threadItems], [threadItems]);
   const threadSearchIndex = useCommandPaletteThreadSearchIndex(normalizedThreadItems);
   const fetchedThreadSearchBatch = useCommandPaletteThreadSearch({
     enabled: enableThreadSearch && Boolean(projectId),
@@ -299,14 +301,18 @@ export function NfmSendToThreadMenuSurface({
     limit: SEND_TO_THREAD_RESULT_LIMIT,
   });
   const threadSearchBatch = injectedThreadSearchBatch ?? fetchedThreadSearchBatch;
-  const visibleThreads = useMemo(() => selectCommandPaletteChatResults({
-    query: deferredQuery,
-    threads: normalizedThreadItems,
-    threadSearchIndex,
-    threadSearchBatch,
-    threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
-    activeProjectId: projectId ?? "",
-  }), [deferredQuery, normalizedThreadItems, projectId, threadSearchBatch, threadSearchIndex]);
+  const visibleThreads = useMemo(
+    () =>
+      selectCommandPaletteChatResults({
+        query: deferredQuery,
+        threads: normalizedThreadItems,
+        threadSearchIndex,
+        threadSearchBatch,
+        threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
+        activeProjectId: projectId ?? "",
+      }),
+    [deferredQuery, normalizedThreadItems, projectId, threadSearchBatch, threadSearchIndex],
+  );
 
   useEffect(() => {
     setQuery(initialQuery);
@@ -314,59 +320,60 @@ export function NfmSendToThreadMenuSurface({
     setPendingAcceptQuery(null);
   }, [initialQuery]);
 
-  const rows = useMemo(
-    () => {
+  const rows = useMemo(() => {
+    if (!projectId) return [];
+    return buildNfmSendToThreadRows({
+      threads: visibleThreads,
+      query: deferredQuery,
+      preferredTarget,
+      projectNameById,
+    });
+  }, [deferredQuery, preferredTarget, projectId, projectNameById, visibleThreads]);
+  const buildRowsForQuery = useCallback(
+    (nextQuery: string): readonly NfmSendToThreadRow[] => {
       if (!projectId) return [];
+      const threads = selectCommandPaletteChatResults({
+        query: nextQuery,
+        threads: normalizedThreadItems,
+        threadSearchIndex,
+        threadSearchBatch,
+        threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
+        activeProjectId: projectId,
+      });
       return buildNfmSendToThreadRows({
-        threads: visibleThreads,
-        query: deferredQuery,
+        threads,
+        query: nextQuery,
         preferredTarget,
         projectNameById,
       });
     },
-    [deferredQuery, preferredTarget, projectId, projectNameById, visibleThreads],
-  );
-  const buildRowsForQuery = useCallback((nextQuery: string): readonly NfmSendToThreadRow[] => {
-    if (!projectId) return [];
-    const threads = selectCommandPaletteChatResults({
-      query: nextQuery,
-      threads: normalizedThreadItems,
-      threadSearchIndex,
-      threadSearchBatch,
-      threadLimit: SEND_TO_THREAD_RESULT_LIMIT,
-      activeProjectId: projectId,
-    });
-    return buildNfmSendToThreadRows({
-      threads,
-      query: nextQuery,
+    [
+      normalizedThreadItems,
       preferredTarget,
+      projectId,
       projectNameById,
-    });
-  }, [
-    normalizedThreadItems,
-    preferredTarget,
-    projectId,
-    projectNameById,
-    threadSearchBatch,
-    threadSearchIndex,
-  ]);
+      threadSearchBatch,
+      threadSearchIndex,
+    ],
+  );
   const rowsStale = shouldConsumeStalePickerNavigation({
     liveQuery: query,
     rowsQuery: deferredQuery,
     normalizeQuery: normalizeCommandPaletteSearchText,
   });
   const normalizedLiveQuery = normalizeCommandPaletteSearchText(query);
-  const shouldWaitForThreadSearch = enableThreadSearch
-    && normalizedLiveQuery.length > 0
-    && (
-      threadSearchBatch.loading
-      || normalizeCommandPaletteSearchText(threadSearchBatch.query) !== normalizedLiveQuery
-    );
-  const resolveAcceptableRows = useCallback((candidateRows: readonly NfmSendToThreadRow[]) => (
-    shouldWaitForThreadSearch
-      ? candidateRows.filter((row) => row.kind === "thread")
-      : candidateRows
-  ), [shouldWaitForThreadSearch]);
+  const shouldWaitForThreadSearch =
+    enableThreadSearch &&
+    normalizedLiveQuery.length > 0 &&
+    (threadSearchBatch.loading ||
+      normalizeCommandPaletteSearchText(threadSearchBatch.query) !== normalizedLiveQuery);
+  const resolveAcceptableRows = useCallback(
+    (candidateRows: readonly NfmSendToThreadRow[]) =>
+      shouldWaitForThreadSearch
+        ? candidateRows.filter((row) => row.kind === "thread")
+        : candidateRows,
+    [shouldWaitForThreadSearch],
+  );
   const resolvedFocusedRowId = resolveNfmSendToThreadFocusedRowId(
     focusedRowId,
     deferredQuery,
@@ -375,40 +382,51 @@ export function NfmSendToThreadMenuSurface({
   const focusedIndex = resolvedFocusedRowId
     ? rows.findIndex((row) => row.id === resolvedFocusedRowId)
     : -1;
-  const activeDescendantId = focusedIndex >= 0 && focusedIndex < rows.length
-    ? getSendToThreadRowDomId(listboxId, focusedIndex)
-    : undefined;
+  const activeDescendantId =
+    focusedIndex >= 0 && focusedIndex < rows.length
+      ? getSendToThreadRowDomId(listboxId, focusedIndex)
+      : undefined;
   const disabled = Boolean(acceptingRowId) || !projectId;
   const rowEntries = rows.map((row, index) => ({ row, index }));
-  const mainRowEntries = rowEntries.filter(({ row }) => row.kind !== "new-thread" || !row.isFooterAction);
-  const footerRowEntry = rowEntries.find(({ row }) => row.kind === "new-thread" && row.isFooterAction);
+  const mainRowEntries = rowEntries.filter(
+    ({ row }) => row.kind !== "new-thread" || !row.isFooterAction,
+  );
+  const footerRowEntry = rowEntries.find(
+    ({ row }) => row.kind === "new-thread" && row.isFooterAction,
+  );
   const visibleMainRowCount = mainRowEntries.length;
 
   const handleModeChange = useCallback((nextMode: NfmSendToThreadMode) => {
     setMode(writeNfmSendToThreadMode(nextMode));
   }, []);
 
-  const acceptRow = useCallback(async (row: NfmSendToThreadRow) => {
-    setAcceptError(null);
-    setAcceptingRowId(row.id);
-    try {
-      await onAccept({
-        target: row.target,
-        mode: showModeSelector ? mode : "send",
-      });
-      setAcceptingRowId(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message.trim() : "";
-      setAcceptError(message || SEND_TO_THREAD_ERROR);
-      setAcceptingRowId(null);
-    }
-  }, [mode, onAccept, showModeSelector]);
+  const acceptRow = useCallback(
+    async (row: NfmSendToThreadRow) => {
+      setAcceptError(null);
+      setAcceptingRowId(row.id);
+      try {
+        await onAccept({
+          target: row.target,
+          mode: showModeSelector ? mode : "send",
+        });
+        setAcceptingRowId(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message.trim() : "";
+        setAcceptError(message || SEND_TO_THREAD_ERROR);
+        setAcceptingRowId(null);
+      }
+    },
+    [mode, onAccept, showModeSelector],
+  );
 
-  const activateRow = useCallback((row: NfmSendToThreadRow | undefined) => {
-    if (!row || disabled) return;
-    setPendingAcceptQuery(null);
-    void acceptRow(row);
-  }, [acceptRow, disabled]);
+  const activateRow = useCallback(
+    (row: NfmSendToThreadRow | undefined) => {
+      if (!row || disabled) return;
+      setPendingAcceptQuery(null);
+      void acceptRow(row);
+    },
+    [acceptRow, disabled],
+  );
 
   useEffect(() => {
     if (!pendingAcceptQuery) return;
@@ -425,7 +443,13 @@ export function NfmSendToThreadMenuSurface({
       return;
     }
 
-    if (!areQueryFresh({ liveQuery: query, rowsQuery: deferredQuery, normalizeQuery: normalizeCommandPaletteSearchText })) {
+    if (
+      !areQueryFresh({
+        liveQuery: query,
+        rowsQuery: deferredQuery,
+        normalizeQuery: normalizeCommandPaletteSearchText,
+      })
+    ) {
       return;
     }
 
@@ -452,7 +476,7 @@ export function NfmSendToThreadMenuSurface({
           resolveNfmSendToThreadFocusedRowId(currentRowId, deferredQuery, rows),
           1,
           rows,
-        )
+        ),
       );
       return;
     }
@@ -464,7 +488,7 @@ export function NfmSendToThreadMenuSurface({
           resolveNfmSendToThreadFocusedRowId(currentRowId, deferredQuery, rows),
           -1,
           rows,
-        )
+        ),
       );
       return;
     }
@@ -501,7 +525,10 @@ export function NfmSendToThreadMenuSurface({
       contentEditable={false}
     >
       <div className="flex h-[38px] shrink-0 items-center gap-1.5 px-2 py-[5px]">
-        <SearchIcon className="size-4 shrink-0 text-token-description-foreground" aria-hidden="true" />
+        <SearchIcon
+          className="size-4 shrink-0 text-token-description-foreground"
+          aria-hidden="true"
+        />
         <input
           id={comboboxId}
           role="combobox"
@@ -524,17 +551,18 @@ export function NfmSendToThreadMenuSurface({
         />
       </div>
       {showModeSelector ? (
-        <SendToThreadModeSelector
-          mode={mode}
-          disabled={disabled}
-          onModeChange={handleModeChange}
-        />
+        <SendToThreadModeSelector mode={mode} disabled={disabled} onModeChange={handleModeChange} />
       ) : null}
       <div
         id={listboxId}
         role="listbox"
         aria-labelledby={comboboxId}
-        aria-busy={rowsStale || threadItemsLoading || shouldWaitForThreadSearch || pendingAcceptQuery !== null}
+        aria-busy={
+          rowsStale ||
+          threadItemsLoading ||
+          shouldWaitForThreadSearch ||
+          pendingAcceptQuery !== null
+        }
         className="flex h-[340px] min-h-0 flex-col"
       >
         <div className="notion-scroller vertical min-h-0 flex-1 overflow-y-auto pb-1">
@@ -551,7 +579,7 @@ export function NfmSendToThreadMenuSurface({
                   listboxId={listboxId}
                   focused={focusedIndex === index}
                   disabled={disabled}
-	                  accepting={acceptingRowId === row.id}
+                  accepting={acceptingRowId === row.id}
                   onAccept={(acceptedRow) => {
                     if (rowsStale) return;
                     activateRow(acceptedRow);
@@ -564,18 +592,16 @@ export function NfmSendToThreadMenuSurface({
               ))}
             </div>
           </div>
-          {!projectId ? (
-            <SendToThreadStatusRow>No project selected</SendToThreadStatusRow>
-          ) : null}
+          {!projectId ? <SendToThreadStatusRow>No project selected</SendToThreadStatusRow> : null}
           {projectId && threadItemsLoading && visibleMainRowCount === 0 ? (
             <SendToThreadStatusRow>Loading chats...</SendToThreadStatusRow>
           ) : null}
           {projectId && !threadItemsLoading && visibleMainRowCount === 0 ? (
-            <SendToThreadStatusRow>{deferredQuery.trim() ? "No matching chats" : "No chats yet"}</SendToThreadStatusRow>
+            <SendToThreadStatusRow>
+              {deferredQuery.trim() ? "No matching chats" : "No chats yet"}
+            </SendToThreadStatusRow>
           ) : null}
-          {acceptError ? (
-            <SendToThreadStatusRow>{acceptError}</SendToThreadStatusRow>
-          ) : null}
+          {acceptError ? <SendToThreadStatusRow>{acceptError}</SendToThreadStatusRow> : null}
         </div>
         {projectId && footerRowEntry ? (
           <div className="shrink-0 px-1 pb-1 pt-1">

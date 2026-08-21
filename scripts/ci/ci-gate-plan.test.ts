@@ -37,12 +37,17 @@ describe("CI gate plan contract", () => {
     expect(() => assertCiGatePlan({ ...fullPlan, surprise: true })).toThrow("unknown fields");
     expect(() => assertCiGatePlan({ ...fullPlan, testMode: "related" })).toThrow("changed paths");
     expect(() => assertCiGatePlan({ ...fullPlan, relatedPaths: ["../outside"] })).toThrow("safe");
-    expect(() => assertCiGatePlan({ ...fullPlan, relatedPaths: ["src/main/a\rb.ts"] })).toThrow("safe");
+    expect(() => assertCiGatePlan({ ...fullPlan, relatedPaths: ["src/main/a\rb.ts"] })).toThrow(
+      "safe",
+    );
   });
 
   test("keeps release transition isolated from ordinary jobs", () => {
-    expect(requiredJobIdsForGatePlan({ ...fullPlan, releaseTransition: true }))
-      .toEqual(["release-transition"]);
-    expect(() => assertCiGatePlan({ ...fullPlan, releaseTransition: true })).toThrow("ordinary gates");
+    expect(requiredJobIdsForGatePlan({ ...fullPlan, releaseTransition: true })).toEqual([
+      "release-transition",
+    ]);
+    expect(() => assertCiGatePlan({ ...fullPlan, releaseTransition: true })).toThrow(
+      "ordinary gates",
+    );
   });
 });

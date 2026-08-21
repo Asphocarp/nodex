@@ -10,11 +10,7 @@ export type LocalConversationPatchDecision =
   | { type: "drop"; reason: "missing-follower-role" }
   | {
       type: "resync";
-      reason:
-        | "owner-mismatch"
-        | "owner-epoch-mismatch"
-        | "revision-gap"
-        | "base-hash-mismatch";
+      reason: "owner-mismatch" | "owner-epoch-mismatch" | "revision-gap" | "base-hash-mismatch";
     };
 
 export type LocalConversationSnapshotDecision =
@@ -121,20 +117,14 @@ export class LocalConversationStreamState {
     this.streamingConversationIds.delete(conversationId);
   }
 
-  markOwner(
-    conversationId: string,
-    checkpoint?: CodexThreadStreamCheckpoint | null,
-  ): void {
+  markOwner(conversationId: string, checkpoint?: CodexThreadStreamCheckpoint | null): void {
     this.setRole(conversationId, { role: "owner" });
     if (checkpoint) {
       this.checkpointByConversationId.set(conversationId, checkpoint);
     }
   }
 
-  recordOwnerCheckpoint(
-    conversationId: string,
-    checkpoint: CodexThreadStreamCheckpoint,
-  ): void {
+  recordOwnerCheckpoint(conversationId: string, checkpoint: CodexThreadStreamCheckpoint): void {
     const role = this.rolesByConversationId.get(conversationId);
     if (!role || role.role !== "owner") {
       this.markOwner(conversationId, checkpoint);
@@ -166,8 +156,8 @@ export class LocalConversationStreamState {
           return { type: "drop", reason: "stale-snapshot" };
         }
         if (
-          input.checkpoint.revision === currentCheckpoint.revision
-          && input.checkpoint.canonicalHash !== currentCheckpoint.canonicalHash
+          input.checkpoint.revision === currentCheckpoint.revision &&
+          input.checkpoint.canonicalHash !== currentCheckpoint.canonicalHash
         ) {
           return { type: "resync", reason: "checkpoint-hash-mismatch" };
         }
@@ -209,14 +199,14 @@ export class LocalConversationStreamState {
       return { type: "resync", reason: "revision-gap" };
     }
     if (
-      currentCheckpoint.ownerEpoch !== input.baseCheckpoint.ownerEpoch
-      || input.checkpoint.ownerEpoch !== input.baseCheckpoint.ownerEpoch
+      currentCheckpoint.ownerEpoch !== input.baseCheckpoint.ownerEpoch ||
+      input.checkpoint.ownerEpoch !== input.baseCheckpoint.ownerEpoch
     ) {
       return { type: "resync", reason: "owner-epoch-mismatch" };
     }
     if (
-      currentCheckpoint.revision !== input.baseCheckpoint.revision
-      || input.checkpoint.revision !== input.baseCheckpoint.revision + 1
+      currentCheckpoint.revision !== input.baseCheckpoint.revision ||
+      input.checkpoint.revision !== input.baseCheckpoint.revision + 1
     ) {
       return { type: "resync", reason: "revision-gap" };
     }
@@ -245,12 +235,15 @@ export class LocalConversationStreamState {
   }): Promise<void> {
     const role = this.rolesByConversationId.get(input.conversationId);
     if (!role || role.role !== "follower" || role.ownerClientId !== input.ownerClientId) {
-      return Promise.reject(new Error(
-        `Cannot wait for ${input.conversationId} revision ${input.revision} from ${formatOwner(input.ownerClientId)} because that owner is not active`,
-      ));
+      return Promise.reject(
+        new Error(
+          `Cannot wait for ${input.conversationId} revision ${input.revision} from ${formatOwner(input.ownerClientId)} because that owner is not active`,
+        ),
+      );
     }
 
-    const currentRevision = this.checkpointByConversationId.get(input.conversationId)?.revision ?? 0;
+    const currentRevision =
+      this.checkpointByConversationId.get(input.conversationId)?.revision ?? 0;
     if (currentRevision >= input.revision) {
       return Promise.resolve();
     }
@@ -266,9 +259,11 @@ export class LocalConversationStreamState {
       };
       waiter.timeout = this.setTimeoutFn(() => {
         this.removeWaiter(waiter);
-        reject(new Error(
-          `Timed out waiting for ${input.conversationId} revision ${input.revision} from ${formatOwner(input.ownerClientId)}`,
-        ));
+        reject(
+          new Error(
+            `Timed out waiting for ${input.conversationId} revision ${input.revision} from ${formatOwner(input.ownerClientId)}`,
+          ),
+        );
       }, input.timeoutMs);
 
       this.addWaiter(waiter);
@@ -294,12 +289,11 @@ export class LocalConversationStreamState {
   }
 
   handleTransportReset(conversationIds?: readonly string[]): string[] {
-    const requestedConversationIds = conversationIds?.length
-      ? new Set(conversationIds)
-      : null;
-    const affectedConversationIds = [...this.followedConversationIds].filter((conversationId) =>
-      (requestedConversationIds === null || requestedConversationIds.has(conversationId))
-      && this.rolesByConversationId.get(conversationId)?.role !== "owner",
+    const requestedConversationIds = conversationIds?.length ? new Set(conversationIds) : null;
+    const affectedConversationIds = [...this.followedConversationIds].filter(
+      (conversationId) =>
+        (requestedConversationIds === null || requestedConversationIds.has(conversationId)) &&
+        this.rolesByConversationId.get(conversationId)?.role !== "owner",
     );
     for (const conversationId of affectedConversationIds) {
       this.rolesByConversationId.delete(conversationId);
@@ -325,10 +319,7 @@ export class LocalConversationStreamState {
 
   reset(): void {
     for (const conversationId of [...this.waitersByConversationId.keys()]) {
-      this.rejectWaitersForConversation(
-        conversationId,
-        new Error("Stream state was reset"),
-      );
+      this.rejectWaitersForConversation(conversationId, new Error("Stream state was reset"));
     }
     this.streamingConversationIds.clear();
     this.followedConversationIds.clear();

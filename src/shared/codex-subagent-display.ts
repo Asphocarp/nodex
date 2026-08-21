@@ -1,7 +1,4 @@
-import type {
-  CodexConversationChildMembership,
-  CodexThreadSummary,
-} from "./types";
+import type { CodexConversationChildMembership, CodexThreadSummary } from "./types";
 import type { CodexMultiAgentReceiverThread } from "./codex-transcript-special-items";
 
 function normalizeOptionalLabel(value: string | null | undefined): string | null {
@@ -11,14 +8,15 @@ function normalizeOptionalLabel(value: string | null | undefined): string | null
   return trimmed.startsWith("@") ? trimmed.slice(1).trim() || null : trimmed;
 }
 
-export function isRawCodexSubagentThreadIdLabel(value: string | null | undefined, threadId: string): boolean {
+export function isRawCodexSubagentThreadIdLabel(
+  value: string | null | undefined,
+  threadId: string,
+): boolean {
   const label = normalizeOptionalLabel(value);
   const normalizedThreadId = threadId.trim();
   if (!label || !normalizedThreadId) return false;
   if (label === normalizedThreadId) return true;
-  return label.length >= 8
-    && /^[0-9a-f-]+$/iu.test(label)
-    && normalizedThreadId.startsWith(label);
+  return label.length >= 8 && /^[0-9a-f-]+$/iu.test(label) && normalizedThreadId.startsWith(label);
 }
 
 function firstFriendlyLabel(
@@ -61,8 +59,10 @@ export function resolveCodexSubagentDisplayName(input: {
   ]);
   if (friendlyLabel) return friendlyLabel;
 
-  return normalizeOptionalLabel(input.fallbackLabel)
-    ?? normalizeOptionalLabel(input.fallbackDisplayName)
-    ?? normalizeOptionalLabel(threadId)
-    ?? "Agent";
+  return (
+    normalizeOptionalLabel(input.fallbackLabel) ??
+    normalizeOptionalLabel(input.fallbackDisplayName) ??
+    normalizeOptionalLabel(threadId) ??
+    "Agent"
+  );
 }

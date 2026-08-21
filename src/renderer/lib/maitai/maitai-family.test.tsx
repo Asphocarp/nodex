@@ -57,9 +57,11 @@ describe("Maitai scoped atom families", () => {
     render(
       <MaitaiProvider store={store}>
         <ScopeProvider scope={threadScope} descriptor="thread-a">
-          <HandleProbe onHandle={(handle) => {
-            handleRef.current = handle;
-          }} />
+          <HandleProbe
+            onHandle={(handle) => {
+              handleRef.current = handle;
+            }}
+          />
         </ScopeProvider>
       </MaitaiProvider>,
     );
@@ -71,8 +73,10 @@ describe("Maitai scoped atom families", () => {
     expect(first).toBe(reordered);
     handle.set(first, true);
     expect(handle.get(reordered)).toBe(true);
-    expect(getMaitaiDebugSnapshot(store).find((entry) => entry.definitionLabel === "FamilyThreadScope")?.familyEntryCount)
-      .toBe(1);
+    expect(
+      getMaitaiDebugSnapshot(store).find((entry) => entry.definitionLabel === "FamilyThreadScope")
+        ?.familyEntryCount,
+    ).toBe(1);
     expect(family.remove(handle, { conversationId: "c", turnKey: "t" })).toBe(true);
     expect(family.remove(handle, { conversationId: "c", turnKey: "t" })).toBe(false);
     expect(family(["conversation", { turn: 1, part: 2 }])).toBe(
@@ -86,9 +90,11 @@ describe("Maitai scoped atom families", () => {
     render(
       <MaitaiProvider store={store}>
         <ScopeProvider scope={threadScope} descriptor="thread-a">
-          <HandleProbe onHandle={(handle) => {
-            handleRef.current = handle;
-          }} />
+          <HandleProbe
+            onHandle={(handle) => {
+              handleRef.current = handle;
+            }}
+          />
         </ScopeProvider>
       </MaitaiProvider>,
     );
@@ -109,9 +115,12 @@ describe("Maitai scoped atom families", () => {
     const handleRef: { current: ScopeHandle | null } = { current: null };
     render(
       <MaitaiProvider store={store}>
-        <HandleProbeForScope scope={appScope} onHandle={(handle) => {
-          handleRef.current = handle;
-        }} />
+        <HandleProbeForScope
+          scope={appScope}
+          onHandle={(handle) => {
+            handleRef.current = handle;
+          }}
+        />
       </MaitaiProvider>,
     );
     const handle = handleRef.current;
@@ -128,13 +137,14 @@ describe("Maitai scoped atom families", () => {
     const externalFamily = scopedAtomFamily({
       scope: threadScope,
       debugLabel: "external-family",
-      create: () => atomWithExternalStore(threadScope, {
-        debugLabel: "external",
-        getSnapshot: () => 1,
-        subscribe: () => () => {
-          unsubscribeCount += 1;
-        },
-      }),
+      create: () =>
+        atomWithExternalStore(threadScope, {
+          debugLabel: "external",
+          getSnapshot: () => 1,
+          subscribe: () => () => {
+            unsubscribeCount += 1;
+          },
+        }),
     });
     const member = externalFamily("conversation-1");
     const store = createMaitaiStore();

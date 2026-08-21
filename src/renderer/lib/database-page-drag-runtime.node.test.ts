@@ -64,11 +64,13 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
           schemaKey: "nodex.database-view",
           schemaVersion: 2,
           filter: { kind: "group", operator: "and", children: [] },
-          sort: [{
-            field: { kind: "manual" },
-            direction: "asc",
-            nulls: "last",
-          }],
+          sort: [
+            {
+              field: { kind: "manual" },
+              direction: "asc",
+              nulls: "last",
+            },
+          ],
           group: { propertyId: "status" },
           display: { propertyIds: [], showTitle: true },
         }),
@@ -79,57 +81,61 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
         createdAt: timestamp,
         updatedAt: timestamp,
       },
-      properties: [{
-        propertyId: parseDataSourcePropertyId("status"),
-        dataSourceId: parseDataSourceId("source-1"),
-        name: "Status",
-        ...testPropertySemantics("select"),
-        valueType: "select",
-        config: {},
-        rankKey: "a",
-        lifecycle: "active",
-        revision: 1,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      }],
-      rows: [{
-        pageKey: null,
-        page: {
-          pageId: "page-1",
-          libraryId: "library-1",
-          parent: { kind: "data_source", dataSourceId: parseDataSourceId("source-1") },
+      properties: [
+        {
+          propertyId: parseDataSourcePropertyId("status"),
+          dataSourceId: parseDataSourceId("source-1"),
+          name: "Status",
+          ...testPropertySemantics("select"),
+          valueType: "select",
+          config: {},
+          rankKey: "a",
           lifecycle: "active",
-          parentRevision: 1,
-          metadataRevision: 1,
-          documentId: "document:page-1",
-          documentGeneration: 1,
-          documentHeadSeq: 1,
-          title: "Page",
-          richTitle: [],
-          preview: "",
-          plainText: "",
+          revision: 1,
           createdAt: timestamp,
           updatedAt: timestamp,
         },
-        membership: {
-          membershipId: "membership-1",
-          dataSourceId: parseDataSourceId("source-1"),
-          revision: 1,
-          createdAt: timestamp,
-        },
-        values: {
-          status: {
-            propertyId: parseDataSourcePropertyId("status"),
-            valueType: "select",
-            value: "triage",
-            revision: 2,
+      ],
+      rows: [
+        {
+          pageKey: null,
+          page: {
+            pageId: "page-1",
+            libraryId: "library-1",
+            parent: { kind: "data_source", dataSourceId: parseDataSourceId("source-1") },
+            lifecycle: "active",
+            parentRevision: 1,
+            metadataRevision: 1,
+            documentId: "document:page-1",
+            documentGeneration: 1,
+            documentHeadSeq: 1,
+            title: "Page",
+            richTitle: [],
+            preview: "",
+            plainText: "",
+            createdAt: timestamp,
+            updatedAt: timestamp,
           },
+          membership: {
+            membershipId: "membership-1",
+            dataSourceId: parseDataSourceId("source-1"),
+            revision: 1,
+            createdAt: timestamp,
+          },
+          values: {
+            status: {
+              propertyId: parseDataSourcePropertyId("status"),
+              valueType: "select",
+              value: "triage",
+              revision: 2,
+            },
+          },
+          taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
+          position: { rankKey: "a", revision: 3 },
+          effectiveGroupKey: "triage",
+          effectiveSubgroupKey: null,
         },
-        taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
-        position: { rankKey: "a", revision: 3 },
-        effectiveGroupKey: "triage",
-        effectiveSubgroupKey: null,
-      }],
+      ],
     },
   },
 });
@@ -206,17 +212,19 @@ describe("Database Page drag runtime", () => {
       },
     };
 
-    await expect(commitDatabasePageDrag({
-      projectId: "project-1",
-      operationId: "drag-stale",
-      snapshot: snapshot(),
-      move: {
-        pageId: "page-1",
-        fromStatus: "triage",
-        toStatus: "ship",
-      },
-      dependencies,
-    })).rejects.toBeInstanceOf(DatabasePageDragMutationError);
+    await expect(
+      commitDatabasePageDrag({
+        projectId: "project-1",
+        operationId: "drag-stale",
+        snapshot: snapshot(),
+        move: {
+          pageId: "page-1",
+          fromStatus: "triage",
+          toStatus: "ship",
+        },
+        dependencies,
+      }),
+    ).rejects.toBeInstanceOf(DatabasePageDragMutationError);
     expect(applies).toBe(1);
   });
 });

@@ -12,18 +12,10 @@ import {
   useDictionary,
   useEditorState,
 } from "@blocknote/react";
-import {
-  ArrowLeft,
-  ImageUp,
-  TextCursorInput,
-} from "@/components/shared/icons/generic-icons";
+import { ArrowLeft, ImageUp, TextCursorInput } from "@/components/shared/icons/generic-icons";
 import { NodexFloatingSurface } from "@/components/ui/floating-surface";
 import { cn } from "@/lib/utils";
-import {
-  type ChangeEvent,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 
 export type NfmFileAction = {
   type: "caption" | "replace";
@@ -35,11 +27,7 @@ type NfmFileActionButtonProps = {
 };
 
 function useSelectedFileBlock() {
-  const editor = useBlockNoteEditor<
-    BlockSchema,
-    InlineContentSchema,
-    StyleSchema
-  >();
+  const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
 
   return useEditorState({
     editor,
@@ -52,9 +40,11 @@ function useSelectedFileBlock() {
       if (selectedBlocks.length !== 1) return undefined;
 
       const selectedBlock = selectedBlocks[0];
-      if (!blockHasType(selectedBlock, currentEditor, selectedBlock.type, {
-        url: "string",
-      })) {
+      if (
+        !blockHasType(selectedBlock, currentEditor, selectedBlock.type, {
+          url: "string",
+        })
+      ) {
         return undefined;
       }
 
@@ -66,11 +56,7 @@ function useSelectedFileBlock() {
 export function NfmFileCaptionButton({ onOpen }: NfmFileActionButtonProps) {
   const dict = useDictionary();
   const Components = useComponentsContext()!;
-  const editor = useBlockNoteEditor<
-    BlockSchema,
-    InlineContentSchema,
-    StyleSchema
-  >();
+  const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
   const block = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => {
@@ -82,10 +68,12 @@ export function NfmFileCaptionButton({ onOpen }: NfmFileActionButtonProps) {
       if (selectedBlocks.length !== 1) return undefined;
 
       const selectedBlock = selectedBlocks[0];
-      if (!blockHasType(selectedBlock, currentEditor, selectedBlock.type, {
-        url: "string",
-        caption: "string",
-      })) {
+      if (
+        !blockHasType(selectedBlock, currentEditor, selectedBlock.type, {
+          url: "string",
+          caption: "string",
+        })
+      ) {
         return undefined;
       }
 
@@ -114,8 +102,8 @@ export function NfmFileReplaceButton({ onOpen }: NfmFileActionButtonProps) {
   if (block === undefined) return null;
 
   const label =
-    dict.formatting_toolbar.file_replace.tooltip[block.type]
-    || dict.formatting_toolbar.file_replace.tooltip.file;
+    dict.formatting_toolbar.file_replace.tooltip[block.type] ||
+    dict.formatting_toolbar.file_replace.tooltip.file;
 
   return (
     <Components.FormattingToolbar.Button
@@ -129,19 +117,18 @@ export function NfmFileReplaceButton({ onOpen }: NfmFileActionButtonProps) {
 }
 
 function useFileBlock(blockId: string) {
-  const editor = useBlockNoteEditor<
-    BlockSchema,
-    InlineContentSchema,
-    StyleSchema
-  >();
+  const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
 
   const block = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => {
       const candidate = currentEditor.getBlock(blockId);
-      if (!candidate || !blockHasType(candidate, currentEditor, candidate.type, {
-        url: "string",
-      })) {
+      if (
+        !candidate ||
+        !blockHasType(candidate, currentEditor, candidate.type, {
+          url: "string",
+        })
+      ) {
         return undefined;
       }
 
@@ -192,20 +179,14 @@ function NfmFileActionPanel({
   );
 }
 
-function NfmFileCaptionPanel({
-  blockId,
-  onClose,
-}: {
-  blockId: string;
-  onClose: () => void;
-}) {
+function NfmFileCaptionPanel({ blockId, onClose }: { blockId: string; onClose: () => void }) {
   const dict = useDictionary();
   const Components = useComponentsContext()!;
   const { block, editor } = useFileBlock(blockId);
 
   if (
-    block === undefined
-    || !blockHasType(block, editor, block.type, {
+    block === undefined ||
+    !blockHasType(block, editor, block.type, {
       url: "string",
       caption: "string",
     })
@@ -250,28 +231,18 @@ function NfmFileCaptionPanel({
   );
 }
 
-function NfmFileReplacePanel({
-  blockId,
-  onClose,
-}: {
-  blockId: string;
-  onClose: () => void;
-}) {
+function NfmFileReplacePanel({ blockId, onClose }: { blockId: string; onClose: () => void }) {
   const dict = useDictionary();
   const { block } = useFileBlock(blockId);
 
   if (block === undefined) return null;
 
   const title =
-    dict.formatting_toolbar.file_replace.tooltip[block.type]
-    || dict.formatting_toolbar.file_replace.tooltip.file;
+    dict.formatting_toolbar.file_replace.tooltip[block.type] ||
+    dict.formatting_toolbar.file_replace.tooltip.file;
 
   return (
-    <NfmFileActionPanel
-      title={title}
-      onClose={onClose}
-      className="min-w-[18rem]"
-    >
+    <NfmFileActionPanel title={title} onClose={onClose} className="min-w-[18rem]">
       <FilePanel blockId={block.id} />
     </NfmFileActionPanel>
   );

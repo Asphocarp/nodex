@@ -10,9 +10,7 @@ export function makeWorkbenchPanelSlotKey(
   panelId: PanelId,
   leafId?: string | null,
 ): string {
-  return leafId
-    ? `${panelOwnerKey}:${panelId}:${leafId}`
-    : `${panelOwnerKey}:${panelId}`;
+  return leafId ? `${panelOwnerKey}:${panelId}:${leafId}` : `${panelOwnerKey}:${panelId}`;
 }
 
 export function makeWorkbenchSessionPanelSlotKey(
@@ -20,11 +18,7 @@ export function makeWorkbenchSessionPanelSlotKey(
   panelId: PanelId,
   leafId?: string | null,
 ): string {
-  return makeWorkbenchPanelSlotKey(
-    makeWorkbenchSessionPanelOwnerKey(sessionId),
-    panelId,
-    leafId,
-  );
+  return makeWorkbenchPanelSlotKey(makeWorkbenchSessionPanelOwnerKey(sessionId), panelId, leafId);
 }
 
 export function resolveWorkbenchPanelSlotLeafId(

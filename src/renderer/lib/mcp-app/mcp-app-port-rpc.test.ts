@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  createMcpAppHostHandlerPort,
-  createMcpAppPortCall,
-} from "./mcp-app-port-rpc";
+import { createMcpAppHostHandlerPort, createMcpAppPortCall } from "./mcp-app-port-rpc";
 
 describe("MCP App port RPC", () => {
   test("resolves a host call over a per-call reply channel", async () => {

@@ -10,7 +10,10 @@ describe("nfm codex prompt input", () => {
           { type: "text", text: "See ", styles: {} },
           { type: "threadMention", props: { uuid: "thread-123" } },
           { type: "text", text: " with mode ", styles: {} },
-          { type: "agentConfig", props: { mode: "plan", model: "gpt-5.2-codex", reasoning: "high" } },
+          {
+            type: "agentConfig",
+            props: { mode: "plan", model: "gpt-5.2-codex", reasoning: "high" },
+          },
         ],
         children: [],
       },
@@ -24,7 +27,9 @@ describe("nfm codex prompt input", () => {
       },
     ]);
 
-    expect(promptInput.text).toBe("See [Thread: thread-123] with mode\n[Image #1] (caption: Architecture sketch)");
+    expect(promptInput.text).toBe(
+      "See [Thread: thread-123] with mode\n[Image #1] (caption: Architecture sketch)",
+    );
     expect(promptInput.images?.length).toBe(1);
     expect(promptInput.images?.[0]?.source).toBe("nodex://assets/image.png");
     expect(promptInput.images?.[0]?.caption).toBe("Architecture sketch");

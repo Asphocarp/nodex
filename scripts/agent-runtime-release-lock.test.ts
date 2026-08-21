@@ -73,7 +73,8 @@ test("Agent runtime lock separates the exact source revision from its artifact r
 test("Agent runtime lock rejects an asset URL outside its artifact release", () => {
   const lock = makeLock();
   const assets = lock.assets as Record<string, Record<string, unknown>>;
-  assets["darwin-arm64"]!.url = "https://github.com/other/repo/releases/download/wrong/runtime.tar.gz";
+  assets["darwin-arm64"]!.url =
+    "https://github.com/other/repo/releases/download/wrong/runtime.tar.gz";
 
   expect(() => parseOpenInterpreterReleaseLock(lock)).toThrow(
     "does not match its artifact release",

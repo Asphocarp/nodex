@@ -1,12 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
-import type {
-  CodexBackgroundProcessRecord,
-  TerminalSessionSnapshot,
-} from "../../shared/types";
+import type { CodexBackgroundProcessRecord, TerminalSessionSnapshot } from "../../shared/types";
 import { buildCodexBackgroundProcessRow } from "./background-process-rows";
 
-function record(overrides: Partial<CodexBackgroundProcessRecord> = {}): CodexBackgroundProcessRecord {
+function record(
+  overrides: Partial<CodexBackgroundProcessRecord> = {},
+): CodexBackgroundProcessRecord {
   return {
     id: "thread:item",
     threadId: "thread",
@@ -38,7 +37,9 @@ function terminal(overrides: Partial<ThreadBackgroundTerminal> = {}): ThreadBack
   };
 }
 
-function terminalSession(overrides: Partial<TerminalSessionSnapshot> = {}): TerminalSessionSnapshot {
+function terminalSession(
+  overrides: Partial<TerminalSessionSnapshot> = {},
+): TerminalSessionSnapshot {
   return {
     sessionId: "terminal-session",
     conversationId: "thread",

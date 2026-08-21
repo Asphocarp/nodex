@@ -1,5 +1,11 @@
-import { dropTargetForElements, monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
-import type { DragLocationHistory, DropTargetRecord } from "@atlaskit/pragmatic-drag-and-drop/types";
+import {
+  dropTargetForElements,
+  monitorForElements,
+} from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import type {
+  DragLocationHistory,
+  DropTargetRecord,
+} from "@atlaskit/pragmatic-drag-and-drop/types";
 import {
   useEffect,
   useRef,
@@ -9,13 +15,8 @@ import {
   type SetStateAction,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import {
-  AppShellTabs,
-  type AppShellTabItem,
-} from "./app-shell-tabs";
-import {
-  markContextualKeyboardActionPresentationActive,
-} from "@/lib/contextual-keyboard-actions";
+import { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
+import { markContextualKeyboardActionPresentationActive } from "@/lib/contextual-keyboard-actions";
 import {
   findWorkbenchPanelLeaf,
   getWorkbenchPanelTopLeftLeafId,
@@ -112,8 +113,8 @@ export function PanelGroupTree({
 
   useEffect(() => {
     return monitorForElements({
-      canMonitor: ({ source }) => isPanelTabDragData(source.data)
-        && source.data.sessionId === sessionId,
+      canMonitor: ({ source }) =>
+        isPanelTabDragData(source.data) && source.data.sessionId === sessionId,
       onDragStart: ({ source }) => {
         if (!isPanelTabDragData(source.data)) return;
         setActiveDragId(source.data.tabId);
@@ -157,12 +158,10 @@ export function PanelGroupTree({
   const maximizedLeaf = maximizedLeafId ? findWorkbenchPanelLeaf(layout, maximizedLeafId) : null;
   const activeLeafId = layout.activeLeafId;
   const rootNode = maximizedLeaf ?? layout.root;
-  const headerStartInsetLeafId = headerStartInsetPx && headerStartInsetPx > 0
-    ? getWorkbenchPanelTopLeftLeafId(rootNode)
-    : null;
-  const headerEndInsetLeafId = headerEndInsetPx && headerEndInsetPx > 0
-    ? getWorkbenchPanelTopRightLeafId(rootNode)
-    : null;
+  const headerStartInsetLeafId =
+    headerStartInsetPx && headerStartInsetPx > 0 ? getWorkbenchPanelTopLeftLeafId(rootNode) : null;
+  const headerEndInsetLeafId =
+    headerEndInsetPx && headerEndInsetPx > 0 ? getWorkbenchPanelTopRightLeafId(rootNode) : null;
   const afterListLeafId = renderAfterList ? getWorkbenchPanelTopRightLeafId(rootNode) : null;
   return (
     <div
@@ -211,7 +210,7 @@ function updatePreviewIntent(
   const nextIntent = resolvePanelTabDropIntent(source, location);
   const scopedIntent = nextIntent?.panelId === panelId ? nextIntent : null;
   setPreviewIntent((currentIntent) =>
-    arePanelTabDropIntentsEqual(currentIntent, scopedIntent) ? currentIntent : scopedIntent
+    arePanelTabDropIntentsEqual(currentIntent, scopedIntent) ? currentIntent : scopedIntent,
   );
 }
 
@@ -279,14 +278,16 @@ function findDropTargetRecord(
 }
 
 function readPanelTabRects(rowElement: HTMLElement): PanelTabRect[] {
-  return Array.from(rowElement.querySelectorAll<HTMLElement>("[data-panel-tab-id]")).map((tabElement) => {
-    const rect = tabElement.getBoundingClientRect();
-    return {
-      id: tabElement.dataset.panelTabId ?? "",
-      left: rect.left,
-      right: rect.right,
-    };
-  }).filter((rect) => rect.id.length > 0);
+  return Array.from(rowElement.querySelectorAll<HTMLElement>("[data-panel-tab-id]"))
+    .map((tabElement) => {
+      const rect = tabElement.getBoundingClientRect();
+      return {
+        id: tabElement.dataset.panelTabId ?? "",
+        left: rect.left,
+        right: rect.right,
+      };
+    })
+    .filter((rect) => rect.id.length > 0);
 }
 
 function arePanelTabDropIntentsEqual(
@@ -296,10 +297,13 @@ function arePanelTabDropIntentsEqual(
   if (currentIntent === nextIntent) return true;
   if (!currentIntent || !nextIntent) return false;
   if (currentIntent.kind !== nextIntent.kind) return false;
-  if (currentIntent.panelId !== nextIntent.panelId || currentIntent.leafId !== nextIntent.leafId) return false;
+  if (currentIntent.panelId !== nextIntent.panelId || currentIntent.leafId !== nextIntent.leafId)
+    return false;
   if (currentIntent.kind === "tab-row" && nextIntent.kind === "tab-row") {
-    return currentIntent.targetIndex === nextIntent.targetIndex
-      && currentIntent.markerLeft === nextIntent.markerLeft;
+    return (
+      currentIntent.targetIndex === nextIntent.targetIndex &&
+      currentIntent.markerLeft === nextIntent.markerLeft
+    );
   }
   if (currentIntent.kind === "body" && nextIntent.kind === "body") {
     return currentIntent.zone === nextIntent.zone;
@@ -361,7 +365,8 @@ function PanelGroupSplit({
   useEffect(() => {
     setOptimisticRatio((currentRatio) => {
       if (currentRatio === null) return null;
-      if (Math.abs(currentRatio - branch.ratio) > PANEL_GROUP_RATIO_ACK_EPSILON) return currentRatio;
+      if (Math.abs(currentRatio - branch.ratio) > PANEL_GROUP_RATIO_ACK_EPSILON)
+        return currentRatio;
       return null;
     });
   }, [branch.ratio]);
@@ -394,9 +399,11 @@ function PanelGroupSplit({
     >
       <div
         className="min-h-0 min-w-0 overflow-hidden"
-        style={isHorizontal
-          ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }
-          : { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }}
+        style={
+          isHorizontal
+            ? { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }
+            : { flexBasis: `${ratio * 100}%`, flexGrow: 0, flexShrink: 0 }
+        }
       >
         <PanelGroupNode {...props} node={branch.first} onResizeGroup={onResizeGroup} />
       </div>
@@ -449,18 +456,17 @@ function PanelGroupLeaf({
   const activeTabId = activeTabIdsByLeafId[leaf.id] ?? tabs[0]?.id ?? null;
   const isActive = leaf.id === activeLeafId;
   const afterTabs = renderAfterTabs?.(leaf.id) ?? null;
-  const afterList = leaf.id === afterListLeafId ? renderAfterList?.(leaf.id) ?? null : null;
+  const afterList = leaf.id === afterListLeafId ? (renderAfterList?.(leaf.id) ?? null) : null;
   const leafHeaderStartInsetPx = leaf.id === headerStartInsetLeafId ? headerStartInsetPx : 0;
   const leafHeaderEndInsetPx = leaf.id === headerEndInsetLeafId ? headerEndInsetPx : 0;
-  const resolvedBeforeList = leafHeaderStartInsetPx && leafHeaderStartInsetPx > 0
-    ? (
-        <div
-          aria-hidden="true"
-          className="no-drag pointer-events-none h-full shrink-0"
-          style={{ width: leafHeaderStartInsetPx }}
-        />
-      )
-    : null;
+  const resolvedBeforeList =
+    leafHeaderStartInsetPx && leafHeaderStartInsetPx > 0 ? (
+      <div
+        aria-hidden="true"
+        className="no-drag pointer-events-none h-full shrink-0"
+        style={{ width: leafHeaderStartInsetPx }}
+      />
+    ) : null;
   const splittableTabCount = tabs.filter((tab) => tab.splittable === true).length;
   const activateLeaf = () => {
     if (isActive) return;
@@ -499,11 +505,16 @@ function PanelGroupLeaf({
             onSelectTab(leaf.id, tabId);
           }}
           onCloseTab={(tabId) => onCloseTab(leaf.id, tabId)}
-          onDirectCloseTab={onDirectCloseTab ? (tabId) => onDirectCloseTab(leaf.id, tabId) : undefined}
+          onDirectCloseTab={
+            onDirectCloseTab ? (tabId) => onDirectCloseTab(leaf.id, tabId) : undefined
+          }
           onPinTab={onPinTab ? (tabId) => onPinTab(leaf.id, tabId) : undefined}
           onMoveTab={(tabId, targetPanelId) =>
-            onMoveTab(tabId, targetPanelId === "bottom" ? "bottom" : "right", leaf.id)}
-          onSplitTab={splittableTabCount > 1 ? (tabId, side) => onSplitGroup(leaf.id, side, tabId) : undefined}
+            onMoveTab(tabId, targetPanelId === "bottom" ? "bottom" : "right", leaf.id)
+          }
+          onSplitTab={
+            splittableTabCount > 1 ? (tabId, side) => onSplitGroup(leaf.id, side, tabId) : undefined
+          }
           panelTabDnd={{
             sessionId,
             panelId,
@@ -514,9 +525,7 @@ function PanelGroupLeaf({
           beforeList={resolvedBeforeList}
           afterTabsInline={afterTabs}
           afterList={afterList}
-          bodyOverlay={(
-            <PanelGroupBodyDropOverlay leafId={leaf.id} previewIntent={previewIntent} />
-          )}
+          bodyOverlay={<PanelGroupBodyDropOverlay leafId={leaf.id} previewIntent={previewIntent} />}
           tabScrollEndPaddingPx={tabScrollEndPaddingPx}
           headerEndInsetPx={leafHeaderEndInsetPx}
           headerHeight="toolbar"
@@ -636,9 +645,7 @@ function PanelGroupSash({
       <div
         className={cn(
           "absolute flex",
-          isHorizontal
-            ? "top-0 bottom-0 -left-2 w-4"
-            : "left-0 right-0 -top-2 h-4",
+          isHorizontal ? "top-0 bottom-0 -left-2 w-4" : "left-0 right-0 -top-2 h-4",
         )}
       >
         <div
@@ -678,11 +685,12 @@ function PanelGroupEmptyHeader({
   children: ReactNode;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const tabRowPreview = previewIntent?.kind === "tab-row"
-    && previewIntent.panelId === panelId
-    && previewIntent.leafId === leafId
-    ? previewIntent
-    : null;
+  const tabRowPreview =
+    previewIntent?.kind === "tab-row" &&
+    previewIntent.panelId === panelId &&
+    previewIntent.leafId === leafId
+      ? previewIntent
+      : null;
 
   useEffect(() => {
     const element = rowRef.current;
@@ -690,8 +698,8 @@ function PanelGroupEmptyHeader({
 
     return dropTargetForElements({
       element,
-      canDrop: ({ source }) => isPanelTabDragData(source.data)
-        && source.data.sessionId === sessionId,
+      canDrop: ({ source }) =>
+        isPanelTabDragData(source.data) && source.data.sessionId === sessionId,
       getIsSticky: () => true,
       getData: () => buildPanelTabRowDropData({ sessionId, panelId, leafId }),
     });
@@ -699,19 +707,31 @@ function PanelGroupEmptyHeader({
 
   return (
     <div className="isolate flex h-toolbar min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]">
-      {beforeList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{beforeList}</div> : null}
+      {beforeList ? (
+        <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">
+          {beforeList}
+        </div>
+      ) : null}
       <div
         ref={rowRef}
         data-panel-tab-row={`${panelId}:${leafId}`}
         className="relative isolate flex h-full min-w-0 flex-1 items-center [contain:layout_paint]"
         style={{ scrollPaddingInlineEnd: tabScrollEndPaddingPx }}
       >
-        {afterTabs ? <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabs}</div> : null}
+        {afterTabs ? (
+          <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">
+            {afterTabs}
+          </div>
+        ) : null}
         {tabRowPreview && activeDragId ? (
           <PanelTabInsertionIndicator intent={tabRowPreview} />
         ) : null}
       </div>
-      {afterList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterList}</div> : null}
+      {afterList ? (
+        <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">
+          {afterList}
+        </div>
+      ) : null}
       {children}
     </div>
   );
@@ -738,8 +758,8 @@ function PanelGroupEmptyBody({
 
     return dropTargetForElements({
       element,
-      canDrop: ({ source }) => isPanelTabDragData(source.data)
-        && source.data.sessionId === sessionId,
+      canDrop: ({ source }) =>
+        isPanelTabDragData(source.data) && source.data.sessionId === sessionId,
       getIsSticky: () => true,
       getData: () => buildPanelGroupBodyDropData({ sessionId, panelId, leafId }),
     });

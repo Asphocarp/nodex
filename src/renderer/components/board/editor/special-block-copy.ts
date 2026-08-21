@@ -77,9 +77,7 @@ export interface SelectionEditorLike {
   blocksToHTMLLossy?: (blocks: SelectionBlockLike[]) => string;
 }
 
-function getClipboardItemCtor(
-  clipboardItemCtor?: ClipboardItemCtor,
-): ClipboardItemCtor | null {
+function getClipboardItemCtor(clipboardItemCtor?: ClipboardItemCtor): ClipboardItemCtor | null {
   if (clipboardItemCtor) return clipboardItemCtor;
   if (typeof ClipboardItem === "undefined") return null;
   return ClipboardItem;
@@ -110,10 +108,7 @@ function collectAssetSources(value: string): string[] {
   return Array.from(new Set(matches));
 }
 
-function applySourceReplacements(
-  value: string,
-  replacements: Map<string, string>,
-): string {
+function applySourceReplacements(value: string, replacements: Map<string, string>): string {
   let next = value;
   for (const [source, replacement] of replacements) {
     if (source === replacement) continue;
@@ -124,17 +119,14 @@ function applySourceReplacements(
 
 function decodeXmlAttributeValue(value: string): string {
   return value
-    .replaceAll("&quot;", "\"")
+    .replaceAll("&quot;", '"')
     .replaceAll("&amp;", "&")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">");
 }
 
 function escapeMarkdownImageAltText(value: string): string {
-  return value
-    .replaceAll("\\", "\\\\")
-    .replaceAll("[", "\\[")
-    .replaceAll("]", "\\]");
+  return value.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
 }
 
 function toMarkdownImageDestination(source: string): string {
@@ -145,10 +137,7 @@ function toMarkdownImageDestination(source: string): string {
     return `<${normalized.replaceAll(">", "\\>")}>`;
   }
 
-  return normalized
-    .replaceAll("\\", "\\\\")
-    .replaceAll("(", "\\(")
-    .replaceAll(")", "\\)");
+  return normalized.replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)");
 }
 
 function resolveMarkdownImageAltText(caption: string): string {
@@ -181,10 +170,7 @@ function convertNfmImageLineToMarkdown(line: string): string {
 
 function convertNfmImageTagsToMarkdown(value: string): string {
   if (!value.includes("<image")) return value;
-  return value
-    .split("\n")
-    .map(convertNfmImageLineToMarkdown)
-    .join("\n");
+  return value.split("\n").map(convertNfmImageLineToMarkdown).join("\n");
 }
 
 export async function rewriteAssetSources(
@@ -195,10 +181,12 @@ export async function rewriteAssetSources(
   if (sources.length === 0) return value;
 
   const replacements = new Map<string, string>();
-  await Promise.all(sources.map(async (source) => {
-    const resolved = await resolveSource(source);
-    replacements.set(source, resolved);
-  }));
+  await Promise.all(
+    sources.map(async (source) => {
+      const resolved = await resolveSource(source);
+      replacements.set(source, resolved);
+    }),
+  );
 
   return applySourceReplacements(value, replacements);
 }
@@ -210,9 +198,11 @@ export async function rewriteCopiedSelectionAssetSources(
   const replacements = new Map<string, string>();
   const sources = new Set<string>(collectAssetSources(payload.structuredText));
 
-  await Promise.all(Array.from(sources).map(async (source) => {
-    replacements.set(source, await resolveSource(source));
-  }));
+  await Promise.all(
+    Array.from(sources).map(async (source) => {
+      replacements.set(source, await resolveSource(source));
+    }),
+  );
 
   const structuredText = convertNfmImageTagsToMarkdown(
     applySourceReplacements(payload.structuredText, replacements),
@@ -252,8 +242,7 @@ export async function writeCopiedSelectionToClipboard(
   options: ClipboardWriteOptions = {},
 ): Promise<void> {
   const clipboard =
-    options.clipboard ??
-    (typeof navigator !== "undefined" ? navigator.clipboard : undefined);
+    options.clipboard ?? (typeof navigator !== "undefined" ? navigator.clipboard : undefined);
   if (!clipboard) {
     throw new Error("Clipboard API is unavailable");
   }
@@ -294,9 +283,7 @@ export async function writeCopiedSelectionToClipboard(
   throw new Error("Clipboard write is unavailable");
 }
 
-function getSelectionBlocks(
-  editor: SelectionEditorLike,
-): SelectionSnapshot {
+function getSelectionBlocks(editor: SelectionEditorLike): SelectionSnapshot {
   try {
     const cutSelection = editor.getSelectionCutBlocks?.(false);
     if (cutSelection && Array.isArray(cutSelection.blocks) && cutSelection.blocks.length > 0) {
@@ -345,12 +332,14 @@ function pickParagraphProps(props: unknown): Record<string, unknown> {
 }
 
 function shouldUnwrapStartCutBlock(type: unknown): boolean {
-  return type === "bulletListItem"
-    || type === "numberedListItem"
-    || type === "checkListItem"
-    || type === "toggleListItem"
-    || type === "heading"
-    || type === "quote";
+  return (
+    type === "bulletListItem" ||
+    type === "numberedListItem" ||
+    type === "checkListItem" ||
+    type === "toggleListItem" ||
+    type === "heading" ||
+    type === "quote"
+  );
 }
 
 function rewriteStartCutBlock(
@@ -362,12 +351,8 @@ function rewriteStartCutBlock(
   let didRewrite = false;
 
   const rewriteNode = (block: SelectionBlockLike): SelectionBlockLike => {
-    const children = Array.isArray(block.children)
-      ? block.children.map(rewriteNode)
-      : [];
-    const nextBlock = children === block.children
-      ? block
-      : { ...block, children };
+    const children = Array.isArray(block.children) ? block.children.map(rewriteNode) : [];
+    const nextBlock = children === block.children ? block : { ...block, children };
 
     if (didRewrite || block.id !== blockCutAtStart || !shouldUnwrapStartCutBlock(block.type)) {
       return nextBlock;
@@ -386,12 +371,13 @@ function rewriteStartCutBlock(
 
 function scoreSelectionBlock(block: SelectionBlockLike): number {
   const childCount = Array.isArray(block.children) ? block.children.length : 0;
-  return Object.keys(block).length + (childCount * 100);
+  return Object.keys(block).length + childCount * 100;
 }
 
-function collectSelectionBlocks(
-  selectedBlocks: SelectionBlockLike[],
-): { blockById: Map<string, SelectionBlockLike>; orderById: Map<string, number> } {
+function collectSelectionBlocks(selectedBlocks: SelectionBlockLike[]): {
+  blockById: Map<string, SelectionBlockLike>;
+  orderById: Map<string, number>;
+} {
   const blockById = new Map<string, SelectionBlockLike>();
   const orderById = new Map<string, number>();
   let traversalIndex = 0;
@@ -478,8 +464,10 @@ function buildSelectionTree(
   }
 
   const bySelectionOrder = (left: string, right: string): number => {
-    return (orderById.get(left) ?? Number.MAX_SAFE_INTEGER)
-      - (orderById.get(right) ?? Number.MAX_SAFE_INTEGER);
+    return (
+      (orderById.get(left) ?? Number.MAX_SAFE_INTEGER) -
+      (orderById.get(right) ?? Number.MAX_SAFE_INTEGER)
+    );
   };
   const rootIds = Array.from(selectedIds)
     .filter((id) => !childIds.has(id))
@@ -494,9 +482,7 @@ function buildSelectionTree(
     const nextSeen = new Set(seen);
     nextSeen.add(id);
     const explicitChildIds = Array.isArray(base.children)
-      ? base.children
-        .map((child) => child.id)
-        .filter((childId) => selectedIds.has(childId))
+      ? base.children.map((child) => child.id).filter((childId) => selectedIds.has(childId))
       : [];
     const inferredChildIds = childrenByParent.get(id) ?? [];
     const orderedChildIds = Array.from(new Set([...explicitChildIds, ...inferredChildIds]))
@@ -512,9 +498,7 @@ function buildSelectionTree(
   return rootIds.map((id) => buildNode(id, new Set()));
 }
 
-function serializeSelectionToStructuredPlainText(
-  selectedBlocks: SelectionBlockLike[],
-): string {
+function serializeSelectionToStructuredPlainText(selectedBlocks: SelectionBlockLike[]): string {
   if (selectedBlocks.length === 0) return "";
   return serializeClipboardText(blockNoteToNfm(selectedBlocks));
 }
@@ -592,7 +576,7 @@ function scoreStructuredPlainText(value: string): number {
   const lines = value.split("\n");
   const indentationMarkers = (value.match(/\t/g) ?? []).length;
   const blankLines = lines.filter((line) => line.trim().length === 0).length;
-  return (indentationMarkers * 100) + (blankLines * 10) + lines.length;
+  return indentationMarkers * 100 + blankLines * 10 + lines.length;
 }
 
 function preferRicherStructuredPlainText(current: string, candidate: string): string {
@@ -674,9 +658,11 @@ export function resolveStructuredPlainTextForSelection(
 
 function canSerializeSelectionHtml(
   editor: SelectionEditorLike,
-): editor is SelectionEditorLike & Required<Pick<SelectionEditorLike, "blocksToFullHTML" | "blocksToHTMLLossy">> {
-  return typeof editor.blocksToFullHTML === "function"
-    && typeof editor.blocksToHTMLLossy === "function";
+): editor is SelectionEditorLike &
+  Required<Pick<SelectionEditorLike, "blocksToFullHTML" | "blocksToHTMLLossy">> {
+  return (
+    typeof editor.blocksToFullHTML === "function" && typeof editor.blocksToHTMLLossy === "function"
+  );
 }
 
 export function createCopiedSelectionPayloadFromSelection(
@@ -693,8 +679,8 @@ export function createCopiedSelectionPayloadFromSelection(
       return {
         clipboardHTML: editor.blocksToFullHTML(normalizedBlocks),
         externalHTML: editor.blocksToHTMLLossy(normalizedBlocks),
-        structuredText: literalCodeSelection
-          ?? serializeSelectionToStructuredPlainText(normalizedBlocks),
+        structuredText:
+          literalCodeSelection ?? serializeSelectionToStructuredPlainText(normalizedBlocks),
       };
     }
   } catch {

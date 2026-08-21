@@ -35,11 +35,9 @@ function isWithin(parentPath: string, candidatePath: string): boolean {
 }
 
 async function repositoryRoot(cwd: string, signal?: AbortSignal): Promise<string> {
-  return path.resolve((await runCodexGitCommand(
-    ["rev-parse", "--show-toplevel"],
-    cwd,
-    { signal },
-  )).stdout.trim());
+  return path.resolve(
+    (await runCodexGitCommand(["rev-parse", "--show-toplevel"], cwd, { signal })).stdout.trim(),
+  );
 }
 
 function normalizedRemoteIdentity(remote: string): string | null {
@@ -51,7 +49,8 @@ function normalizedRemoteIdentity(remote: string): string | null {
   }
   try {
     const parsed = new URL(trimmed);
-    if (parsed.protocol === "file:") return `file/${path.basename(parsed.pathname).replace(/\.git$/u, "")}`;
+    if (parsed.protocol === "file:")
+      return `file/${path.basename(parsed.pathname).replace(/\.git$/u, "")}`;
     return `${parsed.hostname.toLowerCase()}/${parsed.pathname.replace(/^\/+|\.git\/?$/gu, "")}`;
   } catch {
     if (path.isAbsolute(trimmed)) return `file/${path.basename(trimmed).replace(/\.git$/u, "")}`;
@@ -71,9 +70,12 @@ async function readRepositoryIdentity(
     ["remote", "get-url", "--all", "origin"],
     repositoryPath,
     { allowedExitCodes: [0, 2], signal },
-  ).then((result) => result.stdout.split(/\r?\n/u).map(normalizedRemoteIdentity).filter(
-    (value): value is string => value !== null,
-  ));
+  ).then((result) =>
+    result.stdout
+      .split(/\r?\n/u)
+      .map(normalizedRemoteIdentity)
+      .filter((value): value is string => value !== null),
+  );
   const displayName = path.basename(repositoryPath).replace(/\.git$/u, "") || "repository";
   const sourceKeys = remotes.length > 0 ? remotes : [`name/${displayName}`];
   return {
@@ -95,7 +97,8 @@ async function validateUntrackedFiles(root: string, signal?: AbortSignal): Promi
   for (const relativePath of relativePaths) {
     throwIfCodexRequestAborted(signal);
     const candidate = path.resolve(root, relativePath);
-    if (!isWithin(root, candidate)) throw new Error("Untracked handoff path escapes the repository");
+    if (!isWithin(root, candidate))
+      throw new Error("Untracked handoff path escapes the repository");
     const metadata = await lstat(candidate);
     if (!metadata.isFile() && !metadata.isSymbolicLink()) {
       throw new Error(`Unsupported untracked handoff entry: ${relativePath}`);
@@ -104,11 +107,9 @@ async function validateUntrackedFiles(root: string, signal?: AbortSignal): Promi
 }
 
 async function readCurrentBranch(root: string, signal?: AbortSignal): Promise<string> {
-  return await runCodexGitCommand(
-    ["symbolic-ref", "--quiet", "--short", "HEAD"],
-    root,
-    { signal },
-  ).then((result) => result.stdout.trim()).catch(() => "HEAD");
+  return await runCodexGitCommand(["symbolic-ref", "--quiet", "--short", "HEAD"], root, { signal })
+    .then((result) => result.stdout.trim())
+    .catch(() => "HEAD");
 }
 
 /** Captures the complete materialized source tree without touching its real index. */
@@ -126,8 +127,8 @@ export async function exportCrossHostThreadHandoff(
     realpath(input.sourceWorkspaceRoot),
   ]);
   if (
-    !isWithin(canonicalRoot, canonicalWorkspaceRoot)
-    && !isWithin(canonicalWorkspaceRoot, canonicalRoot)
+    !isWithin(canonicalRoot, canonicalWorkspaceRoot) &&
+    !isWithin(canonicalWorkspaceRoot, canonicalRoot)
   ) {
     throw new Error("Cross-host handoff primary root does not belong to the source repository");
   }
@@ -146,29 +147,35 @@ export async function exportCrossHostThreadHandoff(
   });
   try {
     await validateUntrackedFiles(root, options.signal);
-    const head = (await runCodexGitCommand(["rev-parse", "HEAD^{commit}"], root, {
-      signal: options.signal,
-    })).stdout.trim();
+    const head = (
+      await runCodexGitCommand(["rev-parse", "HEAD^{commit}"], root, {
+        signal: options.signal,
+      })
+    ).stdout.trim();
     await runCodexGitCommand(["read-tree", head], root, { env, signal: options.signal });
     await runCodexGitCommand(["add", "-A", "--", "."], root, { env, signal: options.signal });
-    const tree = (await runCodexGitCommand(["write-tree"], root, {
-      env,
-      signal: options.signal,
-    })).stdout.trim();
-    const sourceCommit = (await runCodexGitCommand(
-      ["commit-tree", tree, "-p", head, "-m", `Codex cross-host handoff ${transferId}`],
-      root,
-      {
-        env: {
-          ...env,
-          GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Codex",
-          GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "codex@localhost",
-          GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Codex",
-          GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "codex@localhost",
-        },
+    const tree = (
+      await runCodexGitCommand(["write-tree"], root, {
+        env,
         signal: options.signal,
-      },
-    )).stdout.trim();
+      })
+    ).stdout.trim();
+    const sourceCommit = (
+      await runCodexGitCommand(
+        ["commit-tree", tree, "-p", head, "-m", `Codex cross-host handoff ${transferId}`],
+        root,
+        {
+          env: {
+            ...env,
+            GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Codex",
+            GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "codex@localhost",
+            GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Codex",
+            GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "codex@localhost",
+          },
+          signal: options.signal,
+        },
+      )
+    ).stdout.trim();
     await runCodexGitCommand(["update-ref", temporaryRef, sourceCommit], root, {
       signal: options.signal,
     });
@@ -279,16 +286,21 @@ export async function importCrossHostThreadHandoff(
   }
   try {
     await runCodexGitCommand(
-      ["fetch", "--no-tags", input.bundlePath, `${SOURCE_REF_PREFIX}${transferId}:${destinationRef}`],
+      [
+        "fetch",
+        "--no-tags",
+        input.bundlePath,
+        `${SOURCE_REF_PREFIX}${transferId}:${destinationRef}`,
+      ],
       repositoryPath,
       { signal: options.signal, timeoutMs: 10 * 60_000 },
     );
     referenceCreated = true;
-    const importedCommit = (await runCodexGitCommand(
-      ["rev-parse", `${destinationRef}^{commit}`],
-      repositoryPath,
-      { signal: options.signal },
-    )).stdout.trim();
+    const importedCommit = (
+      await runCodexGitCommand(["rev-parse", `${destinationRef}^{commit}`], repositoryPath, {
+        signal: options.signal,
+      })
+    ).stdout.trim();
     if (importedCommit !== input.sourceCommit) {
       throw new Error("Imported handoff commit does not match the exported source");
     }
@@ -305,11 +317,12 @@ export async function importCrossHostThreadHandoff(
       setUpSyncedBranch: false,
       propagateLocalWorkspaceFiles: false,
       signal: options.signal,
-      onPathAllocated: (paths) => options.onEvent({
-        operation: "import-handoff",
-        type: "path-allocated",
-        ...paths,
-      }),
+      onPathAllocated: (paths) =>
+        options.onEvent({
+          operation: "import-handoff",
+          type: "path-allocated",
+          ...paths,
+        }),
     });
     worktreePath = created.worktreeGitRoot;
     await mkdir(path.dirname(rolloutPath), { recursive: true, mode: 0o700 });
@@ -349,8 +362,9 @@ export async function importCrossHostThreadHandoff(
     if (worktreePath) await removeManagedWorktree(worktreePath).catch(() => undefined);
     if (rolloutCreated) await rm(rolloutPath, { force: true }).catch(() => undefined);
     if (referenceCreated) {
-      await runCodexGitCommand(["update-ref", "-d", destinationRef], repositoryPath)
-        .catch(() => undefined);
+      await runCodexGitCommand(["update-ref", "-d", destinationRef], repositoryPath).catch(
+        () => undefined,
+      );
     }
     throw error;
   }
@@ -364,10 +378,10 @@ export async function cleanupCrossHostThreadHandoff(
   const warnings: string[] = [];
   let rollbackWorktreePaths = input.createdWorktreePath ? [input.createdWorktreePath] : [];
   if (
-    input.outcome === "rolled-back"
-    && rollbackWorktreePaths.length === 0
-    && input.managedRoot
-    && input.temporaryRef.startsWith(DESTINATION_REF_PREFIX)
+    input.outcome === "rolled-back" &&
+    rollbackWorktreePaths.length === 0 &&
+    input.managedRoot &&
+    input.temporaryRef.startsWith(DESTINATION_REF_PREFIX)
   ) {
     const commit = await runCodexGitCommand(
       ["rev-parse", "--verify", `${input.temporaryRef}^{commit}`],
@@ -386,7 +400,11 @@ export async function cleanupCrossHostThreadHandoff(
           candidatePath = line.slice("worktree ".length).trim();
           return matches;
         }
-        if (line === `HEAD ${commit}` && candidatePath && isWithin(input.managedRoot!, candidatePath)) {
+        if (
+          line === `HEAD ${commit}` &&
+          candidatePath &&
+          isWithin(input.managedRoot!, candidatePath)
+        ) {
           matches.push(candidatePath);
         }
         return matches;
@@ -394,33 +412,38 @@ export async function cleanupCrossHostThreadHandoff(
     }
   }
   if (input.outcome === "rolled-back" && rollbackWorktreePaths.length > 0) {
-    if (!input.managedRoot || rollbackWorktreePaths.some((worktreePath) =>
-      !isWithin(input.managedRoot!, worktreePath)
-    )) {
+    if (
+      !input.managedRoot ||
+      rollbackWorktreePaths.some((worktreePath) => !isWithin(input.managedRoot!, worktreePath))
+    ) {
       throw new Error("Cross-host rollback worktree is outside its managed root");
     }
     for (const worktreePath of rollbackWorktreePaths) {
-      await removeManagedWorktree(worktreePath)
-        .catch(() => warnings.push("remove-destination-worktree-failed"));
+      await removeManagedWorktree(worktreePath).catch(() =>
+        warnings.push("remove-destination-worktree-failed"),
+      );
     }
   }
   if (input.outcome === "rolled-back" && input.createdRolloutPath) {
-    if (!input.destinationCodexHome || !isWithin(input.destinationCodexHome, input.createdRolloutPath)) {
+    if (
+      !input.destinationCodexHome ||
+      !isWithin(input.destinationCodexHome, input.createdRolloutPath)
+    ) {
       throw new Error("Cross-host rollback rollout is outside destination Codex home");
     }
-    await rm(input.createdRolloutPath, { force: true })
-      .catch(() => warnings.push("remove-destination-rollout-failed"));
+    await rm(input.createdRolloutPath, { force: true }).catch(() =>
+      warnings.push("remove-destination-rollout-failed"),
+    );
   }
-  await runCodexGitCommand(
-    ["update-ref", "-d", input.temporaryRef],
-    input.repositoryPath,
-    { signal },
-  ).catch(() => warnings.push("delete-temporary-ref-failed"));
+  await runCodexGitCommand(["update-ref", "-d", input.temporaryRef], input.repositoryPath, {
+    signal,
+  }).catch(() => warnings.push("delete-temporary-ref-failed"));
   const stagingDirectory = path.join(path.resolve(input.stagingRoot), transferId);
   if (!isWithin(input.stagingRoot, stagingDirectory)) {
     throw new Error("Cross-host staging path escapes its authorized root");
   }
-  await rm(stagingDirectory, { recursive: true, force: true })
-    .catch(() => warnings.push("remove-transfer-staging-failed"));
+  await rm(stagingDirectory, { recursive: true, force: true }).catch(() =>
+    warnings.push("remove-transfer-staging-failed"),
+  );
   return { cleaned: warnings.length === 0, warnings };
 }

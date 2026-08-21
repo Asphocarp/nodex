@@ -15,9 +15,7 @@ describe("generic icon adapter", () => {
   });
 
   test("preserves explicit geometry and accessible names", () => {
-    const view = render(
-      <Filter aria-label="Filter tasks" size={20} strokeWidth={2} />,
-    );
+    const view = render(<Filter aria-label="Filter tasks" size={20} strokeWidth={2} />);
     const icon = view.container.querySelector("svg");
 
     expect(icon?.getAttribute("width")).toBe("20");

@@ -10,9 +10,7 @@ import {
   shouldResumeHeartbeatAutomationTarget,
 } from "./heartbeat-automation-controller";
 
-function automation(
-  overrides: Partial<CodexScheduledAutomation> = {},
-): CodexScheduledAutomation {
+function automation(overrides: Partial<CodexScheduledAutomation> = {}): CodexScheduledAutomation {
   return {
     id: "heartbeat",
     definitionRevision: 1,
@@ -85,9 +83,7 @@ function conversation(
   };
 }
 
-function permissionState(
-  overrides: Partial<CodexPermissionState> = {},
-): CodexPermissionState {
+function permissionState(overrides: Partial<CodexPermissionState> = {}): CodexPermissionState {
   return {
     mode: "auto",
     effectivePreset: "auto",
@@ -132,14 +128,18 @@ describe("heartbeat automation controller helpers", () => {
 
     expect(state.isEligible).toBe(true);
     expect(state.reason).toBe(null);
-    expect(typeof state.collaborationMode === "object" ? state.collaborationMode?.mode : null).toBe("plan");
+    expect(typeof state.collaborationMode === "object" ? state.collaborationMode?.mode : null).toBe(
+      "plan",
+    );
     expect(state.permissions?.approvalPolicy).toBe("on-request");
     expect(state.permissions?.sandboxPolicy?.type).toBe("workspaceWrite");
   });
 
   test("marks missing or blocked conversations ineligible and resumable", () => {
     expect(shouldResumeHeartbeatAutomationTarget(null)).toBe(true);
-    expect(shouldResumeHeartbeatAutomationTarget(conversation({ resumeState: "needs_resume" }))).toBe(true);
+    expect(
+      shouldResumeHeartbeatAutomationTarget(conversation({ resumeState: "needs_resume" })),
+    ).toBe(true);
     expect(shouldResumeHeartbeatAutomationTarget(conversation())).toBe(false);
 
     const missing = buildHeartbeatAutomationThreadState({

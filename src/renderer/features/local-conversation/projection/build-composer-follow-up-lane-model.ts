@@ -1,7 +1,4 @@
-import type {
-  CodexPendingSteer,
-  CodexQueuedFollowUp,
-} from "../../../lib/types";
+import type { CodexPendingSteer, CodexQueuedFollowUp } from "../../../lib/types";
 import type {
   ThreadComposerShellPendingSteerRowModel,
   ThreadComposerShellQueuedFollowUpRowModel,

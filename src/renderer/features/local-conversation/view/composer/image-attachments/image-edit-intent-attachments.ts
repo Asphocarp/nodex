@@ -25,36 +25,33 @@ function resolveIntentImage(
   item: ImageEditSubmissionIntent["attachments"][number],
 ): ResolvedComposerImageInput | null {
   const image = item.image;
-  const portableSource = firstSource([
-    image.dataUrl,
-    image.downloadSrc,
-    image.attachmentSrc,
-    image.src,
-  ], isPortableComposerImagePromptSource);
-  const managedSource = firstSource([
-    image.managedSource,
-    image.localPath,
-    image.attachmentSrc,
-    image.downloadSrc,
-    image.src,
-    image.dataUrl,
-  ], isManagedComposerImageSource);
-  const localPath = firstSource([
-    image.localPath,
-    image.attachmentSrc,
-    image.downloadSrc,
-    image.src,
-  ], isAbsoluteComposerImagePath);
-  const hostId = image.hostId?.trim()
-    || (managedSource || localPath ? DEFAULT_CODEX_HOST_ID : null);
+  const portableSource = firstSource(
+    [image.dataUrl, image.downloadSrc, image.attachmentSrc, image.src],
+    isPortableComposerImagePromptSource,
+  );
+  const managedSource = firstSource(
+    [
+      image.managedSource,
+      image.localPath,
+      image.attachmentSrc,
+      image.downloadSrc,
+      image.src,
+      image.dataUrl,
+    ],
+    isManagedComposerImageSource,
+  );
+  const localPath = firstSource(
+    [image.localPath, image.attachmentSrc, image.downloadSrc, image.src],
+    isAbsoluteComposerImagePath,
+  );
+  const hostId =
+    image.hostId?.trim() || (managedSource || localPath ? DEFAULT_CODEX_HOST_ID : null);
   const source = portableSource ?? managedSource ?? localPath;
   if (!source) return null;
 
   return {
     id: item.attachmentId,
-    filename: item.role === "mask"
-      ? "image-mask.png"
-      : image.alt.trim() || "Image",
+    filename: item.role === "mask" ? "image-mask.png" : image.alt.trim() || "Image",
     mimeType: portableSource?.match(/^data:([^;,]+)/iu)?.[1] ?? "image/png",
     src: source,
     origin: "image-editor",
@@ -87,9 +84,7 @@ export function buildComposerImageEditAttachments(input: {
   for (const item of input.intent.attachments) {
     // Masks are newly generated edit inputs. They must never inherit stale
     // bytes if a caller accidentally reuses an attachment id.
-    const current = item.role === "mask"
-      ? undefined
-      : currentById.get(item.attachmentId);
+    const current = item.role === "mask" ? undefined : currentById.get(item.attachmentId);
     if (current && selectComposerImagePromptSource(current, input.executionHostId)) {
       attachments.push(current);
       continue;

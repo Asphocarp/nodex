@@ -9,17 +9,22 @@ export type PageStageCollapsibleProperty = (typeof PAGE_STAGE_COLLAPSIBLE_PROPER
 
 export const DEFAULT_PAGE_STAGE_COLLAPSED_PROPERTIES: PageStageCollapsibleProperty[] = [];
 
-export const PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS: Record<PageStageCollapsibleProperty, string> = {
-  tags: "Tags",
-  assignee: "Assignee",
-  threads: "Threads",
-  schedule: "Schedule",
-};
+export const PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS: Record<PageStageCollapsibleProperty, string> =
+  {
+    tags: "Tags",
+    assignee: "Assignee",
+    threads: "Threads",
+    schedule: "Schedule",
+  };
 
-export const PAGE_STAGE_COLLAPSED_PROPERTIES_STORAGE_KEY = "nodex-page-stage-collapsed-properties-v1";
+export const PAGE_STAGE_COLLAPSED_PROPERTIES_STORAGE_KEY =
+  "nodex-page-stage-collapsed-properties-v1";
 
 function isPageStageCollapsibleProperty(value: unknown): value is PageStageCollapsibleProperty {
-  return typeof value === "string" && PAGE_STAGE_COLLAPSIBLE_PROPERTIES.includes(value as PageStageCollapsibleProperty);
+  return (
+    typeof value === "string" &&
+    PAGE_STAGE_COLLAPSIBLE_PROPERTIES.includes(value as PageStageCollapsibleProperty)
+  );
 }
 
 function normalizeList(values: unknown[]): PageStageCollapsibleProperty[] {
@@ -33,7 +38,9 @@ function normalizeList(values: unknown[]): PageStageCollapsibleProperty[] {
   return PAGE_STAGE_COLLAPSIBLE_PROPERTIES.filter((property) => selected.has(property));
 }
 
-export function normalizePageStageCollapsedProperties(value: unknown): PageStageCollapsibleProperty[] {
+export function normalizePageStageCollapsedProperties(
+  value: unknown,
+): PageStageCollapsibleProperty[] {
   if (Array.isArray(value)) return normalizeList(value);
 
   if (typeof value === "string") {
@@ -51,7 +58,9 @@ export function normalizePageStageCollapsedProperties(value: unknown): PageStage
 export function readPageStageCollapsedProperties(): PageStageCollapsibleProperty[] {
   try {
     const raw = localStorage.getItem(PAGE_STAGE_COLLAPSED_PROPERTIES_STORAGE_KEY);
-    return raw === null ? [...DEFAULT_PAGE_STAGE_COLLAPSED_PROPERTIES] : normalizePageStageCollapsedProperties(raw);
+    return raw === null
+      ? [...DEFAULT_PAGE_STAGE_COLLAPSED_PROPERTIES]
+      : normalizePageStageCollapsedProperties(raw);
   } catch {
     return [...DEFAULT_PAGE_STAGE_COLLAPSED_PROPERTIES];
   }
@@ -84,11 +93,12 @@ export function togglePageStageCollapsedProperty(
   return PAGE_STAGE_COLLAPSIBLE_PROPERTIES.filter((entry) => selected.has(entry));
 }
 
-export function formatPageStageCollapsedPropertyCountLabel(count: number, expanded: boolean): string {
+export function formatPageStageCollapsedPropertyCountLabel(
+  count: number,
+  expanded: boolean,
+): string {
   const normalizedCount = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
   const suffix = normalizedCount === 1 ? "property" : "properties";
 
-  return expanded
-    ? `Hide ${normalizedCount} ${suffix}`
-    : `${normalizedCount} more ${suffix}`;
+  return expanded ? `Hide ${normalizedCount} ${suffix}` : `${normalizedCount} more ${suffix}`;
 }

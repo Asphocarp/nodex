@@ -25,7 +25,9 @@ function resolveQuestion(elicitation: Record<string, unknown>): string | null {
   return nonEmptyString(elicitation.message);
 }
 
-function resolveAnswer(action: CodexMcpServerElicitationAction | null): CompletedMcpServerElicitationView["answer"] {
+function resolveAnswer(
+  action: CodexMcpServerElicitationAction | null,
+): CompletedMcpServerElicitationView["answer"] {
   if (action === "accept") return "Accepted";
   if (action === "cancel") return "Cancelled";
   if (action === "decline") return "Declined";
@@ -45,9 +47,10 @@ export function resolveCompletedMcpServerElicitationView(
 
   const requestId = nonEmptyString(item.requestId);
   if (!requestId) return null;
-  const action = item.action === "accept" || item.action === "cancel" || item.action === "decline"
-    ? item.action
-    : null;
+  const action =
+    item.action === "accept" || item.action === "cancel" || item.action === "decline"
+      ? item.action
+      : null;
 
   return {
     answer: resolveAnswer(action),

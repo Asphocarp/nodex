@@ -29,41 +29,53 @@ describe("codex command execution helpers", () => {
   });
 
   test("builds command approval previews from command action commands first", () => {
-    const preview = buildCodexCommandApprovalPreview(buildCommandRequest({
-      command: "bash -lc 'cat package.json'",
-      commandActions: [
-        { type: "read", command: "cat package.json", name: "package.json", path: "package.json" },
-        { type: "search", command: "rg TODO src", query: "TODO", path: "src" },
-      ],
-      cmd: ["legacy", "fallback"],
-    }));
+    const preview = buildCodexCommandApprovalPreview(
+      buildCommandRequest({
+        command: "bash -lc 'cat package.json'",
+        commandActions: [
+          { type: "read", command: "cat package.json", name: "package.json", path: "package.json" },
+          { type: "search", command: "rg TODO src", query: "TODO", path: "src" },
+        ],
+        cmd: ["legacy", "fallback"],
+      }),
+    );
 
     expect(preview?.kind ?? "").toBe("command");
-    expect(preview?.kind === "command" ? preview.commandText : "").toBe("cat package.json && rg TODO src");
+    expect(preview?.kind === "command" ? preview.commandText : "").toBe(
+      "cat package.json && rg TODO src",
+    );
   });
 
   test("falls back to an Electron-style execpolicy amendment command", () => {
-    const preview = buildCodexCommandApprovalPreview(buildCommandRequest({
-      proposedExecpolicyAmendment: ["git", "commit", "-m", "hello world"],
-    }));
+    const preview = buildCodexCommandApprovalPreview(
+      buildCommandRequest({
+        proposedExecpolicyAmendment: ["git", "commit", "-m", "hello world"],
+      }),
+    );
 
     expect(formatCodexExecPolicyAmendmentCommand(["git", "commit", "-m", "hello world"])).toBe(
       'git commit -m "hello world"',
     );
-    expect(preview?.kind === "command" ? preview.commandText : "").toBe('git commit -m "hello world"');
+    expect(preview?.kind === "command" ? preview.commandText : "").toBe(
+      'git commit -m "hello world"',
+    );
   });
 
   test("keeps multiline execpolicy amendments out of compact menu descriptions", () => {
-    expect(formatCodexExecPolicyAmendmentMenuSummary(["bash", "-lc", "echo one\necho two"]) ?? "").toBe("");
+    expect(
+      formatCodexExecPolicyAmendmentMenuSummary(["bash", "-lc", "echo one\necho two"]) ?? "",
+    ).toBe("");
   });
 
   test("builds network approval previews without requiring command text", () => {
-    const preview = buildCodexCommandApprovalPreview(buildCommandRequest({
-      networkApprovalContext: {
-        host: "api.example.com",
-        protocol: "https",
-      },
-    }));
+    const preview = buildCodexCommandApprovalPreview(
+      buildCommandRequest({
+        networkApprovalContext: {
+          host: "api.example.com",
+          protocol: "https",
+        },
+      }),
+    );
 
     expect(preview?.kind ?? "").toBe("network");
     expect(preview?.kind === "network" ? preview.reason : "").toBe(

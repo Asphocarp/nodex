@@ -28,16 +28,12 @@ export class FractionalRankError extends Error {
 export const isFractionalRankKey = (value: string): boolean =>
   value.length === RANK_WIDTH && /^[0-9a-f]{32}$/.test(value);
 
-const encodeRank = (value: bigint): string =>
-  value.toString(16).padStart(RANK_WIDTH, "0");
+const encodeRank = (value: bigint): string => value.toString(16).padStart(RANK_WIDTH, "0");
 
 const evenlySpacedRank = (index: number, total: number): string =>
   encodeRank((RANK_MAX * BigInt(index + 1)) / BigInt(total + 1));
 
-const rankBetween = (
-  left: string | null,
-  right: string | null,
-): string | null => {
+const rankBetween = (left: string | null, right: string | null): string | null => {
   const leftValue = left === null ? 0n : BigInt(`0x${left}`);
   const rightValue = right === null ? RANK_MAX : BigInt(`0x${right}`);
   if (rightValue - leftValue <= 1n) return null;
@@ -63,12 +59,7 @@ const makeRebalancedRanks = (
       `Fractional order contains ${items.length} items; the bounded rebalance limit is ${MAX_FRACTIONAL_RANK_REBALANCE_ITEMS}`,
     );
   }
-  return new Map(
-    items.map((item, index) => [
-      item.id,
-      evenlySpacedRank(index, items.length),
-    ]),
-  );
+  return new Map(items.map((item, index) => [item.id, evenlySpacedRank(index, items.length)]));
 };
 
 /**
@@ -78,8 +69,7 @@ const makeRebalancedRanks = (
  */
 export const materializeFractionalRankOrder = (
   itemIds: readonly string[],
-): ReadonlyMap<string, string> =>
-  makeRebalancedRanks(itemIds.map((id) => ({ id })));
+): ReadonlyMap<string, string> => makeRebalancedRanks(itemIds.map((id) => ({ id })));
 
 /**
  * Allocate one server-owned key from logical anchor intent. Input order is the
@@ -115,9 +105,7 @@ export const planFractionalRank = (input: {
   }
 
   const readRank = (index: number): string | null =>
-    index < 0 || index >= effectiveItems.length
-      ? null
-      : (effectiveItems[index]?.rankKey ?? null);
+    index < 0 || index >= effectiveItems.length ? null : (effectiveItems[index]?.rankKey ?? null);
   let rankKey = rankBetween(readRank(anchorIndex - 1), readRank(anchorIndex));
   if (rankKey !== null) return { rankKey, rebalancedRankKeys };
 

@@ -34,17 +34,15 @@ function renderVisibleSelectionText(blocks: TestSelectionBlock[], indent = 0): s
     const type = block.type;
     const content = Array.isArray(block.content)
       ? block.content
-        .map((item) => {
-          if (typeof item !== "object" || item === null) return "";
-          if ("text" in item && typeof item.text === "string") return item.text;
-          return "";
-        })
-        .join("")
+          .map((item) => {
+            if (typeof item !== "object" || item === null) return "";
+            if ("text" in item && typeof item.text === "string") return item.text;
+            return "";
+          })
+          .join("")
       : "";
 
-    const prefix = type === "bulletListItem"
-      ? `${indentation}- `
-      : indentation;
+    const prefix = type === "bulletListItem" ? `${indentation}- ` : indentation;
     lines.push(prefix + content);
 
     if (Array.isArray(block.children) && block.children.length > 0) {
@@ -308,7 +306,9 @@ describe("special block copy", () => {
         text: {},
       },
     });
-    const doc = schema.node("doc", undefined, [schema.node("paragraph", undefined, schema.text("Alpha Beta"))]);
+    const doc = schema.node("doc", undefined, [
+      schema.node("paragraph", undefined, schema.text("Alpha Beta")),
+    ]);
     const selection = TextSelection.create(doc, 2, 7);
 
     const value = resolveStructuredPlainTextForSelection(
@@ -656,9 +656,7 @@ describe("special block copy", () => {
               id: "special-1",
               type: "paragraph",
               props: {},
-              content: [
-                { type: "text", text: "alpha\nbeta * ` > [ ] \\", styles: {} },
-              ],
+              content: [{ type: "text", text: "alpha\nbeta * ` > [ ] \\", styles: {} }],
               children: [],
             },
           ],
@@ -706,7 +704,9 @@ describe("special block copy", () => {
       "fallback",
     );
 
-    expect(value).toBe("**bold** *italic* ~~strike~~ <span underline=\"true\">under</span> <span color=\"blue\">blue</span> `code` [***link***](https://example.com/a?b=1)");
+    expect(value).toBe(
+      '**bold** *italic* ~~strike~~ <span underline="true">under</span> <span color="blue">blue</span> `code` [***link***](https://example.com/a?b=1)',
+    );
   });
 
   test("resolveStructuredPlainTextForSelection rebuilds nested hierarchy from flattened selection snapshots", () => {
@@ -978,13 +978,24 @@ describe("special block copy", () => {
           blockCutAtEnd: "trailing",
         };
       },
-      getParentBlock(this: { parentById: Record<string, TestSelectionBlock | undefined> }, id: string) {
+      getParentBlock(
+        this: { parentById: Record<string, TestSelectionBlock | undefined> },
+        id: string,
+      ) {
         return this.parentById[id];
       },
-      blocksToFullHTML(blocks: SelectionEditorLike extends never ? never : Parameters<NonNullable<SelectionEditorLike["blocksToFullHTML"]>>[0]) {
+      blocksToFullHTML(
+        blocks: SelectionEditorLike extends never
+          ? never
+          : Parameters<NonNullable<SelectionEditorLike["blocksToFullHTML"]>>[0],
+      ) {
         return `<full>${renderVisibleSelectionText(blocks as TestSelectionBlock[])}</full>`;
       },
-      blocksToHTMLLossy(blocks: SelectionEditorLike extends never ? never : Parameters<NonNullable<SelectionEditorLike["blocksToHTMLLossy"]>>[0]) {
+      blocksToHTMLLossy(
+        blocks: SelectionEditorLike extends never
+          ? never
+          : Parameters<NonNullable<SelectionEditorLike["blocksToHTMLLossy"]>>[0],
+      ) {
         return `<external>${renderVisibleSelectionText(blocks as TestSelectionBlock[])}</external>`;
       },
     } satisfies SelectionEditorLike & {
@@ -1158,7 +1169,9 @@ describe("special block copy", () => {
       return "/workspace/.nodex/assets/diagram.png";
     });
 
-    expect(rewritten.structuredText).toBe("![**bold** *italic* ~~strike~~ <span underline=\"true\">under</span> <span color=\"blue\">blue</span> `code` \\[link\\](https://example.com)](/workspace/.nodex/assets/diagram.png)");
+    expect(rewritten.structuredText).toBe(
+      '![**bold** *italic* ~~strike~~ <span underline="true">under</span> <span color="blue">blue</span> `code` \\[link\\](https://example.com)](/workspace/.nodex/assets/diagram.png)',
+    );
   });
 
   test("writeCopiedSelectionToClipboard writes rich clipboard payload", async () => {

@@ -23,9 +23,12 @@ import { TurnDiffInProgressInlineSummary } from "./shared/turn-diff-surface";
 import { usePortalHost } from "./use-portal-host";
 
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID = "above-composer-portal";
-export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID = "above-composer-queue-portal";
-export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ATTRIBUTE = "data-above-composer-portal";
-export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ATTRIBUTE = "data-above-composer-queue-portal";
+export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID =
+  "above-composer-queue-portal";
+export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ATTRIBUTE =
+  "data-above-composer-portal";
+export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ATTRIBUTE =
+  "data-above-composer-queue-portal";
 
 type AboveComposerFixedBlock = ThreadTranscriptBlockModel & {
   type: "todoList" | "turnDiff";
@@ -176,15 +179,14 @@ function AboveComposerMeasuredPill({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const targetWidthPx = contentWidthPx === null || availableWidthPx === null
-    ? contentWidthPx
-    : Math.min(contentWidthPx, availableWidthPx);
-  const animateWidth = !reducedMotion && targetWidthPx !== null
-    ? { width: targetWidthPx }
-    : undefined;
-  const instantWidthStyle: CSSProperties | undefined = reducedMotion && targetWidthPx !== null
-    ? { width: targetWidthPx }
-    : undefined;
+  const targetWidthPx =
+    contentWidthPx === null || availableWidthPx === null
+      ? contentWidthPx
+      : Math.min(contentWidthPx, availableWidthPx);
+  const animateWidth =
+    !reducedMotion && targetWidthPx !== null ? { width: targetWidthPx } : undefined;
+  const instantWidthStyle: CSSProperties | undefined =
+    reducedMotion && targetWidthPx !== null ? { width: targetWidthPx } : undefined;
 
   return (
     <div
@@ -225,29 +227,30 @@ function AboveComposerFixedContentLayer({
 }) {
   const reducedMotion = useResolvedReducedMotion();
   const todoCandidate = blocks.find((block) => block.type === "todoList") ?? null;
-  const todoBlock = todoCandidate && parseTodoSteps(todoCandidate.entry).length > 0
-    ? todoCandidate
-    : null;
+  const todoBlock =
+    todoCandidate && parseTodoSteps(todoCandidate.entry).length > 0 ? todoCandidate : null;
   const turnDiffCandidate = blocks.find((block) => block.type === "turnDiff") ?? null;
   const turnDiffModel = useMemo(
-    () => turnDiffCandidate
-      ? buildTurnDiffModel(
-          turnDiffCandidate.entry,
-          threadCwd ?? undefined,
-          projectWorkspacePath ?? undefined,
-          { cwd: threadCwd, projectlessOutputDirectory },
-        )
-      : null,
+    () =>
+      turnDiffCandidate
+        ? buildTurnDiffModel(
+            turnDiffCandidate.entry,
+            threadCwd ?? undefined,
+            projectWorkspacePath ?? undefined,
+            { cwd: threadCwd, projectlessOutputDirectory },
+          )
+        : null,
     [projectlessOutputDirectory, projectWorkspacePath, threadCwd, turnDiffCandidate],
   );
-  const turnDiffBlock = turnDiffCandidate
-    && extractTurnDiffPayload(turnDiffCandidate.entry, {
+  const turnDiffBlock =
+    turnDiffCandidate &&
+    extractTurnDiffPayload(turnDiffCandidate.entry, {
       cwd: threadCwd,
       projectlessOutputDirectory,
-    })
-    && turnDiffModel?.kind !== "empty"
-    ? turnDiffCandidate
-    : null;
+    }) &&
+    turnDiffModel?.kind !== "empty"
+      ? turnDiffCandidate
+      : null;
   const hasFixedContent = todoBlock !== null || turnDiffBlock !== null;
   if (!hasFixedContent) return null;
   const motionState = reducedMotion

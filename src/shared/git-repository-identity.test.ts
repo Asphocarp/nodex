@@ -7,14 +7,20 @@ describe("parseGitRepositoryOwnerRepo", () => {
     ["ssh://git@github.com:2222/openai/codex.git", { owner: "openai", repo: "codex" }],
     ["git@github.com:openai/codex.git", { owner: "openai", repo: "codex" }],
     ["https://gitlab.example.com/product/tools/nodex", { owner: "product/tools", repo: "nodex" }],
-    ["git://example.com/team/repo.with-punctuation.git", {
-      owner: "team",
-      repo: "repo.with-punctuation",
-    }],
-    ["git@example.com:acme/private.git?token=hidden", {
-      owner: "acme",
-      repo: "private",
-    }],
+    [
+      "git://example.com/team/repo.with-punctuation.git",
+      {
+        owner: "team",
+        repo: "repo.with-punctuation",
+      },
+    ],
+    [
+      "git@example.com:acme/private.git?token=hidden",
+      {
+        owner: "acme",
+        repo: "private",
+      },
+    ],
   ])("parses %s", (remoteUrl, expected) => {
     expect(parseGitRepositoryOwnerRepo(remoteUrl)).toEqual(expected);
   });

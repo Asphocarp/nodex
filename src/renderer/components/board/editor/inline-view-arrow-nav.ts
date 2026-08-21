@@ -72,15 +72,18 @@ function escapeSelector(value: string): string {
 }
 
 function hasContains(value: unknown): value is { contains: (candidate: unknown) => boolean } {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as { contains?: unknown }).contains === "function";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { contains?: unknown }).contains === "function"
+  );
 }
 
 function resolveSelectionAnchorNode(editorDom: ParentNode | undefined): Node | null {
   if (!editorDom) return null;
-  const ownerDocument = (editorDom as { ownerDocument?: Document }).ownerDocument
-    ?? (typeof document !== "undefined" ? document : null);
+  const ownerDocument =
+    (editorDom as { ownerDocument?: Document }).ownerDocument ??
+    (typeof document !== "undefined" ? document : null);
   if (!ownerDocument) return null;
   const selection = ownerDocument.getSelection();
   return selection?.anchorNode ?? null;
@@ -110,17 +113,20 @@ function resolveCollapsedToggleChildGroup(currentBlock: HTMLElement): HTMLElemen
   if (!toggleWrapper) return null;
   if (toggleWrapper.getAttribute("data-show-children") !== "false") return null;
 
-  return querySingle(currentBlock, ":scope > .bn-block-group")
-    ?? querySingle(currentBlock, ".bn-block-group");
+  return (
+    querySingle(currentBlock, ":scope > .bn-block-group") ??
+    querySingle(currentBlock, ".bn-block-group")
+  );
 }
 
 function resolveDirectionalBoundaryBlockContent(
   childGroup: HTMLElement,
   direction: InlineArrowDirection,
 ): HTMLElement | null {
-  const edgeSelector = direction === "prev"
-    ? ":scope > .bn-block-outer:last-child > .bn-block .bn-block-content"
-    : ":scope > .bn-block-outer:first-child > .bn-block .bn-block-content";
+  const edgeSelector =
+    direction === "prev"
+      ? ":scope > .bn-block-outer:last-child > .bn-block .bn-block-content"
+      : ":scope > .bn-block-outer:first-child > .bn-block .bn-block-content";
 
   return querySingle(childGroup, edgeSelector);
 }
@@ -144,13 +150,11 @@ export function shouldDeferArrowToBrowserFromCollapsedToggle(
 
   const cursor = editor.getTextCursorPosition();
   const currentBlock = resolveBlockElement(editorDom, cursor.block.id);
-  const currentChildGroup = currentBlock
-    ? resolveCollapsedToggleChildGroup(currentBlock)
-    : null;
+  const currentChildGroup = currentBlock ? resolveCollapsedToggleChildGroup(currentBlock) : null;
   if (
-    currentBlock
-    && currentChildGroup
-    && isSelectionWithinCollapsedToggleHeader(editorDom, eventTarget, currentBlock, currentChildGroup)
+    currentBlock &&
+    currentChildGroup &&
+    isSelectionWithinCollapsedToggleHeader(editorDom, eventTarget, currentBlock, currentChildGroup)
   ) {
     return true;
   }
@@ -166,7 +170,10 @@ export function shouldDeferArrowToBrowserFromCollapsedToggle(
   const candidateChildGroup = resolveCollapsedToggleChildGroup(candidateBlock);
   if (!candidateChildGroup) return false;
 
-  const boundaryBlockContent = resolveDirectionalBoundaryBlockContent(candidateChildGroup, direction);
+  const boundaryBlockContent = resolveDirectionalBoundaryBlockContent(
+    candidateChildGroup,
+    direction,
+  );
   if (!boundaryBlockContent) return false;
 
   return !isCommonInlineBoundaryBlock(boundaryBlockContent);

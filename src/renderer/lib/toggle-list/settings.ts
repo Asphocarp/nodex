@@ -55,21 +55,25 @@ export function normalizeToggleListSettings(value: unknown): ToggleListSettings 
 
   const propertyOrder = normalizePropertyOrder(value.propertyOrder);
   const hiddenProperties = Array.isArray(value.hiddenProperties)
-    ? value.hiddenProperties.filter((property): property is ToggleListPropertyKey =>
-      typeof property === "string" && TOGGLE_LIST_PROPERTY_KEYS.includes(property as ToggleListPropertyKey),
-    )
+    ? value.hiddenProperties.filter(
+        (property): property is ToggleListPropertyKey =>
+          typeof property === "string" &&
+          TOGGLE_LIST_PROPERTY_KEYS.includes(property as ToggleListPropertyKey),
+      )
     : [];
 
   return {
     rulesV2: normalizeToggleListRulesV2(value.rulesV2, fallback.rulesV2),
     propertyOrder,
     hiddenProperties,
-    showEmptyEstimate: typeof value.showEmptyEstimate === "boolean"
-      ? value.showEmptyEstimate
-      : fallback.showEmptyEstimate,
-    showEmptyPriority: typeof value.showEmptyPriority === "boolean"
-      ? value.showEmptyPriority
-      : fallback.showEmptyPriority,
+    showEmptyEstimate:
+      typeof value.showEmptyEstimate === "boolean"
+        ? value.showEmptyEstimate
+        : fallback.showEmptyEstimate,
+    showEmptyPriority:
+      typeof value.showEmptyPriority === "boolean"
+        ? value.showEmptyPriority
+        : fallback.showEmptyPriority,
   };
 }
 
@@ -127,18 +131,14 @@ export function moveToggleListProperty(
   };
 }
 
-export function toggleShowEmptyEstimate(
-  settings: ToggleListSettings,
-): ToggleListSettings {
+export function toggleShowEmptyEstimate(settings: ToggleListSettings): ToggleListSettings {
   return {
     ...settings,
     showEmptyEstimate: !settings.showEmptyEstimate,
   };
 }
 
-export function toggleShowEmptyPriority(
-  settings: ToggleListSettings,
-): ToggleListSettings {
+export function toggleShowEmptyPriority(settings: ToggleListSettings): ToggleListSettings {
   return {
     ...settings,
     showEmptyPriority: !settings.showEmptyPriority,
@@ -151,12 +151,9 @@ export function normalizeToggleListRulesV2(
 ): ToggleListRulesV2 {
   if (!isRecord(value)) return cloneRulesV2(fallback);
 
-  const mode = value.mode === "advanced" || value.mode === "basic"
-    ? value.mode
-    : fallback.mode;
-  const includeHostCard = typeof value.includeHostCard === "boolean"
-    ? value.includeHostCard
-    : fallback.includeHostCard;
+  const mode = value.mode === "advanced" || value.mode === "basic" ? value.mode : fallback.mode;
+  const includeHostCard =
+    typeof value.includeHostCard === "boolean" ? value.includeHostCard : fallback.includeHostCard;
   const filter = normalizeFilterSpec(value.filter, fallback.filter);
   const sort = normalizeSortKeys(value.sort, fallback.sort);
 
@@ -181,15 +178,16 @@ export function deriveToggleListFilterRule(
   const priorities = collectClauseUnion<Priority>(
     rules.filter,
     "priority",
-    (value): value is Priority =>
-      TOGGLE_LIST_PRIORITY_ORDER.includes(value as Priority),
+    (value): value is Priority => TOGGLE_LIST_PRIORITY_ORDER.includes(value as Priority),
   );
   const tagClause = resolveProjectableTagClause(rules.filter);
 
   return {
     statuses: statuses.found ? statuses.values : [...fallback.statuses],
     priorities: priorities.found ? priorities.values : [...fallback.priorities],
-    includeEmptyPriority: priorities.found ? priorities.includeEmpty : fallback.includeEmptyPriority,
+    includeEmptyPriority: priorities.found
+      ? priorities.includeEmpty
+      : fallback.includeEmptyPriority,
     tags: tagClause?.values ?? [...fallback.tags],
     tagMode: tagClause
       ? tagClause.op === "hasAny"
@@ -202,15 +200,11 @@ export function deriveToggleListFilterRule(
   };
 }
 
-export function resolveToggleListPrimarySort(
-  rules: ToggleListRulesV2,
-): ToggleListSortKey {
+export function resolveToggleListPrimarySort(rules: ToggleListRulesV2): ToggleListSortKey {
   return rules.sort[0] ?? DEFAULT_SORT[0];
 }
 
-export function resolveToggleListSecondarySort(
-  rules: ToggleListRulesV2,
-): ToggleListSortKey {
+export function resolveToggleListSecondarySort(rules: ToggleListRulesV2): ToggleListSortKey {
   return rules.sort[1] ?? DEFAULT_SORT[1];
 }
 
@@ -258,8 +252,10 @@ function normalizePropertyOrder(value: unknown): ToggleListPropertyKey[] {
   const fallback = [...TOGGLE_LIST_PROPERTY_KEYS];
   if (!Array.isArray(value)) return fallback;
 
-  const existing = value.filter((property): property is ToggleListPropertyKey =>
-    typeof property === "string" && TOGGLE_LIST_PROPERTY_KEYS.includes(property as ToggleListPropertyKey),
+  const existing = value.filter(
+    (property): property is ToggleListPropertyKey =>
+      typeof property === "string" &&
+      TOGGLE_LIST_PROPERTY_KEYS.includes(property as ToggleListPropertyKey),
   );
 
   const deduped = Array.from(new Set(existing));
@@ -273,17 +269,16 @@ function normalizePropertyOrder(value: unknown): ToggleListPropertyKey[] {
 }
 
 function isRankField(value: unknown): value is ToggleListRankField {
-  return typeof value === "string" && TOGGLE_LIST_RANK_FIELDS.includes(value as ToggleListRankField);
+  return (
+    typeof value === "string" && TOGGLE_LIST_RANK_FIELDS.includes(value as ToggleListRankField)
+  );
 }
 
 function isRankDirection(value: unknown): value is ToggleListRankDirection {
   return value === "asc" || value === "desc";
 }
 
-function normalizeFilterSpec(
-  value: unknown,
-  fallback: ToggleListFilterSpec,
-): ToggleListFilterSpec {
+function normalizeFilterSpec(value: unknown, fallback: ToggleListFilterSpec): ToggleListFilterSpec {
   if (!isRecord(value)) return cloneFilterSpec(fallback);
   if (!Array.isArray(value.any)) return cloneFilterSpec(fallback);
 
@@ -342,8 +337,8 @@ function normalizeClause(value: unknown): ToggleListClause | null {
     };
   }
   if (
-    value.field === "tags"
-    && (value.op === "hasAny" || value.op === "hasAll" || value.op === "hasNone")
+    value.field === "tags" &&
+    (value.op === "hasAny" || value.op === "hasAll" || value.op === "hasNone")
   ) {
     const values = normalizeStringList(value.values);
     if (values.length === 0) return null;
@@ -352,10 +347,7 @@ function normalizeClause(value: unknown): ToggleListClause | null {
   return null;
 }
 
-function normalizeSortKeys(
-  value: unknown,
-  fallback: ToggleListSortKey[],
-): ToggleListSortKey[] {
+function normalizeSortKeys(value: unknown, fallback: ToggleListSortKey[]): ToggleListSortKey[] {
   if (!Array.isArray(value)) return [...fallback];
   const parsed = value
     .map((item) => {
@@ -387,24 +379,24 @@ function dedupeSortKeys(sort: ToggleListSortKey[]): ToggleListSortKey[] {
 
 function normalizeStatusList(value: unknown): ToggleListStatusId[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is ToggleListStatusId =>
-    typeof item === "string" && TOGGLE_LIST_STATUS_ORDER.includes(item as ToggleListStatusId),
+  return value.filter(
+    (item): item is ToggleListStatusId =>
+      typeof item === "string" && TOGGLE_LIST_STATUS_ORDER.includes(item as ToggleListStatusId),
   );
 }
 
 function normalizePriorityList(value: unknown): Priority[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is Priority =>
-    typeof item === "string" && TOGGLE_LIST_PRIORITY_ORDER.includes(item as Priority),
+  return value.filter(
+    (item): item is Priority =>
+      typeof item === "string" && TOGGLE_LIST_PRIORITY_ORDER.includes(item as Priority),
   );
 }
 
 function normalizeStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return Array.from(
-    new Set(
-      value.filter((item): item is string => typeof item === "string" && item.length > 0),
-    ),
+    new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0)),
   );
 }
 
@@ -421,9 +413,9 @@ function collectClauseUnion<T extends string>(
       if (clause.field !== field) continue;
       found = true;
       if (
-        field === "priority"
-        && clause.field === "priority"
-        && priorityClauseIncludesEmpty(clause)
+        field === "priority" &&
+        clause.field === "priority" &&
+        priorityClauseIncludesEmpty(clause)
       ) {
         includeEmpty = true;
       }

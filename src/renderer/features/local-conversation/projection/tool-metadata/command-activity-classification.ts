@@ -1,8 +1,10 @@
 import type { CodexConversationItem } from "../../../../lib/types";
 import { extractCommandActions } from "./command-actions";
 
-const MUTATING_CURL_METHOD_PATTERN = /(?:^|\s)(?:-X\s*|--request(?:=|\s+))(?:POST|PUT|PATCH|DELETE)\b/i;
-const CURL_DATA_OPTION_PATTERN = /(?:^|\s)(?:--data(?:-[^\s=]+)?|--json|--form|--upload-file)(?:=|\s|$)/;
+const MUTATING_CURL_METHOD_PATTERN =
+  /(?:^|\s)(?:-X\s*|--request(?:=|\s+))(?:POST|PUT|PATCH|DELETE)\b/i;
+const CURL_DATA_OPTION_PATTERN =
+  /(?:^|\s)(?:--data(?:-[^\s=]+)?|--json|--form|--upload-file)(?:=|\s|$)/;
 const CURL_SHORT_DATA_OPTION_PATTERN = /(?:^|\s)-(?:d|F|T)(?:=|\s|$)/;
 const HTTP_URL_PATTERN = /\bhttps?:\/\/[^\s'"<>]+/gi;
 

@@ -10,6 +10,7 @@ This is intentionally narrower than the main product spec. It is the detailed so
 ## Scope
 
 Included:
+
 - The `threadSection` NFM syntax and round-trip rules
 - How runnable sections are delimited in the editor
 - Inline row rendering in the Page Stage editor
@@ -19,6 +20,7 @@ Included:
 - Markdown shortcut, divider conversion, and slash-menu insertion
 
 Not included:
+
 - Thread transcript rendering inside the Threads stage
 - Codex approval/user-input cards outside the editor
 - Block drag/drop or Page import behavior unrelated to thread sections
@@ -29,6 +31,7 @@ Not included:
 `threadSection` turns a Page description into explicit notebook-style runnable regions.
 
 Each section is defined by:
+
 1. one `threadSection` marker block
 2. all following sibling blocks in that same parent block collection
 3. stopping at the next sibling `threadSection`
@@ -46,6 +49,7 @@ Typing `---` on an empty paragraph in the editor creates a `threadSection` marke
 ```
 
 Supported attributes:
+
 - `label`: optional user-facing section label
 - `thread`: optional sticky bound Codex thread id
 
@@ -73,6 +77,7 @@ Summarize the current implementation and propose the smallest safe refactor.
 `threadSection` creates boundaries inside its immediate sibling collection.
 
 The section body:
+
 - includes the marker block's direct children first, if any exist
 - starts immediately after the marker block
 - includes all following sibling blocks until the next sibling `threadSection`
@@ -81,6 +86,7 @@ The section body:
 - can include custom blocks such as `pageRef`, `toggleListInlineView`, images, code blocks, and toggles
 
 The section body does not include:
+
 - the `threadSection` marker block itself
 - projected inline rows that exist only as runtime editor structure under embedded views
 
@@ -103,6 +109,7 @@ gamma
 ```
 
 Resolved sections:
+
 - `Explore` body: `alpha`, `beta`
 - `Implement` body: `gamma`
 
@@ -117,6 +124,7 @@ lalala
 ```
 
 Resolved section body:
+
 - marker direct children: `child-1`, `child-2`
 - following sibling blocks: `lol`, `lalala`
 
@@ -133,6 +141,7 @@ parent
 ```
 
 Resolved nested sections inside `parent.children`:
+
 - `Nested` body: `body-1`, `body-2`
 - `Next` body: `body-3`
 
@@ -165,6 +174,7 @@ There is no runnable section here yet. `Cmd/Ctrl+Enter` prepares a new local sec
 In the Page Stage editor, `threadSection` renders as a divider-like row with a compact center capsule.
 
 The row currently shows:
+
 - section state
 - editable section label
 - bound thread label or a first-send placeholder
@@ -175,6 +185,7 @@ The row currently shows:
 This row is intentionally lightweight.
 
 Current v1 non-goals:
+
 - no inline transcript
 - no expandable disclosure under the row
 - no embedded assistant output inside the Page description
@@ -184,6 +195,7 @@ Current v1 non-goals:
 The `label` attribute is editable directly from the section row in the Page Stage editor.
 
 Rules:
+
 - empty label is allowed
 - when empty, the row shows a generic section placeholder instead of mutating the stored NFM
 - changing the label updates only the marker block props
@@ -196,6 +208,7 @@ Each section may optionally be bound to one Codex thread via the `thread` attrib
 ### First send
 
 If the section has no bound thread, clicking `Send` or pressing `Cmd/Ctrl+Enter` while inside that section:
+
 - opens the shared `Send to chat` thread picker
 - selecting `New chat / This session` starts a session-owned thread in the current empty session; selecting the bottom `New chat / This project` atomically ensures the Project's Core-owned default-draft Chat
 - selecting an existing thread sends the section prompt to that thread
@@ -206,6 +219,7 @@ If the section has no bound thread, clicking `Send` or pressing `Cmd/Ctrl+Enter`
 ### Later sends
 
 If the section already has a bound thread and that thread is available:
+
 - the shared picker opens with that thread available as the natural existing-thread destination
 - selecting that thread starts a new turn or steers the active turn using the same control-layer behavior as the thread composer
 - selecting another existing thread or `New chat` rebinds the marker after a successful send
@@ -215,6 +229,7 @@ This mirrors the thread composer’s follow-up behavior instead of inventing a s
 ### Missing or archived thread
 
 If a section has a stored `thread` id but the linked thread is unavailable or archived:
+
 - the row renders as unavailable rather than pretending the section is unbound
 - sending opens the picker so the user can choose an available existing thread or `New chat`
 
@@ -223,6 +238,7 @@ If a section has a stored `thread` id but the linked thread is unavailable or ar
 The section row resolves live state by matching its stored `thread` id against the current project's Codex thread summaries.
 
 Current states:
+
 - `Not sent`: no bound thread id
 - `Running`: bound thread is active
 - `Approval`: active thread is waiting on approval
@@ -232,6 +248,7 @@ Current states:
 - `Error`: bound thread is in system error state
 
 Time label behavior:
+
 - active thread: shows a lightweight `for ...` running label derived from the linked thread’s latest update timestamp
 - inactive thread: shows a relative `... ago` label from the same timestamp
 
@@ -242,6 +259,7 @@ This is intentionally approximate v1 status chrome, not a durable execution-time
 ### `Cmd/Ctrl+Enter`
 
 In the Page Stage editor:
+
 - `Cmd/Ctrl+Enter` first attempts the current block's modify action
 - if no block-level modify action is handled and the cursor is inside a `threadSection` region, the shortcut prepares that section for send
 - this includes nested child regions, where a child `threadSection` sends its following siblings in the same parent block
@@ -252,6 +270,7 @@ In the Page Stage editor:
 ### Modify-first precedence
 
 If the current block has a modify action:
+
 - `checkListItem` flips its checked state
 - `toggleListItem` and toggle headings expand or collapse through the existing toggle button path
 - `image` opens the image preview
@@ -263,6 +282,7 @@ Handled modify actions prevent the thread-section send fallback. An unavailable 
 ### No explicit section
 
 If the user presses `Cmd/Ctrl+Enter` without being inside an explicit `threadSection`:
+
 - the editor prepares a new section starting at the current block in the current sibling collection
 - confirming the send inserts a new `threadSection` marker immediately before that current block
 - the confirmation dialog explicitly tells the user that a new section marker will be created
@@ -272,6 +292,7 @@ If the user presses `Cmd/Ctrl+Enter` without being inside an explicit `threadSec
 By default, sending a thread section goes through a confirmation dialog.
 
 The dialog shows:
+
 - the resolved section title
 - whether the send will reuse an existing thread or start a new one
 - whether a new `threadSection` marker will be inserted first
@@ -279,6 +300,7 @@ The dialog shows:
 - a `Do not ask again` checkbox
 
 Rules:
+
 - the preview is the exact structured plain-text payload that will be sent to Codex
 - the dialog appears for both row `Send` clicks and `Cmd/Ctrl+Enter`
 - if the user confirms, the dialog closes immediately and the inline section row becomes the source of pending/running status
@@ -315,6 +337,7 @@ Existing divider block behavior is unchanged:
 ```
 
 It remains:
+
 - a visual separator
 - serializable as `---`
 - non-runnable
@@ -335,6 +358,7 @@ No surrounding content is moved or rewritten during conversion.
 When sending a section, the editor serializes only that section body into the same structure-preserving plain-text format used for copy `text/plain`.
 
 Serialization rules:
+
 - preserve the existing sibling-block order inside the section
 - include the marker block's direct children before later sibling body blocks
 - preserve nested children under those sibling body blocks
@@ -501,6 +525,7 @@ The plain divider remains normal content inside the explicit thread section. It 
 #### Example 8: Thread picker send
 
 When the picker opens for a section send:
+
 - it shows current-project thread destinations, prioritizes the section's bound thread as `Current section` when available, falls back to the current session destination, and keeps project-level `New chat` as a bottom action when it is not duplicated by a `This session` new-chat row
 - selecting an existing thread sends the section prompt to that thread and writes that thread id to the marker
 - selecting `New chat` starts a session-owned thread and writes the new thread id to the marker
@@ -508,6 +533,7 @@ When the picker opens for a section send:
 ## Focus And Navigation
 
 On successful section send:
+
 - editor focus is restored back to the Page description
 - the Page Stage does not auto-switch to the Threads stage
 - the bound thread continues to update through the existing linked-thread state
@@ -517,6 +543,7 @@ Opening the bound thread remains an explicit action through the section row or t
 ## Failure Behavior
 
 Current editor-side failure cases:
+
 - no explicit `threadSection` around the cursor -> show hint
 - empty section -> show hint
 - Codex start/send failure -> show inline error hint and keep editor focus
@@ -569,6 +596,7 @@ This does not create 2 notebook sections. Only typing a fresh `---` in the edito
 ## Source Of Truth
 
 The narrow implementation source of truth for this feature is:
+
 - shared NFM shape and parsing/serialization
 - Page Stage editor rendering and keyboard behavior
 - linked Codex thread summary state used by the section row

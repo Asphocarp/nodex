@@ -1,4 +1,8 @@
-import { GitBranch, GitCommitHorizontal, UploadCloud } from "@/components/shared/icons/generic-icons";
+import {
+  GitBranch,
+  GitCommitHorizontal,
+  UploadCloud,
+} from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
@@ -9,7 +13,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { getGitWorkerClient, invoke } from "@/lib/api";
-import type { GitActionMutationResult, GitActionStatusResult, GitCommitMessageGenerateResult } from "@/lib/types";
+import type {
+  GitActionMutationResult,
+  GitActionStatusResult,
+  GitCommitMessageGenerateResult,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type SummaryGitActionDialogMode = "commit" | "push";
@@ -44,7 +52,10 @@ export function createGitActionOperationId(): string {
   return `summary-git-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getGitActionStatusMessage(status: GitActionStatusResult | null, mode: SummaryGitActionDialogMode): string {
+function getGitActionStatusMessage(
+  status: GitActionStatusResult | null,
+  mode: SummaryGitActionDialogMode,
+): string {
   if (!status) return "Checking Git state";
   if (!status.isGitRepository) return "Git repository is required.";
   if (mode === "push" && status.canPush) {
@@ -68,7 +79,10 @@ function getGenerationResultError(result: GitCommitMessageGenerateResult): strin
   return result.errorMessage ?? (result.stderr.trim() || "Could not generate a commit message.");
 }
 
-function getGitActionSelectionSummary(status: GitActionStatusResult | null, mode: SummaryGitActionDialogMode): string {
+function getGitActionSelectionSummary(
+  status: GitActionStatusResult | null,
+  mode: SummaryGitActionDialogMode,
+): string {
   if (!status) return "Checking Git state";
   if (!status.isGitRepository) return "No repository";
   if (mode === "push") {
@@ -149,7 +163,8 @@ export function ThreadSummaryGitActionDialog({
     let cancelled = false;
     setLoading(true);
     setInlineError(null);
-    void getGitWorkerClient().request({ method: "action-status", params: { cwd } })
+    void getGitWorkerClient()
+      .request({ method: "action-status", params: { cwd } })
       .then((result) => {
         if (cancelled) return;
         setStatus(result as GitActionStatusResult);
@@ -175,7 +190,8 @@ export function ThreadSummaryGitActionDialog({
     return "commit";
   }, [initialMode, status]);
   const canCommit = Boolean(status?.isGitRepository && status.hasUncommittedChanges);
-  const canCommitAndPush = canCommit && Boolean(status?.upstreamBranch || status?.remotes.includes("origin"));
+  const canCommitAndPush =
+    canCommit && Boolean(status?.upstreamBranch || status?.remotes.includes("origin"));
   const canPush = Boolean(status?.isGitRepository && status.canPush);
   const statusMessage = getGitActionStatusMessage(status, mode);
   const selectionSummary = getGitActionSelectionSummary(status, mode);
@@ -183,98 +199,115 @@ export function ThreadSummaryGitActionDialog({
     setMessage(event.currentTarget.value);
   }, []);
 
-  const handleMutationResult = useCallback((result: GitActionMutationResult) => {
-    const error = getResultError(result);
-    if (error) {
-      setInlineError(error);
-      onErrorMessage(error);
-      return;
-    }
+  const handleMutationResult = useCallback(
+    (result: GitActionMutationResult) => {
+      const error = getResultError(result);
+      if (error) {
+        setInlineError(error);
+        onErrorMessage(error);
+        return;
+      }
 
-    onErrorMessage(null);
-    onCompleted?.();
-    onOpenChange(false);
-  }, [onCompleted, onErrorMessage, onOpenChange]);
+      onErrorMessage(null);
+      onCompleted?.();
+      onOpenChange(false);
+    },
+    [onCompleted, onErrorMessage, onOpenChange],
+  );
 
-  const runCommit = useCallback(async (nextStep: "commit" | "commit-and-push") => {
-    if (!cwd || busy || !canCommit) return;
-    const operationId = createGitActionOperationId();
-    const trimmedMessage = message.trim();
-    setBusy(true);
-    setInlineError(null);
-    onWorkflowChange?.({
-      workflow: "commit",
-      phase: trimmedMessage ? "committing" : "generating-commit-message",
-      operationId,
-    });
-    onOpenChange(false);
-    try {
-      let commitMessage = trimmedMessage;
-      let commitIncludeUnstaged = includeUnstaged;
-      if (!commitMessage) {
-        const generatedResult = await invoke("git:action:commit-message:generate", {
+  const runCommit = useCallback(
+    async (nextStep: "commit" | "commit-and-push") => {
+      if (!cwd || busy || !canCommit) return;
+      const operationId = createGitActionOperationId();
+      const trimmedMessage = message.trim();
+      setBusy(true);
+      setInlineError(null);
+      onWorkflowChange?.({
+        workflow: "commit",
+        phase: trimmedMessage ? "committing" : "generating-commit-message",
+        operationId,
+      });
+      onOpenChange(false);
+      try {
+        let commitMessage = trimmedMessage;
+        let commitIncludeUnstaged = includeUnstaged;
+        if (!commitMessage) {
+          const generatedResult = (await invoke("git:action:commit-message:generate", {
+            cwd,
+            hostId,
+            draftMessage: trimmedMessage,
+            includeUnstaged,
+            operationId,
+          })) as GitCommitMessageGenerateResult;
+          const generationError = getGenerationResultError(generatedResult);
+          if (generationError) {
+            setInlineError(generationError);
+            onErrorMessage(generationError);
+            return;
+          }
+
+          commitMessage = generatedResult.message ?? "";
+          commitIncludeUnstaged = false;
+          setMessage(commitMessage);
+          onWorkflowChange?.({
+            workflow: "commit",
+            phase: "committing",
+            operationId,
+          });
+        }
+
+        const result = (await invoke("git:action:commit", {
           cwd,
           hostId,
-          draftMessage: trimmedMessage,
-          includeUnstaged,
+          message: commitMessage,
+          includeUnstaged: commitIncludeUnstaged,
+          nextStep: "commit",
           operationId,
-        }) as GitCommitMessageGenerateResult;
-        const generationError = getGenerationResultError(generatedResult);
-        if (generationError) {
-          setInlineError(generationError);
-          onErrorMessage(generationError);
+        })) as GitActionMutationResult;
+
+        const commitError = getResultError(result);
+        if (commitError) {
+          handleMutationResult(result);
           return;
         }
 
-        commitMessage = generatedResult.message ?? "";
-        commitIncludeUnstaged = false;
-        setMessage(commitMessage);
-        onWorkflowChange?.({
-          workflow: "commit",
-          phase: "committing",
-          operationId,
-        });
-      }
+        if (nextStep === "commit-and-push") {
+          onWorkflowChange?.({
+            workflow: "commit",
+            phase: "pushing",
+            operationId,
+          });
+          const pushResult = (await invoke("git:action:push", {
+            cwd,
+            operationId,
+          })) as GitActionMutationResult;
+          handleMutationResult(pushResult);
+          return;
+        }
 
-      const result = await invoke("git:action:commit", {
-        cwd,
-        hostId,
-        message: commitMessage,
-        includeUnstaged: commitIncludeUnstaged,
-        nextStep: "commit",
-        operationId,
-      }) as GitActionMutationResult;
-
-      const commitError = getResultError(result);
-      if (commitError) {
         handleMutationResult(result);
-        return;
+      } catch (error) {
+        const nextError = error instanceof Error ? error.message : "Could not commit changes.";
+        setInlineError(nextError);
+        onErrorMessage(nextError);
+      } finally {
+        setBusy(false);
+        onWorkflowChange?.(null);
       }
-
-      if (nextStep === "commit-and-push") {
-        onWorkflowChange?.({
-          workflow: "commit",
-          phase: "pushing",
-          operationId,
-        });
-        const pushResult = await invoke("git:action:push", {
-          cwd,
-          operationId,
-        }) as GitActionMutationResult;
-        handleMutationResult(pushResult);
-        return;
-      }
-
-      handleMutationResult(result);
-    } catch (error) {
-      const nextError = error instanceof Error ? error.message : "Could not commit changes.";
-      setInlineError(nextError);
-      onErrorMessage(nextError);
-    } finally {
-      setBusy(false);
-      onWorkflowChange?.(null);
-    }
-  }, [busy, canCommit, cwd, handleMutationResult, hostId, includeUnstaged, message, onErrorMessage, onOpenChange, onWorkflowChange]);
+    },
+    [
+      busy,
+      canCommit,
+      cwd,
+      handleMutationResult,
+      hostId,
+      includeUnstaged,
+      message,
+      onErrorMessage,
+      onOpenChange,
+      onWorkflowChange,
+    ],
+  );
 
   const runPush = useCallback(async () => {
     if (!cwd || busy || !canPush) return;
@@ -288,7 +321,10 @@ export function ThreadSummaryGitActionDialog({
     });
     onOpenChange(false);
     try {
-      const result = await invoke("git:action:push", { cwd, operationId }) as GitActionMutationResult;
+      const result = (await invoke("git:action:push", {
+        cwd,
+        operationId,
+      })) as GitActionMutationResult;
       handleMutationResult(result);
     } catch (error) {
       const nextError = error instanceof Error ? error.message : "Could not push changes.";
@@ -301,15 +337,16 @@ export function ThreadSummaryGitActionDialog({
   }, [busy, canPush, cwd, handleMutationResult, onErrorMessage, onOpenChange, onWorkflowChange]);
 
   return (
-    <NodexDialog open={open} onOpenChange={(nextOpen) => {
-      if (!nextOpen && busy) return;
-      onOpenChange(nextOpen);
-    }}>
+    <NodexDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && busy) return;
+        onOpenChange(nextOpen);
+      }}
+    >
       <NodexDialogContent size="compact" showCloseButton={false}>
         <NodexDialogTitle className="sr-only">Commit or push</NodexDialogTitle>
-        <NodexDialogDescription className="sr-only">
-          {statusMessage}
-        </NodexDialogDescription>
+        <NodexDialogDescription className="sr-only">{statusMessage}</NodexDialogDescription>
         <div className="flex h-9 items-center justify-between gap-3 px-3 text-sm text-token-description-foreground">
           <span className="flex min-w-0 items-center gap-2">
             <GitBranch className="icon-xs shrink-0" />
@@ -337,10 +374,12 @@ export function ThreadSummaryGitActionDialog({
               }}
               className="h-20 w-full resize-none bg-transparent px-3 py-2 text-token-input-foreground outline-none placeholder:text-token-description-foreground disabled:opacity-60"
             />
-            <label className={cn(
-              "relative flex items-center gap-2 px-3 pt-2 pb-3 text-token-foreground",
-              (busy || loading) && "opacity-60",
-            )}>
+            <label
+              className={cn(
+                "relative flex items-center gap-2 px-3 pt-2 pb-3 text-token-foreground",
+                (busy || loading) && "opacity-60",
+              )}
+            >
               <Input
                 type="checkbox"
                 checked={includeUnstaged}

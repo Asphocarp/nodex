@@ -128,9 +128,7 @@ function ProjectReorderHarness({
             <SortableProject controller={reorder.controller} projectId={projectId} />
           </div>
         ))}
-        {reorder.dropIndicatorIndex === reorder.groupIds.length
-          ? <SidebarDropIndicator />
-          : null}
+        {reorder.dropIndicatorIndex === reorder.groupIds.length ? <SidebarDropIndicator /> : null}
       </SidebarProjectSortableContext>
     </div>
   );
@@ -155,43 +153,43 @@ function MixedSidebarReorderHarness({
       <NodexHoverCardProvider>
         <NodexTooltipProvider>
           <div aria-label="Mixed sidebar projects" role="list">
-        <SidebarProjectSortableContext groupIds={reorder.groupIds}>
-          {reorder.groupIds.map((projectId, index) => {
-            const project = PROJECTS.find((candidate) => candidate.id === projectId);
-            if (!project) return null;
-            const threadKey = `local:thread-${projectId}`;
+            <SidebarProjectSortableContext groupIds={reorder.groupIds}>
+              {reorder.groupIds.map((projectId, index) => {
+                const project = PROJECTS.find((candidate) => candidate.id === projectId);
+                if (!project) return null;
+                const threadKey = `local:thread-${projectId}`;
 
-            return (
-              <div key={projectId}>
-                {reorder.dropIndicatorIndex === index ? <SidebarDropIndicator /> : null}
-                <CodexProjectRow
-                  project={project}
-                  active={false}
-                  expanded
-                  animateChildren={false}
-                  allowProjectReorder
-                  groupDndController={reorder.controller}
-                  onActivate={() => {}}
-                  onUpdateProject={async () => project}
-                  onArchiveProject={async () => ({ kind: "not-found" })}
-                >
-                  <SidebarThreadSortableContext threadKeys={[threadKey]}>
-                    <SidebarThreadSortableItem
-                      containerId={`project:${projectId}`}
-                      controller={THREAD_CONTROLLER}
-                      threadKey={threadKey}
+                return (
+                  <div key={projectId}>
+                    {reorder.dropIndicatorIndex === index ? <SidebarDropIndicator /> : null}
+                    <CodexProjectRow
+                      project={project}
+                      active={false}
+                      expanded
+                      animateChildren={false}
+                      allowProjectReorder
+                      groupDndController={reorder.controller}
+                      onActivate={() => {}}
+                      onUpdateProject={async () => project}
+                      onArchiveProject={async () => ({ kind: "not-found" })}
                     >
-                      <div style={{ height: 30 }}>Task in {project.name}</div>
-                    </SidebarThreadSortableItem>
-                  </SidebarThreadSortableContext>
-                </CodexProjectRow>
-              </div>
-            );
-          })}
-          {reorder.dropIndicatorIndex === reorder.groupIds.length
-            ? <SidebarDropIndicator />
-            : null}
-        </SidebarProjectSortableContext>
+                      <SidebarThreadSortableContext threadKeys={[threadKey]}>
+                        <SidebarThreadSortableItem
+                          containerId={`project:${projectId}`}
+                          controller={THREAD_CONTROLLER}
+                          threadKey={threadKey}
+                        >
+                          <div style={{ height: 30 }}>Task in {project.name}</div>
+                        </SidebarThreadSortableItem>
+                      </SidebarThreadSortableContext>
+                    </CodexProjectRow>
+                  </div>
+                );
+              })}
+              {reorder.dropIndicatorIndex === reorder.groupIds.length ? (
+                <SidebarDropIndicator />
+              ) : null}
+            </SidebarProjectSortableContext>
           </div>
         </NodexTooltipProvider>
       </NodexHoverCardProvider>
@@ -217,9 +215,13 @@ describe("sidebar project reorder in Chromium", () => {
   test("paints the drop indicator without changing list geometry", () => {
     const Rows = ({ indicator }: { indicator: boolean }) => (
       <div data-testid="geometry-list" style={{ display: "flex", flexDirection: "column" }}>
-        <div data-testid="geometry-first" style={{ height: 32 }}>First</div>
+        <div data-testid="geometry-first" style={{ height: 32 }}>
+          First
+        </div>
         {indicator ? <SidebarDropIndicator /> : null}
-        <div data-testid="geometry-second" style={{ height: 32 }}>Second</div>
+        <div data-testid="geometry-second" style={{ height: 32 }}>
+          Second
+        </div>
       </div>
     );
     const view = render(<Rows indicator={false} />);
@@ -382,8 +384,11 @@ describe("sidebar project reorder in Chromium", () => {
 
       await waitFor(() => {
         expect(committedOrders).toEqual([["beta", "alpha"]]);
-        expect(Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]"))
-          .map((row) => row.dataset.projectId)).toEqual(["beta", "alpha"]);
+        expect(
+          Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]")).map(
+            (row) => row.dataset.projectId,
+          ),
+        ).toEqual(["beta", "alpha"]);
       });
     } finally {
       view.unmount();
@@ -397,10 +402,7 @@ describe("sidebar project reorder in Chromium", () => {
     });
     const view = render(
       <SidebarReorderDndProvider>
-        <ProjectReorderHarness
-          beforeCanonicalCommit={canonicalCommit}
-          onCommit={() => {}}
-        />
+        <ProjectReorderHarness beforeCanonicalCommit={canonicalCommit} onCommit={() => {}} />
       </SidebarReorderDndProvider>,
     );
     const list = view.getByRole("list", { name: "Projects" });
@@ -456,16 +458,22 @@ describe("sidebar project reorder in Chromium", () => {
         await Promise.resolve();
       });
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      expect(Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]"))
-        .map((row) => row.dataset.projectId)).toEqual(["beta", "alpha"]);
+      expect(
+        Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]")).map(
+          (row) => row.dataset.projectId,
+        ),
+      ).toEqual(["beta", "alpha"]);
 
       await act(async () => {
         resolveCanonicalCommit();
         await canonicalCommit;
       });
       await waitFor(() => {
-        expect(Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]"))
-          .map((row) => row.dataset.projectId)).toEqual(["beta", "alpha"]);
+        expect(
+          Array.from(list.querySelectorAll<HTMLElement>("[data-project-id]")).map(
+            (row) => row.dataset.projectId,
+          ),
+        ).toEqual(["beta", "alpha"]);
       });
     } finally {
       resolveCanonicalCommit();
@@ -551,12 +559,11 @@ describe("sidebar project reorder in Chromium", () => {
 
       await waitFor(() => {
         expect(committedOrders).toEqual([["beta", "alpha"]]);
-        expect(Array.from(list.querySelectorAll<HTMLElement>(
-          "[data-app-action-sidebar-project-id]",
-        )).map((row) => row.dataset.appActionSidebarProjectId)).toEqual([
-          "beta",
-          "alpha",
-        ]);
+        expect(
+          Array.from(
+            list.querySelectorAll<HTMLElement>("[data-app-action-sidebar-project-id]"),
+          ).map((row) => row.dataset.appActionSidebarProjectId),
+        ).toEqual(["beta", "alpha"]);
       });
       expect(runtimeErrors).toHaveLength(0);
       expect(consoleErrors).toHaveLength(0);

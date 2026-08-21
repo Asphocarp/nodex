@@ -149,17 +149,54 @@ const KEY_ALIASES = new Map<string, string>([
 ]);
 
 export const CODEX_COMMAND_REGISTRY = [
-  command("archiveThread", "Archive chat", "Archive the current chat", 10, "app", ["CmdOrCtrl+Shift+A"]),
-  command("copyConversationMarkdown", "Copy as Markdown", "Copy the complete current chat as Markdown", 15, "app", []),
-  command("newThread", "New chat", "Start a new chat", 20, "app", ["CmdOrCtrl+N", "CmdOrCtrl+Shift+O"], {
-    allowsMultiple: true,
-  }),
-  command("openSideChat", "Open side chat", "Open a side chat for the current chat", 30, "app", ["CmdOrCtrl+Alt+S"]),
-  command("openThreadInNewWindow", "Open chat in new window", "Open the current chat in a new window", 40, "app", []),
+  command("archiveThread", "Archive chat", "Archive the current chat", 10, "app", [
+    "CmdOrCtrl+Shift+A",
+  ]),
+  command(
+    "copyConversationMarkdown",
+    "Copy as Markdown",
+    "Copy the complete current chat as Markdown",
+    15,
+    "app",
+    [],
+  ),
+  command(
+    "newThread",
+    "New chat",
+    "Start a new chat",
+    20,
+    "app",
+    ["CmdOrCtrl+N", "CmdOrCtrl+Shift+O"],
+    {
+      allowsMultiple: true,
+    },
+  ),
+  command("openSideChat", "Open side chat", "Open a side chat for the current chat", 30, "app", [
+    "CmdOrCtrl+Alt+S",
+  ]),
+  command(
+    "openThreadInNewWindow",
+    "Open chat in new window",
+    "Open the current chat in a new window",
+    40,
+    "app",
+    [],
+  ),
   command("quickChat", "New quick chat", "Start a quick chat", 50, "app", ["CmdOrCtrl+Alt+N"]),
-  command("toggleThreadPin", "Toggle pin", "Pin or unpin the current chat", 60, "app", ["CmdOrCtrl+Alt+P"]),
-  command("findInThread", "Find", "Find in the current chat, review, or project view", 70, "app", ["CmdOrCtrl+F"]),
-  command("openModelPicker", "Select model", "Choose the model, effort, and speed for the next turn", 75, "app", ["Ctrl+Shift+M"]),
+  command("toggleThreadPin", "Toggle pin", "Pin or unpin the current chat", 60, "app", [
+    "CmdOrCtrl+Alt+P",
+  ]),
+  command("findInThread", "Find", "Find in the current chat, review, or project view", 70, "app", [
+    "CmdOrCtrl+F",
+  ]),
+  command(
+    "openModelPicker",
+    "Select model",
+    "Choose the model, effort, and speed for the next turn",
+    75,
+    "app",
+    ["Ctrl+Shift+M"],
+  ),
   command(
     "focusBrowserAddressBar",
     "Focus browser address bar",
@@ -168,26 +205,87 @@ export const CODEX_COMMAND_REGISTRY = [
     "app",
     ["CmdOrCtrl+L"],
   ),
-  command("navigateBack", "Back", "Go back in the app window history", 90, "app", ["CmdOrCtrl+[", "MouseBack"], {
-    allowsMultiple: true,
-  }),
-  command("navigateForward", "Forward", "Go forward in the app window history", 100, "app", ["CmdOrCtrl+]", "MouseForward"], {
-    allowsMultiple: true,
-  }),
-  command("toggleBottomPanel", "Toggle bottom panel", "Show or hide the bottom panel", 120, "app", ["CmdOrCtrl+J"]),
-  command(PREVIOUS_PANEL_TAB_COMMAND_ID, "Previous panel tab", "Select the previous tab in the focused panel group", 121, "app", ["CmdOrCtrl+Shift+["]),
-  command(NEXT_PANEL_TAB_COMMAND_ID, "Next panel tab", "Select the next tab in the focused panel group", 122, "app", ["CmdOrCtrl+Shift+]"]),
-  command("toggleBrowserPanel", "Toggle browser panel", "Show or hide the Browser panel", 130, "app", ["CmdOrCtrl+Shift+B"], {
-    available: false,
-  }),
-  command("openBrowserTab", "New browser tab", "Open a Browser tab in the active panel", 140, "app", ["CmdOrCtrl+T"]),
-  command("openReviewTab", "Open review tab", "Open a Review tab in the active panel", 150, "app", ["Ctrl+Shift+G"]),
-  command("toggleTerminal", "Open terminal tab", "Focus or create a terminal tab", 160, "app", ["Ctrl+`"]),
-  command("toggleSidebar", "Toggle sidebar", "Show or hide the sidebar", 170, "app", ["CmdOrCtrl+B"]),
-  command("toggleSidePanel", "Toggle side panel", "Show or hide the side panel", 180, "app", ["CmdOrCtrl+Alt+B"]),
-  command("toggleFileTreePanel", "Toggle file tree panel", "Open the Files panel", 190, "app", ["CmdOrCtrl+Shift+E"]),
-  command("searchChats", "Search chats", "Search chats in the command palette", 200, "app", ["CmdOrCtrl+G"]),
-  command("searchPages", "Search Pages", "Search Pages in the command palette", 210, "app", ["CmdOrCtrl+P"]),
+  command(
+    "navigateBack",
+    "Back",
+    "Go back in the app window history",
+    90,
+    "app",
+    ["CmdOrCtrl+[", "MouseBack"],
+    {
+      allowsMultiple: true,
+    },
+  ),
+  command(
+    "navigateForward",
+    "Forward",
+    "Go forward in the app window history",
+    100,
+    "app",
+    ["CmdOrCtrl+]", "MouseForward"],
+    {
+      allowsMultiple: true,
+    },
+  ),
+  command("toggleBottomPanel", "Toggle bottom panel", "Show or hide the bottom panel", 120, "app", [
+    "CmdOrCtrl+J",
+  ]),
+  command(
+    PREVIOUS_PANEL_TAB_COMMAND_ID,
+    "Previous panel tab",
+    "Select the previous tab in the focused panel group",
+    121,
+    "app",
+    ["CmdOrCtrl+Shift+["],
+  ),
+  command(
+    NEXT_PANEL_TAB_COMMAND_ID,
+    "Next panel tab",
+    "Select the next tab in the focused panel group",
+    122,
+    "app",
+    ["CmdOrCtrl+Shift+]"],
+  ),
+  command(
+    "toggleBrowserPanel",
+    "Toggle browser panel",
+    "Show or hide the Browser panel",
+    130,
+    "app",
+    ["CmdOrCtrl+Shift+B"],
+    {
+      available: false,
+    },
+  ),
+  command(
+    "openBrowserTab",
+    "New browser tab",
+    "Open a Browser tab in the active panel",
+    140,
+    "app",
+    ["CmdOrCtrl+T"],
+  ),
+  command("openReviewTab", "Open review tab", "Open a Review tab in the active panel", 150, "app", [
+    "Ctrl+Shift+G",
+  ]),
+  command("toggleTerminal", "Open terminal tab", "Focus or create a terminal tab", 160, "app", [
+    "Ctrl+`",
+  ]),
+  command("toggleSidebar", "Toggle sidebar", "Show or hide the sidebar", 170, "app", [
+    "CmdOrCtrl+B",
+  ]),
+  command("toggleSidePanel", "Toggle side panel", "Show or hide the side panel", 180, "app", [
+    "CmdOrCtrl+Alt+B",
+  ]),
+  command("toggleFileTreePanel", "Toggle file tree panel", "Open the Files panel", 190, "app", [
+    "CmdOrCtrl+Shift+E",
+  ]),
+  command("searchChats", "Search chats", "Search chats in the command palette", 200, "app", [
+    "CmdOrCtrl+G",
+  ]),
+  command("searchPages", "Search Pages", "Search Pages in the command palette", 210, "app", [
+    "CmdOrCtrl+P",
+  ]),
   command(
     "createPage",
     "Create Page",
@@ -211,14 +309,30 @@ export const CODEX_COMMAND_REGISTRY = [
   command("searchFiles", "Search files", "Search files in the command palette", 215, "app", [], {
     available: false,
   }),
-  command("openCommandMenu", "Open command palette", "Open the command palette", 220, "app", ["CmdOrCtrl+K", "CmdOrCtrl+Shift+P"], {
-    allowsMultiple: true,
-  }),
+  command(
+    "openCommandMenu",
+    "Open command palette",
+    "Open the command palette",
+    220,
+    "app",
+    ["CmdOrCtrl+K", "CmdOrCtrl+Shift+P"],
+    {
+      allowsMultiple: true,
+    },
+  ),
   command("settings", "Settings", "Open settings", 230, "app", ["CmdOrCtrl+,"]),
-  command("showKeyboardShortcuts", "Keyboard shortcuts", "Show available keyboard shortcuts", 240, "app", ["Shift+/", "CmdOrCtrl+Shift+/"], {
-    allowsMultiple: true,
-    commandMenuGroupKey: "general",
-  }),
+  command(
+    "showKeyboardShortcuts",
+    "Keyboard shortcuts",
+    "Show available keyboard shortcuts",
+    240,
+    "app",
+    ["Shift+/", "CmdOrCtrl+Shift+/"],
+    {
+      allowsMultiple: true,
+      commandMenuGroupKey: "general",
+    },
+  ),
   command("goToPages", "Go to Pages", "Open the Pages workspace", 241, "app", ["G P"], {
     allowsSequences: true,
     commandMenuGroupKey: "navigation",
@@ -235,93 +349,264 @@ export const CODEX_COMMAND_REGISTRY = [
     allowsSequences: true,
     commandMenuGroupKey: "navigation",
   }),
-  command("openLastToastAction", "Open latest notification action", "Run the action from the latest notification", 245, "app", ["CmdOrCtrl+Alt+O"], {
-    commandMenuGroupKey: "general",
-  }),
-  command("workOnPage", "Work on Page", "Start a new chat from the highlighted Page", 246, "app", ["W O"], {
-    allowsSequences: true,
-    commandMenuGroupKey: "page",
-  }),
-  command("boardFocusNext", "Highlight next Page", "Move the Board highlight forward", 246, "app", ["J", "Down"], {
-    allowsMultiple: true,
-    commandMenuGroupKey: "board",
-  }),
-  command("boardFocusPrevious", "Highlight previous Page", "Move the Board highlight backward", 247, "app", ["K", "Up"], {
-    allowsMultiple: true,
-    commandMenuGroupKey: "board",
-  }),
-  command("boardFocusLeft", "Highlight Page to the left", "Move the Board highlight to the previous column", 248, "app", ["Left"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardFocusRight", "Highlight Page to the right", "Move the Board highlight to the next column", 249, "app", ["Right"], {
-    commandMenuGroupKey: "board",
-  }),
+  command(
+    "openLastToastAction",
+    "Open latest notification action",
+    "Run the action from the latest notification",
+    245,
+    "app",
+    ["CmdOrCtrl+Alt+O"],
+    {
+      commandMenuGroupKey: "general",
+    },
+  ),
+  command(
+    "workOnPage",
+    "Work on Page",
+    "Start a new chat from the highlighted Page",
+    246,
+    "app",
+    ["W O"],
+    {
+      allowsSequences: true,
+      commandMenuGroupKey: "page",
+    },
+  ),
+  command(
+    "boardFocusNext",
+    "Highlight next Page",
+    "Move the Board highlight forward",
+    246,
+    "app",
+    ["J", "Down"],
+    {
+      allowsMultiple: true,
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardFocusPrevious",
+    "Highlight previous Page",
+    "Move the Board highlight backward",
+    247,
+    "app",
+    ["K", "Up"],
+    {
+      allowsMultiple: true,
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardFocusLeft",
+    "Highlight Page to the left",
+    "Move the Board highlight to the previous column",
+    248,
+    "app",
+    ["Left"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardFocusRight",
+    "Highlight Page to the right",
+    "Move the Board highlight to the next column",
+    249,
+    "app",
+    ["Right"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
   command("boardPeek", "Peek Page", "Preview the highlighted Page", 250, "app", ["Space"], {
     commandMenuGroupKey: "board",
   }),
   command("boardOpen", "Open Page", "Open the highlighted Page", 251, "app", ["Enter"], {
     commandMenuGroupKey: "board",
   }),
-  command("boardToggleSelection", "Select Page", "Toggle selection for the highlighted Page", 252, "app", ["X"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardClearSelection", "Clear Page selection", "Clear selected Pages or close Peek", 253, "app", ["Escape"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardSetStatus", "Set Page status", "Change status for the highlighted or selected Pages", 254, "app", ["S"], {
-    commandMenuGroupKey: "page",
-  }),
-  command("boardSetPriority", "Set Page priority", "Change priority for the highlighted or selected Pages", 255, "app", ["P"], {
-    commandMenuGroupKey: "page",
-  }),
-  command("boardSetEstimate", "Set Page estimate", "Change estimate for the highlighted or selected Pages", 256, "app", ["Shift+E"], {
-    commandMenuGroupKey: "page",
-  }),
-  command("boardSetTags", "Set Page tags", "Change tags for the highlighted or selected Pages", 257, "app", ["L"], {
-    commandMenuGroupKey: "page",
-  }),
-  command("boardMoveUp", "Move Page up", "Move highlighted or selected Pages up", 258, "app", ["Alt+Up"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardMoveDown", "Move Page down", "Move highlighted or selected Pages down", 259, "app", ["Alt+Down"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardMoveTop", "Move Page to top", "Move highlighted or selected Pages to the top", 260, "app", ["Alt+Shift+Up"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardMoveBottom", "Move Page to bottom", "Move highlighted or selected Pages to the bottom", 261, "app", ["Alt+Shift+Down"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardMoveLeft", "Move Page left", "Move highlighted or selected Pages to the previous column", 262, "app", ["Alt+Left"], {
-    commandMenuGroupKey: "board",
-  }),
-  command("boardMoveRight", "Move Page right", "Move highlighted or selected Pages to the next column", 263, "app", ["Alt+Right"], {
-    commandMenuGroupKey: "board",
-  }),
+  command(
+    "boardToggleSelection",
+    "Select Page",
+    "Toggle selection for the highlighted Page",
+    252,
+    "app",
+    ["X"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardClearSelection",
+    "Clear Page selection",
+    "Clear selected Pages or close Peek",
+    253,
+    "app",
+    ["Escape"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardSetStatus",
+    "Set Page status",
+    "Change status for the highlighted or selected Pages",
+    254,
+    "app",
+    ["S"],
+    {
+      commandMenuGroupKey: "page",
+    },
+  ),
+  command(
+    "boardSetPriority",
+    "Set Page priority",
+    "Change priority for the highlighted or selected Pages",
+    255,
+    "app",
+    ["P"],
+    {
+      commandMenuGroupKey: "page",
+    },
+  ),
+  command(
+    "boardSetEstimate",
+    "Set Page estimate",
+    "Change estimate for the highlighted or selected Pages",
+    256,
+    "app",
+    ["Shift+E"],
+    {
+      commandMenuGroupKey: "page",
+    },
+  ),
+  command(
+    "boardSetTags",
+    "Set Page tags",
+    "Change tags for the highlighted or selected Pages",
+    257,
+    "app",
+    ["L"],
+    {
+      commandMenuGroupKey: "page",
+    },
+  ),
+  command(
+    "boardMoveUp",
+    "Move Page up",
+    "Move highlighted or selected Pages up",
+    258,
+    "app",
+    ["Alt+Up"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardMoveDown",
+    "Move Page down",
+    "Move highlighted or selected Pages down",
+    259,
+    "app",
+    ["Alt+Down"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardMoveTop",
+    "Move Page to top",
+    "Move highlighted or selected Pages to the top",
+    260,
+    "app",
+    ["Alt+Shift+Up"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardMoveBottom",
+    "Move Page to bottom",
+    "Move highlighted or selected Pages to the bottom",
+    261,
+    "app",
+    ["Alt+Shift+Down"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardMoveLeft",
+    "Move Page left",
+    "Move highlighted or selected Pages to the previous column",
+    262,
+    "app",
+    ["Alt+Left"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
+  command(
+    "boardMoveRight",
+    "Move Page right",
+    "Move highlighted or selected Pages to the next column",
+    263,
+    "app",
+    ["Alt+Right"],
+    {
+      commandMenuGroupKey: "board",
+    },
+  ),
   command("renameThread", "Rename chat", "Rename the active chat", 270, "app", ["CmdOrCtrl+Alt+R"]),
   command("closeTab", "Close tab", "Close the focused panel tab", 280, "app", ["CmdOrCtrl+W"]),
-  command("closeWindow", "Close window", "Close the active app window", 290, "electron", ["CmdOrCtrl+Shift+W"]),
-  command("newWindow", "New window", "Open a new app window", 280, "electron", ["CmdOrCtrl+Shift+N"]),
-  command("openFolder", "Open folder", "Open a local folder", 290, "electron", ["CmdOrCtrl+O"], { available: false }),
-  command("openProcessManager", "Open process manager", "Open the process manager", 300, "electron", ["Ctrl+Alt+M"]),
+  command("closeWindow", "Close window", "Close the active app window", 290, "electron", [
+    "CmdOrCtrl+Shift+W",
+  ]),
+  command("newWindow", "New window", "Open a new app window", 280, "electron", [
+    "CmdOrCtrl+Shift+N",
+  ]),
+  command("openFolder", "Open folder", "Open a local folder", 290, "electron", ["CmdOrCtrl+O"], {
+    available: false,
+  }),
+  command(
+    "openProcessManager",
+    "Open process manager",
+    "Open the process manager",
+    300,
+    "electron",
+    ["Ctrl+Alt+M"],
+  ),
   command("hotkeyWindow", "Hotkey window", "Show the global hotkey window", 310, "os-global", [], {
     available: false,
   }),
-  command("globalDictationHold", "Hold to dictate", "Hold the global dictation hotkey", 320, "os-global", [], {
-    available: false,
-    allowsBareModifiers: true,
-  }),
-  command("globalDictationToggle", "Toggle dictation", "Toggle global dictation", 330, "os-global", [], {
-    available: false,
-    allowsBareModifiers: true,
-  }),
+  command(
+    "globalDictationHold",
+    "Hold to dictate",
+    "Hold the global dictation hotkey",
+    320,
+    "os-global",
+    [],
+    {
+      available: false,
+      allowsBareModifiers: true,
+    },
+  ),
+  command(
+    "globalDictationToggle",
+    "Toggle dictation",
+    "Toggle global dictation",
+    330,
+    "os-global",
+    [],
+    {
+      available: false,
+      allowsBareModifiers: true,
+    },
+  ),
 ] as const satisfies readonly CommandRegistryEntry[];
 
 export type CommandId = (typeof CODEX_COMMAND_REGISTRY)[number]["id"];
 
-const COMMAND_IDS = new Set<string>(
-  CODEX_COMMAND_REGISTRY.map((entry) => entry.id),
-);
+const COMMAND_IDS = new Set<string>(CODEX_COMMAND_REGISTRY.map((entry) => entry.id));
 
 function isCommandId(value: string): value is CommandId {
   return COMMAND_IDS.has(value);
@@ -334,7 +619,12 @@ function command<const Id extends string>(
   order: number,
   shortcutScope: CommandShortcutScope,
   defaultKeys: string[],
-  options: Partial<Omit<CommandRegistryEntry, "id" | "title" | "description" | "order" | "shortcutScope" | "defaultKeybindings">> = {},
+  options: Partial<
+    Omit<
+      CommandRegistryEntry,
+      "id" | "title" | "description" | "order" | "shortcutScope" | "defaultKeybindings"
+    >
+  > = {},
 ): CommandRegistryEntry & { id: Id } {
   return {
     id,
@@ -362,31 +652,32 @@ export function normalizeCommandKeybindingOverrides(value: unknown): CommandKeyb
     return {};
   }
 
-  return Object.entries(value as Record<string, unknown>).reduce<CommandKeybindingOverrides>((acc, [commandId, rawKeys]) => {
-    if (!Array.isArray(rawKeys)) return acc;
-    const normalized = rawKeys
-      .filter((rawKey): rawKey is string => typeof rawKey === "string")
-      .map((rawKey) => normalizeAccelerator(rawKey))
-      .filter((key) => key.length > 0);
-    acc[commandId] = normalized;
-    return acc;
-  }, {});
+  return Object.entries(value as Record<string, unknown>).reduce<CommandKeybindingOverrides>(
+    (acc, [commandId, rawKeys]) => {
+      if (!Array.isArray(rawKeys)) return acc;
+      const normalized = rawKeys
+        .filter((rawKey): rawKey is string => typeof rawKey === "string")
+        .map((rawKey) => normalizeAccelerator(rawKey))
+        .filter((key) => key.length > 0);
+      acc[commandId] = normalized;
+      return acc;
+    },
+    {},
+  );
 }
 
 export function createCommandKeymapState(
   overrides: CommandKeybindingOverrides = {},
   platform: RuntimePlatform = resolveRuntimePlatform(),
 ): CommandKeymapState {
-  const entries = CODEX_COMMAND_REGISTRY
-    .slice()
+  const entries = CODEX_COMMAND_REGISTRY.slice()
     .sort((a, b) => a.order - b.order)
     .map((entry) => {
       const override = Object.prototype.hasOwnProperty.call(overrides, entry.id)
         ? (overrides[entry.id] ?? [])
         : null;
-      const customKeybindings = override === null
-        ? null
-        : override.map((key) => ({ key: normalizeAccelerator(key) }));
+      const customKeybindings =
+        override === null ? null : override.map((key) => ({ key: normalizeAccelerator(key) }));
       const keybindings = customKeybindings ?? entry.defaultKeybindings;
 
       return {
@@ -495,7 +786,10 @@ export function findCommandKeybindingConflict(
   return null;
 }
 
-export function getCommandEntry(state: CommandKeymapState | null | undefined, commandId: string): CommandKeymapEntry | null {
+export function getCommandEntry(
+  state: CommandKeymapState | null | undefined,
+  commandId: string,
+): CommandKeymapEntry | null {
   return state?.entries.find((entry) => entry.id === commandId) ?? null;
 }
 
@@ -541,10 +835,7 @@ export function resolveCommandShortcutPresentation(
   if (!resolvedAccelerator) return null;
 
   const platform = state?.platform ?? resolveRuntimePlatform();
-  const ariaKeyShortcuts = formatAcceleratorAriaKeyShortcut(
-    resolvedAccelerator,
-    platform,
-  );
+  const ariaKeyShortcuts = formatAcceleratorAriaKeyShortcut(resolvedAccelerator, platform);
 
   return {
     label: formatAcceleratorLabel(resolvedAccelerator, platform),
@@ -554,12 +845,7 @@ export function resolveCommandShortcutPresentation(
 
 export function normalizeAccelerator(accelerator: string | null | undefined): string {
   if (!accelerator) return "";
-  return accelerator
-    .trim()
-    .split(/\s+/)
-    .map(normalizeChord)
-    .filter(Boolean)
-    .join(" ");
+  return accelerator.trim().split(/\s+/).map(normalizeChord).filter(Boolean).join(" ");
 }
 
 export function isValidAccelerator(
@@ -577,7 +863,10 @@ export function isValidAccelerator(
   });
 }
 
-export function formatAcceleratorLabel(accelerator: string, platform: RuntimePlatform = resolveRuntimePlatform()): string {
+export function formatAcceleratorLabel(
+  accelerator: string,
+  platform: RuntimePlatform = resolveRuntimePlatform(),
+): string {
   const normalized = normalizeAccelerator(accelerator);
   if (!normalized) return "";
 
@@ -617,7 +906,9 @@ export function commandAcceleratorsInclude(
   accelerator: string,
 ): boolean {
   const normalized = normalizeAccelerator(accelerator);
-  return getCommandKeybindings(state, commandId).some((binding) => binding.key && normalizeAccelerator(binding.key) === normalized);
+  return getCommandKeybindings(state, commandId).some(
+    (binding) => binding.key && normalizeAccelerator(binding.key) === normalized,
+  );
 }
 
 export function keyboardEventToAccelerator(
@@ -633,7 +924,11 @@ export function keyboardEventToAccelerator(
   if (!key && modifiers.length === 0) return null;
   if (!key && !options.allowsBareModifiers) return null;
 
-  const normalizedModifiers = sortModifiers(Array.from(new Set(isBareModifier ? modifiers.filter((modifier) => modifier !== key) : modifiers)));
+  const normalizedModifiers = sortModifiers(
+    Array.from(
+      new Set(isBareModifier ? modifiers.filter((modifier) => modifier !== key) : modifiers),
+    ),
+  );
   const parts = [...normalizedModifiers, isBareModifier ? null : key].filter(isString);
   if (parts.length === 0) return null;
   return normalizeAccelerator(parts.join("+"));
@@ -646,7 +941,11 @@ export function matchesKeyboardEventToCommand(
 ): boolean {
   return getCommandKeybindings(state, commandId).some((binding) => {
     if (!binding.key) return false;
-    return matchesKeyboardEventToAccelerator(event, binding.key, state?.platform ?? resolveRuntimePlatform());
+    return matchesKeyboardEventToAccelerator(
+      event,
+      binding.key,
+      state?.platform ?? resolveRuntimePlatform(),
+    );
   });
 }
 
@@ -659,7 +958,9 @@ export function matchesKeyboardEventToAccelerator(
   if (!normalized || normalized.includes(" ") || normalized.startsWith("Mouse")) return false;
   const parsed = parseChord(normalized);
   if (!parsed) return false;
-  const eventAccel = keyboardEventToAccelerator(event, platform, { allowsBareModifiers: parsed.key === null });
+  const eventAccel = keyboardEventToAccelerator(event, platform, {
+    allowsBareModifiers: parsed.key === null,
+  });
   return eventAccel === normalized;
 }
 
@@ -698,9 +999,10 @@ export function matchKeyboardShortcutSequence(
     });
   });
 
-  const exact = sequenceBindings.find(({ chords }) =>
-    chords.length === candidate.length
-    && chords.every((part, index) => part === candidate[index])
+  const exact = sequenceBindings.find(
+    ({ chords }) =>
+      chords.length === candidate.length &&
+      chords.every((part, index) => part === candidate[index]),
   );
   if (exact) {
     return {
@@ -710,9 +1012,9 @@ export function matchKeyboardShortcutSequence(
     };
   }
 
-  const hasPrefix = sequenceBindings.some(({ chords }) =>
-    chords.length > candidate.length
-    && candidate.every((part, index) => part === chords[index])
+  const hasPrefix = sequenceBindings.some(
+    ({ chords }) =>
+      chords.length > candidate.length && candidate.every((part, index) => part === chords[index]),
   );
   if (hasPrefix) {
     return {
@@ -766,7 +1068,9 @@ function resolveNextOverrideKeys(
   if (update.type === "replace") {
     const oldKey = requiredKey(update.oldKeybinding);
     const newKey = requiredKey(update.newKeybinding);
-    const replaced = current.map((key) => (normalizeAccelerator(key) === normalizeAccelerator(oldKey) ? newKey : key));
+    const replaced = current.map((key) =>
+      normalizeAccelerator(key) === normalizeAccelerator(oldKey) ? newKey : key,
+    );
     return replaced.some((key) => normalizeAccelerator(key) === normalizeAccelerator(newKey))
       ? replaced.map(normalizeAccelerator)
       : [newKey];
@@ -778,7 +1082,10 @@ function resolveNextOverrideKeys(
     .map(normalizeAccelerator);
 }
 
-function omitOverride(overrides: CommandKeybindingOverrides, commandId: string): CommandKeybindingOverrides {
+function omitOverride(
+  overrides: CommandKeybindingOverrides,
+  commandId: string,
+): CommandKeybindingOverrides {
   const nextOverrides = { ...overrides };
   delete nextOverrides[commandId];
   return nextOverrides;
@@ -797,7 +1104,10 @@ function requiredKey(binding: CommandKeybindingRecord): string {
 }
 
 function normalizeChord(chord: string): string {
-  const parts = chord.split("+").map((part) => part.trim()).filter(Boolean);
+  const parts = chord
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
   const modifiers: string[] = [];
   let key: string | null = null;
 
@@ -864,11 +1174,7 @@ function formatChordLabel(chord: string, platform: RuntimePlatform): string {
   const parsed = parseChord(chord);
   if (!parsed) return "";
 
-  if (
-    parsed.key === "/"
-    && parsed.modifiers.length === 1
-    && parsed.modifiers[0] === "Shift"
-  ) {
+  if (parsed.key === "/" && parsed.modifiers.length === 1 && parsed.modifiers[0] === "Shift") {
     return "?";
   }
 

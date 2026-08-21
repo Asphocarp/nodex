@@ -18,10 +18,7 @@ import {
 
 type ProtocolMcpToolCallItem = Extract<ThreadItem, { type: "mcpToolCall" }>;
 
-function buildEntry(
-  id: string,
-  overrides: Partial<CodexConversationItem>,
-): CodexConversationItem {
+function buildEntry(id: string, overrides: Partial<CodexConversationItem>): CodexConversationItem {
   return {
     threadId: "thread-1",
     turnId: "turn-1",
@@ -41,13 +38,14 @@ function buildBlock(
   type: ThreadTranscriptBlockModel["type"],
   overrides: Partial<CodexConversationItem> = {},
 ): ThreadTranscriptBlockModel {
-  const semanticKind: CodexSemanticItemKind | undefined = type === "exec"
-    ? "exec"
-    : type === "webSearch"
-      ? "webSearch"
-      : type === "mcpServerElicitation"
-        ? "mcpServerElicitation"
-        : undefined;
+  const semanticKind: CodexSemanticItemKind | undefined =
+    type === "exec"
+      ? "exec"
+      : type === "webSearch"
+        ? "webSearch"
+        : type === "mcpServerElicitation"
+          ? "mcpServerElicitation"
+          : undefined;
   const entry = buildEntry(id, {
     semanticKind,
     ...overrides,
@@ -100,9 +98,9 @@ function mcpBlock(
       pluginId: options.pluginId ?? null,
       readOnlyHint: null,
       mcpAppResourceUri: options.mcpAppResourceUri,
-      source: options.source ?? (server === "browser-use"
-        ? { kind: "browserUse", backend: "iab" }
-        : null),
+      source:
+        options.source ??
+        (server === "browser-use" ? { kind: "browserUse", backend: "iab" } : null),
       invocation: {
         server,
         tool,
@@ -160,44 +158,56 @@ function approvalReview(
 describe("generic v2 agent activity group projection", () => {
   test("extracts summary facts directly from raw contiguous v2 leaves", () => {
     const facts = [
-      buildAgentActivityGroupSummaryFact(buildBlock("create", "fileChange", {
-        kind: "fileChange",
-        semanticKind: "patch",
-        status: "inProgress",
-        fileChange: {
-          changes: buildCodexFileChangeMap([
-            { type: "add", path: "src/new.ts", content: "one\ntwo\n" },
-          ]),
-        },
-      })),
-      buildAgentActivityGroupSummaryFact(buildBlock("read", "exec", {
-        commandActions: [readAction("src/app.ts")],
-      })),
-      buildAgentActivityGroupSummaryFact(buildBlock("search", "exec", {
-        status: "inProgress",
-        commandActions: [{
-          type: "search",
-          command: "rg parity",
-          query: "parity",
-          path: null,
-        }],
-      })),
-      buildAgentActivityGroupSummaryFact(buildBlock("list", "exec", {
-        commandActions: [{ type: "listFiles", command: "ls src", path: "src" }],
-      })),
+      buildAgentActivityGroupSummaryFact(
+        buildBlock("create", "fileChange", {
+          kind: "fileChange",
+          semanticKind: "patch",
+          status: "inProgress",
+          fileChange: {
+            changes: buildCodexFileChangeMap([
+              { type: "add", path: "src/new.ts", content: "one\ntwo\n" },
+            ]),
+          },
+        }),
+      ),
+      buildAgentActivityGroupSummaryFact(
+        buildBlock("read", "exec", {
+          commandActions: [readAction("src/app.ts")],
+        }),
+      ),
+      buildAgentActivityGroupSummaryFact(
+        buildBlock("search", "exec", {
+          status: "inProgress",
+          commandActions: [
+            {
+              type: "search",
+              command: "rg parity",
+              query: "parity",
+              path: null,
+            },
+          ],
+        }),
+      ),
+      buildAgentActivityGroupSummaryFact(
+        buildBlock("list", "exec", {
+          commandActions: [{ type: "listFiles", command: "ls src", path: "src" }],
+        }),
+      ),
       buildAgentActivityGroupSummaryFact(mcpBlock("mcp")),
-      buildAgentActivityGroupSummaryFact(buildBlock("web", "webSearch", {
-        webSearch: {
-          query: "Nodex",
-          action: null,
-          completed: false,
-        },
-        toolCall: {
-          toolName: "web",
-          subtype: "webSearch",
-          result: { type: "search", query: "Nodex" },
-        },
-      })),
+      buildAgentActivityGroupSummaryFact(
+        buildBlock("web", "webSearch", {
+          webSearch: {
+            query: "Nodex",
+            action: null,
+            completed: false,
+          },
+          toolCall: {
+            toolName: "web",
+            subtype: "webSearch",
+            result: { type: "search", query: "Nodex" },
+          },
+        }),
+      ),
       buildAgentActivityGroupSummaryFact(approvalReview("denied", "missing", "denied")),
     ];
 
@@ -205,11 +215,17 @@ describe("generic v2 agent activity group projection", () => {
       "patch,exploration,exploration,exploration,mcpToolCall,webSearch,automaticApprovalReview",
     );
     expect(facts[0]?.type === "patch" ? facts[0].runningCreatedLineCount : 0).toBe(2);
-    expect(facts[1]?.type === "exploration" ? Array.from(facts[1].readPaths).join(",") : "").toBe("src/app.ts");
+    expect(facts[1]?.type === "exploration" ? Array.from(facts[1].readPaths).join(",") : "").toBe(
+      "src/app.ts",
+    );
     expect(facts[2]?.type === "exploration" ? facts[2].runningSearchCount : 0).toBe(1);
     expect(facts[3]?.type === "exploration" ? facts[3].listCount : 0).toBe(1);
-    expect(facts[4]?.type === "mcpToolCall" ? facts[4].source?.key ?? "" : "").toBe("browser-use");
-    expect(facts[5]?.type === "webSearch" ? `${facts[5].count}:${facts[5].runningCount}` : "").toBe("1:1");
+    expect(facts[4]?.type === "mcpToolCall" ? (facts[4].source?.key ?? "") : "").toBe(
+      "browser-use",
+    );
+    expect(facts[5]?.type === "webSearch" ? `${facts[5].count}:${facts[5].runningCount}` : "").toBe(
+      "1:1",
+    );
   });
 
   test("keeps immutable full items separate from filtered body and typed header evidence", () => {
@@ -218,9 +234,7 @@ describe("generic v2 agent activity group projection", () => {
       kind: "fileChange",
       semanticKind: "patch",
       fileChange: {
-        changes: buildCodexFileChangeMap([
-          { type: "add", path: "src/new.ts", content: "line\n" },
-        ]),
+        changes: buildCodexFileChangeMap([{ type: "add", path: "src/new.ts", content: "line\n" }]),
       },
     });
     const web = buildBlock("web", "webSearch", {
@@ -231,15 +245,15 @@ describe("generic v2 agent activity group projection", () => {
       },
     });
     const mcp = mcpBlock("mcp", { status: "completed", completed: true });
-    const block = buildV2AgentActivityGroupBlock(
-      [patch, web, mcp],
-      "agent-activity-group:patch",
-      { bodyEntries: [patch, web] },
-    );
+    const block = buildV2AgentActivityGroupBlock([patch, web, mcp], "agent-activity-group:patch", {
+      bodyEntries: [patch, web],
+    });
 
     expect(block.type).toBe("agentActivityGroup");
     expect(block.renderKey).toBe("agent-activity-group:patch");
-    expect(block.entries.map((entry) => entry.type).join(",")).toBe("fileChange,webSearch,mcpToolCall");
+    expect(block.entries.map((entry) => entry.type).join(",")).toBe(
+      "fileChange,webSearch,mcpToolCall",
+    );
     expect(block.bodyEntries.map((entry) => entry.type).join(",")).toBe("fileChange,webSearch");
     expect(block.completedHeader.parts.map((part) => part.kind).join(",")).toBe(
       "mcpSources,fileChanges,webSearch",
@@ -259,12 +273,14 @@ describe("generic v2 agent activity group projection", () => {
       semanticKind: "patch",
       status: "completed",
       fileChange: {
-        changes: buildCodexFileChangeMap([{
-          type: "update",
-          path: "src/done.ts",
-          movePath: null,
-          unifiedDiff: "@@ -1,1 +1,1 @@\n-old\n+new",
-        }]),
+        changes: buildCodexFileChangeMap([
+          {
+            type: "update",
+            path: "src/done.ts",
+            movePath: null,
+            unifiedDiff: "@@ -1,1 +1,1 @@\n-old\n+new",
+          },
+        ]),
       },
     });
 
@@ -299,14 +315,17 @@ describe("generic v2 agent activity group projection", () => {
         kind: "fileChange",
         semanticKind: "patch",
         fileChange: {
-          changes: buildCodexFileChangeMap([{
-            type: "update",
-            path: "src/app.ts",
-            movePath: null,
-            unifiedDiff: `@@ -1,1 +1,1 @@\n-old ${index}\n+new ${index}`,
-          }]),
+          changes: buildCodexFileChangeMap([
+            {
+              type: "update",
+              path: "src/app.ts",
+              movePath: null,
+              unifiedDiff: `@@ -1,1 +1,1 @@\n-old ${index}\n+new ${index}`,
+            },
+          ]),
         },
-      }));
+      }),
+    );
     const facts = collectAgentActivityGroupCanonicalFacts(edits);
     const block = buildV2AgentActivityGroupBlock(edits, "deduplicated-edits");
 
@@ -347,7 +366,9 @@ describe("generic v2 agent activity group projection", () => {
   test("reprojects grouped MCP identity when late AppInfo becomes available", () => {
     const entries = [mcpBlock("docs", { server: "docs", status: "completed" })];
     const unresolved = collectAgentActivityGroupCanonicalFacts(entries);
-    const resolved = collectAgentActivityGroupCanonicalFacts(entries, [mcpApp("connector_docs", "Docs")]);
+    const resolved = collectAgentActivityGroupCanonicalFacts(entries, [
+      mcpApp("connector_docs", "Docs"),
+    ]);
 
     expect(unresolved.mcpToolCallSources[0]?.key).toBe("server:docs");
     expect(resolved.mcpToolCallSources[0]?.key).toBe("app:connector_docs");
@@ -360,9 +381,7 @@ describe("generic v2 agent activity group projection", () => {
       kind: "fileChange",
       semanticKind: "patch",
       fileChange: {
-        changes: buildCodexFileChangeMap([
-          { type: "add", path: "src/app.ts", content: "line\n" },
-        ]),
+        changes: buildCodexFileChangeMap([{ type: "add", path: "src/app.ts", content: "line\n" }]),
       },
     });
     const exec = buildBlock("exec", "exec", {
@@ -387,9 +406,17 @@ describe("generic v2 agent activity group projection", () => {
     );
 
     expect(attached.map((entry) => entry.type).join(",")).toBe("fileChange,exec,mcpToolCall");
-    expect(attachedPatch?.type === "fileChange" ? attachedPatch.automaticApprovalReviews?.length ?? 0 : 0).toBe(1);
-    expect(attachedExec?.type === "exec" ? attachedExec.automaticApprovalReviews?.length ?? 0 : 0).toBe(1);
-    expect(attachedMcp?.type === "mcpToolCall" ? attachedMcp.automaticApprovalReviews?.length ?? 0 : 0).toBe(1);
+    expect(
+      attachedPatch?.type === "fileChange"
+        ? (attachedPatch.automaticApprovalReviews?.length ?? 0)
+        : 0,
+    ).toBe(1);
+    expect(
+      attachedExec?.type === "exec" ? (attachedExec.automaticApprovalReviews?.length ?? 0) : 0,
+    ).toBe(1);
+    expect(
+      attachedMcp?.type === "mcpToolCall" ? (attachedMcp.automaticApprovalReviews?.length ?? 0) : 0,
+    ).toBe(1);
     expect(`${facts.deniedRequestCount}:${facts.timedOutRequestCount}`).toBe("1:1");
   });
 
@@ -401,9 +428,9 @@ describe("generic v2 agent activity group projection", () => {
     const review = approvalReview("review", "item-id-only", "denied");
     const attached = attachAutomaticApprovalReviewsToToolTargets([command, review]);
 
-    expect(attached.map((entry) => entry.type).join(",")).toBe(
-      "exec,automaticApprovalReview",
-    );
-    expect(attached[0]?.type === "exec" ? attached[0].automaticApprovalReviews?.length ?? 0 : 0).toBe(0);
+    expect(attached.map((entry) => entry.type).join(",")).toBe("exec,automaticApprovalReview");
+    expect(
+      attached[0]?.type === "exec" ? (attached[0].automaticApprovalReviews?.length ?? 0) : 0,
+    ).toBe(0);
   });
 });

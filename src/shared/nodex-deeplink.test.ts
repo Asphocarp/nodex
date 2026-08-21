@@ -13,16 +13,18 @@ describe("Nodex deep-link conformance", () => {
   test.each(vectors.valid)(
     "builds and parses $kind vector $canonical",
     ({ accepted, canonical, id, kind }) => {
-      const build = kind === "page"
-        ? () => buildPageDeepLink({ pageId: id })
-        : kind === "session"
-          ? () => buildSessionDeepLink({ sessionId: id })
-          : () => buildViewDeepLink({ viewId: id });
-      const parse = kind === "page"
-        ? (value: string) => parsePageDeepLink(value)?.pageId ?? null
-        : kind === "session"
-          ? (value: string) => parseSessionDeepLink(value)?.sessionId ?? null
-          : (value: string) => parseViewDeepLink(value)?.viewId ?? null;
+      const build =
+        kind === "page"
+          ? () => buildPageDeepLink({ pageId: id })
+          : kind === "session"
+            ? () => buildSessionDeepLink({ sessionId: id })
+            : () => buildViewDeepLink({ viewId: id });
+      const parse =
+        kind === "page"
+          ? (value: string) => parsePageDeepLink(value)?.pageId ?? null
+          : kind === "session"
+            ? (value: string) => parseSessionDeepLink(value)?.sessionId ?? null
+            : (value: string) => parseViewDeepLink(value)?.viewId ?? null;
 
       expect(build()).toBe(canonical);
       for (const value of accepted) {

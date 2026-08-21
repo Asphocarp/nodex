@@ -1,16 +1,10 @@
 import { execFile } from "node:child_process";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
-import type {
-  MessageBoxOptions,
-  MessageBoxReturnValue,
-} from "electron";
+import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 
 const AGENT_SKILL_CLI_TIMEOUT_MS = 30_000;
 const AGENT_SKILL_CLI_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
-const AVAILABLE_TARGET_STATES = new Set([
-  "managed-current",
-  "compatible-external",
-]);
+const AVAILABLE_TARGET_STATES = new Set(["managed-current", "compatible-external"]);
 
 export type SupportedAgentSkillTarget = "codex" | "claude-code";
 
@@ -57,9 +51,7 @@ export interface RunAgentSkillSetupOptions {
   readonly onlyWhenMissing?: boolean;
   readonly pathConfigured?: boolean;
   readonly runCli?: AgentSkillCliRunner;
-  readonly showMessageBox: (
-    options: MessageBoxOptions,
-  ) => Promise<MessageBoxReturnValue>;
+  readonly showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxReturnValue>;
 }
 
 interface CliSuccessEnvelope {
@@ -103,11 +95,13 @@ export const runAgentSkillCli: AgentSkillCliRunner = async (invocation) => {
       },
       (error, stdout, stderr) => {
         if (error) {
-          reject(new AgentSkillCliProcessError(
-            error.message,
-            typeof stdout === "string" ? stdout : "",
-            typeof stderr === "string" ? stderr : "",
-          ));
+          reject(
+            new AgentSkillCliProcessError(
+              error.message,
+              typeof stdout === "string" ? stdout : "",
+              typeof stderr === "string" ? stderr : "",
+            ),
+          );
           return;
         }
         resolveResult({
@@ -129,12 +123,12 @@ const assertPackagedCliPath = (candidate: string): string => {
   const contentsDirectory = dirname(resourcesDirectory);
   const appDirectory = dirname(contentsDirectory);
   if (
-    basename(normalized) !== "nodex"
-    || basename(binDirectory) !== "bin"
-    || basename(resourcesDirectory) !== "Resources"
-    || basename(contentsDirectory) !== "Contents"
-    || !basename(appDirectory).startsWith("Nodex")
-    || !basename(appDirectory).endsWith(".app")
+    basename(normalized) !== "nodex" ||
+    basename(binDirectory) !== "bin" ||
+    basename(resourcesDirectory) !== "Resources" ||
+    basename(contentsDirectory) !== "Contents" ||
+    !basename(appDirectory).startsWith("Nodex") ||
+    !basename(appDirectory).endsWith(".app")
   ) {
     throw new Error(`The packaged Nodex CLI path is invalid: ${normalized}`);
   }
@@ -150,13 +144,13 @@ const parseTarget = (value: unknown): AgentSkillTargetStatus | null => {
   const target = asRecord(value);
   if (!target) return null;
   if (
-    typeof target.agent !== "string"
-    || typeof target.changed !== "boolean"
-    || typeof target.detected !== "boolean"
-    || typeof target.outcome !== "string"
-    || typeof target.path !== "string"
-    || !isAbsolute(target.path)
-    || typeof target.state !== "string"
+    typeof target.agent !== "string" ||
+    typeof target.changed !== "boolean" ||
+    typeof target.detected !== "boolean" ||
+    typeof target.outcome !== "string" ||
+    typeof target.path !== "string" ||
+    !isAbsolute(target.path) ||
+    typeof target.state !== "string"
   ) {
     return null;
   }
@@ -171,17 +165,15 @@ const parseTarget = (value: unknown): AgentSkillTargetStatus | null => {
   };
 };
 
-export const parseAgentSkillCommandResult = (
-  value: unknown,
-): AgentSkillCommandResult => {
+export const parseAgentSkillCommandResult = (value: unknown): AgentSkillCommandResult => {
   const result = asRecord(value);
   if (
-    !result
-    || typeof result.schemaVersion !== "number"
-    || typeof result.operation !== "string"
-    || typeof result.dryRun !== "boolean"
-    || typeof result.changed !== "boolean"
-    || !Array.isArray(result.targets)
+    !result ||
+    typeof result.schemaVersion !== "number" ||
+    typeof result.operation !== "string" ||
+    typeof result.dryRun !== "boolean" ||
+    typeof result.changed !== "boolean" ||
+    !Array.isArray(result.targets)
   ) {
     throw new Error("The Nodex CLI returned an invalid Agent Skill result.");
   }
@@ -209,11 +201,7 @@ const parseSuccessEnvelope = (stdout: string): AgentSkillCommandResult => {
     throw new Error("The Nodex CLI returned malformed JSON.");
   }
   const envelope = asRecord(value) as CliSuccessEnvelope | null;
-  if (
-    !envelope
-    || envelope.version !== 1
-    || envelope.ok !== true
-  ) {
+  if (!envelope || envelope.version !== 1 || envelope.ok !== true) {
     throw new Error("The Nodex CLI returned an invalid success envelope.");
   }
   return parseAgentSkillCommandResult(envelope.result);
@@ -232,9 +220,7 @@ const invokeAgentSkillCli = async (
   return parseSuccessEnvelope(processResult.stdout);
 };
 
-const selectedAgentsForResponse = (
-  response: number,
-): readonly SupportedAgentSkillTarget[] => {
+const selectedAgentsForResponse = (response: number): readonly SupportedAgentSkillTarget[] => {
   switch (response) {
     case 0:
       return ["codex", "claude-code"];
@@ -252,33 +238,27 @@ const targetPathsDetail = (
   pathConfigured: boolean | undefined,
 ): string => {
   const paths = status.targets
-    .filter((target) =>
-      target.agent === "codex" || target.agent === "claude-code"
-    )
+    .filter((target) => target.agent === "codex" || target.agent === "claude-code")
     .map((target) => `${target.agent}: ${target.path}`);
-  const pathNote = pathConfigured === false
-    ? "\n\nThe Skill can be linked now, but Agents will need ~/.local/bin on PATH to run nodex."
-    : "";
-  return [
-    "Nodex manages only these global discovery locations:",
-    "",
-    ...paths,
-  ].join("\n") + pathNote;
+  const pathNote =
+    pathConfigured === false
+      ? "\n\nThe Skill can be linked now, but Agents will need ~/.local/bin on PATH to run nodex."
+      : "";
+  return (
+    ["Nodex manages only these global discovery locations:", "", ...paths].join("\n") + pathNote
+  );
 };
 
 const errorDetail = (error: unknown): string => {
   if (error instanceof AgentSkillCliProcessError) {
     try {
       const envelope = JSON.parse(error.stderr) as CliErrorEnvelope;
-      const message = typeof envelope.error?.message === "string"
-        ? envelope.error.message
-        : error.message;
-      const path = typeof envelope.error?.path === "string"
-        ? `\n\nTarget: ${envelope.error.path}`
-        : "";
-      const code = typeof envelope.error?.code === "string"
-        ? `\n\nCode: ${envelope.error.code}`
-        : "";
+      const message =
+        typeof envelope.error?.message === "string" ? envelope.error.message : error.message;
+      const path =
+        typeof envelope.error?.path === "string" ? `\n\nTarget: ${envelope.error.path}` : "";
+      const code =
+        typeof envelope.error?.code === "string" ? `\n\nCode: ${envelope.error.code}` : "";
       return `${message}${path}${code}`;
     } catch {
       return error.stderr.trim() || error.message;
@@ -293,20 +273,16 @@ export async function runAgentSkillSetup(
   try {
     const cliPath = assertPackagedCliPath(options.cliPath);
     const runCli = options.runCli ?? runAgentSkillCli;
-    const status = await invokeAgentSkillCli(
-      cliPath,
-      ["--json", "skills", "status"],
-      runCli,
-    );
+    const status = await invokeAgentSkillCli(cliPath, ["--json", "skills", "status"], runCli);
     const configuredAgents = new Set(
       status.targets
         .filter((target) => AVAILABLE_TARGET_STATES.has(target.state))
         .map((target) => target.agent),
     );
     if (
-      options.onlyWhenMissing
-      && configuredAgents.has("codex")
-      && configuredAgents.has("claude-code")
+      options.onlyWhenMissing &&
+      configuredAgents.has("codex") &&
+      configuredAgents.has("claude-code")
     ) {
       return {
         status: "already-configured",
@@ -316,12 +292,7 @@ export async function runAgentSkillSetup(
 
     const selection = await options.showMessageBox({
       type: "question",
-      buttons: [
-        "Install for Codex + Claude Code",
-        "Codex only",
-        "Claude Code only",
-        "Not now",
-      ],
+      buttons: ["Install for Codex + Claude Code", "Codex only", "Claude Code only", "Not now"],
       defaultId: 0,
       cancelId: 3,
       noLink: true,

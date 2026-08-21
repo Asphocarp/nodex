@@ -21,12 +21,7 @@ import {
   type ReactNode,
 } from "react";
 import { ActivitySpinnerIcon, CheckmarkIcon, ChevronDownIcon } from "@/components/shared/icons";
-import {
-  ImagePlus,
-  Link2,
-  Trash2,
-  UploadCloud,
-} from "@/components/shared/icons/generic-icons";
+import { ImagePlus, Link2, Trash2, UploadCloud } from "@/components/shared/icons/generic-icons";
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDropdownContent,
@@ -34,11 +29,7 @@ import {
   NodexDropdownSectionLabel,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CopyImageButton } from "./copy-image-button";
@@ -119,70 +110,68 @@ type ToolbarButtonProps = Omit<
   label?: string;
 };
 
-const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
-  function ToolbarButton(
-    {
-      className,
-      mainTooltip,
-      secondaryTooltip,
-      icon,
-      onClick,
-      isSelected = false,
-      isDisabled = false,
-      children,
-      label,
-      ...buttonProps
-    },
-    ref,
-  ) {
-    const iconOverride = useContext(NfmFormattingToolbarIconContext);
-    const button = (
-      <button
-        {...buttonProps}
-        ref={ref}
-        type="button"
-        contentEditable={false}
-        aria-label={label}
-        disabled={isDisabled}
-        className={cn(
-          "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-[9px] px-2 text-[12px] leading-4 text-token-text-secondary outline-hidden transition-colors",
-          "focus-visible:ring-1 focus-visible:ring-token-focus-border",
-          !isDisabled && "hover:bg-token-foreground/6 hover:text-token-foreground",
-          isSelected && "bg-token-foreground/10 text-token-foreground",
-          isDisabled && "cursor-default opacity-40",
-          className,
-        )}
-        onMouseDown={(event) => {
-          keepEditorSelection(event);
-          buttonProps.onMouseDown?.(event);
-        }}
-        onClick={(event) => {
-          if (isDisabled) return;
-          onClick?.(event);
-        }}
-      >
-        {icon || iconOverride ? (
-          <span className="shrink-0 [&_svg]:size-4">{iconOverride ?? icon}</span>
-        ) : null}
-        {children}
-      </button>
-    );
-
-    if (!mainTooltip) return button;
-
-    return (
-      <NodexTooltip
-        tooltipContent={mainTooltip}
-        shortcutLabel={secondaryTooltip}
-        side="top"
-        sideOffset={6}
-        delayDuration={0}
-      >
-        {button}
-      </NodexTooltip>
-    );
+const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function ToolbarButton(
+  {
+    className,
+    mainTooltip,
+    secondaryTooltip,
+    icon,
+    onClick,
+    isSelected = false,
+    isDisabled = false,
+    children,
+    label,
+    ...buttonProps
   },
-);
+  ref,
+) {
+  const iconOverride = useContext(NfmFormattingToolbarIconContext);
+  const button = (
+    <button
+      {...buttonProps}
+      ref={ref}
+      type="button"
+      contentEditable={false}
+      aria-label={label}
+      disabled={isDisabled}
+      className={cn(
+        "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-[9px] px-2 text-[12px] leading-4 text-token-text-secondary outline-hidden transition-colors",
+        "focus-visible:ring-1 focus-visible:ring-token-focus-border",
+        !isDisabled && "hover:bg-token-foreground/6 hover:text-token-foreground",
+        isSelected && "bg-token-foreground/10 text-token-foreground",
+        isDisabled && "cursor-default opacity-40",
+        className,
+      )}
+      onMouseDown={(event) => {
+        keepEditorSelection(event);
+        buttonProps.onMouseDown?.(event);
+      }}
+      onClick={(event) => {
+        if (isDisabled) return;
+        onClick?.(event);
+      }}
+    >
+      {icon || iconOverride ? (
+        <span className="shrink-0 [&_svg]:size-4">{iconOverride ?? icon}</span>
+      ) : null}
+      {children}
+    </button>
+  );
+
+  if (!mainTooltip) return button;
+
+  return (
+    <NodexTooltip
+      tooltipContent={mainTooltip}
+      shortcutLabel={secondaryTooltip}
+      side="top"
+      sideOffset={6}
+      delayDuration={0}
+    >
+      {button}
+    </NodexTooltip>
+  );
+});
 
 function ToolbarSelect({
   className,
@@ -217,7 +206,9 @@ function ToolbarSelect({
           )}
           onMouseDown={keepEditorSelection}
         >
-          <span className="shrink-0 text-token-text-secondary [&_svg]:size-4">{selectedItem.icon}</span>
+          <span className="shrink-0 text-token-text-secondary [&_svg]:size-4">
+            {selectedItem.icon}
+          </span>
           <span className="min-w-0 flex-1 truncate text-left">{selectedItem.text}</span>
           <ChevronDownIcon className="size-3 shrink-0 text-token-text-secondary" />
         </button>
@@ -237,8 +228,16 @@ function ToolbarSelect({
               <NodexDropdownItem
                 key={item.text}
                 disabled={item.isDisabled}
-                leftSlot={<span className="text-token-description-foreground [&_svg]:size-4">{item.icon}</span>}
-                rightSlot={item.isSelected ? <CheckmarkIcon className="size-4 text-token-foreground" /> : null}
+                leftSlot={
+                  <span className="text-token-description-foreground [&_svg]:size-4">
+                    {item.icon}
+                  </span>
+                }
+                rightSlot={
+                  item.isSelected ? (
+                    <CheckmarkIcon className="size-4 text-token-foreground" />
+                  ) : null
+                }
                 onPointerDownCapture={keepEditorSelection}
                 onSelect={() => {
                   item.onClick();
@@ -264,11 +263,7 @@ function MenuRoot({
   onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <DropdownMenuPrimitive.Root
-      modal={false}
-      open={open}
-      onOpenChange={onOpenChange}
-    >
+    <DropdownMenuPrimitive.Root modal={false} open={open} onOpenChange={onOpenChange}>
       {children}
     </DropdownMenuPrimitive.Root>
   );
@@ -278,13 +273,7 @@ function MenuTrigger({ children }: { children?: ReactNode }) {
   return <DropdownMenuPrimitive.Trigger asChild>{children}</DropdownMenuPrimitive.Trigger>;
 }
 
-function MenuDropdown({
-  children,
-  className,
-}: {
-  children?: ReactNode;
-  className?: string;
-}) {
+function MenuDropdown({ children, className }: { children?: ReactNode; className?: string }) {
   return (
     <DropdownMenuPrimitive.Portal>
       <NodexDropdownContent
@@ -319,7 +308,11 @@ function MenuItem({
   return (
     <NodexDropdownItem
       className={className}
-      leftSlot={icon ? <span className="text-token-description-foreground [&_svg]:size-4">{icon}</span> : null}
+      leftSlot={
+        icon ? (
+          <span className="text-token-description-foreground [&_svg]:size-4">{icon}</span>
+        ) : null
+      }
       rightSlot={checked ? <CheckmarkIcon className="size-4 text-token-foreground" /> : null}
       onPointerDownCapture={keepEditorSelection}
       onSelect={(event) => {
@@ -332,13 +325,7 @@ function MenuItem({
   );
 }
 
-function MenuLabel({
-  className,
-  children,
-}: {
-  className?: string;
-  children?: ReactNode;
-}) {
+function MenuLabel({ className, children }: { className?: string; children?: ReactNode }) {
   return <NodexDropdownSectionLabel className={className}>{children}</NodexDropdownSectionLabel>;
 }
 
@@ -352,10 +339,7 @@ function PopoverRoot({
   onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <NodexPopover
-      open={open}
-      onOpenChange={onOpenChange}
-    >
+    <NodexPopover open={open} onOpenChange={onOpenChange}>
       {children}
     </NodexPopover>
   );
@@ -475,7 +459,12 @@ function FilePanelRoot({
   const activeTab = tabs.find((tab) => tab.name === openTab) ?? tabs[0];
 
   return (
-    <div className={cn("flex w-full min-w-[18rem] flex-col gap-1.5 p-1.5 text-token-foreground", className)}>
+    <div
+      className={cn(
+        "flex w-full min-w-[18rem] flex-col gap-1.5 p-1.5 text-token-foreground",
+        className,
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <div
           role="tablist"
@@ -503,7 +492,9 @@ function FilePanelRoot({
             </button>
           ))}
         </div>
-        {loading ? <ActivitySpinnerIcon className="size-3.5 text-token-description-foreground" /> : null}
+        {loading ? (
+          <ActivitySpinnerIcon className="size-3.5 text-token-description-foreground" />
+        ) : null}
       </div>
       <div>{activeTab?.tabPanel}</div>
     </div>
@@ -525,7 +516,10 @@ function FilePanelButton({
     <NodexButton
       variant="outline"
       size="sm"
-      className={cn("w-full justify-center gap-1.5 rounded-lg border-token-border/70 bg-transparent px-2.5 text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground", className)}
+      className={cn(
+        "w-full justify-center gap-1.5 rounded-lg border-token-border/70 bg-transparent px-2.5 text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-foreground",
+        className,
+      )}
       onMouseDown={keepEditorSelection}
       onClick={onClick}
       aria-label={label}
@@ -536,13 +530,7 @@ function FilePanelButton({
   );
 }
 
-function FilePanelTabPanel({
-  className,
-  children,
-}: {
-  className?: string;
-  children?: ReactNode;
-}) {
+function FilePanelTabPanel({ className, children }: { className?: string; children?: ReactNode }) {
   return <div className={cn("flex flex-col gap-1.5 p-0.5", className)}>{children}</div>;
 }
 
@@ -666,10 +654,7 @@ export function NfmLegacyFormattingToolbar() {
         if (!iconOverride) return item;
 
         return (
-          <NfmFormattingToolbarIconContext.Provider
-            key={item.key}
-            value={iconOverride}
-          >
+          <NfmFormattingToolbarIconContext.Provider key={item.key} value={iconOverride}>
             {item}
           </NfmFormattingToolbarIconContext.Provider>
         );
@@ -741,11 +726,7 @@ export function NfmLegacyFormattingToolbar() {
   );
 }
 
-export function NfmFormattingToolbar({
-  mode,
-}: {
-  mode: NfmFormattingToolbarMode;
-}) {
+export function NfmFormattingToolbar({ mode }: { mode: NfmFormattingToolbarMode }) {
   if (mode === "legacy") return <NfmLegacyFormattingToolbar />;
   return <NfmTextActionMenu />;
 }

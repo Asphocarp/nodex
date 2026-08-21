@@ -469,9 +469,7 @@ function parseCallout(
   baseIndent: number,
 ): { block: NfmCallout; nextLine: number } | null {
   const openLine = lines[startLine].slice(baseIndent);
-  const openMatch = openLine.match(
-    /^<callout(?:\s+icon="([^"]*)")?(?:\s+color="([^"]*)")?\s*>/,
-  );
+  const openMatch = openLine.match(/^<callout(?:\s+icon="([^"]*)")?(?:\s+color="([^"]*)")?\s*>/);
   if (!openMatch) return null;
 
   const icon = openMatch[1] || undefined;
@@ -488,9 +486,7 @@ function parseCallout(
       break;
     }
     // Strip one level of indentation (callout children are indented)
-    const innerContent = lineContent.startsWith("\t")
-      ? lineContent.slice(1)
-      : lineContent;
+    const innerContent = lineContent.startsWith("\t") ? lineContent.slice(1) : lineContent;
     contentLines.push(innerContent);
     i++;
   }
@@ -534,12 +530,13 @@ function parseImage(line: string): NfmImage | null {
   if (source === undefined) return null;
 
   const colorValue = getXmlAttr(attrString, "color");
-  const color = colorValue && NFM_COLORS.includes(colorValue as NfmColor)
-    ? (colorValue as NfmColor)
-    : undefined;
+  const color =
+    colorValue && NFM_COLORS.includes(colorValue as NfmColor)
+      ? (colorValue as NfmColor)
+      : undefined;
 
-  const previewWidthRaw = getXmlAttr(attrString, "preview-width")
-    ?? getXmlAttr(attrString, "previewWidth");
+  const previewWidthRaw =
+    getXmlAttr(attrString, "preview-width") ?? getXmlAttr(attrString, "previewWidth");
   const previewWidth = previewWidthRaw ? Number.parseInt(previewWidthRaw, 10) : undefined;
 
   return {
@@ -561,10 +558,12 @@ function parseToggleListInlineView(line: string): NfmToggleListInlineView | null
   const attrString = match[1] ?? "";
   const sourceProjectId = getXmlAttr(attrString, "project") ?? "default";
   const rulesV2B64 = getXmlAttr(attrString, "rules-v2");
-  const propertyOrder = parseCsvAttr(getXmlAttr(attrString, "property-order"))
-    .filter(isToggleListPropertyKey);
-  const hiddenProperties = parseCsvAttr(getXmlAttr(attrString, "hidden-properties"))
-    .filter(isToggleListPropertyKey);
+  const propertyOrder = parseCsvAttr(getXmlAttr(attrString, "property-order")).filter(
+    isToggleListPropertyKey,
+  );
+  const hiddenProperties = parseCsvAttr(getXmlAttr(attrString, "hidden-properties")).filter(
+    isToggleListPropertyKey,
+  );
   const showEmptyEstimate = getXmlAttr(attrString, "show-empty-estimate");
   const showEmptyPriority = getXmlAttr(attrString, "show-empty-priority");
 
@@ -610,9 +609,7 @@ function parseSyncedBlockRef(line: string): NfmSyncedBlockRef | null {
   };
 }
 
-function parseReusableTemplateRef(
-  line: string,
-): NfmReusableTemplateRef | null {
+function parseReusableTemplateRef(line: string): NfmReusableTemplateRef | null {
   const match = line.match(/^<template-ref(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
   const attributes = match[1] ?? "";
@@ -773,7 +770,9 @@ function parseCardToggle(
       titleLines.push(currentContent.startsWith("\t") ? currentContent.slice(1) : currentContent);
       foundTitle = true;
     } else {
-      childrenLines.push(currentContent.startsWith("\t") ? currentContent.slice(1) : currentContent);
+      childrenLines.push(
+        currentContent.startsWith("\t") ? currentContent.slice(1) : currentContent,
+      );
     }
     i++;
   }
@@ -781,10 +780,9 @@ function parseCardToggle(
   const titleSource = titleLines.join("\n");
   const parsedTitleBlocks = parseNfm(titleSource);
   const firstTitleBlock = parsedTitleBlocks[0];
-  const hasInlineParagraphTitle = parsedTitleBlocks.length === 1 && firstTitleBlock?.type === "paragraph";
-  const titleContent = hasInlineParagraphTitle
-    ? firstTitleBlock.content
-    : [];
+  const hasInlineParagraphTitle =
+    parsedTitleBlocks.length === 1 && firstTitleBlock?.type === "paragraph";
+  const titleContent = hasInlineParagraphTitle ? firstTitleBlock.content : [];
   const childSource = hasInlineParagraphTitle
     ? childrenLines.join("\n")
     : [titleSource, ...childrenLines].join("\n");

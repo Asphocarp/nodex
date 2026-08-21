@@ -36,9 +36,7 @@ export interface CanvasSceneSyncAdapter {
     presenceListener?: (event: CanvasPresenceRealtimeEvent) => void,
   ) => () => void;
   sync: (request: CanvasSceneSyncRequest) => Promise<CanvasSceneSyncCommandResult>;
-  applyMutation: (
-    request: CanvasSceneMutationRequest,
-  ) => Promise<CanvasSceneMutationCommandResult>;
+  applyMutation: (request: CanvasSceneMutationRequest) => Promise<CanvasSceneMutationCommandResult>;
   publishPresence?: (
     request: import("../../shared/block-documents").CanvasPresencePublishRequest,
   ) => Promise<CanvasPresenceCommandResult>;
@@ -77,10 +75,7 @@ export interface CanvasSceneProviderStatus {
   readonly error?: CanvasSceneMutationError;
 }
 
-export type CanvasSceneProviderScheduler = (
-  callback: () => void,
-  delayMs: number,
-) => () => void;
+export type CanvasSceneProviderScheduler = (callback: () => void, delayMs: number) => () => void;
 
 export interface CanvasSceneProviderOptions extends ContentAccessIdentity {
   readonly documentId: string;
@@ -210,10 +205,8 @@ const invalidResponseError = (message: string): CanvasSceneMutationError => ({
   resetRequired: false,
 });
 
-const sameAccessContext = (
-  left: ContentAccessContext,
-  right: ContentAccessContext,
-): boolean => contentAccessContextKey(left) === contentAccessContextKey(right);
+const sameAccessContext = (left: ContentAccessContext, right: ContentAccessContext): boolean =>
+  contentAccessContextKey(left) === contentAccessContextKey(right);
 
 const sameValue = (left: unknown, right: unknown): boolean =>
   canonicalStringifyCanvasScene(left) === canonicalStringifyCanvasScene(right);
@@ -238,10 +231,7 @@ const mergeObservations = (
   for (const element of next.elementCandidates) {
     const id = element.id as string;
     const current = elements.get(id);
-    elements.set(
-      id,
-      current ? chooseCanvasSceneElementWinner(current, element) : element,
-    );
+    elements.set(id, current ? chooseCanvasSceneElementWinner(current, element) : element);
   }
   const appStateIntents: Record<string, CanvasSceneAppStateIntent> = {
     ...previous.appStateIntents,
@@ -271,16 +261,11 @@ const applyCommittedDelta = (
   current: PortableCanvasScene,
   delta: CanvasSceneCommittedDelta,
 ): PortableCanvasScene => {
-  const elements = new Map(
-    current.elements.map((element) => [element.id as string, element]),
-  );
+  const elements = new Map(current.elements.map((element) => [element.id as string, element]));
   for (const update of delta.elementUpdates) {
     const id = update.id as string;
     const existing = elements.get(id);
-    elements.set(
-      id,
-      existing ? chooseCanvasSceneElementWinner(existing, update) : update,
-    );
+    elements.set(id, existing ? chooseCanvasSceneElementWinner(existing, update) : update);
   }
   const files: Record<string, CanvasSceneFile> = {
     ...current.files,
@@ -336,10 +321,7 @@ export class CanvasSceneProvider {
   private headSeq = 0;
   private pending: PendingObservation | null = null;
   private recovered: CanvasSceneMutationIntent[] = [];
-  private readonly recoveredWaiters = new Map<
-    string,
-    readonly ObservationWaiter[]
-  >();
+  private readonly recoveredWaiters = new Map<string, readonly ObservationWaiter[]>();
   private inFlight: InFlightMutation | null = null;
   private connected = false;
   private closing = false;
@@ -358,8 +340,7 @@ export class CanvasSceneProvider {
     this.schedule = options.schedule ?? defaultScheduler;
     this.scheduleRetry = options.scheduleRetry ?? defaultScheduler;
     this.createMutationId = options.createMutationId ?? createFallbackMutationId;
-    this.createSyncRequestId =
-      options.createSyncRequestId ?? createFallbackSyncRequestId;
+    this.createSyncRequestId = options.createSyncRequestId ?? createFallbackSyncRequestId;
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
     this.status = this.buildStatus();
@@ -381,10 +362,10 @@ export class CanvasSceneProvider {
     state: CanvasPresenceValue | null,
   ): Promise<CanvasPresenceCommandResult> => {
     if (
-      this.closed
-      || this.closing
-      || this.generation === null
-      || !this.options.adapter.publishPresence
+      this.closed ||
+      this.closing ||
+      this.generation === null ||
+      !this.options.adapter.publishPresence
     ) {
       return {
         ok: false,
@@ -412,9 +393,7 @@ export class CanvasSceneProvider {
       return {
         ok: false,
         error: {
-          code: error instanceof TypeError
-            ? "invalid_presence"
-            : "transport_unavailable",
+          code: error instanceof TypeError ? "invalid_presence" : "transport_unavailable",
           message: error instanceof Error ? error.message : String(error),
           retryable: !(error instanceof TypeError),
           resetRequired: false,
@@ -453,9 +432,9 @@ export class CanvasSceneProvider {
     const appStateIntents = observation.appStateIntents ?? {};
     const fileAdditions = observation.fileAdditions ?? {};
     if (
-      observation.elementCandidates.length === 0
-      && Object.keys(appStateIntents).length === 0
-      && Object.keys(fileAdditions).length === 0
+      observation.elementCandidates.length === 0 &&
+      Object.keys(appStateIntents).length === 0 &&
+      Object.keys(fileAdditions).length === 0
     ) {
       return resolvedSubmission();
     }
@@ -512,9 +491,7 @@ export class CanvasSceneProvider {
 
   flush = (): Promise<void> => this.flushCommitted();
 
-  close = (
-    options: { readonly requireCommitted?: boolean } = {},
-  ): Promise<void> => {
+  close = (options: { readonly requireCommitted?: boolean } = {}): Promise<void> => {
     if (this.closed) return Promise.resolve();
     if (this.closePromise) return this.closePromise;
     const requireCommitted = options.requireCommitted ?? true;
@@ -529,18 +506,10 @@ export class CanvasSceneProvider {
     if (this.closePromise) {
       return this.closePromise
         .catch(() => undefined)
-        .then(() =>
-          this.options.outbox.clear(
-            this.options.accessContext,
-            this.options.documentId,
-          )
-        );
+        .then(() => this.options.outbox.clear(this.options.accessContext, this.options.documentId));
     }
     if (this.closed) {
-      return this.options.outbox.clear(
-        this.options.accessContext,
-        this.options.documentId,
-      );
+      return this.options.outbox.clear(this.options.accessContext, this.options.documentId);
     }
     const promise = this.retireOwnerInternal().finally(() => {
       if (this.closePromise === promise) this.closePromise = null;
@@ -558,12 +527,8 @@ export class CanvasSceneProvider {
         const failure = new Error(
           "Canvas scene provider closed after local durability; commit continues from the outbox",
         );
-        this.inFlight?.waiters.forEach((waiter) =>
-          rejectCommitted(waiter, failure)
-        );
-        this.pending?.waiters.forEach((waiter) =>
-          rejectCommitted(waiter, failure)
-        );
+        this.inFlight?.waiters.forEach((waiter) => rejectCommitted(waiter, failure));
+        this.pending?.waiters.forEach((waiter) => rejectCommitted(waiter, failure));
       }
       this.finalizeClosed();
     }
@@ -575,10 +540,7 @@ export class CanvasSceneProvider {
     const failure = new Error("Canvas owner was deleted");
     this.rejectAll(failure);
     try {
-      await this.options.outbox.clear(
-        this.options.accessContext,
-        this.options.documentId,
-      );
+      await this.options.outbox.clear(this.options.accessContext, this.options.documentId);
     } finally {
       this.finalizeClosed();
     }
@@ -630,15 +592,12 @@ export class CanvasSceneProvider {
     if (
       recovered.some(
         (intent) =>
-          !sameAccessContext(intent.accessContext, this.options.accessContext)
-          || intent.storeEpoch !== this.storeEpoch
-          || intent.generation !== this.generation,
+          !sameAccessContext(intent.accessContext, this.options.accessContext) ||
+          intent.storeEpoch !== this.storeEpoch ||
+          intent.generation !== this.generation,
       )
     ) {
-      await this.options.outbox.clear(
-        this.options.accessContext,
-        this.options.documentId,
-      );
+      await this.options.outbox.clear(this.options.accessContext, this.options.documentId);
       this.enterReset("Canvas outbox crossed a store epoch or generation boundary");
       return;
     }
@@ -698,9 +657,9 @@ export class CanvasSceneProvider {
       return;
     }
     if (
-      response.libraryId !== this.options.libraryId
-      || !sameAccessContext(response.accessContext, this.options.accessContext)
-      || response.documentId !== this.options.documentId
+      response.libraryId !== this.options.libraryId ||
+      !sameAccessContext(response.accessContext, this.options.accessContext) ||
+      response.documentId !== this.options.documentId
     ) {
       this.enterFatal("Canvas sync response crossed its Library, access, or Document boundary");
       return;
@@ -708,26 +667,23 @@ export class CanvasSceneProvider {
     const expectedEpoch = this.storeEpoch ?? this.options.expectedStoreEpoch;
     const expectedGeneration = this.generation ?? this.options.expectedGeneration;
     if (
-      (expectedEpoch !== undefined && expectedEpoch !== response.storeEpoch)
-      || (expectedGeneration !== undefined && expectedGeneration !== response.generation)
+      (expectedEpoch !== undefined && expectedEpoch !== response.storeEpoch) ||
+      (expectedGeneration !== undefined && expectedGeneration !== response.generation)
     ) {
-      await this.options.outbox.clear(
-        this.options.accessContext,
-        this.options.documentId,
-      );
+      await this.options.outbox.clear(this.options.accessContext, this.options.documentId);
       this.enterReset("Canvas sync response crossed its store epoch or generation boundary");
       return;
     }
     if (
-      response.kind !== "up_to_date" && response.kind !== "snapshot"
-      || typeof response.storeEpoch !== "string"
-      || response.storeEpoch.length === 0
-      || !Number.isSafeInteger(response.generation)
-      || response.generation < 1
-      || !Number.isSafeInteger(response.headSeq)
-      || response.headSeq < 0
-      || typeof response.sceneHash !== "string"
-      || !/^[a-f0-9]{64}$/u.test(response.sceneHash)
+      (response.kind !== "up_to_date" && response.kind !== "snapshot") ||
+      typeof response.storeEpoch !== "string" ||
+      response.storeEpoch.length === 0 ||
+      !Number.isSafeInteger(response.generation) ||
+      response.generation < 1 ||
+      !Number.isSafeInteger(response.headSeq) ||
+      response.headSeq < 0 ||
+      typeof response.sceneHash !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(response.sceneHash)
     ) {
       this.enterFatal("Canvas sync response has invalid durable coordinates");
       return;
@@ -738,10 +694,7 @@ export class CanvasSceneProvider {
         this.enterFatal("Canvas sync reported up-to-date without a local scene");
         return;
       }
-      if (
-        response.headSeq !== this.headSeq
-        || response.sceneHash !== this.sceneHash
-      ) {
+      if (response.headSeq !== this.headSeq || response.sceneHash !== this.sceneHash) {
         this.enterFatal("Canvas up-to-date response disagrees with the local scene");
         return;
       }
@@ -788,18 +741,18 @@ export class CanvasSceneProvider {
 
   private pump(): void {
     if (
-      this.closed
-      || !this.scene
-      || this.syncPromise
-      || this.queuedPersistencePromise
-      || (this.error !== undefined && !this.error.retryable)
-      || this.inFlight
+      this.closed ||
+      !this.scene ||
+      this.syncPromise ||
+      this.queuedPersistencePromise ||
+      (this.error !== undefined && !this.error.retryable) ||
+      this.inFlight
     ) {
       if (
-        this.inFlight?.durable
-        && this.pending
-        && !this.cancelCoalesce
-        && !this.queuedPersistencePromise
+        this.inFlight?.durable &&
+        this.pending &&
+        !this.cancelCoalesce &&
+        !this.queuedPersistencePromise
       ) {
         this.startQueuedPersistence();
       }
@@ -842,9 +795,7 @@ export class CanvasSceneProvider {
     void this.persistAndSendInFlight();
   }
 
-  private createIntent(
-    pending: PendingObservation,
-  ): CanvasSceneMutationIntent {
+  private createIntent(pending: PendingObservation): CanvasSceneMutationIntent {
     return canonicalizeCanvasSceneMutationIntent({
       mutationId: this.createMutationId(),
       accessContext: this.options.accessContext,
@@ -932,9 +883,9 @@ export class CanvasSceneProvider {
     if (this.inFlight !== current) return;
     if (!result.ok) {
       if (
-        result.error.code === "invalid_canvas_scene_mutation"
-        && !result.error.retryable
-        && !result.error.resetRequired
+        result.error.code === "invalid_canvas_scene_mutation" &&
+        !result.error.retryable &&
+        !result.error.resetRequired
       ) {
         await this.quarantineInFlight(current, result.error);
         return;
@@ -947,23 +898,20 @@ export class CanvasSceneProvider {
       return;
     }
     if (
-      result.value.libraryId !== this.options.libraryId
-      || !sameAccessContext(
-        result.value.accessContext,
-        current.intent.accessContext,
-      )
-      || result.value.documentId !== current.intent.documentId
-      || result.value.storeEpoch !== current.intent.storeEpoch
-      || result.value.generation !== current.intent.generation
-      || result.value.baseHeadSeq !== current.intent.baseHeadSeq
-      || !Number.isSafeInteger(result.value.headSeq)
-      || result.value.headSeq < result.value.baseHeadSeq
-      || (result.value.outcome !== "committed" && result.value.outcome !== "no_change")
-      || (result.value.outcome === "committed" && !result.value.committedDelta)
-      || (result.value.outcome === "no_change" && result.value.committedDelta)
-      || typeof result.value.duplicate !== "boolean"
-      || typeof result.value.sceneHash !== "string"
-      || !/^[a-f0-9]{64}$/u.test(result.value.sceneHash)
+      result.value.libraryId !== this.options.libraryId ||
+      !sameAccessContext(result.value.accessContext, current.intent.accessContext) ||
+      result.value.documentId !== current.intent.documentId ||
+      result.value.storeEpoch !== current.intent.storeEpoch ||
+      result.value.generation !== current.intent.generation ||
+      result.value.baseHeadSeq !== current.intent.baseHeadSeq ||
+      !Number.isSafeInteger(result.value.headSeq) ||
+      result.value.headSeq < result.value.baseHeadSeq ||
+      (result.value.outcome !== "committed" && result.value.outcome !== "no_change") ||
+      (result.value.outcome === "committed" && !result.value.committedDelta) ||
+      (result.value.outcome === "no_change" && result.value.committedDelta) ||
+      typeof result.value.duplicate !== "boolean" ||
+      typeof result.value.sceneHash !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(result.value.sceneHash)
     ) {
       this.enterFatal("Canvas mutation ACK crossed its durable request boundary");
       return;
@@ -982,16 +930,9 @@ export class CanvasSceneProvider {
     }
     this.inFlight = null;
     this.retryAttempt = 0;
-    if (
-      result.value.headSeq === this.headSeq + 1
-      && result.value.committedDelta
-      && this.scene
-    ) {
+    if (result.value.headSeq === this.headSeq + 1 && result.value.committedDelta && this.scene) {
       try {
-        this.scene = applyCommittedDelta(
-          this.scene,
-          result.value.committedDelta,
-        );
+        this.scene = applyCommittedDelta(this.scene, result.value.committedDelta);
         this.headSeq = result.value.headSeq;
         this.sceneHash = result.value.sceneHash;
         this.options.onScene(this.scene);
@@ -1016,18 +957,12 @@ export class CanvasSceneProvider {
     error: CanvasSceneMutationError,
   ): Promise<void> {
     try {
-      await this.options.outbox.quarantine(
-        current.intent,
-        error,
-        this.now(),
-      );
+      await this.options.outbox.quarantine(current.intent, error, this.now());
     } catch (quarantineError) {
       if (this.inFlight !== current) return;
       this.enterFatal(
         `Could not quarantine rejected Canvas mutation: ${
-          quarantineError instanceof Error
-            ? quarantineError.message
-            : String(quarantineError)
+          quarantineError instanceof Error ? quarantineError.message : String(quarantineError)
         }`,
       );
       return;
@@ -1041,26 +976,21 @@ export class CanvasSceneProvider {
     this.pump();
   }
 
-  private readonly handleRealtimeEvent = (
-    event: CanvasSceneRealtimeEvent,
-  ): void => {
+  private readonly handleRealtimeEvent = (event: CanvasSceneRealtimeEvent): void => {
     if (this.closed || this.error) return;
     if (
-      event.libraryId !== this.options.libraryId
-      || !sameAccessContext(event.accessContext, this.options.accessContext)
-      || event.documentId !== this.options.documentId
+      event.libraryId !== this.options.libraryId ||
+      !sameAccessContext(event.accessContext, this.options.accessContext) ||
+      event.documentId !== this.options.documentId
     ) {
       this.enterFatal("Canvas realtime event crossed its Library, access, or Document boundary");
       return;
     }
     if (
-      (this.storeEpoch && event.storeEpoch !== this.storeEpoch)
-      || (this.generation !== null && event.generation !== this.generation)
+      (this.storeEpoch && event.storeEpoch !== this.storeEpoch) ||
+      (this.generation !== null && event.generation !== this.generation)
     ) {
-      void this.options.outbox.clear(
-        this.options.accessContext,
-        this.options.documentId,
-      );
+      void this.options.outbox.clear(this.options.accessContext, this.options.documentId);
       this.enterReset("Canvas realtime event crossed its store epoch or generation boundary");
       return;
     }
@@ -1087,28 +1017,21 @@ export class CanvasSceneProvider {
     }
   };
 
-  private readonly handlePresenceEvent = (
-    event: CanvasPresenceRealtimeEvent,
-  ): void => {
+  private readonly handlePresenceEvent = (event: CanvasPresenceRealtimeEvent): void => {
     if (this.closed || this.closing || !this.options.onPresence) return;
-    const documentId = event.type === "canvas_presence_snapshot"
-      ? event.documentId
-      : event.presence.documentId;
-    const generation = event.type === "canvas_presence_snapshot"
-      ? event.generation
-      : event.presence.generation;
+    const documentId =
+      event.type === "canvas_presence_snapshot" ? event.documentId : event.presence.documentId;
+    const generation =
+      event.type === "canvas_presence_snapshot" ? event.generation : event.presence.generation;
     if (
-      event.libraryId !== this.options.libraryId
-      || !sameAccessContext(event.accessContext, this.options.accessContext)
-      || documentId !== this.options.documentId
+      event.libraryId !== this.options.libraryId ||
+      !sameAccessContext(event.accessContext, this.options.accessContext) ||
+      documentId !== this.options.documentId
     ) {
       return;
     }
     if (this.generation === null) {
-      this.pendingPresenceEvents = [
-        ...this.pendingPresenceEvents.slice(-127),
-        event,
-      ];
+      this.pendingPresenceEvents = [...this.pendingPresenceEvents.slice(-127), event];
       return;
     }
     if (generation !== this.generation) return;
@@ -1124,10 +1047,7 @@ export class CanvasSceneProvider {
 
   private handleCommandError(error: CanvasSceneMutationError): void {
     if (error.resetRequired) {
-      void this.options.outbox.clear(
-        this.options.accessContext,
-        this.options.documentId,
-      );
+      void this.options.outbox.clear(this.options.accessContext, this.options.documentId);
       this.error = error;
       this.connected = false;
       this.rejectAll(new Error(error.message));
@@ -1148,10 +1068,7 @@ export class CanvasSceneProvider {
     this.error = error;
     this.connected = false;
     this.cancelRetry?.();
-    const baseDelayMs = Math.min(
-      5_000,
-      150 * Math.pow(2, this.retryAttempt),
-    );
+    const baseDelayMs = Math.min(5_000, 150 * Math.pow(2, this.retryAttempt));
     const delayMs = Math.round(baseDelayMs * (0.8 + this.random() * 0.4));
     this.retryAttempt = Math.min(this.retryAttempt + 1, 6);
     this.cancelRetry = this.scheduleRetry(() => {
@@ -1209,18 +1126,22 @@ export class CanvasSceneProvider {
   }
 
   private isIdle(): boolean {
-    return !this.pending
-      && !this.inFlight
-      && this.recovered.length === 0
-      && !this.cancelCoalesce
-      && !this.queuedPersistencePromise;
+    return (
+      !this.pending &&
+      !this.inFlight &&
+      this.recovered.length === 0 &&
+      !this.cancelCoalesce &&
+      !this.queuedPersistencePromise
+    );
   }
 
   private isLocallyDurable(): boolean {
-    return !this.pending
-      && !this.cancelCoalesce
-      && !this.queuedPersistencePromise
-      && (!this.inFlight || this.inFlight.durable);
+    return (
+      !this.pending &&
+      !this.cancelCoalesce &&
+      !this.queuedPersistencePromise &&
+      (!this.inFlight || this.inFlight.durable)
+    );
   }
 
   private resolveDurableFlushWaitersIfReady(): void {
@@ -1252,9 +1173,7 @@ export class CanvasSceneProvider {
       writeFrozen: false,
       pendingMutationCount:
         (this.pending ? 1 : 0) + (this.inFlight ? 1 : 0) + this.recovered.length,
-      ...(this.inFlight
-        ? { inFlightMutationId: this.inFlight.intent.mutationId }
-        : {}),
+      ...(this.inFlight ? { inFlightMutationId: this.inFlight.intent.mutationId } : {}),
       ...(this.error ? { error: this.error } : {}),
     };
   }

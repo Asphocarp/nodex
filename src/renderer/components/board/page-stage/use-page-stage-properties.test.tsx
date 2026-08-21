@@ -14,7 +14,7 @@ import { usePageStageProperties } from "./use-page-stage-properties";
 
 const optionRuntime = vi.hoisted(() => ({ readWindow: vi.fn() }));
 vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/database-property-options-runtime")>(),
+  ...(await importOriginal<typeof import("@/lib/database-property-options-runtime")>()),
   readPropertyOptionWindow: optionRuntime.readWindow,
 }));
 
@@ -78,16 +78,18 @@ describe("usePageStageProperties", () => {
       projectionRevision: 1,
     });
 
-    const hook = renderHook(() => usePageStageProperties({
-      pageModel,
-      contentAccessContext: projectContentAccess("project-1"),
-      onUpdateProperty: async () => ({ status: "updated", didMutate: true }),
-      onMove: async () => undefined,
-      onColumnIdChange: () => undefined,
-      onOpenPage: () => undefined,
-      onRefreshProperties: async () => undefined,
-      beginSaving: () => () => undefined,
-    }));
+    const hook = renderHook(() =>
+      usePageStageProperties({
+        pageModel,
+        contentAccessContext: projectContentAccess("project-1"),
+        onUpdateProperty: async () => ({ status: "updated", didMutate: true }),
+        onMove: async () => undefined,
+        onColumnIdChange: () => undefined,
+        onOpenPage: () => undefined,
+        onRefreshProperties: async () => undefined,
+        beginSaving: () => () => undefined,
+      }),
+    );
 
     await waitFor(() => expect(hook.result.current.optionRegistryStates.tags).toBe("ready"));
     expect(hook.result.current.options.tags).toEqual([

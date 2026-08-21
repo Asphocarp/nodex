@@ -29,10 +29,7 @@ import {
   ChevronDownIcon,
   WorktreeStatusIcon,
 } from "@/components/shared/icons";
-import {
-  NodexDropdownItem,
-  NodexDropdownMenu,
-} from "@/components/ui/dropdown";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { NodexHoverCard } from "@/components/ui/hover-card";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
@@ -75,15 +72,10 @@ import {
   type SidebarGroupDndPayload,
   useSidebarProjectDndState,
 } from "./sidebar-project-group-dnd";
-import {
-  useSidebarThreadProjectDropTargets,
-} from "./sidebar-thread-reorder";
+import { useSidebarThreadProjectDropTargets } from "./sidebar-thread-reorder";
 import { StableWorktreeCreateDialog } from "./stable-worktree-create-dialog";
 import { suggestStableWorktreeProjectName } from "./stable-worktree-production";
-import {
-  ProjectArchiveChatsDialog,
-  runProjectThreadBatches,
-} from "./project-archive-chats-dialog";
+import { ProjectArchiveChatsDialog, runProjectThreadBatches } from "./project-archive-chats-dialog";
 import { ProjectEditDialog } from "./project-edit-dialog";
 import { ProjectHoverCard } from "./project-hover-card";
 import { ProjectMarker } from "./project-marker";
@@ -94,16 +86,25 @@ type SidebarRowActionEvent =
   | PointerEvent<HTMLElement>
   | KeyboardEvent<HTMLElement>;
 
-export const CODEX_SIDEBAR_GROUP_ROW_CLASS = "group/folder-row group relative flex h-token-nav-row cursor-interaction items-center justify-between overflow-x-hidden rounded-lg text-sm text-token-foreground hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]";
-export const CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS = "icon-2xs shrink-0 opacity-0 transition-transform";
-export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 pointer-events-none opacity-0 group-focus-within/projects-section-header:pointer-events-auto group-focus-within/projects-section-header:opacity-100 group-hover/projects-section-header:pointer-events-auto group-hover/projects-section-header:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100";
-export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
+export const CODEX_SIDEBAR_GROUP_ROW_CLASS =
+  "group/folder-row group relative flex h-token-nav-row cursor-interaction items-center justify-between overflow-x-hidden rounded-lg text-sm text-token-foreground hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]";
+export const CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS =
+  "icon-2xs shrink-0 opacity-0 transition-transform";
+export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS =
+  "flex items-center gap-1 pointer-events-none opacity-0 group-focus-within/projects-section-header:pointer-events-auto group-focus-within/projects-section-header:opacity-100 group-hover/projects-section-header:pointer-events-auto group-hover/projects-section-header:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100";
+export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS =
+  "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 export const CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
-export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
-export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS = "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 [&:has(:focus-visible)]:opacity-100";
-export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS = "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4 pointer-events-auto";
-export const CODEX_SIDEBAR_ROW_LABEL_CLASS = "flex min-w-0 flex-1 cursor-interaction items-center whitespace-nowrap rounded-md py-1 pl-1 pr-0 text-left text-base text-token-foreground";
-const CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS = "pointer-events-auto flex h-5 w-5 items-center justify-center leading-none text-token-foreground/70 hover:text-token-foreground [&>svg]:!h-4 [&>svg]:!w-4";
+export const CODEX_SIDEBAR_THREAD_ROW_CLASS =
+  "group relative h-token-nav-row cursor-interaction rounded-lg py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
+export const CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS =
+  "pointer-events-none absolute right-0 top-0 z-10 mr-0.5 flex h-full w-[52px] items-center justify-end gap-2 pr-0.5 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 [&:has(:focus-visible)]:opacity-100";
+export const CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS =
+  "!h-5 !w-5 !p-0 opacity-50 hover:opacity-100 focus-visible:opacity-100 [&>svg]:!h-4 [&>svg]:!w-4 pointer-events-auto";
+export const CODEX_SIDEBAR_ROW_LABEL_CLASS =
+  "flex min-w-0 flex-1 cursor-interaction items-center whitespace-nowrap rounded-md py-1 pl-1 pr-0 text-left text-base text-token-foreground";
+const CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS =
+  "pointer-events-auto flex h-5 w-5 items-center justify-center leading-none text-token-foreground/70 hover:text-token-foreground [&>svg]:!h-4 [&>svg]:!w-4";
 const CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL = "Chat";
 
 export const CodexSidebarTreeRow = forwardRef<
@@ -112,13 +113,7 @@ export const CodexSidebarTreeRow = forwardRef<
     readonly active?: boolean;
     readonly depth?: number;
   }
->(function CodexSidebarTreeRow({
-  active = false,
-  depth,
-  className,
-  style,
-  ...props
-}, ref) {
+>(function CodexSidebarTreeRow({ active = false, depth, className, style, ...props }, ref) {
   return (
     <div
       {...props}
@@ -129,12 +124,14 @@ export const CodexSidebarTreeRow = forwardRef<
         active && "bg-token-list-hover-background text-token-text-primary",
         className,
       )}
-      style={depth === undefined
-        ? style
-        : {
-            ...style,
-            paddingInlineStart: `${Math.max(0, depth - 1) * 14}px`,
-          }}
+      style={
+        depth === undefined
+          ? style
+          : {
+              ...style,
+              paddingInlineStart: `${Math.max(0, depth - 1) * 14}px`,
+            }
+      }
     />
   );
 });
@@ -340,9 +337,7 @@ export function CodexSidebarSection({
                 </button>
               </div>
               {actions ? (
-                <div className={CODEX_SIDEBAR_SECTION_ACTIONS_CLASS}>
-                  {actions}
-                </div>
+                <div className={CODEX_SIDEBAR_SECTION_ACTIONS_CLASS}>{actions}</div>
               ) : null}
             </div>
           </div>
@@ -363,9 +358,7 @@ export function CodexSidebarSection({
               className="overflow-hidden"
               data-app-action-sidebar-section-body-motion=""
             >
-              <div className="flex flex-col gap-px pt-1">
-                {children}
-              </div>
+              <div className="flex flex-col gap-px pt-1">{children}</div>
             </motion.div>
           ) : null}
         </AnimatePresence>
@@ -422,9 +415,9 @@ export function CodexProjectActionsMenu({
     workspaceRootOptions: stableWorktreeWorkspaceRootOptions,
     workspaceRootLabels: stableWorktreeWorkspaceRootLabels,
   });
-  const archiveableItems = threadItems.filter((item) => (
-    !item.archived && !item.disabled && item.kind !== "pending-worktree"
-  ));
+  const archiveableItems = threadItems.filter(
+    (item) => !item.archived && !item.disabled && item.kind !== "pending-worktree",
+  );
   const unreadItems = threadItems.filter((item) => item.unread && !item.archived);
   const setMenuOpen = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -466,11 +459,7 @@ export function CodexProjectActionsMenu({
             let expectedBindingRevision = editableProject.bindingRevision;
             openModal(appHandle, ProjectEditDialog, {
               project: editableProject,
-              onSubmit: async ({
-                appearance,
-                name,
-                sources,
-              }) => {
+              onSubmit: async ({ appearance, name, sources }) => {
                 const updated = await onUpdateProject(editableProject.id, {
                   expectedBindingRevision,
                   appearance,
@@ -489,7 +478,7 @@ export function CodexProjectActionsMenu({
         side="bottom"
         align="start"
         contentWidth="xs"
-        triggerButton={(
+        triggerButton={
           <button
             type="button"
             className={CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS}
@@ -498,77 +487,83 @@ export function CodexProjectActionsMenu({
           >
             <ProjectActionsIcon />
           </button>
-        )}
+        }
       >
-          {onSetProjectPinned ? (
-            <NodexDropdownItem
-              leftSlot={project.pinned ? <PinOffIcon className="icon-xs" /> : <SessionPinIcon className="icon-xs" />}
-              onSelect={() => {
-                void onSetProjectPinned(project.id, { pinned: !project.pinned });
-              }}
-            >
-              {project.pinned ? "Unpin project" : "Pin project"}
-            </NodexDropdownItem>
-          ) : null}
-          {primaryWorkspaceRoot && sourceRoots.length === 1 ? (
-            <NodexDropdownItem
-              leftSlot={<ProjectFolderOpenIcon className="icon-xs" />}
-              onSelect={() => {
-                void openProjectFolder();
-              }}
-            >
-              {revealInFileManagerLabel()}
-            </NodexDropdownItem>
-          ) : null}
-          {primaryWorkspaceRoot && onCreateStableWorktree && canCreateStableWorktree ? (
-            <NodexDropdownItem
-              leftSlot={<WorktreeStatusIcon className="icon-xs" />}
-              onSelect={() => {
-                setMenuOpen(false);
-                setCreateStableWorktreeOpen(true);
-              }}
-            >
-              Create permanent worktree
-            </NodexDropdownItem>
-          ) : null}
+        {onSetProjectPinned ? (
           <NodexDropdownItem
-            leftSlot={<SettingsGeneralIcon className="icon-xs" />}
+            leftSlot={
+              project.pinned ? (
+                <PinOffIcon className="icon-xs" />
+              ) : (
+                <SessionPinIcon className="icon-xs" />
+              )
+            }
             onSelect={() => {
-              openEditAfterMenuCloseRef.current = true;
+              void onSetProjectPinned(project.id, { pinned: !project.pinned });
             }}
           >
-            Edit project
+            {project.pinned ? "Unpin project" : "Pin project"}
           </NodexDropdownItem>
-          {onMarkThreadItemRead && unreadItems.length > 0 ? (
-            <NodexDropdownItem
-              leftSlot={<CheckmarkIcon className="icon-xs" />}
-              onSelect={() => {
-                setMenuOpen(false);
-                void markAllThreadsRead();
-              }}
-            >
-              Mark all as read
-            </NodexDropdownItem>
-          ) : null}
+        ) : null}
+        {primaryWorkspaceRoot && sourceRoots.length === 1 ? (
           <NodexDropdownItem
-            leftSlot={<ArchiveIcon className="icon-xs" />}
-            disabled={!onArchiveThreadItem || archiveableItems.length === 0}
+            leftSlot={<ProjectFolderOpenIcon className="icon-xs" />}
+            onSelect={() => {
+              void openProjectFolder();
+            }}
+          >
+            {revealInFileManagerLabel()}
+          </NodexDropdownItem>
+        ) : null}
+        {primaryWorkspaceRoot && onCreateStableWorktree && canCreateStableWorktree ? (
+          <NodexDropdownItem
+            leftSlot={<WorktreeStatusIcon className="icon-xs" />}
             onSelect={() => {
               setMenuOpen(false);
-              setArchiveChatsOpen(true);
+              setCreateStableWorktreeOpen(true);
             }}
           >
-            Archive chats
+            Create permanent worktree
           </NodexDropdownItem>
+        ) : null}
+        <NodexDropdownItem
+          leftSlot={<SettingsGeneralIcon className="icon-xs" />}
+          onSelect={() => {
+            openEditAfterMenuCloseRef.current = true;
+          }}
+        >
+          Edit project
+        </NodexDropdownItem>
+        {onMarkThreadItemRead && unreadItems.length > 0 ? (
           <NodexDropdownItem
-            leftSlot={<CloseIcon className="icon-xs" />}
+            leftSlot={<CheckmarkIcon className="icon-xs" />}
             onSelect={() => {
               setMenuOpen(false);
-              setRemoveOpen(true);
+              void markAllThreadsRead();
             }}
           >
-            Remove
+            Mark all as read
           </NodexDropdownItem>
+        ) : null}
+        <NodexDropdownItem
+          leftSlot={<ArchiveIcon className="icon-xs" />}
+          disabled={!onArchiveThreadItem || archiveableItems.length === 0}
+          onSelect={() => {
+            setMenuOpen(false);
+            setArchiveChatsOpen(true);
+          }}
+        >
+          Archive chats
+        </NodexDropdownItem>
+        <NodexDropdownItem
+          leftSlot={<CloseIcon className="icon-xs" />}
+          onSelect={() => {
+            setMenuOpen(false);
+            setRemoveOpen(true);
+          }}
+        >
+          Remove
+        </NodexDropdownItem>
       </NodexDropdownMenu>
       {archiveChatsOpen && onArchiveThreadItem ? (
         <ProjectArchiveChatsDialog
@@ -613,17 +608,9 @@ function CodexProjectHoverCardContent({
 }: {
   project: Project;
   activity: ProjectActivitySummary | null | undefined;
-  onUpdateProject: (
-    projectId: string,
-    updates: ProjectUpdateInput,
-  ) => Promise<Project | null>;
-  onArchiveProject: (
-    projectId: string,
-  ) => Promise<ProjectLifecycleMutationResult>;
-  onSetProjectPinned?: (
-    projectId: string,
-    input: ProjectPinnedInput,
-  ) => Promise<Project | null>;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
+  onArchiveProject: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
+  onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   onRequestClose: () => void;
 }) {
   const appHandle = useScopeHandle(appScope);
@@ -667,18 +654,16 @@ function CodexProjectHoverCardContent({
     : undefined;
 
   const openProjectSource = (path: string) => {
-    void invoke("shell:open-file-link", { path }, "fileManager").then(
-      (opened) => {
+    void invoke("shell:open-file-link", { path }, "fileManager")
+      .then((opened) => {
         if (opened) return;
         throw new Error("Opening local folders is unavailable in this runtime");
-      },
-    ).catch(
-      (error) => {
+      })
+      .catch((error) => {
         toast.danger(`Could not ${revealInFileManagerLabel().toLowerCase()}`, {
           description: error instanceof Error ? error.message : undefined,
         });
-      },
-    );
+      });
   };
 
   const openProjectEditor = async () => {
@@ -692,11 +677,7 @@ function CodexProjectHoverCardContent({
     queueMicrotask(() => {
       openModal(appHandle, ProjectEditDialog, {
         project: editableProject,
-        onSubmit: async ({
-          appearance: nextAppearance,
-          name,
-          sources,
-        }) => {
+        onSubmit: async ({ appearance: nextAppearance, name, sources }) => {
           const updated = await onUpdateProject(project.id, {
             expectedBindingRevision,
             appearance: nextAppearance,
@@ -798,21 +779,24 @@ export function CodexProjectRow({
   });
   const sortableId = getSidebarGroupDndId(project.id);
   const { activeProjectId, projectDragActive } = useSidebarProjectDndState();
-  const dragOverlay = useMemo(() => (
-    <div className="flex h-[var(--height-token-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
-      <ProjectMarker
-        appearance={project.appearance}
-        fallbackIcon={<ProjectFolderIcon />}
-      />
-      <span className="min-w-0 truncate">{project.name}</span>
-    </div>
-  ), [project.appearance, project.name]);
-  const sortableData = useMemo<SidebarGroupDndPayload>(() => ({
-    kind: "sidebar-group",
-    controller: groupDndController ?? NOOP_SIDEBAR_GROUP_DND_CONTROLLER,
-    dragOverlay,
-    projectId: project.id,
-  }), [dragOverlay, groupDndController, project.id]);
+  const dragOverlay = useMemo(
+    () => (
+      <div className="flex h-[var(--height-token-row)] max-w-80 items-center gap-2 px-2 text-base text-token-foreground">
+        <ProjectMarker appearance={project.appearance} fallbackIcon={<ProjectFolderIcon />} />
+        <span className="min-w-0 truncate">{project.name}</span>
+      </div>
+    ),
+    [project.appearance, project.name],
+  );
+  const sortableData = useMemo<SidebarGroupDndPayload>(
+    () => ({
+      kind: "sidebar-group",
+      controller: groupDndController ?? NOOP_SIDEBAR_GROUP_DND_CONTROLLER,
+      dragOverlay,
+      projectId: project.id,
+    }),
+    [dragOverlay, groupDndController, project.id],
+  );
   const {
     attributes,
     listeners,
@@ -826,20 +810,19 @@ export function CodexProjectRow({
     disabled: !sortableEnabled,
     data: sortableData,
   });
-  const projectRowRef = useCombinedRefs(
-    setNodeRef,
-    wholeThreadDropTarget.setNodeRef,
-  );
+  const projectRowRef = useCombinedRefs(setNodeRef, wholeThreadDropTarget.setNodeRef);
   const activeProjectDrag = isDragging || activeProjectId === project.id;
   const resolvedHoverCardOpen = hoverCardOpen ?? uncontrolledHoverCardOpen;
-  const hoverCardDisabled = activeProjectDrag
-    || projectDragActive
-    || projectActionsMenuOpen
-    || rowThreadDropTarget.isExternalThreadDropTarget
-    || wholeThreadDropTarget.isExternalThreadDropTarget;
-  const sortableStyle = sortableEnabled && !projectDragActive && transform
-    ? getCodexSidebarSortableStyle(transform, transition)
-    : undefined;
+  const hoverCardDisabled =
+    activeProjectDrag ||
+    projectDragActive ||
+    projectActionsMenuOpen ||
+    rowThreadDropTarget.isExternalThreadDropTarget ||
+    wholeThreadDropTarget.isExternalThreadDropTarget;
+  const sortableStyle =
+    sortableEnabled && !projectDragActive && transform
+      ? getCodexSidebarSortableStyle(transform, transition)
+      : undefined;
   const projectChildren = children ? (
     <CodexProjectChildrenDisclosure
       animate={animateChildren}
@@ -856,13 +839,9 @@ export function CodexProjectRow({
     onHoverCardOpenChange?.(nextOpen);
   };
   const prefetchProjectHoverCardMetadata = () => {
-    void queryClient.prefetchQuery(
-      localPathPresentationContextQueryOptions(),
-    );
+    void queryClient.prefetchQuery(localPathPresentationContextQueryOptions());
     if (!primaryWorkspaceRoot) return;
-    void queryClient.prefetchQuery(
-      gitRepositoryIdentityQueryOptions(primaryWorkspaceRoot),
-    );
+    void queryClient.prefetchQuery(gitRepositoryIdentityQueryOptions(primaryWorkspaceRoot));
   };
 
   useEffect(() => {
@@ -873,17 +852,16 @@ export function CodexProjectRow({
 
     let disposed = false;
     setCanCreateStableWorktree(false);
-    void getGitWorkerClient().request({
-      method: "branch-metadata",
-      params: { cwd: primaryWorkspaceRoot },
-    })
+    void getGitWorkerClient()
+      .request({
+        method: "branch-metadata",
+        params: { cwd: primaryWorkspaceRoot },
+      })
       .then((state) => {
         if (disposed) return;
-        setCanCreateStableWorktree(Boolean(
-          state.currentBranch
-          || state.defaultBranch
-          || state.branches.length > 0,
-        ));
+        setCanCreateStableWorktree(
+          Boolean(state.currentBranch || state.defaultBranch || state.branches.length > 0),
+        );
       })
       .catch(() => {
         if (!disposed) setCanCreateStableWorktree(false);
@@ -900,16 +878,20 @@ export function CodexProjectRow({
       className={cn(
         "group/cwd relative flex flex-col",
         activeProjectDrag && "opacity-20",
-        wholeThreadDropTarget.isExternalThreadDropTarget
-          && wholeThreadDropTarget.isOver
-          && "rounded-lg bg-token-list-hover-background",
+        wholeThreadDropTarget.isExternalThreadDropTarget &&
+          wholeThreadDropTarget.isOver &&
+          "rounded-lg bg-token-list-hover-background",
       )}
       style={sortableStyle}
       inert={activeProjectDrag ? true : undefined}
-      onPointerDownCapture={sortableEnabled ? (event) => {
-        if (!isEventWithinCurrentTarget(event)) return;
-        clearCodexSidebarTextSelection();
-      } : undefined}
+      onPointerDownCapture={
+        sortableEnabled
+          ? (event) => {
+              if (!isEventWithinCurrentTarget(event)) return;
+              clearCodexSidebarTextSelection();
+            }
+          : undefined
+      }
       role="listitem"
       aria-label={project.name}
     >
@@ -918,7 +900,7 @@ export function CodexProjectRow({
         disabled={hoverCardDisabled}
         open={resolvedHoverCardOpen}
         onOpenChange={setProjectHoverCardOpen}
-        hoverCardContent={(
+        hoverCardContent={
           <CodexProjectHoverCardContent
             project={project}
             activity={activity}
@@ -927,7 +909,7 @@ export function CodexProjectRow({
             onSetProjectPinned={onSetProjectPinned}
             onRequestClose={() => setProjectHoverCardOpen(false)}
           />
-        )}
+        }
       >
         <CodexSidebarTreeRow
           ref={rowThreadDropTarget.setNodeRef}
@@ -938,9 +920,9 @@ export function CodexProjectRow({
           data-app-action-sidebar-project-row=""
           active={active}
           className={cn(
-            rowThreadDropTarget.isExternalThreadDropTarget
-              && rowThreadDropTarget.isOver
-              && "bg-token-list-hover-background",
+            rowThreadDropTarget.isExternalThreadDropTarget &&
+              rowThreadDropTarget.isOver &&
+              "bg-token-list-hover-background",
             projectDragActive && "pointer-events-none",
           )}
           onPointerEnter={prefetchProjectHoverCardMetadata}
@@ -951,23 +933,21 @@ export function CodexProjectRow({
             leadingSlotProps={{
               className: cn(
                 "group/project-leading-slot",
-                iconThreadDropTarget.isExternalThreadDropTarget
-                  && iconThreadDropTarget.isOver
-                  && "rounded-md bg-token-list-hover-background",
+                iconThreadDropTarget.isExternalThreadDropTarget &&
+                  iconThreadDropTarget.isOver &&
+                  "rounded-md bg-token-list-hover-background",
               ),
             }}
             leadingSlotData={{
               "data-app-action-sidebar-project-leading-slot": "",
             }}
-            leadingSlot={(
+            leadingSlot={
               <>
                 <ProjectMarker
                   appearance={project.appearance}
                   className="group-hover/folder-row:invisible group-has-[:focus-visible]/project-leading-slot:invisible"
                   data-app-action-sidebar-project-marker=""
-                  fallbackIcon={expanded
-                    ? <ProjectFolderOpenIcon />
-                    : <ProjectFolderIcon />}
+                  fallbackIcon={expanded ? <ProjectFolderOpenIcon /> : <ProjectFolderIcon />}
                 />
                 <button
                   type="button"
@@ -992,8 +972,8 @@ export function CodexProjectRow({
                   />
                 </button>
               </>
-            )}
-            actions={(
+            }
+            actions={
               <>
                 <CodexProjectActionsMenu
                   project={project}
@@ -1020,7 +1000,7 @@ export function CodexProjectRow({
                   />
                 ) : null}
               </>
-            )}
+            }
           >
             <button
               type="button"
@@ -1036,7 +1016,10 @@ export function CodexProjectRow({
                 (onSelectProject ?? onActivate)();
               }}
             >
-              <span className="min-w-0 flex-1 truncate pr-1" data-app-action-sidebar-project-label-text="">
+              <span
+                className="min-w-0 flex-1 truncate pr-1"
+                data-app-action-sidebar-project-label-text=""
+              >
                 {project.name}
               </span>
             </button>
@@ -1048,9 +1031,9 @@ export function CodexProjectRow({
         aria-hidden
         className={cn(
           "absolute bottom-0 left-0 top-[var(--height-token-nav-row)] z-10 w-2",
-          gutterThreadDropTarget.isExternalThreadDropTarget
-            && gutterThreadDropTarget.isOver
-            && "bg-token-list-hover-background",
+          gutterThreadDropTarget.isExternalThreadDropTarget &&
+            gutterThreadDropTarget.isOver &&
+            "bg-token-list-hover-background",
         )}
       />
       {projectChildren}
@@ -1097,9 +1080,7 @@ function CodexProjectChildrenDisclosure({
           className="overflow-hidden"
           data-app-action-sidebar-project-list-motion=""
         >
-          <div className="pt-0.5">
-            {children}
-          </div>
+          <div className="pt-0.5">{children}</div>
         </motion.div>
       ) : null}
     </AnimatePresence>
@@ -1149,7 +1130,9 @@ function resolveSidebarThreadHoverCardProjectLabel(
   const explicitLabel = normalizeSidebarHoverCardText(projectLabel);
   if (explicitLabel) return explicitLabel;
   if (item.projectless) return CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL;
-  return basenameFromWorkspacePath(item.cwd) ?? CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL;
+  return (
+    basenameFromWorkspacePath(item.cwd) ?? CODEX_SIDEBAR_THREAD_HOVER_CARD_FALLBACK_PROJECT_LABEL
+  );
 }
 
 function RelativeThreadAge({ recencyAt }: { recencyAt: number }) {
@@ -1213,11 +1196,10 @@ function CodexSidebarThreadHoverCard({
   const remoteHostLabel = isCodexSidebarRemoteLocation(item.runLocation)
     ? item.runLocation.hostDisplayName?.trim() || item.runLocation.hostId
     : null;
-  const recencyAt = typeof item.recencyAt === "number"
-    && Number.isFinite(item.recencyAt)
-    && item.recencyAt > 0
-    ? item.recencyAt
-    : null;
+  const recencyAt =
+    typeof item.recencyAt === "number" && Number.isFinite(item.recencyAt) && item.recencyAt > 0
+      ? item.recencyAt
+      : null;
 
   return (
     <div
@@ -1292,13 +1274,12 @@ function CodexSidebarThreadRunLocationGlyph({
   const remoteIconClassName = "icon-2xs text-tertiary no-drag shrink-0";
   const worktreeIconClassName = cn(
     "icon-2xs no-drag shrink-0",
-    pending
-      ? "text-info animate-pulse motion-reduce:animate-none"
-      : "semantic-text-secondary",
+    pending ? "text-info animate-pulse motion-reduce:animate-none" : "semantic-text-secondary",
   );
   const wrapperClassName = cn(
     "ml-2 inline-flex shrink-0 items-center gap-1.5",
-    hideForActions && "group-hover:hidden group-focus-visible:hidden group-has-[:focus-visible]:hidden",
+    hideForActions &&
+      "group-hover:hidden group-focus-visible:hidden group-has-[:focus-visible]:hidden",
     forceHidden && "hidden",
   );
 
@@ -1383,7 +1364,10 @@ export function CodexSidebarThreadRow({
   onPreview?: () => void;
   onArchive?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onOpenContextMenu?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
-  onRenameFromTitleDoubleClick?: (item: CodexSidebarThreadItem, event: MouseEvent<HTMLElement>) => void;
+  onRenameFromTitleDoubleClick?: (
+    item: CodexSidebarThreadItem,
+    event: MouseEvent<HTMLElement>,
+  ) => void;
   onTogglePinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
 }) {
   const canOpenContextMenu = !item.disabled && Boolean(onOpenContextMenu);
@@ -1412,15 +1396,17 @@ export function CodexSidebarThreadRow({
     if (!resolvedHoverCardOpen || !normalizedHoverCardCwd) return;
 
     let cancelled = false;
-    void getGitWorkerClient().request({
-      method: "branch-metadata",
-      params: { cwd: normalizedHoverCardCwd },
-    })
+    void getGitWorkerClient()
+      .request({
+        method: "branch-metadata",
+        params: { cwd: normalizedHoverCardCwd },
+      })
       .then((state) => {
         if (cancelled) return;
-        const branch = typeof (state as { currentBranch?: unknown }).currentBranch === "string"
-          ? (state as { currentBranch: string }).currentBranch
-          : null;
+        const branch =
+          typeof (state as { currentBranch?: unknown }).currentBranch === "string"
+            ? (state as { currentBranch: string }).currentBranch
+            : null;
         setLazyBranchName(normalizeSidebarHoverCardText(branch));
       })
       .catch(() => {
@@ -1444,177 +1430,176 @@ export function CodexSidebarThreadRow({
 
   const row = (
     <div
-        data-app-action-sidebar-thread-active={String(active)}
-        data-app-action-sidebar-thread-host-id={item.hostId}
-        data-app-action-sidebar-thread-id={item.threadId}
-        data-app-action-sidebar-thread-kind={item.kind}
-        data-app-action-sidebar-thread-pinned={String(item.pinned)}
-        data-app-action-sidebar-thread-running={String(running)}
-        data-app-action-sidebar-thread-unread={String(item.unread)}
-        data-app-action-sidebar-thread-row=""
-        data-app-action-sidebar-thread-title={title}
-        className={cn(
-          CODEX_SIDEBAR_THREAD_ROW_CLASS,
-          active && "bg-token-list-hover-background",
-          contextMenuOpen && "bg-token-list-hover-background",
-        )}
-        role="button"
-        tabIndex={0}
-        aria-current={active ? "page" : undefined}
-        aria-disabled={item.disabled || undefined}
-        onPointerEnter={() => {
-          if (!item.disabled) onPreview?.();
-        }}
-        onFocus={() => {
-          if (!item.disabled) onPreview?.();
-        }}
-        onClick={onSelect}
-        onContextMenu={(event) => {
-          if (!canOpenContextMenu) return;
-          event.preventDefault();
-          onOpenContextMenu?.(item, event);
-        }}
-        onDoubleClick={(event) => {
-          onRenameFromTitleDoubleClick?.(item, event);
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          onSelect();
-        }}
-      >
-        <div className="contents">
-          <div className="flex h-full w-full items-center px-row-x text-sm leading-4">
-            <div className="w-4 shrink-0">
-              <div className="relative flex items-center justify-center">
-                {item.unread || item.needsAttention ? (
-                  <span
-                    className="size-1.5 rounded-full bg-token-charts-blue"
-                    aria-label={item.needsAttention ? "Needs attention" : "Unread"}
-                  />
-                ) : null}
-              </div>
-            </div>
-            <div
-              className="ml-1.5 flex min-w-0 flex-1 items-center pl-0.5"
-              data-app-action-sidebar-thread-main=""
-            >
-              <div
-                className="flex min-w-0 flex-1 self-stretch items-center gap-2 text-base leading-5 text-token-foreground"
-                data-thread-title-trigger="true"
-              >
+      data-app-action-sidebar-thread-active={String(active)}
+      data-app-action-sidebar-thread-host-id={item.hostId}
+      data-app-action-sidebar-thread-id={item.threadId}
+      data-app-action-sidebar-thread-kind={item.kind}
+      data-app-action-sidebar-thread-pinned={String(item.pinned)}
+      data-app-action-sidebar-thread-running={String(running)}
+      data-app-action-sidebar-thread-unread={String(item.unread)}
+      data-app-action-sidebar-thread-row=""
+      data-app-action-sidebar-thread-title={title}
+      className={cn(
+        CODEX_SIDEBAR_THREAD_ROW_CLASS,
+        active && "bg-token-list-hover-background",
+        contextMenuOpen && "bg-token-list-hover-background",
+      )}
+      role="button"
+      tabIndex={0}
+      aria-current={active ? "page" : undefined}
+      aria-disabled={item.disabled || undefined}
+      onPointerEnter={() => {
+        if (!item.disabled) onPreview?.();
+      }}
+      onFocus={() => {
+        if (!item.disabled) onPreview?.();
+      }}
+      onClick={onSelect}
+      onContextMenu={(event) => {
+        if (!canOpenContextMenu) return;
+        event.preventDefault();
+        onOpenContextMenu?.(item, event);
+      }}
+      onDoubleClick={(event) => {
+        onRenameFromTitleDoubleClick?.(item, event);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect();
+      }}
+    >
+      <div className="contents">
+        <div className="flex h-full w-full items-center px-row-x text-sm leading-4">
+          <div className="w-4 shrink-0">
+            <div className="relative flex items-center justify-center">
+              {item.unread || item.needsAttention ? (
                 <span
-                  className="min-w-0 flex-1 truncate select-none"
-                  data-thread-title="true"
-                  draggable={false}
-                >
-                  {title}
-                </span>
-              </div>
-              <CodexSidebarThreadRunLocationGlyph
-                item={item}
-                hideForActions={showActionRail}
-                forceHidden={contextMenuOpen}
-              />
-              <div
-                className={cn(
-                  "ms-[3px] flex items-center justify-end gap-1 group-focus-visible:min-w-12 group-hover:min-w-12 group-has-[:focus-visible]:min-w-12",
-                  contextMenuOpen && "min-w-12",
-                )}
+                  className="size-1.5 rounded-full bg-token-charts-blue"
+                  aria-label={item.needsAttention ? "Needs attention" : "Unread"}
+                />
+              ) : null}
+            </div>
+          </div>
+          <div
+            className="ml-1.5 flex min-w-0 flex-1 items-center pl-0.5"
+            data-app-action-sidebar-thread-main=""
+          >
+            <div
+              className="flex min-w-0 flex-1 self-stretch items-center gap-2 text-base leading-5 text-token-foreground"
+              data-thread-title-trigger="true"
+            >
+              <span
+                className="min-w-0 flex-1 truncate select-none"
+                data-thread-title="true"
+                draggable={false}
               >
-                {showRestingPinnedButton ? (
+                {title}
+              </span>
+            </div>
+            <CodexSidebarThreadRunLocationGlyph
+              item={item}
+              hideForActions={showActionRail}
+              forceHidden={contextMenuOpen}
+            />
+            <div
+              className={cn(
+                "ms-[3px] flex items-center justify-end gap-1 group-focus-visible:min-w-12 group-hover:min-w-12 group-has-[:focus-visible]:min-w-12",
+                contextMenuOpen && "min-w-12",
+              )}
+            >
+              {showRestingPinnedButton ? (
+                <button
+                  type="button"
+                  aria-label={pinButtonLabel}
+                  className={CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS}
+                  data-state={contextMenuOpen ? "open" : "closed"}
+                  data-app-action-sidebar-thread-resting-pin=""
+                  data-app-action-sidebar-thread-pin-session=""
+                  data-app-action-sidebar-thread-pin-slot=""
+                  onPointerDown={stopCodexSidebarRowActionPropagation}
+                  onMouseDown={stopCodexSidebarRowActionPropagation}
+                  onKeyDown={stopCodexSidebarRowActionPropagation}
+                  onClick={handleTogglePinnedClick}
+                >
+                  <SessionPinFilledIcon />
+                </button>
+              ) : null}
+              {running ? (
+                <span
+                  className={cn(
+                    "relative -mr-1 flex size-5 shrink-0 items-center justify-center text-token-foreground/70",
+                    showActionRail &&
+                      "group-focus-visible:hidden group-has-[:focus-visible]:hidden group-hover:hidden",
+                    contextMenuOpen && "hidden",
+                  )}
+                  data-app-action-sidebar-thread-running-indicator=""
+                >
+                  <ActivitySpinnerIcon className="icon-xs shrink-0" animationDurationMs={2_000} />
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        {showActionRail ? (
+          <div
+            className={cn(CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS, contextMenuOpen && "opacity-100")}
+            data-state={contextMenuOpen ? "open" : "closed"}
+            data-app-action-sidebar-thread-action-rail=""
+          >
+            {showRailPinSlot ? (
+              <div
+                className="flex h-5 w-5 shrink-0 items-center justify-center"
+                data-app-action-sidebar-thread-pin-slot=""
+              >
+                {item.unread ? (
+                  <span aria-hidden="true" className="block h-5 w-5" />
+                ) : (
                   <button
                     type="button"
                     aria-label={pinButtonLabel}
-                    className={CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS}
+                    className={cn(
+                      CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS,
+                      !item.pinned &&
+                        "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
+                    )}
                     data-state={contextMenuOpen ? "open" : "closed"}
-                    data-app-action-sidebar-thread-resting-pin=""
                     data-app-action-sidebar-thread-pin-session=""
-                    data-app-action-sidebar-thread-pin-slot=""
                     onPointerDown={stopCodexSidebarRowActionPropagation}
                     onMouseDown={stopCodexSidebarRowActionPropagation}
                     onKeyDown={stopCodexSidebarRowActionPropagation}
                     onClick={handleTogglePinnedClick}
                   >
-                    <SessionPinFilledIcon />
+                    {item.pinned ? <SessionPinFilledIcon /> : <SessionPinIcon />}
                   </button>
-                ) : null}
-                {running ? (
-                  <span
-                    className={cn(
-                      "relative -mr-1 flex size-5 shrink-0 items-center justify-center text-token-foreground/70",
-                      showActionRail && "group-focus-visible:hidden group-has-[:focus-visible]:hidden group-hover:hidden",
-                      contextMenuOpen && "hidden",
-                    )}
-                    data-app-action-sidebar-thread-running-indicator=""
-                  >
-                    <ActivitySpinnerIcon className="icon-xs shrink-0" animationDurationMs={2_000} />
-                  </span>
-                ) : null}
+                )}
               </div>
-            </div>
+            ) : null}
+            {showArchiveAction ? (
+              <button
+                type="button"
+                aria-label="Archive chat"
+                disabled={archiveDisabled}
+                className={cn(
+                  CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS,
+                  CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS,
+                )}
+                data-app-action-sidebar-thread-archive=""
+                onPointerDown={stopCodexSidebarRowActionPropagation}
+                onMouseDown={stopCodexSidebarRowActionPropagation}
+                onKeyDown={stopCodexSidebarRowActionPropagation}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void onArchive?.(item);
+                }}
+              >
+                <ArchiveIcon />
+              </button>
+            ) : null}
           </div>
-          {showActionRail ? (
-            <div
-              className={cn(
-                CODEX_SIDEBAR_THREAD_ACTION_RAIL_CLASS,
-                contextMenuOpen && "opacity-100",
-              )}
-              data-state={contextMenuOpen ? "open" : "closed"}
-              data-app-action-sidebar-thread-action-rail=""
-            >
-              {showRailPinSlot ? (
-                <div
-                  className="flex h-5 w-5 shrink-0 items-center justify-center"
-                  data-app-action-sidebar-thread-pin-slot=""
-                >
-                  {item.unread ? (
-                    <span aria-hidden="true" className="block h-5 w-5" />
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label={pinButtonLabel}
-                      className={cn(
-                        CODEX_SIDEBAR_THREAD_PIN_BUTTON_CLASS,
-                        !item.pinned && "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100",
-                      )}
-                      data-state={contextMenuOpen ? "open" : "closed"}
-                      data-app-action-sidebar-thread-pin-session=""
-                      onPointerDown={stopCodexSidebarRowActionPropagation}
-                      onMouseDown={stopCodexSidebarRowActionPropagation}
-                      onKeyDown={stopCodexSidebarRowActionPropagation}
-                      onClick={handleTogglePinnedClick}
-                    >
-                      {item.pinned ? <SessionPinFilledIcon /> : <SessionPinIcon />}
-                    </button>
-                  )}
-                </div>
-              ) : null}
-              {showArchiveAction ? (
-                <button
-                  type="button"
-                  aria-label="Archive chat"
-                  disabled={archiveDisabled}
-                  className={cn(
-                    CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS,
-                    CODEX_SIDEBAR_THREAD_ARCHIVE_BUTTON_CLASS,
-                  )}
-                  data-app-action-sidebar-thread-archive=""
-                  onPointerDown={stopCodexSidebarRowActionPropagation}
-                  onMouseDown={stopCodexSidebarRowActionPropagation}
-                  onKeyDown={stopCodexSidebarRowActionPropagation}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void onArchive?.(item);
-                  }}
-                >
-                  <ArchiveIcon />
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+        ) : null}
+      </div>
     </div>
   );
 
@@ -1622,14 +1607,14 @@ export function CodexSidebarThreadRow({
     <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
       <NodexHoverCard
         ariaLabel={`Chat details for ${item.title}`}
-        hoverCardContent={(
+        hoverCardContent={
           <CodexSidebarThreadHoverCard
             item={item}
             projectLabel={hoverCardProjectLabel}
             branchName={resolvedHoverCardBranchName}
             onRenameFromTitleClick={onRenameFromTitleDoubleClick}
           />
-        )}
+        }
         disabled={item.disabled}
         open={hoverCardOpen}
         onOpenChange={handleHoverCardOpenChange}
@@ -1696,7 +1681,8 @@ export function CodexThreadRow({
     unread: session.unread,
     archived: session.archived || session.thread?.archived === true,
     statusType: (session.thread?.statusType ?? "notLoaded") as CodexSidebarThreadItem["statusType"],
-    statusActiveFlags: (session.thread?.statusActiveFlags ?? []) as CodexSidebarThreadItem["statusActiveFlags"],
+    statusActiveFlags: (session.thread?.statusActiveFlags ??
+      []) as CodexSidebarThreadItem["statusActiveFlags"],
     projectless: session.projectId === null,
     disabled: false,
   };
@@ -1711,12 +1697,14 @@ export function CodexThreadRow({
       hoverCardOpen={hoverCardOpen}
       onHoverCardOpenChange={onHoverCardOpenChange}
       onSelect={onSelect}
-      onOpenContextMenu={onOpenContextMenu
-        ? (_item, event) => onOpenContextMenu(session, event)
-        : undefined}
-      onRenameFromTitleDoubleClick={onRenameFromTitleDoubleClick
-        ? (_item, event) => onRenameFromTitleDoubleClick(session, event)
-        : undefined}
+      onOpenContextMenu={
+        onOpenContextMenu ? (_item, event) => onOpenContextMenu(session, event) : undefined
+      }
+      onRenameFromTitleDoubleClick={
+        onRenameFromTitleDoubleClick
+          ? (_item, event) => onRenameFromTitleDoubleClick(session, event)
+          : undefined
+      }
       onTogglePinned={onTogglePinned ? () => onTogglePinned(session) : undefined}
     />
   );
@@ -1727,18 +1715,23 @@ type CodexSidebarActionButtonProps = Omit<ComponentPropsWithoutRef<"button">, "c
   children: ReactNode;
 };
 
-export const CodexSidebarActionButton = forwardRef<HTMLButtonElement, CodexSidebarActionButtonProps>(
-function CodexSidebarActionButton({
-  label,
-  title,
-  children,
-  onClick,
-  onPointerDown,
-  onMouseDown,
-  onKeyDown,
-  className,
-  ...buttonProps
-}, ref) {
+export const CodexSidebarActionButton = forwardRef<
+  HTMLButtonElement,
+  CodexSidebarActionButtonProps
+>(function CodexSidebarActionButton(
+  {
+    label,
+    title,
+    children,
+    onClick,
+    onPointerDown,
+    onMouseDown,
+    onKeyDown,
+    className,
+    ...buttonProps
+  },
+  ref,
+) {
   return (
     <NodexTooltip delayOpen tooltipContent={title ?? label} side="right">
       <button

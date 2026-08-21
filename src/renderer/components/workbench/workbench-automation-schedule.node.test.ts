@@ -34,10 +34,12 @@ describe("workbench automation schedule", () => {
 
     expect(weekly.mode).toBe("weekly");
     expect(weekly.time).toBe("10:30");
-    expect(buildWorkbenchAutomationScheduleRrule({
-      config: weekly,
-      intervalStyle: "default",
-    })).toBe("FREQ=WEEKLY;BYDAY=SU;BYHOUR=10;BYMINUTE=30");
+    expect(
+      buildWorkbenchAutomationScheduleRrule({
+        config: weekly,
+        intervalStyle: "default",
+      }),
+    ).toBe("FREQ=WEEKLY;BYDAY=SU;BYHOUR=10;BYMINUTE=30");
   });
 
   test("uses minutely RRULEs for heartbeat intervals", () => {
@@ -59,9 +61,11 @@ describe("workbench automation schedule", () => {
 
     expect(config.mode).toBe("custom");
     expect(config.customRrule).toBe("FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0");
-    expect(buildWorkbenchAutomationScheduleRrule({
-      config,
-      intervalStyle: "default",
-    })).toBe("FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0");
+    expect(
+      buildWorkbenchAutomationScheduleRrule({
+        config,
+        intervalStyle: "default",
+      }),
+    ).toBe("FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0");
   });
 });

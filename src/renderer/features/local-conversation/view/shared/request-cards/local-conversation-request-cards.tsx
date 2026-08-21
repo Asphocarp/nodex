@@ -10,20 +10,11 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
-import {
-  ChevronDownIcon,
-  ChevronRightIcon,
-  CloseIcon,
-} from "@/components/shared/icons";
+import { ChevronDownIcon, ChevronRightIcon, CloseIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "./local-conversation-request-cards-deps";
-import {
-  resolveFormErrorMessage,
-} from "../../../../../lib/forms";
+import { resolveFormErrorMessage } from "../../../../../lib/forms";
 import { cn } from "../../../../../lib/utils";
-import type {
-  CodexTranscriptEntry,
-  CodexUserInputRequest,
-} from "../../../../../lib/types";
+import type { CodexTranscriptEntry, CodexUserInputRequest } from "../../../../../lib/types";
 import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/codex-conversation-state/codex-conversation-state";
 import { resolvePromptTextareaSize } from "../prompt-textarea-size";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
@@ -74,23 +65,20 @@ export type {
 } from "./request-card-questionnaire-state";
 
 function resolveTranscriptAnswers(question: CodexUserInputQuestion, values: string[]): string[] {
-  const normalizedValues = values
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
+  const normalizedValues = values.map((value) => value.trim()).filter((value) => value.length > 0);
   if (normalizedValues.length === 0) return [];
   if (!question.isSecret) return normalizedValues;
   return ["Hidden response"];
 }
 
-type UserInputTranscriptItem = Pick<CodexTranscriptEntry, "userInputQuestions" | "userInputAnswers"> & {
+type UserInputTranscriptItem = Pick<
+  CodexTranscriptEntry,
+  "userInputQuestions" | "userInputAnswers"
+> & {
   status?: CodexTranscriptEntry["status"];
 };
 
-export function UserInputTranscriptView({
-  item,
-}: {
-  item: UserInputTranscriptItem;
-}) {
+export function UserInputTranscriptView({ item }: { item: UserInputTranscriptItem }) {
   const questions = item.userInputQuestions ?? [];
   const answersByQuestion = item.userInputAnswers ?? {};
   const completed = item.status !== "inProgress";
@@ -109,7 +97,12 @@ export function UserInputTranscriptView({
   }
 
   const summary = (
-    <div className={cn("group flex min-w-0 items-center gap-1.5 text-left", canExpand ? "cursor-interaction" : "cursor-default")}>
+    <div
+      className={cn(
+        "group flex min-w-0 items-center gap-1.5 text-left",
+        canExpand ? "cursor-interaction" : "cursor-default",
+      )}
+    >
       <span className="truncate">
         <span className="text-token-description-foreground/90 group-hover:text-token-foreground">
           Asked
@@ -144,7 +137,9 @@ export function UserInputTranscriptView({
           >
             {summary}
           </button>
-        ) : summary}
+        ) : (
+          summary
+        )}
         <motion.div
           initial={false}
           animate={{
@@ -160,10 +155,15 @@ export function UserInputTranscriptView({
         >
           <div ref={elementRef} className="flex flex-col gap-3 pt-1 pb-0.5">
             {questions.map((question) => {
-              const answers = resolveTranscriptAnswers(question, answersByQuestion[question.id] ?? []);
+              const answers = resolveTranscriptAnswers(
+                question,
+                answersByQuestion[question.id] ?? [],
+              );
               return (
                 <div key={question.id} className="flex flex-col gap-1">
-                  <span className="text-size-chat text-token-foreground/60">{question.question}</span>
+                  <span className="text-size-chat text-token-foreground/60">
+                    {question.question}
+                  </span>
                   <span className="text-size-chat text-token-foreground/30">
                     {answers.length > 0 ? answers.join(", ") : "No answer provided"}
                   </span>
@@ -179,7 +179,13 @@ export function UserInputTranscriptView({
 
 function InfoIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 21 21" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+    <svg
+      viewBox="0 0 21 21"
+      className={cn("icon-2xs", className)}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
       <path
         d="M10.6 9.70459C11.0142 9.70461 11.35 10.0404 11.35 10.4546V13.7876C11.35 14.2018 11.0142 14.5376 10.6 14.5376C10.1858 14.5376 9.84998 14.2018 9.84998 13.7876V10.4546C9.84998 10.0404 10.1858 9.70459 10.6 9.70459Z"
         fill="currentColor"
@@ -206,10 +212,14 @@ function resolveOtherPromptLabel(question: RequestComposerQuestion): string {
   return "Tell Nodex what to do differently";
 }
 
-function resolveUserInputFocusTargetFromElement(element: Element | null): UserInputFocusTarget | null {
+function resolveUserInputFocusTargetFromElement(
+  element: Element | null,
+): UserInputFocusTarget | null {
   if (typeof Element === "undefined" || !(element instanceof Element)) return null;
 
-  const target = element.closest(`[${USER_INPUT_FOCUS_TARGET_ATTRIBUTE}]`)?.getAttribute(USER_INPUT_FOCUS_TARGET_ATTRIBUTE);
+  const target = element
+    .closest(`[${USER_INPUT_FOCUS_TARGET_ATTRIBUTE}]`)
+    ?.getAttribute(USER_INPUT_FOCUS_TARGET_ATTRIBUTE);
   if (target === "options" || target === "other" || target === "answer") {
     return target;
   }
@@ -217,8 +227,17 @@ function resolveUserInputFocusTargetFromElement(element: Element | null): UserIn
   return null;
 }
 
-function ArrowKeysIndicator({ visible, canGoUp, canGoDown }: { visible: boolean; canGoUp: boolean; canGoDown: boolean }) {
-  const arrowPath = "M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z";
+function ArrowKeysIndicator({
+  visible,
+  canGoUp,
+  canGoDown,
+}: {
+  visible: boolean;
+  canGoUp: boolean;
+  canGoDown: boolean;
+}) {
+  const arrowPath =
+    "M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z";
   return (
     <div
       className={cn(
@@ -228,16 +247,30 @@ function ArrowKeysIndicator({ visible, canGoUp, canGoDown }: { visible: boolean;
       aria-hidden={!visible}
     >
       <span className="flex items-center gap-0.5">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn(
-          "size-3",
-          canGoUp ? "text-(--foreground-tertiary)" : "text-(--foreground-tertiary)/20",
-        )}>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 20 20"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className={cn(
+            "size-3",
+            canGoUp ? "text-(--foreground-tertiary)" : "text-(--foreground-tertiary)/20",
+          )}
+        >
           <path d={arrowPath} fill="currentColor" />
         </svg>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn(
-          "size-3 rotate-180",
-          canGoDown ? "text-(--foreground-tertiary)" : "text-(--foreground-tertiary)/20",
-        )}>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 20 20"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className={cn(
+            "size-3 rotate-180",
+            canGoDown ? "text-(--foreground-tertiary)" : "text-(--foreground-tertiary)/20",
+          )}
+        >
           <path d={arrowPath} fill="currentColor" />
         </svg>
       </span>
@@ -254,7 +287,9 @@ function AutoSizingTextarea({
   className,
   textareaRef,
   ...props
-}: React.ComponentProps<"textarea"> & { textareaRef?: (element: HTMLTextAreaElement | null) => void }) {
+}: React.ComponentProps<"textarea"> & {
+  textareaRef?: (element: HTMLTextAreaElement | null) => void;
+}) {
   const innerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const setTextareaRef = (element: HTMLTextAreaElement | null) => {
@@ -300,15 +335,7 @@ function AutoSizingTextarea({
     };
   }, []);
 
-  return (
-    <textarea
-      {...props}
-      ref={setTextareaRef}
-      value={value}
-      rows={1}
-      className={className}
-    />
-  );
+  return <textarea {...props} ref={setTextareaRef} value={value} rows={1} className={className} />;
 }
 
 function UserInputQuestionSection({
@@ -354,13 +381,16 @@ function UserInputQuestionSection({
 
   const handleOtherTextareaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (
-      event.key === "ArrowUp"
-      && canMoveUserInputFocusToOptionsFromOtherField(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)
-      && question.options?.length
+      event.key === "ArrowUp" &&
+      canMoveUserInputFocusToOptionsFromOtherField(
+        event.currentTarget.selectionStart,
+        event.currentTarget.selectionEnd,
+      ) &&
+      question.options?.length
     ) {
       event.preventDefault();
-      const nextOptionLabel = selectedOption
-        ?? question.options[question.options.length - 1]!.label;
+      const nextOptionLabel =
+        selectedOption ?? question.options[question.options.length - 1]!.label;
       onOptionSelect(nextOptionLabel);
       const nextOption = optionsRef.current?.querySelector<HTMLButtonElement>(
         `[data-request-option-label="${CSS.escape(nextOptionLabel)}"]`,
@@ -412,15 +442,19 @@ function UserInputQuestionSection({
                       onOptionActivate(option.label);
                     }}
                   >
-                    <span className={cn(
-                      "flex min-w-[1.5ch] items-center justify-center text-sm",
-                      isSelected || isAdvancing
-                        ? "text-(--foreground-tertiary)"
-                        : "text-(--foreground-tertiary)/60",
-                    )}>
-                      {isAdvancing && presentation === "composer"
-                        ? <span className="size-1.5 rounded-full bg-current" aria-hidden />
-                        : `${index + 1}.`}
+                    <span
+                      className={cn(
+                        "flex min-w-[1.5ch] items-center justify-center text-sm",
+                        isSelected || isAdvancing
+                          ? "text-(--foreground-tertiary)"
+                          : "text-(--foreground-tertiary)/60",
+                      )}
+                    >
+                      {isAdvancing && presentation === "composer" ? (
+                        <span className="size-1.5 rounded-full bg-current" aria-hidden />
+                      ) : (
+                        `${index + 1}.`
+                      )}
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium">
@@ -465,7 +499,10 @@ function UserInputQuestionSection({
                       <ArrowKeysIndicator
                         visible={isSelected}
                         canGoUp={index > 0}
-                        canGoDown={index < question.options!.length - 1 || (canMoveIntoOtherAnswer && index === question.options!.length - 1)}
+                        canGoDown={
+                          index < question.options!.length - 1 ||
+                          (canMoveIntoOtherAnswer && index === question.options!.length - 1)
+                        }
                       />
                     )}
                   </button>
@@ -473,7 +510,12 @@ function UserInputQuestionSection({
               })}
             </div>
 
-            <div className={cn("flex items-end gap-2", showInlineOtherComposer ? "justify-between -mt-1" : "justify-end")}>
+            <div
+              className={cn(
+                "flex items-end gap-2",
+                showInlineOtherComposer ? "justify-between -mt-1" : "justify-end",
+              )}
+            >
               {showInlineOtherComposer ? (
                 <div className="group flex min-w-0 flex-1 items-start gap-2 rounded-xl px-2 py-1 text-sm focus-within:outline-none">
                   <span className="min-w-[1.5ch] pt-0.5 text-left text-(--foreground-tertiary)/60 group-focus-within:text-(--foreground-tertiary)/70">
@@ -519,9 +561,7 @@ function UserInputQuestionSection({
               data-user-input-focus-target="answer"
               className="h-10 w-full rounded-xl border border-[color-mix(in_srgb,var(--border)_85%,transparent)] bg-[color-mix(in_srgb,var(--foreground)_2%,transparent)] px-3 text-sm text-(--foreground) transition-colors duration-100 outline-none placeholder:text-(--foreground-tertiary) focus-visible:border-(--ring)"
             />
-            <div className="flex items-center justify-end gap-2 py-1">
-              {actionButtons}
-            </div>
+            <div className="flex items-center justify-end gap-2 py-1">{actionButtons}</div>
           </div>
         )}
       </div>
@@ -532,11 +572,7 @@ function UserInputQuestionSection({
 function ChevronIcon({ direction, className }: { direction: "prev" | "next"; className?: string }) {
   return (
     <ChevronDownIcon
-      className={cn(
-        "size-4",
-        direction === "prev" ? "rotate-90" : "-rotate-90",
-        className,
-      )}
+      className={cn("size-4", direction === "prev" ? "rotate-90" : "-rotate-90", className)}
     />
   );
 }
@@ -564,17 +600,10 @@ interface RequestComposerViewProps {
 export function RequestComposerView(props: RequestComposerViewProps) {
   if (props.request.questions.length === 0) return null;
 
-  const requestIdentity = buildCodexCanonicalRequestIdentityKey(
-    props.request.requestId,
-  );
+  const requestIdentity = buildCodexCanonicalRequestIdentityKey(props.request.requestId);
   const questionSignature = buildRequestQuestionSignature(props.request);
 
-  return (
-    <RequestComposerViewInstance
-      key={`${requestIdentity}:${questionSignature}`}
-      {...props}
-    />
-  );
+  return <RequestComposerViewInstance key={`${requestIdentity}:${questionSignature}`} {...props} />;
 }
 
 function RequestComposerViewInstance({
@@ -600,7 +629,7 @@ function RequestComposerViewInstance({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [advancingChoiceId, setAdvancingChoiceId] = useState<string | null>(null);
   const [state, setState] = useState<RequestQuestionnaireDraft>(() =>
-    reconcileRequestQuestionnaireDraft(request, initialDraft)
+    reconcileRequestQuestionnaireDraft(request, initialDraft),
   );
   const stateRef = useRef(state);
   const formRef = useRef<HTMLFormElement>(null);
@@ -630,8 +659,7 @@ function RequestComposerViewInstance({
   const currentQuestionKeyRef = useRef(currentQuestionKey);
   currentQuestionRef.current = question;
   currentQuestionKeyRef.current = currentQuestionKey;
-  const isCurrentQuestionPanel = () =>
-    stateRef.current.questionIndex === currentIndex;
+  const isCurrentQuestionPanel = () => stateRef.current.questionIndex === currentIndex;
 
   const commitDraft = (nextDraft: RequestQuestionnaireDraft) => {
     stateRef.current = nextDraft;
@@ -661,15 +689,15 @@ function RequestComposerViewInstance({
       return;
     }
 
-    const nextElement = nextFocusTarget === "options"
-      ? optionsRef.current?.querySelector<HTMLButtonElement>('[role="radio"][tabindex="0"]')
-      : nextFocusTarget === "other"
-        ? otherTextareaRef.current
-        : answerInputRef.current;
+    const nextElement =
+      nextFocusTarget === "options"
+        ? optionsRef.current?.querySelector<HTMLButtonElement>('[role="radio"][tabindex="0"]')
+        : nextFocusTarget === "other"
+          ? otherTextareaRef.current
+          : answerInputRef.current;
     if (!nextElement) return;
 
-    const focusQuestionKey = nextElement
-      .closest<HTMLElement>("[data-request-question-key]")
+    const focusQuestionKey = nextElement.closest<HTMLElement>("[data-request-question-key]")
       ?.dataset.requestQuestionKey;
     if (focusQuestionKey !== currentQuestionKeyRef.current) return;
 
@@ -713,53 +741,48 @@ function RequestComposerViewInstance({
       clearAdvancing();
     }
     pendingFocusTargetRef.current = options?.preserveInputFocus
-      ? resolveUserInputFocusTargetFromElement(typeof document === "undefined" ? null : document.activeElement)
+      ? resolveUserInputFocusTargetFromElement(
+          typeof document === "undefined" ? null : document.activeElement,
+        )
       : "options";
-    commitDraft(navigateRequestQuestionnaire(
-      request,
-      options?.draft ?? stateRef.current,
-      boundedIndex,
-    ));
+    commitDraft(
+      navigateRequestQuestionnaire(request, options?.draft ?? stateRef.current, boundedIndex),
+    );
   };
 
   const updateDraft = (value: string) => {
     clearAdvancing();
-    commitDraft(setRequestQuestionnaireFreeform(
-      stateRef.current,
-      stateRef.current.questionIndex,
-      value,
-    ));
+    commitDraft(
+      setRequestQuestionnaireFreeform(stateRef.current, stateRef.current.questionIndex, value),
+    );
   };
 
   const selectOption = (optionLabel: string) => {
-    commitDraft(selectRequestQuestionnaireOption(
-      stateRef.current,
-      stateRef.current.questionIndex,
-      optionLabel,
-    ));
+    commitDraft(
+      selectRequestQuestionnaireOption(
+        stateRef.current,
+        stateRef.current.questionIndex,
+        optionLabel,
+      ),
+    );
   };
 
   const activateOther = () => {
     clearAdvancing();
-    commitDraft(activateRequestQuestionnaireOther(
-      stateRef.current,
-      stateRef.current.questionIndex,
-    ));
+    commitDraft(
+      activateRequestQuestionnaireOther(stateRef.current, stateRef.current.questionIndex),
+    );
   };
 
   const canSubmit = isRequestQuestionnaireSubmittable(request, state, policy);
   const isBusy = busyAction !== null || activationLockRef.current !== null;
 
-  const submitDraft = async (
-    nextDraft: RequestQuestionnaireDraft,
-    lockToken?: symbol,
-  ) => {
+  const submitDraft = async (nextDraft: RequestQuestionnaireDraft, lockToken?: symbol) => {
     const generation = requestGenerationRef.current;
-    if (policy.requireAllAnswers && !isRequestQuestionnaireSubmittable(
-      request,
-      nextDraft,
-      policy,
-    )) {
+    if (
+      policy.requireAllAnswers &&
+      !isRequestQuestionnaireSubmittable(request, nextDraft, policy)
+    ) {
       setErrorMessage("Enter a response before submitting.");
       if (lockToken && activationLockRef.current === lockToken) {
         activationLockRef.current = null;
@@ -787,10 +810,7 @@ function RequestComposerViewInstance({
     }
   };
 
-  const advanceOrSubmit = (
-    nextDraft: RequestQuestionnaireDraft,
-    lockToken?: symbol,
-  ) => {
+  const advanceOrSubmit = (nextDraft: RequestQuestionnaireDraft, lockToken?: symbol) => {
     if (isLastRequestQuestion(request, nextDraft)) {
       void submitDraft(nextDraft, lockToken);
       return;
@@ -830,9 +850,9 @@ function RequestComposerViewInstance({
     advancingTimerRef.current = setTimeout(() => {
       advancingTimerRef.current = null;
       if (
-        !mountedRef.current
-        || requestGenerationRef.current !== generation
-        || activationLockRef.current !== lockToken
+        !mountedRef.current ||
+        requestGenerationRef.current !== generation ||
+        activationLockRef.current !== lockToken
       ) {
         return;
       }
@@ -850,7 +870,9 @@ function RequestComposerViewInstance({
       await onEscapeDismiss(request);
     } catch (error) {
       if (mountedRef.current && requestGenerationRef.current === generation) {
-        setErrorMessage(resolveFormErrorMessage(error) ?? dismissErrorMessage ?? "Could not dismiss request");
+        setErrorMessage(
+          resolveFormErrorMessage(error) ?? dismissErrorMessage ?? "Could not dismiss request",
+        );
       }
     } finally {
       if (mountedRef.current && requestGenerationRef.current === generation) {
@@ -871,7 +893,9 @@ function RequestComposerViewInstance({
       await onSkip(request);
     } catch (error) {
       if (mountedRef.current && requestGenerationRef.current === generation) {
-        setErrorMessage(resolveFormErrorMessage(error) ?? skipErrorMessage ?? "Could not skip request");
+        setErrorMessage(
+          resolveFormErrorMessage(error) ?? skipErrorMessage ?? "Could not skip request",
+        );
       }
     } finally {
       if (mountedRef.current && requestGenerationRef.current === generation) {
@@ -897,11 +921,7 @@ function RequestComposerViewInstance({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (event.defaultPrevented) return;
-    if (
-      event.key !== "Enter"
-      || event.shiftKey
-      || event.nativeEvent.isComposing
-    ) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
       return;
     }
     event.preventDefault();
@@ -917,22 +937,14 @@ function RequestComposerViewInstance({
 
   const handleRootKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
     if (event.defaultPrevented) return;
-    if (
-      event.key === "Escape"
-      && hasDismissAction
-      && busyAction === null
-    ) {
+    if (event.key === "Escape" && hasDismissAction && busyAction === null) {
       event.preventDefault();
       void handleEscapeDismiss();
       return;
     }
 
     if (busyAction !== null || activationLockRef.current !== null) {
-      if (
-        event.key === "Enter"
-        || event.key === " "
-        || /^[1-9]$/.test(event.key)
-      ) {
+      if (event.key === "Enter" || event.key === " " || /^[1-9]$/.test(event.key)) {
         event.preventDefault();
       }
       return;
@@ -940,19 +952,18 @@ function RequestComposerViewInstance({
 
     const target = event.target;
     if (
-      target instanceof HTMLInputElement
-      || target instanceof HTMLTextAreaElement
-      || (target instanceof HTMLElement && target.isContentEditable)
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
     ) {
       return;
     }
 
     const targetElement = target instanceof Element ? target : null;
-    const targetRadio = targetElement?.closest<HTMLButtonElement>(
-      '[role="radio"][data-request-option-label]',
-    ) ?? null;
-    const isQuestionnaireShortcutTarget = target === event.currentTarget
-      || targetRadio !== null;
+    const targetRadio =
+      targetElement?.closest<HTMLButtonElement>('[role="radio"][data-request-option-label]') ??
+      null;
+    const isQuestionnaireShortcutTarget = target === event.currentTarget || targetRadio !== null;
     const options = question.options ?? [];
     if (isQuestionnaireShortcutTarget && /^[1-9]$/.test(event.key)) {
       const optionIndex = Number(event.key) - 1;
@@ -970,35 +981,32 @@ function RequestComposerViewInstance({
     }
 
     if (
-      isQuestionnaireShortcutTarget
-      && (event.key === "ArrowLeft" || event.key === "ArrowRight")
+      isQuestionnaireShortcutTarget &&
+      (event.key === "ArrowLeft" || event.key === "ArrowRight")
     ) {
       if (!isMultiQuestion) return;
       event.preventDefault();
-      navigateQuestion(
-        currentIndex + (event.key === "ArrowLeft" ? -1 : 1),
-        { preserveInputFocus: true },
-      );
+      navigateQuestion(currentIndex + (event.key === "ArrowLeft" ? -1 : 1), {
+        preserveInputFocus: true,
+      });
       return;
     }
 
-    if (
-      isQuestionnaireShortcutTarget
-      && (event.key === "ArrowUp" || event.key === "ArrowDown")
-    ) {
+    if (isQuestionnaireShortcutTarget && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       if (options.length === 0) return;
       event.preventDefault();
       const selectedIndex = Math.max(
         0,
         options.findIndex((option) => option.label === answer.selectedOptionId),
       );
-      const nextIndex = event.key === "ArrowUp"
-        ? Math.max(0, selectedIndex - 1)
-        : Math.min(options.length - 1, selectedIndex + 1);
+      const nextIndex =
+        event.key === "ArrowUp"
+          ? Math.max(0, selectedIndex - 1)
+          : Math.min(options.length - 1, selectedIndex + 1);
       if (
-        event.key === "ArrowDown"
-        && selectedIndex === options.length - 1
-        && showInlineOtherComposer
+        event.key === "ArrowDown" &&
+        selectedIndex === options.length - 1 &&
+        showInlineOtherComposer
       ) {
         activateOther();
         otherTextareaRef.current?.focus({ preventScroll: true });
@@ -1013,12 +1021,11 @@ function RequestComposerViewInstance({
     }
 
     if (
-      (event.key === "Enter" || event.key === " ")
-      && (targetRadio || target === event.currentTarget)
+      (event.key === "Enter" || event.key === " ") &&
+      (targetRadio || target === event.currentTarget)
     ) {
       event.preventDefault();
-      const optionLabel = targetRadio?.dataset.requestOptionLabel
-        ?? answer.selectedOptionId;
+      const optionLabel = targetRadio?.dataset.requestOptionLabel ?? answer.selectedOptionId;
       if (optionLabel) activateOption(optionLabel);
     }
   };
@@ -1036,7 +1043,8 @@ function RequestComposerViewInstance({
     advanceOrSubmit(nextDraft);
   };
 
-  const primaryLabel = busyAction === "submit" ? "Submitting" : isLastQuestion ? "Submit" : "Continue";
+  const primaryLabel =
+    busyAction === "submit" ? "Submitting" : isLastQuestion ? "Submit" : "Continue";
 
   const formActionButtons = (
     <>
@@ -1077,7 +1085,7 @@ function RequestComposerViewInstance({
             : "bg-token-foreground hover:bg-token-foreground/80",
         )}
         onClick={isLastQuestion ? undefined : () => handlePrimaryAction()}
-        disabled={isLastQuestion ? (!canSubmit || isBusy) : false}
+        disabled={isLastQuestion ? !canSubmit || isBusy : false}
       >
         <span className="text-sm font-medium">{primaryLabel}</span>
         <span className="inline-flex items-center rounded-sm bg-token-dropdown-background/15 px-1.5 py-px text-sm leading-none text-token-dropdown-background">
@@ -1094,9 +1102,7 @@ function RequestComposerViewInstance({
       onClick={handleInlineAction}
       disabled={isBusy}
     >
-      <span className="text-sm font-medium">
-        {answer.freeformText?.trim() ? "Next" : "Skip"}
-      </span>
+      <span className="text-sm font-medium">{answer.freeformText?.trim() ? "Next" : "Skip"}</span>
       <span className="inline-flex items-center rounded-sm bg-token-dropdown-background/15 px-1.5 py-px text-sm leading-none text-token-dropdown-background">
         <span className="font-mono">⏎</span>
       </span>
@@ -1144,39 +1150,35 @@ function RequestComposerViewInstance({
               ) : null}
               {isMultiQuestion ? (
                 <>
-                <button
-                  type="button"
-                  className="flex size-5 items-center justify-center rounded-full text-(--foreground-tertiary) transition-colors duration-100 hover:bg-foreground-5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={currentIndex === 0}
-                  onClick={() => navigateQuestion(currentIndex - 1)}
-                  aria-label="Previous question"
-                >
-                  <ChevronIcon direction="prev" />
-                </button>
-                <span className="tabular-nums">{currentIndex + 1} of {request.questions.length}</span>
-                <button
-                  type="button"
-                  className="flex size-5 items-center justify-center rounded-full text-(--foreground-tertiary) transition-colors duration-100 hover:bg-foreground-5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={currentIndex === request.questions.length - 1}
-                  onClick={() => navigateQuestion(currentIndex + 1)}
-                  aria-label="Next question"
-                >
-                  <ChevronIcon direction="next" />
-                </button>
+                  <button
+                    type="button"
+                    className="flex size-5 items-center justify-center rounded-full text-(--foreground-tertiary) transition-colors duration-100 hover:bg-foreground-5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={currentIndex === 0}
+                    onClick={() => navigateQuestion(currentIndex - 1)}
+                    aria-label="Previous question"
+                  >
+                    <ChevronIcon direction="prev" />
+                  </button>
+                  <span className="tabular-nums">
+                    {currentIndex + 1} of {request.questions.length}
+                  </span>
+                  <button
+                    type="button"
+                    className="flex size-5 items-center justify-center rounded-full text-(--foreground-tertiary) transition-colors duration-100 hover:bg-foreground-5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={currentIndex === request.questions.length - 1}
+                    onClick={() => navigateQuestion(currentIndex + 1)}
+                    aria-label="Next question"
+                  >
+                    <ChevronIcon direction="next" />
+                  </button>
                 </>
               ) : null}
             </div>
           </div>
         )}
-        {body ? (
-          <div className="flex flex-col">
-            {body}
-          </div>
-        ) : null}
+        {body ? <div className="flex flex-col">{body}</div> : null}
         {header && showQuestionBodyWhenHeader ? (
-          <div className="px-4 text-sm font-medium">
-            {question.question}
-          </div>
+          <div className="px-4 text-sm font-medium">{question.question}</div>
         ) : null}
         <AnimatePresence initial={false} mode={reducedMotion ? "sync" : "wait"}>
           <motion.div
@@ -1184,12 +1186,10 @@ function RequestComposerViewInstance({
             data-request-question-key={currentQuestionKey}
             initial={reducedMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={reducedMotion
-              ? undefined
-              : { opacity: 0, pointerEvents: "none" }}
-            transition={reducedMotion
-              ? { duration: 0 }
-              : { type: "spring", bounce: 0, duration: 0.3 }}
+            exit={reducedMotion ? undefined : { opacity: 0, pointerEvents: "none" }}
+            transition={
+              reducedMotion ? { duration: 0 } : { type: "spring", bounce: 0, duration: 0.3 }
+            }
             onAnimationComplete={focusPendingTarget}
           >
             <UserInputQuestionSection
@@ -1221,9 +1221,7 @@ function RequestComposerViewInstance({
                 if (!isCurrentQuestionPanel()) return;
                 handleKeyDown(event);
               }}
-              actionButtons={isComposerPresentation
-                ? inlineActionButtons
-                : formActionButtons}
+              actionButtons={isComposerPresentation ? inlineActionButtons : formActionButtons}
               showInlineOtherComposer={showInlineOtherComposer}
             />
           </motion.div>

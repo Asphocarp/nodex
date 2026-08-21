@@ -1,7 +1,4 @@
-import type {
-  DatabaseJsonValue,
-  DatabasePropertyOption,
-} from "../../../shared/database-kernel";
+import type { DatabaseJsonValue, DatabasePropertyOption } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import type {
   RelationCandidateWindow,

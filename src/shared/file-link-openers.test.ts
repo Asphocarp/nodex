@@ -12,22 +12,22 @@ const EXAMPLE_MAIN_PATH = "/workspace/nodex/src/main/index.ts";
 
 describe("file link openers", () => {
   test("parses absolute file paths and line fragments", () => {
-    expect(JSON.stringify(
-      parseLocalFileLinkHref(`${EXAMPLE_PARSER_PATH}#L71`),
-    )).toBe(JSON.stringify({
-      path: EXAMPLE_PARSER_PATH,
-      line: 71,
-    }));
+    expect(JSON.stringify(parseLocalFileLinkHref(`${EXAMPLE_PARSER_PATH}#L71`))).toBe(
+      JSON.stringify({
+        path: EXAMPLE_PARSER_PATH,
+        line: 71,
+      }),
+    );
   });
 
   test("parses file URLs with line and column fragments", () => {
-    expect(JSON.stringify(
-      parseLocalFileLinkHref(`file://${EXAMPLE_MAIN_PATH}#L55C3`),
-    )).toBe(JSON.stringify({
-      path: EXAMPLE_MAIN_PATH,
-      line: 55,
-      column: 3,
-    }));
+    expect(JSON.stringify(parseLocalFileLinkHref(`file://${EXAMPLE_MAIN_PATH}#L55C3`))).toBe(
+      JSON.stringify({
+        path: EXAMPLE_MAIN_PATH,
+        line: 55,
+        column: 3,
+      }),
+    );
   });
 
   test("parses ranged line and column fragments", () => {
@@ -59,11 +59,7 @@ describe("file link openers", () => {
       column: 4,
     };
 
-    expect(formatFileLinkLocation(target)).toBe(
-      `${EXAMPLE_PARSER_PATH}:71:4`,
-    );
-    expect(buildFileUrl(target)).toBe(
-      `file://${EXAMPLE_PARSER_PATH}#L71C4`,
-    );
+    expect(formatFileLinkLocation(target)).toBe(`${EXAMPLE_PARSER_PATH}:71:4`);
+    expect(buildFileUrl(target)).toBe(`file://${EXAMPLE_PARSER_PATH}#L71C4`);
   });
 });

@@ -1,10 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,11 +12,7 @@ const iconComposerDir = join(resourcesDir, "icon.icon");
 const generatedIconPngPath = join(resourcesDir, "icon.png");
 const generatedHighResPngPath = join(resourcesDir, "nodex-icon_3200x3200.png");
 const generatedIcnsPath = join(resourcesDir, "icon.icns");
-const requiredDerivedPaths = [
-  generatedIconPngPath,
-  generatedHighResPngPath,
-  generatedIcnsPath,
-];
+const requiredDerivedPaths = [generatedIconPngPath, generatedHighResPngPath, generatedIcnsPath];
 
 function runCommand(command: string, args: string[]): string {
   return execFileSync(command, args, {
@@ -57,7 +48,9 @@ function ensureDerivedArtifactsExist(): void {
 }
 
 function ensureSourceArtifactsExist(): void {
-  const missingSources = [sourceSvgPath, iconComposerDir].filter((targetPath) => !existsSync(targetPath));
+  const missingSources = [sourceSvgPath, iconComposerDir].filter(
+    (targetPath) => !existsSync(targetPath),
+  );
   if (missingSources.length === 0) {
     return;
   }
@@ -116,13 +109,7 @@ function createIcnsFromPng(sourcePngPath: string): void {
       ]);
     }
 
-    runCommand("iconutil", [
-      "--convert",
-      "icns",
-      "--output",
-      generatedIcnsPath,
-      iconsetDir,
-    ]);
+    runCommand("iconutil", ["--convert", "icns", "--output", generatedIcnsPath, iconsetDir]);
   } finally {
     rmSync(tempDir, {
       recursive: true,
@@ -135,9 +122,7 @@ function main(): void {
   ensureSourceArtifactsExist();
 
   const canGenerateAppleArtifacts =
-    process.platform === "darwin" &&
-    commandExists("sips") &&
-    commandExists("iconutil");
+    process.platform === "darwin" && commandExists("sips") && commandExists("iconutil");
 
   if (!canGenerateAppleArtifacts) {
     ensureDerivedArtifactsExist();

@@ -12,9 +12,7 @@ const MAX_TAGS = 32;
 const MAX_TAG_NAME_BYTES = 256;
 
 /** Presentation-only preview. Core independently parses the durable rich title. */
-export const previewTaskShorthand = (
-  title: string,
-): TaskShorthandPreview | null => {
+export const previewTaskShorthand = (title: string): TaskShorthandPreview | null => {
   if (!/^[0-3]/u.test(title)) return null;
   const priority = Number(title[0]) as 0 | 1 | 2 | 3;
   let cursor = 1;
@@ -37,10 +35,11 @@ export const previewTaskShorthand = (
     for (const part of raw.split(",")) {
       const name = part.trim().normalize("NFC");
       if (
-        !name
-        || new TextEncoder().encode(name).length > MAX_TAG_NAME_BYTES
-        || /[\u0000-\u001f\u007f]/u.test(name)
-      ) return null;
+        !name ||
+        new TextEncoder().encode(name).length > MAX_TAG_NAME_BYTES ||
+        /[\u0000-\u001f\u007f]/u.test(name)
+      )
+        return null;
       if (!seen.has(name)) tags.push(name);
       seen.add(name);
     }
@@ -52,9 +51,10 @@ export const previewTaskShorthand = (
   if (!separator) return null;
   cursor += separator.length;
   if (
-    new TextEncoder().encode(title.slice(0, cursor)).length > MAX_PREFIX_BYTES
-    || !title.slice(cursor).trim()
-  ) return null;
+    new TextEncoder().encode(title.slice(0, cursor)).length > MAX_PREFIX_BYTES ||
+    !title.slice(cursor).trim()
+  )
+    return null;
 
   const details = [
     `P${priority}`,

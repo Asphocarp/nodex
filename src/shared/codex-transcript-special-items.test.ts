@@ -61,72 +61,103 @@ describe("codex-transcript-special-items", () => {
   });
 
   test("matches auto-review interruption guardian warnings by message prefix", () => {
-    expect(shouldShowAutoReviewInterruptionWarning({
-      threadId: "thread-1",
-      message: "Automatic approval review rejected too many approval requests for this turn.",
-    })).toBe(true);
-    expect(shouldShowAutoReviewInterruptionWarning({
-      threadId: "thread-1",
-      message: "Different guardian warning",
-    })).toBe(false);
+    expect(
+      shouldShowAutoReviewInterruptionWarning({
+        threadId: "thread-1",
+        message: "Automatic approval review rejected too many approval requests for this turn.",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowAutoReviewInterruptionWarning({
+        threadId: "thread-1",
+        message: "Different guardian warning",
+      }),
+    ).toBe(false);
   });
 
   test("formats automatic approval review title and fallback detail like the thread row", () => {
-    expect(buildAutomaticApprovalReviewTitle({ status: "inProgress", riskLevel: null })).toBe("Auto-reviewing");
-    expect(buildAutomaticApprovalReviewTitle({ status: "approved", riskLevel: "low" })).toBe("Auto-review approved");
-    expect(buildAutomaticApprovalReviewTitle({ status: "denied", riskLevel: "high" })).toBe("Auto-review denied high risk");
-    expect(buildAutomaticApprovalReviewTitle({ status: "denied", riskLevel: "medium" })).toBe("Auto-review denied");
-    expect(buildAutomaticApprovalReviewTitle({ status: "timedOut", riskLevel: null })).toBe("Auto-review timed out");
-    expect(buildAutomaticApprovalReviewTitle({ status: "aborted", riskLevel: null })).toBe("Auto-review stopped");
+    expect(buildAutomaticApprovalReviewTitle({ status: "inProgress", riskLevel: null })).toBe(
+      "Auto-reviewing",
+    );
+    expect(buildAutomaticApprovalReviewTitle({ status: "approved", riskLevel: "low" })).toBe(
+      "Auto-review approved",
+    );
+    expect(buildAutomaticApprovalReviewTitle({ status: "denied", riskLevel: "high" })).toBe(
+      "Auto-review denied high risk",
+    );
+    expect(buildAutomaticApprovalReviewTitle({ status: "denied", riskLevel: "medium" })).toBe(
+      "Auto-review denied",
+    );
+    expect(buildAutomaticApprovalReviewTitle({ status: "timedOut", riskLevel: null })).toBe(
+      "Auto-review timed out",
+    );
+    expect(buildAutomaticApprovalReviewTitle({ status: "aborted", riskLevel: null })).toBe(
+      "Auto-review stopped",
+    );
 
-    expect(buildAutomaticApprovalReviewSummary({ status: "timedOut", rationale: null }))
-      .toBe("A carefully prompted reviewer agent timed out before Nodex ran this request");
+    expect(buildAutomaticApprovalReviewSummary({ status: "timedOut", rationale: null })).toBe(
+      "A carefully prompted reviewer agent timed out before Nodex ran this request",
+    );
   });
 
   test("formats automatic approval review action summaries from guardian protocol actions", () => {
-    expect(buildAutomaticApprovalReviewActionSummary({
-      type: "command",
-      command: "bun test",
-      source: "shell",
-      cwd: "/tmp/project",
-    })).toBe("bun test");
-    expect(buildAutomaticApprovalReviewActionSummary({
-      type: "execve",
-      program: "python",
-      argv: ["-m", "pytest"],
-      source: "shell",
-      cwd: "/tmp/project",
-    })).toBe("python -m pytest");
-    expect(buildAutomaticApprovalReviewActionSummary({
-      type: "applyPatch",
-      cwd: "/tmp/project",
-      files: ["src/app.ts"],
-    })).toBe("Editing src/app.ts");
-    expect(buildAutomaticApprovalReviewActionSummary({
-      type: "applyPatch",
-      cwd: "/tmp/project",
-      files: ["src/app.ts", "src/app.test.ts"],
-    })).toBe("Editing 2 files");
-    expect(buildAutomaticApprovalReviewActionSummary({
-      type: "networkAccess",
-      target: "api.openai.com",
-      host: "api.openai.com",
-      protocol: "https",
-      port: 443,
-    })).toBe("Network access to api.openai.com");
-    expect(buildAutomaticApprovalReviewActionSummary({
-      type: "mcpToolCall",
-      server: "docs",
-      toolName: "search",
-      connectorId: null,
-      connectorName: "Docs",
-      toolTitle: null,
-    })).toBe("MCP search on Docs");
-    expect(buildAutomaticApprovalReviewActionSummary({
-      type: "requestPermissions",
-      reason: "Need to edit generated assets",
-      permissions: "fullAccess",
-    })).toBe("Permission request: Need to edit generated assets");
+    expect(
+      buildAutomaticApprovalReviewActionSummary({
+        type: "command",
+        command: "bun test",
+        source: "shell",
+        cwd: "/tmp/project",
+      }),
+    ).toBe("bun test");
+    expect(
+      buildAutomaticApprovalReviewActionSummary({
+        type: "execve",
+        program: "python",
+        argv: ["-m", "pytest"],
+        source: "shell",
+        cwd: "/tmp/project",
+      }),
+    ).toBe("python -m pytest");
+    expect(
+      buildAutomaticApprovalReviewActionSummary({
+        type: "applyPatch",
+        cwd: "/tmp/project",
+        files: ["src/app.ts"],
+      }),
+    ).toBe("Editing src/app.ts");
+    expect(
+      buildAutomaticApprovalReviewActionSummary({
+        type: "applyPatch",
+        cwd: "/tmp/project",
+        files: ["src/app.ts", "src/app.test.ts"],
+      }),
+    ).toBe("Editing 2 files");
+    expect(
+      buildAutomaticApprovalReviewActionSummary({
+        type: "networkAccess",
+        target: "api.openai.com",
+        host: "api.openai.com",
+        protocol: "https",
+        port: 443,
+      }),
+    ).toBe("Network access to api.openai.com");
+    expect(
+      buildAutomaticApprovalReviewActionSummary({
+        type: "mcpToolCall",
+        server: "docs",
+        toolName: "search",
+        connectorId: null,
+        connectorName: "Docs",
+        toolTitle: null,
+      }),
+    ).toBe("MCP search on Docs");
+    expect(
+      buildAutomaticApprovalReviewActionSummary({
+        type: "requestPermissions",
+        reason: "Need to edit generated assets",
+        permissions: "fullAccess",
+      }),
+    ).toBe("Permission request: Need to edit generated assets");
     expect(buildAutomaticApprovalReviewActionSummary(null)).toBe("Request");
   });
 
@@ -169,14 +200,16 @@ describe("codex-transcript-special-items", () => {
       status: "completed",
       senderThreadId: null,
       receiverThreadIds: ["thr_a", "thr_b"],
-      receiverThreads: [{
-        threadId: "thr_a",
-        thread: {
-          nickname: "Scout",
-          model: "gpt-5",
-          agentRole: "explorer",
+      receiverThreads: [
+        {
+          threadId: "thr_a",
+          thread: {
+            nickname: "Scout",
+            model: "gpt-5",
+            agentRole: "explorer",
+          },
         },
-      }],
+      ],
       prompt: null,
       model: null,
       reasoningEffort: null,

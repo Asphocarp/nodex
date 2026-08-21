@@ -22,7 +22,9 @@ function makeActions(
     activeTabId,
     setActiveTab: (id) => calls.setActiveTab.push(id),
     closeTab: (id) => calls.closeTab.push(id),
-    onRequestAddTab: () => { calls.addTab++; },
+    onRequestAddTab: () => {
+      calls.addTab++;
+    },
     ...overrides,
     calls,
   };

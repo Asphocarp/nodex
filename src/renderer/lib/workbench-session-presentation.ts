@@ -53,8 +53,5 @@ export function projectSessionSummaryToDomain(
 export function presentWorkbenchSession(
   presentation: WorkbenchSessionPresentation,
 ): WorkbenchSessionRenderProjection {
-  return presentWorkbenchSessionDomainWithScene(
-    presentation.domain,
-    presentation.scene,
-  );
+  return presentWorkbenchSessionDomainWithScene(presentation.domain, presentation.scene);
 }

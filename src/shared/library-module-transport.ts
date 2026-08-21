@@ -1,12 +1,6 @@
-import {
-  parseDatabaseId,
-  parseDatabaseViewId,
-  parseDataSourceId,
-} from "./database-identities";
+import { parseDatabaseId, parseDatabaseViewId, parseDataSourceId } from "./database-identities";
 import type { DatabaseViewLayout } from "./database-kernel";
-import {
-  parseLibraryBlockPropertyMutationRequestV2,
-} from "./block-property-mutations-v2";
+import { parseLibraryBlockPropertyMutationRequestV2 } from "./block-property-mutations-v2";
 import { bindLibraryDatabaseApplyV2 } from "./database-module-v2-transport";
 import { parseLocalCommitApply } from "./local-commit-delivery";
 import {
@@ -40,10 +34,7 @@ import {
   type LibraryWriteParent,
 } from "./library-module";
 import { isWorkflowStatus } from "./workflow-status";
-import type {
-  PageSearchMatch,
-  PageSearchTextPart,
-} from "./types";
+import type { PageSearchMatch, PageSearchTextPart } from "./types";
 import { parseAuthorizedReadStamp } from "./authorized-read-stamp";
 import {
   PROJECT_MARKER_COLORS,
@@ -57,20 +48,17 @@ const MAX_TITLE_LENGTH = 1_000_000;
 
 const displayText = (value: unknown, label: string): string => {
   if (
-    typeof value === "string"
-    && value.length > 0
-    && value.length <= MAX_TITLE_LENGTH
-    && !value.includes("\0")
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_TITLE_LENGTH &&
+    !value.includes("\0")
   ) {
     return value;
   }
   throw new TypeError(`${label} must be bounded display text`);
 };
 
-const parsePageSearchParts = (
-  value: unknown,
-  label: string,
-): PageSearchTextPart[] => {
+const parsePageSearchParts = (value: unknown, label: string): PageSearchTextPart[] => {
   if (!Array.isArray(value)) {
     throw new TypeError(`${label} must be an array`);
   }
@@ -110,13 +98,7 @@ const parsePageSearchMatch = (value: unknown, label: string): PageSearchMatch =>
     };
   }
   if (source === "property") {
-    exactKeys(match, label, [
-      "source",
-      "quality",
-      "propertyId",
-      "propertyName",
-      "parts",
-    ]);
+    exactKeys(match, label, ["source", "quality", "propertyId", "propertyName", "parts"]);
     return {
       source,
       quality,
@@ -126,13 +108,7 @@ const parsePageSearchMatch = (value: unknown, label: string): PageSearchMatch =>
     };
   }
   if (source === "body") {
-    exactKeys(match, label, [
-      "source",
-      "quality",
-      "blockId",
-      "blockType",
-      "parts",
-    ]);
+    exactKeys(match, label, ["source", "quality", "blockId", "blockType", "parts"]);
     return {
       source,
       quality,
@@ -144,15 +120,10 @@ const parsePageSearchMatch = (value: unknown, label: string): PageSearchMatch =>
   throw new TypeError(`${label}.source is unsupported`);
 };
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const record = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const record = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new TypeError(`${label} must be an object`);
 };
@@ -192,11 +163,7 @@ const string = (
   throw new TypeError(`${label} must be a canonical bounded string`);
 };
 
-const optionalString = (
-  value: unknown,
-  label: string,
-  maximum: number,
-): string | undefined =>
+const optionalString = (value: unknown, label: string, maximum: number): string | undefined =>
   value === undefined ? undefined : string(value, label, maximum, true);
 
 const revision = (value: unknown, label: string): number => {
@@ -206,8 +173,7 @@ const revision = (value: unknown, label: string): number => {
   throw new TypeError(`${label} must be a safe non-negative integer`);
 };
 
-const uuidV7 = (value: unknown, label: string): string =>
-  assertUuidV7(string(value, label), label);
+const uuidV7 = (value: unknown, label: string): string => assertUuidV7(string(value, label), label);
 
 const existingCanvasBlockId = (value: unknown, label: string): string =>
   assertExistingCanvasBlockId(string(value, label), label);
@@ -218,7 +184,11 @@ const existingCanvasDocumentId = (value: unknown, label: string): string =>
 const parseLibraryDocumentHead = (
   value: unknown,
   label: string,
-): { readonly documentId: string; readonly generation: number; readonly expectedHeadSeq: number } => {
+): {
+  readonly documentId: string;
+  readonly generation: number;
+  readonly expectedHeadSeq: number;
+} => {
   const head = record(value, label);
   exactKeys(head, label, ["documentId", "generation", "expectedHeadSeq"]);
   const generation = revision(head.generation, `${label}.generation`);
@@ -240,13 +210,9 @@ const boolean = (value: unknown, label: string): boolean => {
 const bytes = (value: unknown, label: string): Uint8Array => {
   if (value instanceof Uint8Array) return Uint8Array.from(value);
   if (
-    Array.isArray(value)
-    && value.every(
-      (entry) =>
-        typeof entry === "number"
-        && Number.isInteger(entry)
-        && entry >= 0
-        && entry <= 255,
+    Array.isArray(value) &&
+    value.every(
+      (entry) => typeof entry === "number" && Number.isInteger(entry) && entry >= 0 && entry <= 255,
     )
   ) {
     return Uint8Array.from(value);
@@ -264,15 +230,10 @@ const readLimit = (value: unknown, label: string): number | undefined => {
   ) {
     return value;
   }
-  throw new TypeError(
-    `${label} must be between 1 and ${MAX_LIBRARY_READ_LIMIT}`,
-  );
+  throw new TypeError(`${label} must be between 1 and ${MAX_LIBRARY_READ_LIMIT}`);
 };
 
-const parseRouteTarget = (
-  value: unknown,
-  label: string,
-): LibraryRouteTarget => {
+const parseRouteTarget = (value: unknown, label: string): LibraryRouteTarget => {
   const target = record(value, label);
   if (target.kind === "page") {
     exactKeys(target, label, ["kind", "pageId"]);
@@ -289,10 +250,7 @@ const parseRouteTarget = (
     exactKeys(target, label, ["kind", "canvasId"]);
     return {
       kind: "canvas",
-      canvasId: existingCanvasBlockId(
-        target.canvasId,
-        `${label}.canvasId`,
-      ),
+      canvasId: existingCanvasBlockId(target.canvasId, `${label}.canvasId`),
     };
   }
   if (target.kind === "view") {
@@ -302,10 +260,7 @@ const parseRouteTarget = (
   throw new TypeError(`${label}.kind is unsupported`);
 };
 
-const parseNavigationParent = (
-  value: unknown,
-  label: string,
-): LibraryNavigationParent => {
+const parseNavigationParent = (value: unknown, label: string): LibraryNavigationParent => {
   const parent = record(value, label);
   if (parent.kind === "library") {
     exactKeys(parent, label, ["kind"]);
@@ -325,10 +280,7 @@ const parseNavigationParent = (
   throw new TypeError(`${label}.kind is unsupported`);
 };
 
-const parseMoveDestinationScope = (
-  value: unknown,
-  label: string,
-): LibraryMoveDestinationScope => {
+const parseMoveDestinationScope = (value: unknown, label: string): LibraryMoveDestinationScope => {
   const scope = record(value, label);
   if (scope.kind === "suggested") {
     exactKeys(scope, label, ["kind"]);
@@ -352,10 +304,7 @@ const parseMoveDestinationScope = (
   throw new TypeError(`${label}.kind is unsupported`);
 };
 
-const parsePlacementAnchor = (
-  value: unknown,
-  label: string,
-): LibraryPlacementAnchor => {
+const parsePlacementAnchor = (value: unknown, label: string): LibraryPlacementAnchor => {
   const anchor = record(value, label);
   exactKeys(anchor, label, ["blockId", "expectedLocationRevision"]);
   return {
@@ -367,14 +316,12 @@ const parsePlacementAnchor = (
   };
 };
 
-const parseWriteParent = (
-  value: unknown,
-  label: string,
-): LibraryWriteParent => {
+const parseWriteParent = (value: unknown, label: string): LibraryWriteParent => {
   const parent = record(value, label);
-  const before = parent.before === undefined
-    ? undefined
-    : parsePlacementAnchor(parent.before, `${label}.before`);
+  const before =
+    parent.before === undefined
+      ? undefined
+      : parsePlacementAnchor(parent.before, `${label}.before`);
   if (parent.kind === "library") {
     exactKeys(parent, label, ["kind"], ["before"]);
     return { kind: "library", ...(before ? { before } : {}) };
@@ -383,12 +330,7 @@ const parseWriteParent = (
     exactKeys(
       parent,
       label,
-      [
-        "kind",
-        "pageId",
-        "expectedDocumentGeneration",
-        "expectedDocumentHeadSeq",
-      ],
+      ["kind", "pageId", "expectedDocumentGeneration", "expectedDocumentHeadSeq"],
       ["before", "insertion"],
     );
     const expectedDocumentGeneration = revision(
@@ -410,10 +352,7 @@ const parseWriteParent = (
       ...(parent.insertion === undefined
         ? {}
         : {
-            insertion: parsePageInsertion(
-              parent.insertion,
-              `${label}.insertion`,
-            ),
+            insertion: parsePageInsertion(parent.insertion, `${label}.insertion`),
           }),
     };
   }
@@ -454,16 +393,14 @@ function parsePageInsertion(
   throw new TypeError(`${label}.kind is unsupported`);
 }
 
-const parseCanvasDestination = (
-  value: unknown,
-  label: string,
-): LibraryCanvasDestination => {
+const parseCanvasDestination = (value: unknown, label: string): LibraryCanvasDestination => {
   const destination = record(value, label);
   if (destination.kind === "library") {
     exactKeys(destination, label, ["kind"], ["before"]);
-    const before = destination.before === undefined
-      ? undefined
-      : parsePlacementAnchor(destination.before, `${label}.before`);
+    const before =
+      destination.before === undefined
+        ? undefined
+        : parsePlacementAnchor(destination.before, `${label}.before`);
     return { kind: "library", ...(before ? { before } : {}) };
   }
   if (destination.kind !== "page") {
@@ -476,10 +413,7 @@ const parseCanvasDestination = (
     "expectedDocumentHeadSeq",
     "insertion",
   ]);
-  const parsedInsertion = parsePageInsertion(
-    destination.insertion,
-    `${label}.insertion`,
-  );
+  const parsedInsertion = parsePageInsertion(destination.insertion, `${label}.insertion`);
   const expectedDocumentGeneration = revision(
     destination.expectedDocumentGeneration,
     `${label}.expectedDocumentGeneration`,
@@ -517,15 +451,9 @@ const parseApplyResourceTarget = (
   throw new TypeError(`${label}.kind is unsupported`);
 };
 
-export const bindLibraryModuleApply = (
-  value: unknown,
-): LibraryModuleApplyRequest => {
+export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyRequest => {
   const request = record(value, "libraryModuleApply");
-  exactKeys(request, "libraryModuleApply", [
-    "operationId",
-    "storeEpoch",
-    "operation",
-  ]);
+  exactKeys(request, "libraryModuleApply", ["operationId", "storeEpoch", "operation"]);
   const operationId = uuidV7(request.operationId, "operationId");
   const storeEpoch = string(request.storeEpoch, "libraryModuleApply.storeEpoch");
   const operation = record(request.operation, "libraryModuleApply.operation");
@@ -544,7 +472,12 @@ export const bindLibraryModuleApply = (
         kind: "create_page",
         pageId: uuidV7(operation.pageId, "pageId"),
         documentId: uuidV7(operation.documentId, "documentId"),
-        title: string(operation.title, "libraryModuleApply.operation.title", MAX_TITLE_LENGTH, true),
+        title: string(
+          operation.title,
+          "libraryModuleApply.operation.title",
+          MAX_TITLE_LENGTH,
+          true,
+        ),
         parent: parseWriteParent(operation.parent, "libraryModuleApply.operation.parent"),
       },
     };
@@ -586,11 +519,7 @@ export const bindLibraryModuleApply = (
         kind: operation.kind,
         canvasId: uuidV7(operation.canvasId, "canvasId"),
         documentId: uuidV7(operation.documentId, "documentId"),
-        displayName: string(
-          operation.displayName,
-          "libraryModuleApply.operation.displayName",
-          256,
-        ),
+        displayName: string(operation.displayName, "libraryModuleApply.operation.displayName", 256),
         destination: parseCanvasDestination(
           operation.destination,
           "libraryModuleApply.operation.destination",
@@ -611,11 +540,7 @@ export const bindLibraryModuleApply = (
       operation: {
         kind: operation.kind,
         canvasId: existingCanvasBlockId(operation.canvasId, "canvasId"),
-        displayName: string(
-          operation.displayName,
-          "libraryModuleApply.operation.displayName",
-          256,
-        ),
+        displayName: string(operation.displayName, "libraryModuleApply.operation.displayName", 256),
         expectedMetadataRevision: revision(
           operation.expectedMetadataRevision,
           "libraryModuleApply.operation.expectedMetadataRevision",
@@ -672,10 +597,7 @@ export const bindLibraryModuleApply = (
       storeEpoch,
       operation: {
         kind: operation.kind,
-        sourceCanvasId: existingCanvasBlockId(
-          operation.sourceCanvasId,
-          "sourceCanvasId",
-        ),
+        sourceCanvasId: existingCanvasBlockId(operation.sourceCanvasId, "sourceCanvasId"),
         canvasId: uuidV7(operation.canvasId, "canvasId"),
         documentId: uuidV7(operation.documentId, "documentId"),
         ...(displayName === undefined ? {} : { displayName }),
@@ -698,20 +620,16 @@ export const bindLibraryModuleApply = (
     exactKeys(
       operation,
       "libraryModuleApply.operation",
-      [
-        "kind",
-        "canvasId",
-        "expectedLocationRevision",
-        "expectedMetadataRevision",
-      ],
+      ["kind", "canvasId", "expectedLocationRevision", "expectedMetadataRevision"],
       ["containingDocumentHead"],
     );
-    const containingDocumentHead = operation.containingDocumentHead === undefined
-      ? undefined
-      : parseLibraryDocumentHead(
-          operation.containingDocumentHead,
-          "libraryModuleApply.operation.containingDocumentHead",
-        );
+    const containingDocumentHead =
+      operation.containingDocumentHead === undefined
+        ? undefined
+        : parseLibraryDocumentHead(
+            operation.containingDocumentHead,
+            "libraryModuleApply.operation.containingDocumentHead",
+          );
     return {
       operationId,
       storeEpoch,
@@ -726,9 +644,7 @@ export const bindLibraryModuleApply = (
           operation.expectedMetadataRevision,
           "libraryModuleApply.operation.expectedMetadataRevision",
         ),
-        ...(containingDocumentHead === undefined
-          ? {}
-          : { containingDocumentHead }),
+        ...(containingDocumentHead === undefined ? {} : { containingDocumentHead }),
       },
     };
   }
@@ -740,11 +656,15 @@ export const bindLibraryModuleApply = (
       "libraryModuleApply.operation.target.expectedLocationRevision",
     );
     const target = parseApplyResourceTarget(
-      Object.fromEntries(Object.entries(rawTarget).filter(([key]) => key !== "expectedLocationRevision")),
+      Object.fromEntries(
+        Object.entries(rawTarget).filter(([key]) => key !== "expectedLocationRevision"),
+      ),
       "libraryModuleApply.operation.target",
     );
     if (expectedLocationRevision < 1) {
-      throw new TypeError("libraryModuleApply.operation.target.expectedLocationRevision must be positive");
+      throw new TypeError(
+        "libraryModuleApply.operation.target.expectedLocationRevision must be positive",
+      );
     }
     return {
       operationId,
@@ -764,11 +684,15 @@ export const bindLibraryModuleApply = (
       "libraryModuleApply.operation.target.expectedMetadataRevision",
     );
     const target = parseApplyResourceTarget(
-      Object.fromEntries(Object.entries(rawTarget).filter(([key]) => key !== "expectedMetadataRevision")),
+      Object.fromEntries(
+        Object.entries(rawTarget).filter(([key]) => key !== "expectedMetadataRevision"),
+      ),
       "libraryModuleApply.operation.target",
     );
     if (expectedMetadataRevision < 1) {
-      throw new TypeError("libraryModuleApply.operation.target.expectedMetadataRevision must be positive");
+      throw new TypeError(
+        "libraryModuleApply.operation.target.expectedMetadataRevision must be positive",
+      );
     }
     return {
       operationId,
@@ -780,12 +704,7 @@ export const bindLibraryModuleApply = (
     };
   }
   if (operation.kind === "grant_project_access") {
-    exactKeys(operation, "libraryModuleApply.operation", [
-      "kind",
-      "projectId",
-      "target",
-      "access",
-    ]);
+    exactKeys(operation, "libraryModuleApply.operation", ["kind", "projectId", "target", "access"]);
     if (operation.access !== "read" && operation.access !== "read_write") {
       throw new TypeError("libraryModuleApply.operation.access is unsupported");
     }
@@ -795,20 +714,13 @@ export const bindLibraryModuleApply = (
       operation: {
         kind: "grant_project_access",
         projectId: string(operation.projectId, "libraryModuleApply.operation.projectId"),
-        target: parseApplyResourceTarget(
-          operation.target,
-          "libraryModuleApply.operation.target",
-        ),
+        target: parseApplyResourceTarget(operation.target, "libraryModuleApply.operation.target"),
         access: operation.access,
       },
     };
   }
   if (operation.kind === "set_project_access") {
-    exactKeys(operation, "libraryModuleApply.operation", [
-      "kind",
-      "target",
-      "changes",
-    ]);
+    exactKeys(operation, "libraryModuleApply.operation", ["kind", "target", "changes"]);
     if (
       !Array.isArray(operation.changes) ||
       operation.changes.length === 0 ||
@@ -822,19 +734,15 @@ export const bindLibraryModuleApply = (
       const label = `libraryModuleApply.operation.changes[${index}]`;
       const change = record(value, label);
       exactKeys(change, label, ["projectId", "access", "expectedRevision"]);
-      if (
-        change.access !== null &&
-        change.access !== "read" &&
-        change.access !== "read_write"
-      ) {
+      if (change.access !== null && change.access !== "read" && change.access !== "read_write") {
         throw new TypeError(`${label}.access is unsupported`);
       }
-      const access = change.access === null
-        ? null
-        : parseLibraryAccess(change.access, `${label}.access`);
-      const expectedRevision = change.expectedRevision === null
-        ? null
-        : revision(change.expectedRevision, `${label}.expectedRevision`);
+      const access =
+        change.access === null ? null : parseLibraryAccess(change.access, `${label}.access`);
+      const expectedRevision =
+        change.expectedRevision === null
+          ? null
+          : revision(change.expectedRevision, `${label}.expectedRevision`);
       if (expectedRevision !== null && expectedRevision < 1) {
         throw new TypeError(`${label}.expectedRevision must be positive`);
       }
@@ -852,10 +760,7 @@ export const bindLibraryModuleApply = (
       storeEpoch,
       operation: {
         kind: operation.kind,
-        target: parseApplyResourceTarget(
-          operation.target,
-          "libraryModuleApply.operation.target",
-        ),
+        target: parseApplyResourceTarget(operation.target, "libraryModuleApply.operation.target"),
         changes,
       },
     };
@@ -922,9 +827,7 @@ const parseKinds = (
   return parsed;
 };
 
-export const bindLibraryModuleRead = (
-  value: unknown,
-): LibraryModuleReadRequest => {
+export const bindLibraryModuleRead = (value: unknown): LibraryModuleReadRequest => {
   const request = record(value, "libraryModuleRead");
   exactKeys(request, "libraryModuleRead", ["read"]);
   const read = record(request.read, "libraryModuleRead.read");
@@ -937,10 +840,7 @@ export const bindLibraryModuleRead = (
     return {
       read: {
         mode: "resource_project_access",
-        target: parseApplyResourceTarget(
-          read.target,
-          "libraryModuleRead.read.target",
-        ),
+        target: parseApplyResourceTarget(read.target, "libraryModuleRead.read.target"),
       },
     };
   }
@@ -949,10 +849,7 @@ export const bindLibraryModuleRead = (
     return {
       read: {
         mode: "canvas_target",
-        canvasId: existingCanvasBlockId(
-          read.canvasId,
-          "libraryModuleRead.read.canvasId",
-        ),
+        canvasId: existingCanvasBlockId(read.canvasId, "libraryModuleRead.read.canvasId"),
       },
     };
   }
@@ -969,19 +866,14 @@ export const bindLibraryModuleRead = (
       MAX_LIBRARY_CURSOR_LENGTH,
     );
     const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
-    const forceIncludeTarget = read.forceIncludeTarget === undefined
-      ? undefined
-      : parseRouteTarget(
-          read.forceIncludeTarget,
-          "libraryModuleRead.read.forceIncludeTarget",
-        );
+    const forceIncludeTarget =
+      read.forceIncludeTarget === undefined
+        ? undefined
+        : parseRouteTarget(read.forceIncludeTarget, "libraryModuleRead.read.forceIncludeTarget");
     return {
       read: {
         mode: "children",
-        parent: parseNavigationParent(
-          read.parent,
-          "libraryModuleRead.read.parent",
-        ),
+        parent: parseNavigationParent(read.parent, "libraryModuleRead.read.parent"),
         ...(cursor === undefined ? {} : { cursor }),
         ...(limit === undefined ? {} : { limit }),
         ...(forceIncludeTarget === undefined ? {} : { forceIncludeTarget }),
@@ -989,24 +881,20 @@ export const bindLibraryModuleRead = (
     };
   }
   if (read.mode === "standalone_roots") {
-    exactKeys(
-      read,
-      "libraryModuleRead.read",
-      ["mode"],
-      ["cursor", "limit", "forceIncludeTarget"],
-    );
+    exactKeys(read, "libraryModuleRead.read", ["mode"], ["cursor", "limit", "forceIncludeTarget"]);
     const cursor = optionalString(
       read.cursor,
       "libraryModuleRead.read.cursor",
       MAX_LIBRARY_CURSOR_LENGTH,
     );
     const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
-    const forceIncludeTarget = read.forceIncludeTarget === undefined
-      ? undefined
-      : parseApplyResourceTarget(
-          read.forceIncludeTarget,
-          "libraryModuleRead.read.forceIncludeTarget",
-        );
+    const forceIncludeTarget =
+      read.forceIncludeTarget === undefined
+        ? undefined
+        : parseApplyResourceTarget(
+            read.forceIncludeTarget,
+            "libraryModuleRead.read.forceIncludeTarget",
+          );
     return {
       read: {
         mode: "standalone_roots",
@@ -1056,21 +944,14 @@ export const bindLibraryModuleRead = (
         mode: "catalog",
         ...(query === undefined ? {} : { query }),
         ...(kinds === undefined ? {} : { kinds }),
-        ...(read.lifecycle === undefined
-          ? {}
-          : { lifecycle: read.lifecycle }),
+        ...(read.lifecycle === undefined ? {} : { lifecycle: read.lifecycle }),
         ...(cursor === undefined ? {} : { cursor }),
         ...(limit === undefined ? {} : { limit }),
       },
     };
   }
   if (read.mode === "move_destinations") {
-    exactKeys(
-      read,
-      "libraryModuleRead.read",
-      ["mode", "target", "scope"],
-      ["cursor", "limit"],
-    );
+    exactKeys(read, "libraryModuleRead.read", ["mode", "target", "scope"], ["cursor", "limit"]);
     const cursor = optionalString(
       read.cursor,
       "libraryModuleRead.read.cursor",
@@ -1080,26 +961,15 @@ export const bindLibraryModuleRead = (
     return {
       read: {
         mode: "move_destinations",
-        target: parseApplyResourceTarget(
-          read.target,
-          "libraryModuleRead.read.target",
-        ),
-        scope: parseMoveDestinationScope(
-          read.scope,
-          "libraryModuleRead.read.scope",
-        ),
+        target: parseApplyResourceTarget(read.target, "libraryModuleRead.read.target"),
+        scope: parseMoveDestinationScope(read.scope, "libraryModuleRead.read.scope"),
         ...(cursor === undefined ? {} : { cursor }),
         ...(limit === undefined ? {} : { limit }),
       },
     };
   }
   if (read.mode === "page_reference_candidates") {
-    exactKeys(
-      read,
-      "libraryModuleRead.read",
-      ["mode", "query"],
-      ["limit", "sourcePageId"],
-    );
+    exactKeys(read, "libraryModuleRead.read", ["mode", "query"], ["limit", "sourcePageId"]);
     const query = string(
       read.query,
       "libraryModuleRead.read.query",
@@ -1110,12 +980,10 @@ export const bindLibraryModuleRead = (
     if (limit !== undefined && limit > 60) {
       throw new TypeError("libraryModuleRead.read.limit must be at most 60");
     }
-    const sourcePageId = read.sourcePageId === undefined
-      ? undefined
-      : string(
-          read.sourcePageId,
-          "libraryModuleRead.read.sourcePageId",
-        );
+    const sourcePageId =
+      read.sourcePageId === undefined
+        ? undefined
+        : string(read.sourcePageId, "libraryModuleRead.read.sourcePageId");
     return {
       read: {
         mode: "page_reference_candidates",
@@ -1126,12 +994,7 @@ export const bindLibraryModuleRead = (
     };
   }
   if (read.mode === "page_backlinks") {
-    exactKeys(
-      read,
-      "libraryModuleRead.read",
-      ["mode", "targetPageId"],
-      ["cursor", "limit"],
-    );
+    exactKeys(read, "libraryModuleRead.read", ["mode", "targetPageId"], ["cursor", "limit"]);
     const cursor = optionalString(
       read.cursor,
       "libraryModuleRead.read.cursor",
@@ -1161,10 +1024,7 @@ const parseViewLayout = (value: unknown, label: string): DatabaseViewLayout => {
   throw new TypeError(`${label} is unsupported`);
 };
 
-const parseNavigationNode = (
-  value: unknown,
-  label: string,
-): LibraryNavigationNode => {
+const parseNavigationNode = (value: unknown, label: string): LibraryNavigationNode => {
   const node = record(value, label);
   if (node.kind === "page") {
     exactKeys(node, label, [
@@ -1184,18 +1044,9 @@ const parseNavigationNode = (
       title: string(node.title, `${label}.title`, MAX_TITLE_LENGTH, true),
       hasChildren: boolean(node.hasChildren, `${label}.hasChildren`),
       parentRevision: revision(node.parentRevision, `${label}.parentRevision`),
-      metadataRevision: revision(
-        node.metadataRevision,
-        `${label}.metadataRevision`,
-      ),
-      documentGeneration: revision(
-        node.documentGeneration,
-        `${label}.documentGeneration`,
-      ),
-      documentHeadSeq: revision(
-        node.documentHeadSeq,
-        `${label}.documentHeadSeq`,
-      ),
+      metadataRevision: revision(node.metadataRevision, `${label}.metadataRevision`),
+      documentGeneration: revision(node.documentGeneration, `${label}.documentGeneration`),
+      documentHeadSeq: revision(node.documentHeadSeq, `${label}.documentHeadSeq`),
       updatedAt: string(node.updatedAt, `${label}.updatedAt`),
     };
   }
@@ -1215,18 +1066,9 @@ const parseNavigationNode = (
       databaseId: parseDatabaseId(node.databaseId),
       title: string(node.title, `${label}.title`, 256),
       defaultViewId: parseDatabaseViewId(node.defaultViewId),
-      hasMultipleViews: boolean(
-        node.hasMultipleViews,
-        `${label}.hasMultipleViews`,
-      ),
-      metadataRevision: revision(
-        node.metadataRevision,
-        `${label}.metadataRevision`,
-      ),
-      locationRevision: revision(
-        node.locationRevision,
-        `${label}.locationRevision`,
-      ),
+      hasMultipleViews: boolean(node.hasMultipleViews, `${label}.hasMultipleViews`),
+      metadataRevision: revision(node.metadataRevision, `${label}.metadataRevision`),
+      locationRevision: revision(node.locationRevision, `${label}.locationRevision`),
       updatedAt: string(node.updatedAt, `${label}.updatedAt`),
     };
   }
@@ -1247,22 +1089,10 @@ const parseNavigationNode = (
       canvasId: existingCanvasBlockId(node.canvasId, `${label}.canvasId`),
       title: string(node.title, `${label}.title`, 256),
       isPrimary: boolean(node.isPrimary, `${label}.isPrimary`),
-      metadataRevision: revision(
-        node.metadataRevision,
-        `${label}.metadataRevision`,
-      ),
-      locationRevision: revision(
-        node.locationRevision,
-        `${label}.locationRevision`,
-      ),
-      documentGeneration: revision(
-        node.documentGeneration,
-        `${label}.documentGeneration`,
-      ),
-      documentHeadSeq: revision(
-        node.documentHeadSeq,
-        `${label}.documentHeadSeq`,
-      ),
+      metadataRevision: revision(node.metadataRevision, `${label}.metadataRevision`),
+      locationRevision: revision(node.locationRevision, `${label}.locationRevision`),
+      documentGeneration: revision(node.documentGeneration, `${label}.documentGeneration`),
+      documentHeadSeq: revision(node.documentHeadSeq, `${label}.documentHeadSeq`),
       updatedAt: string(node.updatedAt, `${label}.updatedAt`),
     };
   }
@@ -1283,10 +1113,7 @@ const parseNavigationNode = (
       databaseId: parseDatabaseId(node.databaseId),
       dataSourceId: parseDataSourceId(node.dataSourceId),
       title: string(node.title, `${label}.title`, 256),
-      defaultLayout: parseViewLayout(
-        node.defaultLayout,
-        `${label}.defaultLayout`,
-      ),
+      defaultLayout: parseViewLayout(node.defaultLayout, `${label}.defaultLayout`),
       isDefault: boolean(node.isDefault, `${label}.isDefault`),
       revision: revision(node.revision, `${label}.revision`),
     };
@@ -1294,10 +1121,7 @@ const parseNavigationNode = (
   throw new TypeError(`${label}.kind is unsupported`);
 };
 
-const parseCatalogEntry = (
-  value: unknown,
-  label: string,
-): LibraryCatalogEntry => {
+const parseCatalogEntry = (value: unknown, label: string): LibraryCatalogEntry => {
   const entry = record(value, label);
   exactKeys(entry, label, [
     "target",
@@ -1313,11 +1137,7 @@ const parseCatalogEntry = (
   if (target.kind === "view") {
     throw new TypeError(`${label}.target must identify a Library resource`);
   }
-  if (
-    entry.kind !== "page"
-    && entry.kind !== "database"
-    && entry.kind !== "canvas"
-  ) {
+  if (entry.kind !== "page" && entry.kind !== "database" && entry.kind !== "canvas") {
     throw new TypeError(`${label}.kind is unsupported`);
   }
   if (target.kind !== entry.kind) {
@@ -1331,28 +1151,14 @@ const parseCatalogEntry = (
     title: string(entry.title, `${label}.title`, MAX_TITLE_LENGTH, true),
     kind: entry.kind,
     lifecycle: entry.lifecycle,
-    locationLabel: string(
-      entry.locationLabel,
-      `${label}.locationLabel`,
-      MAX_TITLE_LENGTH,
-      true,
-    ),
+    locationLabel: string(entry.locationLabel, `${label}.locationLabel`, MAX_TITLE_LENGTH, true),
     updatedAt: string(entry.updatedAt, `${label}.updatedAt`),
-    locationRevision: revision(
-      entry.locationRevision,
-      `${label}.locationRevision`,
-    ),
-    metadataRevision: revision(
-      entry.metadataRevision,
-      `${label}.metadataRevision`,
-    ),
+    locationRevision: revision(entry.locationRevision, `${label}.locationRevision`),
+    metadataRevision: revision(entry.metadataRevision, `${label}.metadataRevision`),
   };
 };
 
-const parseMoveDestinationEntry = (
-  value: unknown,
-  label: string,
-): LibraryMoveDestinationEntry => {
+const parseMoveDestinationEntry = (value: unknown, label: string): LibraryMoveDestinationEntry => {
   const entry = record(value, label);
   exactKeys(entry, label, [
     "pageId",
@@ -1367,10 +1173,7 @@ const parseMoveDestinationEntry = (
   if (!Array.isArray(entry.path)) {
     throw new TypeError(`${label}.path must be an array`);
   }
-  const documentGeneration = revision(
-    entry.documentGeneration,
-    `${label}.documentGeneration`,
-  );
+  const documentGeneration = revision(entry.documentGeneration, `${label}.documentGeneration`);
   if (documentGeneration < 1) {
     throw new TypeError(`${label}.documentGeneration must be positive`);
   }
@@ -1378,42 +1181,30 @@ const parseMoveDestinationEntry = (
     pageId: string(entry.pageId, `${label}.pageId`),
     title: string(entry.title, `${label}.title`, MAX_TITLE_LENGTH, true),
     path: entry.path.map((part, index) =>
-      string(part, `${label}.path[${index}]`, MAX_TITLE_LENGTH, true)
+      string(part, `${label}.path[${index}]`, MAX_TITLE_LENGTH, true),
     ),
     hasChildren: boolean(entry.hasChildren, `${label}.hasChildren`),
     isCurrent: boolean(entry.isCurrent, `${label}.isCurrent`),
     documentGeneration,
-    documentHeadSeq: revision(
-      entry.documentHeadSeq,
-      `${label}.documentHeadSeq`,
-    ),
+    documentHeadSeq: revision(entry.documentHeadSeq, `${label}.documentHeadSeq`),
     updatedAt: string(entry.updatedAt, `${label}.updatedAt`),
   };
 };
 
-const parseCanvasTarget = (
-  value: unknown,
-  label: string,
-): LibraryCanvasTarget => {
+const parseCanvasTarget = (value: unknown, label: string): LibraryCanvasTarget => {
   const target = record(value, label);
   if (target.status === "missing") {
     exactKeys(target, label, ["status", "canvasId"]);
     return {
       status: target.status,
-      canvasId: existingCanvasBlockId(
-        target.canvasId,
-        `${label}.canvasId`,
-      ),
+      canvasId: existingCanvasBlockId(target.canvasId, `${label}.canvasId`),
     };
   }
   if (target.status === "deleted") {
     exactKeys(target, label, ["status", "canvasId", "libraryId"]);
     return {
       status: target.status,
-      canvasId: existingCanvasBlockId(
-        target.canvasId,
-        `${label}.canvasId`,
-      ),
+      canvasId: existingCanvasBlockId(target.canvasId, `${label}.canvasId`),
       libraryId: string(target.libraryId, `${label}.libraryId`),
     };
   }
@@ -1442,21 +1233,11 @@ const parseCanvasTarget = (
       return { kind: "library" as const };
     }
     if (location.kind === "page") {
-      exactKeys(location, `${label}.summary.location`, [
-        "kind",
-        "pageId",
-        "documentId",
-      ]);
+      exactKeys(location, `${label}.summary.location`, ["kind", "pageId", "documentId"]);
       return {
         kind: "page" as const,
-        pageId: uuidV7(
-          location.pageId,
-          `${label}.summary.location.pageId`,
-        ),
-        documentId: uuidV7(
-          location.documentId,
-          `${label}.summary.location.documentId`,
-        ),
+        pageId: uuidV7(location.pageId, `${label}.summary.location.pageId`),
+        documentId: uuidV7(location.documentId, `${label}.summary.location.documentId`),
       };
     }
     throw new TypeError(`${label}.summary.location.kind is unsupported`);
@@ -1464,43 +1245,24 @@ const parseCanvasTarget = (
   return {
     status: target.status,
     summary: {
-      canvasId: existingCanvasBlockId(
-        summary.canvasId,
-        `${label}.summary.canvasId`,
-      ),
+      canvasId: existingCanvasBlockId(summary.canvasId, `${label}.summary.canvasId`),
       title: string(summary.title, `${label}.summary.title`, 256),
-      lifecycle: string(
-        summary.lifecycle,
-        `${label}.summary.lifecycle`,
-        64,
-      ),
+      lifecycle: string(summary.lifecycle, `${label}.summary.lifecycle`, 64),
       isPrimary: boolean(summary.isPrimary, `${label}.summary.isPrimary`),
       location: parsedLocation,
-      metadataRevision: revision(
-        summary.metadataRevision,
-        `${label}.summary.metadataRevision`,
-      ),
-      locationRevision: revision(
-        summary.locationRevision,
-        `${label}.summary.locationRevision`,
-      ),
+      metadataRevision: revision(summary.metadataRevision, `${label}.summary.metadataRevision`),
+      locationRevision: revision(summary.locationRevision, `${label}.summary.locationRevision`),
       documentGeneration: revision(
         summary.documentGeneration,
         `${label}.summary.documentGeneration`,
       ),
-      documentHeadSeq: revision(
-        summary.documentHeadSeq,
-        `${label}.summary.documentHeadSeq`,
-      ),
+      documentHeadSeq: revision(summary.documentHeadSeq, `${label}.summary.documentHeadSeq`),
       updatedAt: string(summary.updatedAt, `${label}.summary.updatedAt`),
     },
   };
 };
 
-const parseLibraryAccess = (
-  value: unknown,
-  label: string,
-): "read" | "read_write" => {
+const parseLibraryAccess = (value: unknown, label: string): "read" | "read_write" => {
   if (value === "read" || value === "read_write") return value;
   throw new TypeError(`${label} is unsupported`);
 };
@@ -1510,9 +1272,7 @@ const parseProjectAppearance = (value: unknown, label: string): ProjectAppearanc
   exactKeys(appearance, label, ["color", "marker"]);
   if (
     typeof appearance.color !== "string" ||
-    !PROJECT_MARKER_COLORS.includes(
-      appearance.color as (typeof PROJECT_MARKER_COLORS)[number],
-    )
+    !PROJECT_MARKER_COLORS.includes(appearance.color as (typeof PROJECT_MARKER_COLORS)[number])
   ) {
     throw new TypeError(`${label}.color is unsupported`);
   }
@@ -1522,9 +1282,7 @@ const parseProjectAppearance = (value: unknown, label: string): ProjectAppearanc
     exactKeys(marker, `${label}.marker`, ["kind", "icon"]);
     if (
       typeof marker.icon !== "string" ||
-      !PROJECT_MARKER_ICONS.includes(
-        marker.icon as (typeof PROJECT_MARKER_ICONS)[number],
-      )
+      !PROJECT_MARKER_ICONS.includes(marker.icon as (typeof PROJECT_MARKER_ICONS)[number])
     ) {
       throw new TypeError(`${label}.marker.icon is unsupported`);
     }
@@ -1532,10 +1290,7 @@ const parseProjectAppearance = (value: unknown, label: string): ProjectAppearanc
       color,
       marker: {
         kind: "icon",
-        icon: marker.icon as Extract<
-          ProjectAppearance["marker"],
-          { kind: "icon" }
-        >["icon"],
+        icon: marker.icon as Extract<ProjectAppearance["marker"], { kind: "icon" }>["icon"],
       },
     };
   }
@@ -1555,10 +1310,7 @@ const parseProjectAppearance = (value: unknown, label: string): ProjectAppearanc
 const parseProjectAccessRow = (
   value: unknown,
   label: string,
-): Extract<
-  LibraryReadValue,
-  { kind: "resource_project_access" }
->["value"]["projects"][number] => {
+): Extract<LibraryReadValue, { kind: "resource_project_access" }>["value"]["projects"][number] => {
   const project = record(value, label);
   exactKeys(project, label, [
     "projectId",
@@ -1576,20 +1328,21 @@ const parseProjectAccessRow = (
   ) {
     throw new TypeError(`${label}.lifecycle is unsupported`);
   }
-  const directGrant = project.directGrant === null
-    ? null
-    : (() => {
-        const grant = record(project.directGrant, `${label}.directGrant`);
-        exactKeys(grant, `${label}.directGrant`, ["access", "revision"]);
-        const grantRevision = revision(grant.revision, `${label}.directGrant.revision`);
-        if (grantRevision < 1) {
-          throw new TypeError(`${label}.directGrant.revision must be positive`);
-        }
-        return {
-          access: parseLibraryAccess(grant.access, `${label}.directGrant.access`),
-          revision: grantRevision,
-        };
-      })();
+  const directGrant =
+    project.directGrant === null
+      ? null
+      : (() => {
+          const grant = record(project.directGrant, `${label}.directGrant`);
+          exactKeys(grant, `${label}.directGrant`, ["access", "revision"]);
+          const grantRevision = revision(grant.revision, `${label}.directGrant.revision`);
+          if (grantRevision < 1) {
+            throw new TypeError(`${label}.directGrant.revision must be positive`);
+          }
+          return {
+            access: parseLibraryAccess(grant.access, `${label}.directGrant.access`),
+            revision: grantRevision,
+          };
+        })();
   if (!Array.isArray(project.inheritedSources)) {
     throw new TypeError(`${label}.inheritedSources must be an array`);
   }
@@ -1601,38 +1354,25 @@ const parseProjectAccessRow = (
       return {
         kind: source.kind,
         pageId: string(source.pageId, `${sourceLabel}.pageId`),
-        pageTitle: string(
-          source.pageTitle,
-          `${sourceLabel}.pageTitle`,
-          MAX_TITLE_LENGTH,
-          true,
-        ),
+        pageTitle: string(source.pageTitle, `${sourceLabel}.pageTitle`, MAX_TITLE_LENGTH, true),
         access: parseLibraryAccess(source.access, `${sourceLabel}.access`),
       } as const;
     }
     if (source.kind === "primary_database" || source.kind === "database_grant") {
-      exactKeys(source, sourceLabel, [
-        "kind",
-        "databaseId",
-        "databaseName",
-        "access",
-      ]);
+      exactKeys(source, sourceLabel, ["kind", "databaseId", "databaseName", "access"]);
       return {
         kind: source.kind,
         databaseId: parseDatabaseId(source.databaseId),
-        databaseName: string(
-          source.databaseName,
-          `${sourceLabel}.databaseName`,
-          MAX_TITLE_LENGTH,
-        ),
+        databaseName: string(source.databaseName, `${sourceLabel}.databaseName`, MAX_TITLE_LENGTH),
         access: parseLibraryAccess(source.access, `${sourceLabel}.access`),
       } as const;
     }
     throw new TypeError(`${sourceLabel}.kind is unsupported`);
   });
-  const effectiveAccess = project.effectiveAccess === null
-    ? null
-    : parseLibraryAccess(project.effectiveAccess, `${label}.effectiveAccess`);
+  const effectiveAccess =
+    project.effectiveAccess === null
+      ? null
+      : parseLibraryAccess(project.effectiveAccess, `${label}.effectiveAccess`);
   return {
     projectId: string(project.projectId, `${label}.projectId`),
     projectName: string(project.projectName, `${label}.projectName`, MAX_TITLE_LENGTH),
@@ -1652,14 +1392,8 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
   }
   if (readValue.kind === "resource_project_access") {
     exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind", "value"]);
-    const accessValue = record(
-      readValue.value,
-      "libraryModuleReadResult.value.value.value",
-    );
-    exactKeys(accessValue, "libraryModuleReadResult.value.value.value", [
-      "target",
-      "projects",
-    ]);
+    const accessValue = record(readValue.value, "libraryModuleReadResult.value.value.value");
+    exactKeys(accessValue, "libraryModuleReadResult.value.value.value", ["target", "projects"]);
     if (!Array.isArray(accessValue.projects)) {
       throw new TypeError("library resource Project access must be an array");
     }
@@ -1671,22 +1405,16 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
           "libraryModuleReadResult.value.value.value.target",
         ),
         projects: accessValue.projects.map((project, index) =>
-          parseProjectAccessRow(project, `library resource Project access[${index}]`)
+          parseProjectAccessRow(project, `library resource Project access[${index}]`),
         ),
       },
     };
   }
   if (readValue.kind === "canvas_target") {
-    exactKeys(readValue, "libraryModuleReadResult.value.value", [
-      "kind",
-      "value",
-    ]);
+    exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind", "value"]);
     return {
       kind: readValue.kind,
-      value: parseCanvasTarget(
-        readValue.value,
-        "libraryModuleReadResult.value.value.value",
-      ),
+      value: parseCanvasTarget(readValue.value, "libraryModuleReadResult.value.value.value"),
     };
   }
   if (readValue.kind === "children") {
@@ -1701,19 +1429,17 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
     if (!Array.isArray(readValue.items)) {
       throw new TypeError("library children items must be an array");
     }
-    const nextCursor = readValue.nextCursor === null
-      ? null
-      : string(
-          readValue.nextCursor,
-          "libraryModuleReadResult.value.value.nextCursor",
-          MAX_LIBRARY_CURSOR_LENGTH,
-        );
+    const nextCursor =
+      readValue.nextCursor === null
+        ? null
+        : string(
+            readValue.nextCursor,
+            "libraryModuleReadResult.value.value.nextCursor",
+            MAX_LIBRARY_CURSOR_LENGTH,
+          );
     return {
       kind: "children",
-      parent: parseNavigationParent(
-        readValue.parent,
-        "libraryModuleReadResult.value.value.parent",
-      ),
+      parent: parseNavigationParent(readValue.parent, "libraryModuleReadResult.value.value.parent"),
       items: readValue.items.map((entry, index) =>
         parseNavigationNode(entry, `library children items[${index}]`),
       ),
@@ -1734,44 +1460,35 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
       throw new TypeError("library standalone roots items must be an array");
     }
     const items = readValue.items.map((entry, index) =>
-      parseNavigationNode(entry, `library standalone roots items[${index}]`)
+      parseNavigationNode(entry, `library standalone roots items[${index}]`),
     );
     if (items.some((item) => item.kind === "view")) {
       throw new TypeError("library standalone roots cannot contain Views");
     }
-    const nextCursor = readValue.nextCursor === null
-      ? null
-      : string(
-          readValue.nextCursor,
-          "libraryModuleReadResult.value.value.nextCursor",
-          MAX_LIBRARY_CURSOR_LENGTH,
-        );
+    const nextCursor =
+      readValue.nextCursor === null
+        ? null
+        : string(
+            readValue.nextCursor,
+            "libraryModuleReadResult.value.value.nextCursor",
+            MAX_LIBRARY_CURSOR_LENGTH,
+          );
     return {
       kind: "standalone_roots",
-      items: items as Extract<
-        LibraryReadValue,
-        { kind: "standalone_roots" }
-      >["items"],
+      items: items as Extract<LibraryReadValue, { kind: "standalone_roots" }>["items"],
       nextCursor,
       hasMore: boolean(readValue.hasMore, "library standalone roots hasMore"),
       total: revision(readValue.total, "library standalone roots total"),
     };
   }
   if (readValue.kind === "path") {
-    exactKeys(readValue, "libraryModuleReadResult.value.value", [
-      "kind",
-      "target",
-      "nodes",
-    ]);
+    exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind", "target", "nodes"]);
     if (!Array.isArray(readValue.nodes)) {
       throw new TypeError("library path nodes must be an array");
     }
     return {
       kind: "path",
-      target: parseRouteTarget(
-        readValue.target,
-        "libraryModuleReadResult.value.value.target",
-      ),
+      target: parseRouteTarget(readValue.target, "libraryModuleReadResult.value.value.target"),
       nodes: readValue.nodes.map((entry, index) =>
         parseNavigationNode(entry, `library path nodes[${index}]`),
       ),
@@ -1788,13 +1505,14 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
     if (!Array.isArray(readValue.items)) {
       throw new TypeError("library catalog items must be an array");
     }
-    const nextCursor = readValue.nextCursor === null
-      ? null
-      : string(
-          readValue.nextCursor,
-          "libraryModuleReadResult.value.value.nextCursor",
-          MAX_LIBRARY_CURSOR_LENGTH,
-        );
+    const nextCursor =
+      readValue.nextCursor === null
+        ? null
+        : string(
+            readValue.nextCursor,
+            "libraryModuleReadResult.value.value.nextCursor",
+            MAX_LIBRARY_CURSOR_LENGTH,
+          );
     return {
       kind: "catalog",
       items: readValue.items.map((entry, index) =>
@@ -1820,13 +1538,14 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
     if (!Array.isArray(readValue.items)) {
       throw new TypeError("library move destination items must be an array");
     }
-    const nextCursor = readValue.nextCursor === null
-      ? null
-      : string(
-          readValue.nextCursor,
-          "libraryModuleReadResult.value.value.nextCursor",
-          MAX_LIBRARY_CURSOR_LENGTH,
-        );
+    const nextCursor =
+      readValue.nextCursor === null
+        ? null
+        : string(
+            readValue.nextCursor,
+            "libraryModuleReadResult.value.value.nextCursor",
+            MAX_LIBRARY_CURSOR_LENGTH,
+          );
     return {
       kind: "move_destinations",
       target: parseApplyResourceTarget(
@@ -1838,95 +1557,74 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
         "libraryModuleReadResult.value.value.scope",
       ),
       items: readValue.items.map((entry, index) =>
-        parseMoveDestinationEntry(
-          entry,
-          `library move destination items[${index}]`,
-        )
+        parseMoveDestinationEntry(entry, `library move destination items[${index}]`),
       ),
-      currentDestination: readValue.currentDestination === null
-        ? null
-        : parseMoveDestinationEntry(
-            readValue.currentDestination,
-            "library move current destination",
-          ),
+      currentDestination:
+        readValue.currentDestination === null
+          ? null
+          : parseMoveDestinationEntry(
+              readValue.currentDestination,
+              "library move current destination",
+            ),
       nextCursor,
       hasMore: boolean(readValue.hasMore, "library move destinations hasMore"),
       total: revision(readValue.total, "library move destinations total"),
-      rootIsCurrent: boolean(
-        readValue.rootIsCurrent,
-        "library move destinations rootIsCurrent",
-      ),
+      rootIsCurrent: boolean(readValue.rootIsCurrent, "library move destinations rootIsCurrent"),
     };
   }
   if (readValue.kind === "page_reference_candidates") {
-    exactKeys(readValue, "libraryModuleReadResult.value.value", [
-      "kind",
-      "items",
-    ]);
+    exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind", "items"]);
     if (!Array.isArray(readValue.items)) {
       throw new TypeError("library Page reference candidates must be an array");
     }
-    const items: LibraryPageReferenceCandidate[] = readValue.items.map(
-      (entry, index) => {
-        const candidate = record(
-          entry,
-          `library Page reference candidates[${index}]`,
+    const items: LibraryPageReferenceCandidate[] = readValue.items.map((entry, index) => {
+      const candidate = record(entry, `library Page reference candidates[${index}]`);
+      exactKeys(candidate, `library Page reference candidates[${index}]`, [
+        "pageId",
+        "title",
+        "pageKey",
+        "status",
+        "locationLabel",
+        "matchExcerpt",
+        "matchSource",
+        "titleParts",
+        "matchExcerptParts",
+        "matches",
+      ]);
+      if (candidate.status !== null && !isWorkflowStatus(candidate.status)) {
+        throw new TypeError(`library Page reference candidates[${index}].status is unsupported`);
+      }
+      if (
+        candidate.matchSource !== "recent" &&
+        candidate.matchSource !== "page_key" &&
+        candidate.matchSource !== "title" &&
+        candidate.matchSource !== "content"
+      ) {
+        throw new TypeError(
+          `library Page reference candidates[${index}].matchSource is unsupported`,
         );
-        exactKeys(candidate, `library Page reference candidates[${index}]`, [
-          "pageId",
-          "title",
-          "pageKey",
-          "status",
-          "locationLabel",
-          "matchExcerpt",
-          "matchSource",
-          "titleParts",
-          "matchExcerptParts",
-          "matches",
-        ]);
-        if (
-          candidate.status !== null
-          && !isWorkflowStatus(candidate.status)
-        ) {
-          throw new TypeError(
-            `library Page reference candidates[${index}].status is unsupported`,
-          );
-        }
-        if (
-          candidate.matchSource !== "recent"
-          && candidate.matchSource !== "page_key"
-          && candidate.matchSource !== "title"
-          && candidate.matchSource !== "content"
-        ) {
-          throw new TypeError(
-            `library Page reference candidates[${index}].matchSource is unsupported`,
-          );
-        }
-        return {
-          pageId: string(
-            candidate.pageId,
-            `library Page reference candidates[${index}].pageId`,
-          ),
-          title: string(
-            candidate.title,
-            `library Page reference candidates[${index}].title`,
-            MAX_TITLE_LENGTH,
-            true,
-          ),
-          pageKey: candidate.pageKey === null
+      }
+      return {
+        pageId: string(candidate.pageId, `library Page reference candidates[${index}].pageId`),
+        title: string(
+          candidate.title,
+          `library Page reference candidates[${index}].title`,
+          MAX_TITLE_LENGTH,
+          true,
+        ),
+        pageKey:
+          candidate.pageKey === null
             ? null
-            : string(
-                candidate.pageKey,
-                `library Page reference candidates[${index}].pageKey`,
-              ),
-          status: candidate.status,
-          locationLabel: string(
-            candidate.locationLabel,
-            `library Page reference candidates[${index}].locationLabel`,
-            MAX_TITLE_LENGTH,
-            true,
-          ),
-          matchExcerpt: candidate.matchExcerpt === null
+            : string(candidate.pageKey, `library Page reference candidates[${index}].pageKey`),
+        status: candidate.status,
+        locationLabel: string(
+          candidate.locationLabel,
+          `library Page reference candidates[${index}].locationLabel`,
+          MAX_TITLE_LENGTH,
+          true,
+        ),
+        matchExcerpt:
+          candidate.matchExcerpt === null
             ? null
             : string(
                 candidate.matchExcerpt,
@@ -1934,31 +1632,30 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
                 MAX_TITLE_LENGTH,
                 true,
               ),
-          matchSource: candidate.matchSource,
-          titleParts: parsePageSearchParts(
-            candidate.titleParts,
-            `library Page reference candidates[${index}].titleParts`,
-          ),
-          matchExcerptParts: parsePageSearchParts(
-            candidate.matchExcerptParts,
-            `library Page reference candidates[${index}].matchExcerptParts`,
-          ),
-          matches: (() => {
-            if (!Array.isArray(candidate.matches)) {
-              throw new TypeError(
-                `library Page reference candidates[${index}].matches must be an array`,
-              );
-            }
-            return candidate.matches.map((match, matchIndex) =>
-              parsePageSearchMatch(
-                match,
-                `library Page reference candidates[${index}].matches[${matchIndex}]`,
-              )
+        matchSource: candidate.matchSource,
+        titleParts: parsePageSearchParts(
+          candidate.titleParts,
+          `library Page reference candidates[${index}].titleParts`,
+        ),
+        matchExcerptParts: parsePageSearchParts(
+          candidate.matchExcerptParts,
+          `library Page reference candidates[${index}].matchExcerptParts`,
+        ),
+        matches: (() => {
+          if (!Array.isArray(candidate.matches)) {
+            throw new TypeError(
+              `library Page reference candidates[${index}].matches must be an array`,
             );
-          })(),
-        };
-      },
-    );
+          }
+          return candidate.matches.map((match, matchIndex) =>
+            parsePageSearchMatch(
+              match,
+              `library Page reference candidates[${index}].matches[${matchIndex}]`,
+            ),
+          );
+        })(),
+      };
+    });
     return { kind: readValue.kind, items };
   }
   throw new TypeError("libraryModuleReadResult value kind is unsupported");
@@ -1986,27 +1683,18 @@ const parseErrorCode = (value: unknown): LibraryModuleErrorCode => {
   throw new TypeError("libraryModuleReadResult.error.code is unsupported");
 };
 
-export const parseLibraryModuleReadResult = (
-  value: unknown,
-): LibraryModuleReadResult => {
+export const parseLibraryModuleReadResult = (value: unknown): LibraryModuleReadResult => {
   const result = record(value, "libraryModuleReadResult");
   if (result.ok === false) {
     exactKeys(result, "libraryModuleReadResult", ["ok", "error"]);
     const error = record(result.error, "libraryModuleReadResult.error");
-    exactKeys(error, "libraryModuleReadResult.error", [
-      "code",
-      "message",
-      "retryable",
-    ]);
+    exactKeys(error, "libraryModuleReadResult.error", ["code", "message", "retryable"]);
     return {
       ok: false,
       error: {
         code: parseErrorCode(error.code),
         message: string(error.message, "libraryModuleReadResult.error.message", 4096),
-        retryable: boolean(
-          error.retryable,
-          "libraryModuleReadResult.error.retryable",
-        ),
+        retryable: boolean(error.retryable, "libraryModuleReadResult.error.retryable"),
       },
     };
   }
@@ -2029,13 +1717,9 @@ export const parseLibraryModuleReadResult = (
       profileId: string(snapshot.profileId, "libraryModuleReadResult.value.profileId"),
       libraryId: string(snapshot.libraryId, "libraryModuleReadResult.value.libraryId"),
       storeEpoch: string(snapshot.storeEpoch, "libraryModuleReadResult.value.storeEpoch"),
-      commitSeq: revision(
-        snapshot.commitSeq,
-        "libraryModuleReadResult.value.commitSeq",
-      ),
-      authorization: snapshot.authorization === null
-        ? null
-        : parseAuthorizedReadStamp(snapshot.authorization),
+      commitSeq: revision(snapshot.commitSeq, "libraryModuleReadResult.value.commitSeq"),
+      authorization:
+        snapshot.authorization === null ? null : parseAuthorizedReadStamp(snapshot.authorization),
       value: parseReadValue(snapshot.value),
     },
   };
@@ -2099,9 +1783,10 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     ]),
   );
   const rawCreatedTarget = receipt.createdTarget;
-  const createdTarget = rawCreatedTarget === null
-    ? null
-    : parseRouteTarget(rawCreatedTarget, "libraryModuleApplyResult.value.createdTarget");
+  const createdTarget =
+    rawCreatedTarget === null
+      ? null
+      : parseRouteTarget(rawCreatedTarget, "libraryModuleApplyResult.value.createdTarget");
   if (createdTarget?.kind === "view") {
     throw new TypeError("libraryModuleApplyResult.value.createdTarget cannot be a View");
   }
@@ -2138,12 +1823,13 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
         mutation.documentId,
         "libraryModuleApplyResult.value.canvasMutation.documentId",
       ),
-      sourceCanvasId: mutation.sourceCanvasId === null
-        ? null
-        : existingCanvasBlockId(
-            mutation.sourceCanvasId,
-            "libraryModuleApplyResult.value.canvasMutation.sourceCanvasId",
-          ),
+      sourceCanvasId:
+        mutation.sourceCanvasId === null
+          ? null
+          : existingCanvasBlockId(
+              mutation.sourceCanvasId,
+              "libraryModuleApplyResult.value.canvasMutation.sourceCanvasId",
+            ),
       locationRevision: revision(
         mutation.locationRevision,
         "libraryModuleApplyResult.value.canvasMutation.locationRevision",
@@ -2157,8 +1843,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
           candidate,
           `libraryModuleApplyResult.value.canvasMutation.documentCommits[${index}]`,
         );
-        const commitLabel =
-          `libraryModuleApplyResult.value.canvasMutation.documentCommits[${index}]`;
+        const commitLabel = `libraryModuleApplyResult.value.canvasMutation.documentCommits[${index}]`;
         exactKeys(commit, commitLabel, [
           "documentId",
           "generation",
@@ -2171,19 +1856,11 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
         return {
           documentId: uuidV7(commit.documentId, `${commitLabel}.documentId`),
           generation: revision(commit.generation, `${commitLabel}.generation`),
-          baseHeadSeq: revision(
-            commit.baseHeadSeq,
-            `${commitLabel}.baseHeadSeq`,
-          ),
+          baseHeadSeq: revision(commit.baseHeadSeq, `${commitLabel}.baseHeadSeq`),
           headSeq: revision(commit.headSeq, `${commitLabel}.headSeq`),
           updateId: string(commit.updateId, `${commitLabel}.updateId`),
-          update: commit.update === null
-            ? null
-            : bytes(commit.update, `${commitLabel}.update`),
-          stateVector: bytes(
-            commit.stateVector,
-            `${commitLabel}.stateVector`,
-          ),
+          update: commit.update === null ? null : bytes(commit.update, `${commitLabel}.update`),
+          stateVector: bytes(commit.stateVector, `${commitLabel}.stateVector`),
         };
       }),
     };
@@ -2219,18 +1896,12 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
   };
 };
 
-export const parseLibraryModuleApplyResult = (
-  value: unknown,
-): LibraryModuleApplyResult => {
+export const parseLibraryModuleApplyResult = (value: unknown): LibraryModuleApplyResult => {
   const result = record(value, "libraryModuleApplyResult");
   if (result.ok === false) {
     exactKeys(result, "libraryModuleApplyResult", ["ok", "error"]);
     const error = record(result.error, "libraryModuleApplyResult.error");
-    exactKeys(error, "libraryModuleApplyResult.error", [
-      "code",
-      "message",
-      "retryable",
-    ]);
+    exactKeys(error, "libraryModuleApplyResult.error", ["code", "message", "retryable"]);
     return {
       ok: false,
       error: {
@@ -2257,9 +1928,7 @@ export const libraryModuleFailure = (
   retryable = false,
 ): LibraryModuleError => ({ code, message, retryable });
 
-export const libraryModuleHttpStatus = (
-  error: LibraryModuleError,
-): 400 | 404 | 409 | 500 => {
+export const libraryModuleHttpStatus = (error: LibraryModuleError): 400 | 404 | 409 | 500 => {
   if (error.code === "invalid_request" || error.code === "resource_exhausted") return 400;
   if (error.code === "resource_not_found") return 404;
   if (
@@ -2272,7 +1941,8 @@ export const libraryModuleHttpStatus = (
     error.code === "project_inactive" ||
     error.code === "primary_database_bound" ||
     error.code === "document_conflict"
-  ) return 409;
+  )
+    return 409;
   if (error.code === "state_corrupt") return 500;
   return 500;
 };

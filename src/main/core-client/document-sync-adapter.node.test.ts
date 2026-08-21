@@ -7,9 +7,7 @@ import { authorizedReadStampFixture } from "../../shared/testing/authorized-read
 import { CoreModuleResponseError } from "./core-client";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
-import type {
-  CoreDocumentEventSubscription,
-} from "./types";
+import type { CoreDocumentEventSubscription } from "./types";
 
 class ControllableDocumentStreamClient extends FakeCoreClient {
   readonly openings: Array<{
@@ -17,11 +15,10 @@ class ControllableDocumentStreamClient extends FakeCoreClient {
     end(error?: unknown): void;
   }> = [];
 
-  override openDocumentEventStream(
-    input: { readonly documentId: string },
-  ): Promise<CoreDocumentEventSubscription> {
-    let resolveOpen: (subscription: CoreDocumentEventSubscription) => void =
-      () => undefined;
+  override openDocumentEventStream(input: {
+    readonly documentId: string;
+  }): Promise<CoreDocumentEventSubscription> {
+    let resolveOpen: (subscription: CoreDocumentEventSubscription) => void = () => undefined;
     let resolveDone: () => void = () => undefined;
     let rejectDone: (error: unknown) => void = () => undefined;
     const done = new Promise<void>((resolve, reject) => {
@@ -158,13 +155,15 @@ const documentVersionDetail = () => ({
     schemaVersion: 1,
     title: "History",
     richTitle: [{ type: "text", text: "History", styles: {} }],
-    blockTree: [{
-      id: "block:history",
-      type: "paragraph",
-      props: {},
-      content: [],
-      children: [],
-    }],
+    blockTree: [
+      {
+        id: "block:history",
+        type: "paragraph",
+        props: {},
+        content: [],
+        children: [],
+      },
+    ],
     nfm: "Checkpoint preview",
     plainText: "Checkpoint preview",
     preview: "Checkpoint preview",
@@ -179,10 +178,12 @@ describe("Core Document sync adapter", () => {
     const adapter = createCoreDocumentSyncAdapter(client);
     client.enqueueDocumentRead(descriptorSnapshot());
 
-    await expect(adapter.readDescriptor({
-      ownerBlockId: "page:one",
-      clientSessionId: "renderer:descriptor",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.readDescriptor({
+        ownerBlockId: "page:one",
+        clientSessionId: "renderer:descriptor",
+      }),
+    ).resolves.toMatchObject({
       libraryId: "library:test",
       accessContext: { kind: "project", projectId: "project:one" },
       ownerBlockId: "page:one",
@@ -208,11 +209,13 @@ describe("Core Document sync adapter", () => {
       },
     });
     client.enqueueDocumentRead(descriptorSnapshot());
-    await expect(adapter.prepareOwner({
-      ownerBlockId: "page:one",
-      operationId: "prepare:one",
-      clientSessionId: "renderer:prepare",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.prepareOwner({
+        ownerBlockId: "page:one",
+        operationId: "prepare:one",
+        clientSessionId: "renderer:prepare",
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         libraryId: "library:test",
@@ -221,11 +224,13 @@ describe("Core Document sync adapter", () => {
         documentId: "document:one",
       },
     });
-    expect(client.documentApplies).toEqual([{
-      operationId: "prepare:one",
-      clientSessionId: "renderer:prepare",
-      intent: { kind: "prepare_owner", owner_block_id: "page:one" },
-    }]);
+    expect(client.documentApplies).toEqual([
+      {
+        operationId: "prepare:one",
+        clientSessionId: "renderer:prepare",
+        intent: { kind: "prepare_owner", owner_block_id: "page:one" },
+      },
+    ]);
   });
 
   test("fetches one exact verified Document update resource", async () => {
@@ -279,16 +284,18 @@ describe("Core Document sync adapter", () => {
         update,
       },
     });
-    expect(client.documentReads).toEqual([{
-      clientSessionId: "renderer:resource",
-      read: {
-        kind: "fetch_update",
-        document_id: "document:one",
-        generation: 1,
-        update_id: "update:one",
-        update_hash: updateHash,
+    expect(client.documentReads).toEqual([
+      {
+        clientSessionId: "renderer:resource",
+        read: {
+          kind: "fetch_update",
+          document_id: "document:one",
+          generation: 1,
+          update_id: "update:one",
+          update_hash: updateHash,
+        },
       },
-    }]);
+    ]);
   });
 
   test("fails closed when exact Document update bytes do not match their ref", async () => {
@@ -316,13 +323,15 @@ describe("Core Document sync adapter", () => {
       },
     });
 
-    await expect(adapter.fetchUpdateResource({
-      documentId: "document:one",
-      generation: 1,
-      updateId: "update:one",
-      updateHash,
-      clientSessionId: "renderer:resource",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.fetchUpdateResource({
+        documentId: "document:one",
+        generation: 1,
+        updateId: "update:one",
+        updateHash,
+        clientSessionId: "renderer:resource",
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: {
         code: "invalid_response",
@@ -356,17 +365,21 @@ describe("Core Document sync adapter", () => {
 
     closeFirst();
 
-    await expect(adapter.sync({
-      ...first,
-      stateVector: new Uint8Array(),
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.sync({
+        ...first,
+        stateVector: new Uint8Array(),
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "transport_unavailable" },
     });
-    await expect(adapter.sync({
-      ...second,
-      stateVector: new Uint8Array(),
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.sync({
+        ...second,
+        stateVector: new Uint8Array(),
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: { documentId: second.documentId },
     });
@@ -438,10 +451,12 @@ describe("Core Document sync adapter", () => {
       stateVector: new Uint8Array(),
     });
 
-    await expect(adapter.sync({
-      ...request,
-      stateVector: new Uint8Array(),
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.sync({
+        ...request,
+        stateVector: new Uint8Array(),
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: { documentId: request.documentId, headSeq: 2 },
     });
@@ -468,11 +483,13 @@ describe("Core Document sync adapter", () => {
           created_block_ids: ["block:source", "block:content"],
           preserved_block_ids: [],
           deleted_block_ids: [],
-          document_heads: [{
-            document_id: "document:source",
-            generation: 1,
-            head_seq: 1,
-          }],
+          document_heads: [
+            {
+              document_id: "document:source",
+              generation: 1,
+              head_seq: 1,
+            },
+          ],
         },
       },
       receipt: {
@@ -495,12 +512,14 @@ describe("Core Document sync adapter", () => {
         kind: "create_synced_source",
         sourceBlockId: "block:source",
         documentId: "document:source",
-        initialBlocks: [{
-          id: "block:content",
-          type: "paragraph",
-          props: {},
-          children: [],
-        }],
+        initialBlocks: [
+          {
+            id: "block:content",
+            type: "paragraph",
+            props: {},
+            children: [],
+          },
+        ],
         placement: { kind: "library" },
       },
     });
@@ -516,33 +535,39 @@ describe("Core Document sync adapter", () => {
         semanticHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
         effect: {
           createdBlockIds: ["block:source", "block:content"],
-          documentHeads: [{
-            documentId: "document:source",
-            generation: 1,
-            headSeq: 1,
-          }],
+          documentHeads: [
+            {
+              documentId: "document:source",
+              generation: 1,
+              headSeq: 1,
+            },
+          ],
         },
       },
     });
-    expect(client.documentApplies).toEqual([{
-      operationId: "owner:create",
-      clientSessionId: "renderer:one",
-      intent: {
-        kind: "apply_owner_command",
-        command: {
-          kind: "create_synced_source",
-          source_block_id: "block:source",
-          document_id: "document:source",
-          initial_blocks: [{
-            id: "block:content",
-            type: "paragraph",
-            props: {},
-            children: [],
-          }],
-          before: undefined,
+    expect(client.documentApplies).toEqual([
+      {
+        operationId: "owner:create",
+        clientSessionId: "renderer:one",
+        intent: {
+          kind: "apply_owner_command",
+          command: {
+            kind: "create_synced_source",
+            source_block_id: "block:source",
+            document_id: "document:source",
+            initial_blocks: [
+              {
+                id: "block:content",
+                type: "paragraph",
+                props: {},
+                children: [],
+              },
+            ],
+            before: undefined,
+          },
         },
       },
-    }]);
+    ]);
   });
 
   test("maps checkpoint creation and exact history pagination through Core", async () => {
@@ -562,33 +587,31 @@ describe("Core Document sync adapter", () => {
       },
       revisionKind: "manual" as const,
     };
-    const apply = vi.spyOn(client, "documentApply").mockImplementationOnce(
-      async (input) => ({
-        status: "committed" as const,
-        commit: {
-          store_epoch: "epoch:test",
-          commit_seq: 8,
-          manifest_hash: "f".repeat(64),
-        },
-        outcome: {
-          document_id: checkpointRequest.documentId,
-          generation: checkpointRequest.expectedGeneration,
-          head_seq: checkpointRequest.expectedHeadSeq,
-          outcome: "no_change",
-          checkpoint_effect: {
-            checkpoint: documentVersionSummary(),
-            duplicate: false,
-          },
-        },
-        receipt: {
-          operation_id: input.operationId,
+    const apply = vi.spyOn(client, "documentApply").mockImplementationOnce(async (input) => ({
+      status: "committed" as const,
+      commit: {
+        store_epoch: "epoch:test",
+        commit_seq: 8,
+        manifest_hash: "f".repeat(64),
+      },
+      outcome: {
+        document_id: checkpointRequest.documentId,
+        generation: checkpointRequest.expectedGeneration,
+        head_seq: checkpointRequest.expectedHeadSeq,
+        outcome: "no_change",
+        checkpoint_effect: {
+          checkpoint: documentVersionSummary(),
           duplicate: false,
-          document_id: checkpointRequest.documentId,
-          generation: checkpointRequest.expectedGeneration,
-          head_seq: checkpointRequest.expectedHeadSeq,
         },
-      }),
-    );
+      },
+      receipt: {
+        operation_id: input.operationId,
+        duplicate: false,
+        document_id: checkpointRequest.documentId,
+        generation: checkpointRequest.expectedGeneration,
+        head_seq: checkpointRequest.expectedHeadSeq,
+      },
+    }));
 
     await expect(adapter.createCheckpoint(checkpointRequest)).resolves.toEqual({
       ok: true,
@@ -598,9 +621,7 @@ describe("Core Document sync adapter", () => {
       },
     });
     expect(apply).toHaveBeenCalledWith({
-      operationId: expect.stringMatching(
-        /^electron:document-checkpoint:[a-f0-9]{64}$/u,
-      ),
+      operationId: expect.stringMatching(/^electron:document-checkpoint:[a-f0-9]{64}$/u),
       clientSessionId: "electron:document-history",
       intent: {
         kind: "create_checkpoint",
@@ -634,12 +655,14 @@ describe("Core Document sync adapter", () => {
         },
       },
     });
-    await expect(adapter.listVersions({
-      projectId: "project:one",
-      documentId: "document:one",
-      before,
-      limit: 25,
-    })).resolves.toEqual({ ok: true, value: [documentVersionSummary()] });
+    await expect(
+      adapter.listVersions({
+        projectId: "project:one",
+        documentId: "document:one",
+        before,
+        limit: 25,
+      }),
+    ).resolves.toEqual({ ok: true, value: [documentVersionSummary()] });
     expect(client.documentReads[0]).toEqual({
       clientSessionId: "electron:document-history",
       read: {
@@ -660,11 +683,13 @@ describe("Core Document sync adapter", () => {
       commit_head: 8,
       value: { kind: "version", value: documentVersionDetail() },
     });
-    await expect(adapter.getVersion({
-      projectId: "project:one",
-      documentId: "document:one",
-      versionId: documentVersionSummary().versionId,
-    })).resolves.toEqual({ ok: true, value: documentVersionDetail() });
+    await expect(
+      adapter.getVersion({
+        projectId: "project:one",
+        documentId: "document:one",
+        versionId: documentVersionSummary().versionId,
+      }),
+    ).resolves.toEqual({ ok: true, value: documentVersionDetail() });
   });
 
   test("maps a write-fenced forward restore and its durable no-change outcome", async () => {
@@ -740,18 +765,20 @@ describe("Core Document sync adapter", () => {
         duplicate: false,
       },
     });
-    expect(client.documentApplies).toEqual([{
-      operationId: request.mutationId,
-      clientSessionId: request.clientSessionId,
-      intent: {
-        kind: "restore_version",
-        document_id: request.documentId,
-        version_id: request.versionId,
-        generation: request.generation,
-        expected_head_seq: request.expectedHeadSeq,
-        actor: request.actor,
+    expect(client.documentApplies).toEqual([
+      {
+        operationId: request.mutationId,
+        clientSessionId: request.clientSessionId,
+        intent: {
+          kind: "restore_version",
+          document_id: request.documentId,
+          version_id: request.versionId,
+          generation: request.generation,
+          expected_head_seq: request.expectedHeadSeq,
+          actor: request.actor,
+        },
       },
-    }]);
+    ]);
 
     const noChangeRequest = {
       ...request,
@@ -800,20 +827,23 @@ describe("Core Document sync adapter", () => {
       expectedHeadSeq: 2,
       clientSessionId: "renderer:document",
       actor: { kind: "electron_renderer", clientId: "renderer:document" },
-      operations: [{
-        kind: "insert_block" as const,
-        block: {
-          id: "block:inserted",
-          type: "paragraph",
-          props: {},
-          content: [],
-          children: [],
+      operations: [
+        {
+          kind: "insert_block" as const,
+          block: {
+            id: "block:inserted",
+            type: "paragraph",
+            props: {},
+            content: [],
+            children: [],
+          },
         },
-      }, {
-        kind: "update_block" as const,
-        blockId: "block:existing",
-        patch: { content: null },
-      }],
+        {
+          kind: "update_block" as const,
+          blockId: "block:existing",
+          patch: { content: null },
+        },
+      ],
     };
     client.enqueueDocumentApply({
       store_epoch: request.storeEpoch,
@@ -854,28 +884,33 @@ describe("Core Document sync adapter", () => {
         updatedBlockIds: ["block:existing"],
       },
     });
-    expect(client.documentApplies).toEqual([{
-      operationId: request.mutationId,
-      clientSessionId: request.clientSessionId,
-      intent: {
-        kind: "apply_operation_batch",
-        document_id: request.documentId,
-        generation: request.generation,
-        expected_head_seq: request.expectedHeadSeq,
-        operations: [{
-          kind: "insert_block",
-          block: request.operations[0]?.block,
-        }, {
-          kind: "update_block",
-          block_id: "block:existing",
-          patch: {
-            content: { kind: "value", value: null },
-            unset_content: false,
-          },
-        }],
-        actor: request.actor,
+    expect(client.documentApplies).toEqual([
+      {
+        operationId: request.mutationId,
+        clientSessionId: request.clientSessionId,
+        intent: {
+          kind: "apply_operation_batch",
+          document_id: request.documentId,
+          generation: request.generation,
+          expected_head_seq: request.expectedHeadSeq,
+          operations: [
+            {
+              kind: "insert_block",
+              block: request.operations[0]?.block,
+            },
+            {
+              kind: "update_block",
+              block_id: "block:existing",
+              patch: {
+                content: { kind: "value", value: null },
+                unset_content: false,
+              },
+            },
+          ],
+          actor: request.actor,
+        },
       },
-    }]);
+    ]);
   });
 
   test("rejects a Core restore effect that omits a changed Block from touched IDs", async () => {
@@ -943,11 +978,13 @@ describe("Core Document sync adapter", () => {
           created_block_ids: [],
           preserved_block_ids: ["block:content"],
           deleted_block_ids: ["block:source"],
-          document_heads: [{
-            document_id: "document:source",
-            generation: 1,
-            head_seq: 7,
-          }],
+          document_heads: [
+            {
+              document_id: "document:source",
+              generation: 1,
+              head_seq: 7,
+            },
+          ],
         },
       },
       receipt: {
@@ -959,26 +996,28 @@ describe("Core Document sync adapter", () => {
       },
     });
 
-    await expect(adapter.applyAdditionalDocumentCommand({
-      operationId: "owner:delete",
-      projectId: "project:one",
-      storeEpoch: "epoch:test",
-      clientSessionId: "renderer:reconnected",
-      actor: { kind: "electron_renderer" },
-      coordination: { kind: "receipt_replay" },
-      operation: {
-        kind: "delete_owned_source",
-        ownerKind: "synced_block",
-        owner: {
-          ownerBlockId: "block:source",
-          documentId: "document:source",
-          generation: 1,
-          metadataRevision: 2,
-          locationRevision: 3,
+    await expect(
+      adapter.applyAdditionalDocumentCommand({
+        operationId: "owner:delete",
+        projectId: "project:one",
+        storeEpoch: "epoch:test",
+        clientSessionId: "renderer:reconnected",
+        actor: { kind: "electron_renderer" },
+        coordination: { kind: "receipt_replay" },
+        operation: {
+          kind: "delete_owned_source",
+          ownerKind: "synced_block",
+          owner: {
+            ownerBlockId: "block:source",
+            documentId: "document:source",
+            generation: 1,
+            metadataRevision: 2,
+            locationRevision: 3,
+          },
+          referencePolicy: "require_unreferenced",
         },
-        referencePolicy: "require_unreferenced",
-      },
-    })).resolves.toMatchObject({
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: { operationId: "owner:delete", duplicate: true },
     });
@@ -1013,25 +1052,26 @@ describe("Core Document sync adapter", () => {
         kind: "create_synced_source" as const,
         sourceBlockId: "block:source",
         documentId: "document:source",
-        initialBlocks: [{
-          id: "block:content",
-          type: "paragraph",
-          props: {},
-          children: [],
-        }],
+        initialBlocks: [
+          {
+            id: "block:content",
+            type: "paragraph",
+            props: {},
+            children: [],
+          },
+        ],
         placement: { kind: "library" as const },
       },
     };
 
-    await expect(adapter.applyAdditionalDocumentCommand(request)).resolves
-      .toMatchObject({
-        ok: false,
-        error: {
-          code: "identity_conflict",
-          operationId: request.operationId,
-          operationKind: request.operation.kind,
-          retryable: false,
-        },
-      });
+    await expect(adapter.applyAdditionalDocumentCommand(request)).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "identity_conflict",
+        operationId: request.operationId,
+        operationKind: request.operation.kind,
+        retryable: false,
+      },
+    });
   });
 });

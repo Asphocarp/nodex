@@ -21,10 +21,7 @@ import {
   UNGROUPED_SCOPE_KEY,
 } from "../../lib/database-view-render-model";
 import type { ColumnPaginationState } from "../../lib/board-store";
-import {
-  invalidateExactQuery,
-  projectionCursorForSnapshots,
-} from "../../lib/query-invalidation";
+import { invalidateExactQuery, projectionCursorForSnapshots } from "../../lib/query-invalidation";
 import { mapWithConcurrency } from "../../lib/map-with-concurrency";
 import { queryKeys } from "../../lib/query-keys";
 import { useProjectionRegistration } from "../../lib/projection-invalidation-context";
@@ -35,17 +32,12 @@ import {
 } from "../../lib/resource-authority-query-cache";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 import type { Project } from "@/lib/types";
-import type {
-  OpenPageInNewChatInput,
-  SendPageToChatInput,
-} from "@/lib/page-chat-actions";
+import type { OpenPageInNewChatInput, SendPageToChatInput } from "@/lib/page-chat-actions";
 import { useDatabaseViewMutationHistory } from "./database-view-mutation-history";
 import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
 import type { DatabaseViewPageOpenHandler } from "./database-view-page-open";
 
-type DatabaseReadTarget =
-  | { readonly databaseViewId: string }
-  | { readonly databaseId: string };
+type DatabaseReadTarget = { readonly databaseViewId: string } | { readonly databaseId: string };
 
 type DatabaseSurfaceTarget = Exclude<
   WorkbenchDbViewSurfaceConfig["target"],
@@ -61,10 +53,12 @@ interface ScopedWindow {
 const GROUP_WINDOW_READ_CONCURRENCY = 8;
 
 const resolveDatabaseSurfaceAuthority = (_queryKey: readonly unknown[], data: unknown) => {
-  const snapshot = data as {
-    readonly groups: DatabaseViewGroupsSnapshot<string | null>;
-    readonly scopedWindows: readonly ScopedWindow[];
-  } | undefined;
+  const snapshot = data as
+    | {
+        readonly groups: DatabaseViewGroupsSnapshot<string | null>;
+        readonly scopedWindows: readonly ScopedWindow[];
+      }
+    | undefined;
   return snapshot
     ? {
         authorizations: [
@@ -204,12 +198,8 @@ export function WorkbenchDatabaseViewSurface({
   readonly presentedPageIds?: ReadonlySet<string>;
   readonly projects?: Project[];
   readonly pageStageCloseRef?: RefObject<(() => Promise<void>) | null>;
-  readonly onOpenPageInNewChat?: (
-    input: OpenPageInNewChatInput,
-  ) => Promise<void> | void;
-  readonly onSendPageToChat?: (
-    input: SendPageToChatInput,
-  ) => Promise<void> | void;
+  readonly onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  readonly onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
 }) {
   const queryClient = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -218,18 +208,15 @@ export function WorkbenchDatabaseViewSurface({
   const revocationRepairRef = useRef<Promise<void> | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  const [selectedPageIds, setSelectedPageIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [continuations, setContinuations] = useState<ReadonlyMap<string, ContinuationState>>(
+    new Map(),
   );
-  const [continuations, setContinuations] = useState<
-    ReadonlyMap<string, ContinuationState>
-  >(new Map());
-  const accessProjectId = accessContext.kind === "project"
-    ? accessContext.projectId
-    : undefined;
-  const targetIdentity = target.kind === "database-default"
-    ? `database:${target.databaseId}`
-    : `view:${target.databaseViewId}`;
+  const accessProjectId = accessContext.kind === "project" ? accessContext.projectId : undefined;
+  const targetIdentity =
+    target.kind === "database-default"
+      ? `database:${target.databaseId}`
+      : `view:${target.databaseViewId}`;
   const mutationHistory = useDatabaseViewMutationHistory(
     `pending:${accessProjectId ?? "library"}:${targetIdentity}`,
   );
@@ -249,24 +236,16 @@ export function WorkbenchDatabaseViewSurface({
       const readContext: ContentAccessContext = accessProjectId
         ? { kind: "project", projectId: accessProjectId }
         : { kind: "library" };
-      const groups = await readDatabaseGroupsForContext(
-        readContext,
-        readTarget,
-        minimumCommitSeq,
-      );
+      const groups = await readDatabaseGroupsForContext(readContext, readTarget, minimumCommitSeq);
       const scopedWindows = await mapWithConcurrency(
         scopesFromGroups(groups),
         GROUP_WINDOW_READ_CONCURRENCY,
         async (scope): Promise<ScopedWindow> => ({
           ...scope,
-          snapshot: await readDatabaseWindowForContext(
-            readContext,
-            readTarget,
-            {
-              ...(scope.scope ? { groupScope: scope.scope } : {}),
-              ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
-            },
-          ),
+          snapshot: await readDatabaseWindowForContext(readContext, readTarget, {
+            ...(scope.scope ? { groupScope: scope.scope } : {}),
+            ...(minimumCommitSeq > 0 ? { minimumCommitSeq } : {}),
+          }),
         }),
       );
       return await admitResourceAuthorityQuery(
@@ -287,20 +266,22 @@ export function WorkbenchDatabaseViewSurface({
     setSearchOpen(false);
   }, [targetIdentity]);
 
-  const windowsByScope = useMemo(() => new Map(
-    (query.data?.scopedWindows ?? []).map((base) => [
-      base.scopeKey,
-      [base.snapshot, ...(continuations.get(base.scopeKey)?.windows ?? [])],
-    ]),
-  ), [continuations, query.data?.scopedWindows]);
+  const windowsByScope = useMemo(
+    () =>
+      new Map(
+        (query.data?.scopedWindows ?? []).map((base) => [
+          base.scopeKey,
+          [base.snapshot, ...(continuations.get(base.scopeKey)?.windows ?? [])],
+        ]),
+      ),
+    [continuations, query.data?.scopedWindows],
+  );
   const mergedWindow = useMemo(
     () => mergeWindows([...windowsByScope.values()].flat()),
     [windowsByScope],
   );
   const model = useMemo(
-    () => mergedWindow
-      ? buildDatabaseViewWindowRenderModel(mergedWindow)
-      : undefined,
+    () => (mergedWindow ? buildDatabaseViewWindowRenderModel(mergedWindow) : undefined),
     [mergedWindow],
   );
   if (model) {
@@ -313,93 +294,103 @@ export function WorkbenchDatabaseViewSurface({
       viewName: model.viewName,
     });
   }, [model, onPresentationChange]);
-  const groupTotals = useMemo(() => new Map(
-    (query.data?.groups.groups ?? []).map((group) => [
-      groupScopeKeyForPath(group.groupKey, group.subgroupKey),
-      group.totalRows,
-    ]),
-  ), [query.data?.groups.groups]);
+  const groupTotals = useMemo(
+    () =>
+      new Map(
+        (query.data?.groups.groups ?? []).map((group) => [
+          groupScopeKeyForPath(group.groupKey, group.subgroupKey),
+          group.totalRows,
+        ]),
+      ),
+    [query.data?.groups.groups],
+  );
   const groupPagination = useMemo<ReadonlyMap<string, ColumnPaginationState>>(
-    () => new Map((query.data?.scopedWindows ?? []).map((base) => {
-      const windows = windowsByScope.get(base.scopeKey) ?? [base.snapshot];
-      const current = continuations.get(base.scopeKey);
-      const loadedRows = uniqueBy(
-        windows.flatMap((window) => window.query.rows),
-        (row) => row.page.pageId,
-      ).length;
-      const totalRows = query.data?.groups.grouped
-        ? groupTotals.get(base.scopeKey) ?? loadedRows
-        : query.data?.groups.totalRows ?? loadedRows;
-      return [base.scopeKey, {
-        scopeKey: base.scopeKey,
-        loadedRows,
-        totalRows,
-        hasMore: windows.at(-1)?.nextCursor !== null,
-        loadingMore: current?.loading ?? false,
-        error: current?.error ?? null,
-      }];
-    })),
+    () =>
+      new Map(
+        (query.data?.scopedWindows ?? []).map((base) => {
+          const windows = windowsByScope.get(base.scopeKey) ?? [base.snapshot];
+          const current = continuations.get(base.scopeKey);
+          const loadedRows = uniqueBy(
+            windows.flatMap((window) => window.query.rows),
+            (row) => row.page.pageId,
+          ).length;
+          const totalRows = query.data?.groups.grouped
+            ? (groupTotals.get(base.scopeKey) ?? loadedRows)
+            : (query.data?.groups.totalRows ?? loadedRows);
+          return [
+            base.scopeKey,
+            {
+              scopeKey: base.scopeKey,
+              loadedRows,
+              totalRows,
+              hasMore: windows.at(-1)?.nextCursor !== null,
+              loadingMore: current?.loading ?? false,
+              error: current?.error ?? null,
+            },
+          ];
+        }),
+      ),
     [continuations, groupTotals, query.data, windowsByScope],
   );
 
   const authority = mergedWindow;
-  useProjectionRegistration(authority
-    ? {
-      scope: accessProjectId
-        ? {
-            kind: "project",
-            libraryId: authority.libraryId,
-            projectId: accessProjectId,
-          }
-        : { kind: "library", libraryId: authority.libraryId },
-      consumerKey: hashKey(["projection", queryKey]),
-      getDependencies: () => ({
-        databaseIds: [authority.query.database.databaseId],
-        dataSourceIds: [authority.query.dataSource.dataSourceId],
-        viewIds: [authority.query.view.viewId],
-        pageIds: authority.query.rows.map((row) => row.page.pageId),
-      }),
-      getCursor: () => {
-        const current = queryClient.getQueryData<{
-          readonly groups: DatabaseViewGroupsSnapshot<string | null>;
-          readonly scopedWindows: readonly ScopedWindow[];
-        }>(queryKey);
-        if (!current) return null;
-        return projectionCursorForSnapshots([
-          current.groups,
-          ...current.scopedWindows.map((window) => window.snapshot),
-        ]);
-      },
-      revoke: (cause) => {
-        requiredMinimumCommitSeqRef.current = Math.max(
-          requiredMinimumCommitSeqRef.current,
-          cause.stream.commitSeq,
-        );
-        revocationRepairRef.current = queryClient.resetQueries({
-          queryKey,
-          exact: true,
-        });
-      },
-      invalidate: async (cause: ProjectionInvalidationCause) => {
-        requiredMinimumCommitSeqRef.current = Math.max(
-          requiredMinimumCommitSeqRef.current,
-          cause.stream.commitSeq,
-        );
-        if (cause.kind === "revocation") {
-          await revocationRepairRef.current;
-          revocationRepairRef.current = null;
-          return;
+  useProjectionRegistration(
+    authority
+      ? {
+          scope: accessProjectId
+            ? {
+                kind: "project",
+                libraryId: authority.libraryId,
+                projectId: accessProjectId,
+              }
+            : { kind: "library", libraryId: authority.libraryId },
+          consumerKey: hashKey(["projection", queryKey]),
+          getDependencies: () => ({
+            databaseIds: [authority.query.database.databaseId],
+            dataSourceIds: [authority.query.dataSource.dataSourceId],
+            viewIds: [authority.query.view.viewId],
+            pageIds: authority.query.rows.map((row) => row.page.pageId),
+          }),
+          getCursor: () => {
+            const current = queryClient.getQueryData<{
+              readonly groups: DatabaseViewGroupsSnapshot<string | null>;
+              readonly scopedWindows: readonly ScopedWindow[];
+            }>(queryKey);
+            if (!current) return null;
+            return projectionCursorForSnapshots([
+              current.groups,
+              ...current.scopedWindows.map((window) => window.snapshot),
+            ]);
+          },
+          revoke: (cause) => {
+            requiredMinimumCommitSeqRef.current = Math.max(
+              requiredMinimumCommitSeqRef.current,
+              cause.stream.commitSeq,
+            );
+            revocationRepairRef.current = queryClient.resetQueries({
+              queryKey,
+              exact: true,
+            });
+          },
+          invalidate: async (cause: ProjectionInvalidationCause) => {
+            requiredMinimumCommitSeqRef.current = Math.max(
+              requiredMinimumCommitSeqRef.current,
+              cause.stream.commitSeq,
+            );
+            if (cause.kind === "revocation") {
+              await revocationRepairRef.current;
+              revocationRepairRef.current = null;
+              return;
+            }
+            await invalidateExactQuery(queryClient, queryKey);
+          },
         }
-        await invalidateExactQuery(queryClient, queryKey);
-      },
-    }
-    : null);
+      : null,
+  );
 
   const loadMoreGroup = async (scopeKey: string): Promise<void> => {
     if (inFlightScopesRef.current.has(scopeKey)) return;
-    const base = query.data?.scopedWindows.find(
-      (candidate) => candidate.scopeKey === scopeKey,
-    );
+    const base = query.data?.scopedWindows.find((candidate) => candidate.scopeKey === scopeKey);
     if (!base) return;
     const current = continuations.get(scopeKey);
     const windows = [base.snapshot, ...(current?.windows ?? [])];
@@ -408,32 +399,34 @@ export function WorkbenchDatabaseViewSurface({
     const readTarget = readTargetFromIdentity(targetIdentity);
 
     inFlightScopesRef.current.add(scopeKey);
-    setContinuations((states) => new Map(states).set(scopeKey, {
-      windows: current?.windows ?? [],
-      loading: true,
-      error: null,
-    }));
-    try {
-      const next = await readDatabaseWindowForContext(
-        accessContext,
-        readTarget,
-        {
-          after: cursor,
-          ...(base.scope ? { groupScope: base.scope } : {}),
-        },
-      );
-      setContinuations((states) => new Map(states).set(scopeKey, {
-        windows: [...(states.get(scopeKey)?.windows ?? []), next],
-        loading: false,
+    setContinuations((states) =>
+      new Map(states).set(scopeKey, {
+        windows: current?.windows ?? [],
+        loading: true,
         error: null,
-      }));
+      }),
+    );
+    try {
+      const next = await readDatabaseWindowForContext(accessContext, readTarget, {
+        after: cursor,
+        ...(base.scope ? { groupScope: base.scope } : {}),
+      });
+      setContinuations((states) =>
+        new Map(states).set(scopeKey, {
+          windows: [...(states.get(scopeKey)?.windows ?? []), next],
+          loading: false,
+          error: null,
+        }),
+      );
     } catch (error) {
       console.error("[database-view:continuation]", error);
-      setContinuations((states) => new Map(states).set(scopeKey, {
-        windows: states.get(scopeKey)?.windows ?? [],
-        loading: false,
-        error: "Couldn’t load more pages",
-      }));
+      setContinuations((states) =>
+        new Map(states).set(scopeKey, {
+          windows: states.get(scopeKey)?.windows ?? [],
+          loading: false,
+          error: "Couldn’t load more pages",
+        }),
+      );
     } finally {
       inFlightScopesRef.current.delete(scopeKey);
     }
@@ -448,8 +441,7 @@ export function WorkbenchDatabaseViewSurface({
     });
   };
   const searchShortcutLabel =
-    typeof navigator !== "undefined"
-      && navigator.platform.toUpperCase().includes("MAC")
+    typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC")
       ? "⌘F"
       : "Ctrl+F";
 
@@ -460,9 +452,7 @@ export function WorkbenchDatabaseViewSurface({
 
   const pageActionPort: DatabaseViewPageActionPort | undefined = accessProjectId
     ? {
-        ...(onOpenPageInNewChat
-          ? { openInNewSession: onOpenPageInNewChat }
-          : {}),
+        ...(onOpenPageInNewChat ? { openInNewSession: onOpenPageInNewChat } : {}),
         ...(onSendPageToChat ? { sendToChat: onSendPageToChat } : {}),
         deletePage: async ({ pageId }) => {
           const committed = await commitPageLifecycleIntent({
@@ -487,9 +477,7 @@ export function WorkbenchDatabaseViewSurface({
             role="alert"
             className="mx-3 mt-2 flex min-h-8 items-center gap-2 rounded-md bg-token-error-background/20 px-2.5 text-xs text-token-error-foreground"
           >
-            <span className="min-w-0 flex-1 truncate">
-              Couldn’t refresh this database
-            </span>
+            <span className="min-w-0 flex-1 truncate">Couldn’t refresh this database</span>
             <button
               type="button"
               className="shrink-0 rounded-md px-2 py-1 text-token-text-primary hover:bg-token-foreground/5"
@@ -506,14 +494,15 @@ export function WorkbenchDatabaseViewSurface({
           />
         ) : null}
         {query.isPending ? (
-          <div className="py-20 text-center text-sm text-token-description-foreground" role="status">
+          <div
+            className="py-20 text-center text-sm text-token-description-foreground"
+            role="status"
+          >
             Opening Database…
           </div>
         ) : query.error && !model ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-token-description-foreground">
-            <span role="alert">
-              Couldn’t open this database
-            </span>
+            <span role="alert">Couldn’t open this database</span>
             <button
               type="button"
               className="h-8 rounded-md px-2.5 text-token-text-primary hover:bg-token-list-hover-background"
@@ -563,7 +552,8 @@ export function DatabaseViewGroupLimitNotice({
       role="alert"
       className="mx-3 mt-2 min-h-8 rounded-md bg-token-warning-background/20 px-2.5 py-2 text-xs text-token-text-secondary"
     >
-      This View has {totalGroups} group combinations. Refine grouping or filters to stay within the {groupLimit}-group limit.
+      This View has {totalGroups} group combinations. Refine grouping or filters to stay within the{" "}
+      {groupLimit}-group limit.
     </div>
   );
 }

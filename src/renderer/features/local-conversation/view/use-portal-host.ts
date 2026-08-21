@@ -29,10 +29,7 @@ function resolvePortalHost({
   return document.getElementById(fallbackId);
 }
 
-function subscribeToPortalHost(
-  target: PortalHostTarget,
-  onStoreChange: () => void,
-): () => void {
+function subscribeToPortalHost(target: PortalHostTarget, onStoreChange: () => void): () => void {
   if (typeof document === "undefined") return () => {};
 
   let observer: MutationObserver | null = null;
@@ -70,10 +67,8 @@ function resolveServerPortalHost(): null {
 export function usePortalHost(target: PortalHostTarget): HTMLElement | null {
   const { attribute, conversationId, fallbackId } = target;
   const subscribe = useCallback(
-    (onStoreChange: () => void) => subscribeToPortalHost(
-      { attribute, conversationId, fallbackId },
-      onStoreChange,
-    ),
+    (onStoreChange: () => void) =>
+      subscribeToPortalHost({ attribute, conversationId, fallbackId }, onStoreChange),
     [attribute, conversationId, fallbackId],
   );
   const getSnapshot = useCallback(

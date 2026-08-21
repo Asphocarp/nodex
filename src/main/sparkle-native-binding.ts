@@ -23,10 +23,8 @@ const requireFromMain = createRequire(import.meta.url);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const optionalString = (
-  value: Record<string, unknown>,
-  key: string,
-): string | undefined => typeof value[key] === "string" ? value[key] : undefined;
+const optionalString = (value: Record<string, unknown>, key: string): string | undefined =>
+  typeof value[key] === "string" ? value[key] : undefined;
 
 const requiredString = (value: Record<string, unknown>, key: string): string => {
   const result = optionalString(value, key);
@@ -54,9 +52,15 @@ export function parseSparkleNativeEvent(value: unknown): MacAppUpdaterEvent {
     case "update-ready":
       return {
         buildVersion: requiredString(value, "buildVersion"),
-        ...(optionalString(value, "releaseDate") ? { releaseDate: optionalString(value, "releaseDate") } : {}),
-        ...(optionalString(value, "releaseName") ? { releaseName: optionalString(value, "releaseName") } : {}),
-        ...(optionalString(value, "releaseNotes") ? { releaseNotes: optionalString(value, "releaseNotes") } : {}),
+        ...(optionalString(value, "releaseDate")
+          ? { releaseDate: optionalString(value, "releaseDate") }
+          : {}),
+        ...(optionalString(value, "releaseName")
+          ? { releaseName: optionalString(value, "releaseName") }
+          : {}),
+        ...(optionalString(value, "releaseNotes")
+          ? { releaseNotes: optionalString(value, "releaseNotes") }
+          : {}),
         type: value.type,
         version: requiredString(value, "version"),
       };
@@ -94,12 +98,12 @@ export function loadSparkleNativeBinding(resourcesPath: string): SparkleNativeBi
   const bindingPath = path.join(resourcesPath, "native", "nodex-sparkle.node");
   const candidate = requireFromMain(bindingPath) as unknown;
   if (
-    !isRecord(candidate)
-    || typeof candidate.initialize !== "function"
-    || typeof candidate.checkForUpdates !== "function"
-    || typeof candidate.installDownloadedUpdate !== "function"
-    || typeof candidate.setFeedUrl !== "function"
-    || typeof candidate.dispose !== "function"
+    !isRecord(candidate) ||
+    typeof candidate.initialize !== "function" ||
+    typeof candidate.checkForUpdates !== "function" ||
+    typeof candidate.installDownloadedUpdate !== "function" ||
+    typeof candidate.setFeedUrl !== "function" ||
+    typeof candidate.dispose !== "function"
   ) {
     throw new Error("Packaged Sparkle native binding has an unsupported API.");
   }

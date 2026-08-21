@@ -23,10 +23,7 @@ export interface DatabaseListColumnVisibility extends DatabaseListCoreColumnVisi
   readonly identifier: boolean;
 }
 
-export type DatabaseListIdentityField = Extract<
-  DatabaseIntrinsicField,
-  "page_key"
->;
+export type DatabaseListIdentityField = Extract<DatabaseIntrinsicField, "page_key">;
 
 export interface DatabaseListPageIdentity {
   readonly label: string;
@@ -40,7 +37,7 @@ export const projectDatabaseListPageIdentity = (
   pageKey: string | null,
   fields: readonly DatabaseListIdentityField[],
 ): DatabaseListPageIdentity => {
-  const label = fields.includes("page_key") ? pageKey ?? "" : "";
+  const label = fields.includes("page_key") ? (pageKey ?? "") : "";
   return { label, title: label };
 };
 
@@ -59,16 +56,11 @@ export const databaseListIdentifierSamples = <T>(
     const match = pageKey?.match(DATABASE_LIST_PAGE_KEY_PATTERN);
     if (!match) continue;
     const [, prefix, number] = match;
-    digitCountByPrefix.set(
-      prefix,
-      Math.max(digitCountByPrefix.get(prefix) ?? 0, number.length),
-    );
+    digitCountByPrefix.set(prefix, Math.max(digitCountByPrefix.get(prefix) ?? 0, number.length));
   }
 
   return [...digitCountByPrefix].flatMap(([prefix, digitCount]) =>
-    Array.from({ length: 10 }, (_, digit) =>
-      `${prefix}-${String(digit).repeat(digitCount)}`
-    )
+    Array.from({ length: 10 }, (_, digit) => `${prefix}-${String(digit).repeat(digitCount)}`),
   );
 };
 
@@ -82,9 +74,7 @@ export const databaseListIdentifierMinWidth = (
     if (width === null || !Number.isFinite(width)) return null;
     maximumWidth = Math.max(maximumWidth ?? 0, width);
   }
-  return maximumWidth === null
-    ? null
-    : Math.ceil(maximumWidth);
+  return maximumWidth === null ? null : Math.ceil(maximumWidth);
 };
 
 const DEFAULT_COLUMN_VISIBILITY: DatabaseListColumnVisibility = {
@@ -98,14 +88,11 @@ interface DatabaseListGridTrack {
   readonly size: string;
 }
 
-const serializeDatabaseListGridTrack = (
-  track: DatabaseListGridTrack,
-): string => `[${track.lineNames.join(" ")}] ${track.size}`;
+const serializeDatabaseListGridTrack = (track: DatabaseListGridTrack): string =>
+  `[${track.lineNames.join(" ")}] ${track.size}`;
 
 export const databaseListFieldKey = (field: DatabaseViewField): string =>
-  field.kind === "property"
-    ? `property:${field.propertyId}`
-    : `intrinsic:${field.field}`;
+  field.kind === "property" ? `property:${field.propertyId}` : `intrinsic:${field.field}`;
 
 export const withForcedDatabaseListField = (
   fields: readonly DatabaseViewField[],
@@ -125,14 +112,12 @@ export const partitionDatabaseListFields = (
   readonly inlineFields: readonly DatabaseViewField[];
   readonly trailingFields: readonly DatabaseViewField[];
 } => ({
-  identityFields: orderedDatabaseIdentityFields("list", fields)
-    .filter((field): field is DatabaseListIdentityField =>
-      field === "page_key"
-    ),
+  identityFields: orderedDatabaseIdentityFields("list", fields).filter(
+    (field): field is DatabaseListIdentityField => field === "page_key",
+  ),
   inlineFields: fields.filter((field) => field.kind === "property"),
   trailingFields: fields.filter(
-    (field) => field.kind === "intrinsic"
-      && field.field !== "page_key",
+    (field) => field.kind === "intrinsic" && field.field !== "page_key",
   ),
 });
 
@@ -156,9 +141,10 @@ export const databaseListGridTemplate = (
   if (coreColumns.identifier) {
     tracks.push({
       lineNames: ["identifier"],
-      size: identifierMinWidth === null
-        ? "minmax(min-content,auto)"
-        : `minmax(${identifierMinWidth}px,auto)`,
+      size:
+        identifierMinWidth === null
+          ? "minmax(min-content,auto)"
+          : `minmax(${identifierMinWidth}px,auto)`,
     });
   } else {
     // Group headers always start at `identifier`. When the visible ID track is
@@ -179,10 +165,7 @@ export const databaseListGridTemplate = (
   });
 
   for (const field of trailingFields) {
-    if (
-      field.kind !== "intrinsic"
-      || field.field === "page_key"
-    ) continue;
+    if (field.kind !== "intrinsic" || field.field === "page_key") continue;
     tracks.push({ lineNames: [field.field], size: "minmax(60px,auto)" });
   }
   tracks.push({

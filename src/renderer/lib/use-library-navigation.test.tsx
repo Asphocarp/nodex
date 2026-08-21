@@ -57,12 +57,12 @@ describe("Library navigation invalidation", () => {
       .mockResolvedValueOnce(metadata(1))
       .mockImplementationOnce(() => secondRead.promise);
     const listeners = new Set<(message: ProjectionStreamMessage) => void>();
-    const subscribeProjection = vi.fn((_scope, listener: (
-      message: ProjectionStreamMessage
-    ) => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    });
+    const subscribeProjection = vi.fn(
+      (_scope, listener: (message: ProjectionStreamMessage) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    );
     const registry = new ProjectionInvalidationRegistry({
       subscribeProjection,
       subscribeRevocations: () => () => undefined,

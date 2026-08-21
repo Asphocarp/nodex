@@ -46,9 +46,14 @@ describe("electron-builder runtime resources", () => {
       from: ".generated/sparkle-runtime/${arch}/nodex-sparkle.node",
       to: "native/nodex-sparkle.node",
     });
-    expect(config.extraResources).toEqual(expect.arrayContaining([
-      { from: ".generated/build-resources/THIRD_PARTY_NOTICES.txt", to: "THIRD_PARTY_NOTICES.txt" },
-    ]));
+    expect(config.extraResources).toEqual(
+      expect.arrayContaining([
+        {
+          from: ".generated/build-resources/THIRD_PARTY_NOTICES.txt",
+          to: "THIRD_PARTY_NOTICES.txt",
+        },
+      ]),
+    );
     expect(config.extraFiles).toContainEqual({
       from: ".generated/sparkle-runtime/${arch}/Sparkle.framework",
       to: "Frameworks/Sparkle.framework",
@@ -56,9 +61,9 @@ describe("electron-builder runtime resources", () => {
     });
     expect(config.mac?.binaries).toContain("Contents/Resources/codex-path/rg");
     expect(config.mac?.binaries).not.toContain("Contents/Resources/bin/rg");
-    expect(config.mac?.binaries?.some((entry) => (
-      entry.startsWith("Contents/Resources/agent-runtime/")
-    ))).toBe(false);
+    expect(
+      config.mac?.binaries?.some((entry) => entry.startsWith("Contents/Resources/agent-runtime/")),
+    ).toBe(false);
     expect(config.mac?.target).toEqual(["dmg"]);
     expect(config.mac?.extendInfo).toMatchObject({
       SUPublicEDKey: "YNySLZ74gjVAOpEdMo9OOEPvuTEMZf8fMnI+oQD7Ifs=",

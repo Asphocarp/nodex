@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  SETTINGS_SECTION_GROUP_ORDER,
-  SETTINGS_SECTIONS,
-} from "./workbench-settings-sections";
+import { SETTINGS_SECTION_GROUP_ORDER, SETTINGS_SECTIONS } from "./workbench-settings-sections";
 
 describe("settings section catalog", () => {
   test("keeps one page owner per visible top-level entry", () => {
@@ -10,12 +7,13 @@ describe("settings section catalog", () => {
 
     expect(SETTINGS_SECTIONS).toHaveLength(13);
     expect(new Set(pageKeys).size).toBe(SETTINGS_SECTIONS.length);
-    expect(SETTINGS_SECTIONS.find((section) => section.id === "browser")?.pageKey)
-      .toBe("browser");
-    expect(SETTINGS_SECTIONS.find((section) => section.id === "agent-import")?.pageKey)
-      .toBe("import");
-    expect(SETTINGS_SECTIONS.find((section) => section.id === "hooks-settings")?.pageKey)
-      .toBe("hooks");
+    expect(SETTINGS_SECTIONS.find((section) => section.id === "browser")?.pageKey).toBe("browser");
+    expect(SETTINGS_SECTIONS.find((section) => section.id === "agent-import")?.pageKey).toBe(
+      "import",
+    );
+    expect(SETTINGS_SECTIONS.find((section) => section.id === "hooks-settings")?.pageKey).toBe(
+      "hooks",
+    );
     expect(SETTINGS_SECTIONS.some((section) => section.label === "Editor")).toBe(false);
   });
 

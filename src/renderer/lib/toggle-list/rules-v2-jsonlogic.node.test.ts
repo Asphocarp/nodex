@@ -19,7 +19,12 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
           {
             all: [
               { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: ["p0-critical", "p1-high"], includeEmpty: false },
+              {
+                field: "priority",
+                op: "in",
+                values: ["p0-critical", "p1-high"],
+                includeEmpty: false,
+              },
             ],
           },
         ],
@@ -44,94 +49,102 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
     expect(malformed.rules).toBe(null);
     expect(malformed.error).toBe("Invalid JSON.");
 
-    const unsupported = parseRulesV2FromJsonLogic(JSON.stringify({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: { "<": [1, 2] },
-      sort: [],
-    }));
+    const unsupported = parseRulesV2FromJsonLogic(
+      JSON.stringify({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: { "<": [1, 2] },
+        sort: [],
+      }),
+    );
     expect(unsupported.rules).toBe(null);
     expect(unsupported.error).toBe("Unsupported filter expression.");
   });
 
   test("parses hasAll and hasAny tag patterns", () => {
-    const parsed = parseRulesV2FromJsonLogic(JSON.stringify({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        or: [
-          {
-            and: [
-              { in: [{ var: "status" }, ["triage"]] },
-              { and: [{ in: ["frontend", { var: "tags" }] }, { in: ["ui", { var: "tags" }] }] },
-            ],
-          },
-          {
-            and: [
-              { in: [{ var: "priority" }, ["p0-critical", "p1-high"]] },
-              { or: [{ in: ["api", { var: "tags" }] }, { in: ["infra", { var: "tags" }] }] },
-            ],
-          },
-        ],
-      },
-      sort: [{ field: "status", direction: "asc" }],
-    }));
+    const parsed = parseRulesV2FromJsonLogic(
+      JSON.stringify({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          or: [
+            {
+              and: [
+                { in: [{ var: "status" }, ["triage"]] },
+                { and: [{ in: ["frontend", { var: "tags" }] }, { in: ["ui", { var: "tags" }] }] },
+              ],
+            },
+            {
+              and: [
+                { in: [{ var: "priority" }, ["p0-critical", "p1-high"]] },
+                { or: [{ in: ["api", { var: "tags" }] }, { in: ["infra", { var: "tags" }] }] },
+              ],
+            },
+          ],
+        },
+        sort: [{ field: "status", direction: "asc" }],
+      }),
+    );
 
     expect(parsed.error).toBe(null);
-    expect(JSON.stringify(parsed.rules?.filter.any[0]?.all[1])).toBe(JSON.stringify({
-      field: "tags",
-      op: "hasAll",
-      values: ["frontend", "ui"],
-    }));
-    expect(JSON.stringify(parsed.rules?.filter.any[1]?.all[1])).toBe(JSON.stringify({
-      field: "tags",
-      op: "hasAny",
-      values: ["api", "infra"],
-    }));
+    expect(JSON.stringify(parsed.rules?.filter.any[0]?.all[1])).toBe(
+      JSON.stringify({
+        field: "tags",
+        op: "hasAll",
+        values: ["frontend", "ui"],
+      }),
+    );
+    expect(JSON.stringify(parsed.rules?.filter.any[1]?.all[1])).toBe(
+      JSON.stringify({
+        field: "tags",
+        op: "hasAny",
+        values: ["api", "infra"],
+      }),
+    );
     expect(parsed.rules?.includeHostCard).toBe(false);
   });
 
   test("parses explicit empty-priority jsonlogic conditions", () => {
-    const parsed = parseRulesV2FromJsonLogic(JSON.stringify({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        or: [
-          {
-            and: [
-              { in: [{ var: "status" }, ["triage"]] },
-              { missing: ["priority"] },
-            ],
-          },
-          {
-            and: [
-              { in: [{ var: "status" }, ["plan"]] },
-              {
-                or: [
-                  { in: [{ var: "priority" }, ["p0-critical"] ] },
-                  { missing: ["priority"] },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      sort: [{ field: "status", direction: "asc" }],
-    }));
+    const parsed = parseRulesV2FromJsonLogic(
+      JSON.stringify({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          or: [
+            {
+              and: [{ in: [{ var: "status" }, ["triage"]] }, { missing: ["priority"] }],
+            },
+            {
+              and: [
+                { in: [{ var: "status" }, ["plan"]] },
+                {
+                  or: [{ in: [{ var: "priority" }, ["p0-critical"]] }, { missing: ["priority"] }],
+                },
+              ],
+            },
+          ],
+        },
+        sort: [{ field: "status", direction: "asc" }],
+      }),
+    );
 
     expect(parsed.error).toBe(null);
-    expect(JSON.stringify(parsed.rules?.filter.any[0]?.all[1])).toBe(JSON.stringify({
-      field: "priority",
-      op: "in",
-      values: [],
-      includeEmpty: true,
-    }));
-    expect(JSON.stringify(parsed.rules?.filter.any[1]?.all[1])).toBe(JSON.stringify({
-      field: "priority",
-      op: "in",
-      values: ["p0-critical"],
-      includeEmpty: true,
-    }));
+    expect(JSON.stringify(parsed.rules?.filter.any[0]?.all[1])).toBe(
+      JSON.stringify({
+        field: "priority",
+        op: "in",
+        values: [],
+        includeEmpty: true,
+      }),
+    );
+    expect(JSON.stringify(parsed.rules?.filter.any[1]?.all[1])).toBe(
+      JSON.stringify({
+        field: "priority",
+        op: "in",
+        values: ["p0-critical"],
+        includeEmpty: true,
+      }),
+    );
   });
 
   test("round-trips empty-only priority filters through JSONLogic", () => {
@@ -153,7 +166,7 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
 
     const json = formatRulesV2AsJsonLogic(rules);
 
-    expect(json.includes("\"missing\"")).toBe(true);
+    expect(json.includes('"missing"')).toBe(true);
 
     const parsed = parseRulesV2FromJsonLogic(json);
     expect(parsed.error).toBe(null);

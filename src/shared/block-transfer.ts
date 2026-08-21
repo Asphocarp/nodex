@@ -127,10 +127,7 @@ export type BlockTransferSource =
       readonly kind: "data_source";
       readonly dataSourceId: string;
       readonly memberships: Readonly<
-        Record<
-          BlockId,
-          { readonly membershipId: string; readonly revision: number }
-        >
+        Record<BlockId, { readonly membershipId: string; readonly revision: number }>
       >;
     };
 
@@ -300,8 +297,7 @@ export type BlockTransferCommandResult<Value = BlockTransferReceipt> =
   | LocalCommitCommandSuccess<Value>
   | { readonly ok: false; readonly error: BlockTransferCommandError };
 
-export type BlockTransferUndoCommandResult =
-  BlockTransferCommandResult<BlockTransferUndoReceipt>;
+export type BlockTransferUndoCommandResult = BlockTransferCommandResult<BlockTransferUndoReceipt>;
 
 export class BlockTransferContractError extends Error {
   constructor(message: string) {
@@ -313,10 +309,7 @@ export class BlockTransferContractError extends Error {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const readRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new BlockTransferContractError(`${label} must be an object`);
 };
@@ -354,17 +347,14 @@ const readString = (
   ) {
     return value;
   }
-  throw new BlockTransferContractError(
-    `${label}.${key} must be a non-empty bounded string`,
-  );
+  throw new BlockTransferContractError(`${label}.${key} must be a non-empty bounded string`);
 };
 
 const readOptionalString = (
   record: Readonly<Record<string, unknown>>,
   key: string,
   label: string,
-): string | undefined =>
-  record[key] === undefined ? undefined : readString(record, key, label);
+): string | undefined => (record[key] === undefined ? undefined : readString(record, key, label));
 
 const readInteger = (
   record: Readonly<Record<string, unknown>>,
@@ -373,27 +363,15 @@ const readInteger = (
   minimum: number,
 ): number => {
   const value = record[key];
-  if (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= minimum
-  ) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
-  throw new BlockTransferContractError(
-    `${label}.${key} must be a safe integer >= ${minimum}`,
-  );
+  throw new BlockTransferContractError(`${label}.${key} must be a safe integer >= ${minimum}`);
 };
 
-const readRootBlockIds = (
-  record: Readonly<Record<string, unknown>>,
-): readonly BlockId[] => {
+const readRootBlockIds = (record: Readonly<Record<string, unknown>>): readonly BlockId[] => {
   const value = record.rootBlockIds;
-  if (
-    !Array.isArray(value) ||
-    value.length < 1 ||
-    value.length > MAX_BLOCK_TRANSFER_ROOTS
-  ) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_BLOCK_TRANSFER_ROOTS) {
     throw new BlockTransferContractError(
       `blockTransfer.rootBlockIds must contain 1-${MAX_BLOCK_TRANSFER_ROOTS} IDs`,
     );
@@ -407,14 +385,10 @@ const readRootBlockIds = (
     ) {
       return entry;
     }
-    throw new BlockTransferContractError(
-      "blockTransfer.rootBlockIds contains an invalid ID",
-    );
+    throw new BlockTransferContractError("blockTransfer.rootBlockIds contains an invalid ID");
   });
   if (new Set(ids).size === ids.length) return ids;
-  throw new BlockTransferContractError(
-    "blockTransfer.rootBlockIds contains a duplicate ID",
-  );
+  throw new BlockTransferContractError("blockTransfer.rootBlockIds contains a duplicate ID");
 };
 
 const readExpectedLocationRevisions = (
@@ -437,11 +411,7 @@ const readExpectedLocationRevisions = (
   return Object.fromEntries(
     rootBlockIds.map((blockId) => {
       const revision = revisions[blockId];
-      if (
-        typeof revision !== "number" ||
-        !Number.isSafeInteger(revision) ||
-        revision < 1
-      ) {
+      if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1) {
         throw new BlockTransferContractError(
           `blockTransfer.expectedLocationRevisions.${blockId} must be a positive safe integer`,
         );
@@ -451,10 +421,7 @@ const readExpectedLocationRevisions = (
   );
 };
 
-const parseSource = (
-  value: unknown,
-  rootBlockIds: readonly BlockId[],
-): BlockTransferSource => {
+const parseSource = (value: unknown, rootBlockIds: readonly BlockId[]): BlockTransferSource => {
   const source = readRecord(value, "blockTransfer.source");
   if (source.kind === "library") {
     assertExactKeys(source, "blockTransfer.source", ["kind", "libraryId"]);
@@ -465,26 +432,17 @@ const parseSource = (
   }
   if (source.kind === "page" || source.kind === "document") {
     const page = source.kind === "page";
-    assertExactKeys(
-      source,
-      "blockTransfer.source",
-      [
-        "kind",
-        ...(page ? ["pageId"] : []),
-        "documentId",
-        "generation",
-        "expectedHeadSeq",
-      ],
-    );
+    assertExactKeys(source, "blockTransfer.source", [
+      "kind",
+      ...(page ? ["pageId"] : []),
+      "documentId",
+      "generation",
+      "expectedHeadSeq",
+    ]);
     const revision = {
       documentId: readString(source, "documentId", "blockTransfer.source"),
       generation: readInteger(source, "generation", "blockTransfer.source", 1),
-      expectedHeadSeq: readInteger(
-        source,
-        "expectedHeadSeq",
-        "blockTransfer.source",
-        0,
-      ),
+      expectedHeadSeq: readInteger(source, "expectedHeadSeq", "blockTransfer.source", 0),
     };
     return page
       ? {
@@ -495,20 +453,11 @@ const parseSource = (
       : { kind: "document", ...revision };
   }
   if (source.kind === "data_source") {
-    assertExactKeys(
-      source,
-      "blockTransfer.source",
-      ["kind", "dataSourceId", "memberships"],
-    );
-    const memberships = readRecord(
-      source.memberships,
-      "blockTransfer.source.memberships",
-    );
+    assertExactKeys(source, "blockTransfer.source", ["kind", "dataSourceId", "memberships"]);
+    const memberships = readRecord(source.memberships, "blockTransfer.source.memberships");
     if (
       Object.keys(memberships).length !== rootBlockIds.length ||
-      Object.keys(memberships).some(
-        (blockId) => !rootBlockIds.includes(blockId),
-      )
+      Object.keys(memberships).some((blockId) => !rootBlockIds.includes(blockId))
     ) {
       throw new BlockTransferContractError(
         "blockTransfer.source.memberships must match rootBlockIds exactly",
@@ -516,22 +465,17 @@ const parseSource = (
     }
     return {
       kind: "data_source",
-      dataSourceId: readString(
-        source,
-        "dataSourceId",
-        "blockTransfer.source",
-      ),
+      dataSourceId: readString(source, "dataSourceId", "blockTransfer.source"),
       memberships: Object.fromEntries(
         rootBlockIds.map((blockId) => {
           const membership = readRecord(
             memberships[blockId],
             `blockTransfer.source.memberships.${blockId}`,
           );
-          assertExactKeys(
-            membership,
-            `blockTransfer.source.memberships.${blockId}`,
-            ["membershipId", "revision"],
-          );
+          assertExactKeys(membership, `blockTransfer.source.memberships.${blockId}`, [
+            "membershipId",
+            "revision",
+          ]);
           return [
             blockId,
             {
@@ -557,23 +501,11 @@ const parseSource = (
   );
 };
 
-const parseTarget = (
-  value: unknown,
-  rootBlockIds: readonly BlockId[],
-): BlockTransferTarget => {
+const parseTarget = (value: unknown, rootBlockIds: readonly BlockId[]): BlockTransferTarget => {
   const target = readRecord(value, "blockTransfer.target");
   if (target.kind === "library") {
-    assertExactKeys(
-      target,
-      "blockTransfer.target",
-      ["kind", "libraryId"],
-      ["beforeBlockId"],
-    );
-    const beforeBlockId = readOptionalString(
-      target,
-      "beforeBlockId",
-      "blockTransfer.target",
-    );
+    assertExactKeys(target, "blockTransfer.target", ["kind", "libraryId"], ["beforeBlockId"]);
+    const beforeBlockId = readOptionalString(target, "beforeBlockId", "blockTransfer.target");
     if (beforeBlockId && rootBlockIds.includes(beforeBlockId)) {
       throw new BlockTransferContractError(
         "blockTransfer.target.beforeBlockId cannot be a transferred root",
@@ -590,25 +522,11 @@ const parseTarget = (
     assertExactKeys(
       target,
       "blockTransfer.target",
-      [
-        "kind",
-        ...(page ? ["pageId"] : []),
-        "documentId",
-        "generation",
-        "expectedHeadSeq",
-      ],
+      ["kind", ...(page ? ["pageId"] : []), "documentId", "generation", "expectedHeadSeq"],
       ["parentBlockId", "beforeBlockId"],
     );
-    const parentBlockId = readOptionalString(
-      target,
-      "parentBlockId",
-      "blockTransfer.target",
-    );
-    const beforeBlockId = readOptionalString(
-      target,
-      "beforeBlockId",
-      "blockTransfer.target",
-    );
+    const parentBlockId = readOptionalString(target, "parentBlockId", "blockTransfer.target");
+    const beforeBlockId = readOptionalString(target, "beforeBlockId", "blockTransfer.target");
     if (
       (parentBlockId && rootBlockIds.includes(parentBlockId)) ||
       (beforeBlockId && rootBlockIds.includes(beforeBlockId))
@@ -620,12 +538,7 @@ const parseTarget = (
     const destination = {
       documentId: readString(target, "documentId", "blockTransfer.target"),
       generation: readInteger(target, "generation", "blockTransfer.target", 1),
-      expectedHeadSeq: readInteger(
-        target,
-        "expectedHeadSeq",
-        "blockTransfer.target",
-        0,
-      ),
+      expectedHeadSeq: readInteger(target, "expectedHeadSeq", "blockTransfer.target", 0),
       ...(parentBlockId ? { parentBlockId } : {}),
       ...(beforeBlockId ? { beforeBlockId } : {}),
     };
@@ -650,11 +563,7 @@ const parseTarget = (
         "blockTransfer.target.groupKey must be a string or null",
       );
     }
-    const beforePageId = readOptionalString(
-      target,
-      "beforePageId",
-      "blockTransfer.target",
-    );
+    const beforePageId = readOptionalString(target, "beforePageId", "blockTransfer.target");
     if (beforePageId && rootBlockIds.includes(beforePageId)) {
       throw new BlockTransferContractError(
         "blockTransfer.target.beforePageId cannot be a transferred root",
@@ -662,11 +571,7 @@ const parseTarget = (
     }
     return {
       kind: "data_source",
-      dataSourceId: readString(
-        target,
-        "dataSourceId",
-        "blockTransfer.target",
-      ),
+      dataSourceId: readString(target, "dataSourceId", "blockTransfer.target"),
       viewId: readString(target, "viewId", "blockTransfer.target"),
       groupKey,
       ...(beforePageId ? { beforePageId } : {}),
@@ -677,9 +582,7 @@ const parseTarget = (
   );
 };
 
-const readActor = (
-  value: unknown,
-): Readonly<Record<string, DatabaseJsonValue>> => {
+const readActor = (value: unknown): Readonly<Record<string, DatabaseJsonValue>> => {
   const actor = readRecord(value, "blockTransfer.actor");
   try {
     return JSON.parse(stableStringifyDatabaseJson(actor)) as Readonly<
@@ -695,17 +598,10 @@ const readActor = (
 const parseIntentSource = (value: unknown): BlockTransferIntentSource => {
   const source = readRecord(value, "blockTransferIntent.source");
   if (source.kind === "library") {
-    assertExactKeys(source, "blockTransferIntent.source", [
-      "kind",
-      "libraryId",
-    ]);
+    assertExactKeys(source, "blockTransferIntent.source", ["kind", "libraryId"]);
     return {
       kind: "library",
-      libraryId: readString(
-        source,
-        "libraryId",
-        "blockTransferIntent.source",
-      ),
+      libraryId: readString(source, "libraryId", "blockTransferIntent.source"),
     };
   }
   if (source.kind === "page") {
@@ -723,17 +619,10 @@ const parseIntentSource = (value: unknown): BlockTransferIntentSource => {
     };
   }
   if (source.kind === "data_source") {
-    assertExactKeys(source, "blockTransferIntent.source", [
-      "kind",
-      "dataSourceId",
-    ]);
+    assertExactKeys(source, "blockTransferIntent.source", ["kind", "dataSourceId"]);
     return {
       kind: "data_source",
-      dataSourceId: readString(
-        source,
-        "dataSourceId",
-        "blockTransferIntent.source",
-      ),
+      dataSourceId: readString(source, "dataSourceId", "blockTransferIntent.source"),
     };
   }
   throw new BlockTransferContractError(
@@ -747,17 +636,8 @@ const parseIntentTarget = (
 ): BlockTransferIntentTarget => {
   const target = readRecord(value, "blockTransferIntent.target");
   if (target.kind === "library") {
-    assertExactKeys(
-      target,
-      "blockTransferIntent.target",
-      ["kind", "libraryId"],
-      ["beforeBlockId"],
-    );
-    const beforeBlockId = readOptionalString(
-      target,
-      "beforeBlockId",
-      "blockTransferIntent.target",
-    );
+    assertExactKeys(target, "blockTransferIntent.target", ["kind", "libraryId"], ["beforeBlockId"]);
+    const beforeBlockId = readOptionalString(target, "beforeBlockId", "blockTransferIntent.target");
     if (beforeBlockId && rootBlockIds.includes(beforeBlockId)) {
       throw new BlockTransferContractError(
         "blockTransferIntent.target.beforeBlockId cannot be a transferred root",
@@ -765,11 +645,7 @@ const parseIntentTarget = (
     }
     return {
       kind: "library",
-      libraryId: readString(
-        target,
-        "libraryId",
-        "blockTransferIntent.target",
-      ),
+      libraryId: readString(target, "libraryId", "blockTransferIntent.target"),
       ...(beforeBlockId ? { beforeBlockId } : {}),
     };
   }
@@ -780,16 +656,8 @@ const parseIntentTarget = (
       ["kind", "pageId"],
       ["parentBlockId", "beforeBlockId"],
     );
-    const parentBlockId = readOptionalString(
-      target,
-      "parentBlockId",
-      "blockTransferIntent.target",
-    );
-    const beforeBlockId = readOptionalString(
-      target,
-      "beforeBlockId",
-      "blockTransferIntent.target",
-    );
+    const parentBlockId = readOptionalString(target, "parentBlockId", "blockTransferIntent.target");
+    const beforeBlockId = readOptionalString(target, "beforeBlockId", "blockTransferIntent.target");
     if (
       (parentBlockId && rootBlockIds.includes(parentBlockId)) ||
       (beforeBlockId && rootBlockIds.includes(beforeBlockId))
@@ -812,16 +680,8 @@ const parseIntentTarget = (
       ["kind", "documentId"],
       ["parentBlockId", "beforeBlockId"],
     );
-    const parentBlockId = readOptionalString(
-      target,
-      "parentBlockId",
-      "blockTransferIntent.target",
-    );
-    const beforeBlockId = readOptionalString(
-      target,
-      "beforeBlockId",
-      "blockTransferIntent.target",
-    );
+    const parentBlockId = readOptionalString(target, "parentBlockId", "blockTransferIntent.target");
+    const beforeBlockId = readOptionalString(target, "beforeBlockId", "blockTransferIntent.target");
     if (
       (parentBlockId && rootBlockIds.includes(parentBlockId)) ||
       (beforeBlockId && rootBlockIds.includes(beforeBlockId))
@@ -832,25 +692,14 @@ const parseIntentTarget = (
     }
     return {
       kind: "document",
-      documentId: readString(
-        target,
-        "documentId",
-        "blockTransferIntent.target",
-      ),
+      documentId: readString(target, "documentId", "blockTransferIntent.target"),
       ...(parentBlockId ? { parentBlockId } : {}),
       ...(beforeBlockId ? { beforeBlockId } : {}),
     };
   }
   if (target.kind === "data_source") {
-    assertExactKeys(
-      target,
-      "blockTransferIntent.target",
-      ["kind", "dataSourceId", "placement"],
-    );
-    const placement = readRecord(
-      target.placement,
-      "blockTransferIntent.target.placement",
-    );
+    assertExactKeys(target, "blockTransferIntent.target", ["kind", "dataSourceId", "placement"]);
+    const placement = readRecord(target.placement, "blockTransferIntent.target.placement");
     const parsedPlacement: BlockTransferDataSourcePlacement = (() => {
       if (placement.kind === "direct") {
         assertExactKeys(
@@ -859,13 +708,10 @@ const parseIntentTarget = (
           ["kind", "viewId", "presentationOverride", "groupKey"],
           ["beforePageId", "sortedPropertyValues"],
         );
-        const groupKey = placement.groupKey === null
-          ? null
-          : readString(
-              placement,
-              "groupKey",
-              "blockTransferIntent.target.placement",
-            );
+        const groupKey =
+          placement.groupKey === null
+            ? null
+            : readString(placement, "groupKey", "blockTransferIntent.target.placement");
         const beforePageId = readOptionalString(
           placement,
           "beforePageId",
@@ -879,8 +725,8 @@ const parseIntentTarget = (
         const sortedPropertyValues = (() => {
           if (placement.sortedPropertyValues === undefined) return [];
           if (
-            !Array.isArray(placement.sortedPropertyValues)
-            || placement.sortedPropertyValues.length > 8
+            !Array.isArray(placement.sortedPropertyValues) ||
+            placement.sortedPropertyValues.length > 8
           ) {
             throw new BlockTransferContractError(
               "blockTransferIntent.target.placement.sortedPropertyValues must contain at most 8 values",
@@ -921,11 +767,7 @@ const parseIntentTarget = (
         })();
         return {
           kind: placement.kind,
-          viewId: readString(
-            placement,
-            "viewId",
-            "blockTransferIntent.target.placement",
-          ),
+          viewId: readString(placement, "viewId", "blockTransferIntent.target.placement"),
           presentationOverride: parseDatabaseViewPresentationOverride(
             placement.presentationOverride,
           ),
@@ -935,24 +777,16 @@ const parseIntentTarget = (
         };
       }
       if (placement.kind === "list_occurrence") {
-        assertExactKeys(
-          placement,
-          "blockTransferIntent.target.placement",
-          [
-            "kind",
-            "viewId",
-            "presentationOverride",
-            "expectedProjection",
-            "target",
-          ],
-        );
+        assertExactKeys(placement, "blockTransferIntent.target.placement", [
+          "kind",
+          "viewId",
+          "presentationOverride",
+          "expectedProjection",
+          "target",
+        ]);
         return {
           kind: placement.kind,
-          viewId: readString(
-            placement,
-            "viewId",
-            "blockTransferIntent.target.placement",
-          ),
+          viewId: readString(placement, "viewId", "blockTransferIntent.target.placement"),
           presentationOverride: parseDatabaseViewPresentationOverride(
             placement.presentationOverride,
           ),
@@ -972,11 +806,7 @@ const parseIntentTarget = (
     })();
     return {
       kind: "data_source",
-      dataSourceId: readString(
-        target,
-        "dataSourceId",
-        "blockTransferIntent.target",
-      ),
+      dataSourceId: readString(target, "dataSourceId", "blockTransferIntent.target"),
       placement: parsedPlacement,
     };
   }
@@ -985,9 +815,7 @@ const parseIntentTarget = (
   );
 };
 
-const readCausalDependencies = (
-  value: unknown,
-): readonly BlockTransferDocumentHead[] => {
+const readCausalDependencies = (value: unknown): readonly BlockTransferDocumentHead[] => {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 16) {
     throw new BlockTransferContractError(
@@ -995,15 +823,12 @@ const readCausalDependencies = (
     );
   }
   const dependencies = value.map((entry, index) => {
-    const dependency = readRecord(
-      entry,
-      `blockTransferIntent.causalDependencies[${index}]`,
-    );
-    assertExactKeys(
-      dependency,
-      `blockTransferIntent.causalDependencies[${index}]`,
-      ["documentId", "generation", "expectedHeadSeq"],
-    );
+    const dependency = readRecord(entry, `blockTransferIntent.causalDependencies[${index}]`);
+    assertExactKeys(dependency, `blockTransferIntent.causalDependencies[${index}]`, [
+      "documentId",
+      "generation",
+      "expectedHeadSeq",
+    ]);
     return {
       documentId: readString(
         dependency,
@@ -1039,11 +864,7 @@ const assertParentChange = (
   label: string,
 ): void => {
   if (mode !== "move") return;
-  if (
-    source.kind === "page" &&
-    target.kind === "page" &&
-    source.pageId === target.pageId
-  ) {
+  if (source.kind === "page" && target.kind === "page" && source.pageId === target.pageId) {
     throw new BlockTransferContractError(
       `${label} is for parent changes; reorder within one Page uses a Yjs transaction`,
     );
@@ -1087,14 +908,9 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
     ["clientSessionId", "causalDependencies"],
   );
   if (intent.mode !== "move" && intent.mode !== "copy") {
-    throw new BlockTransferContractError(
-      "blockTransferIntent.mode must be move or copy",
-    );
+    throw new BlockTransferContractError("blockTransferIntent.mode must be move or copy");
   }
-  if (
-    intent.promotionPolicy !== "literal"
-    && intent.promotionPolicy !== "task_shorthand_v1"
-  ) {
+  if (intent.promotionPolicy !== "literal" && intent.promotionPolicy !== "task_shorthand_v1") {
     throw new BlockTransferContractError(
       "blockTransferIntent.promotionPolicy must be literal or task_shorthand_v1",
     );
@@ -1111,11 +927,7 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
     ...(intent.clientSessionId === undefined
       ? {}
       : {
-          clientSessionId: readString(
-            intent,
-            "clientSessionId",
-            "blockTransferIntent",
-          ),
+          clientSessionId: readString(intent, "clientSessionId", "blockTransferIntent"),
         }),
     actor: readActor(intent.actor),
     mode: intent.mode,
@@ -1151,19 +963,13 @@ export const blockTransferIntentFromRequest = (
       return {
         kind: "library",
         libraryId: request.target.libraryId,
-        ...(request.target.beforeBlockId
-          ? { beforeBlockId: request.target.beforeBlockId }
-          : {}),
+        ...(request.target.beforeBlockId ? { beforeBlockId: request.target.beforeBlockId } : {}),
       };
     }
     if (request.target.kind === "page" || request.target.kind === "document") {
       const anchors = {
-        ...(request.target.parentBlockId
-          ? { parentBlockId: request.target.parentBlockId }
-          : {}),
-        ...(request.target.beforeBlockId
-          ? { beforeBlockId: request.target.beforeBlockId }
-          : {}),
+        ...(request.target.parentBlockId ? { parentBlockId: request.target.parentBlockId } : {}),
+        ...(request.target.beforeBlockId ? { beforeBlockId: request.target.beforeBlockId } : {}),
       };
       return request.target.kind === "page"
         ? { kind: "page", pageId: request.target.pageId, ...anchors }
@@ -1177,9 +983,7 @@ export const blockTransferIntentFromRequest = (
         viewId: request.target.viewId,
         presentationOverride: { layout: "board" },
         groupKey: request.target.groupKey,
-        ...(request.target.beforePageId
-          ? { beforePageId: request.target.beforePageId }
-          : {}),
+        ...(request.target.beforePageId ? { beforePageId: request.target.beforePageId } : {}),
       },
     };
   })();
@@ -1187,9 +991,7 @@ export const blockTransferIntentFromRequest = (
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
-    ...(request.clientSessionId
-      ? { clientSessionId: request.clientSessionId }
-      : {}),
+    ...(request.clientSessionId ? { clientSessionId: request.clientSessionId } : {}),
     actor: request.actor,
     mode: request.mode,
     rootBlockIds: request.rootBlockIds,
@@ -1215,9 +1017,7 @@ export const canonicalizeBlockTransferLogicalIntent = (value: unknown): string =
   });
 };
 
-export const parseBlockTransferRequest = (
-  value: unknown,
-): BlockTransferRequest => {
+export const parseBlockTransferRequest = (value: unknown): BlockTransferRequest => {
   const request = readRecord(value, "blockTransfer");
   assertExactKeys(
     request,
@@ -1236,9 +1036,7 @@ export const parseBlockTransferRequest = (
     ["clientSessionId"],
   );
   if (request.mode !== "move" && request.mode !== "copy") {
-    throw new BlockTransferContractError(
-      "blockTransfer.mode must be move or copy",
-    );
+    throw new BlockTransferContractError("blockTransfer.mode must be move or copy");
   }
   const rootBlockIds = readRootBlockIds(request);
   const source = parseSource(request.source, rootBlockIds);
@@ -1251,71 +1049,44 @@ export const parseBlockTransferRequest = (
     ...(request.clientSessionId === undefined
       ? {}
       : {
-          clientSessionId: readString(
-            request,
-            "clientSessionId",
-            "blockTransfer",
-          ),
+          clientSessionId: readString(request, "clientSessionId", "blockTransfer"),
         }),
     actor: readActor(request.actor),
     mode: request.mode,
     rootBlockIds,
-    expectedLocationRevisions: readExpectedLocationRevisions(
-      request,
-      rootBlockIds,
-    ),
+    expectedLocationRevisions: readExpectedLocationRevisions(request, rootBlockIds),
     source,
     target,
   };
 };
 
-export const parseBlockTransferUndoToken = (
-  value: unknown,
-): BlockTransferUndoToken => {
+export const parseBlockTransferUndoToken = (value: unknown): BlockTransferUndoToken => {
   const token = readRecord(value, "blockTransferUndo.token");
   assertExactKeys(token, "blockTransferUndo.token", [
     "transferOperationId",
     "recipeHash",
     "storeEpoch",
   ]);
-  const recipeHash = readString(
-    token,
-    "recipeHash",
-    "blockTransferUndo.token",
-    64,
-  );
+  const recipeHash = readString(token, "recipeHash", "blockTransferUndo.token", 64);
   if (!/^[0-9a-f]{64}$/.test(recipeHash)) {
     throw new BlockTransferContractError(
       "blockTransferUndo.token.recipeHash must be a SHA-256 digest",
     );
   }
   return {
-    transferOperationId: readString(
-      token,
-      "transferOperationId",
-      "blockTransferUndo.token",
-    ),
+    transferOperationId: readString(token, "transferOperationId", "blockTransferUndo.token"),
     recipeHash,
     storeEpoch: readString(token, "storeEpoch", "blockTransferUndo.token"),
   };
 };
 
-export const parseBlockTransferUndoIntent = (
-  value: unknown,
-): BlockTransferUndoIntent => {
+export const parseBlockTransferUndoIntent = (value: unknown): BlockTransferUndoIntent => {
   const intent = readRecord(value, "blockTransferUndo");
-  assertExactKeys(intent, "blockTransferUndo", [
-    "operationId",
-    "projectId",
-    "storeEpoch",
-    "token",
-  ]);
+  assertExactKeys(intent, "blockTransferUndo", ["operationId", "projectId", "storeEpoch", "token"]);
   const storeEpoch = readString(intent, "storeEpoch", "blockTransferUndo");
   const token = parseBlockTransferUndoToken(intent.token);
   if (token.storeEpoch !== storeEpoch) {
-    throw new BlockTransferContractError(
-      "blockTransferUndo token belongs to another store epoch",
-    );
+    throw new BlockTransferContractError("blockTransferUndo token belongs to another store epoch");
   }
   return {
     operationId: readString(intent, "operationId", "blockTransferUndo"),

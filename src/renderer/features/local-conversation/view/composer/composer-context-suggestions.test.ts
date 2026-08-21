@@ -6,11 +6,13 @@ import {
 } from "./composer-context-suggestions";
 import { calculateComposerHomeMenuMaxHeight } from "./composer-suggestion-surface";
 
-function candidate(input: Partial<ComposerContextSuggestionCandidate<string>> & {
-  id: string;
-  label: string;
-  section: ComposerContextSuggestionCandidate["section"];
-}): ComposerContextSuggestionCandidate<string> {
+function candidate(
+  input: Partial<ComposerContextSuggestionCandidate<string>> & {
+    id: string;
+    label: string;
+    section: ComposerContextSuggestionCandidate["section"];
+  },
+): ComposerContextSuggestionCandidate<string> {
   return {
     description: null,
     searchTerms: [],
@@ -21,18 +23,24 @@ function candidate(input: Partial<ComposerContextSuggestionCandidate<string>> & 
 
 describe("composer context suggestions", () => {
   test("reserves composer chrome and viewport space at every window zoom", () => {
-    expect(calculateComposerHomeMenuMaxHeight({
-      anchorBottomPx: 1_146,
-      windowZoom: 1,
-    })).toBe(1_092);
-    expect(calculateComposerHomeMenuMaxHeight({
-      anchorBottomPx: 600,
-      windowZoom: 2,
-    })).toBe(246);
-    expect(calculateComposerHomeMenuMaxHeight({
-      anchorBottomPx: 40,
-      windowZoom: 1,
-    })).toBe(0);
+    expect(
+      calculateComposerHomeMenuMaxHeight({
+        anchorBottomPx: 1_146,
+        windowZoom: 1,
+      }),
+    ).toBe(1_092);
+    expect(
+      calculateComposerHomeMenuMaxHeight({
+        anchorBottomPx: 600,
+        windowZoom: 2,
+      }),
+    ).toBe(246);
+    expect(
+      calculateComposerHomeMenuMaxHeight({
+        anchorBottomPx: 40,
+        windowZoom: 1,
+      }),
+    ).toBe(0);
   });
 
   test("uses Codex section caps for an empty synthetic query", () => {
@@ -45,39 +53,37 @@ describe("composer context suggestions", () => {
             id: `app-${index}`,
             label: `App ${index}`,
             section: "Apps",
-          })
+          }),
         ),
         ...Array.from({ length: 3 }, (_, index) =>
           candidate({
             id: `skill-${index}`,
             label: `Skill ${index}`,
             section: "Skills",
-          })
+          }),
         ),
         ...Array.from({ length: 3 }, (_, index) =>
           candidate({
             id: `site-${index}`,
             label: `Site ${index}`,
             section: "Sites",
-          })
+          }),
         ),
         ...Array.from({ length: 6 }, (_, index) =>
           candidate({
             id: `chatgpt-${index}`,
             label: `Conversation ${index}`,
             section: "ChatGPT conversations",
-          })
+          }),
         ),
       ],
     });
 
     expect(sections.find((section) => section.id === "Apps")?.items).toHaveLength(3);
     expect(sections.find((section) => section.id === "Sites")?.items).toHaveLength(2);
-    expect(
-      sections.find((section) =>
-        section.id === "ChatGPT conversations"
-      )?.items,
-    ).toHaveLength(5);
+    expect(sections.find((section) => section.id === "ChatGPT conversations")?.items).toHaveLength(
+      5,
+    );
     expect(sections.find((section) => section.id === "Skills")?.items).toHaveLength(2);
     expect(sections.map((section) => section.id)).toEqual([
       "Add",
@@ -87,8 +93,9 @@ describe("composer context suggestions", () => {
       "Skills",
       "Files and chats",
     ]);
-    expect(sections.find((section) => section.id === "Files and chats")?.emptyMessage)
-      .toBe("Type to search files or chats");
+    expect(sections.find((section) => section.id === "Files and chats")?.emptyMessage).toBe(
+      "Type to search files or chats",
+    );
   });
 
   test("retains provider sections while their first page is loading", () => {
@@ -137,7 +144,7 @@ describe("composer context suggestions", () => {
           label: `browser-${index}.ts`,
           section: "Files and chats",
           sourceRanked: true,
-        })
+        }),
       ),
     ];
 
@@ -150,8 +157,7 @@ describe("composer context suggestions", () => {
     expect(sections[0]?.label).toBeNull();
     expect(sections[0]?.items).toHaveLength(8);
     expect(sections[0]?.items[0]?.id).toBe("browser-plugin");
-    expect(sections[0]?.items.some((item) => item.id === "agent-browser-skill"))
-      .toBe(true);
+    expect(sections[0]?.items.some((item) => item.id === "agent-browser-skill")).toBe(true);
   });
 
   test("uses the provider prefix-priority contract", () => {
@@ -220,9 +226,7 @@ describe("composer context suggestions", () => {
   test("uses the exact generic empty state for a completed search", () => {
     const [section] = buildComposerContextSuggestionSections({
       query: "missing",
-      candidates: [
-        candidate({ id: "browser", label: "Browser", section: "Plugins" }),
-      ],
+      candidates: [candidate({ id: "browser", label: "Browser", section: "Plugins" })],
     });
 
     expect(section).toMatchObject({
@@ -234,25 +238,33 @@ describe("composer context suggestions", () => {
   });
 
   test("dismisses only settled whitespace queries with no results", () => {
-    expect(shouldDismissComposerSuggestionMenu({
-      loading: false,
-      query: "no result",
-      resultCount: 0,
-    })).toBe(true);
-    expect(shouldDismissComposerSuggestionMenu({
-      loading: true,
-      query: "no result",
-      resultCount: 0,
-    })).toBe(false);
-    expect(shouldDismissComposerSuggestionMenu({
-      loading: false,
-      query: "no-result",
-      resultCount: 0,
-    })).toBe(false);
-    expect(shouldDismissComposerSuggestionMenu({
-      loading: false,
-      query: "has result",
-      resultCount: 1,
-    })).toBe(false);
+    expect(
+      shouldDismissComposerSuggestionMenu({
+        loading: false,
+        query: "no result",
+        resultCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDismissComposerSuggestionMenu({
+        loading: true,
+        query: "no result",
+        resultCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldDismissComposerSuggestionMenu({
+        loading: false,
+        query: "no-result",
+        resultCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldDismissComposerSuggestionMenu({
+        loading: false,
+        query: "has result",
+        resultCount: 1,
+      }),
+    ).toBe(false);
   });
 });

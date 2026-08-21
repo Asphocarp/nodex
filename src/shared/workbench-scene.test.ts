@@ -63,9 +63,7 @@ function browserSurface(id = "browser-surface"): WorkbenchSurfaceDescriptor {
   };
 }
 
-function protectedPrimary(
-  scene: WorkbenchSceneSnapshot,
-): WorkbenchSurfaceDescriptor {
+function protectedPrimary(scene: WorkbenchSceneSnapshot): WorkbenchSurfaceDescriptor {
   if (!scene.primary) throw new Error("Expected a protected Scene primary");
   return scene.primary;
 }
@@ -91,16 +89,14 @@ function sceneV2Fields(
   };
 }
 
-function toLegacySurface(
-  surface: WorkbenchSurfaceDescriptor,
-): WorkbenchSurfaceDescriptorV3 {
+function toLegacySurface(surface: WorkbenchSurfaceDescriptor): WorkbenchSurfaceDescriptorV3 {
   if (surface.kind === "image_editor") {
     throw new Error("Image editor surfaces did not exist in legacy Scenes");
   }
   if (
-    surface.kind !== "db_view"
-    && surface.kind !== "page_stage"
-    && surface.kind !== "canvas_stage"
+    surface.kind !== "db_view" &&
+    surface.kind !== "page_stage" &&
+    surface.kind !== "canvas_stage"
   ) {
     return surface;
   }
@@ -175,18 +171,18 @@ describe("WorkbenchScene", () => {
       surface: browserSurface(),
     });
 
-    expect(withBrowser.panelSurfacesById["browser-surface"]).toEqual(
-      browserSurface(),
-    );
+    expect(withBrowser.panelSurfacesById["browser-surface"]).toEqual(browserSurface());
     expect(withBrowser.panels.right.layout.root).toMatchObject({
       type: "leaf",
       tabIds: [protectedPrimary(initial).id, "browser-surface"],
     });
     expect(WorkbenchSceneSnapshotSchema.parse(withBrowser)).toEqual(withBrowser);
-    expect(createWorkbenchSceneSurface(withBrowser, {
-      panelId: "bottom",
-      surface: browserSurface(),
-    })).toBe(withBrowser);
+    expect(
+      createWorkbenchSceneSurface(withBrowser, {
+        panelId: "bottom",
+        surface: browserSurface(),
+      }),
+    ).toBe(withBrowser);
   });
 
   test("persists image editors only through stable asset locators", () => {
@@ -206,16 +202,18 @@ describe("WorkbenchScene", () => {
         },
         entrypoint: "image_click",
         imageSource: "uploaded",
-        images: [{
-          id: "attachment-1",
-          alt: "User attachment",
-          source: "uploaded",
-          attachmentId: "attachment-1",
-          locator: {
-            kind: "managed",
-            source: "nodex://assets/image-1",
+        images: [
+          {
+            id: "attachment-1",
+            alt: "User attachment",
+            source: "uploaded",
+            attachmentId: "attachment-1",
+            locator: {
+              kind: "managed",
+              source: "nodex://assets/image-1",
+            },
           },
-        }],
+        ],
         initialImageId: "attachment-1",
         initialPlaygroundTool: "navigate",
         initialView: "single",
@@ -232,14 +230,12 @@ describe("WorkbenchScene", () => {
     });
 
     expect(WorkbenchSceneSnapshotSchema.parse(durable)).toEqual(durable);
-    expect(getWorkbenchSurfaceReuseKey(
-      imageSurface as WorkbenchSurfaceDescriptor,
-    )).toBeNull();
+    expect(getWorkbenchSurfaceReuseKey(imageSurface as WorkbenchSurfaceDescriptor)).toBeNull();
 
     const unsafe = structuredClone(durable) as unknown as Record<string, unknown>;
-    const unsafeSurface = (
-      unsafe.panelSurfacesById as Record<string, Record<string, unknown>>
-    )[imageSurface.id]!;
+    const unsafeSurface = (unsafe.panelSurfacesById as Record<string, Record<string, unknown>>)[
+      imageSurface.id
+    ]!;
     const unsafeConfig = unsafeSurface.config as Record<string, unknown>;
     const unsafeImages = unsafeConfig.images as Array<Record<string, unknown>>;
     unsafeImages[0] = {
@@ -248,10 +244,7 @@ describe("WorkbenchScene", () => {
     };
     expect(() => WorkbenchSceneSnapshotSchema.parse(unsafe)).toThrow();
 
-    const malformedManaged = structuredClone(durable) as unknown as Record<
-      string,
-      unknown
-    >;
+    const malformedManaged = structuredClone(durable) as unknown as Record<string, unknown>;
     const malformedSurface = (
       malformedManaged.panelSurfacesById as Record<string, Record<string, unknown>>
     )[imageSurface.id]!;
@@ -265,9 +258,12 @@ describe("WorkbenchScene", () => {
   });
 
   test("treats every Pages surface as ordinary and permits an empty tablist", () => {
-    const pages = materializeInitialWorkbenchScene({ kind: "pages" }, {
-      identityFactory: identityFactory("pages"),
-    });
+    const pages = materializeInitialWorkbenchScene(
+      { kind: "pages" },
+      {
+        identityFactory: identityFactory("pages"),
+      },
+    );
     const withPage = createWorkbenchSceneSurface(pages, {
       panelId: "right",
       surface: {
@@ -309,15 +305,13 @@ describe("WorkbenchScene", () => {
       surface: pageSurface,
     });
 
-    expect([...collectWorkbenchScenePresentedPageIds(withPage)])
-      .toEqual(["page:visible"]);
+    expect([...collectWorkbenchScenePresentedPageIds(withPage)]).toEqual(["page:visible"]);
 
     const withBackgroundPage = createWorkbenchSceneSurface(withPage, {
       panelId: "bottom",
       surface: browserSurface(),
     });
-    expect([...collectWorkbenchScenePresentedPageIds(withBackgroundPage)])
-      .toEqual([]);
+    expect([...collectWorkbenchScenePresentedPageIds(withBackgroundPage)]).toEqual([]);
 
     const collapsed = patchWorkbenchScenePanel(withPage, "bottom", {
       collapsed: true,
@@ -331,17 +325,20 @@ describe("WorkbenchScene", () => {
     const surfaces = Object.fromEntries(
       Array.from({ length: WORKBENCH_SCENE_MAX_PANEL_SURFACES }, (_, index) => {
         const id = String(index + 1);
-        return [id, {
+        return [
           id,
-          kind: "page_stage" as const,
-          titleSnapshot: `Page ${index}`,
-          config: {
-            accessContext: { kind: "library" as const },
-            pageId: `page:${index}`,
+          {
+            id,
+            kind: "page_stage" as const,
+            titleSnapshot: `Page ${index}`,
+            config: {
+              accessContext: { kind: "library" as const },
+              pageId: `page:${index}`,
+            },
+            stateKey: 0,
+            state: null,
           },
-          stateKey: 0,
-          state: null,
-        }];
+        ];
       }),
     );
     const root = seed.panels.right.layout.root;
@@ -387,8 +384,7 @@ describe("WorkbenchScene", () => {
       WORKBENCH_SCENE_MAX_PANEL_SURFACES,
     );
     expect(migrated.panelSurfacesById["library-root"]).toBeDefined();
-    expect(flattenWorkbenchPanelTabIds(migrated.panels.right.layout))
-      .toContain("library-root");
+    expect(flattenWorkbenchPanelTabIds(migrated.panels.right.layout)).toContain("library-root");
     expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
   });
 
@@ -448,8 +444,7 @@ describe("WorkbenchScene", () => {
     const migrated = migrateWorkbenchSceneV4ToV5(legacy);
 
     expect(Object.keys(migrated.panelSurfacesById)).toEqual(["library-root"]);
-    expect(flattenWorkbenchPanelTabIds(migrated.panels.right.layout))
-      .toEqual(["library-root"]);
+    expect(flattenWorkbenchPanelTabIds(migrated.panels.right.layout)).toEqual(["library-root"]);
     expect(WorkbenchSceneSnapshotSchema.parse(migrated)).toEqual(migrated);
   });
 
@@ -501,20 +496,26 @@ describe("WorkbenchScene", () => {
     const rootLeafId = initial.panels.right.layout.activeLeafId;
 
     expect(removeWorkbenchSceneSurface(initial, protectedPrimary(initial).id)).toBe(initial);
-    expect(moveWorkbenchSceneSurface(initial, {
-      surfaceId: protectedPrimary(initial).id,
-      targetPanelId: "bottom",
-    })).toBe(initial);
-    expect(splitWorkbenchSceneLeaf(initial, {
-      panelId: "right",
-      leafId: rootLeafId,
-      side: "right",
-      surfaceId: protectedPrimary(initial).id,
-    })).toBe(initial);
-    expect(mergeWorkbenchSceneLeaf(initial, {
-      panelId: "right",
-      leafId: rootLeafId,
-    })).toBe(initial);
+    expect(
+      moveWorkbenchSceneSurface(initial, {
+        surfaceId: protectedPrimary(initial).id,
+        targetPanelId: "bottom",
+      }),
+    ).toBe(initial);
+    expect(
+      splitWorkbenchSceneLeaf(initial, {
+        panelId: "right",
+        leafId: rootLeafId,
+        side: "right",
+        surfaceId: protectedPrimary(initial).id,
+      }),
+    ).toBe(initial);
+    expect(
+      mergeWorkbenchSceneLeaf(initial, {
+        panelId: "right",
+        leafId: rootLeafId,
+      }),
+    ).toBe(initial);
 
     const reordered = reorderWorkbenchSceneSurfaces(initial, {
       panelId: "right",
@@ -599,10 +600,8 @@ describe("WorkbenchScene", () => {
       agentDock: null,
     };
 
-    expect(migrateWorkbenchSceneV2ToV4(legacyProject).composerOverlay)
-      .toEqual({ visible: false });
-    expect(migrateWorkbenchSceneV2ToV4(legacySession).composerOverlay)
-      .toEqual({ visible: true });
+    expect(migrateWorkbenchSceneV2ToV4(legacyProject).composerOverlay).toEqual({ visible: false });
+    expect(migrateWorkbenchSceneV2ToV4(legacySession).composerOverlay).toEqual({ visible: true });
   });
 
   test("migrates v3 resource configs to explicit Project access", () => {
@@ -657,13 +656,16 @@ describe("WorkbenchScene", () => {
   });
 
   test("new-window clone remints presentation and Browser identities", () => {
-    const original = createWorkbenchSceneSurface({
-      ...projectScene(),
-      composerOverlay: { visible: false },
-    }, {
-      panelId: "right",
-      surface: browserSurface(),
-    });
+    const original = createWorkbenchSceneSurface(
+      {
+        ...projectScene(),
+        composerOverlay: { visible: false },
+      },
+      {
+        panelId: "right",
+        surface: browserSurface(),
+      },
+    );
     const clone = cloneWorkbenchSceneLayoutForNewWindow(
       {
         scenesByOwnerKey: {
@@ -676,9 +678,7 @@ describe("WorkbenchScene", () => {
 
     expect(clone.owner).toEqual(original.owner);
     expect(protectedPrimary(clone).id).not.toBe(protectedPrimary(original).id);
-    expect(clone.agentDock?.newDraftId).not.toBe(
-      original.agentDock?.newDraftId,
-    );
+    expect(clone.agentDock?.newDraftId).not.toBe(original.agentDock?.newDraftId);
     expect(clone.composerOverlay).toEqual({ visible: false });
     expect(clonedBrowser?.id).not.toBe("browser-surface");
     expect(clonedBrowser?.kind).toBe("browser");
@@ -721,10 +721,12 @@ describe("WorkbenchScene", () => {
     });
 
     expect(WorkbenchSceneSnapshotSchema.parse(withReview)).toEqual(withReview);
-    expect(withReview.panelSurfacesById["terminal-surface"]?.config)
-      .toMatchObject({ context: { kind: "project", projectId: "project-1" } });
-    expect(withReview.panelSurfacesById["review-surface"]?.config)
-      .toMatchObject({ context: { kind: "project", projectId: "project-1" } });
+    expect(withReview.panelSurfacesById["terminal-surface"]?.config).toMatchObject({
+      context: { kind: "project", projectId: "project-1" },
+    });
+    expect(withReview.panelSurfacesById["review-surface"]?.config).toMatchObject({
+      context: { kind: "project", projectId: "project-1" },
+    });
   });
 
   test("derives stable semantic reuse keys only for singleton resources", () => {
@@ -740,50 +742,58 @@ describe("WorkbenchScene", () => {
     expect(getWorkbenchSurfaceReuseKey(protectedPrimary(databaseScene))).toBe(
       "db:project:project-1:default",
     );
-    expect(getWorkbenchSurfaceReuseKey({
-      id: "library-page",
-      kind: "page_stage",
-      titleSnapshot: "Page",
-      config: {
-        accessContext: { kind: "library" },
-        pageId: "page-1",
-      },
-      stateKey: 0,
-      state: null,
-    })).toBe("page:library:page-1");
-    expect(getWorkbenchSurfaceReuseKey({
-      id: "review-project",
-      kind: "review",
-      titleSnapshot: "Review",
-      config: {
-        projectId: "project-1",
-        context: { kind: "project", projectId: "project-1" },
-      },
-      stateKey: 0,
-      state: null,
-    })).toBe("review:project:project-1");
-    expect(getWorkbenchSurfaceReuseKey({
-      id: "review-session",
-      kind: "review",
-      titleSnapshot: "Review",
-      config: {
-        projectId: "project-1",
-        context: { kind: "session", sessionId: "session-1" },
-      },
-      stateKey: 0,
-      state: null,
-    })).toBe("review:session:session-1");
-    expect(getWorkbenchSurfaceReuseKey({
-      id: "review-projectless-session",
-      kind: "review",
-      titleSnapshot: "Review",
-      config: {
-        projectId: null,
-        context: { kind: "session", sessionId: "session-projectless" },
-      },
-      stateKey: 0,
-      state: null,
-    })).toBe("review:session:session-projectless");
+    expect(
+      getWorkbenchSurfaceReuseKey({
+        id: "library-page",
+        kind: "page_stage",
+        titleSnapshot: "Page",
+        config: {
+          accessContext: { kind: "library" },
+          pageId: "page-1",
+        },
+        stateKey: 0,
+        state: null,
+      }),
+    ).toBe("page:library:page-1");
+    expect(
+      getWorkbenchSurfaceReuseKey({
+        id: "review-project",
+        kind: "review",
+        titleSnapshot: "Review",
+        config: {
+          projectId: "project-1",
+          context: { kind: "project", projectId: "project-1" },
+        },
+        stateKey: 0,
+        state: null,
+      }),
+    ).toBe("review:project:project-1");
+    expect(
+      getWorkbenchSurfaceReuseKey({
+        id: "review-session",
+        kind: "review",
+        titleSnapshot: "Review",
+        config: {
+          projectId: "project-1",
+          context: { kind: "session", sessionId: "session-1" },
+        },
+        stateKey: 0,
+        state: null,
+      }),
+    ).toBe("review:session:session-1");
+    expect(
+      getWorkbenchSurfaceReuseKey({
+        id: "review-projectless-session",
+        kind: "review",
+        titleSnapshot: "Review",
+        config: {
+          projectId: null,
+          context: { kind: "session", sessionId: "session-projectless" },
+        },
+        stateKey: 0,
+        state: null,
+      }),
+    ).toBe("review:session:session-projectless");
     expect(getWorkbenchSurfaceReuseKey(browserSurface())).toBeNull();
   });
 });

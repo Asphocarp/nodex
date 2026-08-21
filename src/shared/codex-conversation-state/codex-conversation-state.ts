@@ -1,8 +1,4 @@
-import type {
-  Personality,
-  RequestId,
-  ServerRequest,
-} from "@nodex/codex-app-server-protocol";
+import type { Personality, RequestId, ServerRequest } from "@nodex/codex-app-server-protocol";
 import type {
   ActivePermissionProfile,
   CodexErrorInfo,
@@ -33,13 +29,15 @@ import type { CodexItemStatus } from "../types";
 
 export type CodexProtocolRequestId = RequestId;
 export type CodexProtocolThreadItem = ThreadItem;
-export type CodexProtocolThreadItemOf<
-  TType extends ThreadItem["type"],
-> = Extract<ThreadItem, { type: TType }>;
+export type CodexProtocolThreadItemOf<TType extends ThreadItem["type"]> = Extract<
+  ThreadItem,
+  { type: TType }
+>;
 export type CodexProtocolServerRequest = ServerRequest;
-export type CodexProtocolServerRequestOf<
-  TMethod extends ServerRequest["method"],
-> = Extract<ServerRequest, { method: TMethod }>;
+export type CodexProtocolServerRequestOf<TMethod extends ServerRequest["method"]> = Extract<
+  ServerRequest,
+  { method: TMethod }
+>;
 
 /** Exact 30751 request extensions not present in the generated app-server union. */
 export interface CodexCanonicalOptionPickerRequest {
@@ -115,17 +113,12 @@ export type CodexCanonicalServerRequestExtension =
  * Generated requests remain intact; exact private methods are isolated in one
  * explicit extension union instead of being cast into the generated protocol.
  */
-export type CodexCanonicalServerRequest =
-  | ServerRequest
-  | CodexCanonicalServerRequestExtension;
+export type CodexCanonicalServerRequest = ServerRequest | CodexCanonicalServerRequestExtension;
 
-export type CodexCanonicalProtocolItem<
-  TItem extends ThreadItem = ThreadItem,
-> = TItem;
+export type CodexCanonicalProtocolItem<TItem extends ThreadItem = ThreadItem> = TItem;
 
-export type CodexCanonicalProtocolRequest<
-  TRequest extends ServerRequest = ServerRequest,
-> = TRequest;
+export type CodexCanonicalProtocolRequest<TRequest extends ServerRequest = ServerRequest> =
+  TRequest;
 
 type RequestedPermissions = PermissionsRequestApprovalParams["permissions"];
 type JsonValue = McpServerElicitationRequestResponse["content"];
@@ -143,9 +136,7 @@ export interface CodexCanonicalUserInputQuestion {
   readonly options: readonly CodexCanonicalUserInputOption[];
 }
 
-export type CodexCanonicalUserInputAnswers = Readonly<
-  Record<string, readonly string[]>
->;
+export type CodexCanonicalUserInputAnswers = Readonly<Record<string, readonly string[]>>;
 
 type CodexCanonicalMcpElicitationMeta = {
   readonly riskLevel?: "low" | "high";
@@ -158,10 +149,7 @@ export interface CodexCanonicalMcpToolParamDisplay {
   readonly value: JsonValue;
 }
 
-type CodexCanonicalMcpPersist =
-  | "session"
-  | "always"
-  | Array<"session" | "always">;
+type CodexCanonicalMcpPersist = "session" | "always" | Array<"session" | "always">;
 
 type CodexCanonicalMcpToolSuggestion = CodexCanonicalJsonObject & {
   readonly codex_approval_kind: "tool_suggestion";
@@ -171,16 +159,16 @@ type CodexCanonicalMcpToolSuggestion = CodexCanonicalJsonObject & {
   readonly tool_name: string;
   readonly persist?: "always";
 } & (
-  | {
-      readonly tool_type: "connector";
-      readonly install_url: string;
-    }
-  | {
-      readonly tool_type: "plugin";
-      readonly install_url?: string;
-      readonly remote_plugin_id?: string;
-    }
-);
+    | {
+        readonly tool_type: "connector";
+        readonly install_url: string;
+      }
+    | {
+        readonly tool_type: "plugin";
+        readonly install_url?: string;
+        readonly remote_plugin_id?: string;
+      }
+  );
 
 type CodexCanonicalMcpToolCallApproval = CodexCanonicalJsonObject & {
   readonly codex_approval_kind: "mcp_tool_call";
@@ -426,10 +414,7 @@ export type CodexCanonicalContextCompactionItem = Extract<
   readonly source?: "automatic" | "manual";
 };
 
-export type CodexCanonicalImageGenerationItem = Extract<
-  ThreadItem,
-  { type: "imageGeneration" }
-> & {
+export type CodexCanonicalImageGenerationItem = Extract<ThreadItem, { type: "imageGeneration" }> & {
   readonly src: string | null;
 };
 
@@ -447,10 +432,7 @@ export type CodexCanonicalCollabAgentToolCallItem = Extract<
 
 /** Generated items that require app-owned display enrichment after ingress. */
 export type CodexCanonicalGeneratedItem =
-  | Exclude<
-      ThreadItem,
-      { type: "imageGeneration" | "collabAgentToolCall" | "contextCompaction" }
-    >
+  | Exclude<ThreadItem, { type: "imageGeneration" | "collabAgentToolCall" | "contextCompaction" }>
   | CodexCanonicalImageGenerationItem
   | CodexCanonicalCollabAgentToolCallItem
   | CodexCanonicalContextCompactionItem;
@@ -506,17 +488,15 @@ type CodexCanonicalRequiredTurnParamKey =
 type CodexCanonicalTurnParamsBase<
   TAttachment = unknown,
   TCommentAttachment = unknown,
-> = TurnStartParams
-  & Required<Pick<TurnStartParams, CodexCanonicalRequiredTurnParamKey>>
-  & {
+> = TurnStartParams &
+  Required<Pick<TurnStartParams, CodexCanonicalRequiredTurnParamKey>> & {
     readonly attachments: readonly TAttachment[];
     readonly commentAttachments?: readonly TCommentAttachment[];
   };
 
 /** Exact `S1` synthetic-turn params intentionally omit attachment sidecars. */
-export type CodexCanonicalSyntheticTurnParams = TurnStartParams
-  & Required<Pick<TurnStartParams, CodexCanonicalRequiredTurnParamKey>>
-  & {
+export type CodexCanonicalSyntheticTurnParams = TurnStartParams &
+  Required<Pick<TurnStartParams, CodexCanonicalRequiredTurnParamKey>> & {
     readonly sandboxPolicy: NonNullable<TurnStartParams["sandboxPolicy"]>;
     readonly permissions?: never;
     readonly runtimeWorkspaceRoots?: never;
@@ -530,9 +510,7 @@ export type CodexCanonicalHydratedProfileTurnParams<
 > = CodexCanonicalTurnParamsBase<TAttachment, TCommentAttachment> & {
   readonly permissions: string;
   readonly sandboxPolicy?: never;
-  readonly runtimeWorkspaceRoots: NonNullable<
-    TurnStartParams["runtimeWorkspaceRoots"]
-  >;
+  readonly runtimeWorkspaceRoots: NonNullable<TurnStartParams["runtimeWorkspaceRoots"]>;
   readonly useAppServerPermissionDefault?: never;
 };
 
@@ -553,9 +531,7 @@ export type CodexCanonicalResumedProfileTurnParams<
 > = CodexCanonicalTurnParamsBase<TAttachment, TCommentAttachment> & {
   readonly permissions: string;
   readonly sandboxPolicy: NonNullable<TurnStartParams["sandboxPolicy"]>;
-  readonly runtimeWorkspaceRoots: NonNullable<
-    TurnStartParams["runtimeWorkspaceRoots"]
-  >;
+  readonly runtimeWorkspaceRoots: NonNullable<TurnStartParams["runtimeWorkspaceRoots"]>;
   readonly useAppServerPermissionDefault?: never;
 };
 
@@ -566,16 +542,11 @@ export type CodexCanonicalLiveTurnParams<
 > = CodexCanonicalTurnParamsBase<TAttachment, TCommentAttachment> & {
   readonly permissions: string | null;
   readonly sandboxPolicy: NonNullable<TurnStartParams["sandboxPolicy"]>;
-  readonly runtimeWorkspaceRoots: NonNullable<
-    TurnStartParams["runtimeWorkspaceRoots"]
-  > | null;
+  readonly runtimeWorkspaceRoots: NonNullable<TurnStartParams["runtimeWorkspaceRoots"]> | null;
   readonly useAppServerPermissionDefault: boolean;
 };
 
-export type CodexCanonicalTurnParams<
-  TAttachment = unknown,
-  TCommentAttachment = unknown,
-> =
+export type CodexCanonicalTurnParams<TAttachment = unknown, TCommentAttachment = unknown> =
   | CodexCanonicalHydratedProfileTurnParams<TAttachment, TCommentAttachment>
   | CodexCanonicalHydratedSandboxTurnParams<TAttachment, TCommentAttachment>
   | CodexCanonicalResumedProfileTurnParams<TAttachment, TCommentAttachment>
@@ -716,23 +687,22 @@ export interface ResolveCodexCanonicalHydratedCwdInput {
 function assertCompleteCodexCanonicalHydrationOptions(
   options: CreateCodexCanonicalHydratedConversationStateOptions,
 ): void {
-  const hasActiveProfile = options.activePermissionProfile === null
-    || (
-      typeof options.activePermissionProfile === "object"
-      && typeof options.activePermissionProfile.id === "string"
-      && options.activePermissionProfile.id.length > 0
-    );
+  const hasActiveProfile =
+    options.activePermissionProfile === null ||
+    (typeof options.activePermissionProfile === "object" &&
+      typeof options.activePermissionProfile.id === "string" &&
+      options.activePermissionProfile.id.length > 0);
   if (
-    typeof options.model !== "string"
-    || typeof options.cwd !== "string"
-    || (options.reasoningEffort !== null && typeof options.reasoningEffort !== "string")
-    || typeof options.approvalPolicy !== "string"
-    || typeof options.approvalsReviewer !== "string"
-    || typeof options.sandboxPolicy !== "object"
-    || options.sandboxPolicy === null
-    || !hasActiveProfile
-    || !Array.isArray(options.runtimeWorkspaceRoots)
-    || options.runtimeWorkspaceRoots.some((root) => typeof root !== "string")
+    typeof options.model !== "string" ||
+    typeof options.cwd !== "string" ||
+    (options.reasoningEffort !== null && typeof options.reasoningEffort !== "string") ||
+    typeof options.approvalPolicy !== "string" ||
+    typeof options.approvalsReviewer !== "string" ||
+    typeof options.sandboxPolicy !== "object" ||
+    options.sandboxPolicy === null ||
+    !hasActiveProfile ||
+    !Array.isArray(options.runtimeWorkspaceRoots) ||
+    options.runtimeWorkspaceRoots.some((root) => typeof root !== "string")
   ) {
     throw new Error("Canonical hydration requires complete response context");
   }
@@ -748,11 +718,7 @@ function protocolSecondsToMilliseconds(value: number | null): number | null {
 
 function normalizeCodexCanonicalCwdForComparison(value: string): string {
   let normalized = value.replaceAll("\\", "/");
-  while (
-    normalized.length > 1
-    && normalized.endsWith("/")
-    && !/^[A-Za-z]:\/$/.test(normalized)
-  ) {
+  while (normalized.length > 1 && normalized.endsWith("/") && !/^[A-Za-z]:\/$/.test(normalized)) {
     normalized = normalized.slice(0, -1);
   }
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//")
@@ -785,9 +751,10 @@ export function resolveCodexCanonicalProjectlessCwd(input: {
 }): string | null {
   if (!input.projectless) return input.cwd ?? input.fallbackCwd;
 
-  const browserFallback = input.workspaceBrowserRoot === null || input.workspaceBrowserRoot === "~"
-    ? input.fallbackCwd
-    : input.workspaceBrowserRoot;
+  const browserFallback =
+    input.workspaceBrowserRoot === null || input.workspaceBrowserRoot === "~"
+      ? input.fallbackCwd
+      : input.workspaceBrowserRoot;
   if (browserFallback === null || browserFallback === "~") {
     return input.cwd === "~" ? null : input.cwd;
   }
@@ -830,17 +797,16 @@ export function resolveCodexCanonicalHydratedPermissionContext(
 ): CodexCanonicalHydratedPermissionContext {
   const previousProfile = input.previous?.activePermissionProfile ?? null;
   if (
-    input.response.activePermissionProfile === null
-    && previousProfile?.id === ":danger-full-access"
+    input.response.activePermissionProfile === null &&
+    previousProfile?.id === ":danger-full-access"
   ) {
     return input.previous ?? input.response;
   }
 
   return {
-    activePermissionProfile: input.response.activePermissionProfile
-      ?? (previousProfile && !previousProfile.id.startsWith(":")
-        ? previousProfile
-        : null),
+    activePermissionProfile:
+      input.response.activePermissionProfile ??
+      (previousProfile && !previousProfile.id.startsWith(":") ? previousProfile : null),
     runtimeWorkspaceRoots: [...input.response.runtimeWorkspaceRoots],
     approvalPolicy: input.response.approvalPolicy,
     approvalsReviewer: input.response.approvalsReviewer,
@@ -860,17 +826,17 @@ function getRequiredTurnParams(
   return params;
 }
 
-export function createCodexCanonicalProtocolItem<
-  TItem extends ThreadItem,
->(item: TItem): TItem {
+export function createCodexCanonicalProtocolItem<TItem extends ThreadItem>(item: TItem): TItem {
   return item;
 }
 
 function isAbsoluteCodexImagePath(value: string): boolean {
-  return (value.startsWith("/") && !value.startsWith("//"))
-    || /^[A-Za-z]:[\\/]/.test(value)
-    || /^\\\\[^\\]+\\[^\\]+/.test(value)
-    || /^\/\/[^/]+\/[^/]+/.test(value);
+  return (
+    (value.startsWith("/") && !value.startsWith("//")) ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    /^\\\\[^\\]+\\[^\\]+/.test(value) ||
+    /^\/\/[^/]+\/[^/]+/.test(value)
+  );
 }
 
 function normalizeCodexImageSource(value: string): string | null {
@@ -892,9 +858,8 @@ export function materializeCodexCanonicalProtocolItem(
   resolveCollabReceiverThread?: (threadId: string) => Thread | null,
 ): CodexCanonicalItem {
   if (item.type === "imageGeneration") {
-    const savedSource = typeof item.savedPath === "string"
-      ? normalizeCodexImageSource(item.savedPath)
-      : null;
+    const savedSource =
+      typeof item.savedPath === "string" ? normalizeCodexImageSource(item.savedPath) : null;
     return {
       ...item,
       src: savedSource ?? normalizeCodexImageSource(item.result),
@@ -922,9 +887,9 @@ export function materializeCodexCanonicalProtocolItem(
   return item;
 }
 
-export function createCodexCanonicalProtocolRequest<
-  TRequest extends ServerRequest,
->(request: TRequest): TRequest {
+export function createCodexCanonicalProtocolRequest<TRequest extends ServerRequest>(
+  request: TRequest,
+): TRequest {
   return request;
 }
 
@@ -932,12 +897,7 @@ export function createCodexCanonicalTurnState(
   turn: Turn,
   params: CodexCanonicalTurnParams,
 ): CodexCanonicalTurnState {
-  const {
-    items,
-    startedAt,
-    completedAt,
-    ...protocol
-  } = turn;
+  const { items, startedAt, completedAt, ...protocol } = turn;
 
   return {
     protocol,
@@ -948,10 +908,7 @@ export function createCodexCanonicalTurnState(
       turnStartedAtMs: protocolSecondsToMilliseconds(startedAt),
       completedAtMs: protocolSecondsToMilliseconds(completedAt),
       finalAssistantStartedAtMs: protocolSecondsToMilliseconds(completedAt),
-      lifecycleStatusByItemId: buildCodexInitialItemLifecycleStatusById(
-        items,
-        protocol.status,
-      ),
+      lifecycleStatusByItemId: buildCodexInitialItemLifecycleStatusById(items, protocol.status),
     },
   };
 }
@@ -962,37 +919,43 @@ function buildCodexInitialItemLifecycleStatusById(
 ): Readonly<Record<string, CodexItemStatus>> {
   const statuses: Record<string, CodexItemStatus> = {};
   for (const item of items) {
-    const status = "status" in item && isCodexItemStatus(item.status)
-      ? item.status
-      : turnStatus === "inProgress" ? null : "completed";
+    const status =
+      "status" in item && isCodexItemStatus(item.status)
+        ? item.status
+        : turnStatus === "inProgress"
+          ? null
+          : "completed";
     if (status !== null) statuses[item.id] = status;
   }
   return statuses;
 }
 
 function isCodexItemStatus(value: unknown): value is CodexItemStatus {
-  return value === "inProgress"
-    || value === "completed"
-    || value === "failed"
-    || value === "declined"
-    || value === "interrupted";
+  return (
+    value === "inProgress" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "declined" ||
+    value === "interrupted"
+  );
 }
 
 function extractCodexHeartbeatTag(text: string, tag: string): string | null {
-  return RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*<\\/${tag}>`, "i")
-    .exec(text)?.[1]?.trim() ?? null;
+  return RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*<\\/${tag}>`, "i").exec(text)?.[1]?.trim() ?? null;
 }
 
 function hasCodexHeartbeatAutomationInput(input: readonly UserInput[]): boolean {
   const text = input
-    .flatMap((entry) => entry.type === "text" ? [entry.text] : [])
+    .flatMap((entry) => (entry.type === "text" ? [entry.text] : []))
     .join("\n")
     .trim();
   if (!text.startsWith("<heartbeat>") || !text.endsWith("</heartbeat>")) {
     return false;
   }
-  return extractCodexHeartbeatTag(text, "current_time_iso") !== null
-    && extractCodexHeartbeatTag(text, "instructions") !== null;
+  return (
+    extractCodexHeartbeatTag(text, "current_time_iso") !== null &&
+    extractCodexHeartbeatTag(text, "instructions") !== null
+  );
 }
 
 function hasCodexHeartbeatDecision(text: string): boolean {
@@ -1002,11 +965,10 @@ function hasCodexHeartbeatDecision(text: string): boolean {
     .replace(/<heartbeat>[\s\S]*?<\/heartbeat>/gi, "")
     .trim();
   if (visibleText === trimmed) return false;
-  const heartbeat = Array.from(
-    trimmed.matchAll(/<heartbeat>[\s\S]*?<\/heartbeat>/gi),
-  ).at(-1)?.[0];
-  return heartbeat !== undefined
-    && /<decision>\s*(?:NOTIFY|DONT_NOTIFY)\s*<\/decision>/i.test(heartbeat);
+  const heartbeat = Array.from(trimmed.matchAll(/<heartbeat>[\s\S]*?<\/heartbeat>/gi)).at(-1)?.[0];
+  return (
+    heartbeat !== undefined && /<decision>\s*(?:NOTIFY|DONT_NOTIFY)\s*<\/decision>/i.test(heartbeat)
+  );
 }
 
 function getCodexHeartbeatUserMessage(
@@ -1032,15 +994,11 @@ function mergeCodexCanonicalHydratedItems(
       if (incoming?.type !== "agentMessage" || incoming.phase !== "final_answer") {
         continue;
       }
-      const existing = existingItems.find((item): item is Extract<
-        ThreadItem,
-        { type: "agentMessage" }
-      > =>
-        item.type === "agentMessage"
-        && (
-          item.id === incoming.id
-          || (item.phase === "final_answer" && item.text === incoming.text)
-        )
+      const existing = existingItems.find(
+        (item): item is Extract<ThreadItem, { type: "agentMessage" }> =>
+          item.type === "agentMessage" &&
+          (item.id === incoming.id ||
+            (item.phase === "final_answer" && item.text === incoming.text)),
       );
       if (!existing) {
         items = [...existingItems, incoming];
@@ -1051,14 +1009,14 @@ function mergeCodexCanonicalHydratedItems(
           id: existing.id,
           memoryCitation: incoming.memoryCitation ?? existing.memoryCitation,
         } satisfies Extract<ThreadItem, { type: "agentMessage" }>;
-        items = existingItems.map((item) => item === existing ? merged : item);
+        items = existingItems.map((item) => (item === existing ? merged : item));
       }
       break;
     }
   }
 
-  const heartbeatUserMessage = getCodexHeartbeatUserMessage(incomingItems)
-    ?? getCodexHeartbeatUserMessage(existingItems);
+  const heartbeatUserMessage =
+    getCodexHeartbeatUserMessage(incomingItems) ?? getCodexHeartbeatUserMessage(existingItems);
   if (heartbeatUserMessage && getCodexHeartbeatUserMessage(items) === null) {
     return [heartbeatUserMessage, ...items];
   }
@@ -1070,8 +1028,8 @@ function mergeCodexCanonicalTurnParams(
   incoming: CodexCanonicalTurnParams,
 ): CodexCanonicalTurnParams {
   if (
-    hasCodexHeartbeatAutomationInput(incoming.input)
-    || !hasCodexHeartbeatAutomationInput(existing.input)
+    hasCodexHeartbeatAutomationInput(incoming.input) ||
+    !hasCodexHeartbeatAutomationInput(existing.input)
   ) {
     return incoming;
   }
@@ -1082,26 +1040,26 @@ function mergeCodexCanonicalTurnParams(
 }
 
 function isCodexCanonicalPlaceholderTurn(turn: CodexCanonicalTurnState): boolean {
-  return turn.protocol.id === null
-    && turn.sidecar.turnStartedAtMs === null
-    && turn.protocol.status === "completed"
-    && turn.protocol.error === null
-    && turn.items.length === 0;
+  return (
+    turn.protocol.id === null &&
+    turn.sidecar.turnStartedAtMs === null &&
+    turn.protocol.status === "completed" &&
+    turn.protocol.error === null &&
+    turn.items.length === 0
+  );
 }
 
-function isCodexCanonicalArchivedHeartbeatTurn(
-  turn: CodexCanonicalTurnState,
-): boolean {
+function isCodexCanonicalArchivedHeartbeatTurn(turn: CodexCanonicalTurnState): boolean {
   if (
-    turn.protocol.status !== "completed"
-    || turn.protocol.error !== null
-    || hasCodexHeartbeatAutomationInput(turn.sidecar.params.input)
-    || getCodexHeartbeatUserMessage(turn.items) !== null
+    turn.protocol.status !== "completed" ||
+    turn.protocol.error !== null ||
+    hasCodexHeartbeatAutomationInput(turn.sidecar.params.input) ||
+    getCodexHeartbeatUserMessage(turn.items) !== null
   ) {
     return false;
   }
-  return turn.items.some((item) =>
-    item.type === "agentMessage" && hasCodexHeartbeatDecision(item.text)
+  return turn.items.some(
+    (item) => item.type === "agentMessage" && hasCodexHeartbeatDecision(item.text),
   );
 }
 
@@ -1119,32 +1077,22 @@ export function mergeCodexCanonicalTurnState(
     items: mergeCodexCanonicalHydratedItems(existing.items, incoming.items),
     sidecar: {
       ...incoming.sidecar,
-      params: mergeCodexCanonicalTurnParams(
-        existing.sidecar.params,
-        incoming.sidecar.params,
-      ),
+      params: mergeCodexCanonicalTurnParams(existing.sidecar.params, incoming.sidecar.params),
       hookRuns: existing.sidecar.hookRuns?.length
         ? existing.sidecar.hookRuns
         : incoming.sidecar.hookRuns,
-      safetyBuffering:
-        incoming.sidecar.safetyBuffering
-        ?? existing.sidecar.safetyBuffering,
+      safetyBuffering: incoming.sidecar.safetyBuffering ?? existing.sidecar.safetyBuffering,
       diff: incoming.sidecar.diff ?? existing.sidecar.diff,
       interruptedCommandExecutionItemIds:
-        incoming.sidecar.interruptedCommandExecutionItemIds
-        ?? existing.sidecar.interruptedCommandExecutionItemIds,
+        incoming.sidecar.interruptedCommandExecutionItemIds ??
+        existing.sidecar.interruptedCommandExecutionItemIds,
       commandExecutionStartedAtMsById:
-        existing.sidecar.commandExecutionStartedAtMsById
-        ?? incoming.sidecar.commandExecutionStartedAtMsById,
-      turnStartedAtMs:
-        existing.sidecar.turnStartedAtMs
-        ?? incoming.sidecar.turnStartedAtMs,
-      completedAtMs:
-        existing.sidecar.completedAtMs
-        ?? incoming.sidecar.completedAtMs,
+        existing.sidecar.commandExecutionStartedAtMsById ??
+        incoming.sidecar.commandExecutionStartedAtMsById,
+      turnStartedAtMs: existing.sidecar.turnStartedAtMs ?? incoming.sidecar.turnStartedAtMs,
+      completedAtMs: existing.sidecar.completedAtMs ?? incoming.sidecar.completedAtMs,
       finalAssistantStartedAtMs:
-        existing.sidecar.finalAssistantStartedAtMs
-        ?? incoming.sidecar.finalAssistantStartedAtMs,
+        existing.sidecar.finalAssistantStartedAtMs ?? incoming.sidecar.finalAssistantStartedAtMs,
       lifecycleStatusByItemId: mergeCodexLifecycleStatusByItemId(
         existing.sidecar.lifecycleStatusByItemId,
         incoming.sidecar.lifecycleStatusByItemId,
@@ -1173,11 +1121,11 @@ export function mergeCodexCanonicalTurnStates(
   incomingTurns: readonly CodexCanonicalTurnState[],
 ): CodexCanonicalTurnState[] {
   const existingIds = new Set(
-    existingTurns.flatMap((turn) => turn.protocol.id === null ? [] : [turn.protocol.id]),
+    existingTurns.flatMap((turn) => (turn.protocol.id === null ? [] : [turn.protocol.id])),
   );
   const incomingById = new Map(
     incomingTurns.flatMap((turn) =>
-      turn.protocol.id === null ? [] : [[turn.protocol.id, turn] as const]
+      turn.protocol.id === null ? [] : [[turn.protocol.id, turn] as const],
     ),
   );
   const merged = existingTurns.flatMap((existing) => {
@@ -1238,25 +1186,26 @@ export function buildCodexCanonicalSyntheticTurnParams(
   previousTurn: CodexCanonicalTurnState | null,
 ): CodexCanonicalSyntheticTurnParams {
   const defaults = createCodexCanonicalWorkspacePermissionContext([]);
-  const latestSettings = state.sidecar.latestThreadSettings
-    ?? state.sidecar.hydrationContext?.latestThreadSettings
-    ?? null;
+  const latestSettings =
+    state.sidecar.latestThreadSettings ??
+    state.sidecar.hydrationContext?.latestThreadSettings ??
+    null;
   return {
     threadId: state.protocol.id,
     input: [],
     cwd: null,
     approvalPolicy:
-      latestSettings?.approvalPolicy
-      ?? previousTurn?.sidecar.params.approvalPolicy
-      ?? defaults.approvalPolicy,
+      latestSettings?.approvalPolicy ??
+      previousTurn?.sidecar.params.approvalPolicy ??
+      defaults.approvalPolicy,
     approvalsReviewer:
-      latestSettings?.approvalsReviewer
-      ?? previousTurn?.sidecar.params.approvalsReviewer
-      ?? defaults.approvalsReviewer,
+      latestSettings?.approvalsReviewer ??
+      previousTurn?.sidecar.params.approvalsReviewer ??
+      defaults.approvalsReviewer,
     sandboxPolicy:
-      latestSettings?.sandboxPolicy
-      ?? previousTurn?.sidecar.params.sandboxPolicy
-      ?? defaults.sandboxPolicy,
+      latestSettings?.sandboxPolicy ??
+      previousTurn?.sidecar.params.sandboxPolicy ??
+      defaults.sandboxPolicy,
     model: null,
     effort: "minimal",
     summary: "none",
@@ -1305,9 +1254,9 @@ export function appendCodexCanonicalInProgressSyntheticItem(
   if (latestTurn?.protocol.status === "inProgress") {
     return {
       ...state,
-      turns: state.turns.map((turn) => turn === latestTurn
-        ? { ...turn, items: [...turn.items, item] }
-        : turn),
+      turns: state.turns.map((turn) =>
+        turn === latestTurn ? { ...turn, items: [...turn.items, item] } : turn,
+      ),
     };
   }
 
@@ -1347,11 +1296,8 @@ export function removeCodexCanonicalLocalSyntheticItem(
     const items = turn.items.filter((item) => item.id !== itemId);
     if (items.length === turn.items.length) return [turn];
     changed = true;
-    if (
-      turn.protocol.id === null
-      && turn.protocol.status === "inProgress"
-      && items.length === 0
-    ) return [];
+    if (turn.protocol.id === null && turn.protocol.status === "inProgress" && items.length === 0)
+      return [];
     return [{ ...turn, items }];
   });
   return changed ? { ...state, turns } : state;
@@ -1366,16 +1312,18 @@ export function appendCodexCanonicalForkedFromConversationItem(
   if (latestTurn) {
     return {
       ...state,
-      turns: state.turns.map((turn) => turn === latestTurn
-        ? {
-            ...turn,
-            items: [...turn.items, item],
-            sidecar: {
-              ...turn.sidecar,
-              hookRuns: turn.sidecar.hookRuns ?? [],
-            },
-          }
-        : turn),
+      turns: state.turns.map((turn) =>
+        turn === latestTurn
+          ? {
+              ...turn,
+              items: [...turn.items, item],
+              sidecar: {
+                ...turn.sidecar,
+                hookRuns: turn.sidecar.hookRuns ?? [],
+              },
+            }
+          : turn,
+      ),
     };
   }
 
@@ -1395,25 +1343,24 @@ export function appendCodexCanonicalWorktreeInitItem(
   if (placement === "latest-turn" && previousTurn) {
     return {
       ...state,
-      turns: state.turns.map((turn) => turn === previousTurn
-        ? {
-            ...turn,
-            items: [...turn.items, item],
-            sidecar: {
-              ...turn.sidecar,
-              hookRuns: turn.sidecar.hookRuns ?? [],
-            },
-          }
-        : turn),
+      turns: state.turns.map((turn) =>
+        turn === previousTurn
+          ? {
+              ...turn,
+              items: [...turn.items, item],
+              sidecar: {
+                ...turn.sidecar,
+                hookRuns: turn.sidecar.hookRuns ?? [],
+              },
+            }
+          : turn,
+      ),
     };
   }
 
   return {
     ...state,
-    turns: [
-      ...state.turns,
-      createCodexCanonicalCompletedSyntheticTurn(state, item, previousTurn),
-    ],
+    turns: [...state.turns, createCodexCanonicalCompletedSyntheticTurn(state, item, previousTurn)],
   };
 }
 
@@ -1445,20 +1392,17 @@ export function mergeCodexCanonicalOlderTurnStates(input: {
   readonly currentTurns: readonly CodexCanonicalTurnState[];
   readonly oldestLoadedTurnId: string | null;
 }): CodexCanonicalTurnState[] {
-  const anchorIndex = input.oldestLoadedTurnId === null
-    ? -1
-    : input.currentTurns.findIndex(
-        (turn) => turn.protocol.id === input.oldestLoadedTurnId,
-      );
-  const staged = anchorIndex === -1
-    ? mergeCodexCanonicalTurnStates(input.olderTurns, input.currentTurns)
-    : mergeCodexCanonicalTurnStates(
-        mergeCodexCanonicalTurnStates(
-          input.currentTurns.slice(0, anchorIndex),
-          input.olderTurns,
-        ),
-        input.currentTurns.slice(anchorIndex),
-      );
+  const anchorIndex =
+    input.oldestLoadedTurnId === null
+      ? -1
+      : input.currentTurns.findIndex((turn) => turn.protocol.id === input.oldestLoadedTurnId);
+  const staged =
+    anchorIndex === -1
+      ? mergeCodexCanonicalTurnStates(input.olderTurns, input.currentTurns)
+      : mergeCodexCanonicalTurnStates(
+          mergeCodexCanonicalTurnStates(input.currentTurns.slice(0, anchorIndex), input.olderTurns),
+          input.currentTurns.slice(anchorIndex),
+        );
   return canonicalizeCodexCanonicalTurnIds(staged);
 }
 
@@ -1508,10 +1452,9 @@ export function createCodexCanonicalConversationState(
 
   return {
     protocol,
-    turns: turns.map((turn) => createCodexCanonicalTurnState(
-      turn,
-      getRequiredTurnParams(turn.id, options.turnParamsById),
-    )),
+    turns: turns.map((turn) =>
+      createCodexCanonicalTurnState(turn, getRequiredTurnParams(turn.id, options.turnParamsById)),
+    ),
     requests: [...(options.pendingRequests ?? [])],
     sidecar: {
       hasUnreadTurn: options.hasUnreadTurn ?? false,
@@ -1531,10 +1474,12 @@ function normalizeCodexHydratedAttachmentPath(value: string): string {
 }
 
 function isAbsoluteCodexHydratedAttachmentPath(value: string): boolean {
-  return (value.startsWith("/") && !value.startsWith("//"))
-    || /^[A-Za-z]:[\\/]/.test(value)
-    || /^\\\\[^\\]+\\[^\\]+/.test(value)
-    || /^\/\/[^/]+\/[^/]+/.test(value);
+  return (
+    (value.startsWith("/") && !value.startsWith("//")) ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    /^\\\\[^\\]+\\[^\\]+/.test(value) ||
+    /^\/\/[^/]+\/[^/]+/.test(value)
+  );
 }
 
 function extractCodexHydratedContext(text: string): string | null {
@@ -1546,10 +1491,7 @@ function extractCodexHydratedContext(text: string): string | null {
     const openIndex = text.indexOf(annotationsOpen, annotationsPrefix.length);
     if (openIndex !== -1) {
       const annotationsClose = `\n${CODEX_RESPONSE_ANNOTATIONS_CLOSE}\n`;
-      const closeIndex = text.indexOf(
-        annotationsClose,
-        openIndex + annotationsOpen.length,
-      );
+      const closeIndex = text.indexOf(annotationsClose, openIndex + annotationsOpen.length);
       if (closeIndex !== -1) {
         contextStart = closeIndex + annotationsClose.length;
       }
@@ -1560,9 +1502,7 @@ function extractCodexHydratedContext(text: string): string | null {
   return requestIndex === -1 ? null : text.slice(contextStart, requestIndex);
 }
 
-function parseCodexHydratedAttachmentLine(
-  value: string,
-): CodexCanonicalHydratedAttachment | null {
+function parseCodexHydratedAttachmentLine(value: string): CodexCanonicalHydratedAttachment | null {
   const heading = value.match(/^##\s+(.+)$/)?.[1];
   if (!heading) return null;
 
@@ -1591,18 +1531,14 @@ function parseCodexHydratedAttachmentLine(
 export function extractCodexCanonicalHydratedAttachments(
   input: readonly UserInput[],
 ): CodexCanonicalHydratedAttachment[] {
-  const text = input
-    .flatMap((entry) => entry.type === "text" ? [entry.text] : [])
-    .join("\n");
+  const text = input.flatMap((entry) => (entry.type === "text" ? [entry.text] : [])).join("\n");
   const context = extractCodexHydratedContext(text);
   if (context === null) return [];
   const filesIndex = context.indexOf(CODEX_FILES_MENTIONED_HEADING);
   if (filesIndex === -1) return [];
 
   const attachments: CodexCanonicalHydratedAttachment[] = [];
-  const lines = context
-    .slice(filesIndex + CODEX_FILES_MENTIONED_HEADING.length)
-    .split("\n");
+  const lines = context.slice(filesIndex + CODEX_FILES_MENTIONED_HEADING.length).split("\n");
   for (const line of lines) {
     const candidate = line.trimStart();
     if (!candidate) continue;
@@ -1653,15 +1589,15 @@ export function createCodexCanonicalHydratedConversationState(
 
     const params: CodexCanonicalTurnParams<CodexCanonicalHydratedAttachment> =
       options.activePermissionProfile === null
-      ? {
-          ...common,
-          sandboxPolicy: options.sandboxPolicy,
-        }
-      : {
-          ...common,
-          permissions: options.activePermissionProfile.id,
-          runtimeWorkspaceRoots: [...options.runtimeWorkspaceRoots],
-        };
+        ? {
+            ...common,
+            sandboxPolicy: options.sandboxPolicy,
+          }
+        : {
+            ...common,
+            permissions: options.activePermissionProfile.id,
+            runtimeWorkspaceRoots: [...options.runtimeWorkspaceRoots],
+          };
     return createCodexCanonicalTurnState(turn, params);
   });
 
@@ -1692,8 +1628,6 @@ export function buildCodexCanonicalRequestIdentityKey(id: RequestId): string {
   return `${typeof id}:${id}`;
 }
 
-export function isCodexCanonicalProtocolItem(
-  item: unknown,
-): item is CodexCanonicalGeneratedItem {
+export function isCodexCanonicalProtocolItem(item: unknown): item is CodexCanonicalGeneratedItem {
   return isCodexProtocolThreadItem(item);
 }

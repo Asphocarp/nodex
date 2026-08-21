@@ -46,10 +46,7 @@ export const startDocumentRevisionMaintenanceScheduler = (
     options.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS,
     "initialDelayMs",
   );
-  const intervalMs = requireDelay(
-    options.intervalMs ?? DEFAULT_INTERVAL_MS,
-    "intervalMs",
-  );
+  const intervalMs = requireDelay(options.intervalMs ?? DEFAULT_INTERVAL_MS, "intervalMs");
   const now = options.now ?? (() => new Date().toISOString());
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -92,4 +89,3 @@ export const startDocumentRevisionMaintenanceScheduler = (
     },
   };
 };
-

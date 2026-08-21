@@ -5,7 +5,7 @@ on:
     inputs:
       changed_paths_json:
         description: JSON array of changed paths used for affected crate closure.
-        default: '[]'
+        default: "[]"
         required: false
         type: string
       full_workspace:

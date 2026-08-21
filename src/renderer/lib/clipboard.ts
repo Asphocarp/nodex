@@ -12,9 +12,8 @@ export async function writeTextToClipboard(text: string): Promise<boolean> {
     return false;
   }
 
-  const activeElement = document.activeElement instanceof HTMLElement
-    ? document.activeElement
-    : null;
+  const activeElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const textArea = document.createElement("textarea");
   textArea.value = text;
   textArea.setAttribute("readonly", "");

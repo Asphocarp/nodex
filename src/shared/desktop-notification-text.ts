@@ -5,7 +5,7 @@ const HTML_ENTITY_REPLACEMENTS: Readonly<Record<string, string>> = {
   gt: ">",
   lt: "<",
   nbsp: " ",
-  quot: "\"",
+  quot: '"',
 };
 
 function decodeHtmlEntities(value: string): string {
@@ -56,16 +56,16 @@ export function toDesktopNotificationPlainText(
   maxLength = DEFAULT_NOTIFICATION_TEXT_LIMIT,
 ): string {
   if (typeof value !== "string" || maxLength <= 0) return "";
-  const withoutExecutableBlocks = value.replace(
-    /<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
-    " ",
-  );
-  const plainText = decodeHtmlEntities(stripMarkdownDecoration(stripHtmlTags(
-    withoutExecutableBlocks.replace(/<br\s*\/?\s*>/gi, " "),
-  )))
+  const withoutExecutableBlocks = value.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ");
+  const plainText = decodeHtmlEntities(
+    stripMarkdownDecoration(stripHtmlTags(withoutExecutableBlocks.replace(/<br\s*\/?\s*>/gi, " "))),
+  )
     .replace(/\s+/g, " ")
     .trim();
   const codePoints = Array.from(plainText);
   if (codePoints.length <= maxLength) return plainText;
-  return `${codePoints.slice(0, Math.max(0, maxLength - 1)).join("").trimEnd()}…`;
+  return `${codePoints
+    .slice(0, Math.max(0, maxLength - 1))
+    .join("")
+    .trimEnd()}…`;
 }

@@ -1,9 +1,11 @@
 import { useMemo } from "react";
-import type { Project, ProjectCreateInput, ProjectLifecycleMutationResult, ProjectUpdateInput } from "../../lib/types";
-import {
-  CodexProjectRow,
-  CodexSidebarSection,
-} from "./codex-sidebar";
+import type {
+  Project,
+  ProjectCreateInput,
+  ProjectLifecycleMutationResult,
+  ProjectUpdateInput,
+} from "../../lib/types";
+import { CodexProjectRow, CodexSidebarSection } from "./codex-sidebar";
 import { SidebarProjectsSectionActions } from "./sidebar-projects-section-actions";
 
 interface SidebarProjectsSectionProps {
@@ -62,12 +64,12 @@ export function SidebarProjectsSection({
       heading="Projects"
       collapsed={!expanded}
       onToggle={onToggleExpanded}
-      actions={(
+      actions={
         <SidebarProjectsSectionActions
           onCreateProject={onCreateProject}
           openCreateDialogTick={projectPickerOpenTick}
         />
-      )}
+      }
     >
       <div className="isolate flex flex-col [contain:layout]">
         <div className="flex flex-col" role="list" aria-label="Projects">

@@ -25,10 +25,7 @@ const defaultRank: ReferenceSurfaceActivationRank = {
   documentOrder: Number.POSITIVE_INFINITY,
 };
 
-const sameStringSet = (
-  left: ReadonlySet<string>,
-  right: ReadonlySet<string>,
-): boolean => {
+const sameStringSet = (left: ReadonlySet<string>, right: ReadonlySet<string>): boolean => {
   if (left.size !== right.size) return false;
   for (const value of left) {
     if (!right.has(value)) return false;
@@ -52,9 +49,7 @@ export class ReferenceSurfaceActivationBudget {
 
   constructor(capacity: number) {
     if (!Number.isSafeInteger(capacity) || capacity < 1) {
-      throw new TypeError(
-        "Reference surface capacity must be a positive integer",
-      );
+      throw new TypeError("Reference surface capacity must be a positive integer");
     }
     this.capacity = capacity;
   }
@@ -94,11 +89,12 @@ export class ReferenceSurfaceActivationBudget {
     }
 
     if (
-      current.priority === priority
-      && current.rank.visibility === rank.visibility
-      && current.rank.viewportCenterDistance === rank.viewportCenterDistance
-      && current.rank.documentOrder === rank.documentOrder
-    ) return;
+      current.priority === priority &&
+      current.rank.visibility === rank.visibility &&
+      current.rank.viewportCenterDistance === rank.viewportCenterDistance &&
+      current.rank.documentOrder === rank.documentOrder
+    )
+      return;
     this.eligibleByKey.set(key, { ...current, priority, rank });
     this.recomputeActiveKeys();
   };
@@ -116,8 +112,7 @@ export class ReferenceSurfaceActivationBudget {
   };
 
   clear = (): void => {
-    if (this.eligibleByKey.size === 0 && this.activeKeys.size === 0)
-      return;
+    if (this.eligibleByKey.size === 0 && this.activeKeys.size === 0) return;
     this.eligibleByKey.clear();
     this.activeKeys = new Set();
     this.emit();
@@ -126,17 +121,14 @@ export class ReferenceSurfaceActivationBudget {
   private recomputeActiveKeys(): void {
     const ordered = [...this.eligibleByKey.entries()].sort(
       (left, right) =>
-        right[1].priority - left[1].priority
-        || Number(right[1].rank.visibility === "visible")
-          - Number(left[1].rank.visibility === "visible")
-        || left[1].rank.viewportCenterDistance
-          - right[1].rank.viewportCenterDistance
-        || left[1].rank.documentOrder - right[1].rank.documentOrder
-        || right[1].sequence - left[1].sequence,
+        right[1].priority - left[1].priority ||
+        Number(right[1].rank.visibility === "visible") -
+          Number(left[1].rank.visibility === "visible") ||
+        left[1].rank.viewportCenterDistance - right[1].rank.viewportCenterDistance ||
+        left[1].rank.documentOrder - right[1].rank.documentOrder ||
+        right[1].sequence - left[1].sequence,
     );
-    const nextActiveKeys = new Set(
-      ordered.slice(0, this.capacity).map(([key]) => key),
-    );
+    const nextActiveKeys = new Set(ordered.slice(0, this.capacity).map(([key]) => key));
     if (sameStringSet(this.activeKeys, nextActiveKeys)) {
       this.activeKeys = nextActiveKeys;
       return;
@@ -150,8 +142,7 @@ export class ReferenceSurfaceActivationBudget {
   }
 }
 
-export const referenceSurfaceActivationBudget =
-  new ReferenceSurfaceActivationBudget(3);
+export const referenceSurfaceActivationBudget = new ReferenceSurfaceActivationBudget(3);
 
 export const useReferenceSurfaceActivation = (
   key: string,

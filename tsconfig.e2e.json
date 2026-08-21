@@ -18,9 +18,5 @@
       "@/*": ["./src/renderer/*"]
     }
   },
-  "include": [
-    "tests/e2e/**/*.ts",
-    "tests/e2e/**/*.tsx",
-    "src/renderer/**/*.d.ts"
-  ]
+  "include": ["tests/e2e/**/*.ts", "tests/e2e/**/*.tsx", "src/renderer/**/*.d.ts"]
 }

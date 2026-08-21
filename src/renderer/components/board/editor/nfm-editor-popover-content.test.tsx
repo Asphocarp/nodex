@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
-import {
-  NodexPopover,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverTrigger } from "@/components/ui/popover";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 

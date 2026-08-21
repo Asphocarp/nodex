@@ -63,9 +63,7 @@ function listFiles(rootPath: string, currentPath = rootPath): string[] {
   return files.sort((left, right) => left.localeCompare(right));
 }
 
-export function readBrowserRuntimeSourceManifest(
-  sourceRoot: string,
-): BrowserRuntimeManifest {
+export function readBrowserRuntimeSourceManifest(sourceRoot: string): BrowserRuntimeManifest {
   const manifestPath = path.join(sourceRoot, BROWSER_RUNTIME_MANIFEST_FILENAME);
   let rawManifest: unknown;
   try {
@@ -97,10 +95,12 @@ export function assertBrowserRuntimeSourceClosure(
     const artifactPath = path.join(sourceRoot, ...artifact.path.split("/"));
     const stats = fs.lstatSync(artifactPath);
     if (
-      stats.size !== artifact.size
-      || readBrowserRuntimeFileSha256(artifactPath) !== artifact.sha256
+      stats.size !== artifact.size ||
+      readBrowserRuntimeFileSha256(artifactPath) !== artifact.sha256
     ) {
-      throw new Error(`Browser runtime source artifact does not match its manifest: ${artifact.path}`);
+      throw new Error(
+        `Browser runtime source artifact does not match its manifest: ${artifact.path}`,
+      );
     }
     if (artifact.executable && (stats.mode & 0o111) === 0) {
       throw new Error(`Browser runtime source artifact is not executable: ${artifact.path}`);
@@ -121,9 +121,7 @@ function normalizeBrowserRuntimeManifest(
   try {
     stats = fs.lstatSync(canonicalDirectory);
   } catch {
-    throw new Error(
-      `Legacy Browser runtime manifest requires ${BROWSER_PLUGIN_NODE_MODULE_DIR}`,
-    );
+    throw new Error(`Legacy Browser runtime manifest requires ${BROWSER_PLUGIN_NODE_MODULE_DIR}`);
   }
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error(
@@ -131,13 +129,15 @@ function normalizeBrowserRuntimeManifest(
     );
   }
 
-  const nodeModuleDirs = [...new Set(
-    manifest.browserPlugin.nodeModuleDirs.map((directory) => (
-      directory === LEGACY_BROWSER_PLUGIN_NODE_MODULE_DIR
-        ? BROWSER_PLUGIN_NODE_MODULE_DIR
-        : directory
-    )),
-  )];
+  const nodeModuleDirs = [
+    ...new Set(
+      manifest.browserPlugin.nodeModuleDirs.map((directory) =>
+        directory === LEGACY_BROWSER_PLUGIN_NODE_MODULE_DIR
+          ? BROWSER_PLUGIN_NODE_MODULE_DIR
+          : directory,
+      ),
+    ),
+  ];
   return {
     ...manifest,
     browserPlugin: {
@@ -147,9 +147,7 @@ function normalizeBrowserRuntimeManifest(
   };
 }
 
-export function stageBrowserRuntime(
-  options: StageBrowserRuntimeOptions,
-): BrowserRuntimeManifest {
+export function stageBrowserRuntime(options: StageBrowserRuntimeOptions): BrowserRuntimeManifest {
   const sourceRoot = path.resolve(options.sourceRoot);
   const runtimeRoot = path.resolve(options.runtimeRoot);
   const sourceStats = fs.lstatSync(sourceRoot);
@@ -162,9 +160,9 @@ export function stageBrowserRuntime(
     !isBrowserRuntimeCompatibleWithCodex(
       sourceManifest,
       options.expectedCodexCompatibilityVersion,
-    )
-    || sourceManifest.targetArch !== options.targetArch
-    || sourceManifest.targetPlatform !== options.targetPlatform
+    ) ||
+    sourceManifest.targetArch !== options.targetArch ||
+    sourceManifest.targetPlatform !== options.targetPlatform
   ) {
     throw new Error("Browser runtime source manifest does not match the active Agent runtime");
   }
@@ -238,10 +236,7 @@ export function stageBrowserRuntime(
       throw new Error(`Staged Browser runtime failed verification: ${verification.message}`);
     }
 
-    replaceOwnedDirectory(
-      stagedRoot,
-      path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY),
-    );
+    replaceOwnedDirectory(stagedRoot, path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY));
     return manifest;
   } finally {
     fs.rmSync(temporaryParent, { force: true, recursive: true });
@@ -266,16 +261,16 @@ function parseCliOptions(argv: string[]): StageBrowserRuntimeOptions {
   const targetArch = values.get("--target-arch");
   const targetPlatform = values.get("--target-platform");
   if (
-    !sourceRoot
-    || !runtimeRoot
-    || !expectedCodexCompatibilityVersion
-    || (targetArch !== "arm64" && targetArch !== "x64")
-    || (targetPlatform !== "darwin" && targetPlatform !== "linux" && targetPlatform !== "win32")
+    !sourceRoot ||
+    !runtimeRoot ||
+    !expectedCodexCompatibilityVersion ||
+    (targetArch !== "arm64" && targetArch !== "x64") ||
+    (targetPlatform !== "darwin" && targetPlatform !== "linux" && targetPlatform !== "win32")
   ) {
     throw new Error(
-      "Usage: stage-browser-runtime.ts --source <dir> --runtime-root <dir> "
-      + "--codex-compatibility-version <version> --target-platform <platform> "
-      + "--target-arch <arm64|x64>",
+      "Usage: stage-browser-runtime.ts --source <dir> --runtime-root <dir> " +
+        "--codex-compatibility-version <version> --target-platform <platform> " +
+        "--target-arch <arm64|x64>",
     );
   }
   return {
@@ -290,15 +285,17 @@ function parseCliOptions(argv: string[]): StageBrowserRuntimeOptions {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const manifest = stageBrowserRuntime(parseCliOptions(process.argv.slice(2)));
-    process.stdout.write(`${JSON.stringify({
-      artifacts: manifest.artifacts.length,
-      desktopBuild: manifest.desktopBuild,
-      pluginVersion: manifest.browserPlugin.version,
-      targetArch: manifest.targetArch,
-      targetPlatform: manifest.targetPlatform,
-    })}\n`);
+    process.stdout.write(
+      `${JSON.stringify({
+        artifacts: manifest.artifacts.length,
+        desktopBuild: manifest.desktopBuild,
+        pluginVersion: manifest.browserPlugin.version,
+        targetArch: manifest.targetArch,
+        targetPlatform: manifest.targetPlatform,
+      })}\n`,
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   }

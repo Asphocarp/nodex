@@ -14,8 +14,10 @@ const approvalRequest: CodexApprovalRequest = {
   threadId: "thread_1",
   turnId: "turn_1",
   itemId: "item_1",
-  approvalReason: "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
-  reason: "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
+  approvalReason:
+    "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
+  reason:
+    "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
   command: "git add docs/FRONTEND.md && git status --short",
   cwd: "/workspace/nodex",
   cmd: ["git", "add"],
@@ -29,19 +31,27 @@ describe("CodexApprovalRequestCard", () => {
       <TooltipProvider>
         <CodexApprovalRequestCard
           request={approvalRequest}
-          onRespond={async () => { }}
-          onSubmitLocalFollowup={async () => { }}
+          onRespond={async () => {}}
+          onSubmitLocalFollowup={async () => {}}
         />
       </TooltipProvider>,
     );
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes("Do you want to let me restage the thread Storybook files and verify the index state before committing?"))).toBe(true);
+    expect(
+      Boolean(
+        rendered.includes(
+          "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
+        ),
+      ),
+    ).toBe(true);
     expect(Boolean(rendered.includes("git add docs/FRONTEND.md && git status --short"))).toBe(true);
     expect(Boolean(rendered.includes("in /workspace/nodex"))).toBe(false);
     expect(Boolean(rendered.includes("Yes"))).toBe(true);
-    expect(Boolean(rendered.includes("Yes, and don't ask again for commands that start with"))).toBe(true);
+    expect(
+      Boolean(rendered.includes("Yes, and don't ask again for commands that start with")),
+    ).toBe(true);
     expect(Boolean(rendered.includes("No, and tell Nodex what to do differently"))).toBe(true);
     expect(Boolean(rendered.includes("Skip"))).toBe(true);
     expect(Boolean(rendered.includes("Submit"))).toBe(true);
@@ -66,8 +76,8 @@ describe("CodexApprovalRequestCard", () => {
       <TooltipProvider>
         <CodexApprovalRequestCard
           request={actionRequest}
-          onRespond={async () => { }}
-          onSubmitLocalFollowup={async () => { }}
+          onRespond={async () => {}}
+          onSubmitLocalFollowup={async () => {}}
         />
       </TooltipProvider>,
     );
@@ -94,8 +104,8 @@ describe("CodexApprovalRequestCard", () => {
       <TooltipProvider>
         <CodexApprovalRequestCard
           request={amendmentRequest}
-          onRespond={async () => { }}
-          onSubmitLocalFollowup={async () => { }}
+          onRespond={async () => {}}
+          onSubmitLocalFollowup={async () => {}}
         />
       </TooltipProvider>,
     );
@@ -124,16 +134,20 @@ describe("CodexApprovalRequestCard", () => {
       <TooltipProvider>
         <CodexApprovalRequestCard
           request={networkRequest}
-          onRespond={async () => { }}
-          onSubmitLocalFollowup={async () => { }}
+          onRespond={async () => {}}
+          onSubmitLocalFollowup={async () => {}}
         />
       </TooltipProvider>,
     );
     await settleAsyncRender();
 
     const rendered = textContent(container);
-    expect(Boolean(rendered.includes('Do you want to approve network access to "api.example.com"?'))).toBe(true);
-    expect(Boolean(rendered.includes("Reason: api.example.com isn't on the current network allowlist"))).toBe(true);
+    expect(
+      Boolean(rendered.includes('Do you want to approve network access to "api.example.com"?')),
+    ).toBe(true);
+    expect(
+      Boolean(rendered.includes("Reason: api.example.com isn't on the current network allowlist")),
+    ).toBe(true);
     expect(Boolean(rendered.includes("Yes, and allow this host in the future"))).toBe(true);
     expect(Boolean(rendered.includes("git add docs/FRONTEND.md"))).toBe(false);
   });
@@ -151,8 +165,8 @@ describe("CodexApprovalRequestCard", () => {
           request={backgroundApprovalRequest}
           actorName="Worker 1"
           approvalQuestionActor={<span className="font-medium">Worker 1</span>}
-          onRespond={async () => { }}
-          onSubmitLocalFollowup={async () => { }}
+          onRespond={async () => {}}
+          onSubmitLocalFollowup={async () => {}}
         />
       </TooltipProvider>,
     );
@@ -182,7 +196,7 @@ describe("CodexApprovalRequestCard", () => {
                 : JSON.stringify(response.decision),
             );
           }}
-          onSubmitLocalFollowup={async () => { }}
+          onSubmitLocalFollowup={async () => {}}
         />
       </TooltipProvider>,
     );
@@ -257,8 +271,8 @@ describe("CodexApprovalRequestCard", () => {
         <CodexApprovalRequestCard
           request={fileRequest}
           requestItem={requestItem}
-          onRespond={async () => { }}
-          onSubmitLocalFollowup={async () => { }}
+          onRespond={async () => {}}
+          onSubmitLocalFollowup={async () => {}}
         />
       </TooltipProvider>,
     );

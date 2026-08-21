@@ -22,9 +22,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           title="Inputs"
           subtitle="Thin Codex-style form inputs without the old shadcn shadow/ring contract."
         >
-          <NodexSettingsSection title="Examples">
-            {children}
-          </NodexSettingsSection>
+          <NodexSettingsSection title="Examples">{children}</NodexSettingsSection>
         </NodexSettingsPageSurface>
       </div>
     </div>
@@ -46,7 +44,10 @@ export const Default: Story = {
 export const Disabled: Story = {
   render: () => (
     <SettingsShell>
-      <NodexSettingsRow label="Install path" description="Disabled inputs should keep the same base shell.">
+      <NodexSettingsRow
+        label="Install path"
+        description="Disabled inputs should keep the same base shell."
+      >
         <div className="w-80">
           <Input value="/Users/asc/repo/nodex" disabled readOnly />
         </div>
@@ -58,7 +59,10 @@ export const Disabled: Story = {
 export const Numeric: Story = {
   render: () => (
     <SettingsShell>
-      <NodexSettingsRow label="Interval" description="Number inputs only override alignment and width.">
+      <NodexSettingsRow
+        label="Interval"
+        description="Number inputs only override alignment and width."
+      >
         <div className="flex items-center gap-2">
           <Input type="number" defaultValue="24" className="w-16 text-right" />
           <span className="text-sm text-token-text-secondary">hours</span>

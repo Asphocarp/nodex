@@ -1,9 +1,6 @@
 import { FileIcon, FolderIcon, PageIcon } from "@/components/shared/icons";
 import type { ReactNode } from "react";
-import {
-  Bot,
-  Link2,
-} from "@/components/shared/icons/generic-icons";
+import { Bot, Link2 } from "@/components/shared/icons/generic-icons";
 import { Streamdown } from "streamdown";
 import {
   InlineMarkdownCode,
@@ -44,11 +41,7 @@ interface NfmRendererProps {
 }
 
 /** Read-only renderer for Notion-flavored Markdown. */
-export function NfmRenderer({
-  content,
-  className,
-  projectWorkspacePath,
-}: NfmRendererProps) {
+export function NfmRenderer({ content, className, projectWorkspacePath }: NfmRendererProps) {
   if (!content.trim()) return null;
   const blocks = parseNfm(content);
   return (
@@ -72,11 +65,7 @@ function BlockList({
 
     if (block.type !== "numberedListItem") {
       children.push(
-        <BlockComponent
-          key={index}
-          block={block}
-          projectWorkspacePath={projectWorkspacePath}
-        />,
+        <BlockComponent key={index} block={block} projectWorkspacePath={projectWorkspacePath} />,
       );
       continue;
     }
@@ -116,11 +105,7 @@ function BlockList({
     });
   }
 
-  return (
-    <>
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }
 
 function BlockComponent({
@@ -153,7 +138,13 @@ function BlockComponent({
       if (block.isToggleable) {
         return (
           <details className={cn("nfm-toggle my-1", colorClass)} open={block.isOpen || undefined}>
-            <summary className={cn("nfm-toggle-summary", sizes[block.level], INLINE_MARKDOWN_HEADING_CLASS_NAME)}>
+            <summary
+              className={cn(
+                "nfm-toggle-summary",
+                sizes[block.level],
+                INLINE_MARKDOWN_HEADING_CLASS_NAME,
+              )}
+            >
               <ToggleCaretIcon hasChildren={block.children.length > 0} />
               <span className="min-w-0">
                 <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
@@ -202,7 +193,13 @@ function BlockComponent({
           >
             {block.checked && (
               <svg viewBox="0 0 14 14" fill="none" className="h-full w-full text-white">
-                <path d="M3 7.5L5.5 10L11 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M3 7.5L5.5 10L11 4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             )}
           </span>
@@ -245,11 +242,7 @@ function BlockComponent({
 
     case "codeBlock":
       return (
-        <HighlightedCodeBlock
-          code={block.code}
-          language={block.language}
-          className={colorClass}
-        />
+        <HighlightedCodeBlock code={block.code} language={block.language} className={colorClass} />
       );
 
     case "table":
@@ -269,9 +262,7 @@ function BlockComponent({
             colorClass,
           )}
         >
-          {block.icon && (
-            <span className="text-[1.2em] select-none">{block.icon}</span>
-          )}
+          {block.icon && <span className="text-[1.2em] select-none">{block.icon}</span>}
           <div className="min-w-0 flex-1">
             <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
             <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
@@ -282,9 +273,10 @@ function BlockComponent({
     case "image": {
       const sourceUrl = resolveAssetSourceToDisplayUrl(block.source);
       const alt = inlineText(block.caption) || "Image";
-      const widthStyle = block.previewWidth !== undefined
-        ? { width: `${block.previewWidth}px`, maxWidth: "100%" }
-        : undefined;
+      const widthStyle =
+        block.previewWidth !== undefined
+          ? { width: `${block.previewWidth}px`, maxWidth: "100%" }
+          : undefined;
 
       return (
         <figure className={cn("my-3", colorClass)}>
@@ -307,7 +299,10 @@ function BlockComponent({
 
     case "toggleListInlineView":
       return (
-        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Inline toggle-list view (${block.sourceProjectId})`}>
+        <div
+          className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)"
+          title={`Inline toggle-list view (${block.sourceProjectId})`}
+        >
           <span aria-hidden="true">∞</span>
           <span className="whitespace-nowrap">
             Toggle List Inline View · {block.sourceProjectId}
@@ -317,7 +312,10 @@ function BlockComponent({
 
     case "cardRef":
       return (
-        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Legacy Page projection (${block.sourceProjectId}/${block.pageId})`}>
+        <div
+          className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)"
+          title={`Legacy Page projection (${block.sourceProjectId}/${block.pageId})`}
+        >
           <span aria-hidden="true">↗</span>
           <span className="whitespace-nowrap">
             Legacy Page Projection · {block.sourceProjectId}/{block.pageId || "unlinked"}
@@ -330,11 +328,12 @@ function BlockComponent({
         pageId: block.targetBlockId,
       });
       return (
-        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Page mention (${mentionUrl})`}>
+        <div
+          className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)"
+          title={`Page mention (${mentionUrl})`}
+        >
           <span aria-hidden="true">↗</span>
-          <span className="whitespace-nowrap">
-            Page Mention · {mentionUrl}
-          </span>
+          <span className="whitespace-nowrap">Page Mention · {mentionUrl}</span>
         </div>
       );
     }
@@ -343,9 +342,7 @@ function BlockComponent({
       return (
         <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
           <span aria-hidden="true">▣</span>
-          <span className="whitespace-nowrap">
-            Page · {block.uuid || "Unidentified"}
-          </span>
+          <span className="whitespace-nowrap">Page · {block.uuid || "Unidentified"}</span>
         </div>
       );
 
@@ -410,9 +407,10 @@ function NfmTableBlock({
           {table.rows.map((row, rowIndex) => (
             <tr key={rowIndex}>
               {row.cells.map((cell, columnIndex) => {
-                const Tag = table.headerRow && rowIndex === 0 || table.headerColumn && columnIndex === 0
-                  ? "th"
-                  : "td";
+                const Tag =
+                  (table.headerRow && rowIndex === 0) || (table.headerColumn && columnIndex === 0)
+                    ? "th"
+                    : "td";
                 const column = table.columns[columnIndex];
                 const color = cell.color ?? row.color ?? column?.color;
                 const style = {
@@ -424,17 +422,15 @@ function NfmTableBlock({
                     key={columnIndex}
                     className={cn(
                       "min-w-[120px] max-w-[240px] border border-token-border px-[9px] py-[7px] text-left align-top font-normal",
-                      (table.headerRow && rowIndex === 0) || (table.headerColumn && columnIndex === 0)
+                      (table.headerRow && rowIndex === 0) ||
+                        (table.headerColumn && columnIndex === 0)
                         ? "bg-token-foreground/5"
                         : "",
                       color ? nfmColorClass(color) : "",
                     )}
                     style={style}
                   >
-                    <InlineList
-                      items={cell.content}
-                      projectWorkspacePath={projectWorkspacePath}
-                    />
+                    <InlineList items={cell.content} projectWorkspacePath={projectWorkspacePath} />
                   </Tag>
                 );
               })}
@@ -460,11 +456,7 @@ function HighlightedCodeBlock({
 
   return (
     <div className={cn("nfm-code-block my-2 text-sm", className)}>
-      <Streamdown
-        plugins={{ code: streamdownCodePlugin }}
-        controls={false}
-        lineNumbers={false}
-      >
+      <Streamdown plugins={{ code: streamdownCodePlugin }} controls={false} lineNumbers={false}>
         {fencedCode}
       </Streamdown>
     </div>
@@ -496,11 +488,7 @@ function InlineList({
   return (
     <>
       {items.map((item, i) => (
-        <InlineItem
-          key={i}
-          item={item}
-          projectWorkspacePath={projectWorkspacePath}
-        />
+        <InlineItem key={i} item={item} projectWorkspacePath={projectWorkspacePath} />
       ))}
     </>
   );
@@ -528,19 +516,21 @@ function InlineItem({
   }
 
   if (item.type === "attachment") {
-    const Icon = item.mode === "link"
-      ? Link2
-      : item.kind === "folder"
-        ? FolderIcon
-        : item.kind === "file"
-          ? FileIcon
-          : PageIcon;
-    const label = item.name.trim() || (item.kind === "text" ? "Pasted text" : "Untitled attachment");
+    const Icon =
+      item.mode === "link"
+        ? Link2
+        : item.kind === "folder"
+          ? FolderIcon
+          : item.kind === "file"
+            ? FileIcon
+            : PageIcon;
+    const label =
+      item.name.trim() || (item.kind === "text" ? "Pasted text" : "Untitled attachment");
 
     return (
       <span
         className="inline-flex max-w-[18rem] items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 align-middle text-[12px] leading-5 text-[color-mix(in_srgb,var(--foreground)_84%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_10%,transparent)]"
-        title={item.mode === "link" ? item.source : (item.origin || item.source)}
+        title={item.mode === "link" ? item.source : item.origin || item.source}
       >
         <Icon className="size-3 shrink-0" />
         <span className="truncate">{label}</span>
@@ -553,17 +543,21 @@ function InlineItem({
     const label = invalid
       ? "Invalid config"
       : item.mode === "plan"
-      ? "Plan mode"
-      : item.mode === "default"
-        ? "Default mode"
-        : "Agent config";
+        ? "Plan mode"
+        : item.mode === "default"
+          ? "Default mode"
+          : "Agent config";
     const modelLabel = item.model ? formatCodexModelLabel(item.model, []) : "";
     const detail = [modelLabel, item.reasoning].filter(Boolean).join(" · ");
     return (
-      <span className={cn(
-        "inline-flex max-w-[18rem] items-center gap-1 rounded-full px-2 py-0.5 align-middle text-[12px] leading-5",
-        invalid ? "bg-token-foreground/8 text-token-description-foreground" : "bg-token-charts-blue/10 text-token-charts-blue",
-      )}>
+      <span
+        className={cn(
+          "inline-flex max-w-[18rem] items-center gap-1 rounded-full px-2 py-0.5 align-middle text-[12px] leading-5",
+          invalid
+            ? "bg-token-foreground/8 text-token-description-foreground"
+            : "bg-token-charts-blue/10 text-token-charts-blue",
+        )}
+      >
         <Bot className="size-3 shrink-0" />
         <span className="truncate">{label}</span>
         {detail ? <span className="truncate opacity-70">{detail}</span> : null}

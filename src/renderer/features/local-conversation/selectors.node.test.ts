@@ -79,16 +79,18 @@ function buildConversation(
 describe("local-conversation selectors", () => {
   test("derives implement-plan requests from the live planImplementation item", () => {
     const conversation = buildConversation({
-      requests: [{
-        type: "implementPlan",
-        requestId: "implement-plan:turn_1",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "implement-plan:turn_1",
-        planContent: "- step 1\n- step 2",
-        createdAt: 10,
-      }],
+      requests: [
+        {
+          type: "implementPlan",
+          requestId: "implement-plan:turn_1",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "implement-plan:turn_1",
+          planContent: "- step 1\n- step 2",
+          createdAt: 10,
+        },
+      ],
       turns: [
         buildTurn({
           turnId: "turn_1",
@@ -141,16 +143,18 @@ describe("local-conversation selectors", () => {
 
   test("does not surface an implement-plan request once the backing item is completed", () => {
     const conversation = buildConversation({
-      requests: [{
-        type: "implementPlan",
-        requestId: "implement-plan:turn_1",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "implement-plan:turn_1",
-        planContent: "- step 1\n- step 2",
-        createdAt: 10,
-      }],
+      requests: [
+        {
+          type: "implementPlan",
+          requestId: "implement-plan:turn_1",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "implement-plan:turn_1",
+          planContent: "- step 1\n- step 2",
+          createdAt: 10,
+        },
+      ],
       turns: [
         buildTurn({
           turnId: "turn_1",
@@ -174,10 +178,7 @@ describe("local-conversation selectors", () => {
 
   test("marks approval and elicitation turns as blocked", () => {
     const conversation = buildConversation({
-      turns: [
-        buildTurn({ turnId: "turn_1" }),
-        buildTurn({ turnId: "turn_2" }),
-      ],
+      turns: [buildTurn({ turnId: "turn_1" }), buildTurn({ turnId: "turn_2" })],
       requests: [
         {
           type: "approval",
@@ -211,10 +212,7 @@ describe("local-conversation selectors", () => {
 
   test("blocks turns only for user-input requests that require an indefinite response", () => {
     const conversation = buildConversation({
-      turns: [
-        buildTurn({ turnId: "turn_1" }),
-        buildTurn({ turnId: "turn_2" }),
-      ],
+      turns: [buildTurn({ turnId: "turn_1" }), buildTurn({ turnId: "turn_2" })],
       requests: [
         {
           type: "userInput",
@@ -247,10 +245,7 @@ describe("local-conversation selectors", () => {
 
   test("prioritizes request-user-input ahead of approval in the live request order", () => {
     const conversation = buildConversation({
-      turns: [
-        buildTurn({ turnId: "turn_1" }),
-        buildTurn({ turnId: "turn_2" }),
-      ],
+      turns: [buildTurn({ turnId: "turn_1" }), buildTurn({ turnId: "turn_2" })],
       requests: [
         {
           type: "approval",
@@ -359,25 +354,26 @@ describe("local-conversation selectors", () => {
 
     const entries = selectVisibleConversationTurnEntries({ conversation });
 
-    expect(entries.map((entry) => entry.turnKey)).toStrictEqual([
-      "turn-index-0",
-      "turn-index-1",
-    ]);
+    expect(entries.map((entry) => entry.turnKey)).toStrictEqual(["turn-index-0", "turn-index-1"]);
     expect(entries.map((entry) => entry.isMostRecentTurn)).toStrictEqual([false, true]);
   });
 
   test("hides startup tool prewarm turns", () => {
     const conversation = buildConversation({
-      turns: [buildTurn({
-        items: [buildItem({
-          semanticKind: "userMessage",
-          rawItem: {
-            id: "prewarm",
-            type: "userMessage",
-            content: [{ type: "text", text: "<startup_tool_prewarm>browser" }],
-          },
-        })],
-      })],
+      turns: [
+        buildTurn({
+          items: [
+            buildItem({
+              semanticKind: "userMessage",
+              rawItem: {
+                id: "prewarm",
+                type: "userMessage",
+                content: [{ type: "text", text: "<startup_tool_prewarm>browser" }],
+              },
+            }),
+          ],
+        }),
+      ],
     });
 
     expect(selectVisibleConversationTurnEntries({ conversation })).toStrictEqual([]);
@@ -385,16 +381,18 @@ describe("local-conversation selectors", () => {
 
   test("keeps visible turn entry references stable across unrelated conversation updates", () => {
     const turn = buildTurn({ turnId: "turn_1" });
-    const requests = [{
-      type: "approval" as const,
-      requestId: "approval_1",
-      kind: "command" as const,
-      projectId: "project_1",
-      threadId: "thread_1",
-      turnId: "turn_1",
-      itemId: "item_1",
-      createdAt: 1,
-    }];
+    const requests = [
+      {
+        type: "approval" as const,
+        requestId: "approval_1",
+        kind: "command" as const,
+        projectId: "project_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "item_1",
+        createdAt: 1,
+      },
+    ];
     const conversationA = buildConversation({
       turns: [turn],
       requests,
@@ -449,10 +447,7 @@ describe("local-conversation selectors", () => {
 
   test("prefers the newest turn when selecting the primary live request", () => {
     const conversation = buildConversation({
-      turns: [
-        buildTurn({ turnId: "turn_1" }),
-        buildTurn({ turnId: "turn_2" }),
-      ],
+      turns: [buildTurn({ turnId: "turn_1" }), buildTurn({ turnId: "turn_2" })],
       requests: [
         {
           type: "userInput",
@@ -523,10 +518,7 @@ describe("local-conversation selectors", () => {
 
   test("reuses per-turn request arrays when the conversation inputs are unchanged", () => {
     const conversation = buildConversation({
-      turns: [
-        buildTurn({ turnId: "turn_1" }),
-        buildTurn({ turnId: "turn_2" }),
-      ],
+      turns: [buildTurn({ turnId: "turn_1" }), buildTurn({ turnId: "turn_2" })],
       requests: [
         {
           type: "approval",
@@ -546,7 +538,9 @@ describe("local-conversation selectors", () => {
 
     expect(firstSelection === secondSelection).toBe(true);
     expect(firstSelection.get("turn_1") === secondSelection.get("turn_1")).toBe(true);
-    expect((firstSelection.get("turn_2") ?? null) === (secondSelection.get("turn_2") ?? null)).toBe(true);
+    expect((firstSelection.get("turn_2") ?? null) === (secondSelection.get("turn_2") ?? null)).toBe(
+      true,
+    );
   });
 
   test("invalidates request selection when turns reorder under the same requests array", () => {
@@ -574,17 +568,11 @@ describe("local-conversation selectors", () => {
       },
     ];
     const firstConversation = buildConversation({
-      turns: [
-        buildTurn({ turnId: "turn_1" }),
-        buildTurn({ turnId: "turn_2" }),
-      ],
+      turns: [buildTurn({ turnId: "turn_1" }), buildTurn({ turnId: "turn_2" })],
       requests: sharedRequests,
     });
     const secondConversation = buildConversation({
-      turns: [
-        buildTurn({ turnId: "turn_2" }),
-        buildTurn({ turnId: "turn_1" }),
-      ],
+      turns: [buildTurn({ turnId: "turn_2" }), buildTurn({ turnId: "turn_1" })],
       requests: sharedRequests,
     });
 
@@ -631,35 +619,41 @@ describe("local-conversation selectors", () => {
 
     expect(selectPrimaryConversationRequest(first)?.type).toBe("optionPicker");
     expect(selectPrimaryConversationRequest(second)?.type).toBe("setupCodexStep");
-    expect(selectConversationLiveRequests(first) === selectConversationLiveRequests(second)).toBe(false);
+    expect(selectConversationLiveRequests(first) === selectConversationLiveRequests(second)).toBe(
+      false,
+    );
   });
 
   test("does not duplicate a direct user-input request across canonical and legacy projections", () => {
     const conversation = buildConversation({
       turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
-      requests: [{
-        type: "userInput",
-        requestId: "input-1",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "input-item-1",
-        questions: [],
-        isBlocking: true,
-        createdAt: 1,
-      }],
-      canonicalRequests: [{
-        id: "input-1",
-        method: "item/tool/requestUserInput",
-        params: {
+      requests: [
+        {
+          type: "userInput",
+          requestId: "input-1",
+          projectId: "project_1",
           threadId: "thread_1",
           turnId: "turn_1",
           itemId: "input-item-1",
           questions: [],
           isBlocking: true,
-          autoResolutionMs: null,
+          createdAt: 1,
         },
-      }],
+      ],
+      canonicalRequests: [
+        {
+          id: "input-1",
+          method: "item/tool/requestUserInput",
+          params: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "input-item-1",
+            questions: [],
+            isBlocking: true,
+            autoResolutionMs: null,
+          },
+        },
+      ],
     });
 
     const liveRequests = selectConversationLiveRequests(conversation);
@@ -670,98 +664,112 @@ describe("local-conversation selectors", () => {
   test("keeps background approval visible when a child private request is primary", () => {
     const conversation = buildConversation({
       turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
-      requests: [{
-        type: "permissionRequest",
-        requestId: "permission-1",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "permission-item-1",
-        reason: "Allow access",
-        cwd: "/tmp/project",
-        permissions: { network: null, fileSystem: null },
-        completed: false,
-        response: null,
-        createdAt: 1,
-      }],
-      canonicalRequests: [{
-        id: "option-1",
-        method: "item/tool/requestOptionPicker",
-        params: {
+      requests: [
+        {
+          type: "permissionRequest",
+          requestId: "permission-1",
+          projectId: "project_1",
           threadId: "thread_1",
           turnId: "turn_1",
-          question: "Choose a slice",
-          options: [{ label: "UI" }],
+          itemId: "permission-item-1",
+          reason: "Allow access",
+          cwd: "/tmp/project",
+          permissions: { network: null, fileSystem: null },
+          completed: false,
+          response: null,
+          createdAt: 1,
         },
-      }],
+      ],
+      canonicalRequests: [
+        {
+          id: "option-1",
+          method: "item/tool/requestOptionPicker",
+          params: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            question: "Choose a slice",
+            options: [{ label: "UI" }],
+          },
+        },
+      ],
     });
 
     expect(selectPrimaryConversationRequest(conversation)?.type).toBe("optionPicker");
-    expect(selectPrimaryBackgroundConversationRequest(conversation)?.type).toBe("permissionRequest");
+    expect(selectPrimaryBackgroundConversationRequest(conversation)?.type).toBe(
+      "permissionRequest",
+    );
     expect(JSON.stringify(selectBlockedTurnIds(conversation))).toBe(JSON.stringify(["turn_1"]));
   });
 
   test("projects Nodex authorization as the blocking background request for its turn", () => {
     const conversation = buildConversation({
       turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
-      requests: [{
-        type: "nodexAgentAuthorization",
-        requestId: "nodex-auth-1",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "call-1",
-        tool: "edit_document",
-        effect: "write",
-        preview: {
-          title: "Append rollout plan",
-          summary: "Append four Blocks.",
-          details: [],
+      requests: [
+        {
+          type: "nodexAgentAuthorization",
+          requestId: "nodex-auth-1",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "call-1",
+          tool: "edit_document",
+          effect: "write",
+          preview: {
+            title: "Append rollout plan",
+            summary: "Append four Blocks.",
+            details: [],
+          },
+          createdAt: 1,
         },
-        createdAt: 1,
-      }],
+      ],
     });
 
     expect(selectPrimaryBackgroundConversationRequest(conversation)?.type).toBe(
       "nodexAgentAuthorization",
     );
-    expect(selectConversationLiveRequests(conversation)[0]?.type).toBe(
-      "nodexAgentAuthorization",
-    );
+    expect(selectConversationLiveRequests(conversation)[0]?.type).toBe("nodexAgentAuthorization");
     expect(selectBlockedTurnIds(conversation)).toEqual(["turn_1"]);
   });
 
   test("uses the unfinished synthetic user-input item before approval when raw input is gone", () => {
     const conversation = buildConversation({
-      turns: [buildTurn({
-        turnId: "turn_1",
-        status: "inProgress",
-        items: [buildItem({
-          itemId: "synthetic-input",
-          type: "request_user_input",
-          kind: "userInputResponse",
-          semanticKind: "userInputResponse",
+      turns: [
+        buildTurn({
+          turnId: "turn_1",
           status: "inProgress",
-          requestId: 41,
-          userInputQuestions: [{
-            id: "scope",
-            header: "Scope",
-            question: "Which scope?",
-            isOther: true,
-            options: [{ label: "UI", description: "Renderer" }],
-          }],
-        })],
-      })],
-      requests: [{
-        type: "approval",
-        requestId: "approval-1",
-        kind: "command",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "command-1",
-        createdAt: 2,
-      }],
+          items: [
+            buildItem({
+              itemId: "synthetic-input",
+              type: "request_user_input",
+              kind: "userInputResponse",
+              semanticKind: "userInputResponse",
+              status: "inProgress",
+              requestId: 41,
+              userInputQuestions: [
+                {
+                  id: "scope",
+                  header: "Scope",
+                  question: "Which scope?",
+                  isOther: true,
+                  options: [{ label: "UI", description: "Renderer" }],
+                },
+              ],
+            }),
+          ],
+        }),
+      ],
+      requests: [
+        {
+          type: "approval",
+          requestId: "approval-1",
+          kind: "command",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "command-1",
+          createdAt: 2,
+        },
+      ],
     });
 
     const primary = selectPrimaryConversationRequest(conversation);
@@ -775,19 +783,21 @@ describe("local-conversation selectors", () => {
   test("falls back to the newest turnless MCP elicitation after scanning materialized turns", () => {
     const conversation = buildConversation({
       turns: [buildTurn({ turnId: "turn_1", status: "inProgress" })],
-      requests: [{
-        type: "mcpServerElicitation",
-        requestId: "turnless-elicitation",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "",
-        itemId: "turnless-elicitation-item",
-        kind: "generic",
-        mode: "form",
-        serverName: "Context7",
-        message: "Need workspace context",
-        createdAt: 5,
-      }],
+      requests: [
+        {
+          type: "mcpServerElicitation",
+          requestId: "turnless-elicitation",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "",
+          itemId: "turnless-elicitation-item",
+          kind: "generic",
+          mode: "form",
+          serverName: "Context7",
+          message: "Need workspace context",
+          createdAt: 5,
+        },
+      ],
     });
 
     expect(selectPrimaryConversationRequest(conversation)?.requestId).toBe("turnless-elicitation");
@@ -845,8 +855,12 @@ describe("local-conversation selectors", () => {
       requests: [permission, invalidNewestFileApproval],
     });
 
-    expect(selectPrimaryBackgroundConversationRequest(approvalConversation)?.requestId).toBe("newer-command");
-    expect(selectPrimaryBackgroundConversationRequest(permissionConversation)?.requestId).toBe("permission-1");
+    expect(selectPrimaryBackgroundConversationRequest(approvalConversation)?.requestId).toBe(
+      "newer-command",
+    );
+    expect(selectPrimaryBackgroundConversationRequest(permissionConversation)?.requestId).toBe(
+      "permission-1",
+    );
   });
 
   test("builds searchable user and assistant units from visible turns", () => {
@@ -884,34 +898,35 @@ describe("local-conversation selectors", () => {
       turns: [
         buildTurn({
           turnId: null,
-          items: [buildItem({
-            turnId: null,
-            itemId: "local_user",
-            type: "user_message",
-            kind: "userMessage",
-            role: "user",
-            markdownText: "First local turn",
-          })],
+          items: [
+            buildItem({
+              turnId: null,
+              itemId: "local_user",
+              type: "user_message",
+              kind: "userMessage",
+              role: "user",
+              markdownText: "First local turn",
+            }),
+          ],
         }),
         buildTurn({
           turnId: null,
-          items: [buildItem({
-            turnId: null,
-            itemId: "local_user",
-            type: "user_message",
-            kind: "userMessage",
-            role: "user",
-            markdownText: "Second local turn",
-          })],
+          items: [
+            buildItem({
+              turnId: null,
+              itemId: "local_user",
+              type: "user_message",
+              kind: "userMessage",
+              role: "user",
+              markdownText: "Second local turn",
+            }),
+          ],
         }),
       ],
     });
 
     const units = selectConversationSearchUnits(conversation);
-    expect(units.map((unit) => unit.turnKey)).toEqual([
-      "turn-index-0",
-      "turn-index-1",
-    ]);
+    expect(units.map((unit) => unit.turnKey)).toEqual(["turn-index-0", "turn-index-1"]);
     expect(units.map((unit) => unit.key)).toEqual([
       "turn-index-0:local_user",
       "turn-index-1:local_user",

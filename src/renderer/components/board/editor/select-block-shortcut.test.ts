@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  findInlineContentForBlock,
-  selectCurrentBlockContent,
-} from "./select-block-shortcut";
+import { findInlineContentForBlock, selectCurrentBlockContent } from "./select-block-shortcut";
 
 describe("select block shortcut", () => {
   test("findInlineContentForBlock locates inline content for current block", () => {
@@ -11,8 +8,7 @@ describe("select block shortcut", () => {
       ownerDocument: { createRange: () => ({ selectNodeContents: () => {} }) },
     } as unknown as HTMLElement;
     const root = {
-      querySelector: (selector: string) =>
-        selector === expectedSelector ? inlineContent : null,
+      querySelector: (selector: string) => (selector === expectedSelector ? inlineContent : null),
     } as unknown as ParentNode;
 
     const found = findInlineContentForBlock(root, "abc1234");
@@ -34,9 +30,7 @@ describe("select block shortcut", () => {
     } as unknown as HTMLElement;
     const root = {
       querySelector: (selector: string) =>
-        selector === '.bn-block[data-id="toggle-1"] .bn-inline-content'
-          ? inlineContent
-          : null,
+        selector === '.bn-block[data-id="toggle-1"] .bn-inline-content' ? inlineContent : null,
     } as unknown as ParentNode;
     const selection = {
       removeAllRanges: () => {

@@ -16,9 +16,7 @@ async function makeStore() {
 }
 
 afterEach(async () => {
-  await Promise.all(cleanup.splice(0).map((path) =>
-    rm(path, { force: true, recursive: true })
-  ));
+  await Promise.all(cleanup.splice(0).map((path) => rm(path, { force: true, recursive: true })));
 });
 
 describe("BrowserUsePolicyStore", () => {
@@ -71,18 +69,9 @@ describe("BrowserUsePolicyStore", () => {
       origin: "https://files.example",
       resource: "upload",
     });
-    expect(store.isExplicitlyDenied(
-      "download",
-      "https://blocked.example/report.pdf",
-    )).toBe(true);
-    expect(store.isExplicitlyDenied(
-      "upload",
-      "https://files.example/form",
-    )).toBe(true);
-    expect(store.isExplicitlyDenied(
-      "download",
-      "https://files.example/report.pdf",
-    )).toBe(false);
+    expect(store.isExplicitlyDenied("download", "https://blocked.example/report.pdf")).toBe(true);
+    expect(store.isExplicitlyDenied("upload", "https://files.example/form")).toBe(true);
+    expect(store.isExplicitlyDenied("download", "https://files.example/report.pdf")).toBe(false);
   });
 
   test("quarantines invalid TOML and fails closed for invalid origins", async () => {
@@ -96,4 +85,3 @@ describe("BrowserUsePolicyStore", () => {
     expect(store.isExplicitlyDenied("origin", "file:///tmp/private")).toBe(true);
   });
 });
-

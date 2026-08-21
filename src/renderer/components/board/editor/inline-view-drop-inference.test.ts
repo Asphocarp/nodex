@@ -41,9 +41,7 @@ function makeBoard(): BoardSummary {
       {
         id: "plan",
         name: "Plan",
-        cards: [
-          makeCard("backlog-1", { order: 0, priority: "p3-low" }),
-        ],
+        cards: [makeCard("backlog-1", { order: 0, priority: "p3-low" })],
       },
     ],
   };
@@ -78,7 +76,11 @@ describe("inline view drop inference", () => {
           {
             all: [
               { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"] },
+              {
+                field: "priority",
+                op: "in",
+                values: ["p0-critical", "p1-high", "p2-medium", "p3-low"],
+              },
             ],
           },
         ],

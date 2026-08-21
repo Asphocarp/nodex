@@ -1,9 +1,6 @@
 import type { components } from "@nodex/core-protocol";
 
-import type {
-  ConnectOrStartCoreInput,
-  CoreLaunchResult,
-} from "./core-launcher";
+import type { ConnectOrStartCoreInput, CoreLaunchResult } from "./core-launcher";
 import { connectOrStartCore } from "./core-launcher";
 import type {
   AutomationApplyInput,
@@ -45,10 +42,7 @@ import type {
   StoreAdministrationRead,
   StoreAdministrationReadSnapshot,
 } from "./types";
-import {
-  CoreHttpError,
-  isDefinitiveCoreGenerationLoss,
-} from "./uds-http";
+import { CoreHttpError, isDefinitiveCoreGenerationLoss } from "./uds-http";
 import type { ProjectionImpact, ProjectionScope } from "../../shared/projection-stream";
 import type {
   DocumentAwarenessPublishAck,
@@ -82,8 +76,7 @@ export interface CoreGenerationClient extends CoreClientPort {
   shutdown(): Promise<ShutdownResponse>;
 }
 
-export interface CoreGenerationLaunch
-  extends Omit<CoreLaunchResult, "client"> {
+export interface CoreGenerationLaunch extends Omit<CoreLaunchResult, "client"> {
   readonly client: CoreGenerationClient;
 }
 
@@ -95,19 +88,19 @@ export interface CoreAuthorityIdentity {
 
 export type CoreAuthorityState =
   | {
-    readonly generation: CoreHandshakeResponse["generation"];
-    readonly kind: "ready";
-  }
+      readonly generation: CoreHandshakeResponse["generation"];
+      readonly kind: "ready";
+    }
   | {
-    readonly attempt: number;
-    readonly kind: "recovering";
-    readonly previousGeneration: CoreHandshakeResponse["generation"];
-  }
+      readonly attempt: number;
+      readonly kind: "recovering";
+      readonly previousGeneration: CoreHandshakeResponse["generation"];
+    }
   | {
-    readonly circuitOpen: boolean;
-    readonly error: unknown;
-    readonly kind: "unavailable";
-  }
+      readonly circuitOpen: boolean;
+      readonly error: unknown;
+      readonly kind: "unavailable";
+    }
   | { readonly kind: "stopped" };
 
 export class CoreAuthorityUnavailableError extends Error {
@@ -128,9 +121,7 @@ interface CoreGenerationSession {
 }
 
 export interface DesktopCoreAuthoritySupervisorDependencies {
-  readonly launch?: (
-    input: ConnectOrStartCoreInput,
-  ) => Promise<CoreGenerationLaunch>;
+  readonly launch?: (input: ConnectOrStartCoreInput) => Promise<CoreGenerationLaunch>;
   readonly now?: () => number;
 }
 
@@ -147,17 +138,14 @@ const createSession = (launch: CoreGenerationLaunch): CoreGenerationSession => (
 });
 
 const shouldRecoverAuthority = (error: unknown): boolean =>
-  isDefinitiveCoreGenerationLoss(error)
-  || (error instanceof CoreHttpError && error.status === 503);
+  isDefinitiveCoreGenerationLoss(error) || (error instanceof CoreHttpError && error.status === 503);
 
 export class DesktopCoreAuthoritySupervisor {
   readonly identity: CoreAuthorityIdentity;
   readonly initialLaunch: CoreGenerationLaunch;
   readonly rootClient: DesktopCoreClient;
 
-  readonly #launch: (
-    input: ConnectOrStartCoreInput,
-  ) => Promise<CoreGenerationLaunch>;
+  readonly #launch: (input: ConnectOrStartCoreInput) => Promise<CoreGenerationLaunch>;
   readonly #launchInput: ConnectOrStartCoreInput;
   readonly #now: () => number;
   readonly #projectClients = new Map<string, DesktopCoreClient>();
@@ -255,9 +243,7 @@ export class DesktopCoreAuthoritySupervisor {
       const recoveredSession = await this.#recover(failedSession, error);
       if (!replayAfterRecovery) throw error;
       this.#assertRunning(error);
-      const replaySession = this.#session === recoveredSession
-        ? recoveredSession
-        : this.#session;
+      const replaySession = this.#session === recoveredSession ? recoveredSession : this.#session;
       return await operation(this.#clientForSession(replaySession, projectId));
     }
   }
@@ -352,10 +338,7 @@ export class DesktopCoreAuthoritySupervisor {
     return await recovery;
   }
 
-  #assertHealthyCandidate(
-    client: CoreGenerationClient,
-    health: HealthResponse,
-  ): void {
+  #assertHealthyCandidate(client: CoreGenerationClient, health: HealthResponse): void {
     if (health.status !== "ready") {
       throw new Error(`Native Rust Core reported unexpected status ${health.status}`);
     }
@@ -382,17 +365,13 @@ export class DesktopCoreAuthoritySupervisor {
 
   #recordFailure(): void {
     const cutoff = this.#now() - FAILURE_WINDOW_MS;
-    this.#failureTimestamps = this.#failureTimestamps.filter(
-      (timestamp) => timestamp >= cutoff,
-    );
+    this.#failureTimestamps = this.#failureTimestamps.filter((timestamp) => timestamp >= cutoff);
     this.#failureTimestamps.push(this.#now());
   }
 
   #circuitOpen(): boolean {
     const cutoff = this.#now() - FAILURE_WINDOW_MS;
-    this.#failureTimestamps = this.#failureTimestamps.filter(
-      (timestamp) => timestamp >= cutoff,
-    );
+    this.#failureTimestamps = this.#failureTimestamps.filter((timestamp) => timestamp >= cutoff);
     return this.#failureTimestamps.length >= MAX_FAILURES_PER_WINDOW;
   }
 
@@ -423,9 +402,10 @@ export class DesktopCoreAuthoritySupervisor {
   }
 
   #unavailableError(cause?: unknown): CoreAuthorityUnavailableError {
-    const state = this.#state.kind === "unavailable" || this.#state.kind === "stopped"
-      ? this.#state
-      : ({ circuitOpen: false, error: cause, kind: "unavailable" } as const);
+    const state =
+      this.#state.kind === "unavailable" || this.#state.kind === "stopped"
+        ? this.#state
+        : ({ circuitOpen: false, error: cause, kind: "unavailable" } as const);
     return new CoreAuthorityUnavailableError(
       this.#stopped ? "Native Core authority is stopped" : "Native Core authority is unavailable",
       state,
@@ -450,10 +430,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#execute((client) => client.resolveLocalMutation(input));
   }
 
-  libraryRead(
-    read: LibraryRead,
-    options?: CoreRequestOptions,
-  ): Promise<LibraryReadSnapshot> {
+  libraryRead(read: LibraryRead, options?: CoreRequestOptions): Promise<LibraryReadSnapshot> {
     return this.#execute((client) => client.libraryRead(read, options));
   }
 
@@ -465,9 +442,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
     projectId: string,
     impact: ProjectionImpact,
   ): Promise<ProjectionImpact> {
-    return this.#execute((client) =>
-      client.filterProjectionImpactForProject(projectId, impact)
-    );
+    return this.#execute((client) => client.filterProjectionImpactForProject(projectId, impact));
   }
 
   databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot> {
@@ -506,9 +481,7 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#executeApply((client) => client.automationApply(input, options));
   }
 
-  administrationRead(
-    read: StoreAdministrationRead,
-  ): Promise<StoreAdministrationReadSnapshot> {
+  administrationRead(read: StoreAdministrationRead): Promise<StoreAdministrationReadSnapshot> {
     return this.#execute((client) => client.administrationRead(read));
   }
 
@@ -565,12 +538,9 @@ class SupervisedCoreClient implements DesktopCoreClient {
     onRepair: (repair: DocumentLiveRepair) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
   ): Promise<CoreDocumentEventSubscription> {
-    return this.#execute((client) => client.openDocumentEventStream(
-      input,
-      onEvent,
-      onRepair,
-      onRealtimeEvent,
-    ));
+    return this.#execute((client) =>
+      client.openDocumentEventStream(input, onEvent, onRepair, onRealtimeEvent),
+    );
   }
 
   openEventStream(
@@ -580,13 +550,9 @@ class SupervisedCoreClient implements DesktopCoreClient {
     onResyncRequired?: (event: CoreEventReplayRequired) => void,
     signal?: AbortSignal,
   ): Promise<CoreEventSubscription> {
-    return this.#execute((client) => client.openEventStream(
-      after,
-      onEvent,
-      onCheckpoint,
-      onResyncRequired,
-      signal,
-    ));
+    return this.#execute((client) =>
+      client.openEventStream(after, onEvent, onCheckpoint, onResyncRequired, signal),
+    );
   }
 
   openProjectionEventStream(
@@ -596,25 +562,18 @@ class SupervisedCoreClient implements DesktopCoreClient {
     signal?: AbortSignal,
   ): Promise<CoreProjectionEventSubscription> {
     if (this.projectId !== null) {
-      return Promise.reject(new Error(
-        "Projection live broker must use the unscoped Host client",
-      ));
+      return Promise.reject(new Error("Projection live broker must use the unscoped Host client"));
     }
-    return this.#execute((client) => client.openProjectionEventStream(
-      scopes,
-      onEvent,
-      onRepair,
-      signal,
-    ));
+    return this.#execute((client) =>
+      client.openProjectionEventStream(scopes, onEvent, onRepair, signal),
+    );
   }
 
   shutdown(): Promise<ShutdownResponse> {
     return this.supervisor.shutdownCurrentGeneration();
   }
 
-  #execute<Result>(
-    operation: (client: CoreGenerationClient) => Promise<Result>,
-  ): Promise<Result> {
+  #execute<Result>(operation: (client: CoreGenerationClient) => Promise<Result>): Promise<Result> {
     return this.supervisor.execute(this.projectId, operation);
   }
 

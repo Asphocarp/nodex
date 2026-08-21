@@ -16,10 +16,14 @@ async function createFixture(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, {
-    recursive: true,
-    force: true,
-  })));
+  await Promise.all(
+    fixtureRoots.splice(0).map((root) =>
+      rm(root, {
+        recursive: true,
+        force: true,
+      }),
+    ),
+  );
 });
 
 describe("readGitRepositoryIdentity", () => {
@@ -28,12 +32,9 @@ describe("readGitRepositoryIdentity", () => {
     const nested = join(root, "packages", "app");
     await mkdir(nested, { recursive: true });
     await execFileAsync("git", ["init"], { cwd: root });
-    await execFileAsync("git", [
-      "remote",
-      "add",
-      "origin",
-      "git@github.com:acme/nodex.git",
-    ], { cwd: root });
+    await execFileAsync("git", ["remote", "add", "origin", "git@github.com:acme/nodex.git"], {
+      cwd: root,
+    });
 
     await expect(readGitRepositoryIdentity(nested)).resolves.toEqual({
       repositoryRoot: await realpath(root),
@@ -44,12 +45,11 @@ describe("readGitRepositoryIdentity", () => {
   it("uses the first configured remote when origin is absent", async () => {
     const root = await createFixture();
     await execFileAsync("git", ["init"], { cwd: root });
-    await execFileAsync("git", [
-      "remote",
-      "add",
-      "upstream",
-      "https://example.com/acme/nodex.git",
-    ], { cwd: root });
+    await execFileAsync(
+      "git",
+      ["remote", "add", "upstream", "https://example.com/acme/nodex.git"],
+      { cwd: root },
+    );
 
     await expect(readGitRepositoryIdentity(root)).resolves.toEqual({
       repositoryRoot: await realpath(root),
@@ -60,12 +60,11 @@ describe("readGitRepositoryIdentity", () => {
   it("never exposes credentials embedded in a remote URL", async () => {
     const root = await createFixture();
     await execFileAsync("git", ["init"], { cwd: root });
-    await execFileAsync("git", [
-      "remote",
-      "add",
-      "origin",
-      "https://user:secret@example.com/acme/private.git?token=hidden",
-    ], { cwd: root });
+    await execFileAsync(
+      "git",
+      ["remote", "add", "origin", "https://user:secret@example.com/acme/private.git?token=hidden"],
+      { cwd: root },
+    );
 
     const identity = await readGitRepositoryIdentity(root);
     expect(identity).toEqual({

@@ -32,21 +32,14 @@ const validateTestMetadata = (value: unknown): TestMetadata => {
 
 describe("Document HTTP binary wire", () => {
   test("round-trips bounded metadata and binary payload without header limits", () => {
-    const touchedBlockIds = Array.from(
-      { length: 1_000 },
-      (_value, index) => `block-${index}`,
-    );
+    const touchedBlockIds = Array.from({ length: 1_000 }, (_value, index) => `block-${index}`);
     const payload = Uint8Array.from([0, 1, 2, 127, 128, 255]);
     const encoded = encodeDocumentHttpEnvelope(
       { documentId: "document-1", touchedBlockIds },
       payload,
     );
 
-    const decoded = decodeDocumentHttpEnvelope(
-      encoded,
-      validateTestMetadata,
-      payload.byteLength,
-    );
+    const decoded = decodeDocumentHttpEnvelope(encoded, validateTestMetadata, payload.byteLength);
 
     expect(decoded.metadata.documentId).toBe("document-1");
     expect(decoded.metadata.touchedBlockIds.length).toBe(1_000);
@@ -65,11 +58,12 @@ describe("Document HTTP binary wire", () => {
       () => decodeDocumentHttpEnvelope(valid.subarray(0, 7), validateTestMetadata, 2),
       () => decodeDocumentHttpEnvelope(corruptVersion, validateTestMetadata, 2),
       () => decodeDocumentHttpEnvelope(valid, validateTestMetadata, 1),
-      () => decodeDocumentHttpEnvelope(
-        encodeDocumentHttpEnvelope({ unexpected: true }, new Uint8Array()),
-        validateTestMetadata,
-        0,
-      ),
+      () =>
+        decodeDocumentHttpEnvelope(
+          encodeDocumentHttpEnvelope({ unexpected: true }, new Uint8Array()),
+          validateTestMetadata,
+          0,
+        ),
     ];
 
     expect(
@@ -88,9 +82,7 @@ describe("Document HTTP binary wire", () => {
     const bytes = Uint8Array.from([0, 17, 128, 254, 255]);
     const encoded = documentBytesToBase64(bytes);
 
-    expect(Array.from(documentBytesFromBase64(encoded, 5)).join(",")).toBe(
-      "0,17,128,254,255",
-    );
+    expect(Array.from(documentBytesFromBase64(encoded, 5)).join(",")).toBe("0,17,128,254,255");
 
     let oversized = false;
     try {

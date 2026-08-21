@@ -1,8 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  type ReactNode,
-} from "react";
+import { useCallback, useLayoutEffect, type ReactNode } from "react";
 import { applyCodexThemeVariant } from "./codex-theme-variant";
 import {
   appScope,
@@ -28,9 +24,7 @@ const themePreferenceAtom = scopedAtomWithInitializer<Theme>(
   appScope,
   () => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === "light" || stored === "dark" || stored === "system"
-      ? stored
-      : "system";
+    return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
   },
   { debugLabel: "theme-preference" },
 );
@@ -62,13 +56,15 @@ function useThemeInternal(): ThemeContextValue {
   const [theme, setThemeState] = useScopedAtom(themePreferenceAtom);
   const systemDark = useScopedAtomValue(systemDarkAtom);
 
-  const resolved: Resolved =
-    theme === "system" ? (systemDark ? "dark" : "light") : theme;
+  const resolved: Resolved = theme === "system" ? (systemDark ? "dark" : "light") : theme;
 
-  const setTheme = useCallback((next: Theme) => {
-    localStorage.setItem(STORAGE_KEY, next);
-    setThemeState(next);
-  }, [setThemeState]);
+  const setTheme = useCallback(
+    (next: Theme) => {
+      localStorage.setItem(STORAGE_KEY, next);
+      setThemeState(next);
+    },
+    [setThemeState],
+  );
 
   return { theme, resolved, setTheme };
 }

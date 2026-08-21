@@ -12,13 +12,15 @@ function sendAssistantStreamingDebugLog(
     return;
   }
 
-  void window.api.invoke("diagnostics:renderer-log", {
-    message: ASSISTANT_STREAMING_DEBUG_MESSAGE,
-    fields: {
-      phase,
-      ...fields,
-    },
-  }).catch(() => undefined);
+  void window.api
+    .invoke("diagnostics:renderer-log", {
+      message: ASSISTANT_STREAMING_DEBUG_MESSAGE,
+      fields: {
+        phase,
+        ...fields,
+      },
+    })
+    .catch(() => undefined);
 }
 
 export function logAssistantStreamingDebug(

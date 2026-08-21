@@ -12,11 +12,7 @@ const DEVELOPMENT_RENDERER_CONNECTION_FALLBACKS = [
   "ws://127.0.0.1:*",
 ] as const;
 
-const LOCAL_DEVELOPMENT_RENDERER_HOSTNAMES = new Set([
-  "localhost",
-  "127.0.0.1",
-  "[::1]",
-]);
+const LOCAL_DEVELOPMENT_RENDERER_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function buildDevelopmentRendererConnections(
   developmentOrigin: string | null | undefined,
@@ -25,20 +21,16 @@ function buildDevelopmentRendererConnections(
 
   try {
     const origin = new URL(developmentOrigin);
-    const isLocalOrigin = (
-      (origin.protocol === "http:" || origin.protocol === "https:")
-      && LOCAL_DEVELOPMENT_RENDERER_HOSTNAMES.has(origin.hostname)
-      && Boolean(origin.port)
-      && !origin.username
-      && !origin.password
-    );
+    const isLocalOrigin =
+      (origin.protocol === "http:" || origin.protocol === "https:") &&
+      LOCAL_DEVELOPMENT_RENDERER_HOSTNAMES.has(origin.hostname) &&
+      Boolean(origin.port) &&
+      !origin.username &&
+      !origin.password;
     if (!isLocalOrigin) return DEVELOPMENT_RENDERER_CONNECTION_FALLBACKS;
 
     const websocketProtocol = origin.protocol === "https:" ? "wss:" : "ws:";
-    return [
-      origin.origin,
-      `${websocketProtocol}//${origin.host}`,
-    ];
+    return [origin.origin, `${websocketProtocol}//${origin.host}`];
   } catch {
     return DEVELOPMENT_RENDERER_CONNECTION_FALLBACKS;
   }
@@ -61,12 +53,12 @@ export function buildTopLevelRendererCsp(input: {
   mode: "development" | "production";
   developmentOrigin?: string | null;
 }): string {
-  const developmentConnections = input.mode === "development"
-    ? buildDevelopmentRendererConnections(input.developmentOrigin)
-    : [];
-  const developmentScriptSources = input.mode === "development"
-    ? [VITE_REACT_REFRESH_PREAMBLE_SHA256]
-    : [];
+  const developmentConnections =
+    input.mode === "development"
+      ? buildDevelopmentRendererConnections(input.developmentOrigin)
+      : [];
+  const developmentScriptSources =
+    input.mode === "development" ? [VITE_REACT_REFRESH_PREAMBLE_SHA256] : [];
   const directives = [
     "default-src 'none'",
     "base-uri 'none'",

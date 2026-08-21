@@ -67,16 +67,16 @@ export function formatWebSearchQueryDetail(query: string): string {
 
   if (sites.length === 0) return query;
 
-  const searchText = queryWithoutSites
-    .replace(SEARCH_OR_PATTERN, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
+  const searchText = queryWithoutSites.replace(SEARCH_OR_PATTERN, " ").replace(/\s+/gu, " ").trim();
 
   if (searchText.length === 0) return query;
   return `${searchText} | ${sites.join(" \u00b7 ")}`;
 }
 
-export function selectPrimaryWebSearchQuery(query: string | null, queries: readonly string[]): string {
+export function selectPrimaryWebSearchQuery(
+  query: string | null,
+  queries: readonly string[],
+): string {
   if (query && query.length > 0) return formatWebSearchQueryDetail(query);
   const firstQuery = queries.find((entry) => entry.length > 0) ?? "";
   return formatWebSearchQueryDetail(firstQuery);
@@ -89,7 +89,9 @@ export function describeWebSearchAction(action: unknown, fallbackQuery: string):
   if (snapshot.type === "search") {
     const selectedQuery = selectPrimaryWebSearchQuery(snapshot.query, snapshot.queries);
     if (selectedQuery.length === 0) return fallbackQuery.trim();
-    return snapshot.queries.length > 1 && snapshot.query === null ? `${selectedQuery} ...` : selectedQuery;
+    return snapshot.queries.length > 1 && snapshot.query === null
+      ? `${selectedQuery} ...`
+      : selectedQuery;
   }
 
   if (snapshot.type === "openPage") return snapshot.url ?? "";

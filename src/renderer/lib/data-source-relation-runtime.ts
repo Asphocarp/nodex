@@ -8,14 +8,15 @@ import type { DatabaseViewAccessContext } from "./database-view-render-model";
 const readInContext = async (
   accessContext: DatabaseViewAccessContext,
   read: LibraryDatabaseReadV2,
-) => accessContext.kind === "project"
-  ? await readDatabaseModule(accessContext.projectId, {
-      projectId: accessContext.projectId,
-      read,
-    })
-  : await readLibraryDatabaseModule({
-      read,
-    });
+) =>
+  accessContext.kind === "project"
+    ? await readDatabaseModule(accessContext.projectId, {
+        projectId: accessContext.projectId,
+        read,
+      })
+    : await readLibraryDatabaseModule({
+        read,
+      });
 
 export const foldDataSourceRelationSearchText = (value: string): string =>
   value.replace(/[A-Z]/g, (character) => character.toLowerCase());

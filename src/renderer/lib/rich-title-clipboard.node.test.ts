@@ -15,24 +15,22 @@ describe("rich title clipboard", () => {
       {
         type: "link",
         text: "Docs & more",
-        href: "https://nodex.local/?q=\"docs\"&mode=title",
+        href: 'https://nodex.local/?q="docs"&mode=title',
         styles: { underline: true, color: "red" },
       },
       { type: "threadMention", uuid: "12345678-mention" },
     ];
 
-    const payload = createRichTitleClipboardPayload(
-      value,
-      { start: 0, end: 24 },
-      () => [{ property: "color", value: "rgb(225, 100, 90)" }],
-    );
+    const payload = createRichTitleClipboardPayload(value, { start: 0, end: 24 }, () => [
+      { property: "color", value: "rgb(225, 100, 90)" },
+    ]);
 
     expect(payload.plainText).toBe("Visual bold\nDocs & more@12345678");
     expect(payload.html).toBe(
-      "Visual <strong><em>bold</em></strong><br>"
-      + "<a href=\"https://nodex.local/?q=&quot;docs&quot;&amp;mode=title\">"
-      + "<span style=\"color: rgb(225, 100, 90);\"><u>Docs &amp; more</u></span>"
-      + "</a>@12345678",
+      "Visual <strong><em>bold</em></strong><br>" +
+        '<a href="https://nodex.local/?q=&quot;docs&quot;&amp;mode=title">' +
+        '<span style="color: rgb(225, 100, 90);"><u>Docs &amp; more</u></span>' +
+        "</a>@12345678",
     );
     expect(payload.html.includes("font-weight")).toBe(false);
   });
@@ -63,10 +61,16 @@ describe("rich title clipboard", () => {
 
     expect(handled).toBe(true);
     expect(written).toEqual(new Map([["text/plain", "Plain"]]));
-    expect(writeRichTitleClipboardPayload(
-      { setData() { throw new Error("Clipboard unavailable"); } },
-      { html: "Plain", plainText: "Plain" },
-    )).toBe(false);
+    expect(
+      writeRichTitleClipboardPayload(
+        {
+          setData() {
+            throw new Error("Clipboard unavailable");
+          },
+        },
+        { html: "Plain", plainText: "Plain" },
+      ),
+    ).toBe(false);
   });
 
   test("resolves foreground and background colors from the active theme", () => {

@@ -5,8 +5,7 @@ import type { Project, ProjectCreateInput } from "../shared/types";
 import { getLogger } from "./logging/logger";
 
 const DEFAULT_PROJECT_NAME = "New project";
-const WINDOWS_RESERVED_FILE_NAME =
-  /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
+const WINDOWS_RESERVED_FILE_NAME = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
 const logger = getLogger({ subsystem: "default-project-source" });
 
 type CreateProject = (input: ProjectCreateInput) => Promise<Project>;
@@ -62,10 +61,10 @@ async function defaultInitializeRepository(path: string): Promise<void> {
 export function sanitizeDefaultProjectDirectoryName(name: string): string {
   const sanitized = Array.from(basename(name).trim(), (character) => {
     const isControlCharacter = character.charCodeAt(0) < 32;
-    return isControlCharacter || '<>:"/\\|?*'.includes(character)
-      ? "_"
-      : character;
-  }).join("").replace(/[ .]+$/g, "");
+    return isControlCharacter || '<>:"/\\|?*'.includes(character) ? "_" : character;
+  })
+    .join("")
+    .replace(/[ .]+$/g, "");
 
   if (!sanitized) return DEFAULT_PROJECT_NAME;
   if (WINDOWS_RESERVED_FILE_NAME.test(sanitized)) return `_${sanitized}`;
@@ -79,10 +78,9 @@ export async function findAvailableDefaultProjectSource(
 ): Promise<string> {
   let suffix: number | null = null;
   while (true) {
-    const candidateName =
-      suffix === null ? directoryName : `${directoryName} ${suffix}`;
+    const candidateName = suffix === null ? directoryName : `${directoryName} ${suffix}`;
     const candidate = join(projectsDirectory, candidateName);
-    if (!await pathExists(candidate)) return candidate;
+    if (!(await pathExists(candidate))) return candidate;
     suffix = suffix === null ? 2 : suffix + 1;
   }
 }

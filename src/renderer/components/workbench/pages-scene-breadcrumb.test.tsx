@@ -24,8 +24,10 @@ describe("Pages scene navigation", () => {
     );
 
     await waitFor(() => expect(view.getByText("empty")).toBeTruthy());
-    expect(queryClient.getQueryCache().findAll({
-      queryKey: queryKeys.library.all(),
-    })).toHaveLength(0);
+    expect(
+      queryClient.getQueryCache().findAll({
+        queryKey: queryKeys.library.all(),
+      }),
+    ).toHaveLength(0);
   });
 });

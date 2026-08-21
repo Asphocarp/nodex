@@ -7,10 +7,7 @@ import type {
 import type { GitWorkerLiveQueryEvent } from "../../shared/git-worker-protocol";
 import type { GitReviewRepositoryChange } from "./repository-watcher";
 import type { QueryKey } from "@tanstack/query-core";
-import type {
-  GitReadQueryMeta,
-  GitRepositoryWatchLease,
-} from "./worktree-repository";
+import type { GitReadQueryMeta, GitRepositoryWatchLease } from "./worktree-repository";
 
 export const GIT_LIVE_QUERY_DEBOUNCE_MS = 100;
 export const GIT_LIVE_QUERY_RETRY_MS = 1_000;
@@ -69,19 +66,17 @@ function normalizeQueryParams(params: GitReviewLiveQuery["params"]): object {
 }
 
 function isStaleResult(value: unknown): boolean {
-  return typeof value === "object"
-    && value !== null
-    && "type" in value
-    && value.type === "stale-snapshot";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "stale-snapshot"
+  );
 }
 
 function isRetryableOperationalError(value: unknown): boolean {
-  if (
-    typeof value !== "object"
-    || value === null
-    || !("type" in value)
-    || value.type !== "error"
-  ) return false;
+  if (typeof value !== "object" || value === null || !("type" in value) || value.type !== "error")
+    return false;
   return !("failureReason" in value && value.failureReason === "canceled");
 }
 
@@ -90,20 +85,24 @@ export function shouldRefreshGitLiveQuery(
   change: GitReviewRepositoryChange,
 ): boolean {
   if (
-    method === "status-summary"
-    || method === "review-summary"
-    || method === "branch-diff-stats"
+    method === "status-summary" ||
+    method === "review-summary" ||
+    method === "branch-diff-stats"
   ) {
-    return change === "config"
-      || change === "head"
-      || change === "index"
-      || change === "remote-refs"
-      || change === "working-tree";
+    return (
+      change === "config" ||
+      change === "head" ||
+      change === "index" ||
+      change === "remote-refs" ||
+      change === "working-tree"
+    );
   }
-  return change === "config"
-    || change === "head"
-    || change === "remote-refs"
-    || change === "worktree-topology";
+  return (
+    change === "config" ||
+    change === "head" ||
+    change === "remote-refs" ||
+    change === "worktree-topology"
+  );
 }
 
 export class GitLiveQueryRegistry {
@@ -118,10 +117,7 @@ export class GitLiveQueryRegistry {
     this.#registry = options.registry;
   }
 
-  async subscribe(input: {
-    subscriptionId: string;
-    query: GitReviewLiveQuery;
-  }): Promise<void> {
+  async subscribe(input: { subscriptionId: string; query: GitReviewLiveQuery }): Promise<void> {
     this.unsubscribe(input.subscriptionId);
     const state: LiveQueryState = {
       controller: null,
@@ -188,33 +184,29 @@ export class GitLiveQueryRegistry {
 
   async #attachRepository(state: LiveQueryState): Promise<void> {
     if (state.disposed || state.repository) return;
-    const repository = await this.#registry.get(state.query.params.cwd)
-      .catch(() => null);
+    const repository = await this.#registry.get(state.query.params.cwd).catch(() => null);
     if (state.disposed || !repository) return;
     state.repository = repository;
-    state.watchLease = await repository.acquireWatchLease({
-      onChange: (event) => {
-        if (
-          state.disposed
-          || !shouldRefreshGitLiveQuery(state.query.method, event.changeType)
-        ) return;
-        void this.#requestRefresh(state, false);
-      },
-      onRequiresRecoveryChanged: (requiresRecovery) => {
-        if (state.disposed || state.requiresRecovery === requiresRecovery) return;
-        state.requiresRecovery = requiresRecovery;
-        void this.#requestRefresh(state, false);
-      },
-    }).catch(() => {
-      state.requiresRecovery = true;
-      return null;
-    });
+    state.watchLease = await repository
+      .acquireWatchLease({
+        onChange: (event) => {
+          if (state.disposed || !shouldRefreshGitLiveQuery(state.query.method, event.changeType))
+            return;
+          void this.#requestRefresh(state, false);
+        },
+        onRequiresRecoveryChanged: (requiresRecovery) => {
+          if (state.disposed || state.requiresRecovery === requiresRecovery) return;
+          state.requiresRecovery = requiresRecovery;
+          void this.#requestRefresh(state, false);
+        },
+      })
+      .catch(() => {
+        state.requiresRecovery = true;
+        return null;
+      });
   }
 
-  async #requestRefresh(
-    state: LiveQueryState,
-    immediate: boolean,
-  ): Promise<void> {
+  async #requestRefresh(state: LiveQueryState, immediate: boolean): Promise<void> {
     if (state.disposed) return;
     state.generation += 1;
     state.dirty = true;
@@ -248,7 +240,13 @@ export class GitLiveQueryRegistry {
     try {
       const trackedParams = this.#trackedPhaseParams(state.query);
       if (trackedParams) {
-        const tracked = await this.#read(state, generation, "tracked", trackedParams, controller.signal);
+        const tracked = await this.#read(
+          state,
+          generation,
+          "tracked",
+          trackedParams,
+          controller.signal,
+        );
         if (!this.#isCurrent(state, generation) || isStaleResult(tracked)) return;
         this.#publishResult(state, generation, "tracked", tracked);
       }
@@ -262,8 +260,8 @@ export class GitLiveQueryRegistry {
       if (!this.#isCurrent(state, generation) || isStaleResult(complete)) return;
       this.#publishResult(state, generation, "complete", complete);
       if (
-        isRetryableOperationalError(complete)
-        && state.errorRetryCount < GIT_LIVE_QUERY_MAX_RETRIES
+        isRetryableOperationalError(complete) &&
+        state.errorRetryCount < GIT_LIVE_QUERY_MAX_RETRIES
       ) {
         state.errorRetryCount += 1;
         state.dirty = true;
@@ -287,10 +285,7 @@ export class GitLiveQueryRegistry {
         if (retryDelay !== null && generation === state.generation) {
           state.generation += 1;
         }
-        this.#schedule(
-          state,
-          retryDelay ?? GIT_LIVE_QUERY_DEBOUNCE_MS,
-        );
+        this.#schedule(state, retryDelay ?? GIT_LIVE_QUERY_DEBOUNCE_MS);
       }
     }
   }
@@ -320,43 +315,37 @@ export class GitLiveQueryRegistry {
         repository.generation,
       ],
       meta: {
-        gitReadDomains: state.query.method === "status-summary"
-          || state.query.method === "review-summary"
-          || state.query.method === "branch-diff-stats"
-          ? ["config", "head", "index", "local-refs", "remote-refs", "working-tree"]
-          : ["config", "head", "local-refs", "remote-refs"],
+        gitReadDomains:
+          state.query.method === "status-summary" ||
+          state.query.method === "review-summary" ||
+          state.query.method === "branch-diff-stats"
+            ? ["config", "head", "index", "local-refs", "remote-refs", "working-tree"]
+            : ["config", "head", "local-refs", "remote-refs"],
         gitReadGeneration: repository.generation,
       },
       signal,
-      run: async (sharedSignal) => await this.#execute({
-        id: `${state.subscriptionId}:${generation}:${phase}`,
-        method: state.query.method,
-        params,
-        signal: sharedSignal,
-      }),
+      run: async (sharedSignal) =>
+        await this.#execute({
+          id: `${state.subscriptionId}:${generation}:${phase}`,
+          method: state.query.method,
+          params,
+          signal: sharedSignal,
+        }),
     });
   }
 
-  #trackedPhaseParams(
-    query: GitReviewLiveQuery,
-  ): GitReviewLiveQuery["params"] | null {
-    if (
-      query.method === "status-summary"
-      && query.params.includeUntrackedFiles === true
-    ) {
+  #trackedPhaseParams(query: GitReviewLiveQuery): GitReviewLiveQuery["params"] | null {
+    if (query.method === "status-summary" && query.params.includeUntrackedFiles === true) {
       return { ...query.params, includeUntrackedFiles: false };
     }
     if (
-      query.method === "review-summary"
-      && (query.params.source === "unstaged" || query.params.source === "branch")
-      && query.params.includeUntrackedFiles !== false
+      query.method === "review-summary" &&
+      (query.params.source === "unstaged" || query.params.source === "branch") &&
+      query.params.includeUntrackedFiles !== false
     ) {
       return { ...query.params, includeUntrackedFiles: false };
     }
-    if (
-      query.method === "branch-diff-stats"
-      && query.params.includeUntrackedFiles === true
-    ) {
+    if (query.method === "branch-diff-stats" && query.params.includeUntrackedFiles === true) {
       return { ...query.params, includeUntrackedFiles: false };
     }
     return null;
@@ -383,20 +372,15 @@ export class GitLiveQueryRegistry {
     this.#publish({ type: "git-live-query-event", workerId: "git", event });
   }
 
-  #publishFailure(
-    state: LiveQueryState,
-    generation: number,
-    error: unknown,
-  ): void {
+  #publishFailure(state: LiveQueryState, generation: number, error: unknown): void {
     const event: GitReviewLiveEvent = {
       type: "git-live-query-failed",
       subscriptionId: state.subscriptionId,
       generation,
       requiresRecovery: state.requiresRecovery,
       method: state.query.method,
-      errorMessage: error instanceof Error
-        ? error.message
-        : "Could not refresh the Git live query.",
+      errorMessage:
+        error instanceof Error ? error.message : "Could not refresh the Git live query.",
     };
     this.#publish({ type: "git-live-query-event", workerId: "git", event });
   }

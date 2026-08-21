@@ -7,12 +7,7 @@ import {
   StatusIcon,
   TagIcon,
 } from "@/components/shared/icons";
-import {
-  CheckSquare2,
-  Hash,
-  Tags,
-  TextCursorInput,
-} from "@/components/shared/icons/generic-icons";
+import { CheckSquare2, Hash, Tags, TextCursorInput } from "@/components/shared/icons/generic-icons";
 import type { DatabasePropertyValueType } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
@@ -28,9 +23,7 @@ export const DATA_SOURCE_PROPERTY_TYPE_LABELS = {
   relation: "Relation",
 } as const satisfies Record<DatabasePropertyValueType, string>;
 
-export const dataSourcePropertyTypeIcon = (
-  valueType: DatabasePropertyValueType,
-) => {
+export const dataSourcePropertyTypeIcon = (valueType: DatabasePropertyValueType) => {
   switch (valueType) {
     case "number":
       return Hash;

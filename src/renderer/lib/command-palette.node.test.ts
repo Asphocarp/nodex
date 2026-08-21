@@ -18,7 +18,8 @@ import { plainTextToPortableRichText } from "../../shared/block-documents/portab
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
-  const descriptionPreview = overrides.descriptionPreview ?? "Add quick page switching and commands.";
+  const descriptionPreview =
+    overrides.descriptionPreview ?? "Add quick page switching and commands.";
   const title = overrides.title ?? "Polish command palette";
   return {
     id: overrides.id ?? "page-1",
@@ -112,7 +113,7 @@ let failCurrentStorageWrite = false;
 
 const mockStorage = {
   getItem(key: string): string | null {
-    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+    return storageMap.has(key) ? (storageMap.get(key) ?? null) : null;
   },
   setItem(key: string, value: string): void {
     if (failCurrentStorageWrite && key === COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY) {
@@ -150,7 +151,12 @@ describe("filterCommandPaletteItems", () => {
       mode: "root",
       commands: [
         makeCommand(),
-        makeCommand({ id: "search", title: "Search tasks", subtitle: "Current project", keywords: ["find"] }),
+        makeCommand({
+          id: "search",
+          title: "Search tasks",
+          subtitle: "Current project",
+          keywords: ["find"],
+        }),
       ],
       pages: [makePalettePage()],
       threads: [makePaletteThread()],
@@ -207,7 +213,9 @@ describe("filterCommandPaletteItems", () => {
     expect(result.pages.length).toBe(0);
     expect(result.threads.length).toBe(1);
     expect(result.threads[0]?.threadId).toBe("thr-search");
-    expect(result.threads[0]?.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
+    expect(
+      result.threads[0]?.searchDecorations?.titleSegments?.some((segment) => segment.highlight),
+    ).toBe(true);
   });
 
   test("summarizes active palette filters in the same compact language as the view toolbar", () => {
@@ -265,10 +273,8 @@ describe("filterCommandPaletteItems", () => {
 
       expect(migrated.priorities).toEqual(["p3-low"]);
       expect(migrated.includeEmptyPriority).toBe(false);
-      expect(mockStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
-        .not.toBeNull();
-      expect(mockStorage.getItem(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
-        .toBeNull();
+      expect(mockStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY)).not.toBeNull();
+      expect(mockStorage.getItem(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY)).toBeNull();
     });
   });
 
@@ -288,10 +294,8 @@ describe("filterCommandPaletteItems", () => {
       } finally {
         failCurrentStorageWrite = false;
       }
-      expect(mockStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
-        .toBeNull();
-      expect(mockStorage.getItem(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY))
-        .not.toBeNull();
+      expect(mockStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY)).toBeNull();
+      expect(mockStorage.getItem(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY)).not.toBeNull();
     });
   });
 
@@ -300,8 +304,20 @@ describe("filterCommandPaletteItems", () => {
       query: "go",
       mode: "root",
       commands: [
-        makeCommand({ id: "navigateBack", title: "Back", keywords: ["back"], disabled: true, priority: 500 }),
-        makeCommand({ id: "navigateForward", title: "Forward", keywords: ["forward"], disabled: false, priority: 490 }),
+        makeCommand({
+          id: "navigateBack",
+          title: "Back",
+          keywords: ["back"],
+          disabled: true,
+          priority: 500,
+        }),
+        makeCommand({
+          id: "navigateForward",
+          title: "Forward",
+          keywords: ["forward"],
+          disabled: false,
+          priority: 490,
+        }),
       ],
       pages: [],
     });
@@ -315,8 +331,20 @@ describe("filterCommandPaletteItems", () => {
       query: "",
       mode: "root",
       commands: [
-        makeCommand({ id: "navigateBack", title: "Back", keywords: ["back"], disabled: true, priority: 500 }),
-        makeCommand({ id: "navigateForward", title: "Forward", keywords: ["forward"], disabled: false, priority: 490 }),
+        makeCommand({
+          id: "navigateBack",
+          title: "Back",
+          keywords: ["back"],
+          disabled: true,
+          priority: 500,
+        }),
+        makeCommand({
+          id: "navigateForward",
+          title: "Forward",
+          keywords: ["forward"],
+          disabled: false,
+          priority: 490,
+        }),
       ],
       pages: [],
     });

@@ -88,12 +88,8 @@ export function broadcastCodexHostMessageToRendererClients(
 ): number {
   if (message.type === "threadStreamStateChanged" && targetClientIds !== undefined) {
     if (!router || targetClientIds === null) return 0;
-    return sendRendererThreadStreamRelay(
-      router,
-      targetClientIds,
-      message.sourceClientId,
-      message,
-    ).sentClientIds.length;
+    return sendRendererThreadStreamRelay(router, targetClientIds, message.sourceClientId, message)
+      .sentClientIds.length;
   }
 
   if (!router) {
@@ -101,7 +97,8 @@ export function broadcastCodexHostMessageToRendererClients(
   }
 
   return router.broadcast("codex:host-message", [message], {
-    sourceClientId: message.type === "threadStreamStateChanged" ? message.sourceClientId ?? null : null,
+    sourceClientId:
+      message.type === "threadStreamStateChanged" ? (message.sourceClientId ?? null) : null,
     includeSource: !(message.type === "threadStreamStateChanged" && message.sourceClientId),
   });
 }
@@ -109,9 +106,7 @@ export function broadcastCodexHostMessageToRendererClients(
 type CodexThreadStreamControlMessage = Extract<
   CodexHostMessage,
   {
-    type:
-      | "threadStreamFollowersChanged"
-      | "threadStreamTransportReset";
+    type: "threadStreamFollowersChanged" | "threadStreamTransportReset";
   }
 >;
 
@@ -128,11 +123,7 @@ export function sendRendererThreadStreamControlRelay(
     };
   }
 
-  return router.sendToClients(
-    targetClientIds,
-    "codex:host-message",
-    [message],
-  );
+  return router.sendToClients(targetClientIds, "codex:host-message", [message]);
 }
 
 export function sendRendererOwnerHostMessage(
@@ -158,12 +149,9 @@ export function sendRendererThreadStreamRelay(
     };
   }
 
-  return router.sendToClients(
-    targetClientIds,
-    "codex:host-message",
-    [message],
-    { excludeClientId: sourceClientId ?? null },
-  );
+  return router.sendToClients(targetClientIds, "codex:host-message", [message], {
+    excludeClientId: sourceClientId ?? null,
+  });
 }
 
 export function publishRendererThreadOwnerStreamState(
@@ -215,9 +203,12 @@ export async function runThreadFollowerActionThroughOwner(
   if (!sourceClientId) throw new Error("Renderer client is not registered");
 
   const ownerClientId = service.getRendererConversationOwner(input.conversationId);
-  if (!ownerClientId) throw new Error(`no-client-found: no renderer owner for conversation ${input.conversationId}`);
+  if (!ownerClientId)
+    throw new Error(`no-client-found: no renderer owner for conversation ${input.conversationId}`);
   if (ownerClientId === sourceClientId) {
-    throw new Error(`Renderer client ${sourceClientId} is already owner for ${input.conversationId}`);
+    throw new Error(
+      `Renderer client ${sourceClientId} is already owner for ${input.conversationId}`,
+    );
   }
   if (!router) throw new Error("Renderer client router is unavailable");
 
@@ -228,7 +219,12 @@ export async function runThreadFollowerActionThroughOwner(
 
   try {
     await router.requireThreadOwner(ownerClientId, input.conversationId);
-    return await router.sendRequest(ownerClientId, "thread-owner-action", input.action, requestOptions);
+    return await router.sendRequest(
+      ownerClientId,
+      "thread-owner-action",
+      input.action,
+      requestOptions,
+    );
   } catch (error) {
     if (isRendererOwnerUnavailableError(error)) {
       throw new Error(`no-client-found: renderer owner for ${input.conversationId} is unavailable`);

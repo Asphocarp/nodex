@@ -15,11 +15,7 @@ import {
   summarizeCodexFileChangePatch,
   summarizeCodexUnifiedDiff,
 } from "./codex-file-change";
-import type {
-  CodexFileChangeMap,
-  CodexProtocolRequestId,
-  CodexTurnDiffPatchBatch,
-} from "./types";
+import type { CodexFileChangeMap, CodexProtocolRequestId, CodexTurnDiffPatchBatch } from "./types";
 
 function countDiffGitSections(diff: string, path: string): number {
   return diff.split("\n").filter((line) => line === `diff --git a/${path} b/${path}`).length;
@@ -45,21 +41,25 @@ describe("codex file change turn diff synthesis", () => {
     const batches: CodexTurnDiffPatchBatch[] = [
       {
         cwd: "/repo",
-        changes: [{
-          type: "update",
-          path: "src/app.ts",
-          movePath: null,
-          unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+intermediate",
-        }],
+        changes: [
+          {
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+intermediate",
+          },
+        ],
       },
       {
         cwd: "/repo",
-        changes: [{
-          type: "update",
-          path: "src/app.ts",
-          movePath: null,
-          unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -3 +3 @@\n-before\n+final",
-        }],
+        changes: [
+          {
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -3 +3 @@\n-before\n+final",
+          },
+        ],
       },
     ];
 
@@ -75,21 +75,25 @@ describe("codex file change turn diff synthesis", () => {
     const batches: CodexTurnDiffPatchBatch[] = [
       {
         cwd: "/repo-a",
-        changes: [{
-          type: "update",
-          path: "src/app.ts",
-          movePath: null,
-          unifiedDiff: "@@ -1 +1 @@\n-a\n+b",
-        }],
+        changes: [
+          {
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: "@@ -1 +1 @@\n-a\n+b",
+          },
+        ],
       },
       {
         cwd: "/repo-b",
-        changes: [{
-          type: "update",
-          path: "src/app.ts",
-          movePath: null,
-          unifiedDiff: "@@ -1 +1 @@\n-c\n+d",
-        }],
+        changes: [
+          {
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: "@@ -1 +1 @@\n-c\n+d",
+          },
+        ],
       },
     ];
 
@@ -99,28 +103,30 @@ describe("codex file change turn diff synthesis", () => {
   });
 
   test("does not merge add delete or moved update sections into ordinary updates", () => {
-    const batches: CodexTurnDiffPatchBatch[] = [{
-      cwd: "/repo",
-      changes: [
-        {
-          type: "update",
-          path: "src/app.ts",
-          movePath: null,
-          unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-        },
-        {
-          type: "add",
-          path: "src/app.ts",
-          content: "created\n",
-        },
-        {
-          type: "update",
-          path: "src/app.ts",
-          movePath: "src/old-app.ts",
-          unifiedDiff: "@@ -1 +1 @@\n-before\n+after",
-        },
-      ],
-    }];
+    const batches: CodexTurnDiffPatchBatch[] = [
+      {
+        cwd: "/repo",
+        changes: [
+          {
+            type: "update",
+            path: "src/app.ts",
+            movePath: null,
+            unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+          },
+          {
+            type: "add",
+            path: "src/app.ts",
+            content: "created\n",
+          },
+          {
+            type: "update",
+            path: "src/app.ts",
+            movePath: "src/old-app.ts",
+            unifiedDiff: "@@ -1 +1 @@\n-before\n+after",
+          },
+        ],
+      },
+    ];
 
     const diff = buildCodexTurnDiffFromPatchBatches(batches);
 
@@ -176,13 +182,7 @@ describe("codex file change turn diff synthesis", () => {
         path: "src/app.ts",
         type: "update",
         movePath: null,
-        unifiedDiff: [
-          "@@ -1,2 +1,3 @@",
-          " keep",
-          "-first",
-          "+second",
-          "+third",
-        ].join("\n"),
+        unifiedDiff: ["@@ -1,2 +1,3 @@", " keep", "-first", "+second", "+third"].join("\n"),
       },
     ]);
 
@@ -222,7 +222,9 @@ describe("codex file change turn diff synthesis", () => {
     });
     const changes = change ? buildCodexFileChangeMap([change]) : {};
     const rows = buildCodexFileChangePatchRows(changes);
-    const turnDiff = buildCodexTurnDiffFromPatchBatches([{ cwd: "/repo", changes: change ? [change] : [] }]);
+    const turnDiff = buildCodexTurnDiffFromPatchBatches([
+      { cwd: "/repo", changes: change ? [change] : [] },
+    ]);
 
     expect(change?.type ?? "").toBe("nonRenderable");
     expect(rows.length).toBe(1);
@@ -276,7 +278,9 @@ describe("codex file change turn diff synthesis", () => {
       content: "",
     });
 
-    expect(Boolean(movedDiff?.startsWith("diff --git a/src/app.ts b/src/app-renamed.ts"))).toBe(true);
+    expect(Boolean(movedDiff?.startsWith("diff --git a/src/app.ts b/src/app-renamed.ts"))).toBe(
+      true,
+    );
     expect(Boolean(movedDiff?.includes("--- a/src/app.ts\n+++ b/src/app-renamed.ts"))).toBe(true);
     expect(Boolean(emptyCreateDiff?.includes("new file mode 100644"))).toBe(true);
     expect(Boolean(emptyCreateDiff?.includes("@@"))).toBe(false);
@@ -286,13 +290,7 @@ describe("codex file change turn diff synthesis", () => {
     const diff = buildCodexFileChangeUnifiedDiff("src/app.ts", {
       type: "update",
       movePath: null,
-      unifiedDiff: [
-        "@@ -10,2 +10,3 @@",
-        " keep",
-        "-old",
-        "+new",
-        "+extra",
-      ].join("\n"),
+      unifiedDiff: ["@@ -10,2 +10,3 @@", " keep", "-old", "+new", "+extra"].join("\n"),
     });
     const summary = summarizeCodexUnifiedDiff(diff);
 
@@ -302,11 +300,9 @@ describe("codex file change turn diff synthesis", () => {
   });
 
   test("falls back to line-scan stats with open line 1 when diff parsing fails", () => {
-    const summary = summarizeCodexUnifiedDiff([
-      "not a unified diff",
-      "+added",
-      "-removed",
-    ].join("\n"));
+    const summary = summarizeCodexUnifiedDiff(
+      ["not a unified diff", "+added", "-removed"].join("\n"),
+    );
 
     expect(summary?.additions ?? -1).toBe(1);
     expect(summary?.deletions ?? -1).toBe(1);
@@ -340,16 +336,41 @@ describe("codex file change turn diff synthesis", () => {
       expected: string;
     }> = [
       { success: true, approvalRequestId: null, isTurnCancelled: false, expected: "applied" },
-      { success: true, approvalRequestId: "approval-1", isTurnCancelled: true, expected: "applied" },
+      {
+        success: true,
+        approvalRequestId: "approval-1",
+        isTurnCancelled: true,
+        expected: "applied",
+      },
       { success: false, approvalRequestId: null, isTurnCancelled: false, expected: "rejected" },
-      { success: false, approvalRequestId: "approval-1", isTurnCancelled: true, expected: "rejected" },
-      { success: null, approvalRequestId: "approval-1", isTurnCancelled: false, expected: "pending" },
+      {
+        success: false,
+        approvalRequestId: "approval-1",
+        isTurnCancelled: true,
+        expected: "rejected",
+      },
+      {
+        success: null,
+        approvalRequestId: "approval-1",
+        isTurnCancelled: false,
+        expected: "pending",
+      },
       { success: undefined, approvalRequestId: 73, isTurnCancelled: false, expected: "pending" },
       { success: null, approvalRequestId: "", isTurnCancelled: true, expected: "pending" },
       { success: null, approvalRequestId: null, isTurnCancelled: true, expected: "stopped" },
-      { success: undefined, approvalRequestId: undefined, isTurnCancelled: true, expected: "stopped" },
+      {
+        success: undefined,
+        approvalRequestId: undefined,
+        isTurnCancelled: true,
+        expected: "stopped",
+      },
       { success: null, approvalRequestId: null, isTurnCancelled: false, expected: "streaming" },
-      { success: undefined, approvalRequestId: undefined, isTurnCancelled: false, expected: "streaming" },
+      {
+        success: undefined,
+        approvalRequestId: undefined,
+        isTurnCancelled: false,
+        expected: "streaming",
+      },
     ];
 
     for (const input of cases) {

@@ -76,25 +76,27 @@ function resolution(
 describe("pending worktree route model", () => {
   test("derives the two-stage create progress and checkout percentage", () => {
     const queued = makeEntry();
-    expect(resolvePendingWorktreeProgressModel(queued, resolution(queued, "waiting")))
-      .toMatchObject({
-        title: "Creating a worktree",
-        titleIsRunning: true,
-        steps: [
-          { kind: "workspace", status: "running", progressPercentage: null },
-          { kind: "checkout", status: "pending", progressPercentage: null },
-        ],
-      });
+    expect(
+      resolvePendingWorktreeProgressModel(queued, resolution(queued, "waiting")),
+    ).toMatchObject({
+      title: "Creating a worktree",
+      titleIsRunning: true,
+      steps: [
+        { kind: "workspace", status: "running", progressPercentage: null },
+        { kind: "checkout", status: "pending", progressPercentage: null },
+      ],
+    });
 
     const checkout = makeEntry({
       phase: "creating",
       worktreeOutputText: "Preparing worktree\nUpdating files: 37% (37/100)\n",
     });
-    expect(resolvePendingWorktreeProgressModel(checkout, resolution(checkout, "waiting")).steps)
-      .toEqual([
-        { kind: "workspace", status: "completed", progressPercentage: null },
-        { kind: "checkout", status: "running", progressPercentage: 37 },
-      ]);
+    expect(
+      resolvePendingWorktreeProgressModel(checkout, resolution(checkout, "waiting")).steps,
+    ).toEqual([
+      { kind: "workspace", status: "completed", progressPercentage: null },
+      { kind: "checkout", status: "running", progressPercentage: 37 },
+    ]);
   });
 
   test("does not mistake an allocated path followed by Git failure for a created worktree", () => {
@@ -154,13 +156,16 @@ describe("pending worktree route model", () => {
       worktreeGitRoot: "/repo/worktrees/task",
       worktreeWorkspaceRoot: "/repo/worktrees/task",
     });
-    expect(resolvePendingWorktreeProgressModel(ready, resolution(ready, "starting")))
-      .toMatchObject({ title: "Worktree created", cardVisible: false, startingTask: true });
-    expect(resolvePendingWorktreeProgressModel(ready, {
-      state: "failed",
-      clientThreadId: ready.clientThreadId,
-      pendingWorktreeId: ready.id,
-      errorMessage: "thread/start failed",
-    })).toMatchObject({ title: "Task failed to start", cardVisible: true });
+    expect(resolvePendingWorktreeProgressModel(ready, resolution(ready, "starting"))).toMatchObject(
+      { title: "Worktree created", cardVisible: false, startingTask: true },
+    );
+    expect(
+      resolvePendingWorktreeProgressModel(ready, {
+        state: "failed",
+        clientThreadId: ready.clientThreadId,
+        pendingWorktreeId: ready.id,
+        errorMessage: "thread/start failed",
+      }),
+    ).toMatchObject({ title: "Task failed to start", cardVisible: true });
   });
 });

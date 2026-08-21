@@ -31,13 +31,8 @@ const localError = (message: string): DatabaseViewMutationError =>
     retryable: false,
   });
 
-const findRow = (
-  model: DatabaseViewRenderModel,
-  pageId: string,
-): DataSourcePageRowV2 => {
-  const row = model.query.rows.find(
-    (candidate) => candidate.page.pageId === pageId,
-  );
+const findRow = (model: DatabaseViewRenderModel, pageId: string): DataSourcePageRowV2 => {
+  const row = model.query.rows.find((candidate) => candidate.page.pageId === pageId);
   if (row) return row;
   throw localError(`Page is no longer present in View ${model.databaseViewId}`);
 };
@@ -47,14 +42,10 @@ const findProperty = (
   propertyId: string,
 ): DataSourcePropertyRecordV2 => {
   const property = model.query.properties.find(
-    (candidate) =>
-      candidate.propertyId === propertyId
-      && candidate.lifecycle === "active",
+    (candidate) => candidate.propertyId === propertyId && candidate.lifecycle === "active",
   );
   if (property) return property;
-  throw localError(
-    `Property is no longer active in Data Source ${model.dataSourceId}`,
-  );
+  throw localError(`Property is no longer active in Data Source ${model.dataSourceId}`);
 };
 
 export const buildDatabaseViewPropertyValueOperations = (input: {
@@ -81,16 +72,12 @@ export const buildDatabaseViewPropertyValueOperations = (input: {
 };
 
 const hasEmptyAndFilter = (model: DatabaseViewRenderModel): boolean =>
-  model.query.view.config.filter.kind === "group"
-  && model.query.view.config.filter.operator === "and"
-  && model.query.view.config.filter.children.length === 0;
+  model.query.view.config.filter.kind === "group" &&
+  model.query.view.config.filter.operator === "and" &&
+  model.query.view.config.filter.children.length === 0;
 
-export const databaseViewSupportsManualReorder = (
-  model: DatabaseViewRenderModel,
-): boolean =>
-  databaseViewPrimaryManualOrderDirection(
-    model.query.view.config.presentation.sort,
-  ) !== null;
+export const databaseViewSupportsManualReorder = (model: DatabaseViewRenderModel): boolean =>
+  databaseViewPrimaryManualOrderDirection(model.query.view.config.presentation.sort) !== null;
 
 export const buildDatabaseViewMoveOperations = (input: {
   readonly model: DatabaseViewRenderModel;
@@ -106,18 +93,19 @@ export const buildDatabaseViewMoveOperations = (input: {
   const currentIndex = visibleGroup.findIndex(
     (candidate) => candidate.page.pageId === input.pageId,
   );
-  const targetIndex = input.direction === "up"
-    ? currentIndex - 1
-    : input.direction === "down"
-      ? currentIndex + 1
-      : input.direction === "top"
-        ? 0
-        : visibleGroup.length - 1;
+  const targetIndex =
+    input.direction === "up"
+      ? currentIndex - 1
+      : input.direction === "down"
+        ? currentIndex + 1
+        : input.direction === "top"
+          ? 0
+          : visibleGroup.length - 1;
   if (
-    currentIndex < 0
-    || targetIndex < 0
-    || targetIndex >= visibleGroup.length
-    || targetIndex === currentIndex
+    currentIndex < 0 ||
+    targetIndex < 0 ||
+    targetIndex >= visibleGroup.length ||
+    targetIndex === currentIndex
   ) {
     return [];
   }
@@ -127,26 +115,25 @@ export const buildDatabaseViewMoveOperations = (input: {
   if (!moving) return [];
   desired.splice(targetIndex, 0, moving);
   const authorityOrder =
-    databaseViewPrimaryManualOrderDirection(
-      input.model.query.view.config.presentation.sort,
-    ) === "desc"
+    databaseViewPrimaryManualOrderDirection(input.model.query.view.config.presentation.sort) ===
+    "desc"
       ? [...desired].reverse()
       : desired;
 
   if (hasEmptyAndFilter(input.model) && input.groupComplete === true) {
     if (visibleGroup.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
-      throw localError(
-        "This View group is too large for one atomic manual-order mutation",
-      );
+      throw localError("This View group is too large for one atomic manual-order mutation");
     }
-    return [{
-      kind: "position_pages",
-      viewId: input.model.databaseViewId,
-      pages: authorityOrder.map((candidate) => ({
-        pageId: candidate.page.pageId,
-        expectedPositionRevision: candidate.position?.revision ?? 0,
-      })),
-    }];
+    return [
+      {
+        kind: "position_pages",
+        viewId: input.model.databaseViewId,
+        pages: authorityOrder.map((candidate) => ({
+          pageId: candidate.page.pageId,
+          expectedPositionRevision: candidate.position?.revision ?? 0,
+        })),
+      },
+    ];
   }
 
   const authorityIndex = authorityOrder.findIndex(
@@ -154,13 +141,15 @@ export const buildDatabaseViewMoveOperations = (input: {
   );
   const anchor = authorityOrder[authorityIndex + 1];
   if (anchor && !anchor.position) return [];
-  return [{
-    kind: "position_page",
-    viewId: input.model.databaseViewId,
-    pageId: row.page.pageId,
-    expectedPositionRevision: row.position?.revision ?? 0,
-    ...(anchor ? { beforePageId: anchor.page.pageId } : {}),
-  }];
+  return [
+    {
+      kind: "position_page",
+      viewId: input.model.databaseViewId,
+      pageId: row.page.pageId,
+      expectedPositionRevision: row.position?.revision ?? 0,
+      ...(anchor ? { beforePageId: anchor.page.pageId } : {}),
+    },
+  ];
 };
 
 export const canMoveDatabaseViewPage = (input: {
@@ -189,20 +178,19 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
       model: input.model,
       pageId: uniquePageIds[0]!,
       direction: input.direction,
-      ...(input.groupComplete === undefined
-        ? {}
-        : { groupComplete: input.groupComplete }),
+      ...(input.groupComplete === undefined ? {} : { groupComplete: input.groupComplete }),
     });
   }
   if (
-    !databaseViewSupportsManualReorder(input.model)
-    || !hasEmptyAndFilter(input.model)
-    || input.groupComplete !== true
-  ) return [];
+    !databaseViewSupportsManualReorder(input.model) ||
+    !hasEmptyAndFilter(input.model) ||
+    input.groupComplete !== true
+  )
+    return [];
 
   const selectedPageIds = new Set(uniquePageIds);
   const selectedRows = input.model.query.rows.filter((candidate) =>
-    selectedPageIds.has(candidate.page.pageId)
+    selectedPageIds.has(candidate.page.pageId),
   );
   if (selectedRows.length !== selectedPageIds.size) return [];
   const groupKey = selectedRows[0]?.effectiveGroupKey ?? null;
@@ -212,9 +200,7 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
     (candidate) => candidate.effectiveGroupKey === groupKey,
   );
   if (visibleGroup.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
-    throw localError(
-      "This View group is too large for one atomic manual-order mutation",
-    );
+    throw localError("This View group is too large for one atomic manual-order mutation");
   }
   const desired = [...visibleGroup];
   if (input.direction === "top" || input.direction === "bottom") {
@@ -223,19 +209,17 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
     desired.splice(
       0,
       desired.length,
-      ...(input.direction === "top"
-        ? [...selected, ...unselected]
-        : [...unselected, ...selected]),
+      ...(input.direction === "top" ? [...selected, ...unselected] : [...unselected, ...selected]),
     );
   } else if (input.direction === "up") {
     for (let index = 1; index < desired.length; index += 1) {
       const current = desired[index];
       const previous = desired[index - 1];
       if (
-        current
-        && previous
-        && selectedPageIds.has(current.page.pageId)
-        && !selectedPageIds.has(previous.page.pageId)
+        current &&
+        previous &&
+        selectedPageIds.has(current.page.pageId) &&
+        !selectedPageIds.has(previous.page.pageId)
       ) {
         desired[index - 1] = current;
         desired[index] = previous;
@@ -246,10 +230,10 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
       const current = desired[index];
       const next = desired[index + 1];
       if (
-        current
-        && next
-        && selectedPageIds.has(current.page.pageId)
-        && !selectedPageIds.has(next.page.pageId)
+        current &&
+        next &&
+        selectedPageIds.has(current.page.pageId) &&
+        !selectedPageIds.has(next.page.pageId)
       ) {
         desired[index] = next;
         desired[index + 1] = current;
@@ -259,19 +243,20 @@ export const buildDatabaseViewMovePageRunOperations = (input: {
 
   if (desired.every((row, index) => row === visibleGroup[index])) return [];
   const authorityOrder =
-    databaseViewPrimaryManualOrderDirection(
-      input.model.query.view.config.presentation.sort,
-    ) === "desc"
-    ? [...desired].reverse()
-    : desired;
-  return [{
-    kind: "position_pages",
-    viewId: input.model.databaseViewId,
-    pages: authorityOrder.map((candidate) => ({
-      pageId: candidate.page.pageId,
-      expectedPositionRevision: candidate.position?.revision ?? 0,
-    })),
-  }];
+    databaseViewPrimaryManualOrderDirection(input.model.query.view.config.presentation.sort) ===
+    "desc"
+      ? [...desired].reverse()
+      : desired;
+  return [
+    {
+      kind: "position_pages",
+      viewId: input.model.databaseViewId,
+      pages: authorityOrder.map((candidate) => ({
+        pageId: candidate.page.pageId,
+        expectedPositionRevision: candidate.position?.revision ?? 0,
+      })),
+    },
+  ];
 };
 
 export interface DatabaseViewMutationDependencies {
@@ -279,9 +264,7 @@ export interface DatabaseViewMutationDependencies {
     projectId: string,
     request: DatabaseApplyV2,
   ) => Promise<DatabaseApplyResultV2>;
-  readonly applyLibrary: (
-    request: LibraryDatabaseApplyV2,
-  ) => Promise<LibraryDatabaseApplyResultV2>;
+  readonly applyLibrary: (request: LibraryDatabaseApplyV2) => Promise<LibraryDatabaseApplyResultV2>;
 }
 
 const defaultDependencies: DatabaseViewMutationDependencies = {
@@ -289,9 +272,7 @@ const defaultDependencies: DatabaseViewMutationDependencies = {
   applyLibrary: applyLibraryDatabaseModule,
 };
 
-export type DatabaseViewMutationReceipt =
-  | DatabaseApplyReceiptV2
-  | LibraryDatabaseApplyReceiptV2;
+export type DatabaseViewMutationReceipt = DatabaseApplyReceiptV2 | LibraryDatabaseApplyReceiptV2;
 
 export const commitDatabaseViewOperations = async (input: {
   readonly model: DatabaseViewRenderModel;
@@ -306,13 +287,14 @@ export const commitDatabaseViewOperations = async (input: {
     operations: input.operations,
   } as const;
   const dependencies = input.dependencies ?? defaultDependencies;
-  const apply = () => input.model.accessContext.kind === "library"
-    ? dependencies.applyLibrary(commonRequest)
-    : dependencies.applyProject(input.model.accessContext.projectId, {
-        ...commonRequest,
-        projectId: input.model.accessContext.projectId,
-        actor: { kind: "renderer_database_view" as const },
-      });
+  const apply = () =>
+    input.model.accessContext.kind === "library"
+      ? dependencies.applyLibrary(commonRequest)
+      : dependencies.applyProject(input.model.accessContext.projectId, {
+          ...commonRequest,
+          projectId: input.model.accessContext.projectId,
+          actor: { kind: "renderer_database_view" as const },
+        });
   let result: DatabaseApplyResultV2 | LibraryDatabaseApplyResultV2;
   let retried = false;
   try {

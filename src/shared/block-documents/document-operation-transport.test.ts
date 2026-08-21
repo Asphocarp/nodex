@@ -18,15 +18,10 @@ const request = () => ({
 
 describe("Document operation transport", () => {
   test("binds host identity without changing logical scope", () => {
-    const bound = bindTrustedDocumentMutation(
-      request(),
-      "project-1",
-      "document-1",
-      {
-        actor: { kind: "electron_renderer", clientId: "renderer-7" },
-        clientSessionId: "renderer-7",
-      },
-    );
+    const bound = bindTrustedDocumentMutation(request(), "project-1", "document-1", {
+      actor: { kind: "electron_renderer", clientId: "renderer-7" },
+      clientSessionId: "renderer-7",
+    });
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
     expect(bound.value.clientSessionId).toBe("renderer-7");
@@ -38,17 +33,12 @@ describe("Document operation transport", () => {
   });
 
   test("rejects route scope mismatch and preserves a valid mutation hint", () => {
-    const wrongProject = bindTrustedDocumentMutation(
-      request(),
-      "project-2",
-      "document-1",
-      { actor: { kind: "http_loopback" } },
-    );
+    const wrongProject = bindTrustedDocumentMutation(request(), "project-2", "document-1", {
+      actor: { kind: "http_loopback" },
+    });
     expect(wrongProject.ok).toBe(false);
     if (!wrongProject.ok) {
-      expect(wrongProject.error.code).toBe(
-        "invalid_document_operation_request",
-      );
+      expect(wrongProject.error.code).toBe("invalid_document_operation_request");
       expect(wrongProject.error.mutationId).toBe("mutation-1");
     }
 

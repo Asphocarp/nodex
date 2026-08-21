@@ -6,10 +6,7 @@ export interface ContextualKeyboardActionTarget {
   readonly surfaceId: string;
   readonly presentationId: string;
   readonly canExecute: (commandId: CommandId) => boolean;
-  readonly execute: (
-    commandId: CommandId,
-    phase: ContextualKeyboardActionPhase,
-  ) => boolean;
+  readonly execute: (commandId: CommandId, phase: ContextualKeyboardActionPhase) => boolean;
 }
 
 interface RegisteredTarget {
@@ -23,9 +20,7 @@ let activePresentationId: string | null = null;
 
 const resolveActiveTarget = (): ContextualKeyboardActionTarget | null => {
   if (activePresentationId) {
-    const activeTarget = activeSurfaceId
-      ? registrations.get(activeSurfaceId)?.target
-      : null;
+    const activeTarget = activeSurfaceId ? registrations.get(activeSurfaceId)?.target : null;
     if (activeTarget?.presentationId === activePresentationId) {
       return activeTarget;
     }
@@ -53,28 +48,21 @@ export function registerContextualKeyboardActionTarget(
   });
 }
 
-export function unregisterContextualKeyboardActionTarget(
-  surfaceId: string,
-  token: string,
-): void {
+export function unregisterContextualKeyboardActionTarget(surfaceId: string, token: string): void {
   const existing = registrations.get(surfaceId);
   if (!existing || existing.token !== token) return;
   registrations.delete(surfaceId);
   if (activeSurfaceId === surfaceId) activeSurfaceId = null;
 }
 
-export function markContextualKeyboardActionTargetActive(
-  surfaceId: string,
-): void {
+export function markContextualKeyboardActionTargetActive(surfaceId: string): void {
   const existing = registrations.get(surfaceId);
   if (!existing) return;
   activeSurfaceId = surfaceId;
   activePresentationId = existing.target.presentationId;
 }
 
-export function markContextualKeyboardActionPresentationActive(
-  presentationId: string,
-): void {
+export function markContextualKeyboardActionPresentationActive(presentationId: string): void {
   activePresentationId = presentationId;
   const registration = Array.from(registrations.values()).find(
     (candidate) => candidate.target.presentationId === presentationId,
@@ -82,9 +70,7 @@ export function markContextualKeyboardActionPresentationActive(
   activeSurfaceId = registration?.target.surfaceId ?? null;
 }
 
-export function canExecuteContextualKeyboardAction(
-  commandId: CommandId,
-): boolean {
+export function canExecuteContextualKeyboardAction(commandId: CommandId): boolean {
   return resolveActiveTarget()?.canExecute(commandId) ?? false;
 }
 

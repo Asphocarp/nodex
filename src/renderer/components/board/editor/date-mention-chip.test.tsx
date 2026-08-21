@@ -6,10 +6,7 @@ import {
   createDateMentionClockStore,
   setDateMentionClockStoreForTest,
 } from "@/lib/nfm/date-mention-clock";
-import {
-  DateMentionInlineContentView,
-  preloadDateMentionCalendar,
-} from "./date-mention-chip";
+import { DateMentionInlineContentView, preloadDateMentionCalendar } from "./date-mention-chip";
 import {
   dateMentionPayloadToProps,
   type DateMentionInlineContentUpdate,
@@ -17,9 +14,8 @@ import {
 } from "./date-mention-inline-content";
 
 vi.mock("./date-mention-calendar", async () => {
-  const { DateMentionCalendarTestSurface } = await import(
-    "./testkit/date-mention-calendar-test-surface"
-  );
+  const { DateMentionCalendarTestSurface } =
+    await import("./testkit/date-mention-calendar-test-surface");
   return { DateMentionCalendar: DateMentionCalendarTestSurface };
 });
 
@@ -136,7 +132,10 @@ describe("DateMentionInlineContentView", () => {
     if (!capturedUpdate) return;
     expect(capturedUpdate.type).toBe("dateMention");
     expect(capturedUpdate.props.start.startsWith("2050-06-28T")).toBe(true);
-    expect(capturedUpdate.props.start.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(capturedUpdate.props.start)).toBe(true);
+    expect(
+      capturedUpdate.props.start.endsWith("Z") ||
+        /[+-]\d{2}:\d{2}$/.test(capturedUpdate.props.start),
+    ).toBe(true);
     expect(capturedUpdate.props.tz.length > 0).toBe(true);
   });
 
@@ -189,5 +188,4 @@ describe("DateMentionInlineContentView", () => {
     expect(view.getByRole("button").getAttribute("data-reminder-tone")).toBe("overdue");
     expect(updateCount).toBe(0);
   });
-
 });

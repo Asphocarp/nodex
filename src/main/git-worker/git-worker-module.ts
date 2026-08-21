@@ -10,9 +10,7 @@ import type {
   GitWorkerPerformanceOperationEvent,
   GitWorkerRequest,
 } from "../../shared/git-worker-protocol";
-import {
-  GIT_WORKER_PROTOCOL_VERSION,
-} from "../../shared/git-worker-protocol";
+import { GIT_WORKER_PROTOCOL_VERSION } from "../../shared/git-worker-protocol";
 import {
   applyGitReviewPatch,
   isGitReviewStaleSnapshotError,
@@ -29,18 +27,12 @@ import {
   runGitReviewOperationWithSignal,
   searchGitReview,
 } from "./git-review-operations";
-import {
-  LocalGitCommandRunner,
-  runGitPerformanceOperation,
-} from "./git-command-runner";
+import { LocalGitCommandRunner, runGitPerformanceOperation } from "./git-command-runner";
 import { GitLiveQueryRegistry } from "./live-query-registry";
 import { GitRepositoryRegistry } from "./repository-registry";
 import type { WorktreeRepository } from "./worktree-repository";
 
-function commandErrorMessage(
-  stderr: string,
-  fallback: string,
-): string {
+function commandErrorMessage(stderr: string, fallback: string): string {
   return stderr.trim() || fallback;
 }
 
@@ -88,9 +80,10 @@ function classifyGitWorkerOperationOutcome(
   if ("type" in result && result.type === "stale-snapshot") return "stale";
   if ("type" in result && result.type === "error") {
     if (
-      "failureReason" in result
-      && (result.failureReason === "timed-out" || result.failureReason === "timed_out")
-    ) return "timed-out";
+      "failureReason" in result &&
+      (result.failureReason === "timed-out" || result.failureReason === "timed_out")
+    )
+      return "timed-out";
     if ("failureReason" in result && result.failureReason === "canceled") {
       return "canceled";
     }
@@ -104,36 +97,34 @@ function classifyGitWorkerOperationOutcome(
 
 export class GitWorkerModule {
   readonly #registry: GitRepositoryRegistry;
-  readonly #publish: (
-    event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent,
-  ) => void;
+  readonly #publish: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
   readonly #liveQueries: GitLiveQueryRegistry;
 
-  constructor(options: {
-    publish?: (
-      event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent,
-    ) => void;
-    registry?: GitRepositoryRegistry;
-  } = {}) {
-    this.#registry = options.registry
-      ?? new GitRepositoryRegistry(new LocalGitCommandRunner());
+  constructor(
+    options: {
+      publish?: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
+      registry?: GitRepositoryRegistry;
+    } = {},
+  ) {
+    this.#registry = options.registry ?? new GitRepositoryRegistry(new LocalGitCommandRunner());
     this.#publish = options.publish ?? (() => undefined);
     this.#liveQueries = new GitLiveQueryRegistry({
       registry: this.#registry,
       publish: this.#publish,
-      execute: async (input) => await this.execute({
-        id: input.id,
-        method: input.method,
-        params: input.params,
-        enqueuedAtMs: Date.now(),
-      } as GitWorkerRequest["request"], input.signal),
+      execute: async (input) =>
+        await this.execute(
+          {
+            id: input.id,
+            method: input.method,
+            params: input.params,
+            enqueuedAtMs: Date.now(),
+          } as GitWorkerRequest["request"],
+          input.signal,
+        ),
     });
   }
 
-  async execute(
-    request: GitWorkerRequest["request"],
-    signal: AbortSignal,
-  ): Promise<unknown> {
+  async execute(request: GitWorkerRequest["request"], signal: AbortSignal): Promise<unknown> {
     const trigger = /:(?:tracked|complete)$/.test(request.id)
       ? "live"
       : GIT_MUTATION_METHODS.has(request.method)
@@ -143,11 +134,12 @@ export class GitWorkerModule {
       operation: request.method,
       trigger,
       classifyOutcome: classifyGitWorkerOperationOutcome,
-      publish: (metric) => this.#publish({
-        type: "git-performance-operation",
-        workerId: "git",
-        metric,
-      }),
+      publish: (metric) =>
+        this.#publish({
+          type: "git-performance-operation",
+          workerId: "git",
+          metric,
+        }),
       run: async () => await this.#executeRequest(request, signal),
     });
   }
@@ -182,41 +174,41 @@ export class GitWorkerModule {
           cwd: request.params.cwd,
           source: request.params.source,
           operation: async (operationSignal, repository) => {
-            const includeUntracked = request.params.includeUntrackedFiles !== false
-              && (request.params.source === "unstaged" || request.params.source === "branch");
+            const includeUntracked =
+              request.params.includeUntrackedFiles !== false &&
+              (request.params.source === "unstaged" || request.params.source === "branch");
             const [untracked, status] = repository
               ? await Promise.all([
-                includeUntracked
-                  ? repository.untrackedPaths.read(operationSignal)
-                  : Promise.resolve(null),
-                this.#readStatusSummary(
-                  repository.identity.root,
-                  includeUntracked,
-                  operationSignal,
-                ),
-              ])
+                  includeUntracked
+                    ? repository.untrackedPaths.read(operationSignal)
+                    : Promise.resolve(null),
+                  this.#readStatusSummary(
+                    repository.identity.root,
+                    includeUntracked,
+                    operationSignal,
+                  ),
+                ])
               : [null, null];
             return await readGitReviewSummary({
               ...request.params,
               requestId: request.id,
               ...(includeUntracked && repository
                 ? {
-                  precomputedUntrackedPaths: untracked?.success
-                    ? untracked.paths
-                    : null,
-                  untrackedFilesOmitted: untracked?.omittedCount ?? 0,
-                }
+                    precomputedUntrackedPaths: untracked?.success ? untracked.paths : null,
+                    untrackedFilesOmitted: untracked?.omittedCount ?? 0,
+                  }
                 : {}),
               ...(repository
                 ? {
-                  precomputedStageCounts: status?.type === "success"
-                    ? {
-                      stagedFileCount: status.stagedCount,
-                      unstagedFileCount: status.unstagedCount,
-                      untrackedFileCount: status.untrackedCount ?? 0,
-                    }
-                    : null,
-                }
+                    precomputedStageCounts:
+                      status?.type === "success"
+                        ? {
+                            stagedFileCount: status.stagedCount,
+                            unstagedFileCount: status.unstagedCount,
+                            untrackedFileCount: status.untrackedCount ?? 0,
+                          }
+                        : null,
+                  }
                 : {}),
             });
           },
@@ -230,19 +222,18 @@ export class GitWorkerModule {
           source: "branch",
           operation: async (operationSignal, repository) => {
             const includeUntracked = request.params.includeUntrackedFiles === true;
-            const untracked = includeUntracked && repository
-              ? await repository.untrackedPaths.read(operationSignal)
-              : null;
+            const untracked =
+              includeUntracked && repository
+                ? await repository.untrackedPaths.read(operationSignal)
+                : null;
             return await readBranchDiffStats({
               ...request.params,
               requestId: request.id,
               ...(includeUntracked && repository
                 ? {
-                  precomputedUntrackedPaths: untracked?.success
-                    ? untracked.paths
-                    : null,
-                  untrackedFilesOmitted: untracked?.omittedCount ?? 0,
-                }
+                    precomputedUntrackedPaths: untracked?.success ? untracked.paths : null,
+                    untrackedFilesOmitted: untracked?.omittedCount ?? 0,
+                  }
                 : {}),
             });
           },
@@ -254,10 +245,11 @@ export class GitWorkerModule {
           signal,
           cwd: request.params.cwd,
           source: request.params.source,
-          operation: async () => await readGitReviewDiff({
-            ...request.params,
-            requestId: request.id,
-          }),
+          operation: async () =>
+            await readGitReviewDiff({
+              ...request.params,
+              requestId: request.id,
+            }),
         });
       case "review-cat-file": {
         const repository = await this.#registry.get(request.params.cwd, signal);
@@ -268,7 +260,10 @@ export class GitWorkerModule {
           repository ?? undefined,
         );
         signal.throwIfAborted();
-        return { type: "success", value: result } satisfies GitWorkerMethodMap["review-cat-file"]["result"];
+        return {
+          type: "success",
+          value: result,
+        } satisfies GitWorkerMethodMap["review-cat-file"]["result"];
       }
       case "review-search":
         return await this.#runReviewRequest({
@@ -277,10 +272,11 @@ export class GitWorkerModule {
           signal,
           cwd: request.params.cwd,
           source: request.params.source,
-          operation: async () => await searchGitReview({
-            ...request.params,
-            requestId: request.id,
-          }),
+          operation: async () =>
+            await searchGitReview({
+              ...request.params,
+              requestId: request.id,
+            }),
         });
       case "review-patch":
         return await this.#runReviewRequest({
@@ -289,10 +285,11 @@ export class GitWorkerModule {
           signal,
           cwd: request.params.cwd,
           source: request.params.source,
-          operation: async () => await readGitReviewPatch({
-            ...request.params,
-            requestId: request.id,
-          }),
+          operation: async () =>
+            await readGitReviewPatch({
+              ...request.params,
+              requestId: request.id,
+            }),
         });
       case "blame-file": {
         const repository = await this.#registry.get(request.params.cwd, signal);
@@ -310,10 +307,11 @@ export class GitWorkerModule {
           signal,
           cwd: request.params.cwd,
           source: "branch",
-          operation: async () => await readGitReviewBaseBranch({
-            ...request.params,
-            requestId: request.id,
-          }),
+          operation: async () =>
+            await readGitReviewBaseBranch({
+              ...request.params,
+              requestId: request.id,
+            }),
         });
       case "branch-commits":
         return await this.#runReviewRequest({
@@ -322,10 +320,11 @@ export class GitWorkerModule {
           signal,
           cwd: request.params.cwd,
           source: "branch",
-          operation: async () => await readGitReviewBranchCommits({
-            ...request.params,
-            requestId: request.id,
-          }),
+          operation: async () =>
+            await readGitReviewBranchCommits({
+              ...request.params,
+              requestId: request.id,
+            }),
         });
       case "merge-base": {
         const repository = await this.#registry.get(request.params.cwd, signal);
@@ -343,16 +342,11 @@ export class GitWorkerModule {
         }
         return {
           type: "success",
-          generation: await repository.invalidateGitReadCachesForRepoChange(
-            "head",
-          ),
+          generation: await repository.invalidateGitReadCachesForRepoChange("head"),
         };
       }
       case "git-init-repo": {
-        const repository = await this.#registry.initialize(
-          request.params.cwd,
-          signal,
-        );
+        const repository = await this.#registry.initialize(request.params.cwd, signal);
         if (!repository) {
           return {
             cwd: request.params.cwd,
@@ -370,10 +364,11 @@ export class GitWorkerModule {
         await repository.invalidateGitReadCachesForRepoChange("head");
         return await runGitReviewOperationWithSignal(
           signal,
-          async () => await readGitReviewSnapshot({
-            cwd: repository.identity.root,
-            source: "unstaged",
-          }),
+          async () =>
+            await readGitReviewSnapshot({
+              cwd: repository.identity.root,
+              source: "unstaged",
+            }),
           repository,
         );
       }
@@ -393,19 +388,9 @@ export class GitWorkerModule {
         return result;
       }
       case "checkout-branch":
-        return await this.#mutateBranch(
-          request.params.cwd,
-          request.params.branch,
-          false,
-          signal,
-        );
+        return await this.#mutateBranch(request.params.cwd, request.params.branch, false, signal);
       case "create-branch":
-        return await this.#mutateBranch(
-          request.params.cwd,
-          request.params.branch,
-          true,
-          signal,
-        );
+        return await this.#mutateBranch(request.params.cwd, request.params.branch, true, signal);
       case "commit":
         return await this.#commit(request.params, signal);
       case "subscribe-live-query": {
@@ -414,23 +399,17 @@ export class GitWorkerModule {
       }
       case "unsubscribe-live-query": {
         return {
-          unsubscribed: this.#liveQueries.unsubscribe(
-            request.params.subscriptionId,
-          ),
+          unsubscribed: this.#liveQueries.unsubscribe(request.params.subscriptionId),
         };
       }
       case "recover-live-query": {
         return {
-          recovered: await this.#liveQueries.recover(
-            request.params.subscriptionId,
-          ),
+          recovered: await this.#liveQueries.recover(request.params.subscriptionId),
         };
       }
       case "refresh-live-query": {
         return {
-          refreshed: await this.#liveQueries.refresh(
-            request.params.subscriptionId,
-          ),
+          refreshed: await this.#liveQueries.refresh(request.params.subscriptionId),
         };
       }
     }
@@ -447,12 +426,8 @@ export class GitWorkerModule {
     signal: AbortSignal;
     cwd: string;
     source: import("../../shared/types").GitReviewSource;
-    operation: (
-      signal: AbortSignal,
-      repository: WorktreeRepository | null,
-    ) => Promise<Result>;
-  },
-  ): Promise<Result | import("../../shared/git-review").GitReviewStaleSnapshotResult> {
+    operation: (signal: AbortSignal, repository: WorktreeRepository | null) => Promise<Result>;
+  }): Promise<Result | import("../../shared/git-review").GitReviewStaleSnapshotResult> {
     const repository = await this.#registry.get(input.cwd, input.signal);
     if (!repository) {
       return await runGitReviewOperationWithSignal(
@@ -515,11 +490,7 @@ export class GitWorkerModule {
         gitReadDomains: ["config", "head", "local-refs", "remote-refs"],
       },
       signal,
-      run: async (querySignal) => await this.#loadStableMetadata(
-        repository,
-        cwd,
-        querySignal,
-      ),
+      run: async (querySignal) => await this.#loadStableMetadata(repository, cwd, querySignal),
     });
   }
 
@@ -531,15 +502,16 @@ export class GitWorkerModule {
     const [currentResult, branchesResult, defaultResult] = await Promise.all([
       repository.runGit(["branch", "--show-current"], { signal }),
       repository.runGit(["branch", "--format=%(refname:short)"], { signal }),
-      repository.runGit(
-        ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-        { allowedNonZeroExitCodes: [1, 128], signal },
-      ),
+      repository.runGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
+        allowedNonZeroExitCodes: [1, 128],
+        signal,
+      }),
     ]);
     signal.throwIfAborted();
     if (!currentResult.success || !branchesResult.success || !defaultResult.success) {
-      const failure = [currentResult, branchesResult, defaultResult]
-        .find((result) => !result.success);
+      const failure = [currentResult, branchesResult, defaultResult].find(
+        (result) => !result.success,
+      );
       return {
         cwd,
         root: repository.identity.root,
@@ -562,11 +534,12 @@ export class GitWorkerModule {
     const remoteDefault = defaultResult.stdout.trim();
     const defaultBranch = remoteDefault.startsWith("origin/")
       ? remoteDefault.slice("origin/".length)
-      : remoteDefault || (branches.includes("main")
-        ? "main"
-        : branches.includes("master")
-          ? "master"
-          : currentBranch);
+      : remoteDefault ||
+        (branches.includes("main")
+          ? "main"
+          : branches.includes("master")
+            ? "master"
+            : currentBranch);
     return {
       cwd,
       root: repository.identity.root,
@@ -579,10 +552,7 @@ export class GitWorkerModule {
     };
   }
 
-  async #readBranchMetadata(
-    cwd: string,
-    signal: AbortSignal,
-  ): Promise<GitBranchMetadataResult> {
+  async #readBranchMetadata(cwd: string, signal: AbortSignal): Promise<GitBranchMetadataResult> {
     const repository = await this.#registry.get(cwd, signal);
     if (!repository) {
       return { currentBranch: null, defaultBranch: null, branches: [] };
@@ -598,41 +568,48 @@ export class GitWorkerModule {
         const [current, branchList, remoteBranches, remoteDefault] = await Promise.all([
           repository.runGit(["branch", "--show-current"], { signal: querySignal }),
           repository.runGit(["branch", "--format=%(refname:short)"], { signal: querySignal }),
-          repository.runGit(
-            ["for-each-ref", "--format=%(refname)", "refs/remotes"],
-            { signal: querySignal },
-          ),
-          repository.runGit(
-            ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-            { allowedNonZeroExitCodes: [1, 128], signal: querySignal },
-          ),
+          repository.runGit(["for-each-ref", "--format=%(refname)", "refs/remotes"], {
+            signal: querySignal,
+          }),
+          repository.runGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
+            allowedNonZeroExitCodes: [1, 128],
+            signal: querySignal,
+          }),
         ]);
         if (
-          !current.success
-          || !branchList.success
-          || !remoteBranches.success
-          || !remoteDefault.success
+          !current.success ||
+          !branchList.success ||
+          !remoteBranches.success ||
+          !remoteDefault.success
         ) {
           return { currentBranch: null, defaultBranch: null, branches: [] };
         }
         const currentBranch = current.stdout.trim() || null;
-        const branches = [...new Set(
-          branchList.stdout.split(/\r?\n/).map((branch) => branch.trim()).filter(Boolean),
-        )];
-        const remoteBranchRefs = [...new Set(
-          remoteBranches.stdout
-            .split(/\r?\n/)
-            .map((branch) => branch.trim())
-            .filter((branch) => branch.length > 0 && !branch.endsWith("/HEAD")),
-        )];
+        const branches = [
+          ...new Set(
+            branchList.stdout
+              .split(/\r?\n/)
+              .map((branch) => branch.trim())
+              .filter(Boolean),
+          ),
+        ];
+        const remoteBranchRefs = [
+          ...new Set(
+            remoteBranches.stdout
+              .split(/\r?\n/)
+              .map((branch) => branch.trim())
+              .filter((branch) => branch.length > 0 && !branch.endsWith("/HEAD")),
+          ),
+        ];
         const remoteDefaultBranch = remoteDefault.stdout.trim();
         const defaultBranch = remoteDefaultBranch.startsWith("origin/")
           ? remoteDefaultBranch.slice("origin/".length)
-          : remoteDefaultBranch || (branches.includes("main")
-            ? "main"
-            : branches.includes("master")
-              ? "master"
-              : currentBranch);
+          : remoteDefaultBranch ||
+            (branches.includes("main")
+              ? "main"
+              : branches.includes("master")
+                ? "master"
+                : currentBranch);
         return { currentBranch, defaultBranch, branches, remoteBranchRefs };
       },
     });
@@ -675,27 +652,19 @@ export class GitWorkerModule {
           } satisfies GitStatusSummaryResult;
         }
         const result = await repository.runGit(
-          [
-            "status",
-            "--no-renames",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=no",
-          ],
+          ["status", "--no-renames", "--porcelain=v1", "-z", "--untracked-files=no"],
           { configOverrides, signal: querySignal },
         );
         if (!result.success) {
           return {
             type: "error",
-            failureReason: result.failureReason === "timed_out"
-              ? "timed-out"
-              : result.failureReason === "canceled"
-                ? "canceled"
-                : "status-command",
-            errorMessage: commandErrorMessage(
-              result.stderr,
-              "Could not read Git status.",
-            ),
+            failureReason:
+              result.failureReason === "timed_out"
+                ? "timed-out"
+                : result.failureReason === "canceled"
+                  ? "canceled"
+                  : "status-command",
+            errorMessage: commandErrorMessage(result.stderr, "Could not read Git status."),
           } satisfies GitStatusSummaryResult;
         }
         const counts = parseTrackedStatusCounts(result.stdout);
@@ -736,10 +705,9 @@ export class GitWorkerModule {
       return { type: "error", errorMessage: "Git repository is required." };
     }
     const branch = rawBranch.trim();
-    const validation = await repository.runGit(
-      ["check-ref-format", "--branch", branch],
-      { signal },
-    );
+    const validation = await repository.runGit(["check-ref-format", "--branch", branch], {
+      signal,
+    });
     if (!validation.success) {
       return { type: "error", errorMessage: "Branch name is invalid." };
     }
@@ -795,28 +763,27 @@ export class GitWorkerModule {
       },
       signal,
       run: async (querySignal) => {
-        const [branches, head, staged, unstaged, remotes, upstream, untracked] =
-          await Promise.all([
-            this.#readBranchMetadata(repository.identity.root, querySignal),
-            repository.runGit(["rev-parse", "--verify", "HEAD"], {
-              allowedNonZeroExitCodes: [128],
-              signal: querySignal,
-            }),
-            repository.runGit(["diff", "--quiet", "--cached"], {
-              allowedNonZeroExitCodes: [1],
-              signal: querySignal,
-            }),
-            repository.runGit(["diff", "--quiet"], {
-              allowedNonZeroExitCodes: [1],
-              signal: querySignal,
-            }),
-            repository.runGit(["remote"], { signal: querySignal }),
-            repository.runGit(
-              ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-              { allowedNonZeroExitCodes: [128], signal: querySignal },
-            ),
-            repository.untrackedPaths.read(querySignal),
-          ]);
+        const [branches, head, staged, unstaged, remotes, upstream, untracked] = await Promise.all([
+          this.#readBranchMetadata(repository.identity.root, querySignal),
+          repository.runGit(["rev-parse", "--verify", "HEAD"], {
+            allowedNonZeroExitCodes: [128],
+            signal: querySignal,
+          }),
+          repository.runGit(["diff", "--quiet", "--cached"], {
+            allowedNonZeroExitCodes: [1],
+            signal: querySignal,
+          }),
+          repository.runGit(["diff", "--quiet"], {
+            allowedNonZeroExitCodes: [1],
+            signal: querySignal,
+          }),
+          repository.runGit(["remote"], { signal: querySignal }),
+          repository.runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+            allowedNonZeroExitCodes: [128],
+            signal: querySignal,
+          }),
+          repository.untrackedPaths.read(querySignal),
+        ]);
         const required = [head, staged, unstaged, remotes, upstream];
         if (required.some((result) => !result.success) || !untracked.success) {
           return {
@@ -828,26 +795,25 @@ export class GitWorkerModule {
         const hasStagedChanges = staged.code === 1;
         const hasUntrackedFiles = untracked.paths.length + untracked.omittedCount > 0;
         const hasUnstagedChanges = unstaged.code === 1 || hasUntrackedFiles;
-        const upstreamBranch = upstream.code === 0
-          ? upstream.stdout.trim() || null
-          : null;
-        const remoteNames = remotes.stdout.split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
+        const upstreamBranch = upstream.code === 0 ? upstream.stdout.trim() || null : null;
+        const remoteNames = remotes.stdout
+          .split(/\r?\n/)
+          .map((name) => name.trim())
+          .filter(Boolean);
         const ahead = upstreamBranch
-          ? await repository.runGit(
-            ["rev-list", "--count", `${upstreamBranch}..HEAD`],
-            { allowedNonZeroExitCodes: [128], signal: querySignal },
-          )
+          ? await repository.runGit(["rev-list", "--count", `${upstreamBranch}..HEAD`], {
+              allowedNonZeroExitCodes: [128],
+              signal: querySignal,
+            })
           : null;
         const commitsAhead = Number.parseInt(ahead?.stdout.trim() ?? "0", 10) || 0;
         const hasUncommittedChanges = hasStagedChanges || hasUnstagedChanges;
-        const pushNeedsUpstream = hasHeadCommit
-          && branches.currentBranch !== null
-          && upstreamBranch === null;
-        const canPush = hasHeadCommit
-          && branches.currentBranch !== null
-          && (upstreamBranch !== null
-            ? commitsAhead > 0
-            : remoteNames.includes("origin"));
+        const pushNeedsUpstream =
+          hasHeadCommit && branches.currentBranch !== null && upstreamBranch === null;
+        const canPush =
+          hasHeadCommit &&
+          branches.currentBranch !== null &&
+          (upstreamBranch !== null ? commitsAhead > 0 : remoteNames.includes("origin"));
         return {
           cwd: repository.identity.root,
           isGitRepository: true,
@@ -918,10 +884,10 @@ export class GitWorkerModule {
           : commandErrorMessage(staged.stderr, "Could not inspect staged changes."),
       };
     }
-    const commit = await repository.runGit(
-      ["commit", "-m", input.message.trim()],
-      { timeoutMs: null, signal },
-    );
+    const commit = await repository.runGit(["commit", "-m", input.message.trim()], {
+      timeoutMs: null,
+      signal,
+    });
     if (!commit.success) {
       return {
         cwd: repository.identity.root,

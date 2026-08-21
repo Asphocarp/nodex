@@ -35,7 +35,8 @@ describe("local conversation host bridge", () => {
       });
     });
 
-    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } =
+      await loadHostBridgeModule();
     const stop = startLocalConversationHostBridge();
     hostMessageListener?.({
       type: "threadTitleUpdated",
@@ -44,12 +45,14 @@ describe("local conversation host bridge", () => {
       title: "Backfill cached thread names",
     });
 
-    expect(JSON.stringify(received)).toBe(JSON.stringify([
-      {
-        conversationId: "thread-1",
-        title: "Backfill cached thread names",
-      },
-    ]));
+    expect(JSON.stringify(received)).toBe(
+      JSON.stringify([
+        {
+          conversationId: "thread-1",
+          title: "Backfill cached thread names",
+        },
+      ]),
+    );
 
     stop();
     unsubscribe();
@@ -61,17 +64,15 @@ describe("local conversation host bridge", () => {
       checkpointHash: string | null;
       baseCheckpointHash: string | null;
     }> = [];
-    const unsubscribe = subscribeCodexAppServerMessage(
-      "thread-stream-state-changed",
-      (event) => {
-        received.push({
-          checkpointHash: event.checkpoint?.canonicalHash ?? null,
-          baseCheckpointHash: event.baseCheckpoint?.canonicalHash ?? null,
-        });
-      },
-    );
+    const unsubscribe = subscribeCodexAppServerMessage("thread-stream-state-changed", (event) => {
+      received.push({
+        checkpointHash: event.checkpoint?.canonicalHash ?? null,
+        baseCheckpointHash: event.baseCheckpoint?.canonicalHash ?? null,
+      });
+    });
 
-    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } =
+      await loadHostBridgeModule();
     const stop = startLocalConversationHostBridge();
     hostMessageListener?.({
       type: "threadStreamStateChanged",
@@ -99,10 +100,12 @@ describe("local conversation host bridge", () => {
       },
     });
 
-    expect(received).toEqual([{
-      checkpointHash: "next-hash",
-      baseCheckpointHash: "base-hash",
-    }]);
+    expect(received).toEqual([
+      {
+        checkpointHash: "next-hash",
+        baseCheckpointHash: "base-hash",
+      },
+    ]);
 
     stop();
     unsubscribe();
@@ -118,7 +121,8 @@ describe("local conversation host bridge", () => {
       });
     });
 
-    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } =
+      await loadHostBridgeModule();
     const stop = startLocalConversationHostBridge();
     hostMessageListener?.({
       type: "error",
@@ -127,12 +131,14 @@ describe("local conversation host bridge", () => {
       detail: "boom",
     });
 
-    expect(JSON.stringify(received)).toBe(JSON.stringify([
-      {
-        message: "Host request failed",
-        detail: "boom",
-      },
-    ]));
+    expect(JSON.stringify(received)).toBe(
+      JSON.stringify([
+        {
+          message: "Host request failed",
+          detail: "boom",
+        },
+      ]),
+    );
 
     stop();
     unsubscribe();
@@ -145,7 +151,8 @@ describe("local conversation host bridge", () => {
       received.push(event.threadId);
     });
 
-    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } =
+      await loadHostBridgeModule();
     const stop = startLocalConversationHostBridge();
     hostMessageListener?.({
       type: "threadDeleted",
@@ -171,7 +178,8 @@ describe("local conversation host bridge", () => {
       });
     });
 
-    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } =
+      await loadHostBridgeModule();
     const stop = startLocalConversationHostBridge();
     hostMessageListener?.({
       type: "threadOwnerNotification",
@@ -188,13 +196,15 @@ describe("local conversation host bridge", () => {
       },
     });
 
-    expect(JSON.stringify(received)).toBe(JSON.stringify([
-      {
-        method: "item/agentMessage/delta",
-        sequence: 7,
-        delta: "hello",
-      },
-    ]));
+    expect(JSON.stringify(received)).toBe(
+      JSON.stringify([
+        {
+          method: "item/agentMessage/delta",
+          sequence: 7,
+          delta: "hello",
+        },
+      ]),
+    );
 
     stop();
     unsubscribe();
@@ -210,7 +220,8 @@ describe("local conversation host bridge", () => {
       });
     });
 
-    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } =
+      await loadHostBridgeModule();
     const stop = startLocalConversationHostBridge();
     hostMessageListener?.({
       type: "threadOwnerUnavailable",
@@ -219,12 +230,14 @@ describe("local conversation host bridge", () => {
       conversationIds: ["thread-1", "thread-2"],
     });
 
-    expect(JSON.stringify(received)).toBe(JSON.stringify([
-      {
-        ownerClientId: "owner-a",
-        conversationIds: "thread-1,thread-2",
-      },
-    ]));
+    expect(JSON.stringify(received)).toBe(
+      JSON.stringify([
+        {
+          ownerClientId: "owner-a",
+          conversationIds: "thread-1,thread-2",
+        },
+      ]),
+    );
 
     stop();
     unsubscribe();

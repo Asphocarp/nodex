@@ -21,10 +21,12 @@ interface EditorForDragSourceResolver {
 }
 
 export function hasClosest(value: unknown): value is Element {
-  return typeof value === "object"
-    && value !== null
-    && "closest" in value
-    && typeof (value as { closest?: unknown }).closest === "function";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "closest" in value &&
+    typeof (value as { closest?: unknown }).closest === "function"
+  );
 }
 
 export function getElementFromTarget(target: EventTarget | null): Element | null {
@@ -63,7 +65,9 @@ export function resolveDraggedBlockIds(
   editor: EditorForDragSourceResolver,
   container: HTMLElement,
 ): string[] {
-  const selection = editor.prosemirrorView?.state.selection as EditorProseMirrorSelectionLike | undefined;
+  const selection = editor.prosemirrorView?.state.selection as
+    | EditorProseMirrorSelectionLike
+    | undefined;
   if (selection) {
     if (Array.isArray(selection.nodes)) {
       const ids = selection.nodes

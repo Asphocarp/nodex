@@ -1,10 +1,9 @@
 {
   "name": "nodex",
   "version": "0.2.2",
+  "private": true,
   "description": "Block-based Agent Orchestrator",
   "license": "MIT",
-  "private": true,
-  "packageManager": "pnpm@11.11.0",
   "workspaces": [
     "packages/*",
     "third_party/blocknote/packages/*"
@@ -200,9 +199,9 @@
     "@nodex/codex-app-server-protocol": "workspace:*",
     "@nodex/core-protocol": "workspace:*",
     "@oxlint/plugins": "1.79.0",
-    "@playwright/test": "1.61.1",
     "@pierre/diffs": "1.3.0-rc.1",
     "@pierre/trees": "1.0.0-beta.6",
+    "@playwright/test": "1.61.1",
     "@radix-ui/react-collapsible": "1.1.16",
     "@radix-ui/react-context-menu": "2.3.3",
     "@radix-ui/react-dialog": "1.1.19",
@@ -297,5 +296,6 @@
   },
   "engines": {
     "node": ">=24.15.0 <25"
-  }
+  },
+  "packageManager": "pnpm@11.11.0"
 }

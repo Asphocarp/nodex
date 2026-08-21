@@ -27,6 +27,6 @@ describe("nfm send-to-thread block", () => {
     });
 
     const nfm = serializeNfm(blockNoteToNfm([block]));
-    expect(nfm).toBe("▶ sent to <mention-thread uuid=\"thread-123\" />\n\tOriginal note");
+    expect(nfm).toBe('▶ sent to <mention-thread uuid="thread-123" />\n\tOriginal note');
   });
 });

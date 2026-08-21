@@ -46,10 +46,8 @@ interface PendingCredentialCandidate {
 export class BrowserCredentialService {
   private readonly vault: BrowserCredentialVault;
   private readonly resolveGuest: BrowserCredentialServiceOptions["resolveGuest"];
-  private readonly resolveGuestIdentity:
-    BrowserCredentialServiceOptions["resolveGuestIdentity"];
-  private readonly resolveGuestOwner:
-    BrowserCredentialServiceOptions["resolveGuestOwner"];
+  private readonly resolveGuestIdentity: BrowserCredentialServiceOptions["resolveGuestIdentity"];
+  private readonly resolveGuestOwner: BrowserCredentialServiceOptions["resolveGuestOwner"];
   private readonly now: () => number;
   private readonly candidates = new Map<string, PendingCredentialCandidate>();
 
@@ -65,9 +63,7 @@ export class BrowserCredentialService {
     return this.vault.capability();
   }
 
-  async listForTab(
-    input: BrowserCredentialListInput,
-  ): Promise<BrowserCredentialSummary[]> {
+  async listForTab(input: BrowserCredentialListInput): Promise<BrowserCredentialSummary[]> {
     const origin = this.readCurrentOrigin(input);
     if (!origin) return [];
     return await this.vault.listForOrigin(origin);
@@ -81,9 +77,7 @@ export class BrowserCredentialService {
     return await this.vault.listContactInfo();
   }
 
-  async saveContactInfo(
-    input: BrowserContactInfoUpsertInput,
-  ): Promise<BrowserContactInfo> {
+  async saveContactInfo(input: BrowserContactInfoUpsertInput): Promise<BrowserContactInfo> {
     return await this.vault.saveContactInfo(input);
   }
 
@@ -197,11 +191,11 @@ export class BrowserCredentialService {
     const ownerWebContentsId = this.resolveGuestOwner(guestWebContentsId);
     const guest = identity ? this.resolveGuest(identity) : null;
     if (
-      !identity
-      || ownerWebContentsId === null
-      || !guest
-      || guest.id !== guestWebContentsId
-      || guest.isDestroyed()
+      !identity ||
+      ownerWebContentsId === null ||
+      !guest ||
+      guest.id !== guestWebContentsId ||
+      guest.isDestroyed()
     ) {
       return null;
     }
@@ -264,9 +258,7 @@ export class BrowserCredentialService {
     }
   }
 
-  private readCurrentOrigin(
-    identity: BrowserSidebarTabIdentity,
-  ): string | null {
+  private readCurrentOrigin(identity: BrowserSidebarTabIdentity): string | null {
     const guest = this.resolveGuest(identity);
     if (!guest || guest.isDestroyed()) return null;
     try {
@@ -276,9 +268,7 @@ export class BrowserCredentialService {
     }
   }
 
-  private requireGuest(
-    identity: BrowserSidebarTabIdentity,
-  ): BrowserCredentialGuest {
+  private requireGuest(identity: BrowserSidebarTabIdentity): BrowserCredentialGuest {
     const guest = this.resolveGuest(identity);
     if (!guest || guest.isDestroyed()) {
       throw new Error("Browser page is not attached");
@@ -295,8 +285,9 @@ export class BrowserCredentialService {
 
   private enforceCandidateLimit(): void {
     if (this.candidates.size <= MAX_PENDING_CANDIDATES) return;
-    const oldest = [...this.candidates.values()]
-      .sort((left, right) => left.expiresAt - right.expiresAt)[0];
+    const oldest = [...this.candidates.values()].sort(
+      (left, right) => left.expiresAt - right.expiresAt,
+    )[0];
     if (oldest) this.candidates.delete(oldest.candidateId);
   }
 }
@@ -308,11 +299,7 @@ function readHttpOrigin(value: string): string {
   } catch {
     throw new Error("The current Browser page has no credential origin");
   }
-  if (
-    (url.protocol !== "https:" && url.protocol !== "http:")
-    || url.username
-    || url.password
-  ) {
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) {
     throw new Error("Browser credentials require an HTTP(S) page");
   }
   return url.origin;
@@ -321,8 +308,7 @@ function readHttpOrigin(value: string): string {
 function actionFailure(error: unknown): BrowserCredentialActionResult {
   return {
     ok: false,
-    message: error instanceof Error
-      ? error.message.slice(0, 1_024)
-      : "Browser credential action failed",
+    message:
+      error instanceof Error ? error.message.slice(0, 1_024) : "Browser credential action failed",
   };
 }

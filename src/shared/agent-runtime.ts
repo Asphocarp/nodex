@@ -25,11 +25,7 @@ export interface AgentTurnIntelligence {
  */
 export interface AgentExecutionProfile extends AgentRuntimeBinding, AgentTurnIntelligence {}
 
-export type AgentExecutionProfileChange =
-  | "provider"
-  | "model"
-  | "reasoningEffort"
-  | "serviceTier";
+export type AgentExecutionProfileChange = "provider" | "model" | "reasoningEffort" | "serviceTier";
 
 export interface AgentReasoningEffortOption {
   readonly value: string;
@@ -46,8 +42,10 @@ export interface AgentServiceTierOption {
 export function isFastAgentServiceTierOption(
   option: Pick<AgentServiceTierOption, "value" | "displayName">,
 ): boolean {
-  return option.value?.trim().toLocaleLowerCase() === "fast"
-    || option.displayName.trim().toLocaleLowerCase() === "fast";
+  return (
+    option.value?.trim().toLocaleLowerCase() === "fast" ||
+    option.displayName.trim().toLocaleLowerCase() === "fast"
+  );
 }
 
 export interface AgentModelOption {

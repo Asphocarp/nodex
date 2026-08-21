@@ -17,11 +17,8 @@ describe("composer dictation waveform", () => {
       bucketSize: 3356,
     });
 
-    const representedDurationSeconds = (
-      geometry.bucketCount
-      * geometry.bucketSize
-      / COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ
-    );
+    const representedDurationSeconds =
+      (geometry.bucketCount * geometry.bucketSize) / COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
     expect(representedDurationSeconds).toBeCloseTo(
       COMPOSER_DICTATION_WAVEFORM_BUFFER_DURATION_SECONDS,
       2,
@@ -32,11 +29,8 @@ describe("composer dictation waveform", () => {
     "preserves the ten-second window at a %i Hz device sample rate",
     (sampleRateHz) => {
       const geometry = resolveComposerDictationWaveformGeometry(574, sampleRateHz);
-      const representedDurationSeconds = (
-        geometry.bucketCount
-        * geometry.bucketSize
-        / sampleRateHz
-      );
+      const representedDurationSeconds =
+        (geometry.bucketCount * geometry.bucketSize) / sampleRateHz;
 
       expect(representedDurationSeconds).toBeCloseTo(
         COMPOSER_DICTATION_WAVEFORM_BUFFER_DURATION_SECONDS,

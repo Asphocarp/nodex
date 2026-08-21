@@ -54,13 +54,16 @@ describe("agent config chip helpers", () => {
   });
 
   test("uses visible model display names in chip details", () => {
-    const chip = resolveAgentConfigChip({
-      mode: "plan",
-      model: "gpt-5.5",
-      reasoning: "",
-      unknownAttributes: "",
-      rawAttributes: "",
-    }, MODELS);
+    const chip = resolveAgentConfigChip(
+      {
+        mode: "plan",
+        model: "gpt-5.5",
+        reasoning: "",
+        unknownAttributes: "",
+        rawAttributes: "",
+      },
+      MODELS,
+    );
 
     expect(chip.detail).toBe("GPT-5.5");
   });
@@ -81,13 +84,16 @@ describe("agent config chip helpers", () => {
   });
 
   test("field edits preserve untouched props and clear malformed metadata", () => {
-    const update = buildAgentConfigUpdate({
-      mode: "plan",
-      model: "gpt-5.5",
-      reasoning: "high",
-      unknownAttributes: "mood",
-      rawAttributes: 'mood="plan"',
-    }, { mode: "default" });
+    const update = buildAgentConfigUpdate(
+      {
+        mode: "plan",
+        model: "gpt-5.5",
+        reasoning: "high",
+        unknownAttributes: "mood",
+        rawAttributes: 'mood="plan"',
+      },
+      { mode: "default" },
+    );
 
     expect(update.type).toBe("agentConfig");
     expect(update.props.mode).toBe("default");
@@ -115,7 +121,7 @@ describe("agent config chip popover", () => {
       view = render(
         <AgentConfigInlineContentView
           inlineContent={{ props: { mode: "plan" } }}
-          updateInlineContent={() => { }}
+          updateInlineContent={() => {}}
           availableModels={MODELS}
         />,
       );
@@ -126,7 +132,9 @@ describe("agent config chip popover", () => {
       await settleAsyncRender();
     });
 
-    const content = view.container.ownerDocument.body.querySelector('[data-slot="popover-content"]');
+    const content = view.container.ownerDocument.body.querySelector(
+      '[data-slot="popover-content"]',
+    );
     expect(content).not.toBeNull();
     expect(content?.textContent?.includes("Applies only to this prompt send.")).toBe(true);
   });

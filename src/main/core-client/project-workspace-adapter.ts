@@ -37,10 +37,7 @@ import {
   ProjectSessionUpdateInputSchema,
 } from "../../shared/schemas/project-sessions";
 import { CoreModuleResponseError } from "./core-client";
-import type {
-  CoreClientPort,
-  ProjectWorkspaceReadSnapshot,
-} from "./types";
+import type { CoreClientPort, ProjectWorkspaceReadSnapshot } from "./types";
 import { applyResultCursor } from "./types";
 
 type CoreProject = Extract<
@@ -56,10 +53,7 @@ type CoreTask = Extract<
   { kind: "task_window" }
 >["tasks"]["items"][number];
 type CoreTaskThread = NonNullable<CoreTask["thread"]>;
-type CoreThread = Extract<
-  ProjectWorkspaceReadSnapshot["value"],
-  { kind: "thread" }
->["thread"];
+type CoreThread = Extract<ProjectWorkspaceReadSnapshot["value"], { kind: "thread" }>["thread"];
 type CoreBackgroundProcess = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "background_process_window" }
@@ -254,35 +248,22 @@ export interface DesktopProjectWorkspacePort {
     projectIds: readonly string[],
   ): Promise<ProjectActivitySummaryResult>;
   getProject(projectId: string): Promise<Project | null>;
-  readProjectPermissionMode(
-    projectId: string,
-  ): Promise<CodexPermissionMode | null>;
+  readProjectPermissionMode(projectId: string): Promise<CodexPermissionMode | null>;
   readProjectlessPermissionMode(): Promise<CodexPermissionMode | null>;
   setProjectPermissionMode(
     projectId: string,
     mode: CodexPermissionMode,
   ): Promise<CodexPermissionMode>;
-  setProjectlessPermissionMode(
-    mode: CodexPermissionMode,
-  ): Promise<CodexPermissionMode>;
+  setProjectlessPermissionMode(mode: CodexPermissionMode): Promise<CodexPermissionMode>;
   createInitialProject(
     input: DesktopInitialProjectCreateInput,
   ): Promise<DesktopInitialProjectCreateResult>;
   createProject(input: ProjectCreateInput): Promise<Project>;
-  updateProject(
-    projectId: string,
-    input: ProjectUpdateInput,
-  ): Promise<Project | null>;
+  updateProject(projectId: string, input: ProjectUpdateInput): Promise<Project | null>;
   reorderProjects(input: ProjectOrderInput): Promise<void>;
-  setProjectPinned(
-    projectId: string,
-    input: ProjectPinnedInput,
-  ): Promise<Project | null>;
+  setProjectPinned(projectId: string, input: ProjectPinnedInput): Promise<Project | null>;
   setPinnedProjectOrder(input: ProjectPinnedOrderInput): Promise<void>;
-  setProjectLifecycle(
-    projectId: string,
-    lifecycle: Project["lifecycle"],
-  ): Promise<Project | null>;
+  setProjectLifecycle(projectId: string, lifecycle: Project["lifecycle"]): Promise<Project | null>;
   listProjectSessionSummaryWindow(
     projectId: string | null,
     input?: ProjectSessionSummaryWindowInput,
@@ -300,15 +281,10 @@ export interface DesktopProjectWorkspacePort {
     sessionId: string,
     input: ProjectSessionRenameInput,
   ): Promise<ProjectSession | null>;
-  ensureDefaultDraftProjectSession(
-    projectId: string | null,
-  ): Promise<ProjectSession>;
+  ensureDefaultDraftProjectSession(projectId: string | null): Promise<ProjectSession>;
   createProjectSession(input: ProjectSessionCreateInput): Promise<ProjectSession>;
   deleteProjectSession(sessionId: string): Promise<boolean>;
-  reorderProjectSessions(
-    projectId: string | null,
-    orderedSessionIds: string[],
-  ): Promise<void>;
+  reorderProjectSessions(projectId: string | null, orderedSessionIds: string[]): Promise<void>;
   setProjectSessionPinned(
     sessionId: string,
     input: ProjectSessionPinnedInput,
@@ -327,9 +303,7 @@ export interface DesktopProjectWorkspacePort {
     input: ProjectSessionThreadLinkInput,
   ): Promise<ProjectSessionThreadLink>;
   detachProjectSessionThread(sessionId: string): Promise<boolean>;
-  getThread(
-    threadId: string,
-  ): Promise<DesktopProjectWorkspaceThread | null>;
+  getThread(threadId: string): Promise<DesktopProjectWorkspaceThread | null>;
   upsertThread(
     threadId: string,
     patch: DesktopProjectWorkspaceThreadPatch,
@@ -347,22 +321,13 @@ export interface DesktopProjectWorkspacePort {
     readonly operationId: string;
     readonly projectionRevision: number;
   }>;
-  setThreadUnread(
-    threadId: string,
-    unread: boolean,
-  ): Promise<DesktopProjectWorkspaceThread | null>;
-  setThreadArchived(
-    threadId: string,
-    archived: boolean,
-  ): Promise<DesktopProjectWorkspaceSidebar>;
+  setThreadUnread(threadId: string, unread: boolean): Promise<DesktopProjectWorkspaceThread | null>;
+  setThreadArchived(threadId: string, archived: boolean): Promise<DesktopProjectWorkspaceSidebar>;
   deleteThread(threadId: string): Promise<{
     readonly deleted: boolean;
     readonly sidebar: DesktopProjectWorkspaceSidebar;
   }>;
-  observeAppServerThreadWindow(
-    sweepId: string,
-    threadIds: readonly string[],
-  ): Promise<void>;
+  observeAppServerThreadWindow(sweepId: string, threadIds: readonly string[]): Promise<void>;
   reconcileAppServerThreadSweep(
     sweepId: string,
     limit?: number,
@@ -374,24 +339,17 @@ export interface DesktopProjectWorkspacePort {
     threadId: string,
     catalogs: readonly DynamicToolCatalogSelection[],
   ): Promise<readonly DynamicToolCatalogSelection[]>;
-  mergeThreadWritableRoots(
-    threadId: string,
-    roots: readonly string[],
-  ): Promise<readonly string[]>;
+  mergeThreadWritableRoots(threadId: string, roots: readonly string[]): Promise<readonly string[]>;
   replaceThreadWritableRoots(
     threadId: string,
     roots: readonly string[],
   ): Promise<readonly string[]>;
-  listBackgroundProcesses(
-    threadId?: string | null,
-  ): Promise<CodexBackgroundProcessRecord[]>;
-  listManagedWorktreeWindow(
-    input?: {
-      projectId?: string | null;
-      after?: string | null;
-      first?: number;
-    },
-  ): Promise<DesktopManagedWorktreeWindow>;
+  listBackgroundProcesses(threadId?: string | null): Promise<CodexBackgroundProcessRecord[]>;
+  listManagedWorktreeWindow(input?: {
+    projectId?: string | null;
+    after?: string | null;
+    first?: number;
+  }): Promise<DesktopManagedWorktreeWindow>;
   readManagedWorktreeLifecycleSnapshot(): Promise<DesktopManagedWorktreeLifecycleSnapshot>;
   upsertBackgroundProcess(
     input: CodexBackgroundProcessRecord,
@@ -408,8 +366,7 @@ export interface DesktopProjectWorkspacePort {
 }
 
 const isNotFound = (error: unknown): boolean =>
-  error instanceof CoreModuleResponseError &&
-  error.coreError.code === "not_found";
+  error instanceof CoreModuleResponseError && error.coreError.code === "not_found";
 
 const fromCoreProject = (project: CoreProject): Project => ({
   id: project.id,
@@ -463,8 +420,7 @@ const fromCoreThread = (
   cwd: thread.cwd ?? undefined,
   managedWorktreePath: thread.managed_worktree_path ?? null,
   projectlessOutputDirectory: thread.projectless_output_directory ?? null,
-  projectlessWorkspaceBrowserRoot:
-    thread.projectless_workspace_browser_root ?? null,
+  projectlessWorkspaceBrowserRoot: thread.projectless_workspace_browser_root ?? null,
   statusType: thread.status.status_type,
   statusActiveFlags: [...thread.status.active_flags],
   archived: thread.archived,
@@ -521,9 +477,7 @@ const fromCoreBackgroundProcess = (
   updatedAtMs: process.updated_at_ms,
 });
 
-const fromCoreWorkspaceThread = (
-  thread: CoreThread,
-): DesktopProjectWorkspaceThread => ({
+const fromCoreWorkspaceThread = (thread: CoreThread): DesktopProjectWorkspaceThread => ({
   threadId: thread.thread_id,
   projectId: thread.project_id ?? null,
   sessionId: thread.session_id ?? null,
@@ -550,8 +504,7 @@ const fromCoreWorkspaceThread = (
   cwd: thread.cwd ?? null,
   managedWorktreePath: thread.managed_worktree_path ?? null,
   projectlessOutputDirectory: thread.projectless_output_directory ?? null,
-  projectlessWorkspaceBrowserRoot:
-    thread.projectless_workspace_browser_root ?? null,
+  projectlessWorkspaceBrowserRoot: thread.projectless_workspace_browser_root ?? null,
   statusType: thread.status.status_type,
   statusActiveFlags: [...thread.status.active_flags],
   archived: thread.archived,
@@ -563,26 +516,23 @@ const fromCoreWorkspaceThread = (
   linkedAt: thread.linked_at,
 });
 
-const toCoreExecutionProfilePatch = (
-  profile: AgentExecutionProfile | null,
-) => profile
-  ? {
-      model_provider: profile.providerId,
-      model_id: profile.modelId,
-      harness_id: profile.harnessId,
-      reasoning_effort: profile.reasoningEffort,
-      service_tier: profile.serviceTier,
-    }
-  : {
-      model_id: null,
-      harness_id: null,
-      reasoning_effort: null,
-      service_tier: null,
-    };
+const toCoreExecutionProfilePatch = (profile: AgentExecutionProfile | null) =>
+  profile
+    ? {
+        model_provider: profile.providerId,
+        model_id: profile.modelId,
+        harness_id: profile.harnessId,
+        reasoning_effort: profile.reasoningEffort,
+        service_tier: profile.serviceTier,
+      }
+    : {
+        model_id: null,
+        harness_id: null,
+        reasoning_effort: null,
+        service_tier: null,
+      };
 
-const toCoreThreadPatch = (
-  patch: DesktopProjectWorkspaceThreadPatch,
-) => ({
+const toCoreThreadPatch = (patch: DesktopProjectWorkspaceThreadPatch) => ({
   ...(Object.prototype.hasOwnProperty.call(patch, "projectId")
     ? { project_id: patch.projectId ?? null }
     : {}),
@@ -610,21 +560,13 @@ const toCoreThreadPatch = (
   ...(Object.prototype.hasOwnProperty.call(patch, "agentPath")
     ? { agent_path: patch.agentPath ?? null }
     : {}),
-  ...(patch.threadPreview === undefined
-    ? {}
-    : { thread_preview: patch.threadPreview }),
-  ...(patch.modelProvider === undefined
-    ? {}
-    : { model_provider: patch.modelProvider }),
+  ...(patch.threadPreview === undefined ? {} : { thread_preview: patch.threadPreview }),
+  ...(patch.modelProvider === undefined ? {} : { model_provider: patch.modelProvider }),
   ...(Object.prototype.hasOwnProperty.call(patch, "executionProfile")
     ? toCoreExecutionProfilePatch(patch.executionProfile ?? null)
     : {}),
-  ...(patch.executionHostId === undefined
-    ? {}
-    : { execution_host_id: patch.executionHostId }),
-  ...(Object.prototype.hasOwnProperty.call(patch, "cwd")
-    ? { cwd: patch.cwd ?? null }
-    : {}),
+  ...(patch.executionHostId === undefined ? {} : { execution_host_id: patch.executionHostId }),
+  ...(Object.prototype.hasOwnProperty.call(patch, "cwd") ? { cwd: patch.cwd ?? null } : {}),
   ...(Object.prototype.hasOwnProperty.call(patch, "managedWorktreePath")
     ? { managed_worktree_path: patch.managedWorktreePath ?? null }
     : {}),
@@ -633,8 +575,7 @@ const toCoreThreadPatch = (
     : {}),
   ...(Object.prototype.hasOwnProperty.call(patch, "projectlessWorkspaceBrowserRoot")
     ? {
-        projectless_workspace_browser_root:
-          patch.projectlessWorkspaceBrowserRoot ?? null,
+        projectless_workspace_browser_root: patch.projectlessWorkspaceBrowserRoot ?? null,
       }
     : {}),
   ...(patch.status === undefined
@@ -657,9 +598,7 @@ const toCoreThreadLane = (projectId: string | null) =>
     ? { kind: "projectless" as const }
     : { kind: "project" as const, project_id: projectId };
 
-const toCoreThreadMovePlacement = (
-  input: DesktopProjectWorkspaceThreadMoveInput,
-) => {
+const toCoreThreadMovePlacement = (input: DesktopProjectWorkspaceThreadMoveInput) => {
   const movedThreadId = input.threadId.trim();
   const beforeThreadId = input.beforeThreadId?.trim() || null;
   const afterThreadId = input.afterThreadId?.trim() || null;
@@ -707,8 +646,7 @@ const toCoreThreadMoveMetadata = (
     : {}),
   ...(metadata && Object.prototype.hasOwnProperty.call(metadata, "projectlessWorkspaceBrowserRoot")
     ? {
-        projectless_workspace_browser_root:
-          metadata.projectlessWorkspaceBrowserRoot ?? null,
+        projectless_workspace_browser_root: metadata.projectlessWorkspaceBrowserRoot ?? null,
       }
     : {}),
 });
@@ -744,11 +682,7 @@ const fromCoreTask = (task: CoreTask): ProjectSessionSummary =>
   fromCoreSessionSummary(
     task.session,
     task.thread
-      ? fromCoreTaskThread(
-          task.thread,
-          task.session.id,
-          task.session.project_id ?? null,
-        )
+      ? fromCoreTaskThread(task.thread, task.session.id, task.session.project_id ?? null)
       : null,
   );
 
@@ -814,19 +748,15 @@ export function createCoreProjectWorkspaceAdapter(
       threadId: context.thread.thread_id,
       projectId: context.thread.project_id ?? null,
       permissionMode: context.permission_mode ?? null,
-      dynamicToolCatalogs: context.thread.dynamic_tool_catalogs.map(
-        (catalog) => ({
-          namespace: catalog.namespace,
-          toolsetRevision: catalog.toolset_revision,
-        }),
-      ),
+      dynamicToolCatalogs: context.thread.dynamic_tool_catalogs.map((catalog) => ({
+        namespace: catalog.namespace,
+        toolsetRevision: catalog.toolset_revision,
+      })),
       writableRoots: [...context.thread.writable_roots],
     };
   };
 
-  const getThread = async (
-    threadId: string,
-  ): Promise<DesktopProjectWorkspaceThread | null> => {
+  const getThread = async (threadId: string): Promise<DesktopProjectWorkspaceThread | null> => {
     const thread = await readCoreThread(threadId);
     return thread ? fromCoreWorkspaceThread(thread) : null;
   };
@@ -838,11 +768,7 @@ export function createCoreProjectWorkspaceAdapter(
     if (!threadId) return null;
     const thread = await readCoreThread(threadId);
     if (!thread) throw new Error(`Linked Core Thread not found: ${threadId}`);
-    return fromCoreThread(
-      thread,
-      summary.id,
-      summary.project_id ?? null,
-    );
+    return fromCoreThread(thread, summary.id, summary.project_id ?? null);
   };
 
   const readSession = async (sessionId: string): Promise<ProjectSession | null> => {
@@ -913,9 +839,7 @@ export function createCoreProjectWorkspaceAdapter(
     };
   };
 
-  const readProjectWindow = async (
-    input: ProjectWindowInput = {},
-  ): Promise<ProjectWindow> => {
+  const readProjectWindow = async (input: ProjectWindowInput = {}): Promise<ProjectWindow> => {
     const snapshot = await client.workspaceRead({
       kind: "project_window",
       include_archived: input.includeArchived ?? false,
@@ -930,8 +854,9 @@ export function createCoreProjectWorkspaceAdapter(
     return {
       items: snapshot.value.projects.items.map(fromCoreProject),
       nextCursor: snapshot.value.projects.next_cursor ?? null,
-      hasMore: snapshot.value.projects.next_cursor !== null
-        && snapshot.value.projects.next_cursor !== undefined,
+      hasMore:
+        snapshot.value.projects.next_cursor !== null &&
+        snapshot.value.projects.next_cursor !== undefined,
       projectionRevision: snapshot.value.projects.authority.projection_revision,
     };
   };
@@ -965,9 +890,7 @@ export function createCoreProjectWorkspaceAdapter(
       project_ids: [...projectIds],
     });
     if (snapshot.value.kind !== "project_activity_summaries") {
-      throw new Error(
-        "Core returned the wrong Project activity summaries read variant",
-      );
+      throw new Error("Core returned the wrong Project activity summaries read variant");
     }
     return {
       summaries: snapshot.value.summaries.map((summary) => ({
@@ -1067,41 +990,41 @@ export function createCoreProjectWorkspaceAdapter(
     };
   };
 
-  const readManagedWorktreeLifecycleSnapshot = async (
-  ): Promise<DesktopManagedWorktreeLifecycleSnapshot> => {
-    const read = await client.workspaceRead({
-      kind: "managed_worktree_lifecycle_snapshot",
-    });
-    if (read.value.kind !== "managed_worktree_lifecycle_snapshot") {
-      throw new Error("Core returned the wrong managed-worktree lifecycle variant");
-    }
-    const snapshot: CoreManagedWorktreeLifecycleSnapshot = read.value.snapshot;
-    return {
-      projectionRevision: snapshot.projection_revision,
-      consumers: snapshot.consumers.map((consumer) => ({
-        threadId: consumer.thread_id,
-        projectId: consumer.project_id ?? null,
-        sessionId: consumer.session_id ?? null,
-        executionHostId: consumer.execution_host_id,
-        cwd: consumer.cwd ?? null,
-        managedWorktreePath: consumer.managed_worktree_path,
-        runtimeWorkspaceRoots: [...consumer.runtime_workspace_roots],
-        archived: consumer.archived,
-        pinnedOrder: consumer.pinned_order ?? null,
-        statusType: consumer.status.status_type,
-        statusActiveFlags: [...consumer.status.active_flags],
-        createdAt: consumer.created_at,
-        updatedAt: consumer.updated_at,
-        linkedAt: consumer.linked_at,
-      })),
-      projects: snapshot.projects.map((project) => ({
-        projectId: project.project_id,
-        lifecycle: project.lifecycle,
-        sourceRoots: project.sources.map((source) => source.root),
-        primaryWorkspaceRoot: project.primary_workspace_root ?? null,
-      })),
+  const readManagedWorktreeLifecycleSnapshot =
+    async (): Promise<DesktopManagedWorktreeLifecycleSnapshot> => {
+      const read = await client.workspaceRead({
+        kind: "managed_worktree_lifecycle_snapshot",
+      });
+      if (read.value.kind !== "managed_worktree_lifecycle_snapshot") {
+        throw new Error("Core returned the wrong managed-worktree lifecycle variant");
+      }
+      const snapshot: CoreManagedWorktreeLifecycleSnapshot = read.value.snapshot;
+      return {
+        projectionRevision: snapshot.projection_revision,
+        consumers: snapshot.consumers.map((consumer) => ({
+          threadId: consumer.thread_id,
+          projectId: consumer.project_id ?? null,
+          sessionId: consumer.session_id ?? null,
+          executionHostId: consumer.execution_host_id,
+          cwd: consumer.cwd ?? null,
+          managedWorktreePath: consumer.managed_worktree_path,
+          runtimeWorkspaceRoots: [...consumer.runtime_workspace_roots],
+          archived: consumer.archived,
+          pinnedOrder: consumer.pinned_order ?? null,
+          statusType: consumer.status.status_type,
+          statusActiveFlags: [...consumer.status.active_flags],
+          createdAt: consumer.created_at,
+          updatedAt: consumer.updated_at,
+          linkedAt: consumer.linked_at,
+        })),
+        projects: snapshot.projects.map((project) => ({
+          projectId: project.project_id,
+          lifecycle: project.lifecycle,
+          sourceRoots: project.sources.map((source) => source.root),
+          primaryWorkspaceRoot: project.primary_workspace_root ?? null,
+        })),
+      };
     };
-  };
 
   const mutationSidebarReceipt = (
     threads: readonly DesktopProjectWorkspaceThread[] = [],
@@ -1173,9 +1096,7 @@ export function createCoreProjectWorkspaceAdapter(
           description: input.description ?? "",
           appearance: input.appearance ?? null,
           source_roots: input.sources ?? [],
-          ...(input.pageKeyPrefix === undefined
-            ? {}
-            : { page_key_prefix: input.pageKeyPrefix }),
+          ...(input.pageKeyPrefix === undefined ? {} : { page_key_prefix: input.pageKeyPrefix }),
           starter_page: {
             page_id: input.starterPage.pageId,
             document_id: input.starterPage.documentId,
@@ -1199,9 +1120,7 @@ export function createCoreProjectWorkspaceAdapter(
         description: input.description ?? "",
         appearance: input.appearance ?? null,
         source_roots: input.sources ?? [],
-        ...(input.pageKeyPrefix === undefined
-          ? {}
-          : { page_key_prefix: input.pageKeyPrefix }),
+        ...(input.pageKeyPrefix === undefined ? {} : { page_key_prefix: input.pageKeyPrefix }),
       });
       const project = await getProject(projectId);
       if (!project) throw new Error(`Created Project not found: ${projectId}`);
@@ -1214,15 +1133,10 @@ export function createCoreProjectWorkspaceAdapter(
         await apply({
           kind: "update_project",
           project_id: projectId,
-          expected_binding_revision:
-            input.expectedBindingRevision ?? current.bindingRevision,
+          expected_binding_revision: input.expectedBindingRevision ?? current.bindingRevision,
           ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.description !== undefined
-            ? { description: input.description }
-            : {}),
-          ...(input.appearance !== undefined
-            ? { appearance: input.appearance }
-            : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.appearance !== undefined ? { appearance: input.appearance } : {}),
           ...(input.sources !== undefined ? { source_roots: input.sources } : {}),
         });
         return await getProject(projectId);
@@ -1266,9 +1180,7 @@ export function createCoreProjectWorkspaceAdapter(
       const parsed = ProjectSessionUpdateInputSchema.parse(input);
       const current = await readSession(sessionId);
       if (!current) return null;
-      if (
-        parsed.noThreadFallbackTitle === undefined
-      ) {
+      if (parsed.noThreadFallbackTitle === undefined) {
         return current;
       }
       await apply({
@@ -1300,9 +1212,7 @@ export function createCoreProjectWorkspaceAdapter(
       });
       const [sessionId, ...unexpectedSessionIds] = applied.outcome.affected_session_ids;
       if (!sessionId || unexpectedSessionIds.length > 0) {
-        throw new Error(
-          "Core default-draft ensure did not return exactly one Project Session",
-        );
+        throw new Error("Core default-draft ensure did not return exactly one Project Session");
       }
       const session = await readSession(sessionId);
       if (!session) {
@@ -1389,42 +1299,18 @@ export function createCoreProjectWorkspaceAdapter(
         throw new Error("Thread project must match the owning session project");
       }
       const existing = await readCoreThread(parsed.threadId);
-      const hasForkedFromId = Object.prototype.hasOwnProperty.call(
-        input,
-        "forkedFromId",
-      );
-      const hasThreadSource = Object.prototype.hasOwnProperty.call(
-        input,
-        "threadSource",
-      );
-      const hasServiceName = Object.prototype.hasOwnProperty.call(
-        input,
-        "serviceName",
-      );
-      const hasAgentNickname = Object.prototype.hasOwnProperty.call(
-        input,
-        "agentNickname",
-      );
-      const hasAgentRole = Object.prototype.hasOwnProperty.call(
-        input,
-        "agentRole",
-      );
-      const hasAgentPath = Object.prototype.hasOwnProperty.call(
-        input,
-        "agentPath",
-      );
+      const hasForkedFromId = Object.prototype.hasOwnProperty.call(input, "forkedFromId");
+      const hasThreadSource = Object.prototype.hasOwnProperty.call(input, "threadSource");
+      const hasServiceName = Object.prototype.hasOwnProperty.call(input, "serviceName");
+      const hasAgentNickname = Object.prototype.hasOwnProperty.call(input, "agentNickname");
+      const hasAgentRole = Object.prototype.hasOwnProperty.call(input, "agentRole");
+      const hasAgentPath = Object.prototype.hasOwnProperty.call(input, "agentPath");
       const hasManagedWorktreePath = Object.prototype.hasOwnProperty.call(
         input,
         "managedWorktreePath",
       );
-      const hasExecutionProfile = Object.prototype.hasOwnProperty.call(
-        input,
-        "executionProfile",
-      );
-      const hasExecutionHostId = Object.prototype.hasOwnProperty.call(
-        input,
-        "executionHostId",
-      );
+      const hasExecutionProfile = Object.prototype.hasOwnProperty.call(input, "executionProfile");
+      const hasExecutionHostId = Object.prototype.hasOwnProperty.call(input, "executionHostId");
       await apply({
         kind: "mutate_session",
         session_id: parsed.sessionId,
@@ -1434,61 +1320,40 @@ export function createCoreProjectWorkspaceAdapter(
           expected_project_id: parsed.projectId,
           thread_patch: {
             project_id: parsed.projectId,
-            ...(hasForkedFromId
-              ? { forked_from_id: parsed.forkedFromId ?? null }
-              : {}),
-            ...(parsed.parentThreadId
-              ? { parent_thread_id: parsed.parentThreadId }
-              : {}),
-            ...(hasThreadSource
-              ? { thread_source: parsed.threadSource ?? null }
-              : {}),
-            ...(hasServiceName
-              ? { service_name: parsed.serviceName ?? null }
-              : {}),
-            ...(hasAgentNickname
-              ? { agent_nickname: parsed.agentNickname ?? null }
-              : {}),
-            ...(hasAgentRole
-              ? { agent_role: parsed.agentRole ?? null }
-              : {}),
-            ...(hasAgentPath
-              ? { agent_path: parsed.agentPath ?? null }
-              : {}),
-            ...(parsed.threadName != null
-              ? { thread_name: parsed.threadName }
-              : {}),
-            thread_preview:
-              parsed.threadPreview ?? existing?.thread_preview ?? "",
-            model_provider: parsed.executionProfile?.providerId
-              ?? parsed.modelProvider
-              ?? existing?.model_provider
-              ?? "",
+            ...(hasForkedFromId ? { forked_from_id: parsed.forkedFromId ?? null } : {}),
+            ...(parsed.parentThreadId ? { parent_thread_id: parsed.parentThreadId } : {}),
+            ...(hasThreadSource ? { thread_source: parsed.threadSource ?? null } : {}),
+            ...(hasServiceName ? { service_name: parsed.serviceName ?? null } : {}),
+            ...(hasAgentNickname ? { agent_nickname: parsed.agentNickname ?? null } : {}),
+            ...(hasAgentRole ? { agent_role: parsed.agentRole ?? null } : {}),
+            ...(hasAgentPath ? { agent_path: parsed.agentPath ?? null } : {}),
+            ...(parsed.threadName != null ? { thread_name: parsed.threadName } : {}),
+            thread_preview: parsed.threadPreview ?? existing?.thread_preview ?? "",
+            model_provider:
+              parsed.executionProfile?.providerId ??
+              parsed.modelProvider ??
+              existing?.model_provider ??
+              "",
             ...(hasExecutionProfile
               ? toCoreExecutionProfilePatch(parsed.executionProfile ?? null)
               : {}),
             ...(parsed.runtimeWorkspaceRoots === undefined
               ? {
-                  ...(hasExecutionHostId
-                    ? { execution_host_id: parsed.executionHostId }
-                    : {}),
+                  ...(hasExecutionHostId ? { execution_host_id: parsed.executionHostId } : {}),
                   ...(parsed.cwd != null ? { cwd: parsed.cwd } : {}),
                   ...(hasManagedWorktreePath
                     ? {
-                        managed_worktree_path:
-                          parsed.managedWorktreePath ?? null,
+                        managed_worktree_path: parsed.managedWorktreePath ?? null,
                       }
                     : {}),
                   ...(parsed.projectlessOutputDirectory != null
                     ? {
-                        projectless_output_directory:
-                          parsed.projectlessOutputDirectory,
+                        projectless_output_directory: parsed.projectlessOutputDirectory,
                       }
                     : {}),
                   ...(parsed.projectlessWorkspaceBrowserRoot != null
                     ? {
-                        projectless_workspace_browser_root:
-                          parsed.projectlessWorkspaceBrowserRoot,
+                        projectless_workspace_browser_root: parsed.projectlessWorkspaceBrowserRoot,
                       }
                     : {}),
                 }
@@ -1501,26 +1366,19 @@ export function createCoreProjectWorkspaceAdapter(
             ...(!existing && parsed.createdAt !== undefined
               ? { created_at: parsed.createdAt }
               : {}),
-            ...(parsed.updatedAt !== undefined
-              ? { updated_at: parsed.updatedAt }
-              : {}),
-            ...(parsed.recencyAt !== undefined
-              ? { recency_at: parsed.recencyAt }
-              : {}),
+            ...(parsed.updatedAt !== undefined ? { updated_at: parsed.updatedAt } : {}),
+            ...(parsed.recencyAt !== undefined ? { recency_at: parsed.recencyAt } : {}),
           },
           ...(parsed.runtimeWorkspaceRoots === undefined
             ? {}
             : {
                 execution_location: {
                   execution_host_id:
-                    parsed.executionHostId
-                    ?? existing?.execution_host_id
-                    ?? "local",
+                    parsed.executionHostId ?? existing?.execution_host_id ?? "local",
                   cwd: parsed.cwd ?? null,
                   managed_worktree_path: parsed.managedWorktreePath ?? null,
                   runtime_workspace_roots: [...parsed.runtimeWorkspaceRoots],
-                  projectless_output_directory:
-                    parsed.projectlessOutputDirectory ?? null,
+                  projectless_output_directory: parsed.projectlessOutputDirectory ?? null,
                   projectless_workspace_browser_root:
                     parsed.projectlessWorkspaceBrowserRoot ?? null,
                 },
@@ -1583,8 +1441,7 @@ export function createCoreProjectWorkspaceAdapter(
             managed_worktree_path: location.managedWorktreePath,
             runtime_workspace_roots: [...location.runtimeWorkspaceRoots],
             projectless_output_directory: location.projectlessOutputDirectory,
-            projectless_workspace_browser_root:
-              location.projectlessWorkspaceBrowserRoot,
+            projectless_workspace_browser_root: location.projectlessWorkspaceBrowserRoot,
           },
         });
       } catch (error) {
@@ -1595,26 +1452,29 @@ export function createCoreProjectWorkspaceAdapter(
     },
     moveThread: async (input) => {
       const operationId = randomUUID();
-      const applied = await client.workspaceApply({ operationId, intent: {
-        kind: "move_thread",
-        thread_id: input.threadId,
-        source: toCoreThreadLane(input.sourceProjectId),
-        target: toCoreThreadLane(input.targetProjectId),
-        placement: toCoreThreadMovePlacement(input),
-        metadata: toCoreThreadMoveMetadata(input.metadata),
-        ...(input.runtimeWorkspaceRoots === undefined
-          ? {}
-          : { runtime_workspace_roots: [...input.runtimeWorkspaceRoots] }),
-        ...(input.projectAccessGrant === undefined
-          ? {}
-          : {
-              project_access_grant: {
-                expected_target_binding_revision:
-                  input.projectAccessGrant.expectedTargetBindingRevision,
-                missing_source_roots: [...input.projectAccessGrant.missingProjectSources],
-              },
-            }),
-      } });
+      const applied = await client.workspaceApply({
+        operationId,
+        intent: {
+          kind: "move_thread",
+          thread_id: input.threadId,
+          source: toCoreThreadLane(input.sourceProjectId),
+          target: toCoreThreadLane(input.targetProjectId),
+          placement: toCoreThreadMovePlacement(input),
+          metadata: toCoreThreadMoveMetadata(input.metadata),
+          ...(input.runtimeWorkspaceRoots === undefined
+            ? {}
+            : { runtime_workspace_roots: [...input.runtimeWorkspaceRoots] }),
+          ...(input.projectAccessGrant === undefined
+            ? {}
+            : {
+                project_access_grant: {
+                  expected_target_binding_revision:
+                    input.projectAccessGrant.expectedTargetBindingRevision,
+                  missing_source_roots: [...input.projectAccessGrant.missingProjectSources],
+                },
+              }),
+        },
+      });
       const thread = await getThread(input.threadId);
       if (!thread) {
         throw new Error(`Unable to read moved Codex Thread '${input.threadId}'`);
@@ -1739,8 +1599,9 @@ export function createCoreProjectWorkspaceAdapter(
         },
         preserve_started_at: options.preserveStartedAt ?? true,
       });
-      const persisted = (await listBackgroundProcesses(input.threadId))
-        .find((candidate) => candidate.id === input.id);
+      const persisted = (await listBackgroundProcesses(input.threadId)).find(
+        (candidate) => candidate.id === input.id,
+      );
       if (!persisted) {
         throw new Error(`Updated Core background process not found: ${input.id}`);
       }
@@ -1755,9 +1616,10 @@ export function createCoreProjectWorkspaceAdapter(
           ...(!pinned || beforeThreadId === undefined
             ? {}
             : {
-                placement: beforeThreadId === null
-                  ? { kind: "end" }
-                  : { kind: "before", thread_id: beforeThreadId },
+                placement:
+                  beforeThreadId === null
+                    ? { kind: "end" }
+                    : { kind: "before", thread_id: beforeThreadId },
               }),
         });
       } catch (error) {

@@ -43,16 +43,20 @@ describe("nfm link actions", () => {
     const windowsAction = resolveNfmLinkAction("C:\\repo\\abc");
 
     expect(unixAction?.kind).toBe("local-file");
-    expect(JSON.stringify((unixAction as { target: FileLinkTarget }).target)).toBe(JSON.stringify({
-      path: "/Users/asc/repo/abc",
-      line: 12,
-    }));
+    expect(JSON.stringify((unixAction as { target: FileLinkTarget }).target)).toBe(
+      JSON.stringify({
+        path: "/Users/asc/repo/abc",
+        line: 12,
+      }),
+    );
     expect(fileUrlAction?.kind).toBe("local-file");
-    expect(JSON.stringify((fileUrlAction as { target: FileLinkTarget }).target)).toBe(JSON.stringify({
-      path: "/Users/asc/repo/abc",
-      line: 12,
-      column: 3,
-    }));
+    expect(JSON.stringify((fileUrlAction as { target: FileLinkTarget }).target)).toBe(
+      JSON.stringify({
+        path: "/Users/asc/repo/abc",
+        line: 12,
+        column: 3,
+      }),
+    );
     expect(windowsAction?.kind).toBe("local-file");
   });
 
@@ -75,13 +79,19 @@ describe("nfm link actions", () => {
       href: "nodex://pages/page%2Falpha",
       pageId: "page/alpha",
     });
-    await expect(openNfmResolvedLinkAction(
-      action!,
-      "fileManager",
-      async () => true,
-      { assign: () => {}, open: () => {} },
-      { openPage: (pageId) => { opened.push(pageId); } },
-    )).resolves.toBe(true);
+    await expect(
+      openNfmResolvedLinkAction(
+        action!,
+        "fileManager",
+        async () => true,
+        { assign: () => {}, open: () => {} },
+        {
+          openPage: (pageId) => {
+            opened.push(pageId);
+          },
+        },
+      ),
+    ).resolves.toBe(true);
     expect(opened).toEqual(["page/alpha"]);
     expect(windowOpenCalls).toEqual([]);
     expect(invokeCalls).toEqual([]);
@@ -101,18 +111,24 @@ describe("nfm link actions", () => {
     const parentRelative = resolveNfmLinkAction("../foo.ts", "/workspace/project/nested");
 
     expect(direct?.kind).toBe("workspace-file");
-    expect(JSON.stringify((direct as { target: FileLinkTarget }).target)).toBe(JSON.stringify({
-      path: "/workspace/project/folder/abc/file",
-    }));
+    expect(JSON.stringify((direct as { target: FileLinkTarget }).target)).toBe(
+      JSON.stringify({
+        path: "/workspace/project/folder/abc/file",
+      }),
+    );
     expect(dotRelative?.kind).toBe("workspace-file");
-    expect(JSON.stringify((dotRelative as { target: FileLinkTarget }).target)).toBe(JSON.stringify({
-      path: "/workspace/project/foo.ts",
-      line: 8,
-    }));
+    expect(JSON.stringify((dotRelative as { target: FileLinkTarget }).target)).toBe(
+      JSON.stringify({
+        path: "/workspace/project/foo.ts",
+        line: 8,
+      }),
+    );
     expect(parentRelative?.kind).toBe("workspace-file");
-    expect(JSON.stringify((parentRelative as { target: FileLinkTarget }).target)).toBe(JSON.stringify({
-      path: "/workspace/project/foo.ts",
-    }));
+    expect(JSON.stringify((parentRelative as { target: FileLinkTarget }).target)).toBe(
+      JSON.stringify({
+        path: "/workspace/project/foo.ts",
+      }),
+    );
   });
 
   test("classifies unresolved relative file-like values separately from blocked protocols", () => {
@@ -120,9 +136,13 @@ describe("nfm link actions", () => {
     const blockedProtocol = resolveNfmLinkAction("javascript:alert(1)");
 
     expect(unresolved?.kind).toBe("unresolved-file-like");
-    expect((unresolved as { reason: string }).reason).toBe("Cannot resolve relative file link without project workspace.");
+    expect((unresolved as { reason: string }).reason).toBe(
+      "Cannot resolve relative file link without project workspace.",
+    );
     expect(blockedProtocol?.kind).toBe("blocked");
-    expect((blockedProtocol as { reason: string }).reason).toBe("Blocked unsupported link protocol.");
+    expect((blockedProtocol as { reason: string }).reason).toBe(
+      "Blocked unsupported link protocol.",
+    );
   });
 
   test("keeps fragment and query links literal", () => {
@@ -134,18 +154,22 @@ describe("nfm link actions", () => {
     const fileAction = resolveNfmLinkAction("/Users/asc/repo/abc#L12C3");
     const blockedAction = resolveNfmLinkAction("folder/abc/file");
 
-    expect(resolveNfmLinkTooltipLabel(fileAction, true)).toBe("/Users/asc/repo/abc (line 12, column 3)");
+    expect(resolveNfmLinkTooltipLabel(fileAction, true)).toBe(
+      "/Users/asc/repo/abc (line 12, column 3)",
+    );
     expect(resolveNfmLinkTooltipLabel(fileAction, false)).toBe(null);
-    expect(resolveNfmLinkTooltipLabel(blockedAction, false)).toBe("Cannot resolve relative file link without project workspace.");
+    expect(resolveNfmLinkTooltipLabel(blockedAction, false)).toBe(
+      "Cannot resolve relative file link without project workspace.",
+    );
   });
 
   test("opens bare domains using open-time normalization only", async () => {
     const action = resolveNfmLinkAction("example.com");
     await openNfmResolvedLinkAction(action!);
 
-    expect(JSON.stringify(windowOpenCalls)).toBe(JSON.stringify([
-      ["https://example.com", "_blank", "noopener,noreferrer"],
-    ]));
+    expect(JSON.stringify(windowOpenCalls)).toBe(
+      JSON.stringify([["https://example.com", "_blank", "noopener,noreferrer"]]),
+    );
   });
 
   test("opens file links through the desktop bridge", async () => {
@@ -155,18 +179,16 @@ describe("nfm link actions", () => {
       return true;
     });
 
-    expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([
-      ["shell:open-file-link", { path: "/Users/asc/repo/abc" }, "vscode"],
-    ]));
+    expect(JSON.stringify(invokeCalls)).toBe(
+      JSON.stringify([["shell:open-file-link", { path: "/Users/asc/repo/abc" }, "vscode"]]),
+    );
   });
 
   test("does not hand failed file opens to a file URL", async () => {
     const action = resolveNfmLinkAction("/Users/asc/repo/abc");
-    await expect(openNfmResolvedLinkAction(
-      action!,
-      "vscode",
-      async () => false,
-    )).resolves.toBe(false);
+    await expect(openNfmResolvedLinkAction(action!, "vscode", async () => false)).resolves.toBe(
+      false,
+    );
     expect(windowOpenCalls).toEqual([]);
   });
 
@@ -179,8 +201,6 @@ describe("nfm link actions", () => {
       open: () => {},
     });
 
-    expect(JSON.stringify(locationAssignCalls)).toBe(JSON.stringify([
-      ["#section"],
-    ]));
+    expect(JSON.stringify(locationAssignCalls)).toBe(JSON.stringify([["#section"]]));
   });
 });

@@ -1,10 +1,5 @@
 import { PlusIcon } from "@/components/shared/icons";
-import {
-  ArrowDown,
-  ArrowUp,
-  ListFilter,
-  Trash2,
-} from "@/components/shared/icons/generic-icons";
+import { ArrowDown, ArrowUp, ListFilter, Trash2 } from "@/components/shared/icons/generic-icons";
 import { useEffect, type ReactNode } from "react";
 import type {
   DatabaseJsonValue,
@@ -69,9 +64,7 @@ const propertyForClause = (
   properties: readonly DataSourcePropertyRecordV2[],
   clause: DatabaseViewFilterClause,
 ): DataSourcePropertyRecordV2 | null =>
-  properties.find(
-    (property) => property.propertyId === clause.propertyId,
-  ) ?? null;
+  properties.find((property) => property.propertyId === clause.propertyId) ?? null;
 
 const stringValue = (value: DatabaseJsonValue | undefined): string =>
   typeof value === "string" ? value : "";
@@ -126,11 +119,12 @@ function FilterValueField({
   if (property.valueType === "select" || property.valueType === "multi_select") {
     const isMembershipOperator =
       clause.operator === "contains" || clause.operator === "not_contains";
-    const rawValue = property.valueType === "multi_select" && !isMembershipOperator
-      ? Array.isArray(clause.value) && typeof clause.value[0] === "string"
-        ? clause.value[0]
-        : ""
-      : stringValue(clause.value);
+    const rawValue =
+      property.valueType === "multi_select" && !isMembershipOperator
+        ? Array.isArray(clause.value) && typeof clause.value[0] === "string"
+          ? clause.value[0]
+          : ""
+        : stringValue(clause.value);
     const selectedOption = options.find((option) => option.id === rawValue);
     return (
       <DatabaseViewSelect
@@ -143,7 +137,9 @@ function FilterValueField({
         onValueChange={(value) => {
           onChange(
             property.valueType === "multi_select" && !isMembershipOperator
-              ? value ? [value] : []
+              ? value
+                ? [value]
+                : []
               : value || null,
           );
         }}
@@ -162,16 +158,28 @@ function FilterValueField({
         aria-label={`Filter value for ${property.name}`}
         value={typeof clause.value === "number" ? String(clause.value) : ""}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))}
+        onChange={(event) =>
+          onChange(event.target.value === "" ? null : Number(event.target.value))
+        }
         className={cn(inputClass, "w-28")}
       />
     );
   }
   return (
     <input
-      type={property.valueType === "date" ? "date" : property.valueType === "datetime" ? "datetime-local" : "text"}
+      type={
+        property.valueType === "date"
+          ? "date"
+          : property.valueType === "datetime"
+            ? "datetime-local"
+            : "text"
+      }
       aria-label={`Filter value for ${property.name}`}
-      value={property.valueType === "datetime" ? datetimeLocalValue(clause.value) : stringValue(clause.value)}
+      value={
+        property.valueType === "datetime"
+          ? datetimeLocalValue(clause.value)
+          : stringValue(clause.value)
+      }
       disabled={disabled}
       onChange={(event) => {
         if (property.valueType !== "datetime") {
@@ -236,9 +244,7 @@ function FilterNodeEditor({
           valueLabel={property.name}
           disabled={disabled}
           onValueChange={(value) => {
-            const nextProperty = properties.find(
-              (candidate) => candidate.propertyId === value,
-            );
+            const nextProperty = properties.find((candidate) => candidate.propertyId === value);
             if (!nextProperty) return;
             onUpdate(path, databaseFilterClauseWithProperty(node, nextProperty));
           }}
@@ -253,13 +259,12 @@ function FilterNodeEditor({
           value={node.operator}
           valueLabel={FILTER_OPERATOR_LABELS[node.operator]}
           disabled={disabled}
-          onValueChange={(value) => onUpdate(
-            path,
-            databaseFilterClauseWithOperator(
-              property,
-              value as DatabaseViewFilterOperator,
-            ),
-          )}
+          onValueChange={(value) =>
+            onUpdate(
+              path,
+              databaseFilterClauseWithOperator(property, value as DatabaseViewFilterOperator),
+            )
+          }
           options={filterOperatorsForProperty(property).map((operator) => ({
             value: operator,
             label: FILTER_OPERATOR_LABELS[operator],
@@ -269,8 +274,7 @@ function FilterNodeEditor({
         <FilterValueField
           clause={node}
           property={property}
-          options={optionRegistries[property.propertyId]
-            ?? readDatabasePropertyOptions(property)}
+          options={optionRegistries[property.propertyId] ?? readDatabasePropertyOptions(property)}
           onRequestOptions={onRequestPropertyOptions}
           disabled={disabled}
           onChange={(value) => onUpdate(path, { ...node, value })}
@@ -288,23 +292,24 @@ function FilterNodeEditor({
   }
 
   return (
-    <div className={cn(
-      "min-w-0",
-      depth > 0 && "rounded-lg bg-token-foreground/3 px-2 py-1.5",
-    )}>
+    <div className={cn("min-w-0", depth > 0 && "rounded-lg bg-token-foreground/3 px-2 py-1.5")}>
       <div className="flex min-h-8 items-center gap-1.5">
         <span className="text-[11px] font-medium uppercase tracking-wide text-token-description-foreground">
           {depth === 0 ? "Match" : "Group"}
         </span>
         <DatabaseViewSelect
-          ariaLabel={depth === 0 ? "Filter group operator" : `Nested filter group ${path.join(".")}`}
+          ariaLabel={
+            depth === 0 ? "Filter group operator" : `Nested filter group ${path.join(".")}`
+          }
           value={node.operator}
           valueLabel={node.operator === "and" ? "All" : "Any"}
           disabled={disabled}
-          onValueChange={(value) => onUpdate(path, {
-            ...node,
-            operator: value as "and" | "or",
-          })}
+          onValueChange={(value) =>
+            onUpdate(path, {
+              ...node,
+              operator: value as "and" | "or",
+            })
+          }
           options={[
             { value: "and", label: "All" },
             { value: "or", label: "Any" },
@@ -376,10 +381,7 @@ function FilterNodeEditor({
 const sortFieldValue = (sort: DatabaseViewSort): string =>
   sort.field.kind === "property" ? `property:${sort.field.propertyId}` : sort.field.kind;
 
-const sortWithField = (
-  sort: DatabaseViewSort,
-  encoded: string,
-): DatabaseViewSort => ({
+const sortWithField = (sort: DatabaseViewSort, encoded: string): DatabaseViewSort => ({
   ...sort,
   field: encoded.startsWith("property:")
     ? { kind: "property", propertyId: encoded.slice("property:".length) }
@@ -405,7 +407,9 @@ function SortEditor({
     <div className="space-y-1">
       {sorts.map((sort, index) => (
         <div key={`${sortFieldValue(sort)}:${index}`} className="flex min-h-8 items-center gap-1.5">
-          <span className="w-4 text-center text-[11px] text-token-description-foreground">{index + 1}</span>
+          <span className="w-4 text-center text-[11px] text-token-description-foreground">
+            {index + 1}
+          </span>
           <DatabaseViewSelect
             ariaLabel={`Sort field ${index + 1}`}
             search="filter"
@@ -414,16 +418,23 @@ function SortEditor({
             valueLabel={(() => {
               if (sort.field.kind === "property") {
                 const propertyId = sort.field.propertyId;
-                return properties.find((property) => property.propertyId === propertyId)?.name
-                  ?? "Missing property";
+                return (
+                  properties.find((property) => property.propertyId === propertyId)?.name ??
+                  "Missing property"
+                );
               }
               if (sort.field.kind === "manual") return "Manual order";
               if (sort.field.kind === "created") return "Created";
               return "Title";
             })()}
             disabled={disabled}
-            onValueChange={(value) => onChange(sorts.map((candidate, candidateIndex) =>
-              candidateIndex === index ? sortWithField(candidate, value) : candidate))}
+            onValueChange={(value) =>
+              onChange(
+                sorts.map((candidate, candidateIndex) =>
+                  candidateIndex === index ? sortWithField(candidate, value) : candidate,
+                ),
+              )
+            }
             options={[
               { value: "manual", label: "Manual order" },
               { value: "title", label: "Title" },
@@ -440,10 +451,15 @@ function SortEditor({
             value={sort.direction}
             valueLabel={sort.direction === "asc" ? "Ascending" : "Descending"}
             disabled={disabled}
-            onValueChange={(value) => onChange(sorts.map((candidate, candidateIndex) =>
-              candidateIndex === index
-                ? { ...candidate, direction: value as "asc" | "desc" }
-                : candidate))}
+            onValueChange={(value) =>
+              onChange(
+                sorts.map((candidate, candidateIndex) =>
+                  candidateIndex === index
+                    ? { ...candidate, direction: value as "asc" | "desc" }
+                    : candidate,
+                ),
+              )
+            }
             options={[
               { value: "asc", label: "Ascending" },
               { value: "desc", label: "Descending" },
@@ -455,10 +471,15 @@ function SortEditor({
             value={sort.nulls}
             valueLabel={sort.nulls === "first" ? "Empty first" : "Empty last"}
             disabled={disabled}
-            onValueChange={(value) => onChange(sorts.map((candidate, candidateIndex) =>
-              candidateIndex === index
-                ? { ...candidate, nulls: value as "first" | "last" }
-                : candidate))}
+            onValueChange={(value) =>
+              onChange(
+                sorts.map((candidate, candidateIndex) =>
+                  candidateIndex === index
+                    ? { ...candidate, nulls: value as "first" | "last" }
+                    : candidate,
+                ),
+              )
+            }
             options={[
               { value: "last", label: "Empty last" },
               { value: "first", label: "Empty first" },
@@ -533,33 +554,30 @@ export function DatabaseViewConfigEditor({
   onChange,
 }: DatabaseViewConfigEditorProps) {
   const properties = activeProperties(allProperties);
-  const sortableProperties = properties.filter((property) =>
-    property.capabilities?.sortable ?? property.valueType !== "relation"
+  const sortableProperties = properties.filter(
+    (property) => property.capabilities?.sortable ?? property.valueType !== "relation",
   );
-  const groupableProperties = properties.filter((property) =>
-    property.capabilities?.groupable ?? property.valueType !== "relation"
+  const groupableProperties = properties.filter(
+    (property) => property.capabilities?.groupable ?? property.valueType !== "relation",
   );
   const presentation = config.presentation;
   const layoutConfig = presentation.layouts[layout];
   const intrinsicFields = databaseIntrinsicFieldsForLayout(layout);
-  const updateFilter = (
-    path: DatabaseViewFilterPath,
-    node: DatabaseViewFilterNode,
-  ) => onChange({
-    ...config,
-    filter: updateDatabaseViewFilterNode(config.filter, path, node),
-  });
-  const removeFilter = (path: DatabaseViewFilterPath) => onChange({
-    ...config,
-    filter: removeDatabaseViewFilterNode(config.filter, path),
-  });
-  const appendFilter = (
-    path: DatabaseViewFilterPath,
-    node: DatabaseViewFilterNode,
-  ) => onChange({
-    ...config,
-    filter: appendDatabaseViewFilterChild(config.filter, path, node),
-  });
+  const updateFilter = (path: DatabaseViewFilterPath, node: DatabaseViewFilterNode) =>
+    onChange({
+      ...config,
+      filter: updateDatabaseViewFilterNode(config.filter, path, node),
+    });
+  const removeFilter = (path: DatabaseViewFilterPath) =>
+    onChange({
+      ...config,
+      filter: removeDatabaseViewFilterNode(config.filter, path),
+    });
+  const appendFilter = (path: DatabaseViewFilterPath, node: DatabaseViewFilterNode) =>
+    onChange({
+      ...config,
+      filter: appendDatabaseViewFilterChild(config.filter, path, node),
+    });
 
   const filterEditor = (
     <div className="flex items-start gap-2">
@@ -598,14 +616,16 @@ export function DatabaseViewConfigEditor({
                 size="xs"
                 variant="ghost"
                 disabled={disabled}
-                onClick={() => onChange({
-                  ...config,
-                  filter: {
-                    kind: "group",
-                    operator: "and",
-                    children: [config.filter, createDatabaseViewFilterClause(properties[0]!)],
-                  },
-                })}
+                onClick={() =>
+                  onChange({
+                    ...config,
+                    filter: {
+                      kind: "group",
+                      operator: "and",
+                      children: [config.filter, createDatabaseViewFilterClause(properties[0]!)],
+                    },
+                  })
+                }
               >
                 <PlusIcon /> Rule
               </NodexButton>
@@ -627,155 +647,204 @@ export function DatabaseViewConfigEditor({
       </ConfigSection>
 
       <>
-          <ConfigSection title="Sort" detail="First rule wins">
-        <SortEditor
-          sorts={presentation.sort}
-          properties={sortableProperties}
-          disabled={disabled}
-          onChange={(sort) => onChange({
-            ...config,
-            presentation: { ...presentation, sort },
-          })}
-        />
-          </ConfigSection>
-
-          <ConfigSection title="Grouping" detail="Group, then subgroup">
-        <div className="flex flex-wrap gap-2">
-          <DatabaseViewSelect
-            ariaLabel="Group View by property"
-            search="filter"
-            searchPlaceholder="Search group properties…"
-            value={presentation.group?.propertyId ?? ""}
-            valueLabel={
-              groupableProperties.find((property) =>
-                property.propertyId === presentation.group?.propertyId)?.name
-                ?? "No grouping"
-            }
+        <ConfigSection title="Sort" detail="First rule wins">
+          <SortEditor
+            sorts={presentation.sort}
+            properties={sortableProperties}
             disabled={disabled}
-            onValueChange={(value) => onChange({
-              ...config,
-              presentation: {
-                ...presentation,
-                group: value ? { propertyId: value } : null,
-                subgroup:
-                  value
-                  && presentation.subgroup?.propertyId !== value
-                    ? presentation.subgroup
-                    : null,
-              },
-            })}
-            options={[
-              { value: "", label: "No grouping" },
-              ...groupableProperties.map((property) => ({
-                value: property.propertyId,
-                label: property.name,
-              })),
-            ]}
-            className="w-52"
-          />
-          <DatabaseViewSelect
-            ariaLabel="Subgroup View by property"
-            search="filter"
-            searchPlaceholder="Search subgroup properties…"
-            value={presentation.subgroup?.propertyId ?? ""}
-            valueLabel={
-              groupableProperties.find((property) =>
-                property.propertyId === presentation.subgroup?.propertyId)?.name
-                ?? "No subgroup"
-            }
-            disabled={disabled || presentation.group === null}
-            onValueChange={(value) => onChange({
-              ...config,
-              presentation: {
-                ...presentation,
-                subgroup: value ? { propertyId: value } : null,
-              },
-            })}
-            options={[
-              { value: "", label: "No subgroup" },
-              ...groupableProperties
-              .filter((property) => property.propertyId !== presentation.group?.propertyId)
-              .map((property) => ({
-                value: property.propertyId,
-                label: property.name,
-              })),
-            ]}
-            className="w-52"
-          />
-        </div>
-          </ConfigSection>
-
-          <ConfigSection title="Completed" detail="Visibility and ordering">
-        <div className="flex flex-wrap items-center gap-3">
-          <DatabaseViewSelect
-            ariaLabel="Completed task range"
-            value={presentation.completion.range}
-            valueLabel={
-              presentation.completion.range === "all" ? "All completed"
-                : presentation.completion.range === "past_month" ? "Past month"
-                  : presentation.completion.range === "past_week" ? "Past week"
-                    : presentation.completion.range === "past_day" ? "Past day"
-                      : "Hide completed"
-            }
-            disabled={disabled}
-            onValueChange={(value) => onChange({
-              ...config,
-              presentation: {
-                ...presentation,
-                completion: {
-                  ...presentation.completion,
-                  range: value as typeof presentation.completion.range,
-                },
-              },
-            })}
-            options={[
-              { value: "all", label: "All completed" },
-              { value: "past_month", label: "Past month" },
-              { value: "past_week", label: "Past week" },
-              { value: "past_day", label: "Past day" },
-              { value: "none", label: "Hide completed" },
-            ]}
-            className="w-40"
-          />
-          <div className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
-            <NodexSwitch
-              ariaLabel="Recently completed first"
-              checked={presentation.completion.orderByRecency}
-              disabled={disabled}
-              size="compact"
-              onCheckedChange={(checked) => onChange({
+            onChange={(sort) =>
+              onChange({
                 ...config,
-                presentation: {
-                  ...presentation,
-                  completion: {
-                    ...presentation.completion,
-                    orderByRecency: checked,
-                  },
-                },
-              })}
-            />
-            Recently completed first
-          </div>
-        </div>
-          </ConfigSection>
+                presentation: { ...presentation, sort },
+              })
+            }
+          />
+        </ConfigSection>
 
-          <ConfigSection title="Display" detail={`Visible fields in ${layout}`}>
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-          {intrinsicFields.map((descriptor) => {
-            const visible = layoutConfig.fields.some(
-              (field) => field.kind === "intrinsic" && field.field === descriptor.field,
-            );
-            return (
-              <div
-                key={descriptor.field}
-                className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary"
-              >
-                <NodexSwitch
-                  ariaLabel={descriptor.label}
-                  checked={visible}
-                  disabled={disabled}
-                  size="compact"
-                  onCheckedChange={(checked) => onChange({
+        <ConfigSection title="Grouping" detail="Group, then subgroup">
+          <div className="flex flex-wrap gap-2">
+            <DatabaseViewSelect
+              ariaLabel="Group View by property"
+              search="filter"
+              searchPlaceholder="Search group properties…"
+              value={presentation.group?.propertyId ?? ""}
+              valueLabel={
+                groupableProperties.find(
+                  (property) => property.propertyId === presentation.group?.propertyId,
+                )?.name ?? "No grouping"
+              }
+              disabled={disabled}
+              onValueChange={(value) =>
+                onChange({
+                  ...config,
+                  presentation: {
+                    ...presentation,
+                    group: value ? { propertyId: value } : null,
+                    subgroup:
+                      value && presentation.subgroup?.propertyId !== value
+                        ? presentation.subgroup
+                        : null,
+                  },
+                })
+              }
+              options={[
+                { value: "", label: "No grouping" },
+                ...groupableProperties.map((property) => ({
+                  value: property.propertyId,
+                  label: property.name,
+                })),
+              ]}
+              className="w-52"
+            />
+            <DatabaseViewSelect
+              ariaLabel="Subgroup View by property"
+              search="filter"
+              searchPlaceholder="Search subgroup properties…"
+              value={presentation.subgroup?.propertyId ?? ""}
+              valueLabel={
+                groupableProperties.find(
+                  (property) => property.propertyId === presentation.subgroup?.propertyId,
+                )?.name ?? "No subgroup"
+              }
+              disabled={disabled || presentation.group === null}
+              onValueChange={(value) =>
+                onChange({
+                  ...config,
+                  presentation: {
+                    ...presentation,
+                    subgroup: value ? { propertyId: value } : null,
+                  },
+                })
+              }
+              options={[
+                { value: "", label: "No subgroup" },
+                ...groupableProperties
+                  .filter((property) => property.propertyId !== presentation.group?.propertyId)
+                  .map((property) => ({
+                    value: property.propertyId,
+                    label: property.name,
+                  })),
+              ]}
+              className="w-52"
+            />
+          </div>
+        </ConfigSection>
+
+        <ConfigSection title="Completed" detail="Visibility and ordering">
+          <div className="flex flex-wrap items-center gap-3">
+            <DatabaseViewSelect
+              ariaLabel="Completed task range"
+              value={presentation.completion.range}
+              valueLabel={
+                presentation.completion.range === "all"
+                  ? "All completed"
+                  : presentation.completion.range === "past_month"
+                    ? "Past month"
+                    : presentation.completion.range === "past_week"
+                      ? "Past week"
+                      : presentation.completion.range === "past_day"
+                        ? "Past day"
+                        : "Hide completed"
+              }
+              disabled={disabled}
+              onValueChange={(value) =>
+                onChange({
+                  ...config,
+                  presentation: {
+                    ...presentation,
+                    completion: {
+                      ...presentation.completion,
+                      range: value as typeof presentation.completion.range,
+                    },
+                  },
+                })
+              }
+              options={[
+                { value: "all", label: "All completed" },
+                { value: "past_month", label: "Past month" },
+                { value: "past_week", label: "Past week" },
+                { value: "past_day", label: "Past day" },
+                { value: "none", label: "Hide completed" },
+              ]}
+              className="w-40"
+            />
+            <div className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
+              <NodexSwitch
+                ariaLabel="Recently completed first"
+                checked={presentation.completion.orderByRecency}
+                disabled={disabled}
+                size="compact"
+                onCheckedChange={(checked) =>
+                  onChange({
+                    ...config,
+                    presentation: {
+                      ...presentation,
+                      completion: {
+                        ...presentation.completion,
+                        orderByRecency: checked,
+                      },
+                    },
+                  })
+                }
+              />
+              Recently completed first
+            </div>
+          </div>
+        </ConfigSection>
+
+        <ConfigSection title="Display" detail={`Visible fields in ${layout}`}>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {intrinsicFields.map((descriptor) => {
+              const visible = layoutConfig.fields.some(
+                (field) => field.kind === "intrinsic" && field.field === descriptor.field,
+              );
+              return (
+                <div
+                  key={descriptor.field}
+                  className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary"
+                >
+                  <NodexSwitch
+                    ariaLabel={descriptor.label}
+                    checked={visible}
+                    disabled={disabled}
+                    size="compact"
+                    onCheckedChange={(checked) =>
+                      onChange({
+                        ...config,
+                        presentation: {
+                          ...presentation,
+                          layouts: {
+                            ...presentation.layouts,
+                            [layout]: {
+                              ...layoutConfig,
+                              fields: checked
+                                ? [
+                                    { kind: "intrinsic" as const, field: descriptor.field },
+                                    ...layoutConfig.fields,
+                                  ]
+                                : layoutConfig.fields.filter(
+                                    (field) =>
+                                      field.kind !== "intrinsic" ||
+                                      field.field !== descriptor.field,
+                                  ),
+                            },
+                          },
+                        },
+                      })
+                    }
+                  />
+                  {descriptor.label}
+                </div>
+              );
+            })}
+            <div className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
+              <NodexSwitch
+                ariaLabel="Show empty groups"
+                checked={layoutConfig.showEmptyGroups}
+                disabled={disabled}
+                size="compact"
+                onCheckedChange={(checked) =>
+                  onChange({
                     ...config,
                     presentation: {
                       ...presentation,
@@ -783,85 +852,63 @@ export function DatabaseViewConfigEditor({
                         ...presentation.layouts,
                         [layout]: {
                           ...layoutConfig,
-                          fields: checked
-                            ? [
-                                { kind: "intrinsic" as const, field: descriptor.field },
-                                ...layoutConfig.fields,
-                              ]
-                            : layoutConfig.fields.filter(
-                                (field) => field.kind !== "intrinsic"
-                                  || field.field !== descriptor.field,
-                              ),
+                          showEmptyGroups: checked,
                         },
                       },
                     },
-                  })}
-                />
-                {descriptor.label}
-              </div>
-            );
-          })}
-          <div className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
-            <NodexSwitch
-              ariaLabel="Show empty groups"
-              checked={layoutConfig.showEmptyGroups}
-              disabled={disabled}
-              size="compact"
-              onCheckedChange={(checked) => onChange({
-                ...config,
-                presentation: {
-                  ...presentation,
-                  layouts: {
-                    ...presentation.layouts,
-                    [layout]: {
-                      ...layoutConfig,
-                      showEmptyGroups: checked,
-                    },
-                  },
-                },
-              })}
-            />
-            Show empty groups
+                  })
+                }
+              />
+              Show empty groups
+            </div>
+            {properties.map((property) => {
+              const visible = layoutConfig.fields.some(
+                (field) => field.kind === "property" && field.propertyId === property.propertyId,
+              );
+              return (
+                <div
+                  key={property.propertyId}
+                  className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary"
+                >
+                  <NodexSwitch
+                    ariaLabel={property.name}
+                    checked={visible}
+                    disabled={disabled}
+                    size="compact"
+                    onCheckedChange={(checked) =>
+                      onChange({
+                        ...config,
+                        presentation: {
+                          ...presentation,
+                          layouts: {
+                            ...presentation.layouts,
+                            [layout]: {
+                              ...layoutConfig,
+                              fields: checked
+                                ? [
+                                    ...layoutConfig.fields,
+                                    {
+                                      kind: "property" as const,
+                                      propertyId: property.propertyId,
+                                    },
+                                  ]
+                                : layoutConfig.fields.filter(
+                                    (field) =>
+                                      field.kind !== "property" ||
+                                      field.propertyId !== property.propertyId,
+                                  ),
+                            },
+                          },
+                        },
+                      })
+                    }
+                  />
+                  {property.name}
+                </div>
+              );
+            })}
           </div>
-          {properties.map((property) => {
-            const visible = layoutConfig.fields.some(
-              (field) => field.kind === "property" && field.propertyId === property.propertyId,
-            );
-            return (
-              <div key={property.propertyId} className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
-                <NodexSwitch
-                  ariaLabel={property.name}
-                  checked={visible}
-                  disabled={disabled}
-                  size="compact"
-                  onCheckedChange={(checked) => onChange({
-                    ...config,
-                    presentation: {
-                      ...presentation,
-                      layouts: {
-                        ...presentation.layouts,
-                        [layout]: {
-                          ...layoutConfig,
-                          fields: checked
-                            ? [...layoutConfig.fields, {
-                                kind: "property" as const,
-                                propertyId: property.propertyId,
-                              }]
-                            : layoutConfig.fields.filter(
-                                (field) => field.kind !== "property"
-                                  || field.propertyId !== property.propertyId,
-                              ),
-                        },
-                      },
-                    },
-                  })}
-                />
-                {property.name}
-              </div>
-            );
-          })}
-        </div>
-          </ConfigSection>
+        </ConfigSection>
       </>
     </div>
   );

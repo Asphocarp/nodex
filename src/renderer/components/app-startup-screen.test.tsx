@@ -8,9 +8,7 @@ describe("AppStartupScreen", () => {
   afterEach(() => vi.useRealTimers());
 
   test("keeps generic opening copy visually quiet until startup takes time", async () => {
-    const { getByRole, queryByText } = render(
-      <AppStartupScreen step={{ phase: "opening" }} />,
-    );
+    const { getByRole, queryByText } = render(<AppStartupScreen step={{ phase: "opening" }} />);
 
     expect(getByRole("status").textContent).toContain("Opening Nodex…");
     expect(queryByText("Opening Nodex…", { selector: "p" })).toBeNull();

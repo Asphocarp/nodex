@@ -56,8 +56,10 @@ const siblingAnchor = (
 
 export const toCoreAgentPageDestination = (
   destination: AgentPageDestination,
-  values: readonly { readonly propertyId: string; readonly value: unknown }[] =
-    destination.kind === "data_source" ? destination.values ?? [] : [],
+  values: readonly { readonly propertyId: string; readonly value: unknown }[] = destination.kind ===
+  "data_source"
+    ? (destination.values ?? [])
+    : [],
 ): CoreDestination => {
   if (destination.kind === "library") {
     return { kind: "library", at: siblingAnchor(destination.at) };
@@ -122,9 +124,7 @@ export const preparedAgentPageDestination = (
             viewId: destination.view.view_id,
             viewRevision: destination.view.expected_view_revision,
             groupKey: destination.view.group_key ?? null,
-            ...(destination.view.before
-              ? { beforePageId: destination.view.before.page_id }
-              : {}),
+            ...(destination.view.before ? { beforePageId: destination.view.before.page_id } : {}),
           },
         }
       : {}),
@@ -141,33 +141,36 @@ export const nativeAgentPageLocation = (value: CoreLocation) => {
   return { kind: "data_source" as const, dataSourceId: value.data_source_id };
 };
 
-export const nativeAgentDocumentCommits = (
-  commits: readonly CoreDocumentCommit[],
-) => commits.map((commit) => ({
-  documentId: commit.document_id,
-  generation: commit.generation,
-  baseHeadSeq: commit.base_head_seq,
-  headSeq: commit.head_seq,
-  updateId: commit.update_id,
-  update: new Uint8Array(commit.update),
-  stateVector: new Uint8Array(commit.state_vector),
-}));
+export const nativeAgentDocumentCommits = (commits: readonly CoreDocumentCommit[]) =>
+  commits.map((commit) => ({
+    documentId: commit.document_id,
+    generation: commit.generation,
+    baseHeadSeq: commit.base_head_seq,
+    headSeq: commit.head_seq,
+    updateId: commit.update_id,
+    update: new Uint8Array(commit.update),
+    stateVector: new Uint8Array(commit.state_vector),
+  }));
 
 export const nativeAgentDocumentHeads = (
   heads: readonly CoreDocumentHead[],
-): readonly NodexAgentDocumentHead[] => heads.map((head) => ({
-  documentId: head.document_id,
-  generation: head.generation,
-  expectedHeadSeq: head.expected_head_seq,
-}));
+): readonly NodexAgentDocumentHead[] =>
+  heads.map((head) => ({
+    documentId: head.document_id,
+    generation: head.generation,
+    expectedHeadSeq: head.expected_head_seq,
+  }));
 
 export const hasExactNativeAgentDocumentHeads = (
   expected: readonly NodexAgentDocumentHead[],
   actual: readonly NodexAgentDocumentHead[],
-): boolean => expected.length === actual.length
-  && expected.every((head, index) => {
+): boolean =>
+  expected.length === actual.length &&
+  expected.every((head, index) => {
     const candidate = actual[index];
-    return candidate?.documentId === head.documentId
-      && candidate.generation === head.generation
-      && candidate.expectedHeadSeq === head.expectedHeadSeq;
+    return (
+      candidate?.documentId === head.documentId &&
+      candidate.generation === head.generation &&
+      candidate.expectedHeadSeq === head.expectedHeadSeq
+    );
   });

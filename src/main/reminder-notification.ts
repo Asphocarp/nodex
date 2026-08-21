@@ -7,10 +7,7 @@ export interface ReminderNotificationPayload {
   readonly reminderOffsetMinutes: number;
 }
 
-export function formatReminderBody(
-  occurrenceStart: Date,
-  offsetMinutes: number,
-): string {
+export function formatReminderBody(occurrenceStart: Date, offsetMinutes: number): string {
   if (offsetMinutes < 0) return "Snoozed reminder";
   if (offsetMinutes === 0) return "Starts now";
   if (offsetMinutes < 60) {

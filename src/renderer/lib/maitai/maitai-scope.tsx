@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Provider, useAtomValue, useSetAtom } from "jotai";
 import {
   acquirePreparedScope,
@@ -42,9 +35,7 @@ export function MaitaiProvider({
   return (
     <Provider store={store.jotaiStore}>
       <MaitaiStoreContext.Provider value={store}>
-        <ScopeViewContext.Provider value={rootView}>
-          {children}
-        </ScopeViewContext.Provider>
+        <ScopeViewContext.Provider value={rootView}>{children}</ScopeViewContext.Provider>
       </MaitaiStoreContext.Provider>
     </Provider>
   );
@@ -79,11 +70,7 @@ export function ScopeProvider<Key, Descriptor>({
 
   useLayoutEffect(() => acquirePreparedScope(prepared), [prepared]);
 
-  return (
-    <ScopeViewContext.Provider value={prepared.view}>
-      {children}
-    </ScopeViewContext.Provider>
-  );
+  return <ScopeViewContext.Provider value={prepared.view}>{children}</ScopeViewContext.Provider>;
 }
 
 export function useMaitaiStore(): MaitaiStore {

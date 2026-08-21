@@ -33,57 +33,60 @@ const BrowserDimensionSchema = z.number().int().min(1).max(4_096);
 const BrowserZoomSchema = z.number().finite().min(25).max(500);
 const BrowserThemeVariantSchema = z.enum(["light", "dark"]);
 
-export const BrowserSidebarTabIdentitySchema = z.object({
-  browserConversationId: BrowserIdSchema,
-  browserViewScopeId: BrowserIdSchema,
-  browserTabId: BrowserIdSchema,
-}).strict() satisfies z.ZodType<BrowserSidebarTabIdentity>;
+export const BrowserSidebarTabIdentitySchema = z
+  .object({
+    browserConversationId: BrowserIdSchema,
+    browserViewScopeId: BrowserIdSchema,
+    browserTabId: BrowserIdSchema,
+  })
+  .strict() satisfies z.ZodType<BrowserSidebarTabIdentity>;
 
-export const BrowserSidebarOpenNewTabRequestSchema =
+export const BrowserSidebarOpenNewTabRequestSchema = BrowserSidebarTabIdentitySchema.extend({
+  url: BrowserUrlSchema,
+  background: z.boolean(),
+}).strict() satisfies z.ZodType<BrowserSidebarOpenNewTabRequest>;
+
+export const BrowserSidebarImageDragStateEventSchema = BrowserSidebarTabIdentitySchema.extend({
+  isActive: z.boolean(),
+}).strict() satisfies z.ZodType<BrowserSidebarImageDragStateEvent>;
+
+export const BrowserGuestImageDragStartedSchema = z
+  .object({
+    sourceUrl: BrowserUrlSchema,
+  })
+  .strict();
+
+const BrowserContextMenuPointSchema = z
+  .object({
+    x: FiniteNumberSchema.min(-100_000).max(100_000),
+    y: FiniteNumberSchema.min(-100_000).max(100_000),
+  })
+  .strict();
+
+export const BrowserSidebarContextMenuActionEventSchema = z.discriminatedUnion("action", [
   BrowserSidebarTabIdentitySchema.extend({
-    url: BrowserUrlSchema,
-    background: z.boolean(),
-  }).strict() satisfies z.ZodType<BrowserSidebarOpenNewTabRequest>;
-
-export const BrowserSidebarImageDragStateEventSchema =
+    action: z.literal("annotate"),
+    point: BrowserContextMenuPointSchema,
+  }).strict(),
   BrowserSidebarTabIdentitySchema.extend({
-    isActive: z.boolean(),
-  }).strict() satisfies z.ZodType<BrowserSidebarImageDragStateEvent>;
-
-export const BrowserGuestImageDragStartedSchema = z.object({
-  sourceUrl: BrowserUrlSchema,
-}).strict();
-
-const BrowserContextMenuPointSchema = z.object({
-  x: FiniteNumberSchema.min(-100_000).max(100_000),
-  y: FiniteNumberSchema.min(-100_000).max(100_000),
-}).strict();
-
-export const BrowserSidebarContextMenuActionEventSchema = z.discriminatedUnion(
-  "action",
-  [
-    BrowserSidebarTabIdentitySchema.extend({
-      action: z.literal("annotate"),
-      point: BrowserContextMenuPointSchema,
-    }).strict(),
-    BrowserSidebarTabIdentitySchema.extend({
-      action: z.literal("quick-annotate"),
-      point: BrowserContextMenuPointSchema,
-    }).strict(),
-    BrowserSidebarTabIdentitySchema.extend({
-      action: z.literal("image-attached"),
-      attachment: z.object({
+    action: z.literal("quick-annotate"),
+    point: BrowserContextMenuPointSchema,
+  }).strict(),
+  BrowserSidebarTabIdentitySchema.extend({
+    action: z.literal("image-attached"),
+    attachment: z
+      .object({
         id: BrowserIdSchema,
         fileName: BrowserIdSchema,
         source: BrowserManagedAssetSourceSchema,
-      }).strict(),
-    }).strict(),
-    BrowserSidebarTabIdentitySchema.extend({
-      action: z.literal("error"),
-      message: BrowserTextSchema,
-    }).strict(),
-  ],
-) satisfies z.ZodType<BrowserSidebarContextMenuActionEvent>;
+      })
+      .strict(),
+  }).strict(),
+  BrowserSidebarTabIdentitySchema.extend({
+    action: z.literal("error"),
+    message: BrowserTextSchema,
+  }).strict(),
+]) satisfies z.ZodType<BrowserSidebarContextMenuActionEvent>;
 
 export const BrowserSidebarLocalServerThumbnailRequestSchema =
   BrowserSidebarTabIdentitySchema.extend({
@@ -91,53 +94,67 @@ export const BrowserSidebarLocalServerThumbnailRequestSchema =
     url: BrowserUrlSchema,
   }).strict() satisfies z.ZodType<BrowserSidebarLocalServerThumbnailRequest>;
 
-export const BrowserLocalServerPreferencesUpdateSchema = z.object({
-  showMode: z.enum(["online", "all", "hidden"]).optional(),
-  sortMode: z.enum(["recently-used", "origin"]).optional(),
-  expandedProjectIds: z.array(BrowserIdSchema).max(1_000).optional(),
-}).strict() satisfies z.ZodType<BrowserLocalServerPreferencesUpdate>;
+export const BrowserLocalServerPreferencesUpdateSchema = z
+  .object({
+    showMode: z.enum(["online", "all", "hidden"]).optional(),
+    sortMode: z.enum(["recently-used", "origin"]).optional(),
+    expandedProjectIds: z.array(BrowserIdSchema).max(1_000).optional(),
+  })
+  .strict() satisfies z.ZodType<BrowserLocalServerPreferencesUpdate>;
 
-const BrowserSidebarViewportSchema = z.object({
-  width: BrowserDimensionSchema,
-  height: BrowserDimensionSchema,
-  zoomPercent: BrowserZoomSchema,
-  presetId: BrowserIdSchema,
-}).strict();
-
-const BrowserSidebarSizeSchema = z.object({
-  width: BrowserDimensionSchema,
-  height: BrowserDimensionSchema,
-}).strict();
-
-export const BrowserSidebarDeviceToolbarStateSchema = z.object({
-  responsiveViewportSize: BrowserSidebarSizeSchema.nullable(),
-  toolbarState: z.object({
-    isEnabled: z.boolean(),
-    presetId: BrowserIdSchema,
+const BrowserSidebarViewportSchema = z
+  .object({
     width: BrowserDimensionSchema,
     height: BrowserDimensionSchema,
-  }).strict(),
-}).strict();
+    zoomPercent: BrowserZoomSchema,
+    presetId: BrowserIdSchema,
+  })
+  .strict();
 
-const BrowserSidebarLocalServerRouteSchema = z.object({
-  id: BrowserIdSchema,
-  path: BrowserUrlSchema,
-  title: BrowserTitleSchema,
-  lastSeenAt: z.number().finite().nonnegative(),
-  hidden: z.boolean(),
-}).strict();
+const BrowserSidebarSizeSchema = z
+  .object({
+    width: BrowserDimensionSchema,
+    height: BrowserDimensionSchema,
+  })
+  .strict();
 
-const BrowserSidebarLocalServerSchema = z.object({
-  id: BrowserIdSchema,
-  origin: BrowserUrlSchema,
-  host: BrowserIdSchema,
-  port: z.number().int().min(1).max(65_535),
-  protocol: z.enum(["http:", "https:"]),
-  lastSeenAt: z.number().finite().nonnegative(),
-  online: z.boolean(),
-  hidden: z.boolean(),
-  routes: z.array(BrowserSidebarLocalServerRouteSchema).max(1_000),
-}).strict();
+export const BrowserSidebarDeviceToolbarStateSchema = z
+  .object({
+    responsiveViewportSize: BrowserSidebarSizeSchema.nullable(),
+    toolbarState: z
+      .object({
+        isEnabled: z.boolean(),
+        presetId: BrowserIdSchema,
+        width: BrowserDimensionSchema,
+        height: BrowserDimensionSchema,
+      })
+      .strict(),
+  })
+  .strict();
+
+const BrowserSidebarLocalServerRouteSchema = z
+  .object({
+    id: BrowserIdSchema,
+    path: BrowserUrlSchema,
+    title: BrowserTitleSchema,
+    lastSeenAt: z.number().finite().nonnegative(),
+    hidden: z.boolean(),
+  })
+  .strict();
+
+const BrowserSidebarLocalServerSchema = z
+  .object({
+    id: BrowserIdSchema,
+    origin: BrowserUrlSchema,
+    host: BrowserIdSchema,
+    port: z.number().int().min(1).max(65_535),
+    protocol: z.enum(["http:", "https:"]),
+    lastSeenAt: z.number().finite().nonnegative(),
+    online: z.boolean(),
+    hidden: z.boolean(),
+    routes: z.array(BrowserSidebarLocalServerRouteSchema).max(1_000),
+  })
+  .strict();
 
 const BrowserUseTabStateSchema = BrowserSidebarTabIdentitySchema.extend({
   codexSessionId: BrowserIdSchema,
@@ -164,38 +181,42 @@ const BrowserUseViewportEventSchema = BrowserSidebarTabIdentitySchema.extend({
   viewportSize: BrowserSidebarSizeSchema.nullable(),
 }).strict();
 
-const BrowserUseCaptureSurfaceEventSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    surfaceSize: BrowserSidebarSizeSchema.nullable(),
-  }).strict();
+const BrowserUseCaptureSurfaceEventSchema = BrowserSidebarTabIdentitySchema.extend({
+  surfaceSize: BrowserSidebarSizeSchema.nullable(),
+}).strict();
 
-const BrowserUsePresentationResultSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    requestId: BrowserIdSchema,
-    outcome: z.enum(["accepted", "unavailable", "stale"]),
-    message: BrowserTextSchema.max(1_024).optional(),
-  }).strict();
+const BrowserUsePresentationResultSchema = BrowserSidebarTabIdentitySchema.extend({
+  requestId: BrowserIdSchema,
+  outcome: z.enum(["accepted", "unavailable", "stale"]),
+  message: BrowserTextSchema.max(1_024).optional(),
+}).strict();
 
 const TargetedCommandSchema = <Shape extends z.ZodRawShape>(shape: Shape) =>
   BrowserSidebarTabIdentitySchema.extend(shape).strict();
 
 export const BrowserSidebarCommandSchema = z.union([
-  z.object({
-    type: z.literal("register-renderer-session"),
-    browserViewScopeId: BrowserIdSchema,
-    rendererInstanceId: BrowserIdSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("sync-theme"),
-    themeVariant: BrowserThemeVariantSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("capture-browser-use-route"),
-    browserConversationId: BrowserIdSchema,
-    browserViewScopeId: BrowserIdSchema,
-    codexSessionId: BrowserIdSchema,
-    projectId: BrowserIdSchema.nullable(),
-  }).strict(),
+  z
+    .object({
+      type: z.literal("register-renderer-session"),
+      browserViewScopeId: BrowserIdSchema,
+      rendererInstanceId: BrowserIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("sync-theme"),
+      themeVariant: BrowserThemeVariantSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("capture-browser-use-route"),
+      browserConversationId: BrowserIdSchema,
+      browserViewScopeId: BrowserIdSchema,
+      codexSessionId: BrowserIdSchema,
+      projectId: BrowserIdSchema.nullable(),
+    })
+    .strict(),
   TargetedCommandSchema({
     type: z.literal("register-host"),
     browserStorageId: BrowserIdSchema,
@@ -241,10 +262,12 @@ export const BrowserSidebarCommandSchema = z.union([
     ignoreCache: z.boolean().optional(),
   }),
   TargetedCommandSchema({ type: z.literal("stop") }),
-  z.object({
-    type: z.literal("open-external"),
-    url: BrowserUrlSchema,
-  }).strict(),
+  z
+    .object({
+      type: z.literal("open-external"),
+      url: BrowserUrlSchema,
+    })
+    .strict(),
   TargetedCommandSchema({
     type: z.literal("open-external"),
     url: z.undefined().optional(),
@@ -305,53 +328,73 @@ export const BrowserSidebarCommandSchema = z.union([
     type: z.literal("browser-use-cursor-arrived"),
     moveSequence: z.number().int().positive(),
   }),
-  z.object({
-    type: z.literal("local-servers-refresh"),
-    projectId: BrowserIdSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("hide-local-server"),
-    projectId: BrowserIdSchema,
-    server: BrowserSidebarLocalServerSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("unhide-local-server"),
-    projectId: BrowserIdSchema,
-    url: BrowserUrlSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("remove-local-server-route"),
-    projectId: BrowserIdSchema,
-    serverUrl: BrowserUrlSchema,
-    routeUrl: BrowserUrlSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("browser-use-upsert-tab"),
-    tab: BrowserUseTabStateSchema,
-  }).strict(),
+  z
+    .object({
+      type: z.literal("local-servers-refresh"),
+      projectId: BrowserIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("hide-local-server"),
+      projectId: BrowserIdSchema,
+      server: BrowserSidebarLocalServerSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("unhide-local-server"),
+      projectId: BrowserIdSchema,
+      url: BrowserUrlSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("remove-local-server-route"),
+      projectId: BrowserIdSchema,
+      serverUrl: BrowserUrlSchema,
+      routeUrl: BrowserUrlSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("browser-use-upsert-tab"),
+      tab: BrowserUseTabStateSchema,
+    })
+    .strict(),
   TargetedCommandSchema({ type: z.literal("browser-use-release-tab") }),
-  z.object({
-    type: z.literal("browser-use-set-active-tab"),
-    browserConversationId: BrowserIdSchema,
-    browserViewScopeId: BrowserIdSchema,
-    browserTabId: BrowserIdSchema.nullable(),
-  }).strict(),
-  z.object({
-    type: z.literal("browser-use-resolve-presentation"),
-    result: BrowserUsePresentationResultSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("browser-use-set-cursor"),
-    cursor: BrowserUseCursorStateSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("browser-use-set-viewport"),
-    event: BrowserUseViewportEventSchema,
-  }).strict(),
-  z.object({
-    type: z.literal("browser-use-set-capture-surface"),
-    event: BrowserUseCaptureSurfaceEventSchema,
-  }).strict(),
+  z
+    .object({
+      type: z.literal("browser-use-set-active-tab"),
+      browserConversationId: BrowserIdSchema,
+      browserViewScopeId: BrowserIdSchema,
+      browserTabId: BrowserIdSchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("browser-use-resolve-presentation"),
+      result: BrowserUsePresentationResultSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("browser-use-set-cursor"),
+      cursor: BrowserUseCursorStateSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("browser-use-set-viewport"),
+      event: BrowserUseViewportEventSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("browser-use-set-capture-surface"),
+      event: BrowserUseCaptureSurfaceEventSchema,
+    })
+    .strict(),
 ]) satisfies z.ZodType<BrowserSidebarCommand>;
 
 export const BrowserBrowsingDataKindSchema = z.enum([
@@ -362,34 +405,31 @@ export const BrowserBrowsingDataKindSchema = z.enum([
   "downloads",
 ]) satisfies z.ZodType<BrowserBrowsingDataKind>;
 
-export const BrowserSidebarWebviewHostCreatedSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    browserStorageId: BrowserIdSchema.optional(),
-    rendererInstanceId: BrowserIdSchema,
-    hostGeneration: z.number().int().positive(),
-    projectId: BrowserIdSchema.nullable(),
-    hostKind: z.enum(["panel", "background", "retained"]),
-    mountGeneration: z.number().int().positive(),
-    webContentsId: z.number().int().positive(),
-    initialUrl: BrowserUrlSchema,
-    title: BrowserTitleSchema.optional(),
-  }).strict() satisfies z.ZodType<BrowserSidebarWebviewHostCreated>;
+export const BrowserSidebarWebviewHostCreatedSchema = BrowserSidebarTabIdentitySchema.extend({
+  browserStorageId: BrowserIdSchema.optional(),
+  rendererInstanceId: BrowserIdSchema,
+  hostGeneration: z.number().int().positive(),
+  projectId: BrowserIdSchema.nullable(),
+  hostKind: z.enum(["panel", "background", "retained"]),
+  mountGeneration: z.number().int().positive(),
+  webContentsId: z.number().int().positive(),
+  initialUrl: BrowserUrlSchema,
+  title: BrowserTitleSchema.optional(),
+}).strict() satisfies z.ZodType<BrowserSidebarWebviewHostCreated>;
 
-export const BrowserSidebarWebviewDestroyedSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    mountGeneration: z.number().int().positive(),
-    reason: z.enum(["closed", "reset", "replaced", "stale", "unmounted", "suspend"]),
-    teardownId: BrowserIdSchema,
-    disposition: z.enum(["destroyed", "rejected", "cancelled"]),
-    webContentsId: z.number().int().positive().optional(),
-  }).strict() satisfies z.ZodType<BrowserSidebarWebviewDestroyed>;
+export const BrowserSidebarWebviewDestroyedSchema = BrowserSidebarTabIdentitySchema.extend({
+  mountGeneration: z.number().int().positive(),
+  reason: z.enum(["closed", "reset", "replaced", "stale", "unmounted", "suspend"]),
+  teardownId: BrowserIdSchema,
+  disposition: z.enum(["destroyed", "rejected", "cancelled"]),
+  webContentsId: z.number().int().positive().optional(),
+}).strict() satisfies z.ZodType<BrowserSidebarWebviewDestroyed>;
 
-export const BrowserSidebarDestroyWebviewRequestSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    mountGeneration: z.number().int().positive(),
-    reason: z.enum(["closed", "reset", "replaced", "stale", "unmounted", "suspend"]),
-    teardownId: BrowserIdSchema,
-  }).strict() satisfies z.ZodType<BrowserSidebarDestroyWebviewRequest>;
+export const BrowserSidebarDestroyWebviewRequestSchema = BrowserSidebarTabIdentitySchema.extend({
+  mountGeneration: z.number().int().positive(),
+  reason: z.enum(["closed", "reset", "replaced", "stale", "unmounted", "suspend"]),
+  teardownId: BrowserIdSchema,
+}).strict() satisfies z.ZodType<BrowserSidebarDestroyWebviewRequest>;
 
 function assertBrowserIpcPayloadBudget(value: unknown): void {
   let json: string;

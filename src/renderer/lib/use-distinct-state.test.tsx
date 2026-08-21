@@ -46,10 +46,11 @@ describe("useDistinctState", () => {
 
     function Harness() {
       renderCount += 1;
-      [value, setValue] = useDistinctState(["session:a"], (current, next) => (
-        current.length === next.length
-        && current.every((entry, index) => entry === next[index])
-      ));
+      [value, setValue] = useDistinctState(
+        ["session:a"],
+        (current, next) =>
+          current.length === next.length && current.every((entry, index) => entry === next[index]),
+      );
       return null;
     }
 

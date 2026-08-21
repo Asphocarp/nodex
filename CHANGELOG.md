@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 ## [0.2.2] - 2026-08-18
 
 ### Added
+
 - Added an opt-in Nightly update channel with signed, notarized mainline builds, isolated Sparkle feeds, and an in-app Stable/Nightly selector.
 - Added coherent Page connections: inline `@Page` mentions, live `/Embed page` references, internal Page links and contextual deeplink paste, typed `/Subpage` creation, and authorized `Referenced by` navigation in Page Stage.
 - Added shared image preview and restorable right-panel editing for uploaded and generated images, including direct Composer entry, New Chat and queued edit submission, zoom and pan, positional comments, removal masks, aspect-ratio edits, and Focused/Canvas generated-image workflows.
@@ -32,15 +33,18 @@ All notable changes to this project will be documented in this file.
 - Added a searchable keyboard shortcut reference plus Board-first navigation, Peek, selection, property editing, reordering, expanded Page creation, and sequence shortcuts for opening and navigating Pages, chats, and Settings.
 
 ### Changed
+
 - Database Views now keep one durable identity and Filter while switching between Board and List; personal display changes persist per View and can be reset or published as the View default.
 - Board and List now share effective View authority and layout-independent manual order, and every Board grouping uses the same compact Column/Card UI, whole-card drag, column controls, Page menus, and keyboard behavior.
 - Replaced the Library workspace and ownership tree with a compact Pages section for standalone top-level resources; every Page, Database, and Canvas in a window now shares one restorable tablist with searchable open/new actions, breadcrumbs, and app-wide Back/Forward navigation without switching Projects.
 
 ### Removed
+
 - Removed the former Table, top-level expandable List, and Database Calendar presentations; scheduling, recurrence, reminders, and occurrence data remain available as independent domain capabilities.
 - Removed the `P4 - Later` priority tier; existing P4 assignments, saved View filters, and local UI filters migrate to `P3 - Low`.
 
 ### Fixed
+
 - Fixed NFM Block promotion so task shorthand such as `1XL(ui, unclear)` atomically becomes Page Priority, Estimate, and Tags; unsafe interpretations preserve the complete title, and the whole promotion can be safely undone.
 - Fixed Project New Chat Terminals failing before the first message; they now open in the Project workspace and remain the same Terminal when the Chat gains its Thread.
 - Fixed the NFM `Move to` picker so Page and Database-status destinations commit real atomic Block moves, stay inside the source Project's write authority, and show specific retryable errors instead of a generic failure.
@@ -55,15 +59,18 @@ All notable changes to this project will be documented in this file.
 ## [0.2.1] - 2026-08-02
 
 ### Added
+
 - Added Window Session-owned Project and Session Scenes with one fixed owner-root primary and shared right/bottom panel surfaces. Projects can open with zero chats, while Database, Page, Canvas, Files, Browser, Review, and Terminal surfaces no longer need a chat as their panel host.
 - Added native macOS Picture-in-Picture for background Browser work and Apple Silicon Computer Use, including live desktop-app presentation, native per-task visibility, and turn-scoped cleanup.
 
 ### Changed
+
 - Library is now a permanent, compact workspace whose Home, Pages, Databases, Views, and Canvases share app-window Back/Forward navigation, App Header chrome, and Project-aligned Sidebar rows.
 - Replaced the automatically seeded `Database View` chat with Project Home: the Project's current Database is the protected root surface, its footer Agent Dock can work with a new or existing task without navigating away, and Browser Use opens controlled pages in the task that owns them.
 - Window restore and new-window cloning now persist one owner-scoped Scene layout for both Projects and Sessions instead of parallel Project Session panel-view models.
 
 ### Fixed
+
 - Fixed task notifications so child-agent completion no longer produces desktop alerts, while top-level interrupted turns, approvals, permissions, and input requests now follow exact visibility settings, resolve cleanly, and navigate to the correct task or Side chat before acting.
 - Fixed Project folder controls so the label opens Project Home and the leading chevron changes chat disclosure without either action triggering the other.
 - New Session Scenes now start with the right panel collapsed, while Project Home and the explicit first-Project Welcome presentation retain their intended full-width layouts.
@@ -72,6 +79,7 @@ All notable changes to this project will be documented in this file.
 ## [0.2.0] - 2026-08-01
 
 ### Added
+
 - Added automatic fresh-Profile setup with one source-backed `My Project`, an editable source-aware `Welcome to Nodex` Page opened in the normal Workbench, atomic single-winner creation, and exact-payload crash recovery.
 - Added recoverable Project removal with active-work protection, a lazy `Removed projects` restore manager, preserved chats/files/Library content, and an explicit projectless Workbench state after the final Project is removed.
 - Projectless chats with an attached thread can now open temporary Side chats and cwd-bound Terminals alongside Browser; exact Output files remain pinnable without enabling the generic Project Files tree.
@@ -128,6 +136,7 @@ All notable changes to this project will be documented in this file.
 - Added a Page Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy Pages.
 
 ### Changed
+
 - Workbench keyboard navigation now follows Projects, Sessions, routes, and panel tabs exclusively: obsolete stage/sliding-window shortcuts no longer intercept `Ctrl+Tab`, `Cmd/Ctrl+H`, or `Cmd/Ctrl+1`–`4`, and `Cmd/Ctrl+F` consistently opens the mounted Workbench content-search surface.
 - macOS distribution now treats the notarized app bundle as the single app/CLI/Core runtime closure: Homebrew exposes the bundled CLI while preserving Profile data on zap, app updates require an Applications install, and local source deployment uses a verified rollback-safe command instead of a destructive source installer.
 - Repeated local restarts can reuse a content-verified production bundle and release-lock-verified agent runtime, while Core startup is substantially faster, historical Store upgrades report truthful progress without duplicate retry backups, active long migrations no longer look dead, failed or cancelled candidates release the Profile lock, and the blocking launch surface distinguishes data migration from workspace opening.
@@ -192,6 +201,7 @@ All notable changes to this project will be documented in this file.
 - Right-panel Database View and Page Stage actions now use the same dense searchable picker chrome as NFM move-to, scoped to Database or Page destinations.
 
 ### Removed
+
 - Removed the legacy unauthenticated local HTTP API and fixed desktop port; desktop workflows now use trusted Electron IPC, while the CLI continues through the private Profile-scoped Core transport.
 - Removed the legacy Card snapshot tables and whole-Page write APIs during the shipped-store import; Page commands and read models now operate only on Block, Document, and Database authority.
 - Removed the old `KANBAN_*` server environment variable aliases.
@@ -205,6 +215,7 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Page conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
+
 - Fixed edited Pages intermittently failing to reopen during idle history finalization, restart, or compaction when equivalent Yjs state produced different full-state bytes; Store v98 now validates stable replay and materialization evidence and retires non-canonical reconstruction fingerprints.
 - Fixed Codex Thread ownership so cwd is used only for first materialization; later sidebar and app-server reconciliation preserves the durable Project or projectless owner unless an explicit move is requested.
 - Fixed large Profiles failing to open once sidebar, Thread, or Database JSON crossed a client-only 512 KiB ceiling: Core transport budgets now agree, growing read models load through compact resumable windows, and Page bodies stay on explicit detail/Document paths. Board columns load and page independently with true per-column totals and an in-column `Show more`, and paging keeps working while edits or background sync change the data instead of failing with a collection-changed error.
@@ -267,6 +278,7 @@ All notable changes to this project will be documented in this file.
 ## [0.1.10] - 2026-05-03
 
 ### Added
+
 - Added Show more/Show less controls for long Thread user-message bubbles.
 - Added a packaged macOS notification sound for Nodex desktop notifications.
 - Added editable NFM `<agent-config />` chips with readable model labels and a slash-menu insertion command so prompts can apply one-send Codex mode, model, and reasoning overrides without exposing config markup to the agent.
@@ -274,12 +286,14 @@ All notable changes to this project will be documented in this file.
 - Added Calendar controls to the View-stage toolbar, with Day, Week, custom Multi-Day, custom Multi-Week, inline range steppers, navigation, a create action, and no unrelated search/filter/sort chrome.
 
 ### Changed
+
 - Thread composer controls now have stable no-focus-elevation chrome, permissions and context usage inside the footer, a compact Intelligence selector for model/reasoning/speed, and one editor-owned suggestion controller shared by `+`, `@`, `$`, and slash commands. The full-width add-context surface combines actions, plugins, apps, Sites, ChatGPT conversations, skills, chats, and workspace files with live global ranking; `$` provides the dedicated Skills-and-Apps picker, selections persist as inline structured mentions, and macOS can attach a foreground-app Appshot with screenshot plus accessible application context. Request cards still replace only the composer controls, and the lower status row remains limited to run target plus branch.
 - NFM slash commands and card mentions now use a compact Nodex-native suggestion menu with right-aligned syntax hints and item descriptions shown on hover instead of inline secondary text.
 - Card Stage now uses a top tab bar for card sessions, with card history rendered as a second state of the active card tab instead of a separate tab and rich hover tooltips for card/project context.
 - macOS window titles now follow the active workspace name for each restored window session.
 
 ### Fixed
+
 - Fixed sent image attachments in Threads so user-submitted images now appear above the user message bubble as previewable thumbnails instead of disappearing from the transcript body.
 - Fixed NFM image blocks in thread-section prompts so their image pixels are sent to Codex as image inputs instead of only contributing serialized text.
 - Fixed Card Stage rich-editor typing latency under CPU pressure by deferring full NFM serialization and Kanban preview updates until draft flush points instead of doing them on every editor transaction.
@@ -289,6 +303,7 @@ All notable changes to this project will be documented in this file.
 ## [0.1.9] - 2026-04-24
 
 ### Added
+
 - Added VS Code-style window session reopening, with profile-local per-window layout snapshots, saved window bounds, and a Settings -> General restore policy for reopening all windows, the last window, or a fresh window.
 - Added profile-local workspaces for restoring named workbench layouts across app restarts, with a default workspace, optional workspace icons, footer workspace dots plus a `+` editor trigger, and workspace create/rename/delete controls.
 - Added thread-composer dictation in Electron for ChatGPT-authenticated sessions, including the `Dictate` mic button, `Ctrl+M` hold-to-dictate shortcut, buffered `/transcribe` upload path, and the recording footer with `Stop dictation` plus `Transcribe and send`.
@@ -300,9 +315,11 @@ All notable changes to this project will be documented in this file.
 - Added a global Nodex toast system with a single top-centered renderer overlay, deduping/custom-toast support, and immediate migration of undo/history, editor, and review transient feedback onto the shared toaster.
 
 ### Changed
+
 - Cards sidebar status groups now list completed work first, from `Done` back to `Draft`, while board and filter ordering stay unchanged.
 
 ### Fixed
+
 - Fixed nested NFM editor Backspace for bullet, numbered, checklist, and toggle-list child items at block start so they now exit list formatting in place like root-level lists instead of merging into the previous sibling text.
 - Fixed desktop notifications for local Codex threads so turn-complete, approval, and question notifications now follow settings, focus suppression, reply/action handling, and interrupted-turn filtering.
 - Fixed NFM ordered-list round-tripping so numbered list markers now persist exactly through editor save/reload, plain-text copy, and raw NFM rendering instead of collapsing every item to `1.`.
@@ -347,12 +364,14 @@ All notable changes to this project will be documented in this file.
 ## [0.1.8] - 2026-03-30
 
 ### Added
+
 - Added full-feature Codex thread.
 - Added command-palette card filters with persistent status, priority, tag, assignee, and project rules.
 - Added a `Local environments` settings page for browsing and editing workspace `.codex/environments/*.toml` files in-app.
 - Added a full Diff stage review workspace with source switching, file tree navigation, unified/split diffs, search, word wrap, word diffs, rich previews, and file-level Git actions.
 
 ### Changed
+
 - Threads settings now include detail modes for `Steps`, `Steps with code commands`, and `Steps with code output`.
 - Settings and shared form controls now use a cleaner shell, thinner inputs, shared validation, and matching theme tokens.
 - Shared sort controls can now place empty `priority` and `estimate` values first or last.
@@ -362,6 +381,7 @@ All notable changes to this project will be documented in this file.
 - Running-thread follow-ups now use a true `queue`/`steer` split instead of starting queued messages immediately.
 
 ### Fixed
+
 - Fixed Diff stage review polish, including file-tree statuses, directory expansion, virtualization, word wrap, review search, and actions-menu behavior.
 - Fixed the NFM editor side-menu `+` button hit target.
 - Fixed running-thread background terminal rows, follow-up keyboard shortcuts, and above-composer diff/task portal behavior.
@@ -373,10 +393,12 @@ All notable changes to this project will be documented in this file.
 ## [0.1.7] - 2026-03-19
 
 ### Changed
+
 - Packaged macOS builds now bundle a pinned Codex CLI runtime and its bundled `rg`, keeping the shipped app-server binary version aligned with the committed generated `codex_schemas` instead of depending on a separately installed `codex` binary.
 - Changed the first-party Homebrew tap namespace to `junyudev/tap`, so the canonical macOS install command is now `brew install --cask junyudev/tap/nodex`.
 
 ### Fixed
+
 - Fixed packaged macOS builds re-signing the bundled Codex binary, so `Contents/Resources/bin/codex` now keeps OpenAI's original code signature and can reuse existing `Codex MCP Credentials` Keychain access without extra prompts.
 - Fixed Thread-stage transcript message actions so user bubbles keep their copy/edit controls, while assistant copy now waits for the round to settle and only attaches to the round's final assistant message instead of appearing on streaming output.
 - Fixed Thread-stage streaming transcript text so empty assistant/plan/thinking item shells no longer flash internal fallback labels like `Agent Message` before real content arrives.
@@ -386,16 +408,19 @@ All notable changes to this project will be documented in this file.
 ## [0.1.6] - 2026-03-18
 
 ### Added
+
 - Added derived-view Kanban block-drop import support for structured filter/sort views, including exact-slot placement when the board can infer safe workflow properties and column-level fallback when the active sort owns visible order.
 - Added richer sorted Kanban drag modes: `board-order` now keeps same-column ranking even with secondary sorts, `priority` / `estimate` sorts can infer bucket-changing drops, and `title` / `created` sorts now explain blocked same-column ranking while still allowing cross-column moves.
 - Added packaged-macOS app auto-update support via GitHub Releases, including background update checks/downloads, a new Settings -> General -> `App updates` control, a `Check for Updates…` macOS app-menu action, and in-app restart prompts when a downloaded update is ready.
 
 ### Changed
+
 - Matched NFM editor heading typography to the reference scale, including heading weights and drag-handle alignment for heading rows.
 - Changed linked Codex thread recovery to prefer persisted Codex session history over Nodex-owned full transcript snapshots, reducing duplicate local state while preserving restart recovery for thread logs and notifications.
 - Changed generated card ids to use the published `uuid` package's UUID-v7 implementation, preserving DB-friendly ordering without the old visually repetitive `7000-8000` middle pattern.
 
 ### Fixed
+
 - Fixed Kanban drag performance and interaction stability on dense boards by replacing the old sortable runtime with Atlassian Pragmatic Drag and Drop while preserving multi-card moves and gap insertion.
 - Fixed NFM editor `cardToggle` rows so property chips now stay inline with the toggle title text and wrapped titles use the full row width, matching kanban card properties.
 - Fixed the NFM editor side menu so the add-block `+` now uses the same icon color as the drag handle.
@@ -411,16 +436,19 @@ All notable changes to this project will be documented in this file.
 ## [0.1.5] - 2026-03-16
 
 ### Fixed
+
 - Fixed oversized macOS release packages by keeping renderer-only libraries out of shipped runtime dependencies and pruning dead test/source-map/source-tree files from packaged Node modules.
 
 ## [0.1.4] - 2026-03-16
 
 ### Fixed
+
 - Fixed release automation so macOS packaging now gets a larger CI-only Node heap budget, and the version commit/tag are pushed only after both release builds succeed.
 
 ## [0.1.3] - 2026-03-16
 
 ### Added
+
 - Added a `Show raw` toggle in the Card Stage toolbar that swaps the rich description editor for a read-only raw NFM view of the current card draft, so debugging serialized content is one click away.
 - Added fuzzy full-text card matching to the global command palette, with a cached MiniSearch index so card results now tolerate small typos and rank matches from descriptions, tags, assignees, statuses, column names, project names, and card ids instead of title-only token containment.
 - Added Omnisearch-style contextual preview snippets to command-palette card results, with matching title and metadata indicators plus matching description text highlighted and clamped to three lines.
@@ -430,11 +458,13 @@ All notable changes to this project will be documented in this file.
 - Added Streamdown 2.4.0-based markdown rendering across Codex threads and raw NFM code blocks, replacing the app-owned transcript Shiki/Mermaid stack with the official Streamdown code, Mermaid, math, and CJK plugins.
 
 ### Changed
+
 - Changed the global command palette to match VS Code-style command mode: card search is now the default, and command results only appear when the query starts with `>`.
 - Changed `Cmd/Ctrl+Shift+P` to open the global command palette directly in command mode with `>` prefilled, instead of opening the project picker.
 - Changed the command palette to open faster, keep the workbench visible behind it instead of dimming the background, and use a heavier floating shadow for separation.
 
 ### Fixed
+
 - Fixed NFM editor drag-handle menu actions like `Delete`, `Send blocks`, and `Colors` so BlockNote side-menu dropdown items now complete their pointer interaction reliably in Electron, and follow-up actions no longer leave the side menu frozen in place.
 - Fixed the Card Stage history button so it opens reliably again after the navigation-history refactor; the cards overlay no longer clears itself by coupling the selected recent session to the active cards tab.
 - Fixed DB view toolbar filter, sort, and display settings resetting after a full window close; they now persist durably per project and per supported view across reopen.
@@ -442,6 +472,7 @@ All notable changes to this project will be documented in this file.
 ## [0.1.2] - 2026-03-14
 
 ### Added
+
 - Added notebook-style `threadSection` blocks in the Card Stage editor so `Cmd/Ctrl+Enter` can send an explicit structure-preserving plain-text section payload, including marker-child content and nested child sections scoped to their sibling blocks, to a sticky Codex thread without leaving the editor; typing `---`, using the slash menu, or sending from unsectioned content can create a section marker, and sends now open a confirmation preview by default.
 - Added a global command palette on `Cmd/Ctrl+K` and `Cmd/Ctrl+P` for jumping to cards across projects and running common shell commands like project picker, task search, settings, view switches, and terminal toggling.
 - Added browser-style workbench back/forward navigation on `Cmd/Ctrl+[` and `Cmd/Ctrl+]`, with matching `Go back` and `Go forward` actions in the command palette.
@@ -450,6 +481,7 @@ All notable changes to this project will be documented in this file.
 - Added an explicit empty-priority (`-`) option to toggle-list and shared DB-view filter rules, including raw-rule serialization that preserves empty-priority intent instead of relying on legacy “all priorities” matching.
 
 ### Changed
+
 - Refined Kanban drag feedback on dense boards so board drags keep a static source ghost plus a non-layout-shifting insertion indicator, same-column reordering no longer live-shifts the whole list, drag overlays now portal to the document root with source-locked geometry so they start under the cursor instead of appearing offset, and dropping onto the visible gap between cards inserts at that gap instead of snapping to column end.
 - Replaced plain status dots with semantic status icons across shared status chips and sidebar status groups, so Kanban, table, editor, thread metadata, and the Cards sidebar all use the same clearer workflow language.
 - Simplified the card workflow to five canonical statuses (`draft`, `backlog`, `in_progress`, `in_review`, `done`) plus an internal `archived` flag, and updated recurring completion snapshots to archive `done` cards instead of using a hidden archive column.
@@ -465,14 +497,17 @@ All notable changes to this project will be documented in this file.
 - Priority is now empty by default and can be cleared back to empty across the card editor, inline creator, and compact card surfaces.
 
 ### Fixed
+
 - Matched Kanban’s empty `priority` / `estimate` placeholder chips to Toggle List exactly, including the rendered `-` label, shared chip styling/token logic, and the same click-to-edit dropdown behavior as filled Kanban property chips.
 
 ## [0.1.1] - 2026-03-12
 
 ### Added
+
 - Added pasted attachment chips for oversized text, pasted files, and pasted folders, with save-in-Nodex support for text/files and local-path linking for files/folders.
 
 ### Changed
+
 - Expanded local asset handling beyond images so pasted attachments can resolve previews and metadata through the shared `nodex://assets/...` pipeline.
 - Refined the titlebar sliding-window pane controls so they flank the minimap, `+` grows to the right before falling back left, and `-` always removes the right-most visible pane.
 - Reworked card-description history storage so repeated large description edits now write compact revision deltas and checkpoints instead of duplicating full description blobs in every history row.
@@ -480,6 +515,7 @@ All notable changes to this project will be documented in this file.
 - Added a Backups settings control for per-project history retention so you can configure how many history rows are kept before pruning.
 
 ### Fixed
+
 - Fixed BlockNote drag-handle delete getting the side menu stuck at a stale position after removing a block.
 - Fixed the Cards sidebar so status groups start collapsed by default instead of opening every group on first render.
 - Fixed sidebar status-group collapse and `Show more` state resetting after reload; both now persist per project.
@@ -490,32 +526,38 @@ All notable changes to this project will be documented in this file.
 ## [0.1.0] - 2026-03-10
 
 ### Added
+
 - Initial public release.
 
 ## [0.0.9] - 2026-03-09
 
 ### Added
+
 - Added a kanban card context menu, deeplink wiring for cards, and cross-project card moves.
 - Persisted the last workbench window state so the shell can restore its previous layout.
 - Added structured backend logging for the local-first runtime.
 
 ### Changed
+
 - Made card properties inline by default and unified selector and chip-editor chrome across the card experience.
 - Tightened the history panel layout and jump-to-latest affordance for denser navigation.
 - Renamed the app from Aboard to Nodex, unified the icon set, and migrated legacy asset URIs to the `nodex://assets/...` scheme.
 
 ### Fixed
+
 - Fixed card-move menu interactions, selector focus behavior, side-menu text selection clipping, NFM tab-boundary focus escape, and project-manager open request consumption.
 - Fixed project edit form seeding, restored a missing BlockNote utility source, tightened collapsed-toggle keyboard behavior, sped up local installs, and restored editor autolinking.
 
 ## [0.0.8] - 2026-03-08
 
 ### Added
+
 - Added Codex sidebar section actions in the workbench shell.
 - Expanded documentation for NFM clipboard and copy behavior.
 - Added a grouped cards sidebar navigator with collapsible active groups and a cleaner DB view selector.
 
 ### Changed
+
 - Removed the final legacy schema-version compatibility shim.
 - Removed legacy asset compatibility paths, simplified schema bootstrap, dropped remaining old migration layers, and switched schema tracking to SQLite `user_version`.
 - Flattened asset storage and rewrote legacy asset URIs automatically at startup.
@@ -523,6 +565,7 @@ All notable changes to this project will be documented in this file.
 - Refined sidebar section headers, chevrons, recents behavior, and hover/resize timing so the shell feels more immediate.
 
 ### Fixed
+
 - Fixed cut-aware clipboard payload generation, nested-copy parent lookup, and related code-block copy polish.
 - Fixed the v19 asset migration cursor during the storage cleanup.
 - Stabilized sidebar show-more collapse state and recents ordering.
@@ -530,19 +573,23 @@ All notable changes to this project will be documented in this file.
 ## [0.0.7] - 2026-03-07
 
 ### Added
+
 - Added collaboration Plan-mode UI, including required-input cards, multi-question navigation, answered-state rendering, and post-plan implementation flow.
 - Added optimistic thread prompts, thread message copy/edit actions, copied-state feedback, and a general UI dev-story page.
 
 ### Changed
+
 - Fixed running-thread steer prompts so accepted steers stay in the composer shell until the authoritative user-message item arrives, instead of inserting an early optimistic user bubble at the wrong transcript position.
 
 ### Fixed
+
 - Fixed request-card keyboard flow, drag-preview cleanup, and pointer hit-testing around copied and draggable thread content.
 - Fixed steered-thread active-status resets.
 
 ## [0.0.6] - 2026-03-05
 
 ### Added
+
 - Added multi-window support, revision-based card conflict handling, selective install targets, and New Window app-menu and dock actions.
 - Added stage-alias and settings-toggle shortcuts.
 - Added inline card-property chip editing in the card stage.
@@ -551,12 +598,14 @@ All notable changes to this project will be documented in this file.
 - Added a connected-account rate-limit tooltip and thread completion notifications.
 
 ### Changed
+
 - Scoped the Electron single-instance lock by server profile and refined thread running and elapsed indicators.
 - Kept the kanban store alive across stage switches and auto-collected converged local overlays to make optimistic updates durable across the shell.
 - Restyled Codex markdown links and aligned themed link token colors.
 - Refined running-thread and empty-thread status rendering so the stage communicates runtime state more clearly.
 
 ### Fixed
+
 - Fixed false stale-write conflicts during rapid card updates.
 - Fixed same-card card-stage sync when external kanban mutations land while a card is open.
 - Fixed Codex worktree startup races.
@@ -564,28 +613,34 @@ All notable changes to this project will be documented in this file.
 ## [0.0.5] - 2026-03-04
 
 ### Added
+
 - Added card run-targets with managed worktree startup, reusable per-card worktree paths, environment setup selection, auto-generated thread titles, and title-derived branch naming.
 - Streamed worktree and setup progress directly into the new-thread UI and added a card-stage dev-story harness.
 
 ### Changed
+
 - Renamed the side peek into the card stage, merged run-target controls into the Threads row, and tightened thread-stage composition and typography.
 - Defaulted managed worktree starts to detached `HEAD` and surfaced the active thread cwd more clearly in the UI.
 
 ### Fixed
+
 - Fixed run-target sync after thread start, thread reads before materialization, managed-worktree deduping and deletion semantics, stop-button state, CLI TOML parsing, and setup buffer and symlink validation.
 
 ## [0.0.4] - 2026-03-02
 
 ### Added
+
 - Added configurable collapsed card-stage properties.
 - Added a hover-reveal floating sidebar, a global right-pane width, and saner default width limits for the cards stage.
 - Added real Codex model, reasoning, permission-mode, branch-selector, and live context-window controls in the thread stage.
 - Added Toggle List Rules v2 with JSONLogic interop, editor support for opening markdown file links, and a redesigned settings overlay.
 
 ### Changed
+
 - Moved kanban card properties to the top of the card UI and flattened the toggle-list rules panel into a denser Linear/Arc-inspired layout.
 
 ### Fixed
+
 - Restored stage shortcuts while editing NFM and fixed the floating-sidebar offscreen shadow.
 - Fixed Codex permission hints, branch watcher refresh, thread-stage rebase cleanup, and several remaining thread-stage UI issues.
 - Fixed NFM code-fence round-tripping.
@@ -593,17 +648,20 @@ All notable changes to this project will be documented in this file.
 ## [0.0.3] - 2026-02-27
 
 ### Added
+
 - Added a weekly calendar with drag-to-create, drag/resize editing, an all-day lane, recurrence support, reminders, and richer event cards.
 - Added the staged workbench shell with docked panels, calendar-aware navigation, settings surfaces, project emoji icons, floating search, and dual-pane stage-rail workflows.
 - Integrated Codex app-server threads into the workbench with markdown rendering, tool cards, file diffs, running indicators, follow mode, persistent logs, and better exploration summaries.
 - Added smart prefix parsing for block-to-card import and inserted inline-created cards at the top of the target list.
 
 ### Changed
+
 - Reworked the shell toward a denser niri-like rail layout with glassy macOS-inspired chrome, collapsible sidebars, and a more focused titlebar and stage model.
 - Consolidated calendar scheduling into a unified popover and improved special-copy and image-preview behavior in the editor.
 - Shortened kanban priority badges to `P0` through `P4`.
 
 ### Fixed
+
 - Hardened the local API by binding to loopback, enforcing a stricter localhost origin policy, validating backup IDs and calendar payloads, and capping SQL query output.
 - Fixed recurring-calendar move semantics, overlap lanes, ghost previews, active-thread stop states, replayed Codex items, and a long tail of thread-stage and shell layout issues.
 - Fixed Codex binary discovery in installed builds and code-block inline-copy newline escaping.
@@ -613,29 +671,35 @@ All notable changes to this project will be documented in this file.
 ## [0.0.2] - 2026-02-17
 
 ### Added
+
 - Added richer projected inline-card workflows, including drag-handle send actions, cross-project drag/drop, childless embed normalization, and persisted projected-chip edits.
 - Added inline card references, a terminal with running indicators, and an Excalidraw canvas view for card-level brainstorming.
 - Added bidirectional NFM/Kanban drag-and-drop with grouped undo, spellcheck controls, richer toggle-list rules controls, and clickable property chips.
 
 ### Changed
+
 - Replaced the terminal integration with `ghostty-web`.
 - Reworked projected-card synchronization around a shared kanban store and editor controller, and made the side peek global across tabs and projects.
 
 ### Fixed
+
 - Fixed projection reconciliation timing, focus retention, duplicate row updates, optimistic patch sync, and several inline-toggle chrome issues.
 - Fixed NFM color parsing edge cases and isolated side-peek undo handling so editor undo stays scoped correctly.
 
 ## [0.0.1] - 2026-02-13
 
 ### Added
+
 - Bootstrapped the product as a local-first kanban board for coding agents, then grew it into a packaged Electron app with web support, distribution tooling, and a CLI for automation.
 - Added multi-project support, project rename/config flows, All Tasks list views, side-peek editing, detailed edit history with undo/redo, and agent-facing read and SQL introspection APIs.
 - Added the NFM editor stack on top of BlockNote, including toggle blocks, Notion import fidelity, image asset paste/upload, dark mode, search/replace, and the first toggle-list views.
 - Added whole-store backups, stricter card-write validation, keyboard shortcuts, empty-column auto-collapse, and persistent card and side-peek state.
 
 ### Changed
+
 - Migrated persistence from TOML files to SQLite and tightened CLI behavior around config, output, and server defaults.
 - Moved the app from a simple board UI toward a richer desktop shell with Electron packaging, better chrome, and more persistent project-aware navigation.
 
 ### Fixed
+
 - Fixed SSE controller shutdown handling, optimistic card updates, toggle drag/drop stability, editor newline and empty-line persistence, inline creator dropdowns, tag and estimate edge cases, and a long run of early UI fit-and-finish issues.

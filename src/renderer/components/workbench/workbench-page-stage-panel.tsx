@@ -18,13 +18,8 @@ import {
   commitPageDetailPropertyEdit,
 } from "@/lib/page-detail-metadata-runtime";
 import { makeEditorSurfaceKey } from "@/lib/document-session-registry";
-import {
-  projectPageDetailToStageModel,
-} from "@/lib/page-stage-page";
-import {
-  pageStageSemanticValues,
-  type PageStageSemanticValues,
-} from "@/lib/page-stage-properties";
+import { projectPageDetailToStageModel } from "@/lib/page-stage-page";
+import { pageStageSemanticValues, type PageStageSemanticValues } from "@/lib/page-stage-properties";
 import { readPageStageContentWidthPreference } from "@/lib/page-stage-layout";
 import { requestPageBlockFocus } from "@/lib/page-block-focus-intents";
 import { fetchPageDetail, usePageDetail } from "@/lib/page-detail-store";
@@ -69,18 +64,9 @@ export interface PageStageHistoryModalContext {
 
 interface PageStageDatabaseCapability {
   readonly onDelete?: (pageId: string) => Promise<void>;
-  readonly onMove?: (
-    pageId: string,
-    toStatus: DatabasePage["status"],
-  ) => Promise<void>;
-  readonly onCompleteOccurrence: (
-    pageId: string,
-    occurrenceStart: Date,
-  ) => Promise<void>;
-  readonly onSkipOccurrence: (
-    pageId: string,
-    occurrenceStart: Date,
-  ) => Promise<void>;
+  readonly onMove?: (pageId: string, toStatus: DatabasePage["status"]) => Promise<void>;
+  readonly onCompleteOccurrence: (pageId: string, occurrenceStart: Date) => Promise<void>;
+  readonly onSkipOccurrence: (pageId: string, occurrenceStart: Date) => Promise<void>;
 }
 
 function PageStageDatabaseCapabilityBoundary({
@@ -175,9 +161,7 @@ export function PageStageSessionTab({
     projectId: string,
     options?: { select?: boolean },
   ) => Promise<WorkbenchSessionRenderProjection>;
-  onRefreshSessions: (
-    projectId: string,
-  ) => Promise<WorkbenchSessionRenderProjection[]>;
+  onRefreshSessions: (projectId: string) => Promise<WorkbenchSessionRenderProjection[]>;
   onOpenPageTab: OpenPageTabHandler;
   onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenThread: (threadId: string) => Promise<void>;
@@ -209,80 +193,67 @@ export function PageStageSessionTab({
   }, [detailSnapshot.detail]);
   const page = stageProjection.page;
   const pageLoadError = !page
-    ? stageProjection.error ?? (
-        detailSnapshot.error === "Page not found"
-          ? null
-          : detailSnapshot.error
-      )
+    ? (stageProjection.error ??
+      (detailSnapshot.error === "Page not found" ? null : detailSnapshot.error))
     : null;
-  const pageHydrating = !page && (
-    detailSnapshot.loading
-    || (!detailSnapshot.error && !stageProjection.error)
-  );
+  const pageHydrating =
+    !page && (detailSnapshot.loading || (!detailSnapshot.error && !stageProjection.error));
 
   const ownershipPath = usePageOwnershipPathReadModel(
     projectContentAccess(project?.id ?? tab.config.projectId),
     tab.config.pageId,
   );
-  const ownershipAncestors = ownershipPath.data?.status === "available"
-    ? ownershipPath.data.ancestors
-    : [];
-  const breadcrumb = ownershipAncestors.length > 0
-    ? {
-        ancestors: ownershipAncestors.map((ancestor) => ({
-          projectId: tab.config.projectId,
-          pageId: ancestor.pageId,
-          title: ancestor.title.trim() || "Untitled",
-          disabled: false,
-        })),
-        onOpenAncestor: (
-          ancestor: { projectId: string; pageId: string; title: string },
-        ) => {
-          void onOpenPageTab(
-            ancestor.projectId,
-            ancestor.pageId,
-            ancestor.title,
-            { openMode: "durable" },
-          );
-        },
+  const ownershipAncestors =
+    ownershipPath.data?.status === "available" ? ownershipPath.data.ancestors : [];
+  const breadcrumb =
+    ownershipAncestors.length > 0
+      ? {
+          ancestors: ownershipAncestors.map((ancestor) => ({
+            projectId: tab.config.projectId,
+            pageId: ancestor.pageId,
+            title: ancestor.title.trim() || "Untitled",
+            disabled: false,
+          })),
+          onOpenAncestor: (ancestor: { projectId: string; pageId: string; title: string }) => {
+            void onOpenPageTab(ancestor.projectId, ancestor.pageId, ancestor.title, {
+              openMode: "durable",
+            });
+          },
+        }
+      : undefined;
+  const handleStartNewSessionThreadFromEditor = useCallback(
+    async (input: {
+      projectId: string;
+      targetSessionId?: string;
+      prompt: string;
+      promptInput?: CodexPromptInput;
+      threadName?: string;
+    }) => {
+      const targetSessionId =
+        input.targetSessionId?.trim() ||
+        (await onEnsureDefaultDraftSessionForProject(input.projectId, { select: false })).id;
+      const result = await codexControl.startThreadForSession({
+        projectId: input.projectId,
+        sessionId: targetSessionId,
+        prompt: input.prompt,
+        promptInput: input.promptInput,
+        threadName: input.threadName,
+        skipAutoTitleGeneration: Boolean(input.threadName?.trim()),
+        runInTarget: "localProject",
+      });
+      if (result.kind !== "started") {
+        throw new Error("Page thread unexpectedly started in a worktree");
       }
-    : undefined;
-  const handleStartNewSessionThreadFromEditor = useCallback(async (input: {
-    projectId: string;
-    targetSessionId?: string;
-    prompt: string;
-    promptInput?: CodexPromptInput;
-    threadName?: string;
-  }) => {
-    const targetSessionId = input.targetSessionId?.trim()
-      || (await onEnsureDefaultDraftSessionForProject(
-        input.projectId,
-        { select: false },
-      )).id;
-    const result = await codexControl.startThreadForSession({
-      projectId: input.projectId,
-      sessionId: targetSessionId,
-      prompt: input.prompt,
-      promptInput: input.promptInput,
-      threadName: input.threadName,
-      skipAutoTitleGeneration: Boolean(input.threadName?.trim()),
-      runInTarget: "localProject",
-    });
-    if (result.kind !== "started") {
-      throw new Error("Page thread unexpectedly started in a worktree");
-    }
-    const { detail } = result;
-    await onRefreshSessions(input.projectId);
-    await codexControl.loadThreads(input.projectId);
-    return {
-      threadId: detail.threadId,
-      sessionId: targetSessionId,
-    };
-  }, [
-    codexControl,
-    onEnsureDefaultDraftSessionForProject,
-    onRefreshSessions,
-  ]);
+      const { detail } = result;
+      await onRefreshSessions(input.projectId);
+      await codexControl.loadThreads(input.projectId);
+      return {
+        threadId: detail.threadId,
+        sessionId: targetSessionId,
+      };
+    },
+    [codexControl, onEnsureDefaultDraftSessionForProject, onRefreshSessions],
+  );
 
   if (!project) {
     return (
@@ -299,12 +270,14 @@ export function PageStageSessionTab({
     return (
       <PageStageSessionSkeleton
         titleSnapshot={tab.config.titleSnapshot}
-        breadcrumb={breadcrumb
-          ? {
-              ...breadcrumb,
-              currentTitle: tab.config.titleSnapshot ?? tab.config.pageId,
-            }
-          : undefined}
+        breadcrumb={
+          breadcrumb
+            ? {
+                ...breadcrumb,
+                currentTitle: tab.config.titleSnapshot ?? tab.config.pageId,
+              }
+            : undefined
+        }
       />
     );
   }
@@ -313,9 +286,11 @@ export function PageStageSessionTab({
     return (
       <PageStageSessionNotice
         title="Could not load Page"
-        description={tab.config.titleSnapshot
-          ? `Nodex could not load ${tab.config.titleSnapshot} in ${project.name}. ${pageLoadError}`
-          : `Nodex could not load this page in ${project.name}. ${pageLoadError}`}
+        description={
+          tab.config.titleSnapshot
+            ? `Nodex could not load ${tab.config.titleSnapshot} in ${project.name}. ${pageLoadError}`
+            : `Nodex could not load this page in ${project.name}. ${pageLoadError}`
+        }
       />
     );
   }
@@ -324,18 +299,21 @@ export function PageStageSessionTab({
     return (
       <PageStageSessionNotice
         title="Page not found"
-        description={tab.config.titleSnapshot
-          ? `${tab.config.titleSnapshot} is no longer available in ${project.name}.`
-          : `This page is no longer available in ${project.name}.`}
+        description={
+          tab.config.titleSnapshot
+            ? `${tab.config.titleSnapshot} is no longer available in ${project.name}.`
+            : `This page is no longer available in ${project.name}.`
+        }
         actionLabel="Close tab"
         onAction={onClose}
       />
     );
   }
 
-  const semanticValues = page.databaseContext.kind === "member"
-    ? pageStageSemanticValues(page.databaseContext.semanticProperties)
-    : null;
+  const semanticValues =
+    page.databaseContext.kind === "member"
+      ? pageStageSemanticValues(page.databaseContext.semanticProperties)
+      : null;
   const renderDocumentSurface = (
     databaseCapability: PageStageDatabaseCapability | null,
   ): ReactNode => (
@@ -348,12 +326,14 @@ export function PageStageSessionTab({
           return (
             <PageStageSessionSkeleton
               titleSnapshot={page.page.title}
-              breadcrumb={breadcrumb
-                ? {
-                    ...breadcrumb,
-                    currentTitle: page.page.title,
-                  }
-                : undefined}
+              breadcrumb={
+                breadcrumb
+                  ? {
+                      ...breadcrumb,
+                      currentTitle: page.page.title,
+                    }
+                  : undefined
+              }
             />
           );
         }
@@ -397,17 +377,15 @@ export function PageStageSessionTab({
           <PageStage
             contentAccessContext={projectContentAccess(tab.config.projectId)}
             editorSessionKey={editorSessionKey}
-            pageTitleIdentity={project
-              ? { libraryId: project.libraryId, pageId: tab.config.pageId }
-              : undefined}
+            pageTitleIdentity={
+              project ? { libraryId: project.libraryId, pageId: tab.config.pageId } : undefined
+            }
             retainEditorSession={tab.preview !== true}
             documentAuthority={documentAuthority}
             page={page}
             projectName={project.name}
             projectWorkspacePath={projectWorkspaceRootOrNull(project)}
-            closeRef={closeRef as MutableRefObject<
-              (() => Promise<void>) | null
-            >}
+            closeRef={closeRef as MutableRefObject<(() => Promise<void>) | null>}
             persistRef={persistRef}
             sessionSnapshotRef={sessionSnapshotRef}
             onClose={onClose}
@@ -419,7 +397,8 @@ export function PageStageSessionTab({
                 operationId: crypto.randomUUID(),
                 clientSessionId: tab.id,
                 patch: updates,
-              })}
+              })
+            }
             onUpdateProperty={async (pageId, propertyId, edit) =>
               await commitPageDetailPropertyEdit({
                 projectId: tab.config.projectId,
@@ -428,16 +407,13 @@ export function PageStageSessionTab({
                 edit,
                 operationId: crypto.randomUUID(),
                 clientSessionId: tab.id,
-              })}
+              })
+            }
             onRefreshProperties={async () => {
               await fetchPageDetail(tab.config.projectId, tab.config.pageId);
             }}
-            {...(databaseCapability?.onDelete
-              ? { onDelete: databaseCapability.onDelete }
-              : {})}
-            {...(databaseCapability?.onMove
-              ? { onMove: databaseCapability.onMove }
-              : {})}
+            {...(databaseCapability?.onDelete ? { onDelete: databaseCapability.onDelete } : {})}
+            {...(databaseCapability?.onMove ? { onMove: databaseCapability.onMove } : {})}
             {...(databaseCapability
               ? {
                   onCompleteOccurrence: databaseCapability.onCompleteOccurrence,
@@ -447,14 +423,16 @@ export function PageStageSessionTab({
             onOpenTerminalPanel={() => {
               void onOpenTerminal();
             }}
-            onToggleHistoryPanel={(snapshot) => onToggleHistoryPanel({
-              sessionId,
-              tabId: tab.id,
-              projectId: tab.config.projectId,
-              pageId: tab.config.pageId,
-              pageTitle: snapshot.title || tab.config.titleSnapshot,
-              pageNfm: snapshot.nfm,
-            })}
+            onToggleHistoryPanel={(snapshot) =>
+              onToggleHistoryPanel({
+                sessionId,
+                tabId: tab.id,
+                projectId: tab.config.projectId,
+                pageId: tab.config.pageId,
+                pageTitle: snapshot.title || tab.config.titleSnapshot,
+                pageNfm: snapshot.nfm,
+              })
+            }
             historyPanelActive={historyPanelActive}
             isActivePanelTab={isActivePanelTab}
             breadcrumb={breadcrumb}
@@ -463,12 +441,7 @@ export function PageStageSessionTab({
             canStartThreadInSession={canStartThreadInSession}
             linkedCodexThreads={[]}
             onOpenCodexThread={onOpenThread}
-            onOpenPage={async ({
-              accessContext,
-              pageId,
-              titleSnapshot,
-              sourceBlockId,
-            }) => {
+            onOpenPage={async ({ accessContext, pageId, titleSnapshot, sourceBlockId }) => {
               if (accessContext.kind !== "project") return;
               await onOpenPageTab(accessContext.projectId, pageId, titleSnapshot, {
                 openMode: "durable",
@@ -480,27 +453,12 @@ export function PageStageSessionTab({
                 blockId: sourceBlockId,
               });
             }}
-            onOpenCanvas={({
-              accessContext,
-              canvasBlockId,
-              titleSnapshot,
-            }) => {
+            onOpenCanvas={({ accessContext, canvasBlockId, titleSnapshot }) => {
               if (accessContext.kind !== "project") return;
-              void onOpenCanvasStage(
-                accessContext.projectId,
-                canvasBlockId,
-                titleSnapshot,
-              );
+              void onOpenCanvasStage(accessContext.projectId, canvasBlockId, titleSnapshot);
             }}
-            onStartNewSessionThreadFromEditor={
-              handleStartNewSessionThreadFromEditor
-            }
-            onSendThreadSectionPrompt={async ({
-              projectId,
-              threadId,
-              prompt,
-              promptInput,
-            }) => {
+            onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
+            onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
               await codexControl.startTurn(threadId, prompt, {
                 projectId,
                 promptInput,
@@ -529,9 +487,7 @@ function PageStageSessionSkeleton({
   breadcrumb,
 }: {
   titleSnapshot?: string;
-  breadcrumb?: ComponentPropsWithoutRef<
-    typeof PageStageToolbar
-  >["breadcrumb"];
+  breadcrumb?: ComponentPropsWithoutRef<typeof PageStageToolbar>["breadcrumb"];
 }) {
   const title = titleSnapshot?.trim();
   const label = title ? `Loading ${titleSnapshot}` : "Loading card";
@@ -569,15 +525,10 @@ function PageStageSessionSkeleton({
         <div
           className={contentBodyClassName}
           data-page-stage-body="true"
-          data-page-stage-body-width={
-            limitMainContentWidth ? "constrained" : "full"
-          }
+          data-page-stage-body-width={limitMainContentWidth ? "constrained" : "full"}
         >
           <div className="w-full">
-            <PageStageContentSkeleton
-              titleSnapshot={title}
-              announce={false}
-            />
+            <PageStageContentSkeleton titleSnapshot={title} announce={false} />
           </div>
         </div>
       </div>
@@ -599,19 +550,10 @@ function PageStageSessionNotice({
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-3 select-none">
       <div className="mx-auto flex h-full w-full max-w-md flex-col items-center justify-center text-center">
-        <div className="text-base font-medium text-token-text-primary">
-          {title}
-        </div>
-        <div className="mt-1 text-sm text-token-text-secondary">
-          {description}
-        </div>
+        <div className="text-base font-medium text-token-text-primary">{title}</div>
+        <div className="mt-1 text-sm text-token-text-secondary">{description}</div>
         {actionLabel && onAction ? (
-          <NodexButton
-            type="button"
-            size="sm"
-            className="mt-3"
-            onClick={onAction}
-          >
+          <NodexButton type="button" size="sm" className="mt-3" onClick={onAction}>
             {actionLabel}
           </NodexButton>
         ) : null}

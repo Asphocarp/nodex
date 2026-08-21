@@ -7,10 +7,8 @@ describe("Block tree ancestry", () => {
       ["leaf", { id: "nested" }],
       ["nested", { id: "owner" }],
     ]);
-    expect(isBlockWithinOwnerTree((id) => parents.get(id), "owner", "leaf"))
-      .toBe(true);
-    expect(isBlockWithinOwnerTree((id) => parents.get(id), "other", "leaf"))
-      .toBe(false);
+    expect(isBlockWithinOwnerTree((id) => parents.get(id), "owner", "leaf")).toBe(true);
+    expect(isBlockWithinOwnerTree((id) => parents.get(id), "other", "leaf")).toBe(false);
   });
 
   test("fails closed for malformed ancestry cycles", () => {
@@ -18,7 +16,6 @@ describe("Block tree ancestry", () => {
       ["a", { id: "b" }],
       ["b", { id: "a" }],
     ]);
-    expect(isBlockWithinOwnerTree((id) => parents.get(id), "owner", "a"))
-      .toBe(false);
+    expect(isBlockWithinOwnerTree((id) => parents.get(id), "owner", "a")).toBe(false);
   });
 });

@@ -45,19 +45,19 @@ export class PanelTabPresentationRegistry {
     this.prune(now);
     const previousEntries = this.#controllers.get(controllerKey) ?? new Map();
     const nextTabIds = new Set(tabs.map((tab) => tab.id));
-    const outgoingPreview = [...previousEntries.values()].find((entry) =>
-      entry.preview && !nextTabIds.has(entry.id));
+    const outgoingPreview = [...previousEntries.values()].find(
+      (entry) => entry.preview && !nextTabIds.has(entry.id),
+    );
     let previewPresentationId = outgoingPreview?.presentationId ?? null;
     const nextEntries = new Map<string, PanelTabPresentationEntry>();
 
     for (const tab of tabs) {
       const previousEntry = previousEntries.get(tab.id);
-      const presentationId = previousEntry?.presentationId
-        ?? this.#takeActivePresentation(tab.id)
-        ?? this.#takeRetiredPresentation(tab.id, now)
-        ?? (tab.preview && previewPresentationId
-          ? previewPresentationId
-          : this.#createId());
+      const presentationId =
+        previousEntry?.presentationId ??
+        this.#takeActivePresentation(tab.id) ??
+        this.#takeRetiredPresentation(tab.id, now) ??
+        (tab.preview && previewPresentationId ? previewPresentationId : this.#createId());
 
       if (tab.preview && previewPresentationId === presentationId) {
         previewPresentationId = null;

@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { HookMetadata } from "@nodex/codex-app-server-protocol/v2/HookMetadata";
 import type { CodexHooksListResponse } from "../../shared/codex-hooks";
-import {
-  applyCodexHookStatePatch,
-  normalizeCodexHooksCwds,
-} from "./use-codex-hooks";
+import { applyCodexHookStatePatch, normalizeCodexHooksCwds } from "./use-codex-hooks";
 
 function hook(key: string, currentHash: string): HookMetadata {
   return {
@@ -29,15 +26,21 @@ function hook(key: string, currentHash: string): HookMetadata {
 
 describe("Codex Hooks query state", () => {
   test("normalizes roots without changing their first-seen order", () => {
-    expect(normalizeCodexHooksCwds([" /workspace/b ", "", "/workspace/a", "/workspace/b"]))
-      .toEqual(["/workspace/b", "/workspace/a"]);
+    expect(normalizeCodexHooksCwds([" /workspace/b ", "", "/workspace/a", "/workspace/b"])).toEqual(
+      ["/workspace/b", "/workspace/a"],
+    );
   });
 
   test("optimistically patches every matching hook and trusts only its current hash", () => {
     const response: CodexHooksListResponse = {
       data: [
         { cwd: "/a", hooks: [hook("shared", "hash-a")], warnings: [], errors: [] },
-        { cwd: "/b", hooks: [hook("shared", "hash-b"), hook("other", "hash-c")], warnings: [], errors: [] },
+        {
+          cwd: "/b",
+          hooks: [hook("shared", "hash-b"), hook("other", "hash-c")],
+          warnings: [],
+          errors: [],
+        },
       ],
     };
 

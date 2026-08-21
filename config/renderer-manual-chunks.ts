@@ -24,16 +24,11 @@ const rendererChunkRules = [
   },
   {
     chunkName: "vendor-excalidraw",
-    packageFragments: [
-      "/node_modules/@excalidraw/excalidraw/",
-    ],
+    packageFragments: ["/node_modules/@excalidraw/excalidraw/"],
   },
   {
     chunkName: "vendor-cytoscape",
-    packageFragments: [
-      "/node_modules/cytoscape/",
-      "/node_modules/cytoscape-cose-bilkent/",
-    ],
+    packageFragments: ["/node_modules/cytoscape/", "/node_modules/cytoscape-cose-bilkent/"],
   },
 ] as const;
 

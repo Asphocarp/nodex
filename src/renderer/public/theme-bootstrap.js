@@ -4,7 +4,4 @@ if (theme === "dark" || (theme !== "light" && prefersDark)) {
   document.documentElement.classList.add("dark");
 }
 
-window.EXCALIDRAW_ASSET_PATH = new URL(
-  "./excalidraw-assets/",
-  window.location.href,
-).href;
+window.EXCALIDRAW_ASSET_PATH = new URL("./excalidraw-assets/", window.location.href).href;

@@ -9,10 +9,7 @@ import type {
   ProjectPinnedOrderInput,
   ProjectUpdateInput,
 } from "../types";
-import {
-  PROJECT_MARKER_COLORS,
-  PROJECT_MARKER_ICONS,
-} from "../project-appearance";
+import { PROJECT_MARKER_COLORS, PROJECT_MARKER_ICONS } from "../project-appearance";
 
 export const ProjectAppearanceSchema = z.object({
   color: z.enum(PROJECT_MARKER_COLORS),
@@ -96,21 +93,25 @@ export const ProjectLifecycleInputSchema = z.object({
   lifecycle: z.enum(["active", "archived"]),
 }) satisfies z.ZodType<ProjectLifecycleInput>;
 
-export const ProjectUpdateInputSchema = z.object({
-  expectedBindingRevision: z.number().int().positive().safe().optional(),
-  name: z.string().optional(),
-  description: z.string().optional(),
-  appearance: ProjectAppearanceSchema.optional(),
-  sources: z.array(z.string()).optional(),
-}).strict() satisfies z.ZodType<ProjectUpdateInput>;
+export const ProjectUpdateInputSchema = z
+  .object({
+    expectedBindingRevision: z.number().int().positive().safe().optional(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    appearance: ProjectAppearanceSchema.optional(),
+    sources: z.array(z.string()).optional(),
+  })
+  .strict() satisfies z.ZodType<ProjectUpdateInput>;
 
-export const ProjectCreateInputSchema = z.object({
-  name: z.string().optional(),
-  description: z.string().optional(),
-  appearance: ProjectAppearanceSchema.optional(),
-  sources: z.array(z.string()).optional(),
-  pageKeyPrefix: PageKeyPrefixSchema.optional(),
-}).strict() satisfies z.ZodType<ProjectCreateInput>;
+export const ProjectCreateInputSchema = z
+  .object({
+    name: z.string().optional(),
+    description: z.string().optional(),
+    appearance: ProjectAppearanceSchema.optional(),
+    sources: z.array(z.string()).optional(),
+    pageKeyPrefix: PageKeyPrefixSchema.optional(),
+  })
+  .strict() satisfies z.ZodType<ProjectCreateInput>;
 
 export const ProjectOrderInputSchema = z.object({
   orderedProjectIds: z.array(z.string()),

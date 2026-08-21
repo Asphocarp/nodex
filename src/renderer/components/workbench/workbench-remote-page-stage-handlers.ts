@@ -4,13 +4,8 @@ import type { PageStageHandlers } from "@/lib/page-stage-handlers";
 import { createUuidV7 } from "../../../shared/uuid-v7";
 import { isWorkflowStatus } from "../../../shared/workflow-status";
 import { getBoardProjectStore } from "@/lib/board-store";
-import {
-  deleteBoardPage,
-  moveBoardPage,
-} from "@/lib/board-page-mutation-command";
-import {
-  isPageMetadataPatch,
-} from "@/lib/page-detail-metadata-runtime";
+import { deleteBoardPage, moveBoardPage } from "@/lib/board-page-mutation-command";
+import { isPageMetadataPatch } from "@/lib/page-detail-metadata-runtime";
 import { commitPageMetadataPatchForBoard } from "@/lib/page-metadata-board-runtime";
 import {
   PAGE_DOCUMENT_MUTATION_REQUIRED_MESSAGE,

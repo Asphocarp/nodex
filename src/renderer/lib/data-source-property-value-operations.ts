@@ -20,9 +20,7 @@ import type {
 const localError = (propertyId: string): TypeError =>
   new TypeError(`Value is incompatible with Property ${propertyId}`);
 
-const relationCardinality = (
-  property: DataSourcePropertyRecordV2,
-): "one" | "many" | null =>
+const relationCardinality = (property: DataSourcePropertyRecordV2): "one" | "many" | null =>
   property.schema.kind === "relation" ? property.schema.cardinality : null;
 
 const relationClearEdit = (
@@ -41,9 +39,7 @@ const relationClearEdit = (
 
 const stringSet = (value: DatabaseJsonValue | undefined): ReadonlySet<string> =>
   new Set(
-    Array.isArray(value)
-      ? value.filter((entry): entry is string => typeof entry === "string")
-      : [],
+    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [],
   );
 
 export const databasePropertyReplacementValue = (
@@ -91,10 +87,7 @@ export const buildDataSourcePropertyValueOperations = (input: {
   readonly value: DatabaseJsonValue;
 }): readonly DatabaseApplyOperationV2[] => {
   const currentValue = input.current?.value ?? null;
-  if (
-    stableStringifyDatabaseJson(currentValue)
-    === stableStringifyDatabaseJson(input.value)
-  ) {
+  if (stableStringifyDatabaseJson(currentValue) === stableStringifyDatabaseJson(input.value)) {
     return [];
   }
 
@@ -102,15 +95,19 @@ export const buildDataSourcePropertyValueOperations = (input: {
     if (!Array.isArray(input.value) || input.value.length !== 0) {
       throw localError(input.property.propertyId);
     }
-    return [{
-      kind: "edit_property_values",
-      edits: [{
-        pageId: input.pageId,
-        dataSourceId: input.dataSourceId,
-        propertyId: input.property.propertyId,
-        edit: relationClearEdit(input.property, input.current?.revision ?? 0),
-      }],
-    }];
+    return [
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            pageId: input.pageId,
+            dataSourceId: input.dataSourceId,
+            propertyId: input.property.propertyId,
+            edit: relationClearEdit(input.property, input.current?.revision ?? 0),
+          },
+        ],
+      },
+    ];
   }
 
   if (input.property.valueType === "multi_select") {
@@ -119,45 +116,57 @@ export const buildDataSourcePropertyValueOperations = (input: {
     const addOptionIds = [...after]
       .filter((entry) => !before.has(entry))
       .sort()
-      .map((value) => parseDataSourceOptionId({
-        propertyId: input.property.propertyId,
-        value,
-      }));
+      .map((value) =>
+        parseDataSourceOptionId({
+          propertyId: input.property.propertyId,
+          value,
+        }),
+      );
     const removeOptionIds = [...before]
       .filter((entry) => !after.has(entry))
       .sort()
-      .map((value) => parseDataSourceOptionId({
-        propertyId: input.property.propertyId,
-        value,
-      }));
+      .map((value) =>
+        parseDataSourceOptionId({
+          propertyId: input.property.propertyId,
+          value,
+        }),
+      );
     if (addOptionIds.length === 0 && removeOptionIds.length === 0) return [];
-    return [{
-      kind: "edit_property_values",
-      edits: [{
-        pageId: input.pageId,
-        dataSourceId: input.dataSourceId,
-        propertyId: input.property.propertyId,
-        edit: {
-          kind: "patch_set",
-          delta: { kind: "multi_select", addOptionIds, removeOptionIds },
-        },
-      }],
-    }];
+    return [
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            pageId: input.pageId,
+            dataSourceId: input.dataSourceId,
+            propertyId: input.property.propertyId,
+            edit: {
+              kind: "patch_set",
+              delta: { kind: "multi_select", addOptionIds, removeOptionIds },
+            },
+          },
+        ],
+      },
+    ];
   }
 
-  return [{
-    kind: "edit_property_values",
-    edits: [{
-      pageId: input.pageId,
-      dataSourceId: input.dataSourceId,
-      propertyId: input.property.propertyId,
-      edit: {
-        kind: "replace",
-        expectedValueRevision: input.current?.revision ?? 0,
-        value: databasePropertyReplacementValue(input.property, input.value),
-      },
-    }],
-  }];
+  return [
+    {
+      kind: "edit_property_values",
+      edits: [
+        {
+          pageId: input.pageId,
+          dataSourceId: input.dataSourceId,
+          propertyId: input.property.propertyId,
+          edit: {
+            kind: "replace",
+            expectedValueRevision: input.current?.revision ?? 0,
+            value: databasePropertyReplacementValue(input.property, input.value),
+          },
+        },
+      ],
+    },
+  ];
 };
 
 export const buildDataSourceRelationReplacementOperations = (input: {
@@ -170,19 +179,23 @@ export const buildDataSourceRelationReplacementOperations = (input: {
   if (relationCardinality(input.property) !== "one") {
     throw localError(input.property.propertyId);
   }
-  return [{
-    kind: "edit_property_values",
-    edits: [{
-      pageId: input.pageId,
-      dataSourceId: input.dataSourceId,
-      propertyId: input.property.propertyId,
-      edit: {
-        kind: "replace_one_relation",
-        expectedValueRevision: input.expectedValueRevision,
-        ...(input.targetPageId ? { targetPageId: input.targetPageId } : {}),
-      },
-    }],
-  }];
+  return [
+    {
+      kind: "edit_property_values",
+      edits: [
+        {
+          pageId: input.pageId,
+          dataSourceId: input.dataSourceId,
+          propertyId: input.property.propertyId,
+          edit: {
+            kind: "replace_one_relation",
+            expectedValueRevision: input.expectedValueRevision,
+            ...(input.targetPageId ? { targetPageId: input.targetPageId } : {}),
+          },
+        },
+      ],
+    },
+  ];
 };
 
 export const buildDataSourceRelationPatchOperations = (input: {
@@ -198,18 +211,22 @@ export const buildDataSourceRelationPatchOperations = (input: {
   const addPageIds = [...new Set(input.addPageIds)].sort();
   const removeEdgeIds = [...new Set(input.removeEdgeIds)].sort();
   if (addPageIds.length === 0 && removeEdgeIds.length === 0) return [];
-  return [{
-    kind: "edit_property_values",
-    edits: [{
-      pageId: input.pageId,
-      dataSourceId: input.dataSourceId,
-      propertyId: input.property.propertyId,
-      edit: {
-        kind: "patch_set",
-        delta: { kind: "relation", addPageIds, removeEdgeIds },
-      },
-    }],
-  }];
+  return [
+    {
+      kind: "edit_property_values",
+      edits: [
+        {
+          pageId: input.pageId,
+          dataSourceId: input.dataSourceId,
+          propertyId: input.property.propertyId,
+          edit: {
+            kind: "patch_set",
+            delta: { kind: "relation", addPageIds, removeEdgeIds },
+          },
+        },
+      ],
+    },
+  ];
 };
 
 export const buildDataSourceMultiSelectPatchOperations = (input: {
@@ -222,33 +239,39 @@ export const buildDataSourceMultiSelectPatchOperations = (input: {
   if (input.property.valueType !== "multi_select") {
     throw localError(input.property.propertyId);
   }
-  const addOptionIds = [...new Set(input.addOptionIds)]
-    .sort()
-    .map((value) => parseDataSourceOptionId({
+  const addOptionIds = [...new Set(input.addOptionIds)].sort().map((value) =>
+    parseDataSourceOptionId({
       propertyId: input.property.propertyId,
       value,
-    }));
+    }),
+  );
   const addSet = new Set<string>(addOptionIds);
   const removeOptionIds = [...new Set(input.removeOptionIds)]
     .filter((optionId) => !addSet.has(optionId))
     .sort()
-    .map((value) => parseDataSourceOptionId({
-      propertyId: input.property.propertyId,
-      value,
-    }));
+    .map((value) =>
+      parseDataSourceOptionId({
+        propertyId: input.property.propertyId,
+        value,
+      }),
+    );
   if (addOptionIds.length === 0 && removeOptionIds.length === 0) return [];
-  return [{
-    kind: "edit_property_values",
-    edits: [{
-      pageId: input.pageId,
-      dataSourceId: input.dataSourceId,
-      propertyId: input.property.propertyId,
-      edit: {
-        kind: "patch_set",
-        delta: { kind: "multi_select", addOptionIds, removeOptionIds },
-      },
-    }],
-  }];
+  return [
+    {
+      kind: "edit_property_values",
+      edits: [
+        {
+          pageId: input.pageId,
+          dataSourceId: input.dataSourceId,
+          propertyId: input.property.propertyId,
+          edit: {
+            kind: "patch_set",
+            delta: { kind: "multi_select", addOptionIds, removeOptionIds },
+          },
+        },
+      ],
+    },
+  ];
 };
 
 export const buildDataSourceCreateOptionAndSelectOperations = (input: {
@@ -258,27 +281,22 @@ export const buildDataSourceCreateOptionAndSelectOperations = (input: {
   readonly current: DataSourcePageValueV2 | undefined;
   readonly option: DatabasePropertyOption;
 }): readonly DatabaseApplyOperationV2[] => {
-  if (
-    input.property.valueType !== "select"
-    && input.property.valueType !== "multi_select"
-  ) {
+  if (input.property.valueType !== "select" && input.property.valueType !== "multi_select") {
     throw localError(input.property.propertyId);
   }
   if (
-    !isCustomDataSourcePropertyId(input.property.propertyId)
-    && !(
-      input.property.propertyId === "tags"
-      && input.property.valueType === "multi_select"
-    )
+    !isCustomDataSourcePropertyId(input.property.propertyId) &&
+    !(input.property.propertyId === "tags" && input.property.valueType === "multi_select")
   ) {
     throw localError(input.property.propertyId);
   }
   if (!input.option.name || input.option.name !== input.option.name.trim()) {
     throw localError(input.property.propertyId);
   }
-  const optionName = input.property.propertyId === "tags"
-    ? canonicalizeTagName(input.option.name, { maxLength: 256 })
-    : input.option.name;
+  const optionName =
+    input.property.propertyId === "tags"
+      ? canonicalizeTagName(input.option.name, { maxLength: 256 })
+      : input.option.name;
   const optionId = parseDataSourceOptionId({
     propertyId: input.property.propertyId,
     value: input.option.id,
@@ -292,38 +310,40 @@ export const buildDataSourceCreateOptionAndSelectOperations = (input: {
     ...(input.option.color === undefined ? {} : { color: input.option.color }),
     expectedPropertyRevision: input.property.revision,
   };
-  const edit: Extract<
-    DatabaseApplyOperationV2,
-    { readonly kind: "edit_property_values" }
-  > = input.property.valueType === "select"
-    ? {
-        kind: "edit_property_values",
-        edits: [{
-          pageId: input.pageId,
-          dataSourceId: input.dataSourceId,
-          propertyId: input.property.propertyId,
-          edit: {
-            kind: "replace",
-            expectedValueRevision: input.current?.revision ?? 0,
-            value: { kind: "select", optionId },
-          },
-        }],
-      }
-    : {
-        kind: "edit_property_values",
-        edits: [{
-          pageId: input.pageId,
-          dataSourceId: input.dataSourceId,
-          propertyId: input.property.propertyId,
-          edit: {
-            kind: "patch_set",
-            delta: {
-              kind: "multi_select",
-              addOptionIds: [optionId],
-              removeOptionIds: [],
+  const edit: Extract<DatabaseApplyOperationV2, { readonly kind: "edit_property_values" }> =
+    input.property.valueType === "select"
+      ? {
+          kind: "edit_property_values",
+          edits: [
+            {
+              pageId: input.pageId,
+              dataSourceId: input.dataSourceId,
+              propertyId: input.property.propertyId,
+              edit: {
+                kind: "replace",
+                expectedValueRevision: input.current?.revision ?? 0,
+                value: { kind: "select", optionId },
+              },
             },
-          },
-        }],
-      };
+          ],
+        }
+      : {
+          kind: "edit_property_values",
+          edits: [
+            {
+              pageId: input.pageId,
+              dataSourceId: input.dataSourceId,
+              propertyId: input.property.propertyId,
+              edit: {
+                kind: "patch_set",
+                delta: {
+                  kind: "multi_select",
+                  addOptionIds: [optionId],
+                  removeOptionIds: [],
+                },
+              },
+            },
+          ],
+        };
   return [putOption, edit];
 };

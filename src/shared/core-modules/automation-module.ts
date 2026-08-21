@@ -68,11 +68,7 @@ export interface AutomationLease {
   readonly reasonCode?: string;
 }
 
-export type AutomationRunStatus =
-  | "IN_PROGRESS"
-  | "PENDING_REVIEW"
-  | "ACCEPTED"
-  | "ARCHIVED";
+export type AutomationRunStatus = "IN_PROGRESS" | "PENDING_REVIEW" | "ACCEPTED" | "ARCHIVED";
 
 export interface AutomationRun {
   readonly threadId: string;
@@ -267,9 +263,7 @@ export interface AutomationReceipt extends ModuleMutationReceipt {
 }
 
 export type AutomationModuleReadRequest = ModuleReadRequest<AutomationRead>;
-export type AutomationModuleReadResult = CoreModuleResult<
-  ModuleReadSnapshot<AutomationReadValue>
->;
+export type AutomationModuleReadResult = CoreModuleResult<ModuleReadSnapshot<AutomationReadValue>>;
 export type AutomationModuleApplyRequest = ModuleApplyRequest<AutomationIntent>;
 export type AutomationModuleApplyResult = CoreModuleResult<
   CommittedModuleValue<AutomationCommitValue, AutomationReceipt>

@@ -35,44 +35,33 @@ async function executeWorkerRequest<Method extends GitWorkerMethod>(
   signal?: AbortSignal,
 ): Promise<GitWorkerMethodMap[Method]["result"]> {
   workerRequestSequence += 1;
-  return await module.execute({
-    id: `git-action-test-${workerRequestSequence}`,
-    method,
-    params,
-    enqueuedAtMs: Date.now(),
-  } as GitWorkerRequest["request"], signal ?? new AbortController().signal) as GitWorkerMethodMap[Method]["result"];
+  return (await module.execute(
+    {
+      id: `git-action-test-${workerRequestSequence}`,
+      method,
+      params,
+      enqueuedAtMs: Date.now(),
+    } as GitWorkerRequest["request"],
+    signal ?? new AbortController().signal,
+  )) as GitWorkerMethodMap[Method]["result"];
 }
 
 function createGitActionWorkerPort(): GitActionWorkerPort {
   const module = new GitWorkerModule();
   gitWorkerModules.push(module);
   return {
-    readStatus: async (cwd, signal) => await executeWorkerRequest(
-      module,
-      "action-status",
-      { cwd },
-      signal,
-    ),
+    readStatus: async (cwd, signal) =>
+      await executeWorkerRequest(module, "action-status", { cwd }, signal),
     readReviewPatch: async (input, signal) => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const result = await executeWorkerRequest(
-          module,
-          "review-patch",
-          input,
-          signal,
-        );
+        const result = await executeWorkerRequest(module, "review-patch", input, signal);
         if (!("type" in result) || result.type !== "stale-snapshot") {
           return result as import("../shared/types").GitReviewPatchResult;
         }
       }
       throw new Error("Git repository changed while preparing the message.");
     },
-    commit: async (input, signal) => await executeWorkerRequest(
-      module,
-      "commit",
-      input,
-      signal,
-    ),
+    commit: async (input, signal) => await executeWorkerRequest(module, "commit", input, signal),
     refreshRepository: async (cwd) => {
       await executeWorkerRequest(module, "refresh-repository", { cwd });
     },
@@ -148,11 +137,14 @@ describe("git-action-service", () => {
     expect(before.hasUncommittedChanges).toBe(true);
     expect(before.canCommit).toBe(true);
 
-    const result = await commitGitChanges({
-      cwd: repo,
-      message: "feat: add feature file",
-      includeUnstaged: true,
-    }, createGitActionOptions());
+    const result = await commitGitChanges(
+      {
+        cwd: repo,
+        message: "feat: add feature file",
+        includeUnstaged: true,
+      },
+      createGitActionOptions(),
+    );
 
     expect(result.status).toBe("success");
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
@@ -167,16 +159,19 @@ describe("git-action-service", () => {
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
     let capturedPrompt = "";
 
-    const result = await commitGitChanges({
-      cwd: repo,
-      message: "",
-      includeUnstaged: true,
-    }, createGitActionOptions({
-      generateCommitMessage: async ({ prompt }) => {
-        capturedPrompt = prompt;
-        return "feat: generated feature";
+    const result = await commitGitChanges(
+      {
+        cwd: repo,
+        message: "",
+        includeUnstaged: true,
       },
-    }));
+      createGitActionOptions({
+        generateCommitMessage: async ({ prompt }) => {
+          capturedPrompt = prompt;
+          return "feat: generated feature";
+        },
+      }),
+    );
 
     expect(result.status).toBe("success");
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
@@ -192,11 +187,14 @@ describe("git-action-service", () => {
     const repo = await createRepo(root);
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
 
-    const result = await commitGitChanges({
-      cwd: repo,
-      message: "",
-      includeUnstaged: true,
-    }, createGitActionOptions());
+    const result = await commitGitChanges(
+      {
+        cwd: repo,
+        message: "",
+        includeUnstaged: true,
+      },
+      createGitActionOptions(),
+    );
 
     expect(result.status).toBe("success");
     const log = await runCommand("git", ["log", "-1", "--pretty=%s"], repo);
@@ -209,16 +207,19 @@ describe("git-action-service", () => {
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
     let capturedPrompt = "";
 
-    const result = await generateGitCommitMessage({
-      cwd: repo,
-      draftMessage: "",
-      includeUnstaged: true,
-    }, createGitActionOptions({
-      generateCommitMessage: async ({ prompt }) => {
-        capturedPrompt = prompt;
-        return "feat: generated feature";
+    const result = await generateGitCommitMessage(
+      {
+        cwd: repo,
+        draftMessage: "",
+        includeUnstaged: true,
       },
-    }));
+      createGitActionOptions({
+        generateCommitMessage: async ({ prompt }) => {
+          capturedPrompt = prompt;
+          return "feat: generated feature";
+        },
+      }),
+    );
 
     expect(result.status).toBe("success");
     expect(result.message).toBe("feat: generated feature");
@@ -234,36 +235,45 @@ describe("git-action-service", () => {
     const root = await createTempRoot();
     const repo = await createRepo(root);
     await writeFile(path.join(repo, "README.md"), "base\n");
-    await commitGitChanges({
-      cwd: repo,
-      message: "chore: initial commit",
-      includeUnstaged: true,
-    }, createGitActionOptions());
+    await commitGitChanges(
+      {
+        cwd: repo,
+        message: "chore: initial commit",
+        includeUnstaged: true,
+      },
+      createGitActionOptions(),
+    );
     await runCommand("git", ["branch", "-M", "main"], repo);
     await runCommand("git", ["checkout", "-b", "feature/summary-panel"], repo);
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
-    await commitGitChanges({
-      cwd: repo,
-      message: "feat: add feature file",
-      includeUnstaged: true,
-    }, createGitActionOptions());
+    await commitGitChanges(
+      {
+        cwd: repo,
+        message: "feat: add feature file",
+        includeUnstaged: true,
+      },
+      createGitActionOptions(),
+    );
 
     let capturedPrompt = "";
-    const result = await generateGitPullRequestMessage({
-      cwd: repo,
-      title: "",
-      body: "",
-      headBranch: "feature/summary-panel",
-      baseBranch: "main",
-    }, createGitActionOptions({
-      generatePullRequestMessage: async ({ prompt }) => {
-        capturedPrompt = prompt;
-        return {
-          title: "Generated PR title",
-          body: "Generated PR body",
-        };
+    const result = await generateGitPullRequestMessage(
+      {
+        cwd: repo,
+        title: "",
+        body: "",
+        headBranch: "feature/summary-panel",
+        baseBranch: "main",
       },
-    }));
+      createGitActionOptions({
+        generatePullRequestMessage: async ({ prompt }) => {
+          capturedPrompt = prompt;
+          return {
+            title: "Generated PR title",
+            body: "Generated PR body",
+          };
+        },
+      }),
+    );
 
     expect(result.status).toBe("success");
     expect(result.title).toBe("Generated PR title");
@@ -280,13 +290,16 @@ describe("git-action-service", () => {
     const repo = await createRepo(root);
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
 
-    const result = await commitGitChanges({
-      cwd: repo,
-      message: "",
-      includeUnstaged: true,
-    }, createGitActionOptions({
-      generateCommitMessage: async () => "",
-    }));
+    const result = await commitGitChanges(
+      {
+        cwd: repo,
+        message: "",
+        includeUnstaged: true,
+      },
+      createGitActionOptions({
+        generateCommitMessage: async () => "",
+      }),
+    );
 
     expect(result.status).toBe("error");
     expect(result.errorMessage).toBe("Couldn't generate a commit message");
@@ -324,12 +337,15 @@ describe("git-action-service", () => {
     };
 
     const operationId = "cancel-commit";
-    const pendingCommit = commitGitChanges({
-      cwd: repo,
-      message: "feat: add feature file",
-      includeUnstaged: true,
-      operationId,
-    }, { gitWorker: cancelableGitWorker });
+    const pendingCommit = commitGitChanges(
+      {
+        cwd: repo,
+        message: "feat: add feature file",
+        includeUnstaged: true,
+        operationId,
+      },
+      { gitWorker: cancelableGitWorker },
+    );
 
     try {
       await commitStarted;
@@ -354,11 +370,14 @@ describe("git-action-service", () => {
     const repo = await createRepo(root);
     await runCommand("git", ["remote", "add", "origin", remote], repo);
     await writeFile(path.join(repo, "feature.txt"), "hello\n");
-    await commitGitChanges({
-      cwd: repo,
-      message: "feat: add feature file",
-      includeUnstaged: true,
-    }, createGitActionOptions());
+    await commitGitChanges(
+      {
+        cwd: repo,
+        message: "feat: add feature file",
+        includeUnstaged: true,
+      },
+      createGitActionOptions(),
+    );
 
     const before = await readActionStatus(repo);
     expect(before.canPush).toBe(true);

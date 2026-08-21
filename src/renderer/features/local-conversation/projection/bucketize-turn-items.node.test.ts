@@ -29,7 +29,9 @@ function buildItem(overrides: Partial<ThreadTranscriptBlockModel>): ThreadTransc
   };
 }
 
-function buildWorkedForItem(overrides: Partial<ThreadWorkedForBlockModel>): ThreadWorkedForBlockModel {
+function buildWorkedForItem(
+  overrides: Partial<ThreadWorkedForBlockModel>,
+): ThreadWorkedForBlockModel {
   return {
     id: "worked_for",
     turnId: "turn_1",
@@ -116,9 +118,11 @@ describe("bucketizeTurnItems", () => {
     const assistant = turn.blocks.find((block) => block.type === "assistantMessage");
 
     expect(buckets.toolOutputItems.map((item) => item.id)).toEqual(["generated-image"]);
-    expect(assistant?.type === "assistantMessage"
-      ? assistant.assistantAfterBlocks?.map((block) => block.type)
-      : []).toEqual(["generatedImageGallery"]);
+    expect(
+      assistant?.type === "assistantMessage"
+        ? assistant.assistantAfterBlocks?.map((block) => block.type)
+        : [],
+    ).toEqual(["generatedImageGallery"]);
   });
 
   test("renders pending generated-image output standalone and suppresses completed presentation output", () => {
@@ -191,7 +195,11 @@ describe("bucketizeTurnItems", () => {
       "modelChanged,userMessage,exec,assistantMessage,proposedPlan,forkedFromConversation",
     );
     const assistantBlock = turn.blocks.find((block) => block.type === "assistantMessage");
-    expect(assistantBlock?.type === "assistantMessage" ? assistantBlock.assistantAfterBlocks?.map((block) => block.type).join(",") ?? "" : "").toBe("turnDiff");
+    expect(
+      assistantBlock?.type === "assistantMessage"
+        ? (assistantBlock.assistantAfterBlocks?.map((block) => block.type).join(",") ?? "")
+        : "",
+    ).toBe("turnDiff");
   });
 
   test("lifts streaming turn diffs into above-composer blocks and keeps live activity separate", () => {
@@ -265,30 +273,33 @@ describe("bucketizeTurnItems", () => {
   });
 
   test("keeps live patch visible while fixed todo and diff follow request blocking", () => {
-    const buildPatch = (status: "inProgress" | "completed") => buildItem({
-      id: "patch",
-      type: "fileChange",
-      status,
-      entry: {
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "patch",
-        type: "file_change",
-        kind: "fileChange",
-        semanticKind: "patch",
+    const buildPatch = (status: "inProgress" | "completed") =>
+      buildItem({
+        id: "patch",
+        type: "fileChange",
         status,
-        fileChange: {
-          changes: buildCodexFileChangeMap([{
-            type: "update",
-            path: "src/app.ts",
-            movePath: null,
-            unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-          }]),
+        entry: {
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "patch",
+          type: "file_change",
+          kind: "fileChange",
+          semanticKind: "patch",
+          status,
+          fileChange: {
+            changes: buildCodexFileChangeMap([
+              {
+                type: "update",
+                path: "src/app.ts",
+                movePath: null,
+                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+              },
+            ]),
+          },
+          createdAt: 2,
+          updatedAt: 2,
         },
-        createdAt: 2,
-        updatedAt: 2,
-      },
-    });
+      });
     const liveBuckets = bucketizeTurnItems({
       items: [
         buildItem({ id: "user", type: "userMessage" }),
@@ -298,14 +309,15 @@ describe("bucketizeTurnItems", () => {
       ],
       turnStatus: "inProgress",
     });
-    const buildLiveTurn = (isBlocked: boolean) => buildTurnViewModel({
-      turnId: "turn_1",
-      turn: null,
-      buckets: liveBuckets,
-      isLatestTurn: true,
-      isStreamingTurn: true,
-      isBlocked,
-    });
+    const buildLiveTurn = (isBlocked: boolean) =>
+      buildTurnViewModel({
+        turnId: "turn_1",
+        turn: null,
+        buckets: liveBuckets,
+        isLatestTurn: true,
+        isStreamingTurn: true,
+        isBlocked,
+      });
 
     const unblocked = buildLiveTurn(false);
     expect(unblocked.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe(
@@ -448,12 +460,14 @@ describe("bucketizeTurnItems", () => {
             semanticKind: "patch",
             status: "completed",
             fileChange: {
-              changes: buildCodexFileChangeMap([{
-                type: "update",
-                path: "src/app.ts",
-                movePath: null,
-                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-              }]),
+              changes: buildCodexFileChangeMap([
+                {
+                  type: "update",
+                  path: "src/app.ts",
+                  movePath: null,
+                  unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+                },
+              ]),
             },
             createdAt: 1,
             updatedAt: 1,
@@ -475,7 +489,9 @@ describe("bucketizeTurnItems", () => {
     const group = turn.agentBodyUnits[0]?.block;
 
     expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
-    expect(group?.type === "agentActivityGroup" ? group.entries.map((entry) => entry.id).join(",") : "").toBe("exec,file");
+    expect(
+      group?.type === "agentActivityGroup" ? group.entries.map((entry) => entry.id).join(",") : "",
+    ).toBe("exec,file");
   });
 
   test("keeps inline assistant prose before a live single-file collapsed activity group", () => {
@@ -495,7 +511,9 @@ describe("bucketizeTurnItems", () => {
             semanticKind: "patch",
             status: "inProgress",
             fileChange: {
-              changes: buildCodexFileChangeMap([{ type: "add", path: "poem.md", content: "line\n" }]),
+              changes: buildCodexFileChangeMap([
+                { type: "add", path: "poem.md", content: "line\n" },
+              ]),
             },
             createdAt: 2,
             updatedAt: 2,
@@ -514,8 +532,12 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,agentActivityGroup");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "assistantMessage,agentActivityGroup",
+    );
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
+      "assistantMessage,agentActivityGroup",
+    );
   });
 
   test("keeps commentary, reasoning summary, and a streaming patch in one live projection", () => {
@@ -559,7 +581,9 @@ describe("bucketizeTurnItems", () => {
             semanticKind: "patch",
             status: "inProgress",
             fileChange: {
-              changes: buildCodexFileChangeMap([{ type: "add", path: "large.ts", content: "line\n" }]),
+              changes: buildCodexFileChangeMap([
+                { type: "add", path: "large.ts", content: "line\n" },
+              ]),
             },
           },
         }),
@@ -583,10 +607,14 @@ describe("bucketizeTurnItems", () => {
       fallback: { owner: "none" },
       reasoningSummary: { text: "Checking the patch stream." },
     });
-    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.header.kind : null).toBe("active");
-    expect(activityGroup?.type === "agentActivityGroup" && activityGroup.header.kind === "active"
-      ? activityGroup.header.label
-      : null).toBe("Editing files");
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.header.kind : null).toBe(
+      "active",
+    );
+    expect(
+      activityGroup?.type === "agentActivityGroup" && activityGroup.header.kind === "active"
+        ? activityGroup.header.label
+        : null,
+    ).toBe("Editing files");
   });
 
   test("routes leading hooks into preUserItems and trailing hooks into postAssistantItems", () => {
@@ -715,13 +743,13 @@ describe("bucketizeTurnItems", () => {
 
     expect(buckets.assistantItem?.id ?? "").toBe("commentary");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec");
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "exec,assistantMessage",
-    );
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("exec,assistantMessage");
     const assistant = turn.blocks.find((block) => block.type === "assistantMessage");
-    expect(assistant?.type === "assistantMessage"
-      ? assistant.assistantAfterBlocks?.map((block) => block.type)
-      : []).toEqual(["turnDiff"]);
+    expect(
+      assistant?.type === "assistantMessage"
+        ? assistant.assistantAfterBlocks?.map((block) => block.type)
+        : [],
+    ).toEqual(["turnDiff"]);
   });
 
   test("keeps actions on the normal trailing assistant without adding an action-only block", () => {
@@ -760,7 +788,10 @@ describe("bucketizeTurnItems", () => {
 
     expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("assistantMessage");
     const assistantBlock = turn.trailingBlocks[0];
-    expect(assistantBlock?.type === "assistantMessage" && assistantBlock.assistantMessageActions?.copyText).toBe("Done");
+    expect(
+      assistantBlock?.type === "assistantMessage" &&
+        assistantBlock.assistantMessageActions?.copyText,
+    ).toBe("Done");
   });
 
   test("strips standalone remark directive lines from assistant copy text", () => {
@@ -781,9 +812,9 @@ describe("bucketizeTurnItems", () => {
             updatedAt: 2,
             markdownText: [
               "Done.",
-              "::inbox-item{title=\"Hidden\" summary=\"Hidden\"}",
+              '::inbox-item{title="Hidden" summary="Hidden"}',
               "",
-              "Inline ::inbox-item{title=\"Keep\"}",
+              'Inline ::inbox-item{title="Keep"}',
             ].join("\n"),
           },
         }),
@@ -802,9 +833,10 @@ describe("bucketizeTurnItems", () => {
     });
 
     const assistantBlock = turn.trailingBlocks[0];
-    expect(assistantBlock?.type === "assistantMessage" && assistantBlock.assistantMessageActions?.copyText).toBe(
-      ["Done.", "", "Inline ::inbox-item{title=\"Keep\"}"].join("\n"),
-    );
+    expect(
+      assistantBlock?.type === "assistantMessage" &&
+        assistantBlock.assistantMessageActions?.copyText,
+    ).toBe(["Done.", "", 'Inline ::inbox-item{title="Keep"}'].join("\n"));
   });
 
   test("keeps the final assistant inline in agentItems when exec arrives later in the turn", () => {
@@ -904,13 +936,20 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(buckets.assistantItem).toBe(null);
-    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("assistantMessage,exec");
+    expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "assistantMessage,exec",
+    );
     expect(turn.agentBodyUnits[1]?.block.type).toBe("exec");
     expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("assistantActions");
     const inlineAssistant = turn.agentBodyUnits[0]?.block;
-    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBe(true);
+    expect(
+      inlineAssistant?.type === "assistantMessage" &&
+        inlineAssistant.assistantMessageActions === undefined,
+    ).toBe(true);
     const deferredActions = turn.trailingBlocks[0];
-    expect(deferredActions?.type === "assistantActions" && deferredActions.actions.copyText).toBe("Done");
+    expect(deferredActions?.type === "assistantActions" && deferredActions.actions.copyText).toBe(
+      "Done",
+    );
   });
 
   test("keeps later MCP and web search items in agent lanes and leaves the latest assistant inline", () => {
@@ -1097,7 +1136,11 @@ describe("bucketizeTurnItems", () => {
       items: [
         buildItem({ id: "user", type: "userMessage", searchableText: "Refactor the renderer" }),
         buildItem({ id: "exec", type: "exec", searchableText: "bun test" }),
-        buildItem({ id: "assistant", type: "assistantMessage", searchableText: "I updated the renderer" }),
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          searchableText: "I updated the renderer",
+        }),
       ],
     });
 
@@ -1158,14 +1201,15 @@ describe("bucketizeTurnItems", () => {
     );
     expect(turn.trailingBlocks.length).toBe(0);
     const inlineAssistant = turn.agentBodyUnits[0]?.block;
-    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBe(true);
+    expect(
+      inlineAssistant?.type === "assistantMessage" &&
+        inlineAssistant.assistantMessageActions === undefined,
+    ).toBe(true);
   });
 
   test("allows default collapse only after a final assistant boundary and for non-cancelled turns", () => {
     const activityOnlyBuckets = bucketizeTurnItems({
-      items: [
-        buildItem({ id: "exec", type: "exec", searchableText: "bun test" }),
-      ],
+      items: [buildItem({ id: "exec", type: "exec", searchableText: "bun test" })],
     });
 
     const activityOnlyTurn = buildTurnViewModel({
@@ -1315,9 +1359,11 @@ describe("bucketizeTurnItems", () => {
 
     expect(turn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
     const group = turn.agentBodyUnits[0]?.block;
-    expect(group?.type === "agentActivityGroup" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
-      "exec,exec",
-    );
+    expect(
+      group?.type === "agentActivityGroup"
+        ? group.entries.map((entry) => entry.type).join(",")
+        : "",
+    ).toBe("exec,exec");
   });
 
   test("groups same-action multi-agent actions including in-progress ones", () => {
@@ -1395,8 +1441,12 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(settledTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentAction,multiAgentAction");
-    expect(liveTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("multiAgentAction");
+    expect(settledTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "multiAgentAction,multiAgentAction",
+    );
+    expect(liveTurn.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "multiAgentAction",
+    );
   });
 
   test("projects live thinking before assistant content starts without a transcript item", () => {
@@ -1444,7 +1494,9 @@ describe("bucketizeTurnItems", () => {
             status: "completed",
             createdAt: 1,
             updatedAt: 1,
-            commandActions: [{ type: "read", command: "", name: "stage.tsx", path: "src/stage.tsx" }],
+            commandActions: [
+              { type: "read", command: "", name: "stage.tsx", path: "src/stage.tsx" },
+            ],
             toolCall: {
               subtype: "command",
               toolName: "run_command",
@@ -1490,7 +1542,8 @@ describe("bucketizeTurnItems", () => {
 
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
     const activityGroup = turn.blocks[0];
-    const explorationBlock = activityGroup?.type === "agentActivityGroup" ? activityGroup.entries[0] : null;
+    const explorationBlock =
+      activityGroup?.type === "agentActivityGroup" ? activityGroup.entries[0] : null;
     expect(explorationBlock?.type).toBe("exec");
     expect(explorationBlock?.status).toBe("completed");
   });
@@ -1541,16 +1594,21 @@ describe("bucketizeTurnItems", () => {
 
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
     const activityGroup = turn.blocks[0];
-    const explorationBlock = activityGroup?.type === "agentActivityGroup" ? activityGroup.entries[0] : null;
+    const explorationBlock =
+      activityGroup?.type === "agentActivityGroup" ? activityGroup.entries[0] : null;
     expect(explorationBlock?.type).toBe("exec");
     expect(explorationBlock?.status).toBe("completed");
-    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.completedHeader.parts : []).toEqual([
-      { kind: "exploration" },
-    ]);
-    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.header.kind : null).toBe("thinking");
-    expect(activityGroup?.type === "agentActivityGroup" && activityGroup.header.kind === "thinking"
-      ? activityGroup.header.message
-      : "unexpected").toBe(null);
+    expect(
+      activityGroup?.type === "agentActivityGroup" ? activityGroup.completedHeader.parts : [],
+    ).toEqual([{ kind: "exploration" }]);
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.header.kind : null).toBe(
+      "thinking",
+    );
+    expect(
+      activityGroup?.type === "agentActivityGroup" && activityGroup.header.kind === "thinking"
+        ? activityGroup.header.message
+        : "unexpected",
+    ).toBe(null);
   });
 
   test("keeps Thinking standalone when a later visible unit follows the completed activity group", () => {
@@ -1608,9 +1666,7 @@ describe("bucketizeTurnItems", () => {
       isBlocked: false,
     });
 
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "exec,contextCompaction",
-    );
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("exec,contextCompaction");
     expect(turn.liveActivity.fallback.owner).toBe("standalone");
     expect(turn.blocks[0]?.type).toBe("exec");
   });
@@ -1795,7 +1851,9 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,compact");
     expect(buckets.assistantItem?.id ?? "").toBe("assistant");
     expect(buckets.postAssistantItems.length).toBe(0);
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("exec,contextCompaction,assistantMessage");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
+      "exec,contextCompaction,assistantMessage",
+    );
   });
 
   test("keeps context compaction inline after the assistant instead of promoting the assistant", () => {
@@ -1851,7 +1909,9 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,compact,exec");
     expect(buckets.postAssistantItems.length).toBe(0);
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,contextCompaction,exec,assistantActions");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
+      "assistantMessage,contextCompaction,exec,assistantActions",
+    );
   });
 
   test("still reserves postAssistant for trailing automatic approval reviews", () => {
@@ -1934,7 +1994,10 @@ describe("bucketizeTurnItems", () => {
         items: [],
       },
       buckets,
-      workedForItem: buckets.agentItems.find((item): item is ThreadWorkedForBlockModel => item.type === "workedFor") ?? null,
+      workedForItem:
+        buckets.agentItems.find(
+          (item): item is ThreadWorkedForBlockModel => item.type === "workedFor",
+        ) ?? null,
       isLatestTurn: true,
       isStreamingTurn: false,
       isBlocked: false,

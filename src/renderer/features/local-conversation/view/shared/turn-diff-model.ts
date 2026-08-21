@@ -1,10 +1,10 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { buildCodexFileChangeUnifiedDiff, isCodexFileChange } from "../../../../../shared/codex-file-change";
-import type {
-  CodexTranscriptEntry,
-  CodexTurnDiffReviewSource,
-} from "../../../../lib/types";
+import {
+  buildCodexFileChangeUnifiedDiff,
+  isCodexFileChange,
+} from "../../../../../shared/codex-file-change";
+import type { CodexTranscriptEntry, CodexTurnDiffReviewSource } from "../../../../lib/types";
 import {
   filterTurnDiffPayload,
   normalizeTurnDiffPatchBatches,
@@ -103,8 +103,8 @@ export function extractTurnDiffPayload(
   const unifiedDiff = (rawItem as { unifiedDiff?: unknown }).unifiedDiff;
   const patchBatches = (rawItem as { patchBatches?: unknown }).patchBatches;
   if (
-    (typeof unifiedDiff !== "string" || unifiedDiff.trim().length === 0)
-    && !Array.isArray(patchBatches)
+    (typeof unifiedDiff !== "string" || unifiedDiff.trim().length === 0) &&
+    !Array.isArray(patchBatches)
   ) {
     return null;
   }
@@ -112,12 +112,15 @@ export function extractTurnDiffPayload(
   const cwd = (rawItem as { cwd?: unknown }).cwd;
   const showRevertButton = (rawItem as { showRevertButton?: unknown }).showRevertButton;
 
-  return filterTurnDiffPayload({
-    unifiedDiff: typeof unifiedDiff === "string" ? unifiedDiff : "",
-    cwd: typeof cwd === "string" && cwd.trim().length > 0 ? cwd : undefined,
-    showRevertButton: showRevertButton === true,
-    patchBatches: normalizeTurnDiffPatchBatches(patchBatches),
-  }, scope);
+  return filterTurnDiffPayload(
+    {
+      unifiedDiff: typeof unifiedDiff === "string" ? unifiedDiff : "",
+      cwd: typeof cwd === "string" && cwd.trim().length > 0 ? cwd : undefined,
+      showRevertButton: showRevertButton === true,
+      patchBatches: normalizeTurnDiffPatchBatches(patchBatches),
+    },
+    scope,
+  );
 }
 
 export function normalizeTurnDiffBasePath(
@@ -143,14 +146,15 @@ export function buildTurnDiffReviewIntent(input: {
   if (!payload || input.item.turnId === null) return null;
 
   return {
-    source: input.source === "selected-turn"
-      ? {
-          kind: "selected-turn",
-          threadId: input.item.threadId,
-          turnId: input.item.turnId,
-          entryId: input.item.entryId ?? input.item.itemId,
-        }
-      : { kind: "last-turn", threadId: input.item.threadId },
+    source:
+      input.source === "selected-turn"
+        ? {
+            kind: "selected-turn",
+            threadId: input.item.threadId,
+            turnId: input.item.turnId,
+            entryId: input.item.entryId ?? input.item.itemId,
+          }
+        : { kind: "last-turn", threadId: input.item.threadId },
     ...(input.path ? { targetPath: input.path } : {}),
   };
 }
@@ -204,9 +208,9 @@ export function parseUnifiedDiffFileStats(diffText: string): TurnDiffFileStat[] 
     }
   }
 
-  const fileStats = Array.from(stats.values()).filter((stat) => (
-    stat.additions > 0 || stat.deletions > 0 || stat.renderedLineEstimate > 0
-  ));
+  const fileStats = Array.from(stats.values()).filter(
+    (stat) => stat.additions > 0 || stat.deletions > 0 || stat.renderedLineEstimate > 0,
+  );
   if (fileStats.length > 0 || diffText.trim().length === 0) return fileStats;
 
   return fallbackPatchStats(diffText);
@@ -258,7 +262,10 @@ export function isLargeTurnDiffFile(input: {
   deletions: number;
   renderedLineEstimate: number;
 }): boolean {
-  return Math.max(input.renderedLineEstimate, input.additions + input.deletions) > TURN_DIFF_MAX_INLINE_LINES;
+  return (
+    Math.max(input.renderedLineEstimate, input.additions + input.deletions) >
+    TURN_DIFF_MAX_INLINE_LINES
+  );
 }
 
 export function buildTurnDiffDisplayPath(path: string, basePath: string | null): string {
@@ -454,7 +461,7 @@ function ensureFileStat(stats: Map<string, TurnDiffFileStat>, path: string): Tur
 function parseDiffGitHeaderPath(line: string): string | null {
   if (!line.startsWith("diff --git ")) return null;
   const rest = line.slice("diff --git ".length);
-  if (rest.startsWith("\"")) {
+  if (rest.startsWith('"')) {
     const paths = parseQuotedDiffGitPaths(rest);
     const targetPath = paths.findLast((path) => path.startsWith("b/")) ?? paths[paths.length - 1];
     return targetPath ? stripPatchPrefix(targetPath) : null;
@@ -478,13 +485,13 @@ function parseQuotedDiffGitPaths(value: string): string[] {
 
   while (index < value.length) {
     while (value[index] === " ") index += 1;
-    if (value[index] !== "\"") break;
+    if (value[index] !== '"') break;
     index += 1;
 
     let path = "";
     while (index < value.length) {
       const char = value[index];
-      if (char === "\"") {
+      if (char === '"') {
         index += 1;
         break;
       }
@@ -504,25 +511,29 @@ function parseQuotedDiffGitPaths(value: string): string[] {
 
 function fallbackPatchStats(diffText: string): TurnDiffFileStat[] {
   try {
-    return parsePatchFiles(diffText).flatMap((patch) => patch.files).map((fileDiff) => {
-      const path = stripPatchPrefix(fileDiff.name ?? fileDiff.prevName ?? "changed-file");
-      const summary = summarizeFileDiffMetadata(fileDiff);
-      return {
-        path,
-        additions: summary.additions,
-        deletions: summary.deletions,
-        renderedLineEstimate: Math.max(fileDiff.unifiedLineCount, fileDiff.splitLineCount),
-      };
-    });
+    return parsePatchFiles(diffText)
+      .flatMap((patch) => patch.files)
+      .map((fileDiff) => {
+        const path = stripPatchPrefix(fileDiff.name ?? fileDiff.prevName ?? "changed-file");
+        const summary = summarizeFileDiffMetadata(fileDiff);
+        return {
+          path,
+          additions: summary.additions,
+          deletions: summary.deletions,
+          renderedLineEstimate: Math.max(fileDiff.unifiedLineCount, fileDiff.splitLineCount),
+        };
+      });
   } catch {
     const summary = summarizeDiff(diffText);
     if (summary.additions === 0 && summary.deletions === 0) return [];
-    return [{
-      path: "changed-file",
-      additions: summary.additions,
-      deletions: summary.deletions,
-      renderedLineEstimate: summary.additions + summary.deletions,
-    }];
+    return [
+      {
+        path: "changed-file",
+        additions: summary.additions,
+        deletions: summary.deletions,
+        renderedLineEstimate: summary.additions + summary.deletions,
+      },
+    ];
   }
 }
 
@@ -545,9 +556,9 @@ function relativeDisplayPath(path: string, basePath: string): string {
   let sharedSegmentCount = 0;
 
   while (
-    sharedSegmentCount < pathSegments.length
-    && sharedSegmentCount < baseSegments.length
-    && sameDisplayPathSegment(
+    sharedSegmentCount < pathSegments.length &&
+    sharedSegmentCount < baseSegments.length &&
+    sameDisplayPathSegment(
       pathSegments[sharedSegmentCount] ?? "",
       baseSegments[sharedSegmentCount] ?? "",
       compareCaseInsensitive,
@@ -556,16 +567,25 @@ function relativeDisplayPath(path: string, basePath: string): string {
     sharedSegmentCount += 1;
   }
 
-  const parentSegments = Array.from({ length: baseSegments.length - sharedSegmentCount }, () => "..");
+  const parentSegments = Array.from(
+    { length: baseSegments.length - sharedSegmentCount },
+    () => "..",
+  );
   const childSegments = pathSegments.slice(sharedSegmentCount);
   return [...parentSegments, ...childSegments].join("/");
 }
 
 function splitDisplayPathSegments(path: string): string[] {
-  return normalizePathSegments(path).split("/").filter((segment) => segment.length > 0);
+  return normalizePathSegments(path)
+    .split("/")
+    .filter((segment) => segment.length > 0);
 }
 
-function sameDisplayPathSegment(left: string, right: string, compareCaseInsensitive: boolean): boolean {
+function sameDisplayPathSegment(
+  left: string,
+  right: string,
+  compareCaseInsensitive: boolean,
+): boolean {
   if (!compareCaseInsensitive) return left === right;
   return left.toLowerCase() === right.toLowerCase();
 }

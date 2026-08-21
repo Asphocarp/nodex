@@ -53,7 +53,7 @@ export const buildPagePropertyContextMenuModel = (
   const normalizedQuery = normalizedSearchText(query);
   if (normalizedQuery) {
     const matches = active.filter((binding) =>
-      normalizedSearchText(binding.property.name).includes(normalizedQuery)
+      normalizedSearchText(binding.property.name).includes(normalizedQuery),
     );
     return {
       visible: matches,
@@ -69,9 +69,7 @@ export const buildPagePropertyContextMenuModel = (
       index,
       rank: featuredRank(binding, groupingPropertyId),
     }))
-    .filter((entry): entry is typeof entry & { readonly rank: number } =>
-      entry.rank !== null
-    )
+    .filter((entry): entry is typeof entry & { readonly rank: number } => entry.rank !== null)
     .sort((left, right) => left.rank - right.rank || left.index - right.index)
     .slice(0, Math.max(0, featuredLimit))
     .map((entry) => entry.binding);

@@ -34,9 +34,7 @@ export function AppStartupScreen({ step }: AppStartupScreenProps) {
   }
 
   const showVisibleCopy =
-    step.phase === "migrating"
-    || step.phase === "opening_workspace"
-    || openingDelayElapsed;
+    step.phase === "migrating" || step.phase === "opening_workspace" || openingDelayElapsed;
 
   return (
     <main

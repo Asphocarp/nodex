@@ -23,30 +23,34 @@ function buildConversation(unifiedDiff: string): CodexConversationSnapshot {
     createdAt: 1,
     updatedAt: 2,
     linkedAt: "",
-    turns: [{
-      threadId: "thread-1",
-      turnId: "turn-1",
-      status: "inProgress",
-      itemIds: ["turn-diff:turn-1"],
-      items: [{
+    turns: [
+      {
         threadId: "thread-1",
         turnId: "turn-1",
-        itemId: "turn-diff:turn-1",
-        entryId: "turn-diff:turn-1",
-        type: "turn-diff",
-        kind: "systemEvent",
-        semanticKind: "diff",
         status: "inProgress",
-        rawItem: {
-          type: "turn-diff",
-          unifiedDiff,
-          cwd: "/workspace/nodex",
-          showRevertButton: true,
-        },
-        createdAt: 1,
-        updatedAt: 2,
-      }],
-    }],
+        itemIds: ["turn-diff:turn-1"],
+        items: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "turn-diff:turn-1",
+            entryId: "turn-diff:turn-1",
+            type: "turn-diff",
+            kind: "systemEvent",
+            semanticKind: "diff",
+            status: "inProgress",
+            rawItem: {
+              type: "turn-diff",
+              unifiedDiff,
+              cwd: "/workspace/nodex",
+              showRevertButton: true,
+            },
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+      },
+    ],
     requests: [],
     pendingSteers: [],
     queuedFollowUps: [],
@@ -114,10 +118,7 @@ describe("connected review diff panel", () => {
       };
       conversation = {
         ...conversation,
-        turns: [
-          ...(conversation.turns.slice(0, -1)),
-          { ...turn, items: [...turn.items, proseItem] },
-        ],
+        turns: [...conversation.turns.slice(0, -1), { ...turn, items: [...turn.items, proseItem] }],
       };
       expect(selector(conversation)).toBe(initial);
     }
@@ -141,17 +142,19 @@ describe("connected review diff panel", () => {
           turnId: "turn-2",
           status: "inProgress",
           itemIds: ["message-next"],
-          items: [{
-            ...template,
-            turnId: "turn-2",
-            itemId: "message-next",
-            entryId: "message-next",
-            type: "message",
-            kind: "assistantMessage",
-            semanticKind: "assistantMessage",
-            rawItem: { text: "Starting another edit." },
-            markdownText: "Starting another edit.",
-          }],
+          items: [
+            {
+              ...template,
+              turnId: "turn-2",
+              itemId: "message-next",
+              entryId: "message-next",
+              type: "message",
+              kind: "assistantMessage",
+              semanticKind: "assistantMessage",
+              rawItem: { text: "Starting another edit." },
+              markdownText: "Starting another edit.",
+            },
+          ],
         },
       ],
     };
@@ -209,12 +212,14 @@ describe("connected review diff panel", () => {
     if (!turn) throw new Error("Expected a turn");
     const conversation: CodexConversationSnapshot = {
       ...base,
-      turns: [{
-        ...turn,
-        itemIds: [],
-        items: [],
-        diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
-      }],
+      turns: [
+        {
+          ...turn,
+          itemIds: [],
+          items: [],
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+        },
+      ],
     };
     const refreshed = connectedReviewDiffPanelTestHelpers.refreshSelectedTurnDiffTarget(
       {
@@ -235,17 +240,21 @@ describe("connected review diff panel", () => {
     if (!turn) throw new Error("Expected a turn");
     const conversation: CodexConversationSnapshot = {
       ...base,
-      turns: [{
-        ...turn,
-        diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
-        items: [{
-          ...turn.items[0],
-          rawItem: {
-            type: "turn-diff",
-            unifiedDiff: "",
-          },
-        }],
-      }],
+      turns: [
+        {
+          ...turn,
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+          items: [
+            {
+              ...turn.items[0],
+              rawItem: {
+                type: "turn-diff",
+                unifiedDiff: "",
+              },
+            },
+          ],
+        },
+      ],
     };
 
     const refreshed = connectedReviewDiffPanelTestHelpers.refreshSelectedTurnDiffTarget(

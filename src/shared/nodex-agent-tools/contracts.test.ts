@@ -26,9 +26,9 @@ describe("Nodex Agent tool contracts", () => {
       const schema = z.toJSONSchema(contract.inputSchema) as Record<string, unknown>;
       expect(contract.description.length, name).toBeGreaterThan(40);
       const alternatives = Array.isArray(schema.oneOf)
-        ? schema.oneOf as Array<Record<string, unknown>>
+        ? (schema.oneOf as Array<Record<string, unknown>>)
         : Array.isArray(schema.anyOf)
-          ? schema.anyOf as Array<Record<string, unknown>>
+          ? (schema.anyOf as Array<Record<string, unknown>>)
           : [schema];
       expect(alternatives.length, name).toBeGreaterThan(0);
       for (const alternative of alternatives) {
@@ -69,9 +69,9 @@ describe("Nodex Agent tool contracts", () => {
   });
 
   test("removes storage revision topology from every public input schema", () => {
-    const publicSchemas = Object.values(NODEX_AGENT_TOOL_CONTRACTS).map((contract) =>
-      JSON.stringify(z.toJSONSchema(contract.inputSchema)),
-    ).join("\n");
+    const publicSchemas = Object.values(NODEX_AGENT_TOOL_CONTRACTS)
+      .map((contract) => JSON.stringify(z.toJSONSchema(contract.inputSchema)))
+      .join("\n");
 
     for (const forbidden of [
       "DocumentRevision",
@@ -107,7 +107,7 @@ describe("Nodex Agent tool contracts", () => {
             "- [ ] Migrate",
             "- [ ] Verify",
             "",
-            "<callout icon=\"💡\">Keep the rollback path open.</callout>",
+            '<callout icon="💡">Keep the rollback path open.</callout>',
           ].join("\n"),
         },
       },
@@ -140,25 +140,31 @@ describe("Nodex Agent tool contracts", () => {
   });
 
   test("separates empty Document inputs from empty insertion Fragments", () => {
-    expect(CreateInputSchema.safeParse({
-      resource: {
-        kind: "page",
-        title: { kind: "plain", text: "Empty" },
-        body: { format: "nfm", content: "" },
-      },
-      destination: { kind: "library" },
-    }).success).toBe(true);
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      body: { kind: "nfm.replace", content: "", ifMatch: ETAG },
-    }).success).toBe(true);
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      body: {
-        kind: "nfm.patch",
-        patches: [{ oldNfm: "Only Block", newNfm: "" }],
-      },
-    }).success).toBe(true);
+    expect(
+      CreateInputSchema.safeParse({
+        resource: {
+          kind: "page",
+          title: { kind: "plain", text: "Empty" },
+          body: { format: "nfm", content: "" },
+        },
+        destination: { kind: "library" },
+      }).success,
+    ).toBe(true);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: { kind: "nfm.replace", content: "", ifMatch: ETAG },
+      }).success,
+    ).toBe(true);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: {
+          kind: "nfm.patch",
+          patches: [{ oldNfm: "Only Block", newNfm: "" }],
+        },
+      }).success,
+    ).toBe(true);
     for (const content of ["", "\n \t\n"]) {
       const result = EditDocumentInputSchema.safeParse({
         documentId: "document-1",
@@ -169,98 +175,123 @@ describe("Nodex Agent tool contracts", () => {
         expect(result.error.issues[0]?.message).toContain("<empty-block/>");
       }
     }
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      body: {
-        kind: "nfm.insert",
-        at: { kind: "end" },
-        content: "<empty-block/>",
-      },
-    }).success).toBe(true);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: {
+          kind: "nfm.insert",
+          at: { kind: "end" },
+          content: "<empty-block/>",
+        },
+      }).success,
+    ).toBe(true);
   });
 
   test("requires narrow ETags only for overwrite operations", () => {
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      body: { kind: "nfm.replace", content: "Replacement" },
-    }).success).toBe(false);
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      body: { kind: "nfm.replace", content: "Replacement", ifMatch: ETAG },
-    }).success).toBe(true);
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      title: { value: { kind: "plain", text: "New" } },
-    }).success).toBe(false);
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      title: { value: { kind: "plain", text: "New" }, ifMatch: ETAG },
-    }).success).toBe(true);
-    expect(EditDatabaseInputSchema.safeParse({
-      databaseBlockId: "database-1",
-      edits: [{
-        kind: "value.set",
-        blockId: "block-1",
-        propertyId: "property-1",
-        value: "done",
-      }],
-    }).success).toBe(false);
-    expect(EditDatabaseInputSchema.safeParse({
-      databaseBlockId: "database-1",
-      edits: [{
-        kind: "value.add_remove",
-        blockId: "block-1",
-        propertyId: "property-1",
-        add: ["done"],
-        remove: [],
-      }],
-    }).success).toBe(true);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: { kind: "nfm.replace", content: "Replacement" },
+      }).success,
+    ).toBe(false);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: { kind: "nfm.replace", content: "Replacement", ifMatch: ETAG },
+      }).success,
+    ).toBe(true);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        title: { value: { kind: "plain", text: "New" } },
+      }).success,
+    ).toBe(false);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        title: { value: { kind: "plain", text: "New" }, ifMatch: ETAG },
+      }).success,
+    ).toBe(true);
+    expect(
+      EditDatabaseInputSchema.safeParse({
+        databaseBlockId: "database-1",
+        edits: [
+          {
+            kind: "value.set",
+            blockId: "block-1",
+            propertyId: "property-1",
+            value: "done",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      EditDatabaseInputSchema.safeParse({
+        databaseBlockId: "database-1",
+        edits: [
+          {
+            kind: "value.add_remove",
+            blockId: "block-1",
+            propertyId: "property-1",
+            add: ["done"],
+            remove: [],
+          },
+        ],
+      }).success,
+    ).toBe(true);
   });
 
   test("uses one logical source for a transfer move and no freshness proof for copy", () => {
-    expect(TransferBlocksInputSchema.safeParse({
-      mode: "move",
-      blockIds: ["block-1", "block-2"],
-      destination: { kind: "library" },
-    }).success).toBe(false);
-    expect(TransferBlocksInputSchema.safeParse({
-      mode: "move",
-      blockIds: ["block-1", "block-2"],
-      from: { kind: "data_source", dataSourceId: "data-source-1" },
-      destination: { kind: "library" },
-    }).success).toBe(true);
-    expect(TransferBlocksInputSchema.safeParse({
-      mode: "copy",
-      blockIds: ["block-1"],
-      destination: {
-        kind: "document",
-        documentId: "document-2",
-        at: { kind: "end" },
-      },
-    }).success).toBe(true);
+    expect(
+      TransferBlocksInputSchema.safeParse({
+        mode: "move",
+        blockIds: ["block-1", "block-2"],
+        destination: { kind: "library" },
+      }).success,
+    ).toBe(false);
+    expect(
+      TransferBlocksInputSchema.safeParse({
+        mode: "move",
+        blockIds: ["block-1", "block-2"],
+        from: { kind: "data_source", dataSourceId: "data-source-1" },
+        destination: { kind: "library" },
+      }).success,
+    ).toBe(true);
+    expect(
+      TransferBlocksInputSchema.safeParse({
+        mode: "copy",
+        blockIds: ["block-1"],
+        destination: {
+          kind: "document",
+          documentId: "document-2",
+          at: { kind: "end" },
+        },
+      }).success,
+    ).toBe(true);
   });
 
   test("accepts composed operation-scoped preparation", () => {
-    expect(GetBlockInputSchema.safeParse({
-      blockId: "block-1",
-      include: {
-        properties: { propertyIds: ["status"] },
-        document: { format: "nfm" },
-      },
-      prepareFor: [
-        { kind: "title.set" },
-        { kind: "document.replace" },
-        { kind: "value.set", propertyIds: ["status"] },
-      ],
-    }).success).toBe(true);
-    expect(QueryDatabaseInputSchema.safeParse({
-      source: { kind: "view", viewId: "view-1" },
-      select: { propertyIds: ["status"] },
-      prepareFor: [
-        { kind: "value.set", propertyIds: ["status"] },
-        { kind: "view.place" },
-      ],
-    }).success).toBe(true);
+    expect(
+      GetBlockInputSchema.safeParse({
+        blockId: "block-1",
+        include: {
+          properties: { propertyIds: ["status"] },
+          document: { format: "nfm" },
+        },
+        prepareFor: [
+          { kind: "title.set" },
+          { kind: "document.replace" },
+          { kind: "value.set", propertyIds: ["status"] },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      QueryDatabaseInputSchema.safeParse({
+        source: { kind: "view", viewId: "view-1" },
+        select: { propertyIds: ["status"] },
+        prepareFor: [{ kind: "value.set", propertyIds: ["status"] }, { kind: "view.place" }],
+      }).success,
+    ).toBe(true);
   });
 
   test("keeps a representative default Database query below four KiB with no ETags", () => {
@@ -269,12 +300,14 @@ describe("Nodex Agent tool contracts", () => {
         database: {
           databaseBlockId: "database-1",
           name: "Tasks",
-          properties: [{
-            propertyId: "status",
-            name: "Status",
-            valueType: "select",
-            config: {},
-          }],
+          properties: [
+            {
+              propertyId: "status",
+              name: "Status",
+              valueType: "select",
+              config: {},
+            },
+          ],
         },
         view: { viewId: "view-1", name: "Board", defaultLayout: "board" },
         rows: Array.from({ length: 13 }, (_, index) => ({
@@ -295,23 +328,29 @@ describe("Nodex Agent tool contracts", () => {
   });
 
   test("rejects ambiguous anchors, empty edits, unknown keys, and unsafe patch shapes", () => {
-    expect(CreateInputSchema.safeParse({
-      resource: { kind: "page", title: { kind: "plain", text: "Card" } },
-      destination: {
-        kind: "document",
-        documentId: "document-1",
-        at: { kind: "before", blockId: "block-1", parentBlockId: "block-2" },
-      },
-    }).success).toBe(false);
+    expect(
+      CreateInputSchema.safeParse({
+        resource: { kind: "page", title: { kind: "plain", text: "Card" } },
+        destination: {
+          kind: "document",
+          documentId: "document-1",
+          at: { kind: "before", blockId: "block-1", parentBlockId: "block-2" },
+        },
+      }).success,
+    ).toBe(false);
     expect(EditDocumentInputSchema.safeParse({ documentId: "document-1" }).success).toBe(false);
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      body: { kind: "nfm.patch", patches: [{ oldNfm: "", newNfm: "replacement" }] },
-    }).success).toBe(false);
-    expect(EditDocumentInputSchema.safeParse({
-      documentId: "document-1",
-      body: { kind: "nfm.replace", content: "Replacement", ifMatch: ETAG, extra: true },
-    }).success).toBe(false);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: { kind: "nfm.patch", patches: [{ oldNfm: "", newNfm: "replacement" }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      EditDocumentInputSchema.safeParse({
+        documentId: "document-1",
+        body: { kind: "nfm.replace", content: "Replacement", ifMatch: ETAG, extra: true },
+      }).success,
+    ).toBe(false);
   });
 
   test("classifies replacement and explicit deletion as destructive", () => {
@@ -330,8 +369,6 @@ describe("Nodex Agent tool contracts", () => {
     expect(NODEX_AGENT_TOOL_CONTRACTS.edit_document.classifyEffect(replacement)).toBe(
       "destructive",
     );
-    expect(NODEX_AGENT_TOOL_CONTRACTS.edit_document.classifyEffect(deletion)).toBe(
-      "destructive",
-    );
+    expect(NODEX_AGENT_TOOL_CONTRACTS.edit_document.classifyEffect(deletion)).toBe("destructive");
   });
 });

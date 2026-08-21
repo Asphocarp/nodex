@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type {
-  GitReviewCatFileInput,
-  GitReviewCatFileOutput,
-} from "@/lib/types";
+import type { GitReviewCatFileInput, GitReviewCatFileOutput } from "@/lib/types";
 import {
   __resetReviewCatFileBatcherForTests,
   requestReviewCatFile,
@@ -57,9 +54,6 @@ describe("review cat-file batcher", () => {
     expect(workerRequest).toHaveBeenCalledTimes(2);
     expect(workerRequest.mock.calls[0]?.[0].requests).toHaveLength(4);
     expect(workerRequest.mock.calls[1]?.[0].requests).toHaveLength(2);
-    expect(results[2]?.map((result) => result.type)).toEqual([
-      "success",
-      "success",
-    ]);
+    expect(results[2]?.map((result) => result.type)).toEqual(["success", "success"]);
   });
 });

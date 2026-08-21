@@ -7,51 +7,61 @@ import {
 
 describe("nfm text action menu model", () => {
   test("uses the Notion-style menu only for editable expanded rich-text selections", () => {
-    expect(shouldUseTextActionMenu({
-      isEditable: true,
-      isTableCellSelection: false,
-      hasInlineContent: true,
-      selectedTextLength: 5,
-      selectionFrom: 3,
-      selectionTo: 8,
-    })).toBe(true);
+    expect(
+      shouldUseTextActionMenu({
+        isEditable: true,
+        isTableCellSelection: false,
+        hasInlineContent: true,
+        selectedTextLength: 5,
+        selectionFrom: 3,
+        selectionTo: 8,
+      }),
+    ).toBe(true);
 
-    expect(shouldUseTextActionMenu({
-      isEditable: true,
-      isTableCellSelection: false,
-      hasInlineContent: true,
-      selectedTextLength: 0,
-      selectionFrom: 3,
-      selectionTo: 3,
-    })).toBe(false);
+    expect(
+      shouldUseTextActionMenu({
+        isEditable: true,
+        isTableCellSelection: false,
+        hasInlineContent: true,
+        selectedTextLength: 0,
+        selectionFrom: 3,
+        selectionTo: 3,
+      }),
+    ).toBe(false);
 
-    expect(shouldUseTextActionMenu({
-      isEditable: true,
-      isTableCellSelection: false,
-      hasInlineContent: true,
-      selectedTextLength: 0,
-      selectionFrom: 3,
-      selectionTo: 8,
-    })).toBe(false);
+    expect(
+      shouldUseTextActionMenu({
+        isEditable: true,
+        isTableCellSelection: false,
+        hasInlineContent: true,
+        selectedTextLength: 0,
+        selectionFrom: 3,
+        selectionTo: 8,
+      }),
+    ).toBe(false);
 
-    expect(shouldUseTextActionMenu({
-      isEditable: true,
-      isTableCellSelection: true,
-      hasInlineContent: true,
-      selectedTextLength: 5,
-      selectionFrom: 3,
-      selectionTo: 8,
-    })).toBe(false);
+    expect(
+      shouldUseTextActionMenu({
+        isEditable: true,
+        isTableCellSelection: true,
+        hasInlineContent: true,
+        selectedTextLength: 5,
+        selectionFrom: 3,
+        selectionTo: 8,
+      }),
+    ).toBe(false);
 
-    expect(shouldUseTextActionMenu({
-      isEditable: true,
-      isTableCellSelection: false,
-      isBlockSelection: true,
-      hasInlineContent: true,
-      selectedTextLength: 5,
-      selectionFrom: 3,
-      selectionTo: 8,
-    })).toBe(false);
+    expect(
+      shouldUseTextActionMenu({
+        isEditable: true,
+        isTableCellSelection: false,
+        isBlockSelection: true,
+        hasInlineContent: true,
+        selectedTextLength: 5,
+        selectionFrom: 3,
+        selectionTo: 8,
+      }),
+    ).toBe(false);
   });
 
   test("recognizes ProseMirror block-level selections", () => {

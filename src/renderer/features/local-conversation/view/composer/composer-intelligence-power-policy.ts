@@ -61,14 +61,16 @@ function buildChoices(
     );
     if (!supportsEffort) return [];
 
-    return [{
-      id: `${modelId}:${reasoningEffort}`,
-      model: modelId,
-      reasoningEffort,
-      modelLabel: formatPowerModelLabel(modelId, models),
-      reasoningLabel: REASONING_LABELS[reasoningEffort] ?? reasoningEffort,
-      isUltra: reasoningEffort === "ultra",
-    }];
+    return [
+      {
+        id: `${modelId}:${reasoningEffort}`,
+        model: modelId,
+        reasoningEffort,
+        modelLabel: formatPowerModelLabel(modelId, models),
+        reasoningLabel: REASONING_LABELS[reasoningEffort] ?? reasoningEffort,
+        isUltra: reasoningEffort === "ultra",
+      },
+    ];
   });
 }
 
@@ -93,7 +95,7 @@ export function findComposerPowerChoiceIndex(
   model: string,
   reasoningEffort: CodexReasoningEffort,
 ): number {
-  return choices.findIndex((choice) => (
-    choice.model === model && choice.reasoningEffort === reasoningEffort
-  ));
+  return choices.findIndex(
+    (choice) => choice.model === model && choice.reasoningEffort === reasoningEffort,
+  );
 }

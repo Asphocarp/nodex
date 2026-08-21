@@ -1,6 +1,14 @@
 .nodex-loading-results-shimmer {
-  --loading-results-shimmer-base: color-mix(in srgb, var(--color-token-description-foreground) 10%, transparent);
-  --loading-results-shimmer-highlight: color-mix(in srgb, var(--color-token-description-foreground) 16%, transparent);
+  --loading-results-shimmer-base: color-mix(
+    in srgb,
+    var(--color-token-description-foreground) 10%,
+    transparent
+  );
+  --loading-results-shimmer-highlight: color-mix(
+    in srgb,
+    var(--color-token-description-foreground) 16%,
+    transparent
+  );
   border-radius: var(--radius-md);
   background-color: var(--loading-results-shimmer-base);
   position: relative;
@@ -22,7 +30,12 @@
 .nodex-loading-results-shimmer::before {
   content: "";
   pointer-events: none;
-  background: linear-gradient(90deg, transparent 0%, var(--loading-results-shimmer-highlight) 50%, transparent 100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--loading-results-shimmer-highlight) 50%,
+    transparent 100%
+  );
   will-change: transform;
   animation: nodex-loading-results-shimmer 3s linear infinite;
   animation-delay: var(--loading-results-shimmer-delay, 0s);
@@ -53,7 +66,11 @@
 
 .nodex-loading-placeholder[data-animate="true"] {
   --loading-placeholder-base: var(--color-token-main-surface-primary);
-  --loading-placeholder-peak: color-mix(in srgb, var(--color-token-description-foreground) 7%, var(--color-token-main-surface-primary));
+  --loading-placeholder-peak: color-mix(
+    in srgb,
+    var(--color-token-description-foreground) 7%,
+    var(--color-token-main-surface-primary)
+  );
   background-color: var(--loading-placeholder-base);
   position: relative;
 }
@@ -68,7 +85,11 @@
 }
 
 .dark .nodex-loading-placeholder[data-animate="true"] {
-  --loading-placeholder-peak: color-mix(in srgb, var(--color-token-description-foreground) 14%, var(--color-token-main-surface-primary));
+  --loading-placeholder-peak: color-mix(
+    in srgb,
+    var(--color-token-description-foreground) 14%,
+    var(--color-token-main-surface-primary)
+  );
 }
 
 @keyframes nodex-loading-placeholder-pulse {

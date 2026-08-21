@@ -76,22 +76,12 @@ export interface DatabaseManagementSurfaceProps {
   readonly busy?: boolean;
   readonly error?: string | null;
   readonly onSelectDatabase: (databaseId: string) => void;
-  readonly onCreateProperty: (
-    draft: CreateDatabasePropertyDraft,
-  ) => void | Promise<void>;
-  readonly onDeleteProperty: (
-    dataSourceId: string,
-    propertyId: string,
-  ) => void | Promise<void>;
+  readonly onCreateProperty: (draft: CreateDatabasePropertyDraft) => void | Promise<void>;
+  readonly onDeleteProperty: (dataSourceId: string, propertyId: string) => void | Promise<void>;
   readonly onCreateView: (draft: CreateDatabaseViewDraft) => void | Promise<void>;
   readonly onUpdateView: (draft: UpdateDatabaseViewDraft) => void | Promise<void>;
-  readonly onDeleteView: (
-    databaseId: string,
-    viewId: string,
-  ) => void | Promise<void>;
-  readonly onPutPropertyOption: (
-    draft: PutDatabasePropertyOptionDraft,
-  ) => void | Promise<void>;
+  readonly onDeleteView: (databaseId: string, viewId: string) => void | Promise<void>;
+  readonly onPutPropertyOption: (draft: PutDatabasePropertyOptionDraft) => void | Promise<void>;
   readonly onDeletePropertyOption: (
     dataSourceId: string,
     propertyId: string,
@@ -122,8 +112,7 @@ const VIEW_LAYOUTS: readonly {
   { value: "board", label: "Board" },
 ];
 
-const viewLayoutIcon = (layout: DatabaseViewLayout) =>
-  layout === "board" ? Columns3 : List;
+const viewLayoutIcon = (layout: DatabaseViewLayout) => (layout === "board" ? Columns3 : List);
 
 const submitTrimmed = (
   event: FormEvent<HTMLFormElement>,
@@ -135,21 +124,11 @@ const submitTrimmed = (
   if (normalized) submit(normalized);
 };
 
-function SectionHeader({
-  title,
-  detail,
-}: {
-  readonly title: string;
-  readonly detail: string;
-}) {
+function SectionHeader({ title, detail }: { readonly title: string; readonly detail: string }) {
   return (
     <div className="mb-2 flex min-w-0 items-end gap-3">
-      <h3 className="shrink-0 text-sm font-medium text-token-text-primary">
-        {title}
-      </h3>
-      <p className="truncate pb-px text-xs text-token-description-foreground">
-        {detail}
-      </p>
+      <h3 className="shrink-0 text-sm font-medium text-token-text-primary">{title}</h3>
+      <p className="truncate pb-px text-xs text-token-description-foreground">{detail}</p>
     </div>
   );
 }
@@ -169,33 +148,31 @@ export function DatabaseManagementSurface({
   onPutPropertyOption,
   onDeletePropertyOption,
 }: DatabaseManagementSurfaceProps) {
-  const descriptor = databases.find(
-    (candidate) => candidate.database.databaseId === selectedDatabaseId,
-  ) ?? databases[0] ?? null;
+  const descriptor =
+    databases.find((candidate) => candidate.database.databaseId === selectedDatabaseId) ??
+    databases[0] ??
+    null;
   const [propertyName, setPropertyName] = useState("");
-  const [propertyType, setPropertyType] =
-    useState<DatabasePropertyValueType>("text");
-  const [relationTargetDataSourceId, setRelationTargetDataSourceId] =
-    useState<string>("");
+  const [propertyType, setPropertyType] = useState<DatabasePropertyValueType>("text");
+  const [relationTargetDataSourceId, setRelationTargetDataSourceId] = useState<string>("");
   const [viewName, setViewName] = useState("");
   const [viewLayout, setViewLayout] = useState<DatabaseViewLayout>("list");
-  const [viewDrafts, setViewDrafts] = useState<Readonly<Record<
-    string,
-    {
-      readonly baseRevision: number;
-      readonly name: string;
-      readonly defaultLayout: DatabaseViewLayout;
-      readonly config: DatabaseViewConfigV4;
-    }
-  >>>({});
+  const [viewDrafts, setViewDrafts] = useState<
+    Readonly<
+      Record<
+        string,
+        {
+          readonly baseRevision: number;
+          readonly name: string;
+          readonly defaultLayout: DatabaseViewLayout;
+          readonly config: DatabaseViewConfigV4;
+        }
+      >
+    >
+  >({});
   const [expandedViewId, setExpandedViewId] = useState<string | null>(null);
-  const [optionDrafts, setOptionDrafts] = useState<Readonly<Record<
-    string,
-    string
-  >>>({});
-  const [pendingDeletePropertyId, setPendingDeletePropertyId] = useState<
-    string | null
-  >(null);
+  const [optionDrafts, setOptionDrafts] = useState<Readonly<Record<string, string>>>({});
+  const [pendingDeletePropertyId, setPendingDeletePropertyId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!descriptor) return;
@@ -204,22 +181,19 @@ export function DatabaseManagementSurface({
   }, [descriptor, onSelectDatabase, selectedDatabaseId]);
 
   const activeProperties = useMemo(
-    () => source?.properties.filter(
-      (property) => property.lifecycle === "active",
-    ) ?? [],
+    () => source?.properties.filter((property) => property.lifecycle === "active") ?? [],
     [source?.properties],
   );
-  const activeViews = descriptor?.views.filter(
-    (view) =>
-      view.lifecycle === "active"
-      && view.dataSourceId === source?.dataSource.dataSourceId,
-  ) ?? [];
+  const activeViews =
+    descriptor?.views.filter(
+      (view) =>
+        view.lifecycle === "active" && view.dataSourceId === source?.dataSource.dataSourceId,
+    ) ?? [];
 
   useEffect(() => {
     if (!pendingDeletePropertyId) return;
-    if (activeProperties.some(
-      (property) => property.propertyId === pendingDeletePropertyId,
-    )) return;
+    if (activeProperties.some((property) => property.propertyId === pendingDeletePropertyId))
+      return;
     setPendingDeletePropertyId(null);
   }, [activeProperties, pendingDeletePropertyId]);
 
@@ -235,13 +209,9 @@ export function DatabaseManagementSurface({
             Project binding and granted resources
           </p>
         </div>
-        <nav
-          aria-label="Authorized Databases"
-          className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
-        >
+        <nav aria-label="Authorized Databases" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {databases.map((candidate) => {
-            const selected = candidate.database.databaseId
-              === descriptor?.database.databaseId;
+            const selected = candidate.database.databaseId === descriptor?.database.databaseId;
             const activeSourceCount = candidate.dataSources.filter(
               (dataSource) => dataSource.lifecycle === "active",
             ).length;
@@ -250,8 +220,7 @@ export function DatabaseManagementSurface({
                 key={candidate.database.databaseId}
                 type="button"
                 aria-current={selected ? "page" : undefined}
-                onClick={() =>
-                  onSelectDatabase(candidate.database.databaseId)}
+                onClick={() => onSelectDatabase(candidate.database.databaseId)}
                 className={cn(
                   "mb-0.5 flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm outline-none",
                   "focus-visible:ring-2 focus-visible:ring-token-focus",
@@ -261,9 +230,7 @@ export function DatabaseManagementSurface({
                 )}
               >
                 <DatabaseIcon className="size-3.5 shrink-0 opacity-70" />
-                <span className="min-w-0 flex-1 truncate">
-                  {candidate.database.name}
-                </span>
+                <span className="min-w-0 flex-1 truncate">{candidate.database.name}</span>
                 <span className="shrink-0 text-[10px] tabular-nums text-token-description-foreground">
                   {activeSourceCount} source
                 </span>
@@ -291,10 +258,7 @@ export function DatabaseManagementSurface({
             </header>
 
             <section className="mb-7" aria-labelledby="database-properties-heading">
-              <SectionHeader
-                title="Properties"
-                detail="Schema owned by this Data Source"
-              />
+              <SectionHeader title="Properties" detail="Schema owned by this Data Source" />
               <h3 id="database-properties-heading" className="sr-only">
                 Data Source properties
               </h3>
@@ -302,12 +266,10 @@ export function DatabaseManagementSurface({
                 {activeProperties.map((property) => {
                   const Icon = dataSourcePropertyTypeIcon(property.valueType);
                   const options = readDatabasePropertyOptions(property);
-                  const deletePending = pendingDeletePropertyId
-                    === property.propertyId;
+                  const deletePending = pendingDeletePropertyId === property.propertyId;
                   const blockingViews = activeViews.filter((view) =>
-                    databaseViewReferencedPropertyIdsV4(view.config).includes(
-                      property.propertyId,
-                    ));
+                    databaseViewReferencedPropertyIdsV4(view.config).includes(property.propertyId),
+                  );
                   return (
                     <div key={property.propertyId} className="group py-2.5">
                       <div className="flex min-h-7 items-center gap-2">
@@ -316,9 +278,7 @@ export function DatabaseManagementSurface({
                           {property.name}
                         </span>
                         <span className="shrink-0 text-xs text-token-description-foreground">
-                          {PROPERTY_TYPES.find(
-                            (type) => type.value === property.valueType,
-                          )?.label}
+                          {PROPERTY_TYPES.find((type) => type.value === property.valueType)?.label}
                         </span>
                         <NodexIconButton
                           icon={Trash2}
@@ -327,9 +287,9 @@ export function DatabaseManagementSurface({
                           ariaLabel={`Delete property ${property.name}`}
                           disabled={busy}
                           className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          onClick={() => setPendingDeletePropertyId(
-                            deletePending ? null : property.propertyId,
-                          )}
+                          onClick={() =>
+                            setPendingDeletePropertyId(deletePending ? null : property.propertyId)
+                          }
                         />
                       </div>
                       {deletePending ? (
@@ -372,8 +332,7 @@ export function DatabaseManagementSurface({
                           ) : null}
                         </div>
                       ) : null}
-                      {property.valueType === "select"
-                        || property.valueType === "multi_select" ? (
+                      {property.valueType === "select" || property.valueType === "multi_select" ? (
                         <div className="ml-5 mt-2 flex flex-wrap items-center gap-1.5">
                           {options.map((option) => (
                             <span
@@ -385,11 +344,13 @@ export function DatabaseManagementSurface({
                                 type="button"
                                 aria-label={`Delete option ${option.name}`}
                                 disabled={busy}
-                                onClick={() => void onDeletePropertyOption(
-                                  source.dataSource.dataSourceId,
-                                  property.propertyId,
-                                  option.id,
-                                )}
+                                onClick={() =>
+                                  void onDeletePropertyOption(
+                                    source.dataSource.dataSourceId,
+                                    property.propertyId,
+                                    option.id,
+                                  )
+                                }
                                 className="rounded p-0.5 text-token-description-foreground opacity-0 hover:text-token-error-foreground group-hover/option:opacity-100 focus-visible:opacity-100"
                               >
                                 <Trash2 className="size-3 shrink-0" />
@@ -397,30 +358,34 @@ export function DatabaseManagementSurface({
                             </span>
                           ))}
                           <form
-                            onSubmit={(event) => submitTrimmed(
-                              event,
-                              optionDrafts[property.propertyId] ?? "",
-                              (name) => {
-                                void onPutPropertyOption({
-                                  dataSourceId: source.dataSource.dataSourceId,
-                                  propertyId: property.propertyId,
-                                  option: { id: createCustomOptionId(), name },
-                                });
-                                setOptionDrafts((current) => ({
-                                  ...current,
-                                  [property.propertyId]: "",
-                                }));
-                              },
-                            )}
+                            onSubmit={(event) =>
+                              submitTrimmed(
+                                event,
+                                optionDrafts[property.propertyId] ?? "",
+                                (name) => {
+                                  void onPutPropertyOption({
+                                    dataSourceId: source.dataSource.dataSourceId,
+                                    propertyId: property.propertyId,
+                                    option: { id: createCustomOptionId(), name },
+                                  });
+                                  setOptionDrafts((current) => ({
+                                    ...current,
+                                    [property.propertyId]: "",
+                                  }));
+                                },
+                              )
+                            }
                           >
                             <input
                               aria-label={`Add option to ${property.name}`}
                               value={optionDrafts[property.propertyId] ?? ""}
                               disabled={busy}
-                              onInput={(event) => setOptionDrafts((current) => ({
-                                ...current,
-                                [property.propertyId]: event.currentTarget.value,
-                              }))}
+                              onInput={(event) =>
+                                setOptionDrafts((current) => ({
+                                  ...current,
+                                  [property.propertyId]: event.currentTarget.value,
+                                }))
+                              }
                               placeholder="Add option"
                               className="h-6 w-24 bg-transparent px-1 text-xs text-token-text-secondary outline-none placeholder:text-token-description-foreground focus:w-32"
                             />
@@ -432,24 +397,22 @@ export function DatabaseManagementSurface({
                 })}
                 <form
                   className="flex items-center gap-2 py-2.5"
-                  onSubmit={(event) => submitTrimmed(
-                    event,
-                    propertyName,
-                    (name) => {
+                  onSubmit={(event) =>
+                    submitTrimmed(event, propertyName, (name) => {
                       void onCreateProperty({
                         dataSourceId: source.dataSource.dataSourceId,
                         name,
                         valueType: propertyType,
                         ...(propertyType === "relation"
                           ? {
-                              targetDataSourceId: relationTargetDataSourceId
-                                || source.dataSource.dataSourceId,
+                              targetDataSourceId:
+                                relationTargetDataSourceId || source.dataSource.dataSourceId,
                             }
                           : {}),
                       });
                       setPropertyName("");
-                    },
-                  )}
+                    })
+                  }
                 >
                   <PlusIcon className="size-3.5 shrink-0 text-token-description-foreground" />
                   <Input
@@ -465,9 +428,7 @@ export function DatabaseManagementSurface({
                     value={propertyType}
                     valueLabel={DATA_SOURCE_PROPERTY_TYPE_LABELS[propertyType]}
                     disabled={busy}
-                    onValueChange={(value) => setPropertyType(
-                      value as DatabasePropertyValueType,
-                    )}
+                    onValueChange={(value) => setPropertyType(value as DatabasePropertyValueType)}
                     options={PROPERTY_TYPES}
                     chrome="transparent"
                     className="h-8 min-w-28"
@@ -478,14 +439,20 @@ export function DatabaseManagementSurface({
                       search="filter"
                       searchPlaceholder="Search databases…"
                       value={relationTargetDataSourceId || source.dataSource.dataSourceId}
-                      valueLabel={databases.flatMap((database) =>
-                        database.dataSources.map((dataSource) => ({
-                          dataSourceId: dataSource.dataSourceId,
-                          name: database.database.name,
-                        })))
-                        .find((candidate) => candidate.dataSourceId === (
-                          relationTargetDataSourceId || source.dataSource.dataSourceId
-                        ))?.name ?? "Current database"}
+                      valueLabel={
+                        databases
+                          .flatMap((database) =>
+                            database.dataSources.map((dataSource) => ({
+                              dataSourceId: dataSource.dataSourceId,
+                              name: database.database.name,
+                            })),
+                          )
+                          .find(
+                            (candidate) =>
+                              candidate.dataSourceId ===
+                              (relationTargetDataSourceId || source.dataSource.dataSourceId),
+                          )?.name ?? "Current database"
+                      }
                       disabled={busy}
                       onValueChange={setRelationTargetDataSourceId}
                       options={databases.flatMap((database) =>
@@ -494,7 +461,7 @@ export function DatabaseManagementSurface({
                           .map((dataSource) => ({
                             value: dataSource.dataSourceId,
                             label: database.database.name,
-                          }))
+                          })),
                       )}
                       chrome="transparent"
                       className="h-8 max-w-40"
@@ -513,10 +480,7 @@ export function DatabaseManagementSurface({
             </section>
 
             <section aria-labelledby="database-views-heading">
-              <SectionHeader
-                title="Views"
-                detail="Presentation over this Data Source"
-              />
+              <SectionHeader title="Views" detail="Presentation over this Data Source" />
               <h3 id="database-views-heading" className="sr-only">
                 Database Views
               </h3>
@@ -524,46 +488,40 @@ export function DatabaseManagementSurface({
                 {activeViews.map((view, index) => {
                   const storedDraft = viewDrafts[view.viewId];
                   const storedMatchesAuthority = storedDraft
-                    ? storedDraft.name.trim() === view.name
-                      && storedDraft.defaultLayout === view.defaultLayout
-                      && databaseViewConfigsEqual(storedDraft.config, view.config)
+                    ? storedDraft.name.trim() === view.name &&
+                      storedDraft.defaultLayout === view.defaultLayout &&
+                      databaseViewConfigsEqual(storedDraft.config, view.config)
                     : false;
-                  const draft = storedDraft && !storedMatchesAuthority
-                    ? storedDraft
-                    : {
-                        baseRevision: view.revision,
-                        name: view.name,
-                        defaultLayout: view.defaultLayout,
-                        config: view.config,
-                      };
+                  const draft =
+                    storedDraft && !storedMatchesAuthority
+                      ? storedDraft
+                      : {
+                          baseRevision: view.revision,
+                          name: view.name,
+                          defaultLayout: view.defaultLayout,
+                          config: view.config,
+                        };
                   const stale = draft.baseRevision !== view.revision;
                   const Icon = viewLayoutIcon(draft.defaultLayout);
-                  const changed = draft.name.trim() !== view.name
-                    || draft.defaultLayout !== view.defaultLayout
-                    || !databaseViewConfigsEqual(draft.config, view.config);
+                  const changed =
+                    draft.name.trim() !== view.name ||
+                    draft.defaultLayout !== view.defaultLayout ||
+                    !databaseViewConfigsEqual(draft.config, view.config);
                   const expanded = expandedViewId === view.viewId;
-                  const moveUpBeforeId = databaseViewMoveBeforeId(
-                    activeViews,
-                    view.viewId,
-                    "up",
-                  );
+                  const moveUpBeforeId = databaseViewMoveBeforeId(activeViews, view.viewId, "up");
                   const moveDownBeforeId = databaseViewMoveBeforeId(
                     activeViews,
                     view.viewId,
                     "down",
                   );
                   const updateDraft = (
-                    update: Partial<Pick<
-                      typeof draft,
-                      "name" | "defaultLayout" | "config"
-                    >>,
-                  ) => setViewDrafts((current) => ({
-                    ...current,
-                    [view.viewId]: { ...draft, ...update },
-                  }));
-                  const submitView = (
-                    beforeViewId?: string | null,
-                  ): void => {
+                    update: Partial<Pick<typeof draft, "name" | "defaultLayout" | "config">>,
+                  ) =>
+                    setViewDrafts((current) => ({
+                      ...current,
+                      [view.viewId]: { ...draft, ...update },
+                    }));
+                  const submitView = (beforeViewId?: string | null): void => {
                     void onUpdateView({
                       databaseId: descriptor.database.databaseId,
                       dataSourceId: source.dataSource.dataSourceId,
@@ -583,20 +541,26 @@ export function DatabaseManagementSurface({
                           aria-label={`View name ${view.name}`}
                           value={draft.name}
                           disabled={busy || stale}
-                          onInput={(event) => updateDraft({
-                            name: event.currentTarget.value,
-                          })}
+                          onInput={(event) =>
+                            updateDraft({
+                              name: event.currentTarget.value,
+                            })
+                          }
                           className="h-8 min-w-0 flex-1 border-transparent bg-transparent text-sm focus:bg-token-input-background"
                         />
                         <DatabaseViewSelect
                           ariaLabel={`Default layout ${view.name}`}
                           value={draft.defaultLayout}
-                          valueLabel={VIEW_LAYOUTS.find((layout) =>
-                            layout.value === draft.defaultLayout)?.label ?? "List"}
+                          valueLabel={
+                            VIEW_LAYOUTS.find((layout) => layout.value === draft.defaultLayout)
+                              ?.label ?? "List"
+                          }
                           disabled={busy || stale}
-                          onValueChange={(value) => updateDraft({
-                            defaultLayout: value as DatabaseViewLayout,
-                          })}
+                          onValueChange={(value) =>
+                            updateDraft({
+                              defaultLayout: value as DatabaseViewLayout,
+                            })
+                          }
                           options={VIEW_LAYOUTS}
                           chrome="transparent"
                           className="h-8 w-24"
@@ -607,17 +571,14 @@ export function DatabaseManagementSurface({
                           active={expanded}
                           ariaLabel={`${expanded ? "Hide" : "Edit"} View settings ${view.name}`}
                           disabled={busy}
-                          onClick={() => setExpandedViewId(
-                            expanded ? null : view.viewId,
-                          )}
+                          onClick={() => setExpandedViewId(expanded ? null : view.viewId)}
                         />
                         <NodexIconButton
                           icon={ArrowUp}
                           size="xs"
                           ariaLabel={`Move View ${view.name} up`}
                           disabled={
-                            busy || stale || changed || index === 0
-                            || moveUpBeforeId === undefined
+                            busy || stale || changed || index === 0 || moveUpBeforeId === undefined
                           }
                           onClick={() => submitView(moveUpBeforeId)}
                         />
@@ -626,9 +587,11 @@ export function DatabaseManagementSurface({
                           size="xs"
                           ariaLabel={`Move View ${view.name} down`}
                           disabled={
-                            busy || stale || changed
-                            || index === activeViews.length - 1
-                            || moveDownBeforeId === undefined
+                            busy ||
+                            stale ||
+                            changed ||
+                            index === activeViews.length - 1 ||
+                            moveDownBeforeId === undefined
                           }
                           onClick={() => submitView(moveDownBeforeId)}
                         />
@@ -640,11 +603,13 @@ export function DatabaseManagementSurface({
                             disabled={busy}
                             aria-label={`Reload View ${view.name}`}
                             title="This View changed in another window"
-                            onClick={() => setViewDrafts((current) => {
-                              const next = { ...current };
-                              delete next[view.viewId];
-                              return next;
-                            })}
+                            onClick={() =>
+                              setViewDrafts((current) => {
+                                const next = { ...current };
+                                delete next[view.viewId];
+                                return next;
+                              })
+                            }
                           >
                             Reload
                           </NodexButton>
@@ -672,10 +637,9 @@ export function DatabaseManagementSurface({
                             ariaLabel={`Delete View ${view.name}`}
                             disabled={busy}
                             className="opacity-0 group-hover/view:opacity-100 focus-visible:opacity-100"
-                            onClick={() => void onDeleteView(
-                              descriptor.database.databaseId,
-                              view.viewId,
-                            )}
+                            onClick={() =>
+                              void onDeleteView(descriptor.database.databaseId, view.viewId)
+                            }
                           />
                         )}
                       </div>
@@ -695,10 +659,8 @@ export function DatabaseManagementSurface({
                 })}
                 <form
                   className="flex items-center gap-2 py-2.5"
-                  onSubmit={(event) => submitTrimmed(
-                    event,
-                    viewName,
-                    (name) => {
+                  onSubmit={(event) =>
+                    submitTrimmed(event, viewName, (name) => {
                       void onCreateView({
                         databaseId: descriptor.database.databaseId,
                         dataSourceId: source.dataSource.dataSourceId,
@@ -706,8 +668,8 @@ export function DatabaseManagementSurface({
                         defaultLayout: viewLayout,
                       });
                       setViewName("");
-                    },
-                  )}
+                    })
+                  }
                 >
                   <PlusIcon className="size-3.5 shrink-0 text-token-description-foreground" />
                   <Input
@@ -721,12 +683,11 @@ export function DatabaseManagementSurface({
                   <DatabaseViewSelect
                     ariaLabel="New View default layout"
                     value={viewLayout}
-                    valueLabel={VIEW_LAYOUTS.find((layout) =>
-                      layout.value === viewLayout)?.label ?? "List"}
+                    valueLabel={
+                      VIEW_LAYOUTS.find((layout) => layout.value === viewLayout)?.label ?? "List"
+                    }
                     disabled={busy}
-                    onValueChange={(value) => setViewLayout(
-                      value as DatabaseViewLayout,
-                    )}
+                    onValueChange={(value) => setViewLayout(value as DatabaseViewLayout)}
                     options={VIEW_LAYOUTS}
                     chrome="transparent"
                     className="h-8 w-24"
@@ -752,9 +713,7 @@ export function DatabaseManagementSurface({
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <DatabaseIcon className="mb-2 size-5 shrink-0 text-token-description-foreground" />
-            <p className="text-sm font-medium text-token-text-primary">
-              Database unavailable
-            </p>
+            <p className="text-sm font-medium text-token-text-primary">Database unavailable</p>
             <p className="mt-1 max-w-xs text-xs text-token-description-foreground">
               This Project needs an active Database binding and Data Source.
             </p>

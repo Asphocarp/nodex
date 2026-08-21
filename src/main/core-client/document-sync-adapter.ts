@@ -41,9 +41,7 @@ import {
   type DocumentOperationCommandResult,
 } from "../../shared/block-documents/document-operations";
 import { documentMutationFailure } from "../../shared/block-documents/document-operation-transport";
-import type {
-  OwnedDocumentDescriptor,
-} from "../../shared/block-documents/contracts";
+import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
 import { decodeOwnedDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
 import { documentBytesToBase64 } from "../../shared/block-documents/http-wire";
 import type {
@@ -61,11 +59,7 @@ import type {
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
-import {
-  applyResultCursor,
-  applyResultStoreEpoch,
-  rendererLocalCommitApply,
-} from "./types";
+import { applyResultCursor, applyResultStoreEpoch, rendererLocalCommitApply } from "./types";
 import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
 import {
   superviseDocumentLiveStream,
@@ -102,27 +96,30 @@ const decodeCoreOwnedDocumentDescriptor = (
   value: components["schemas"]["OwnedDocumentDescriptor"],
 ): OwnedDocumentDescriptor => {
   if (value.sync.kind !== "yjs") {
-    return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
-      ...value,
-      authorization: null,
-    }));
+    return decodeOwnedDocumentDescriptorHttp(
+      JSON.stringify({
+        ...value,
+        authorization: null,
+      }),
+    );
   }
   const stateVector = value.sync.stateVector;
   if (
-    !Array.isArray(stateVector)
-    || stateVector.some((byte) =>
-      !Number.isInteger(byte) || byte < 0 || byte > 255)
+    !Array.isArray(stateVector) ||
+    stateVector.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)
   ) {
     throw new Error("Core Owned Document state vector is invalid");
   }
-  return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
-    ...value,
-    authorization: null,
-    sync: {
-      kind: "yjs",
-      stateVector: documentBytesToBase64(Uint8Array.from(stateVector)),
-    },
-  }));
+  return decodeOwnedDocumentDescriptorHttp(
+    JSON.stringify({
+      ...value,
+      authorization: null,
+      sync: {
+        kind: "yjs",
+        stateVector: documentBytesToBase64(Uint8Array.from(stateVector)),
+      },
+    }),
+  );
 };
 
 export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
@@ -134,9 +131,11 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
     readonly ownerBlockId: string;
     readonly clientSessionId: string;
   }): Promise<OwnedDocumentDescriptor>;
-  fetchUpdateResource(input: DocumentUpdateResourceRef & {
-    readonly clientSessionId: string;
-  }): Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>>;
+  fetchUpdateResource(
+    input: DocumentUpdateResourceRef & {
+      readonly clientSessionId: string;
+    },
+  ): Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>>;
   prepareOwner(input: {
     readonly ownerBlockId: string;
     readonly operationId: string;
@@ -154,12 +153,8 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   getVersion(
     request: GetDocumentVersion,
   ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
-  restoreVersion(
-    request: PrepareDocumentVersionRestore,
-  ): Promise<DocumentOperationCommandResult>;
-  applyDocumentMutation(
-    request: DocumentMutationRequest,
-  ): Promise<DocumentOperationCommandResult>;
+  restoreVersion(request: PrepareDocumentVersionRestore): Promise<DocumentOperationCommandResult>;
+  applyDocumentMutation(request: DocumentMutationRequest): Promise<DocumentOperationCommandResult>;
 }
 
 const executionHead = (
@@ -205,9 +200,7 @@ const coreLibraryAnchor = (placement: AdditionalDocumentLibraryPlacement) => {
     : undefined;
 };
 
-const coreOwnerCommand = (
-  request: AdditionalDocumentCommandRequest,
-): CoreDocumentOwnerCommand => {
+const coreOwnerCommand = (request: AdditionalDocumentCommandRequest): CoreDocumentOwnerCommand => {
   const operation = request.operation;
   switch (operation.kind) {
     case "create_synced_source":
@@ -315,9 +308,9 @@ const additionalDocumentErrorCode = (
       return { code: "unknown", retryable: true };
     case "core_unavailable":
       if (
-        message.includes("identity already exists")
-        || message.includes("cannot be reused")
-        || message.includes("cannot be deleted")
+        message.includes("identity already exists") ||
+        message.includes("cannot be reused") ||
+        message.includes("cannot be deleted")
       ) {
         return { code: "identity_conflict", retryable: false };
       }
@@ -371,10 +364,7 @@ const historyFailure = <Value>(
     case "invalid_input":
       return {
         ok: false,
-        error: documentHistoryFailure(
-          "invalid_document_history_request",
-          error.message,
-        ),
+        error: documentHistoryFailure("invalid_document_history_request", error.message),
       };
     case "unauthorized":
       return {
@@ -386,7 +376,7 @@ const historyFailure = <Value>(
         ok: false,
         error: documentHistoryFailure(
           error.message.toLowerCase().includes("version") ||
-              error.message.toLowerCase().includes("cursor")
+            error.message.toLowerCase().includes("cursor")
             ? "document_version_not_found"
             : "document_not_found",
           error.message,
@@ -400,16 +390,12 @@ const historyFailure = <Value>(
     case "generation_conflict":
       return {
         ok: false,
-        error: documentHistoryFailure(
-          "document_generation_conflict",
-          error.message,
-          {
-            expectedGeneration: expected.generation,
-            ...(recovery.kind === "current_document_head"
-              ? { actualGeneration: recovery.generation }
-              : {}),
-          },
-        ),
+        error: documentHistoryFailure("document_generation_conflict", error.message, {
+          expectedGeneration: expected.generation,
+          ...(recovery.kind === "current_document_head"
+            ? { actualGeneration: recovery.generation }
+            : {}),
+        }),
       };
     case "head_conflict":
       return {
@@ -425,10 +411,7 @@ const historyFailure = <Value>(
     case "schema_unsupported":
       return {
         ok: false,
-        error: documentHistoryFailure(
-          "document_version_schema_mismatch",
-          error.message,
-        ),
+        error: documentHistoryFailure("document_version_schema_mismatch", error.message),
       };
     case "store_corrupt":
       return {
@@ -452,11 +435,9 @@ const documentMutationAdapterFailure = (
   if (error instanceof DocumentOperationContractError) {
     return {
       ok: false,
-      error: documentMutationFailure(
-        "document_state_corrupt",
-        error.message,
-        { mutationId: request.mutationId },
-      ),
+      error: documentMutationFailure("document_state_corrupt", error.message, {
+        mutationId: request.mutationId,
+      }),
     };
   }
   if (!(error instanceof CoreModuleResponseError)) {
@@ -482,8 +463,10 @@ const documentMutationAdapterFailure = (
   });
   switch (error.coreError.code) {
     case "invalid_input":
-      if (error.message.includes("Duplicate Block identity")
-        || error.message.includes("DuplicateBlockId")) {
+      if (
+        error.message.includes("Duplicate Block identity") ||
+        error.message.includes("DuplicateBlockId")
+      ) {
         return failure("duplicate_block_id");
       }
       if (error.message.includes("BlockNotFound")) {
@@ -519,9 +502,7 @@ const documentMutationAdapterFailure = (
     case "head_conflict":
       return failure("document_head_conflict", {
         expectedHeadSeq: request.expectedHeadSeq,
-        ...(recovery.kind === "current_document_head"
-          ? { actualHeadSeq: recovery.head_seq }
-          : {}),
+        ...(recovery.kind === "current_document_head" ? { actualHeadSeq: recovery.head_seq } : {}),
       });
     case "idempotency_key_reused":
       return failure("mutation_id_collision");
@@ -547,7 +528,10 @@ const parseDocumentMutationRequest = (
 
 const coreDocumentOperation = (
   operation: DocumentOperationBatch["operations"][number],
-): Extract<OwnedDocumentIntent, { readonly kind: "apply_operation_batch" }>["operations"][number] => {
+): Extract<
+  OwnedDocumentIntent,
+  { readonly kind: "apply_operation_batch" }
+>["operations"][number] => {
   switch (operation.kind) {
     case "set_title":
       return { kind: "set_title", title: operation.title };
@@ -569,12 +553,8 @@ const coreDocumentOperation = (
         kind: "update_block",
         block_id: operation.blockId,
         patch: {
-          ...(operation.patch.type === undefined
-            ? {}
-            : { block_type: operation.patch.type }),
-          ...(operation.patch.props === undefined
-            ? {}
-            : { props: operation.patch.props }),
+          ...(operation.patch.type === undefined ? {} : { block_type: operation.patch.type }),
+          ...(operation.patch.props === undefined ? {} : { props: operation.patch.props }),
           content: Object.hasOwn(operation.patch, "content")
             ? { kind: "value", value: operation.patch.content }
             : { kind: "absent" },
@@ -597,9 +577,7 @@ const coreDocumentOperation = (
   }
 };
 
-const coreDocumentMutationIntent = (
-  request: DocumentMutationRequest,
-): OwnedDocumentIntent => {
+const coreDocumentMutationIntent = (request: DocumentMutationRequest): OwnedDocumentIntent => {
   if ("operations" in request) {
     return {
       kind: "apply_operation_batch",
@@ -617,9 +595,7 @@ const coreDocumentMutationIntent = (
       generation: request.generation,
       expected_head_seq: request.expectedHeadSeq,
       nfm: request.nfm,
-      ...(request.richTitle === undefined
-        ? {}
-        : { rich_title: request.richTitle }),
+      ...(request.richTitle === undefined ? {} : { rich_title: request.richTitle }),
       actor: request.actor,
     };
   }
@@ -645,10 +621,7 @@ const assertHistoryScope = (
   summary: DocumentVersionSummary,
   request: { readonly projectId: string; readonly documentId: string },
 ): DocumentVersionSummary => {
-  if (
-    summary.projectId === request.projectId &&
-    summary.documentId === request.documentId
-  ) {
+  if (summary.projectId === request.projectId && summary.documentId === request.documentId) {
     return summary;
   }
   throw new DocumentHistoryContractError(
@@ -684,11 +657,13 @@ export const createCoreDocumentSyncAdapter = (
     try {
       const key = subscriptionKey(request);
       const subscription = subscriptionFor(request);
-      return success(await executeWithDocumentSubscription(
-        subscription,
-        () => subscriptions.get(key) === subscription,
-        async () => await client.documentSync(request),
-      ));
+      return success(
+        await executeWithDocumentSubscription(
+          subscription,
+          () => subscriptions.get(key) === subscription,
+          async () => await client.documentSync(request),
+        ),
+      );
     } catch (error) {
       return failure(error);
     }
@@ -700,11 +675,13 @@ export const createCoreDocumentSyncAdapter = (
     try {
       const key = subscriptionKey(request);
       const subscription = subscriptionFor(request);
-      return success(await executeWithDocumentSubscription(
-        subscription,
-        () => subscriptions.get(key) === subscription,
-        async () => await client.documentApplyUpdate(request),
-      ));
+      return success(
+        await executeWithDocumentSubscription(
+          subscription,
+          () => subscriptions.get(key) === subscription,
+          async () => await client.documentApplyUpdate(request),
+        ),
+      );
     } catch (error) {
       return failure(error);
     }
@@ -721,9 +698,7 @@ export const createCoreDocumentSyncAdapter = (
     if (snapshot.value.kind !== "descriptor") {
       throw new Error("Core returned a non-descriptor Document read value");
     }
-    const descriptor = decodeCoreOwnedDocumentDescriptor(
-      snapshot.value.descriptor,
-    );
+    const descriptor = decodeCoreOwnedDocumentDescriptor(snapshot.value.descriptor);
     if (!snapshot.authorization) {
       throw new Error("Core Owned Document descriptor omitted canonical authorization");
     }
@@ -764,12 +739,12 @@ export const createCoreDocumentSyncAdapter = (
       const update = Uint8Array.from(resource.update);
       const updateHash = createHash("sha256").update(update).digest("hex");
       if (
-        resource.document_id !== input.documentId
-        || resource.generation !== input.generation
-        || resource.update_id !== input.updateId
-        || resource.update_hash !== input.updateHash
-        || updateHash !== resource.update_hash
-        || update.byteLength !== resource.update_byte_length
+        resource.document_id !== input.documentId ||
+        resource.generation !== input.generation ||
+        resource.update_id !== input.updateId ||
+        resource.update_hash !== input.updateHash ||
+        updateHash !== resource.update_hash ||
+        update.byteLength !== resource.update_byte_length
       ) {
         throw new DocumentUpdateResourceIntegrityError(
           "Core Document update resource failed exact verification",
@@ -819,8 +794,7 @@ export const createCoreDocumentSyncAdapter = (
     const key = subscriptionKey(request);
     const predecessor = subscriptions.get(key);
     predecessor?.close();
-    const predecessorDone = predecessor?.done.catch(() => undefined)
-      ?? Promise.resolve();
+    const predecessorDone = predecessor?.done.catch(() => undefined) ?? Promise.resolve();
     const supervisor = superviseDocumentLiveStream({
       maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
       shouldRetry: isRetryableCoreEventStreamError,
@@ -865,11 +839,12 @@ export const createCoreDocumentSyncAdapter = (
           generation: repair.document_generation,
           headSeq: repair.head_seq,
           commitSeq: repair.commit_head,
-          reason: repair.reason === "identity_changed"
-            ? "identity-boundary-changed"
-            : repair.reason === "access_revoked"
-            ? "access-revoked"
-            : "event-gap",
+          reason:
+            repair.reason === "identity_changed"
+              ? "identity-boundary-changed"
+              : repair.reason === "access_revoked"
+                ? "access-revoked"
+                : "event-gap",
         });
       },
       onRealtime: (event) => listener(event),
@@ -883,11 +858,13 @@ export const createCoreDocumentSyncAdapter = (
       },
     });
     subscriptions.set(key, supervisor);
-    void supervisor.done.catch(() => undefined).finally(() => {
-      if (subscriptions.get(key) === supervisor) {
-        subscriptions.delete(key);
-      }
-    });
+    void supervisor.done
+      .catch(() => undefined)
+      .finally(() => {
+        if (subscriptions.get(key) === supervisor) {
+          subscriptions.delete(key);
+        }
+      });
     return supervisor;
   };
 
@@ -910,19 +887,18 @@ export const createCoreDocumentSyncAdapter = (
     try {
       const committed = await client.documentApply({
         operationId: request.mutationId,
-        clientSessionId:
-          request.clientSessionId ?? "electron:document-mutation",
+        clientSessionId: request.clientSessionId ?? "electron:document-mutation",
         intent: coreDocumentMutationIntent(request),
       });
       const storeEpoch = applyResultStoreEpoch(committed);
       if (
-        storeEpoch !== request.storeEpoch
-        || committed.receipt.operation_id !== request.mutationId
-        || committed.receipt.document_id !== request.documentId
-        || committed.receipt.generation !== request.generation
-        || committed.outcome.document_id !== request.documentId
-        || committed.outcome.generation !== request.generation
-        || committed.outcome.head_seq !== committed.receipt.head_seq
+        storeEpoch !== request.storeEpoch ||
+        committed.receipt.operation_id !== request.mutationId ||
+        committed.receipt.document_id !== request.documentId ||
+        committed.receipt.generation !== request.generation ||
+        committed.outcome.document_id !== request.documentId ||
+        committed.outcome.generation !== request.generation ||
+        committed.outcome.head_seq !== committed.receipt.head_seq
       ) {
         throw new DocumentOperationContractError(
           "Core Document mutation receipt escaped its request boundary",
@@ -958,10 +934,10 @@ export const createCoreDocumentSyncAdapter = (
       const effect = committed.outcome.mutation_effect;
       const committedAt = committed.outcome.committed_at;
       if (
-        !effect
-        || !committedAt
-        || effect.base_head_seq !== request.expectedHeadSeq
-        || committed.outcome.head_seq !== request.expectedHeadSeq + 1
+        !effect ||
+        !committedAt ||
+        effect.base_head_seq !== request.expectedHeadSeq ||
+        committed.outcome.head_seq !== request.expectedHeadSeq + 1
       ) {
         throw new DocumentOperationContractError(
           "Core Document mutation effect escaped its exact head boundary",
@@ -980,10 +956,7 @@ export const createCoreDocumentSyncAdapter = (
           "Core Document mutation effect omitted a semantic change from touched Blocks",
         );
       }
-      if (
-        "versionId" in request
-        && effect.coordination !== "write_fence"
-      ) {
+      if ("versionId" in request && effect.coordination !== "write_fence") {
         throw new DocumentOperationContractError(
           "Core Document restore effect is not write fenced",
         );
@@ -1010,9 +983,9 @@ export const createCoreDocumentSyncAdapter = (
         duplicate: committed.receipt.duplicate,
       });
       if (
-        result.projectId !== request.projectId
-        || result.documentId !== request.documentId
-        || result.mutationId !== request.mutationId
+        result.projectId !== request.projectId ||
+        result.documentId !== request.documentId ||
+        result.mutationId !== request.mutationId
       ) {
         throw new DocumentOperationContractError(
           "Core Document mutation result escaped its public identity boundary",
@@ -1044,12 +1017,12 @@ export const createCoreDocumentSyncAdapter = (
         const descriptor = await readDescriptor(input);
         const storeEpoch = applyResultStoreEpoch(committed);
         if (
-          committed.receipt.operation_id !== input.operationId
-          || committed.receipt.document_id !== descriptor.documentId
-          || committed.outcome.document_id !== descriptor.documentId
-          || committed.outcome.generation !== descriptor.generation
-          || committed.outcome.head_seq > descriptor.headSeq
-          || storeEpoch !== descriptor.storeEpoch
+          committed.receipt.operation_id !== input.operationId ||
+          committed.receipt.document_id !== descriptor.documentId ||
+          committed.outcome.document_id !== descriptor.documentId ||
+          committed.outcome.generation !== descriptor.generation ||
+          committed.outcome.head_seq > descriptor.headSeq ||
+          storeEpoch !== descriptor.storeEpoch
         ) {
           throw new Error("Core Owned Document preparation escaped its owner boundary");
         }
@@ -1078,10 +1051,10 @@ export const createCoreDocumentSyncAdapter = (
         const committedAt = committed.outcome.committed_at;
         const storeEpoch = applyResultStoreEpoch(committed);
         if (
-          storeEpoch !== request.storeEpoch
-          || committed.receipt.operation_id !== request.operationId
-          || !effect
-          || !committedAt
+          storeEpoch !== request.storeEpoch ||
+          committed.receipt.operation_id !== request.operationId ||
+          !effect ||
+          !committedAt
         ) {
           throw new Error(
             "Core Additional Document receipt escaped its operation or Store boundary",
@@ -1156,10 +1129,7 @@ export const createCoreDocumentSyncAdapter = (
         return {
           ok: true,
           value: {
-            checkpoint: assertHistoryScope(
-              parseDocumentVersionSummary(effect.checkpoint),
-              request,
-            ),
+            checkpoint: assertHistoryScope(parseDocumentVersionSummary(effect.checkpoint), request),
             duplicate: committed.receipt.duplicate || effect.duplicate,
           },
         };
@@ -1172,28 +1142,25 @@ export const createCoreDocumentSyncAdapter = (
     },
     listVersions: async (request) => {
       try {
-        const snapshot = await client.documentRead(
-          "electron:document-history",
-          {
-            kind: "list_versions",
-            document_id: request.documentId,
-            before: request.before
-              ? {
-                  base_head_seq: request.before.baseHeadSeq,
-                  created_at: request.before.createdAt,
-                  version_id: request.before.versionId,
-                }
-              : undefined,
-            limit: request.limit,
-          },
-        );
+        const snapshot = await client.documentRead("electron:document-history", {
+          kind: "list_versions",
+          document_id: request.documentId,
+          before: request.before
+            ? {
+                base_head_seq: request.before.baseHeadSeq,
+                created_at: request.before.createdAt,
+                version_id: request.before.versionId,
+              }
+            : undefined,
+          limit: request.limit,
+        });
         if (snapshot.value.kind !== "versions") {
           throw new DocumentHistoryContractError(
             "Core returned a non-list Document history snapshot",
           );
         }
         const items = snapshot.value.items.map((item) =>
-          assertHistoryScope(parseDocumentVersionSummary(item), request)
+          assertHistoryScope(parseDocumentVersionSummary(item), request),
         );
         const next = snapshot.value.next;
         const last = items.at(-1);
@@ -1218,14 +1185,11 @@ export const createCoreDocumentSyncAdapter = (
     },
     getVersion: async (request) => {
       try {
-        const snapshot = await client.documentRead(
-          "electron:document-history",
-          {
-            kind: "get_version",
-            document_id: request.documentId,
-            version_id: request.versionId,
-          },
-        );
+        const snapshot = await client.documentRead("electron:document-history", {
+          kind: "get_version",
+          document_id: request.documentId,
+          version_id: request.versionId,
+        });
         if (snapshot.value.kind !== "version") {
           throw new DocumentHistoryContractError(
             "Core returned a non-detail Document history snapshot",
@@ -1248,17 +1212,18 @@ export const createCoreDocumentSyncAdapter = (
     sync,
     applyUpdate,
     subscribeWithLifecycle,
-    subscribe: (request, listener) =>
-      subscribeWithLifecycle(request, listener).close,
+    subscribe: (request, listener) => subscribeWithLifecycle(request, listener).close,
     publishAwareness: async (request: DocumentAwarenessPublishRequest) => {
       try {
         const key = subscriptionKey(request);
         const subscription = subscriptionFor(request);
-        return success(await executeWithDocumentSubscription(
-          subscription,
-          () => subscriptions.get(key) === subscription,
-          async () => await client.documentPublishAwareness(request),
-        ));
+        return success(
+          await executeWithDocumentSubscription(
+            subscription,
+            () => subscriptions.get(key) === subscription,
+            async () => await client.documentPublishAwareness(request),
+          ),
+        );
       } catch (error) {
         return failure(error);
       }
@@ -1273,26 +1238,29 @@ const documentEvents = async (
 ): Promise<readonly DocumentSyncRealtimeEvent[]> => {
   const identity = envelope.packet.manifest.identity;
   const events: DocumentSyncRealtimeEvent[] = [];
-  const requiresResync = envelope.packet.atoms.some((effect) =>
-    effect.payload.module === "owned_document"
-    && effect.payload.event.document_id === request.documentId
-    && (
-      effect.payload.event.kind === "document_resync_required"
-      || effect.payload.event.kind === "document_invalidated"
-    )
+  const requiresResync = envelope.packet.atoms.some(
+    (effect) =>
+      effect.payload.module === "owned_document" &&
+      effect.payload.event.document_id === request.documentId &&
+      (effect.payload.event.kind === "document_resync_required" ||
+        effect.payload.event.kind === "document_invalidated"),
   );
   const documentEffects = requiresResync
     ? []
     : envelope.packet.document_effects.filter(
         (effect) => effect.reference.document_id === request.documentId,
       );
-  events.push(...await Promise.all(documentEffects.map((effect) =>
-    resolveAuthorizedDocumentEffect(
-      effect,
-      envelope.packet.manifest.identity,
-      fetchUpdateResource,
-    )
-  )));
+  events.push(
+    ...(await Promise.all(
+      documentEffects.map((effect) =>
+        resolveAuthorizedDocumentEffect(
+          effect,
+          envelope.packet.manifest.identity,
+          fetchUpdateResource,
+        ),
+      ),
+    )),
+  );
   envelope.packet.atoms.forEach((effect) => {
     const payload = effect.payload;
     if (payload.module !== "owned_document") return;
@@ -1320,18 +1288,18 @@ const documentEvents = async (
         headSeq: 0,
         commitSeq: identity.commit_seq,
         effectSequence: effect.descriptor.atom_order,
-        reason: event.reason === "access_changed"
-          ? "access-revoked"
-          : "identity-boundary-changed",
+        reason: event.reason === "access_changed" ? "access-revoked" : "identity-boundary-changed",
       });
     }
   });
-  if (envelope.packet.visibility_deltas
-    .flatMap(revocationsFromVisibilityDelta)
-    .some((revocation) =>
-    revocation.resource_kind === "document"
-    && revocation.resource_id === request.documentId
-  )) {
+  if (
+    envelope.packet.visibility_deltas
+      .flatMap(revocationsFromVisibilityDelta)
+      .some(
+        (revocation) =>
+          revocation.resource_kind === "document" && revocation.resource_id === request.documentId,
+      )
+  ) {
     events.push({
       kind: "resync-required",
       documentId: request.documentId,
@@ -1371,8 +1339,7 @@ const commandError = (error: unknown): DocumentSyncCommandError => {
       code: mapCoreErrorCode(code),
       message: error.message,
       retryable: error.coreError.retryable,
-      resetRequired:
-        code === "stale_store_epoch" || code === "generation_conflict",
+      resetRequired: code === "stale_store_epoch" || code === "generation_conflict",
     };
   }
   return {

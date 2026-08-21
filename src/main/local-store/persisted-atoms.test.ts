@@ -38,24 +38,32 @@ describe("persisted atom local store", () => {
         value: ["first prompt"],
       });
 
-      expect(JSON.stringify(nextState)).toBe("{\"prompt-history\":[\"first prompt\"]}");
+      expect(JSON.stringify(nextState)).toBe('{"prompt-history":["first prompt"]}');
       expect(existsSync(atomsPath)).toBe(true);
-      expect(readFileSync(atomsPath, "utf8")).toBe("{\n  \"prompt-history\": [\n    \"first prompt\"\n  ]\n}");
+      expect(readFileSync(atomsPath, "utf8")).toBe(
+        '{\n  "prompt-history": [\n    "first prompt"\n  ]\n}',
+      );
     });
   });
 
   test("assigns ordered revisions only after durable mutation succeeds", () => {
     withTempStore((atomsPath) => {
-      const first = commitPersistedAtomMutation({
-        key: " prompt-history ",
-        value: ["first"],
-        mutationId: "mutation-1",
-      }, "renderer-7");
-      const second = commitPersistedAtomMutation({
-        key: "prompt-history",
-        value: ["second"],
-        mutationId: "mutation-2",
-      }, "renderer-9");
+      const first = commitPersistedAtomMutation(
+        {
+          key: " prompt-history ",
+          value: ["first"],
+          mutationId: "mutation-1",
+        },
+        "renderer-7",
+      );
+      const second = commitPersistedAtomMutation(
+        {
+          key: "prompt-history",
+          value: ["second"],
+          mutationId: "mutation-2",
+        },
+        "renderer-9",
+      );
 
       expect(first).toEqual({
         key: "prompt-history",
@@ -79,11 +87,16 @@ describe("persisted atom local store", () => {
     const storeDir = mkdtempSync(join(tmpdir(), "nodex-persisted-atoms-failure-"));
     setPersistedAtomsPathOverrideForTests(storeDir);
     try {
-      expect(() => commitPersistedAtomMutation({
-        key: "draft",
-        value: "not persisted",
-        mutationId: "mutation-failed",
-      }, "renderer-1")).toThrow();
+      expect(() =>
+        commitPersistedAtomMutation(
+          {
+            key: "draft",
+            value: "not persisted",
+            mutationId: "mutation-failed",
+          },
+          "renderer-1",
+        ),
+      ).toThrow();
       expect(readPersistedAtomSnapshot()).toEqual({ revision: 0, values: {} });
     } finally {
       setPersistedAtomsPathOverrideForTests(null);

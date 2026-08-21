@@ -15,8 +15,7 @@ export interface BodyOnlyBlockDocumentSchemaIdentity {
   readonly makeRootError?: (message: string) => Error;
 }
 
-export interface CreateBodyOnlyBlockDocumentOptions
-  extends BodyOnlyBlockDocumentSchemaIdentity {
+export interface CreateBodyOnlyBlockDocumentOptions extends BodyOnlyBlockDocumentSchemaIdentity {
   readonly documentId: DocumentId;
   readonly initializeBody?: boolean;
   readonly gc?: boolean;
@@ -29,12 +28,8 @@ export class BodyOnlyBlockDocumentRootValidationError extends TypeError {
   }
 }
 
-const makeRootError = (
-  schema: BodyOnlyBlockDocumentSchemaIdentity,
-  message: string,
-): Error =>
-  schema.makeRootError?.(message) ??
-  new BodyOnlyBlockDocumentRootValidationError(message);
+const makeRootError = (schema: BodyOnlyBlockDocumentSchemaIdentity, message: string): Error =>
+  schema.makeRootError?.(message) ?? new BodyOnlyBlockDocumentRootValidationError(message);
 
 const requireDocumentId = (
   documentId: DocumentId,

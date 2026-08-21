@@ -61,13 +61,13 @@ Authority accepts intent and determines truth. A read model makes that truth
 cheap to query. A UI projection decides how it is presented. Information flows
 from left to right and never returns through the same path as a write:
 
-| Domain | Authority | Read model or projection |
-| --- | --- | --- |
-| Block content | Yjs `block_tree` or normalized `canvas_scene` Document | NFM, title, preview, search, assets, Card detail |
-| Database capability | relational Database membership, properties, and Views | Board rows, Calendar occurrences, Database View results |
-| Codex conversation | generated protocol items/requests plus explicit app-local state | transcript entries, activity groups, summaries |
-| Scheduled automation | `automation.toml` | SQLite mirror and renderer detail |
-| Review changes | Git/file metadata and validated content | file tree, patch rows, summary counts |
+| Domain               | Authority                                                       | Read model or projection                                |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| Block content        | Yjs `block_tree` or normalized `canvas_scene` Document          | NFM, title, preview, search, assets, Card detail        |
+| Database capability  | relational Database membership, properties, and Views           | Board rows, Calendar occurrences, Database View results |
+| Codex conversation   | generated protocol items/requests plus explicit app-local state | transcript entries, activity groups, summaries          |
+| Scheduled automation | `automation.toml`                                               | SQLite mirror and renderer detail                       |
+| Review changes       | Git/file metadata and validated content                         | file tree, patch rows, summary counts                   |
 
 This resolves an important retired ambiguity: `Card.description`, Card summaries,
 and metadata overlays are projections. They never seed, refresh, or save a
@@ -354,31 +354,31 @@ measurement loop is too expensive to rediscover through runtime testing alone.
 
 ## Source-of-truth map
 
-| Topic | Authoritative document |
-| --- | --- |
-| System modules, dependency flow, authority table | [Architecture](ARCHITECTURE.md) |
-| Domain language and invariants | [Context](../CONTEXT.md) |
-| Significant design decisions and tradeoffs | [ADRs](adr/) |
-| User-visible behavior and public contracts | [Product specifications](product-specs/index.md) |
-| Codex owner/follower ordering and recovery | [Owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md) |
-| Codex transcript, request, activity, and composer projection | [Transcript behavior](product-specs/codex-thread-transcript-behavior.md) |
-| Thread Summary sections, artifacts, Git actions, Browser, and PiP | [Thread Summary panel](product-specs/thread-summary-panel-behavior.md) |
-| Scheduled task/template route, drafts, runs, and navigation guards | [Scheduled route](product-specs/scheduled-route-behavior.md) |
-| Settings routes, catalog, search, composition, and deep links | [Settings route](product-specs/settings-route-behavior.md) |
-| Block/Owned Document durability, sync, backup, recovery | [Reliability](RELIABILITY.md) |
-| Core selection, generation recovery, and Store migration policy | [Core lifecycle and Store](reliability/core-lifecycle-and-store.md) |
-| LocalCommit delivery, projection freshness, and visibility | [LocalCommit and projections](reliability/local-commit-and-projections.md) |
-| Document/Canvas sync, semantic history, and retention | [Document sync/history](reliability/document-sync-history-and-retention.md) |
-| Whole-Store backup, restore, replacement, and maintenance | [Backup/restore](reliability/backup-restore-and-maintenance.md) |
-| Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [Frontend](FRONTEND.md) |
-| Board and cross-surface drag behavior | [Board drag and drop](product-specs/board-drag-and-drop-behavior.md) |
-| NFM side-menu interaction | [NFM block side menu](product-specs/nfm-block-side-menu-behavior.md) |
-| Workbench ownership and navigation | [Workbench shell](product-specs/workbench-shell.md) |
-| Review/file-change UI | [Review right panel](product-specs/review-right-panel-behavior.md) |
-| Command-palette indexing and navigation | [Command palette](product-specs/command-palette-behavior.md) |
-| Local validation and runtime selection | [Development](development.md) |
-| macOS build, signing, notarization, and recovery | [macOS release CI](release-macos.md) |
-| Security seams and hardening | [Security](SECURITY.md) |
+| Topic                                                                                                        | Authoritative document                                                             |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| System modules, dependency flow, authority table                                                             | [Architecture](ARCHITECTURE.md)                                                    |
+| Domain language and invariants                                                                               | [Context](../CONTEXT.md)                                                           |
+| Significant design decisions and tradeoffs                                                                   | [ADRs](adr/)                                                                       |
+| User-visible behavior and public contracts                                                                   | [Product specifications](product-specs/index.md)                                   |
+| Codex owner/follower ordering and recovery                                                                   | [Owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md) |
+| Codex transcript, request, activity, and composer projection                                                 | [Transcript behavior](product-specs/codex-thread-transcript-behavior.md)           |
+| Thread Summary sections, artifacts, Git actions, Browser, and PiP                                            | [Thread Summary panel](product-specs/thread-summary-panel-behavior.md)             |
+| Scheduled task/template route, drafts, runs, and navigation guards                                           | [Scheduled route](product-specs/scheduled-route-behavior.md)                       |
+| Settings routes, catalog, search, composition, and deep links                                                | [Settings route](product-specs/settings-route-behavior.md)                         |
+| Block/Owned Document durability, sync, backup, recovery                                                      | [Reliability](RELIABILITY.md)                                                      |
+| Core selection, generation recovery, and Store migration policy                                              | [Core lifecycle and Store](reliability/core-lifecycle-and-store.md)                |
+| LocalCommit delivery, projection freshness, and visibility                                                   | [LocalCommit and projections](reliability/local-commit-and-projections.md)         |
+| Document/Canvas sync, semantic history, and retention                                                        | [Document sync/history](reliability/document-sync-history-and-retention.md)        |
+| Whole-Store backup, restore, replacement, and maintenance                                                    | [Backup/restore](reliability/backup-restore-and-maintenance.md)                    |
+| Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [Frontend](FRONTEND.md)                                                            |
+| Board and cross-surface drag behavior                                                                        | [Board drag and drop](product-specs/board-drag-and-drop-behavior.md)               |
+| NFM side-menu interaction                                                                                    | [NFM block side menu](product-specs/nfm-block-side-menu-behavior.md)               |
+| Workbench ownership and navigation                                                                           | [Workbench shell](product-specs/workbench-shell.md)                                |
+| Review/file-change UI                                                                                        | [Review right panel](product-specs/review-right-panel-behavior.md)                 |
+| Command-palette indexing and navigation                                                                      | [Command palette](product-specs/command-palette-behavior.md)                       |
+| Local validation and runtime selection                                                                       | [Development](development.md)                                                      |
+| macOS build, signing, notarization, and recovery                                                             | [macOS release CI](release-macos.md)                                               |
+| Security seams and hardening                                                                                 | [Security](SECURITY.md)                                                            |
 
 When two documents appear to disagree, authority follows this order: accepted
 ADR and current domain invariants for architecture, product specification for

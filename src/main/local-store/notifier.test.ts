@@ -4,9 +4,7 @@ import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { parseDatabaseViewId } from "../../shared/database-identities";
 import { DatabaseNotifier } from "./notifier";
 
-const event = (
-  overrides: Partial<DatabaseChangeEvent> = {},
-): DatabaseChangeEvent => ({
+const event = (overrides: Partial<DatabaseChangeEvent> = {}): DatabaseChangeEvent => ({
   version: 3,
   projectId: "project:test",
   libraryId: "library:test",
@@ -30,12 +28,14 @@ describe("DatabaseNotifier", () => {
     notifier.on("database-changed", databaseListener);
     notifier.on("library-navigation-changed", libraryListener);
     const personalEvent = event({
-      personalViewChanges: [{
-        kind: "occurrence_disclosure",
-        viewId: parseDatabaseViewId("view:test"),
-        target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
-        collapsed: true,
-      }],
+      personalViewChanges: [
+        {
+          kind: "occurrence_disclosure",
+          viewId: parseDatabaseViewId("view:test"),
+          target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
+          collapsed: true,
+        },
+      ],
     });
 
     notifier.notifyDatabaseChanged(personalEvent);
@@ -49,12 +49,16 @@ describe("DatabaseNotifier", () => {
     const libraryListener = vi.fn();
     notifier.on("library-navigation-changed", libraryListener);
 
-    notifier.notifyDatabaseChanged(event({
-      affectedDataSourceIds: ["source:test"],
-    }));
+    notifier.notifyDatabaseChanged(
+      event({
+        affectedDataSourceIds: ["source:test"],
+      }),
+    );
 
-    expect(libraryListener).toHaveBeenCalledWith(expect.objectContaining({
-      changeKind: "database",
-    }));
+    expect(libraryListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changeKind: "database",
+      }),
+    );
   });
 });

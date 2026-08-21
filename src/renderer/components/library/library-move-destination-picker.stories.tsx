@@ -60,20 +60,22 @@ function Story() {
   const sections = useMemo<readonly LibraryMoveDestinationPickerSection[]>(() => {
     if (query.trim()) {
       const normalized = query.trim().toLowerCase();
-      return [{
-        key: "search",
-        label: "Search results",
-        rows: pages
-          .filter((page) => page.title.toLowerCase().includes(normalized))
-          .map((entry) => ({
-            kind: "page",
-            id: `search:${entry.pageId}`,
-            entry,
-            depth: 0,
-            expanded: false,
-            context: "search",
-          })),
-      }];
+      return [
+        {
+          key: "search",
+          label: "Search results",
+          rows: pages
+            .filter((page) => page.title.toLowerCase().includes(normalized))
+            .map((entry) => ({
+              kind: "page",
+              id: `search:${entry.pageId}`,
+              entry,
+              depth: 0,
+              expanded: false,
+              context: "search",
+            })),
+        },
+      ];
     }
     return [
       {
@@ -107,14 +109,18 @@ function Story() {
             expanded,
             context: "tree",
           },
-          ...(expanded ? [{
-            kind: "page" as const,
-            id: "tree:page-roadmap",
-            entry: pages[1],
-            depth: 1,
-            expanded: false,
-            context: "tree" as const,
-          }] : []),
+          ...(expanded
+            ? [
+                {
+                  kind: "page" as const,
+                  id: "tree:page-roadmap",
+                  entry: pages[1],
+                  depth: 1,
+                  expanded: false,
+                  context: "tree" as const,
+                },
+              ]
+            : []),
           {
             kind: "page",
             id: "tree:page-research",
@@ -131,14 +137,14 @@ function Story() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-token-main-surface-primary p-8">
       <NodexDropdownMenu
-        triggerButton={(
+        triggerButton={
           <button
             type="button"
             className="h-8 rounded-lg bg-token-foreground/5 px-3 text-sm text-token-foreground hover:bg-token-foreground/10"
           >
             Resource actions
           </button>
-        )}
+        }
         open={menuOpen}
         onOpenChange={(open) => {
           setMenuOpen(open);

@@ -26,8 +26,7 @@ export interface AllocatedCodexPendingWorktreeRequest {
   readonly result: CodexPendingWorktreeCreateResult;
 }
 
-const CODEX_ONBOARDING_INTERACTIVE_TOOLS_CONFIG_KEY =
-  "features.onboarding_interactive_tools";
+const CODEX_ONBOARDING_INTERACTIVE_TOOLS_CONFIG_KEY = "features.onboarding_interactive_tools";
 const CODEX_PENDING_FILES_HEADING = "# Files mentioned by the user:";
 const CODEX_PENDING_USER_REQUEST_HEADING = "## My request for Codex:";
 const CODEX_PENDING_PASTED_TEXT_REQUEST =
@@ -66,8 +65,9 @@ export function filterCodexPendingGoalSourceFileAttachments(
   threadGoalDraft: CodexThreadGoalDraftInput | null | undefined,
 ): CodexLiveFileAttachment[] {
   const goalSourcePaths = new Set(
-    (threadGoalDraft?.pastedTextAttachments ?? [])
-      .flatMap((attachment) => attachment.file ? [attachment.file.path] : []),
+    (threadGoalDraft?.pastedTextAttachments ?? []).flatMap((attachment) =>
+      attachment.file ? [attachment.file.path] : [],
+    ),
   );
   if (goalSourcePaths.size === 0) return [...fileAttachments];
   return fileAttachments.filter((attachment) => !goalSourcePaths.has(attachment.path));
@@ -80,10 +80,7 @@ export function buildCodexPendingFirstTurnAttachments(input: {
   readonly threadGoalDraft?: CodexThreadGoalDraftInput | null;
 }): CodexLiveFileAttachment[] {
   return dedupeCodexLiveFileAttachments([
-    ...filterCodexPendingGoalSourceFileAttachments(
-      input.fileAttachments,
-      input.threadGoalDraft,
-    ),
+    ...filterCodexPendingGoalSourceFileAttachments(input.fileAttachments, input.threadGoalDraft),
     ...input.addedFiles,
   ]);
 }
@@ -98,25 +95,23 @@ export function buildCodexPendingComposerPrompt(input: {
   const pastedTextAttachments = input.pastedTextAttachments ?? [];
   const attachments = dedupeCodexLiveFileAttachments([
     ...input.addedFiles,
-    ...appendCodexPendingPastedTextAttachments(
-      input.fileAttachments,
-      pastedTextAttachments,
-    ),
+    ...appendCodexPendingPastedTextAttachments(input.fileAttachments, pastedTextAttachments),
   ]);
   let context = "";
   if (attachments.length > 0) {
     context += `\n${CODEX_PENDING_FILES_HEADING}\n`;
     for (const attachment of attachments) {
-      const lineSuffix = attachment.startLine == null
-        ? ""
-        : attachment.endLine != null && attachment.endLine !== attachment.startLine
-          ? ` (lines ${attachment.startLine}-${attachment.endLine})`
-          : ` (line ${attachment.startLine})`;
+      const lineSuffix =
+        attachment.startLine == null
+          ? ""
+          : attachment.endLine != null && attachment.endLine !== attachment.startLine
+            ? ` (lines ${attachment.startLine}-${attachment.endLine})`
+            : ` (line ${attachment.startLine})`;
       context += `\n## ${attachment.label}: ${attachment.path}${lineSuffix}\n`;
     }
   }
-  const pastedTextOwnsEmptyRequest = input.prompt.trim().length === 0
-    && pastedTextAttachments.length > 0;
+  const pastedTextOwnsEmptyRequest =
+    input.prompt.trim().length === 0 && pastedTextAttachments.length > 0;
   const prefix = `${context}${
     pastedTextOwnsEmptyRequest ? `\n${CODEX_PENDING_PASTED_TEXT_REQUEST}\n` : ""
   }`;
@@ -136,12 +131,13 @@ export function projectCodexPendingThreadStart(input: {
     ...configOverrides
   } = input.frozen.configOverrides ?? {};
   return {
-    defaultFeatureOverrides: onboardingInteractiveTools === true
-      ? {
-          ...(input.defaultFeatureOverrides ?? {}),
-          [CODEX_ONBOARDING_INTERACTIVE_TOOLS_CONFIG_KEY]: true,
-        }
-      : input.defaultFeatureOverrides,
+    defaultFeatureOverrides:
+      onboardingInteractiveTools === true
+        ? {
+            ...(input.defaultFeatureOverrides ?? {}),
+            [CODEX_ONBOARDING_INTERACTIVE_TOOLS_CONFIG_KEY]: true,
+          }
+        : input.defaultFeatureOverrides,
     configOverrides,
     ...(input.frozen.memoryPreferences === undefined
       ? {}
@@ -157,10 +153,7 @@ type CodexPendingStartConversationFreezeInput = Omit<
   readonly sourceWorkspaceRoots?: readonly string[];
 };
 
-function dedupeWorkspaceRoots(
-  primaryRoot: string,
-  workspaceRoots: readonly string[],
-): string[] {
+function dedupeWorkspaceRoots(primaryRoot: string, workspaceRoots: readonly string[]): string[] {
   return rewriteExecutionWorkspaceRoots({
     sourcePrimary: primaryRoot,
     targetPrimary: primaryRoot,
@@ -228,10 +221,7 @@ export function projectCodexPendingWorktreeLaunchLocation(input: {
       sourcePrimary: input.sourceWorkspaceRoot,
       targetPrimary: input.worktreeWorkspaceRoot,
       workspaceRoots: input.params.workspaceRoots,
-      explicitRoots: [
-        cwd,
-        ...(assignmentPath ? [assignmentPath] : []),
-      ],
+      explicitRoots: [cwd, ...(assignmentPath ? [assignmentPath] : [])],
     }),
     projectAssignment,
   };
@@ -253,9 +243,7 @@ export function buildCodexPendingStartConversationParams(
     cwd: sourceWorkspaceRoot,
     fileAttachments: params.fileAttachments.map((attachment) => ({ ...attachment })),
     addedFiles: params.addedFiles.map((attachment) => ({ ...attachment })),
-    executionProfile: params.executionProfile
-      ? { ...params.executionProfile }
-      : null,
+    executionProfile: params.executionProfile ? { ...params.executionProfile } : null,
     config: { ...params.config },
     ...(params.configOverrides === undefined
       ? {}
@@ -263,9 +251,8 @@ export function buildCodexPendingStartConversationParams(
     ...(params.memoryPreferences === undefined
       ? {}
       : {
-          memoryPreferences: params.memoryPreferences === null
-            ? null
-            : { ...params.memoryPreferences },
+          memoryPreferences:
+            params.memoryPreferences === null ? null : { ...params.memoryPreferences },
         }),
   };
 }
@@ -276,22 +263,19 @@ export function buildCodexPendingStartConversationParams(
  */
 export function buildCodexPendingThreadStartConfig(
   platformConfig: ThreadStartParams["config"],
-  frozen: Pick<
-    CodexPendingStartConversationParamsInput,
-    "configOverrides" | "memoryPreferences"
-  >,
+  frozen: Pick<CodexPendingStartConversationParamsInput, "configOverrides" | "memoryPreferences">,
 ): NonNullable<ThreadStartParams["config"]> {
   const configOverrides = projectCodexPendingThreadStart({
     defaultFeatureOverrides: null,
     frozen,
   }).configOverrides;
-  const memoryConfig = frozen.memoryPreferences === null
-    || frozen.memoryPreferences === undefined
-    ? {}
-    : {
-        "memories.generate_memories": frozen.memoryPreferences.generateMemories,
-        "memories.use_memories": frozen.memoryPreferences.useMemories,
-      };
+  const memoryConfig =
+    frozen.memoryPreferences === null || frozen.memoryPreferences === undefined
+      ? {}
+      : {
+          "memories.generate_memories": frozen.memoryPreferences.generateMemories,
+          "memories.use_memories": frozen.memoryPreferences.useMemories,
+        };
   return {
     ...(platformConfig ?? {}),
     ...memoryConfig,

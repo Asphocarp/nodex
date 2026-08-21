@@ -68,9 +68,10 @@ const requireString = (value: unknown, label: string): string => {
 
 const requireIpcValue = <T>(result: unknown, label: string): T => {
   if (!isRecord(result) || result.ok !== true || !("value" in result)) {
-    const error = isRecord(result) && isRecord(result.error)
-      ? String(result.error.message ?? "unknown IPC error")
-      : "unknown IPC error";
+    const error =
+      isRecord(result) && isRecord(result.error)
+        ? String(result.error.message ?? "unknown IPC error")
+        : "unknown IPC error";
     throw new Error(`${label} failed: ${error}`);
   }
   return result.value as T;
@@ -223,12 +224,7 @@ async function seedConvergenceDocument(
   nfm = "Keep block\nDragged source",
 ): Promise<SeededConvergencePage> {
   const descriptor = requireIpcValue<Record<string, unknown>>(
-    await invokeIpc(
-      page,
-      "block-document:owned:prepare",
-      project.projectId,
-      source.pageId,
-    ),
+    await invokeIpc(page, "block-document:owned:prepare", project.projectId, source.pageId),
     "Prepare source Page document",
   );
   const documentId = requireString(descriptor.documentId, "Source document id");
@@ -237,22 +233,16 @@ async function seedConvergenceDocument(
   }
 
   const mutation = requireIpcValue<Record<string, unknown>>(
-    await invokeIpc(
-      page,
-      "block-documents:mutate",
-      project.projectId,
+    await invokeIpc(page, "block-documents:mutate", project.projectId, documentId, {
+      mutationId: createUuidV7(),
+      projectId: project.projectId,
+      storeEpoch: project.storeEpoch,
+      actor: {},
       documentId,
-      {
-        mutationId: createUuidV7(),
-        projectId: project.projectId,
-        storeEpoch: project.storeEpoch,
-        actor: {},
-        documentId,
-        generation: descriptor.generation,
-        expectedHeadSeq: descriptor.headSeq,
-        nfm,
-      },
-    ),
+      generation: descriptor.generation,
+      expectedHeadSeq: descriptor.headSeq,
+      nfm,
+    }),
     "Seed source Page document",
   );
   if (!Array.isArray(mutation.createdBlockIds)) {
@@ -339,9 +329,7 @@ async function dragBlockFromEditorWithMouse({
   await page.mouse.move(handleCenter.x, handleCenter.y);
   await page.mouse.down();
   let mouseReleased = false;
-  const pressedHandle = exerciseAncestorScrollLifecycle
-    ? await dragHandle.elementHandle()
-    : null;
+  const pressedHandle = exerciseAncestorScrollLifecycle ? await dragHandle.elementHandle() : null;
   if (exerciseAncestorScrollLifecycle && !pressedHandle) {
     throw new Error("Pressed block drag handle is missing");
   }
@@ -367,10 +355,7 @@ async function dragBlockFromEditorWithMouse({
     if (!targetBox) throw new Error("Block transfer target has no layout box");
     const dropPoint = {
       x: targetBox.x + targetBox.width / 2,
-      y: targetBox.y + Math.min(
-        targetBox.height - 4,
-        Math.max(4, targetBox.height * targetYRatio),
-      ),
+      y: targetBox.y + Math.min(targetBox.height - 4, Math.max(4, targetBox.height * targetYRatio)),
     };
     await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 30 });
 
@@ -413,11 +398,13 @@ async function expectClosingSideMenuToBeInert({
   await page.mouse.move(handleCenter.x, handleCenter.y);
   await dispatchEditorAncestorScroll({ page, sourceEditor });
 
-  expect(await page.evaluate(({ x, y }) => {
-    return document.elementsFromPoint(x, y).some((element) => {
-      return element.closest(".bn-side-menu") !== null;
-    });
-  }, handleCenter)).toBe(false);
+  expect(
+    await page.evaluate(({ x, y }) => {
+      return document.elementsFromPoint(x, y).some((element) => {
+        return element.closest(".bn-side-menu") !== null;
+      });
+    }, handleCenter),
+  ).toBe(false);
 }
 
 async function dragListRowWithMouse({
@@ -464,8 +451,7 @@ async function dragListRowWithMouse({
     const overlay = page.locator('[data-database-list-drag-overlay="true"]');
     await expect(overlay).toBeVisible();
     if (expectedOverlayCount > 1) {
-      await expect(overlay.getByText(String(expectedOverlayCount), { exact: true }))
-        .toBeVisible();
+      await expect(overlay.getByText(String(expectedOverlayCount), { exact: true })).toBeVisible();
     }
     await expect(sourceRow).toHaveCSS("opacity", "0.7");
     await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 24 });
@@ -597,38 +583,32 @@ const HIGH_PRESSURE_SOURCE_REMAINDER = [
 ].join(" ");
 const HIGH_PRESSURE_ROUNDS = Math.max(
   1,
-  Math.min(
-    100,
-    Number.parseInt(process.env.NODEX_HIGH_PRESSURE_ROUNDS ?? "1", 10) || 1,
-  ),
+  Math.min(100, Number.parseInt(process.env.NODEX_HIGH_PRESSURE_ROUNDS ?? "1", 10) || 1),
 );
-const HIGH_PRESSURE_TEST_TIMEOUT_MS =
-  180_000 + Math.max(0, HIGH_PRESSURE_ROUNDS - 1) * 2_000;
+const HIGH_PRESSURE_TEST_TIMEOUT_MS = 180_000 + Math.max(0, HIGH_PRESSURE_ROUNDS - 1) * 2_000;
 const PAGE_READY_HISTORY_COMMITS = 14_419;
 const PAGE_READY_ROUNDS = 20;
 const IDLE_CPU_SAMPLE_SECONDS = Math.max(
   1,
-  Math.min(
-    60,
-    Number.parseInt(process.env.NODEX_IDLE_CPU_SAMPLE_SECONDS ?? "60", 10) || 60,
-  ),
+  Math.min(60, Number.parseInt(process.env.NODEX_IDLE_CPU_SAMPLE_SECONDS ?? "60", 10) || 60),
 );
 
-const buildHighPressureSourceNfm = (titlePrefix = "title-A"): string => [
-  ...Array.from(
-    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
-    (_, index) => `before-placeholder-${index.toString().padStart(3, "0")}`,
-  ),
-  titlePrefix,
-  ...Array.from(
-    { length: HIGH_PRESSURE_CHILD_BLOCK_COUNT },
-    (_, index) => `\tchild-placeholder-${index.toString().padStart(3, "0")}`,
-  ),
-  ...Array.from(
-    { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
-    (_, index) => `after-placeholder-${index.toString().padStart(3, "0")}`,
-  ),
-].join("\n");
+const buildHighPressureSourceNfm = (titlePrefix = "title-A"): string =>
+  [
+    ...Array.from(
+      { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+      (_, index) => `before-placeholder-${index.toString().padStart(3, "0")}`,
+    ),
+    titlePrefix,
+    ...Array.from(
+      { length: HIGH_PRESSURE_CHILD_BLOCK_COUNT },
+      (_, index) => `\tchild-placeholder-${index.toString().padStart(3, "0")}`,
+    ),
+    ...Array.from(
+      { length: HIGH_PRESSURE_SIBLING_BLOCK_COUNT },
+      (_, index) => `after-placeholder-${index.toString().padStart(3, "0")}`,
+    ),
+  ].join("\n");
 
 function readVisibilityFactCounts(
   nodexHome: string,
@@ -654,10 +634,10 @@ function readVisibilityFactCounts(
   }
   return rows.map((row) => {
     if (
-      !isRecord(row)
-      || typeof row.relationKind !== "string"
-      || typeof row.operation !== "string"
-      || typeof row.count !== "number"
+      !isRecord(row) ||
+      typeof row.relationKind !== "string" ||
+      typeof row.operation !== "string" ||
+      typeof row.count !== "number"
     ) {
       throw new Error("Visibility fact evidence is invalid");
     }
@@ -693,11 +673,11 @@ function readVisibilityFactRows(
   }
   return rows.map((row) => {
     if (
-      !isRecord(row)
-      || typeof row.relationKind !== "string"
-      || typeof row.operation !== "string"
-      || (row.oldRow !== null && typeof row.oldRow !== "string")
-      || (row.newRow !== null && typeof row.newRow !== "string")
+      !isRecord(row) ||
+      typeof row.relationKind !== "string" ||
+      typeof row.operation !== "string" ||
+      (row.oldRow !== null && typeof row.oldRow !== "string") ||
+      (row.newRow !== null && typeof row.newRow !== "string")
     ) {
       throw new Error("Visibility fact row evidence is invalid");
     }
@@ -710,7 +690,9 @@ function readVisibilityFactRows(
   });
 }
 
-const summarizeDurations = (values: readonly number[]): {
+const summarizeDurations = (
+  values: readonly number[],
+): {
   p50: number;
   p95: number;
   p99: number | null;
@@ -745,12 +727,12 @@ const durationMetricDelta = (
   const beforeCount = beforeMetric.count;
   const afterCount = afterMetric.count;
   if (
-    typeof beforeTotal !== "number"
-    || typeof afterTotal !== "number"
-    || typeof beforeCount !== "number"
-    || typeof afterCount !== "number"
-    || afterTotal < beforeTotal
-    || afterCount < beforeCount
+    typeof beforeTotal !== "number" ||
+    typeof afterTotal !== "number" ||
+    typeof beforeCount !== "number" ||
+    typeof afterCount !== "number" ||
+    afterTotal < beforeTotal ||
+    afterCount < beforeCount
   ) {
     throw new Error(`Core health metric ${key} moved backwards`);
   }
@@ -760,13 +742,14 @@ const durationMetricDelta = (
   };
 };
 
-const buildBoardFixtureNfm = (): string => [
-  "Keep board fixture",
-  ...Array.from(
-    { length: HIGH_PRESSURE_BOARD_PAGE_COUNT },
-    (_, index) => `board-fixture-${index.toString().padStart(3, "0")}`,
-  ),
-].join("\n");
+const buildBoardFixtureNfm = (): string =>
+  [
+    "Keep board fixture",
+    ...Array.from(
+      { length: HIGH_PRESSURE_BOARD_PAGE_COUNT },
+      (_, index) => `board-fixture-${index.toString().padStart(3, "0")}`,
+    ),
+  ].join("\n");
 
 interface SyntheticHistoryResult {
   readonly commitCountBefore: number;
@@ -776,11 +759,11 @@ interface SyntheticHistoryResult {
 }
 
 const sqliteScalarRow = (databasePath: string, query: string): readonly string[] =>
-  execFileSync(
-    "sqlite3",
-    ["-batch", "-noheader", "-separator", "|", databasePath, query],
-    { encoding: "utf8" },
-  ).trim().split("|");
+  execFileSync("sqlite3", ["-batch", "-noheader", "-separator", "|", databasePath, query], {
+    encoding: "utf8",
+  })
+    .trim()
+    .split("|");
 
 const requireSafeInteger = (value: string | undefined, label: string): number => {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -795,9 +778,9 @@ function seedSyntheticLocalCommitHistory(
   const databasePath = path.join(nodexHome, "nodex.db");
   const [rawCount, rawHead, storeEpoch] = sqliteScalarRow(
     databasePath,
-    "SELECT count(*), COALESCE(max(commit_seq), 0), "
-      + "(SELECT store_epoch FROM block_store_metadata WHERE id = 1) "
-      + "FROM local_commits;",
+    "SELECT count(*), COALESCE(max(commit_seq), 0), " +
+      "(SELECT store_epoch FROM block_store_metadata WHERE id = 1) " +
+      "FROM local_commits;",
   );
   const commitCountBefore = requireSafeInteger(rawCount, "History commit count");
   const commitHeadBefore = requireSafeInteger(rawHead, "History commit head");
@@ -835,8 +818,8 @@ COMMIT;
   execFileSync("sqlite3", ["-batch", databasePath, sql], { encoding: "utf8" });
   const [rawFinalCount, rawFinalHead, integrity] = sqliteScalarRow(
     databasePath,
-    "SELECT count(*), COALESCE(max(commit_seq), 0), "
-      + "(SELECT integrity_check FROM pragma_integrity_check) FROM local_commits;",
+    "SELECT count(*), COALESCE(max(commit_seq), 0), " +
+      "(SELECT integrity_check FROM pragma_integrity_check) FROM local_commits;",
   );
   const commitCountAfter = requireSafeInteger(rawFinalCount, "Final history commit count");
   const commitHeadAfter = requireSafeInteger(rawFinalHead, "Final history commit head");
@@ -862,16 +845,21 @@ interface ElectronProcessCpuSample {
 const readElectronProcessCpu = async (
   application: ElectronApplication,
 ): Promise<readonly ElectronProcessCpuSample[]> =>
-  await application.evaluate(({ app }) => app.getAppMetrics().map((metric) => ({
-    creationTime: metric.creationTime,
-    cumulativeSeconds: metric.cpu.cumulativeCPUUsage ?? 0,
-    percent: metric.cpu.percentCPUUsage,
-    pid: metric.pid,
-    type: metric.type,
-  })));
+  await application.evaluate(({ app }) =>
+    app.getAppMetrics().map((metric) => ({
+      creationTime: metric.creationTime,
+      cumulativeSeconds: metric.cpu.cumulativeCPUUsage ?? 0,
+      percent: metric.cpu.percentCPUUsage,
+      pid: metric.pid,
+      type: metric.type,
+    })),
+  );
 
 const parseProcessCpuTime = (raw: string): number => {
-  const fields = raw.trim().split(":").map((field) => Number.parseInt(field, 10));
+  const fields = raw
+    .trim()
+    .split(":")
+    .map((field) => Number.parseInt(field, 10));
   if (fields.some((field) => !Number.isSafeInteger(field) || field < 0)) {
     throw new Error("Process CPU time is invalid");
   }
@@ -882,9 +870,8 @@ const parseProcessCpuTime = (raw: string): number => {
   throw new Error("Process CPU time has an unsupported shape");
 };
 
-const readProcessCpuTime = (pid: number): number => parseProcessCpuTime(
-  execFileSync("ps", ["-o", "time=", "-p", String(pid)], { encoding: "utf8" }),
-);
+const readProcessCpuTime = (pid: number): number =>
+  parseProcessCpuTime(execFileSync("ps", ["-o", "time=", "-p", String(pid)], { encoding: "utf8" }));
 
 const readProcessCpuPercent = (pid: number): number => {
   const value = Number.parseFloat(
@@ -913,18 +900,13 @@ async function readConvergenceDatabase(
   project: ConvergenceProject,
 ): Promise<ConvergenceDatabase> {
   const snapshot = requireIpcValue<Record<string, unknown>>(
-    await invokeIpc(
-      page,
-      "database-module:read",
-      project.projectId,
-      {
-        projectId: project.projectId,
-        read: {
-          target: { kind: "project_default" },
-          mode: "database",
-        },
+    await invokeIpc(page, "database-module:read", project.projectId, {
+      projectId: project.projectId,
+      read: {
+        target: { kind: "project_default" },
+        mode: "database",
       },
-    ),
+    }),
     "Read Project Database",
   );
   const value = snapshot.value;
@@ -935,8 +917,7 @@ async function readConvergenceDatabase(
     throw new Error("Project Database read returned no views");
   }
   const view = value.value.views.find(
-    (candidate) =>
-      isRecord(candidate) && candidate.viewId === project.defaultDatabaseViewId,
+    (candidate) => isRecord(candidate) && candidate.viewId === project.defaultDatabaseViewId,
   );
   if (!isRecord(view)) {
     throw new Error("Project Database read returned no default view");
@@ -960,40 +941,37 @@ async function transferBoardFixturePages(
   for (let offset = 0; offset < rootBlockIds.length; offset += 20) {
     const batch = rootBlockIds.slice(offset, offset + 20);
     const result = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: batch,
-          causalDependencies: [],
-          source: { kind: "document", documentId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            placement: {
-              kind: "direct",
-              viewId: database.viewId,
-              presentationOverride: { layout: "board" },
-              groupKey,
-            },
+      await invokeIpc(page, "blocks:transfer", project.projectId, {
+        operationId: createUuidV7(),
+        projectId: project.projectId,
+        storeEpoch: project.storeEpoch,
+        mode: "move",
+        rootBlockIds: batch,
+        causalDependencies: [],
+        source: { kind: "document", documentId },
+        target: {
+          kind: "data_source",
+          dataSourceId: database.dataSourceId,
+          placement: {
+            kind: "direct",
+            viewId: database.viewId,
+            presentationOverride: { layout: "board" },
+            groupKey,
           },
-          promotionPolicy: "literal",
         },
-      ),
+        promotionPolicy: "literal",
+      }),
       `${label} batch ${Math.floor(offset / 20) + 1}`,
     );
     if (!Array.isArray(result.resultRootBlockIds)) {
       throw new Error(`${label} returned no Page ids`);
     }
     expect(result.resultRootBlockIds).toHaveLength(batch.length);
-    resultPageIds.push(...result.resultRootBlockIds.map((value, index) =>
-      requireString(value, `${label} Page id ${offset + index}`)
-    ));
+    resultPageIds.push(
+      ...result.resultRootBlockIds.map((value, index) =>
+        requireString(value, `${label} Page id ${offset + index}`),
+      ),
+    );
   }
   return resultPageIds;
 }
@@ -1004,15 +982,10 @@ async function readConvergenceBoardTotal(
   minimumCommitSeq?: number,
 ): Promise<number> {
   const snapshot = requireIpcValue<Record<string, unknown>>(
-    await invokeIpc(
-      page,
-      "database:view-groups:get",
-      project.projectId,
-      {
-        databaseViewId: project.defaultDatabaseViewId,
-        ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
-      },
-    ),
+    await invokeIpc(page, "database:view-groups:get", project.projectId, {
+      databaseViewId: project.defaultDatabaseViewId,
+      ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
+    }),
     "Read Board group totals",
   );
   if (typeof snapshot.totalRows !== "number") {
@@ -1078,11 +1051,20 @@ async function createFixtureWindow(
   return { page, windowId };
 }
 
-async function closeFixtureWindow(application: ElectronApplication, windowId: number): Promise<void> {
-  await application.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(), windowId);
+async function closeFixtureWindow(
+  application: ElectronApplication,
+  windowId: number,
+): Promise<void> {
+  await application.evaluate(
+    ({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(),
+    windowId,
+  );
 }
 
-async function waitForLargeContentScenario(page: Page, scenario: LargeContentScenario): Promise<void> {
+async function waitForLargeContentScenario(
+  page: Page,
+  scenario: LargeContentScenario,
+): Promise<void> {
   await page.locator(`[data-performance-surface="${scenario}"]`).waitFor();
   if (scenario === "workspace") {
     await page.locator('[aria-label="Source preview for large-source.txt"]').waitFor();
@@ -1104,7 +1086,7 @@ async function readTraceStream(session: CDPSession, stream: string): Promise<str
   let trace = "";
   let eof = false;
   while (!eof) {
-    const chunk = await session.send("IO.read", { handle: stream }) as {
+    const chunk = (await session.send("IO.read", { handle: stream })) as {
       data?: string;
       eof?: boolean;
     };
@@ -1117,7 +1099,10 @@ async function readTraceStream(session: CDPSession, stream: string): Promise<str
 
 async function finishTrace(session: CDPSession): Promise<string> {
   const complete = new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for the Chromium trace stream")), 10_000);
+    const timeout = setTimeout(
+      () => reject(new Error("Timed out waiting for the Chromium trace stream")),
+      10_000,
+    );
     session.once("Tracing.tracingComplete", async (event: { stream?: string }) => {
       clearTimeout(timeout);
       if (!event.stream) {
@@ -1163,7 +1148,9 @@ async function sampleLargeContentScenario(input: {
     // clean surface so the sample measures steady-state user-visible work.
     await page.locator(`[data-run-scenario="${input.scenario}"]`).click();
     await waitForLargeContentScenario(page, input.scenario);
-    await page.locator("[data-reset-scenario]").evaluate((element: HTMLButtonElement) => element.click());
+    await page
+      .locator("[data-reset-scenario]")
+      .evaluate((element: HTMLButtonElement) => element.click());
     await page.locator('[aria-label="Warm viewport reader"]').waitFor();
 
     const cdp = await page.context().newCDPSession(page);
@@ -1176,9 +1163,11 @@ async function sampleLargeContentScenario(input: {
       transferMode: "ReturnAsStream",
     });
     await page.evaluate(() => {
-      const state = (window as unknown as {
-        __nodexLargeContentPerformance: { longTasks: number[] };
-      }).__nodexLargeContentPerformance;
+      const state = (
+        window as unknown as {
+          __nodexLargeContentPerformance: { longTasks: number[] };
+        }
+      ).__nodexLargeContentPerformance;
       state.longTasks.length = 0;
     });
 
@@ -1187,9 +1176,11 @@ async function sampleLargeContentScenario(input: {
     await page.waitForTimeout(300);
 
     const rendererMetrics = await page.evaluate(() => {
-      const state = (window as unknown as {
-        __nodexLargeContentPerformance: { longTasks: number[] };
-      }).__nodexLargeContentPerformance;
+      const state = (
+        window as unknown as {
+          __nodexLargeContentPerformance: { longTasks: number[] };
+        }
+      ).__nodexLargeContentPerformance;
       return {
         domNodes: document.getElementsByTagName("*").length,
         maxLongTaskMs: Math.max(0, ...state.longTasks),
@@ -1197,7 +1188,7 @@ async function sampleLargeContentScenario(input: {
     });
     const trace = await finishTrace(cdp);
     await cdp.send("Accessibility.enable");
-    const accessibilityTree = await cdp.send("Accessibility.getFullAXTree") as {
+    const accessibilityTree = (await cdp.send("Accessibility.getFullAXTree")) as {
       nodes?: unknown[];
     };
     await cdp.send("Accessibility.disable");
@@ -1224,718 +1215,766 @@ async function sampleLargeContentScenario(input: {
 test.describe("parallel functional Electron smoke", () => {
   test.describe.configure({ mode: process.env.CI ? "parallel" : "default" });
 
-test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({
-    label: "initial-project-restart",
-  });
-  const { initialProjectsDirectory: projectsDirectory, nodexHome } = harness.profile;
-  try {
-    const firstWindow = await harness.launch();
+  test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({
+      label: "initial-project-restart",
+    });
+    const { initialProjectsDirectory: projectsDirectory, nodexHome } = harness.profile;
+    try {
+      const firstWindow = await harness.launch();
 
-    await expect.poll(async () => {
-      return await firstWindow.evaluate(async () => {
-        const projects = await window.api?.invoke("projects:list") as {
-          items?: unknown[];
-        } | undefined;
-        return projects?.items?.length ?? 0;
-      });
-    }).toBe(1);
-    await expect(firstWindow.getByRole("heading", {
-      name: "Select a project",
-    })).toHaveCount(0);
+      await expect
+        .poll(async () => {
+          return await firstWindow.evaluate(async () => {
+            const projects = (await window.api?.invoke("projects:list")) as
+              | {
+                  items?: unknown[];
+                }
+              | undefined;
+            return projects?.items?.length ?? 0;
+          });
+        })
+        .toBe(1);
+      await expect(
+        firstWindow.getByRole("heading", {
+          name: "Select a project",
+        }),
+      ).toHaveCount(0);
 
-    const firstState = await firstWindow.evaluate(async () => {
-      const projects = await window.api?.invoke("projects:list") as {
-        items?: Array<{
-          id: string;
-          name: string;
-          primaryWorkspaceRoot: string | null;
-        }>;
-      } | undefined;
-      const bootstrap = await window.api?.invoke("window-sessions:bootstrap") as {
-        session?: {
-          layout?: {
-            location?: {
-              kind?: string;
-              projectId?: string;
-            };
-            scenesByOwnerKey?: Record<string, {
-              primary?: {
-                kind?: string;
-              };
-              panelSurfacesById?: Record<string, {
-                kind?: string;
-                config?: { pageId?: string };
+      const firstState = await firstWindow.evaluate(async () => {
+        const projects = (await window.api?.invoke("projects:list")) as
+          | {
+              items?: Array<{
+                id: string;
+                name: string;
+                primaryWorkspaceRoot: string | null;
               }>;
-              panels?: {
-                right?: {
-                  collapsed?: boolean;
-                  size?: { fullWidth?: boolean };
-                  layout?: {
-                    root?: { activeTabId?: string | null };
+            }
+          | undefined;
+        const bootstrap = (await window.api?.invoke("window-sessions:bootstrap")) as
+          | {
+              session?: {
+                layout?: {
+                  location?: {
+                    kind?: string;
+                    projectId?: string;
                   };
+                  scenesByOwnerKey?: Record<
+                    string,
+                    {
+                      primary?: {
+                        kind?: string;
+                      };
+                      panelSurfacesById?: Record<
+                        string,
+                        {
+                          kind?: string;
+                          config?: { pageId?: string };
+                        }
+                      >;
+                      panels?: {
+                        right?: {
+                          collapsed?: boolean;
+                          size?: { fullWidth?: boolean };
+                          layout?: {
+                            root?: { activeTabId?: string | null };
+                          };
+                        };
+                      };
+                    }
+                  >;
                 };
               };
-            }>;
-          };
-        };
-      } | undefined;
-      return { projects, bootstrap };
-    });
-    const createdProject = firstState.projects?.items?.[0];
-    expect(createdProject).toMatchObject({ name: "My Project" });
-    expect(createdProject?.primaryWorkspaceRoot).toBe(
-      path.join(projectsDirectory, "My Project"),
-    );
-    expect(fs.realpathSync(createdProject?.primaryWorkspaceRoot ?? "")).toBe(
-      fs.realpathSync(path.join(projectsDirectory, "My Project")),
-    );
+            }
+          | undefined;
+        return { projects, bootstrap };
+      });
+      const createdProject = firstState.projects?.items?.[0];
+      expect(createdProject).toMatchObject({ name: "My Project" });
+      expect(createdProject?.primaryWorkspaceRoot).toBe(path.join(projectsDirectory, "My Project"));
+      expect(fs.realpathSync(createdProject?.primaryWorkspaceRoot ?? "")).toBe(
+        fs.realpathSync(path.join(projectsDirectory, "My Project")),
+      );
 
-    const layout = firstState.bootstrap?.session?.layout;
-    expect(layout?.location).toMatchObject({
-      kind: "project",
-      projectId: createdProject?.id,
-    });
-    const projectScene = createdProject?.id
-      ? layout?.scenesByOwnerKey?.[`project:${createdProject.id}`]
-      : undefined;
-    expect(projectScene?.primary?.kind).toBe("db_view");
-    const surfaces = Object.values(projectScene?.panelSurfacesById ?? {});
-    expect(surfaces.map((surface) => surface.kind)).toEqual(["page_stage"]);
-    expect(projectScene?.panels?.right).toMatchObject({
-      collapsed: false,
-      size: { fullWidth: true },
-    });
-    const activeRightTabId = projectScene?.panels?.right?.layout?.root
-      ?.activeTabId;
-    expect(
-      activeRightTabId
-        ? projectScene?.panelSurfacesById?.[activeRightTabId]?.kind
-        : undefined,
-    ).toBe("page_stage");
-    const starterPageId = surfaces.find((surface) => surface.kind === "page_stage")
-      ?.config?.pageId;
-    expect(starterPageId).toBeTruthy();
+      const layout = firstState.bootstrap?.session?.layout;
+      expect(layout?.location).toMatchObject({
+        kind: "project",
+        projectId: createdProject?.id,
+      });
+      const projectScene = createdProject?.id
+        ? layout?.scenesByOwnerKey?.[`project:${createdProject.id}`]
+        : undefined;
+      expect(projectScene?.primary?.kind).toBe("db_view");
+      const surfaces = Object.values(projectScene?.panelSurfacesById ?? {});
+      expect(surfaces.map((surface) => surface.kind)).toEqual(["page_stage"]);
+      expect(projectScene?.panels?.right).toMatchObject({
+        collapsed: false,
+        size: { fullWidth: true },
+      });
+      const activeRightTabId = projectScene?.panels?.right?.layout?.root?.activeTabId;
+      expect(
+        activeRightTabId ? projectScene?.panelSurfacesById?.[activeRightTabId]?.kind : undefined,
+      ).toBe("page_stage");
+      const starterPageId = surfaces.find((surface) => surface.kind === "page_stage")?.config
+        ?.pageId;
+      expect(starterPageId).toBeTruthy();
 
-    const pageDetail = await firstWindow.evaluate(async ({ projectId, pageId }) => {
-      return await window.api?.invoke("pages:detail:get", projectId, pageId);
-    }, {
-      projectId: createdProject?.id ?? "",
-      pageId: starterPageId ?? "",
-    });
-    expect(pageDetail).toMatchObject({
-      ok: true,
-      value: {
-        page: {
-          title: "Welcome to Nodex",
+      const pageDetail = await firstWindow.evaluate(
+        async ({ projectId, pageId }) => {
+          return await window.api?.invoke("pages:detail:get", projectId, pageId);
         },
-        document: {
-          readiness: "ready",
+        {
+          projectId: createdProject?.id ?? "",
+          pageId: starterPageId ?? "",
         },
-      },
-    });
-    expect((pageDetail as {
-      value?: { page?: { plainText?: string } };
-    }).value?.page?.plainText).toContain("Connect your model");
-    expect((pageDetail as {
-      value?: { page?: { plainText?: string } };
-    }).value?.page?.plainText).toContain(
-      createdProject?.primaryWorkspaceRoot,
-    );
+      );
+      expect(pageDetail).toMatchObject({
+        ok: true,
+        value: {
+          page: {
+            title: "Welcome to Nodex",
+          },
+          document: {
+            readiness: "ready",
+          },
+        },
+      });
+      expect(
+        (
+          pageDetail as {
+            value?: { page?: { plainText?: string } };
+          }
+        ).value?.page?.plainText,
+      ).toContain("Connect your model");
+      expect(
+        (
+          pageDetail as {
+            value?: { page?: { plainText?: string } };
+          }
+        ).value?.page?.plainText,
+      ).toContain(createdProject?.primaryWorkspaceRoot);
 
-    expect(fs.existsSync(path.join(
-      nodexHome,
-      "recovery",
-      "initial-project-v2.json",
-    ))).toBe(false);
-    expect(fs.existsSync(path.join(
-      createdProject?.primaryWorkspaceRoot ?? "",
-      ".nodex-initial-project-v2.json",
-    ))).toBe(false);
+      expect(fs.existsSync(path.join(nodexHome, "recovery", "initial-project-v2.json"))).toBe(
+        false,
+      );
+      expect(
+        fs.existsSync(
+          path.join(createdProject?.primaryWorkspaceRoot ?? "", ".nodex-initial-project-v2.json"),
+        ),
+      ).toBe(false);
 
-    const restartedWindow = await harness.restart();
+      const restartedWindow = await harness.restart();
 
-    const persisted = await restartedWindow.evaluate(async () => {
-      const projects = await window.api?.invoke("projects:list");
-      const bootstrap = await window.api?.invoke("window-sessions:bootstrap");
-      return { projects, bootstrap };
-    });
-    expect((persisted as {
-      projects?: { items?: unknown[] };
-    }).projects?.items).toEqual([
-      expect.objectContaining({
-        id: createdProject?.id,
-        name: "My Project",
-        primaryWorkspaceRoot: createdProject?.primaryWorkspaceRoot,
-      }),
-    ]);
-    expect((persisted as {
-      bootstrap?: { session?: { layout?: { location?: unknown } } };
-    }).bootstrap?.session?.layout?.location).toMatchObject({
-      kind: "project",
-      projectId: createdProject?.id,
-    });
-    await expect(restartedWindow.getByRole("heading", {
-      name: "Select a project",
-    })).toHaveCount(0);
-  } finally {
-    await harness.close();
-  }
-});
-
-test("New Chat reuses its default draft and opens a pre-thread Terminal", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "new-chat" });
-  try {
-    const page = await harness.launch();
-    await expect.poll(async () => {
-      const projects = await invokeIpc(page, "projects:list") as {
-        items?: unknown[];
-      } | undefined;
-      return projects?.items?.length ?? 0;
-    }).toBe(1);
-    const projects = await invokeIpc(page, "projects:list") as {
-      items: Array<{
-        id: string;
-        primaryWorkspaceRoot: string | null;
-      }>;
-    };
-    const project = projects.items[0];
-    if (!project?.primaryWorkspaceRoot) {
-      throw new Error("Initial Project workspace is unavailable");
+      const persisted = await restartedWindow.evaluate(async () => {
+        const projects = await window.api?.invoke("projects:list");
+        const bootstrap = await window.api?.invoke("window-sessions:bootstrap");
+        return { projects, bootstrap };
+      });
+      expect(
+        (
+          persisted as {
+            projects?: { items?: unknown[] };
+          }
+        ).projects?.items,
+      ).toEqual([
+        expect.objectContaining({
+          id: createdProject?.id,
+          name: "My Project",
+          primaryWorkspaceRoot: createdProject?.primaryWorkspaceRoot,
+        }),
+      ]);
+      expect(
+        (
+          persisted as {
+            bootstrap?: { session?: { layout?: { location?: unknown } } };
+          }
+        ).bootstrap?.session?.layout?.location,
+      ).toMatchObject({
+        kind: "project",
+        projectId: createdProject?.id,
+      });
+      await expect(
+        restartedWindow.getByRole("heading", {
+          name: "Select a project",
+        }),
+      ).toHaveCount(0);
+    } finally {
+      await harness.close();
     }
+  });
 
-    const newChat = page.getByRole("button", { name: "New chat" }).first();
-    await newChat.click();
-    const readSessions = async () => (await invokeIpc(
-      page,
-      "workspace:tasks:list",
-      project.id,
-      { first: 50 },
-    ) as {
-      items: Array<{ id: string; thread: unknown | null }>;
-    }).items;
-    await expect.poll(async () => (await readSessions()).length).toBe(1);
-    const firstSessionId = (await readSessions())[0]?.id;
-    expect(firstSessionId).toBeTruthy();
-
-    const prompt = page.locator(
-      '[contenteditable="true"][aria-label="Do anything"]',
-    );
-    await prompt.fill("Keep this prepared prompt");
-    await newChat.click();
-    await expect(prompt).toHaveText("Keep this prepared prompt");
-    const repeatedSessions = await readSessions();
-    expect(repeatedSessions).toHaveLength(1);
-    expect(repeatedSessions[0]?.id).toBe(firstSessionId);
-    expect(repeatedSessions[0]?.thread).toBeNull();
-
-    const bottomPanelToggle = page.getByRole("button", { name: "Toggle bottom panel" });
-    await bottomPanelToggle.click();
-    await expect(bottomPanelToggle).toHaveAttribute("aria-pressed", "true");
-    const terminalSurface = page.locator(".xterm-screen").last();
-    await expect(terminalSurface).toBeVisible();
-    const terminalRows = page.locator(".xterm-rows").last();
-    await expect.poll(
-      async () => (await terminalRows.textContent())?.trim() ?? "",
-      { timeout: 30_000 },
-    ).not.toBe("");
-    await terminalSurface.click();
-    const terminalInput = page.getByRole("textbox", { name: "Terminal input" });
-    await expect(terminalInput).toBeFocused();
-    await page.keyboard.type("pwd", { delay: 20 });
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (
-      await terminalRows.textContent()
-    ) ?? "", { timeout: 30_000 }).toContain(project.primaryWorkspaceRoot);
-  } finally {
-    await harness.close();
-  }
-});
-
-test("creates and draws in an inline Canvas without taking over the Page", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "canvas" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
-    await page.evaluate(
-      async ({ name, source }) =>
-        window.api?.invoke("projects:create", { name, sources: [source] }),
-      { name: "Canvas workflow", source: workspace },
-    );
-
-    await page.getByRole("button", {
-      name: "Open Canvas workflow",
-      exact: true,
-    }).click();
-    await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    await page.getByRole("button", { name: "New Page or Database" }).click({
-      force: true,
-    });
-    await page.getByRole("menuitem", { name: "Page" }).click();
-    await page.getByRole("button", { name: "Page actions" }).waitFor();
-
-    await page
-      .getByRole("button", { name: "Actions for Untitled" })
-      .last()
-      .click();
-    await page.getByRole("menuitem", { name: "Open in Project…" }).click();
-    await page.getByRole("button", { name: "Grant and open" }).click();
-
-    const editor = page
-      .locator('[data-page-stage-surface="true"]')
-      .getByTestId("page-stage-scroll-container")
-      .locator(".nfm-editor .ProseMirror[contenteditable=true]")
-      .first();
-    await editor.click();
-    await page.keyboard.type("/canvas");
-    await page.evaluate(() => {
-      const state = window as typeof window & {
-        __canvasPendingObserved?: boolean;
+  test("New Chat reuses its default draft and opens a pre-thread Terminal", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "new-chat" });
+    try {
+      const page = await harness.launch();
+      await expect
+        .poll(async () => {
+          const projects = (await invokeIpc(page, "projects:list")) as
+            | {
+                items?: unknown[];
+              }
+            | undefined;
+          return projects?.items?.length ?? 0;
+        })
+        .toBe(1);
+      const projects = (await invokeIpc(page, "projects:list")) as {
+        items: Array<{
+          id: string;
+          primaryWorkspaceRoot: string | null;
+        }>;
       };
-      state.__canvasPendingObserved = false;
-      const observer = new MutationObserver(() => {
-        if (!document.querySelector("[data-canvas-create-pending]")) return;
-        state.__canvasPendingObserved = true;
-        observer.disconnect();
+      const project = projects.items[0];
+      if (!project?.primaryWorkspaceRoot) {
+        throw new Error("Initial Project workspace is unavailable");
+      }
+
+      const newChat = page.getByRole("button", { name: "New chat" }).first();
+      await newChat.click();
+      const readSessions = async () =>
+        (
+          (await invokeIpc(page, "workspace:tasks:list", project.id, { first: 50 })) as {
+            items: Array<{ id: string; thread: unknown | null }>;
+          }
+        ).items;
+      await expect.poll(async () => (await readSessions()).length).toBe(1);
+      const firstSessionId = (await readSessions())[0]?.id;
+      expect(firstSessionId).toBeTruthy();
+
+      const prompt = page.locator('[contenteditable="true"][aria-label="Do anything"]');
+      await prompt.fill("Keep this prepared prompt");
+      await newChat.click();
+      await expect(prompt).toHaveText("Keep this prepared prompt");
+      const repeatedSessions = await readSessions();
+      expect(repeatedSessions).toHaveLength(1);
+      expect(repeatedSessions[0]?.id).toBe(firstSessionId);
+      expect(repeatedSessions[0]?.thread).toBeNull();
+
+      const bottomPanelToggle = page.getByRole("button", { name: "Toggle bottom panel" });
+      await bottomPanelToggle.click();
+      await expect(bottomPanelToggle).toHaveAttribute("aria-pressed", "true");
+      const terminalSurface = page.locator(".xterm-screen").last();
+      await expect(terminalSurface).toBeVisible();
+      const terminalRows = page.locator(".xterm-rows").last();
+      await expect
+        .poll(async () => (await terminalRows.textContent())?.trim() ?? "", { timeout: 30_000 })
+        .not.toBe("");
+      await terminalSurface.click();
+      const terminalInput = page.getByRole("textbox", { name: "Terminal input" });
+      await expect(terminalInput).toBeFocused();
+      await page.keyboard.type("pwd", { delay: 20 });
+      await page.keyboard.press("Enter");
+      await expect
+        .poll(async () => (await terminalRows.textContent()) ?? "", { timeout: 30_000 })
+        .toContain(project.primaryWorkspaceRoot);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("creates and draws in an inline Canvas without taking over the Page", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "canvas" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      await page.evaluate(
+        async ({ name, source }) =>
+          window.api?.invoke("projects:create", { name, sources: [source] }),
+        { name: "Canvas workflow", source: workspace },
+      );
+
+      await page
+        .getByRole("button", {
+          name: "Open Canvas workflow",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      await page.getByRole("button", { name: "New Page or Database" }).click({
+        force: true,
       });
-      observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-      });
-    });
-    await page.getByRole("option", { name: /Canvas/ }).click();
-    await expect.poll(
-      () => page.evaluate(() =>
-        (window as typeof window & {
+      await page.getByRole("menuitem", { name: "Page" }).click();
+      await page.getByRole("button", { name: "Page actions" }).waitFor();
+
+      await page.getByRole("button", { name: "Actions for Untitled" }).last().click();
+      await page.getByRole("menuitem", { name: "Open in Project…" }).click();
+      await page.getByRole("button", { name: "Grant and open" }).click();
+
+      const editor = page
+        .locator('[data-page-stage-surface="true"]')
+        .getByTestId("page-stage-scroll-container")
+        .locator(".nfm-editor .ProseMirror[contenteditable=true]")
+        .first();
+      await editor.click();
+      await page.keyboard.type("/canvas");
+      await page.evaluate(() => {
+        const state = window as typeof window & {
           __canvasPendingObserved?: boolean;
-        }).__canvasPendingObserved === true
-      ),
-    ).toBe(true);
-    const canvasBlock = page.locator("[data-canvas-block]").first();
-    await expect(canvasBlock).toBeVisible({ timeout: 5_000 });
-    await expect(canvasBlock).toHaveAttribute(
-      "data-canvas-block-active",
-      "true",
-      { timeout: 15_000 },
-    );
-    await expect(
-      canvasBlock.locator("[data-canvas-create-pending]"),
-    ).toHaveCount(0);
-    const boundary = canvasBlock.locator(
-      '[data-excalidraw-embed-boundary="inline"]',
-    );
-    await expect(boundary.locator(".excalidraw")).toBeVisible();
+        };
+        state.__canvasPendingObserved = false;
+        const observer = new MutationObserver(() => {
+          if (!document.querySelector("[data-canvas-create-pending]")) return;
+          state.__canvasPendingObserved = true;
+          observer.disconnect();
+        });
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+        });
+      });
+      await page.getByRole("option", { name: /Canvas/ }).click();
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (
+                window as typeof window & {
+                  __canvasPendingObserved?: boolean;
+                }
+              ).__canvasPendingObserved === true,
+          ),
+        )
+        .toBe(true);
+      const canvasBlock = page.locator("[data-canvas-block]").first();
+      await expect(canvasBlock).toBeVisible({ timeout: 5_000 });
+      await expect(canvasBlock).toHaveAttribute("data-canvas-block-active", "true", {
+        timeout: 15_000,
+      });
+      await expect(canvasBlock.locator("[data-canvas-create-pending]")).toHaveCount(0);
+      const boundary = canvasBlock.locator('[data-excalidraw-embed-boundary="inline"]');
+      await expect(boundary.locator(".excalidraw")).toBeVisible();
 
-    const pageActions = page.getByRole("button", { name: "Page actions" });
-    const actionsBox = await pageActions.boundingBox();
-    if (!actionsBox) throw new Error("Page actions have no layout box");
-    const pageActionsHitBoundary = await page.evaluate(({ x, y }) => {
-      const hit = document.elementFromPoint(x, y);
-      return hit
-        ?.closest("[data-excalidraw-embed-boundary]")
-        ?.getAttribute("data-excalidraw-embed-boundary") ?? null;
-    }, {
-      x: actionsBox.x + actionsBox.width / 2,
-      y: actionsBox.y + actionsBox.height / 2,
-    });
-    expect(pageActionsHitBoundary).toBeNull();
-    await pageActions.click();
-    await page.keyboard.press("Escape");
+      const pageActions = page.getByRole("button", { name: "Page actions" });
+      const actionsBox = await pageActions.boundingBox();
+      if (!actionsBox) throw new Error("Page actions have no layout box");
+      const pageActionsHitBoundary = await page.evaluate(
+        ({ x, y }) => {
+          const hit = document.elementFromPoint(x, y);
+          return (
+            hit
+              ?.closest("[data-excalidraw-embed-boundary]")
+              ?.getAttribute("data-excalidraw-embed-boundary") ?? null
+          );
+        },
+        {
+          x: actionsBox.x + actionsBox.width / 2,
+          y: actionsBox.y + actionsBox.height / 2,
+        },
+      );
+      expect(pageActionsHitBoundary).toBeNull();
+      await pageActions.click();
+      await page.keyboard.press("Escape");
 
-    const canvasId = await canvasBlock.getAttribute("data-canvas-block");
-    if (!canvasId) throw new Error("Canvas block has no owner identity");
-    const readCanvasHead = async (): Promise<number> =>
-      await page.evaluate(async ({ targetCanvasId }) => {
-        const raw = await window.api?.invoke(
+      const canvasId = await canvasBlock.getAttribute("data-canvas-block");
+      if (!canvasId) throw new Error("Canvas block has no owner identity");
+      const readCanvasHead = async (): Promise<number> =>
+        await page.evaluate(
+          async ({ targetCanvasId }) => {
+            const raw = (await window.api?.invoke(
+              "library-module:read",
+              { kind: "library" },
+              {
+                read: { mode: "canvas_target", canvasId: targetCanvasId },
+              },
+            )) as
+              | {
+                  ok?: boolean;
+                  value?: {
+                    value?: {
+                      kind?: string;
+                      value?: {
+                        status?: string;
+                        summary?: { documentHeadSeq?: number };
+                      };
+                    };
+                  };
+                }
+              | undefined;
+            const target = raw?.value?.value;
+            if (
+              !raw?.ok ||
+              target?.kind !== "canvas_target" ||
+              target.value?.status !== "available"
+            ) {
+              return -1;
+            }
+            return target.value.summary?.documentHeadSeq ?? -1;
+          },
+          {
+            targetCanvasId: canvasId,
+          },
+        );
+      const initialHead = await readCanvasHead();
+
+      const rectangleTool = boundary.getByRole("radio", { name: /Rectangle/ });
+      await rectangleTool.check({ force: true });
+      const interactiveCanvas = boundary.locator("canvas.excalidraw__canvas.interactive");
+      const canvasBox = await interactiveCanvas.boundingBox();
+      if (!canvasBox) throw new Error("Interactive Canvas has no layout box");
+      await page.mouse.move(
+        canvasBox.x + canvasBox.width * 0.35,
+        canvasBox.y + canvasBox.height * 0.55,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        canvasBox.x + canvasBox.width * 0.55,
+        canvasBox.y + canvasBox.height * 0.72,
+        { steps: 5 },
+      );
+      await page.mouse.up();
+
+      await expect.poll(readCanvasHead, { timeout: 10_000 }).toBeGreaterThan(initialHead);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("converges a Move to operation in the live standalone Pages projection", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "move-convergence" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+
+      const project = await createConvergenceProject(page, "Move convergence", workspace);
+      const source = await createConvergencePage(page, project, "Source Page");
+      const target = await createConvergencePage(page, project, "Target Page");
+
+      await page
+        .getByRole("button", {
+          name: "Open Move convergence",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      await page
+        .getByRole("button", {
+          name: "Actions for Source Page",
+          exact: true,
+        })
+        .click();
+      const moveItem = page.getByRole("menuitem", { name: "Move to", exact: true });
+      await moveItem.focus();
+      await page.keyboard.press("ArrowRight");
+      const moveSearch = page.getByRole("combobox", { name: "Move Source Page to" });
+      await expect(moveSearch).toBeVisible();
+      await moveSearch.fill("Target Page");
+      await page
+        .locator('[role="option"]:not([aria-disabled="true"])')
+        .filter({ hasText: "Target Page" })
+        .first()
+        .click();
+      await expect(moveSearch).toBeHidden();
+
+      // The source must disappear from the mounted sidebar without reopening the
+      // Project or manually refreshing the Library.
+      await expect
+        .poll(
+          async () =>
+            await page
+              .getByRole("button", {
+                name: "Actions for Source Page",
+                exact: true,
+              })
+              .count(),
+          { timeout: 5_000 },
+        )
+        .toBe(0);
+      await expect(
+        page.getByRole("button", {
+          name: "Actions for Target Page",
+          exact: true,
+        }),
+      ).toBeVisible();
+
+      const pathSnapshot = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(
+          page,
           "library-module:read",
           { kind: "library" },
           {
-            read: { mode: "canvas_target", canvasId: targetCanvasId },
+            read: { mode: "path", target: { kind: "page", pageId: source.pageId } },
           },
-        ) as {
-          ok?: boolean;
-          value?: {
-            value?: {
-              kind?: string;
-              value?: {
-                status?: string;
-                summary?: { documentHeadSeq?: number };
-              };
-            };
-          };
-        } | undefined;
-        const target = raw?.value?.value;
-        if (
-          !raw?.ok
-          || target?.kind !== "canvas_target"
-          || target.value?.status !== "available"
-        ) {
-          return -1;
-        }
-        return target.value.summary?.documentHeadSeq ?? -1;
-      }, {
-        targetCanvasId: canvasId,
-      });
-    const initialHead = await readCanvasHead();
-
-    const rectangleTool = boundary.getByRole("radio", { name: /Rectangle/ });
-    await rectangleTool.check({ force: true });
-    const interactiveCanvas = boundary.locator(
-      "canvas.excalidraw__canvas.interactive",
-    );
-    const canvasBox = await interactiveCanvas.boundingBox();
-    if (!canvasBox) throw new Error("Interactive Canvas has no layout box");
-    await page.mouse.move(
-      canvasBox.x + canvasBox.width * 0.35,
-      canvasBox.y + canvasBox.height * 0.55,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      canvasBox.x + canvasBox.width * 0.55,
-      canvasBox.y + canvasBox.height * 0.72,
-      { steps: 5 },
-    );
-    await page.mouse.up();
-
-    await expect.poll(readCanvasHead, { timeout: 10_000 }).toBeGreaterThan(
-      initialHead,
-    );
-  } finally {
-    await harness.close();
-  }
-});
-
-test("converges a Move to operation in the live standalone Pages projection", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "move-convergence" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
-
-    const project = await createConvergenceProject(
-      page,
-      "Move convergence",
-      workspace,
-    );
-    const source = await createConvergencePage(page, project, "Source Page");
-    const target = await createConvergencePage(page, project, "Target Page");
-
-    await page.getByRole("button", {
-      name: "Open Move convergence",
-      exact: true,
-    }).click();
-    await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    await page.getByRole("button", {
-      name: "Actions for Source Page",
-      exact: true,
-    }).click();
-    const moveItem = page.getByRole("menuitem", { name: "Move to", exact: true });
-    await moveItem.focus();
-    await page.keyboard.press("ArrowRight");
-    const moveSearch = page.getByRole("combobox", { name: "Move Source Page to" });
-    await expect(moveSearch).toBeVisible();
-    await moveSearch.fill("Target Page");
-    await page.locator('[role="option"]:not([aria-disabled="true"])')
-      .filter({ hasText: "Target Page" })
-      .first()
-      .click();
-    await expect(moveSearch).toBeHidden();
-
-    // The source must disappear from the mounted sidebar without reopening the
-    // Project or manually refreshing the Library.
-    await expect.poll(
-      async () =>
-        await page.getByRole("button", {
-          name: "Actions for Source Page",
-          exact: true,
-        }).count(),
-      { timeout: 5_000 },
-    ).toBe(0);
-    await expect(page.getByRole("button", {
-      name: "Actions for Target Page",
-      exact: true,
-    })).toBeVisible();
-
-    const pathSnapshot = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "library-module:read",
-        { kind: "library" },
-        {
-          read: { mode: "path", target: { kind: "page", pageId: source.pageId } },
-        },
-      ),
-      "Read moved Page path",
-    );
-    const pathValue = pathSnapshot.value;
-    if (!isRecord(pathValue) || pathValue.kind !== "path" || !Array.isArray(pathValue.nodes)) {
-      throw new Error("Moved Page path read returned an unexpected value");
-    }
-    expect(pathValue.nodes.map((node) => isRecord(node) ? node.pageId : undefined)).toEqual([
-      target.pageId,
-      source.pageId,
-    ]);
-  } finally {
-    await harness.close();
-  }
-});
-
-test("creates one stable Board Page and edits its grouping Property @create-modal-smoke @property-menu-smoke", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "create-modal" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
-
-    const project = await createConvergenceProject(
-      page,
-      "Create modal convergence",
-      workspace,
-    );
-    await page.getByRole("button", {
-      name: "Open Create modal convergence",
-      exact: true,
-    }).click();
-    await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const triageColumn = page.locator(
-      '[data-board-column-root][data-board-column-id="triage"]',
-    );
-    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
-
-    const createButton = triageColumn.locator(
-      '[data-page-create-trigger="auto-collapsed-column"]',
-    );
-    await expect(createButton).toHaveAttribute("aria-disabled", "false", {
-      timeout: 15_000,
-    });
-    await createButton.click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel("Page title").fill("Modal-created Page");
-
-    await page.evaluate(() => {
-      const state = window as typeof window & {
-        __createModalFrameCounts?: number[];
-        __createModalFrameObserverActive?: boolean;
-      };
-      state.__createModalFrameCounts = [];
-      state.__createModalFrameObserverActive = true;
-      const sample = () => {
-        if (!state.__createModalFrameObserverActive) return;
-        const count = [...document.querySelectorAll(
-          '[data-board-column-root][data-board-column-id="triage"] [data-board-uuid-v7]',
-        )].filter((card) => card.textContent?.includes("Modal-created Page")).length;
-        if (count > 0 || state.__createModalFrameCounts?.length) {
-          state.__createModalFrameCounts?.push(count);
-        }
-        requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
-    });
-
-    await dialog.getByRole("button", { name: "Create page", exact: true }).click();
-    await expect(dialog).toHaveCount(0);
-    const createdCard = triageColumn.locator("[data-board-uuid-v7]").filter({
-      hasText: "Modal-created Page",
-    });
-    await expect(createdCard).toHaveCount(1, { timeout: 15_000 });
-    const createdPageId = requireString(
-      await createdCard.getAttribute("data-board-uuid-v7"),
-      "Modal-created Page id",
-    );
-    await expect.poll(
-      async () => await readConvergenceBoardTotal(page, project),
-      { timeout: 15_000 },
-    ).toBe(1);
-    await page.evaluate(async () => {
-      await new Promise<void>((resolve) => {
-        let remaining = 8;
-        const next = () => {
-          remaining -= 1;
-          if (remaining === 0) {
-            resolve();
-            return;
-          }
-          requestAnimationFrame(next);
-        };
-        requestAnimationFrame(next);
-      });
-      (window as typeof window & {
-        __createModalFrameObserverActive?: boolean;
-      }).__createModalFrameObserverActive = false;
-    });
-    const frameCounts = await page.evaluate(() =>
-      (window as typeof window & {
-        __createModalFrameCounts?: number[];
-      }).__createModalFrameCounts ?? []
-    );
-    expect(frameCounts.length).toBeGreaterThan(0);
-    expect(new Set(frameCounts)).toEqual(new Set([1]));
-    await expect(createdCard).toHaveCount(1);
-
-    await createdCard.locator('[data-card-context-menu-trigger="true"]')
-      .click({ button: "right" });
-    const tagsItem = page.getByRole("menuitem", { name: /Tags/ });
-    await expect(tagsItem).toBeVisible();
-    await tagsItem.click();
-    const tagsSearch = page.getByRole("combobox", { name: "Search Tags options" });
-    await expect(tagsSearch).toBeVisible();
-    await tagsSearch.fill("Context created");
-    const createTag = page.getByRole("button", { name: "Create “Context created”" });
-    await expect(createTag).toBeVisible();
-    await createTag.click();
-    await expect(page.getByLabel("Selected Tags").getByText("Context created", {
-      exact: true,
-    })).toBeVisible({ timeout: 15_000 });
-    await tagsSearch.press("Escape");
-    await expect(tagsSearch).toHaveCount(0);
-
-    await createdCard.locator('[data-card-context-menu-trigger="true"]')
-      .click({ button: "right" });
-    const assigneeItem = page.getByRole("menuitem", { name: /Assignee/ });
-    await expect(assigneeItem).toBeVisible();
-    await assigneeItem.click();
-    const assigneeInput = page.getByRole("textbox", { name: "Assignee value" });
-    await expect(assigneeInput).toBeVisible();
-    const assigneeSubmenu = page.locator('[data-slot="context-menu-subcontent"]')
-      .filter({ has: assigneeInput });
-    await expect(assigneeSubmenu).toHaveCount(1);
-    const assigneeSubmenuGeometry = await assigneeSubmenu.evaluate((element) => {
-      const style = window.getComputedStyle(element);
-      return {
-        boxShadow: style.boxShadow,
-        clientWidth: element.clientWidth,
-        overflowX: style.overflowX,
-        scrollWidth: element.scrollWidth,
-      };
-    });
-    expect(assigneeSubmenuGeometry.boxShadow).not.toBe("none");
-    expect(assigneeSubmenuGeometry.overflowX).toBe("hidden");
-    expect(assigneeSubmenuGeometry.scrollWidth)
-      .toBeLessThanOrEqual(assigneeSubmenuGeometry.clientWidth);
-    await assigneeInput.press("Escape");
-    await expect(assigneeInput).toHaveCount(0);
-
-    await createdCard.locator('[data-card-context-menu-trigger="true"]')
-      .click({ button: "right" });
-    const dueDateItem = page.getByRole("menuitem", { name: /Due date/ });
-    await expect(dueDateItem).toBeVisible();
-    await dueDateItem.click();
-    const dueDateInput = page.getByRole("textbox", { name: "Due date date" });
-    await expect(dueDateInput).toBeVisible();
-    const dueDateSubmenu = page.getByRole("menu").filter({ has: dueDateInput });
-    await expect(dueDateSubmenu.getByText("Empty", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Edit Due date" })).toHaveCount(0);
-    await dueDateInput.press("Escape");
-    await expect(dueDateInput).toHaveCount(0);
-
-    await createdCard.locator('[data-card-context-menu-trigger="true"]')
-      .click({ button: "right" });
-    const statusItem = page.getByRole("menuitem", { name: /Status/ });
-    await expect(statusItem).toBeVisible();
-    await statusItem.click();
-    const buildOption = page.getByRole("option", { name: "Build", exact: true });
-    await expect(buildOption).toBeVisible();
-    await buildOption.click();
-
-    const buildColumn = page.locator(
-      '[data-board-column-root][data-board-column-id="build"]',
-    );
-    await expect(buildColumn.locator("[data-board-uuid-v7]").filter({
-      hasText: "Modal-created Page",
-    })).toHaveCount(1, { timeout: 15_000 });
-    await expect(createdCard).toHaveCount(0);
-    await expect.poll(
-      async () => await readConvergenceBoardTotal(page, project),
-      { timeout: 15_000 },
-    ).toBe(1);
-
-    await page.getByRole("tablist", { name: "Database views" })
-      .getByRole("tab", { name: "List", exact: true })
-      .click();
-    const listGrid = page.getByRole("grid", { name: /List$/ });
-    await expect(listGrid).toBeVisible({ timeout: 15_000 });
-    const createdRow = listGrid.locator(
-      `[data-list-row="true"][data-database-view-page-id="${createdPageId}"]`,
-    );
-    await expect(createdRow).toBeVisible();
-    const priorityItem = page.getByRole("menuitem", { name: /Priority/ });
-    const priorityOption = page.getByRole("option", { name: "P1 - High", exact: true });
-    await expect(async () => {
-      if (await priorityOption.isVisible()) return;
-      if (!(await priorityItem.isVisible())) {
-        await createdRow.click({ button: "right", timeout: 2_000 });
-        await expect(priorityItem).toBeVisible({ timeout: 2_000 });
-      }
-      await priorityItem.click({ timeout: 2_000 });
-      await expect(priorityOption).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 15_000 });
-    await priorityOption.click({ timeout: 2_000 });
-
-    await expect.poll(async () => {
-      const snapshot = requireIpcValue<Record<string, unknown>>(
-        await invokeIpc(page, "database:list-window:get", project.projectId, {
-          databaseViewId: project.defaultDatabaseViewId,
-          first: 50,
-          presentationOverride: { layout: "list" },
-        }),
-        "Read Property-edited List window",
+        ),
+        "Read moved Page path",
       );
-      if (!Array.isArray(snapshot.rows)) return null;
-      for (const occurrence of snapshot.rows) {
-        if (!isRecord(occurrence) || !isRecord(occurrence.row)) continue;
-        const row = occurrence.row;
-        if (!isRecord(row.page) || row.page.pageId !== createdPageId) continue;
-        if (!isRecord(row.values) || !isRecord(row.values.priority)) return null;
-        if (!isRecord(row.values.tags) || !Array.isArray(row.values.tags.value)) return null;
-        return {
-          priority: row.values.priority.value,
-          tagCount: row.values.tags.value.length,
-        };
+      const pathValue = pathSnapshot.value;
+      if (!isRecord(pathValue) || pathValue.kind !== "path" || !Array.isArray(pathValue.nodes)) {
+        throw new Error("Moved Page path read returned an unexpected value");
       }
-      return null;
-    }, { timeout: 15_000 }).toEqual({ priority: "p1-high", tagCount: 1 });
-  } finally {
-    await harness.close();
-  }
-});
+      expect(pathValue.nodes.map((node) => (isRecord(node) ? node.pageId : undefined))).toEqual([
+        target.pageId,
+        source.pageId,
+      ]);
+    } finally {
+      await harness.close();
+    }
+  });
 
-test("converges a Block transfer into the live Board Page projection", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "board-convergence" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
+  test("creates one stable Board Page and edits its grouping Property @create-modal-smoke @property-menu-smoke", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "create-modal" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
 
-    const project = await createConvergenceProject(
-      page,
-      "Board convergence",
-      workspace,
-    );
-    const source = await createConvergencePage(page, project, "Source Page");
-    const seeded = await seedConvergenceDocument(page, project, source);
-    const database = await readConvergenceDatabase(page, project);
+      const project = await createConvergenceProject(page, "Create modal convergence", workspace);
+      await page
+        .getByRole("button", {
+          name: "Open Create modal convergence",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const triageColumn = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await expect(triageColumn).toBeVisible({ timeout: 15_000 });
 
-    await page.getByRole("button", {
-      name: "Open Board convergence",
-      exact: true,
-    }).click();
-    await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    await expect(page.locator(
-      '[data-board-column-root][data-board-column-id="triage"]',
-    )).toBeVisible({
-      timeout: 10_000,
-    });
+      const createButton = triageColumn.locator(
+        '[data-page-create-trigger="auto-collapsed-column"]',
+      );
+      await expect(createButton).toHaveAttribute("aria-disabled", "false", {
+        timeout: 15_000,
+      });
+      await createButton.click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toBeVisible();
+      await dialog.getByLabel("Page title").fill("Modal-created Page");
 
-    const receipt = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
-        {
+      await page.evaluate(() => {
+        const state = window as typeof window & {
+          __createModalFrameCounts?: number[];
+          __createModalFrameObserverActive?: boolean;
+        };
+        state.__createModalFrameCounts = [];
+        state.__createModalFrameObserverActive = true;
+        const sample = () => {
+          if (!state.__createModalFrameObserverActive) return;
+          const count = [
+            ...document.querySelectorAll(
+              '[data-board-column-root][data-board-column-id="triage"] [data-board-uuid-v7]',
+            ),
+          ].filter((card) => card.textContent?.includes("Modal-created Page")).length;
+          if (count > 0 || state.__createModalFrameCounts?.length) {
+            state.__createModalFrameCounts?.push(count);
+          }
+          requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+
+      await dialog.getByRole("button", { name: "Create page", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      const createdCard = triageColumn.locator("[data-board-uuid-v7]").filter({
+        hasText: "Modal-created Page",
+      });
+      await expect(createdCard).toHaveCount(1, { timeout: 15_000 });
+      const createdPageId = requireString(
+        await createdCard.getAttribute("data-board-uuid-v7"),
+        "Modal-created Page id",
+      );
+      await expect
+        .poll(async () => await readConvergenceBoardTotal(page, project), { timeout: 15_000 })
+        .toBe(1);
+      await page.evaluate(async () => {
+        await new Promise<void>((resolve) => {
+          let remaining = 8;
+          const next = () => {
+            remaining -= 1;
+            if (remaining === 0) {
+              resolve();
+              return;
+            }
+            requestAnimationFrame(next);
+          };
+          requestAnimationFrame(next);
+        });
+        (
+          window as typeof window & {
+            __createModalFrameObserverActive?: boolean;
+          }
+        ).__createModalFrameObserverActive = false;
+      });
+      const frameCounts = await page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __createModalFrameCounts?: number[];
+            }
+          ).__createModalFrameCounts ?? [],
+      );
+      expect(frameCounts.length).toBeGreaterThan(0);
+      expect(new Set(frameCounts)).toEqual(new Set([1]));
+      await expect(createdCard).toHaveCount(1);
+
+      await createdCard
+        .locator('[data-card-context-menu-trigger="true"]')
+        .click({ button: "right" });
+      const tagsItem = page.getByRole("menuitem", { name: /Tags/ });
+      await expect(tagsItem).toBeVisible();
+      await tagsItem.click();
+      const tagsSearch = page.getByRole("combobox", { name: "Search Tags options" });
+      await expect(tagsSearch).toBeVisible();
+      await tagsSearch.fill("Context created");
+      const createTag = page.getByRole("button", { name: "Create “Context created”" });
+      await expect(createTag).toBeVisible();
+      await createTag.click();
+      await expect(
+        page.getByLabel("Selected Tags").getByText("Context created", {
+          exact: true,
+        }),
+      ).toBeVisible({ timeout: 15_000 });
+      await tagsSearch.press("Escape");
+      await expect(tagsSearch).toHaveCount(0);
+
+      await createdCard
+        .locator('[data-card-context-menu-trigger="true"]')
+        .click({ button: "right" });
+      const assigneeItem = page.getByRole("menuitem", { name: /Assignee/ });
+      await expect(assigneeItem).toBeVisible();
+      await assigneeItem.click();
+      const assigneeInput = page.getByRole("textbox", { name: "Assignee value" });
+      await expect(assigneeInput).toBeVisible();
+      const assigneeSubmenu = page
+        .locator('[data-slot="context-menu-subcontent"]')
+        .filter({ has: assigneeInput });
+      await expect(assigneeSubmenu).toHaveCount(1);
+      const assigneeSubmenuGeometry = await assigneeSubmenu.evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        return {
+          boxShadow: style.boxShadow,
+          clientWidth: element.clientWidth,
+          overflowX: style.overflowX,
+          scrollWidth: element.scrollWidth,
+        };
+      });
+      expect(assigneeSubmenuGeometry.boxShadow).not.toBe("none");
+      expect(assigneeSubmenuGeometry.overflowX).toBe("hidden");
+      expect(assigneeSubmenuGeometry.scrollWidth).toBeLessThanOrEqual(
+        assigneeSubmenuGeometry.clientWidth,
+      );
+      await assigneeInput.press("Escape");
+      await expect(assigneeInput).toHaveCount(0);
+
+      await createdCard
+        .locator('[data-card-context-menu-trigger="true"]')
+        .click({ button: "right" });
+      const dueDateItem = page.getByRole("menuitem", { name: /Due date/ });
+      await expect(dueDateItem).toBeVisible();
+      await dueDateItem.click();
+      const dueDateInput = page.getByRole("textbox", { name: "Due date date" });
+      await expect(dueDateInput).toBeVisible();
+      const dueDateSubmenu = page.getByRole("menu").filter({ has: dueDateInput });
+      await expect(dueDateSubmenu.getByText("Empty", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Edit Due date" })).toHaveCount(0);
+      await dueDateInput.press("Escape");
+      await expect(dueDateInput).toHaveCount(0);
+
+      await createdCard
+        .locator('[data-card-context-menu-trigger="true"]')
+        .click({ button: "right" });
+      const statusItem = page.getByRole("menuitem", { name: /Status/ });
+      await expect(statusItem).toBeVisible();
+      await statusItem.click();
+      const buildOption = page.getByRole("option", { name: "Build", exact: true });
+      await expect(buildOption).toBeVisible();
+      await buildOption.click();
+
+      const buildColumn = page.locator('[data-board-column-root][data-board-column-id="build"]');
+      await expect(
+        buildColumn.locator("[data-board-uuid-v7]").filter({
+          hasText: "Modal-created Page",
+        }),
+      ).toHaveCount(1, { timeout: 15_000 });
+      await expect(createdCard).toHaveCount(0);
+      await expect
+        .poll(async () => await readConvergenceBoardTotal(page, project), { timeout: 15_000 })
+        .toBe(1);
+
+      await page
+        .getByRole("tablist", { name: "Database views" })
+        .getByRole("tab", { name: "List", exact: true })
+        .click();
+      const listGrid = page.getByRole("grid", { name: /List$/ });
+      await expect(listGrid).toBeVisible({ timeout: 15_000 });
+      const createdRow = listGrid.locator(
+        `[data-list-row="true"][data-database-view-page-id="${createdPageId}"]`,
+      );
+      await expect(createdRow).toBeVisible();
+      const priorityItem = page.getByRole("menuitem", { name: /Priority/ });
+      const priorityOption = page.getByRole("option", { name: "P1 - High", exact: true });
+      await expect(async () => {
+        if (await priorityOption.isVisible()) return;
+        if (!(await priorityItem.isVisible())) {
+          await createdRow.click({ button: "right", timeout: 2_000 });
+          await expect(priorityItem).toBeVisible({ timeout: 2_000 });
+        }
+        await priorityItem.click({ timeout: 2_000 });
+        await expect(priorityOption).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 15_000 });
+      await priorityOption.click({ timeout: 2_000 });
+
+      await expect
+        .poll(
+          async () => {
+            const snapshot = requireIpcValue<Record<string, unknown>>(
+              await invokeIpc(page, "database:list-window:get", project.projectId, {
+                databaseViewId: project.defaultDatabaseViewId,
+                first: 50,
+                presentationOverride: { layout: "list" },
+              }),
+              "Read Property-edited List window",
+            );
+            if (!Array.isArray(snapshot.rows)) return null;
+            for (const occurrence of snapshot.rows) {
+              if (!isRecord(occurrence) || !isRecord(occurrence.row)) continue;
+              const row = occurrence.row;
+              if (!isRecord(row.page) || row.page.pageId !== createdPageId) continue;
+              if (!isRecord(row.values) || !isRecord(row.values.priority)) return null;
+              if (!isRecord(row.values.tags) || !Array.isArray(row.values.tags.value)) return null;
+              return {
+                priority: row.values.priority.value,
+                tagCount: row.values.tags.value.length,
+              };
+            }
+            return null;
+          },
+          { timeout: 15_000 },
+        )
+        .toEqual({ priority: "p1-high", tagCount: 1 });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("converges a Block transfer into the live Board Page projection", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "board-convergence" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+
+      const project = await createConvergenceProject(page, "Board convergence", workspace);
+      const source = await createConvergencePage(page, project, "Source Page");
+      const seeded = await seedConvergenceDocument(page, project, source);
+      const database = await readConvergenceDatabase(page, project);
+
+      await page
+        .getByRole("button", {
+          name: "Open Board convergence",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      await expect(
+        page.locator('[data-board-column-root][data-board-column-id="triage"]'),
+      ).toBeVisible({
+        timeout: 10_000,
+      });
+
+      const receipt = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(page, "blocks:transfer", project.projectId, {
           operationId: createUuidV7(),
           projectId: project.projectId,
           storeEpoch: project.storeEpoch,
@@ -1954,769 +1993,743 @@ test("converges a Block transfer into the live Board Page projection", async () 
             },
           },
           promotionPolicy: "literal",
+        }),
+        "Transfer Block into Board",
+      );
+      if (!Array.isArray(receipt.resultRootBlockIds)) {
+        throw new Error("Block transfer returned no result Page id");
+      }
+      const resultPageId = requireString(receipt.resultRootBlockIds[0], "Transferred Page id");
+      const commitSeq = receipt.commitSeq;
+      if (typeof commitSeq !== "number") {
+        throw new Error("Block transfer returned no change-log sequence");
+      }
+      const evidence = receipt.transformationEvidence;
+      expect(evidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "promote",
+            sourceBlockId: seeded.blockIds[1],
+            resultPageId,
+          }),
+        ]),
+      );
+
+      const detail = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(page, "pages:detail:get", project.projectId, resultPageId, commitSeq),
+        "Read transferred Page detail",
+      );
+      expect(detail.page).toMatchObject({
+        title: "Dragged source",
+        parent: {
+          kind: "data_source",
+          dataSourceId: database.dataSourceId,
         },
-      ),
-      "Transfer Block into Board",
-    );
-    if (!Array.isArray(receipt.resultRootBlockIds)) {
-      throw new Error("Block transfer returned no result Page id");
-    }
-    const resultPageId = requireString(
-      receipt.resultRootBlockIds[0],
-      "Transferred Page id",
-    );
-    const commitSeq = receipt.commitSeq;
-    if (typeof commitSeq !== "number") {
-      throw new Error("Block transfer returned no change-log sequence");
-    }
-    const evidence = receipt.transformationEvidence;
-    expect(evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "promote",
-        sourceBlockId: seeded.blockIds[1],
-        resultPageId,
-      }),
-    ]));
+      });
 
-    const detail = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
+      const card = page.locator(`[data-board-uuid-v7="${resultPageId}"]`);
+      await expect(card).toBeVisible({ timeout: 5_000 });
+      await expect(card).toContainText("Dragged source");
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("keeps the Page editor mounted while its Document commits", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "page-edit" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Page edit stability", workspace);
+      const fixturePage = await createConvergenceBoardPage(
         page,
-        "pages:detail:get",
-        project.projectId,
-        resultPageId,
-        commitSeq,
-      ),
-      "Read transferred Page detail",
-    );
-    expect(detail.page).toMatchObject({
-      title: "Dragged source",
-      parent: {
-        kind: "data_source",
-        dataSourceId: database.dataSourceId,
-      },
-    });
+        project,
+        "Stable editor Page",
+        "Existing body",
+      );
 
-    const card = page.locator(`[data-board-uuid-v7="${resultPageId}"]`);
-    await expect(card).toBeVisible({ timeout: 5_000 });
-    await expect(card).toContainText("Dragged source");
-  } finally {
-    await harness.close();
-  }
-});
+      await page
+        .getByRole("button", {
+          name: "Open Page edit stability",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const card = page.locator(`[data-board-uuid-v7="${fixturePage.pageId}"]`);
+      await expect(card).toBeVisible({ timeout: 15_000 });
+      await card.click();
+      await page.getByRole("tab", { name: "Stable editor Page" }).waitFor();
 
-test("keeps the Page editor mounted while its Document commits", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "page-edit" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
-    const project = await createConvergenceProject(
-      page,
-      "Page edit stability",
-      workspace,
-    );
-    const fixturePage = await createConvergenceBoardPage(
-      page,
-      project,
-      "Stable editor Page",
-      "Existing body",
-    );
+      const surface = page.locator('[data-page-stage-surface="true"]:visible');
+      const editor = surface.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      await expect(editor).toBeVisible({ timeout: 15_000 });
+      const detailBefore = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(page, "pages:detail:get", project.projectId, fixturePage.pageId),
+        "Read Page detail before editing",
+      );
+      const commitSeqBefore = detailBefore.commitSeq;
+      if (typeof commitSeqBefore !== "number") {
+        throw new Error("Page detail has no commit sequence before editing");
+      }
 
-    await page.getByRole("button", {
-      name: "Open Page edit stability",
-      exact: true,
-    }).click();
-    await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const card = page.locator(
-      `[data-board-uuid-v7="${fixturePage.pageId}"]`,
-    );
-    await expect(card).toBeVisible({ timeout: 15_000 });
-    await card.click();
-    await page.getByRole("tab", { name: "Stable editor Page" }).waitFor();
-
-    const surface = page.locator('[data-page-stage-surface="true"]:visible');
-    const editor = surface.locator(
-      '.nfm-editor .ProseMirror[contenteditable="true"]',
-    );
-    await expect(editor).toBeVisible({ timeout: 15_000 });
-    const detailBefore = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "pages:detail:get",
-        project.projectId,
-        fixturePage.pageId,
-      ),
-      "Read Page detail before editing",
-    );
-    const commitSeqBefore = detailBefore.commitSeq;
-    if (typeof commitSeqBefore !== "number") {
-      throw new Error("Page detail has no commit sequence before editing");
-    }
-
-    await page.evaluate(() => {
-      const target = globalThis as typeof globalThis & {
-        __nodexPageEditStability?: {
-          readonly observer: MutationObserver;
-          editorRemovals: number;
-          skeletonAdds: number;
-          titleRemovals: number;
+      await page.evaluate(() => {
+        const target = globalThis as typeof globalThis & {
+          __nodexPageEditStability?: {
+            readonly observer: MutationObserver;
+            editorRemovals: number;
+            skeletonAdds: number;
+            titleRemovals: number;
+          };
         };
-      };
-      const measurement = {
+        const measurement = {
+          editorRemovals: 0,
+          skeletonAdds: 0,
+          titleRemovals: 0,
+          observer: null as unknown as MutationObserver,
+        };
+        const contains = (node: Node, selector: string): boolean =>
+          node instanceof Element &&
+          (node.matches(selector) || node.querySelector(selector) !== null);
+        measurement.observer = new MutationObserver((records) => {
+          for (const record of records) {
+            for (const node of record.removedNodes) {
+              if (contains(node, '[aria-label="Page title"]')) {
+                measurement.titleRemovals += 1;
+              }
+              if (contains(node, '.nfm-editor .ProseMirror[contenteditable="true"]')) {
+                measurement.editorRemovals += 1;
+              }
+            }
+            for (const node of record.addedNodes) {
+              if (contains(node, '[role="status"][aria-busy="true"]')) {
+                measurement.skeletonAdds += 1;
+              }
+            }
+          }
+        });
+        measurement.observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+        });
+        target.__nodexPageEditStability = measurement;
+      });
+
+      await editor.click();
+      await page.keyboard.press("End");
+      await page.keyboard.type("x");
+      await expect
+        .poll(
+          async () => {
+            const detail = requireIpcValue<Record<string, unknown>>(
+              await invokeIpc(page, "pages:detail:get", project.projectId, fixturePage.pageId),
+              "Read Page detail after editing",
+            );
+            return detail.commitSeq;
+          },
+          { timeout: 15_000 },
+        )
+        .toBeGreaterThan(commitSeqBefore);
+      await page.waitForTimeout(100);
+
+      const measurement = await page.evaluate(() => {
+        const target = globalThis as typeof globalThis & {
+          __nodexPageEditStability?: {
+            readonly observer: MutationObserver;
+            editorRemovals: number;
+            skeletonAdds: number;
+            titleRemovals: number;
+          };
+        };
+        const current = target.__nodexPageEditStability;
+        if (!current) throw new Error("Page edit stability measurement is missing");
+        current.observer.disconnect();
+        return {
+          editorRemovals: current.editorRemovals,
+          skeletonAdds: current.skeletonAdds,
+          titleRemovals: current.titleRemovals,
+        };
+      });
+      expect(measurement).toEqual({
         editorRemovals: 0,
         skeletonAdds: 0,
         titleRemovals: 0,
-        observer: null as unknown as MutationObserver,
-      };
-      const contains = (node: Node, selector: string): boolean =>
-        node instanceof Element
-        && (node.matches(selector) || node.querySelector(selector) !== null);
-      measurement.observer = new MutationObserver((records) => {
-        for (const record of records) {
-          for (const node of record.removedNodes) {
-            if (contains(node, '[aria-label="Page title"]')) {
-              measurement.titleRemovals += 1;
-            }
-            if (contains(node, '.nfm-editor .ProseMirror[contenteditable="true"]')) {
-              measurement.editorRemovals += 1;
-            }
-          }
-          for (const node of record.addedNodes) {
-            if (contains(node, '[role="status"][aria-busy="true"]')) {
-              measurement.skeletonAdds += 1;
-            }
-          }
-        }
       });
-      measurement.observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-      });
-      target.__nodexPageEditStability = measurement;
-    });
+      await expect(editor).toBeVisible();
+    } finally {
+      await harness.close();
+    }
+  });
 
-    await editor.click();
-    await page.keyboard.press("End");
-    await page.keyboard.type("x");
-    await expect.poll(async () => {
+  test("moves selected Blocks to a DB status through the picker @move-picker-smoke", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "move-picker" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+
+      const project = await createConvergenceProject(page, "Move picker smoke", workspace);
+      const source = await createConvergenceBoardPage(
+        page,
+        project,
+        "Picker source Page",
+        "Page containing the picker move fixture",
+      );
+      await seedConvergenceDocument(
+        page,
+        project,
+        source,
+        ["Before picker sibling", "Picker promoted title", "After picker sibling"].join("\n"),
+      );
+
+      await page
+        .getByRole("button", {
+          name: "Open Move picker smoke",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const triageColumn = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+      await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(1);
+
+      await triageColumn
+        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Picker source Page" }).waitFor();
+
+      const sourcePanel = page.getByRole("tabpanel", {
+        name: /Picker source Page$/,
+      });
+      const sourceSurface = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      const sourceBlock = sourceSurface
+        .locator(".bn-block[data-id]")
+        .filter({
+          hasText: "Picker promoted title",
+        })
+        .first();
+      await expect(sourceBlock).toBeVisible({ timeout: 15_000 });
+      await sourceBlock.click();
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+/`);
+
+      await page.getByRole("dialog", { name: "Block actions" }).waitFor();
+      await page.getByRole("option", { name: /^Move to/ }).click();
+      await page.getByRole("combobox", { name: "Move blocks to" }).waitFor();
+      await page
+        .locator(
+          `[data-nfm-move-to-row-kind="db-column"]` +
+            `[data-nfm-move-to-project-id="${project.projectId}"]`,
+        )
+        .filter({ hasText: "Triage" })
+        .click();
+
+      await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(2, {
+        timeout: 15_000,
+      });
+      await expect(
+        triageColumn.locator("[data-board-uuid-v7]").filter({
+          hasText: "Picker promoted title",
+        }),
+      ).toHaveCount(1);
+      await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
+      await expect(
+        sourceSurface.locator(".bn-block[data-id]").filter({
+          hasText: "Before picker sibling",
+        }),
+      ).toHaveCount(1);
+      await expect(
+        sourceSurface.locator(".bn-block[data-id]").filter({
+          hasText: "After picker sibling",
+        }),
+      ).toHaveCount(1);
+      await expect(
+        page.getByRole("alert").filter({
+          hasText: "Something went wrong",
+        }),
+      ).toHaveCount(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  // This is the native source-gesture smoke. High-pressure tests below remain on
+  // the direct typed transfer boundary because they test transaction convergence,
+  // not the handle-to-dragover pipeline exercised here.
+  test("moves a Block into Board and List views with native DnD @dnd-smoke", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "native-dnd" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+
+      const project = await createConvergenceProject(page, "Native DnD smoke", workspace);
+      const database = await readConvergenceDatabase(page, project);
+      const firstBoardFixture = await createConvergenceBoardPage(
+        page,
+        project,
+        "Board fixture one",
+        "First existing Board Page",
+      );
+      await createConvergenceBoardPage(
+        page,
+        project,
+        "Board fixture two",
+        "Second existing Board Page",
+      );
+      const source = await createConvergenceBoardPage(
+        page,
+        project,
+        "DnD source Page",
+        "Page containing the native DnD fixture",
+      );
+      await seedConvergenceDocument(
+        page,
+        project,
+        source,
+        [
+          "Before smoke sibling",
+          "1XL(ui, unclear) DnD smoke title",
+          "\tDnD smoke first child",
+          "\tDnD smoke middle child",
+          "\tDnD smoke last child",
+        ].join("\n"),
+      );
+
+      await page
+        .getByRole("button", {
+          name: "Open Native DnD smoke",
+          exact: true,
+        })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const triageColumn = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+      await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(3, {
+        timeout: 15_000,
+      });
+
+      const sourceCard = triageColumn.locator(`[data-board-uuid-v7="${source.pageId}"]`);
+      await expect(sourceCard).toBeVisible();
+      // Opening the fixture Page is setup for the gesture under test. Dispatch
+      // the card click directly so its delayed hover tooltip cannot race and
+      // intercept Playwright's pointer action during repeat runs.
+      await sourceCard
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "DnD source Page" }).waitFor();
+      await expect(triageColumn).toBeVisible({ timeout: 15_000 });
+
+      const sourcePanel = page.getByRole("tabpanel", {
+        name: /DnD source Page$/,
+      });
+      await expect(sourcePanel).toBeVisible();
+      const sourceEditor = sourcePanel.locator(".nfm-editor");
+      const sourceSurface = sourceEditor.locator('.ProseMirror[contenteditable="true"]');
+      await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
+      const sourceBlock = sourceSurface
+        .locator(".bn-block[data-id]")
+        .filter({
+          hasText: "1XL(ui, unclear) DnD smoke title",
+        })
+        .first();
+      await expect(sourceBlock).toBeVisible();
+
+      const triageHeader = page
+        .locator('[data-database-board-column-header="true"]')
+        .filter({ hasText: "Triage" });
+      await triageHeader.hover();
+      await triageHeader
+        .getByRole("button", {
+          name: "More options for Triage",
+        })
+        .click();
+      await page.getByRole("button", { name: "Collapse", exact: true }).click();
+      await expect(triageColumn).toHaveAttribute("data-board-column-collapsed", "true");
+      const collapsedTriageRail = triageColumn.getByRole("button", {
+        name: "Expand Triage",
+      });
+      await expect(collapsedTriageRail).toBeVisible();
+      const collapsedHeader = triageHeader;
+      const collapsedDropFeedback = collapsedHeader.locator(
+        '[data-board-collapsed-drop-indicator="true"]',
+      );
+
+      await expectClosingSideMenuToBeInert({ page, sourceBlock, sourceEditor });
+      await dragBlockFromEditorWithMouse({
+        page,
+        sourceBlock,
+        sourceEditor,
+        target: collapsedTriageRail,
+        expectedFeedback: collapsedDropFeedback,
+        onFeedback: async () => {
+          await expect(
+            collapsedDropFeedback.locator('[data-board-property-change-indicator="true"]'),
+          ).toBeVisible();
+          const [headerBox, moreBox, lineBox] = await Promise.all([
+            collapsedHeader.boundingBox(),
+            collapsedHeader
+              .getByRole("button", {
+                name: "More options for Triage",
+              })
+              .boundingBox(),
+            collapsedDropFeedback.boundingBox(),
+          ]);
+          if (!headerBox || !moreBox || !lineBox) {
+            throw new Error("Collapsed Board drop feedback geometry is unavailable");
+          }
+          expect(headerBox.height).toBeGreaterThan(40);
+          expect(lineBox.y).toBeGreaterThanOrEqual(moreBox.y + moreBox.height);
+          expect(
+            Math.abs(lineBox.y + lineBox.height - (headerBox.y + headerBox.height)),
+          ).toBeLessThanOrEqual(1);
+        },
+        exerciseAncestorScrollLifecycle: true,
+      });
+
+      await collapsedTriageRail.click();
+      await expect(triageColumn).toHaveAttribute("data-board-column-collapsed", "false");
+      await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(4, {
+        timeout: 15_000,
+      });
+      await expect
+        .poll(async () => await readConvergenceBoardTotal(page, project), { timeout: 15_000 })
+        .toBe(4);
+      const promotedCards = triageColumn
+        .locator(`[data-board-uuid-v7]:not([data-board-uuid-v7="${source.pageId}"])`)
+        .filter({ hasText: "DnD smoke title" });
+      await expect(promotedCards).toHaveCount(1, { timeout: 15_000 });
+      await expect(promotedCards).toBeVisible();
+      await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
+      await expect(
+        sourceSurface.locator(".bn-block[data-id]").filter({
+          hasText: "Before smoke sibling",
+        }),
+      ).toHaveCount(1);
+      await expect(sourcePanel.getByRole("button", { name: "Reload" })).toHaveCount(0);
+      await expect(sourceSurface).toHaveAttribute("contenteditable", "true");
+
+      const promotedPageId = requireString(
+        await promotedCards.getAttribute("data-board-uuid-v7"),
+        "Native DnD promoted Page id",
+      );
       const detail = requireIpcValue<Record<string, unknown>>(
-        await invokeIpc(
-          page,
-          "pages:detail:get",
-          project.projectId,
-          fixturePage.pageId,
-        ),
-        "Read Page detail after editing",
+        await invokeIpc(page, "pages:detail:get", project.projectId, promotedPageId),
+        "Read native DnD promoted Page detail",
       );
-      return detail.commitSeq;
-    }, { timeout: 15_000 }).toBeGreaterThan(commitSeqBefore);
-    await page.waitForTimeout(100);
+      expect(detail.page).toMatchObject({
+        title: "DnD smoke title",
+        parent: {
+          kind: "data_source",
+          dataSourceId: database.dataSourceId,
+        },
+        plainText: expect.stringContaining("DnD smoke first child"),
+      });
+      expect(detail.page).toMatchObject({
+        plainText: expect.stringContaining("DnD smoke last child"),
+      });
+      expect(detail.dataSourceContext).toMatchObject({
+        kind: "member",
+        values: {
+          priority: { value: "p1-high" },
+          estimate: { value: "xl" },
+          status: { value: "triage" },
+        },
+      });
+      const dataSourceContext = detail.dataSourceContext;
+      if (!isRecord(dataSourceContext) || !isRecord(dataSourceContext.values)) {
+        throw new Error("Native DnD Data Source context is unavailable");
+      }
+      const tagsValue = dataSourceContext.values.tags;
+      if (!isRecord(tagsValue)) {
+        throw new Error("Native DnD Tags value is unavailable");
+      }
+      const tags = tagsValue.value;
+      expect(tags).toEqual(expect.any(Array));
+      expect(tags).toHaveLength(2);
+      const promotionToast = page
+        .locator('[data-slot="toast-item"]')
+        .filter({ hasText: "Task shorthand applied" });
+      await expect(promotionToast.locator('[role="alert"]')).toBeVisible();
+      await promotionToast.getByRole("button", { name: "Undo" }).click();
 
-    const measurement = await page.evaluate(() => {
-      const target = globalThis as typeof globalThis & {
-        __nodexPageEditStability?: {
-          readonly observer: MutationObserver;
-          editorRemovals: number;
-          skeletonAdds: number;
-          titleRemovals: number;
-        };
-      };
-      const current = target.__nodexPageEditStability;
-      if (!current) throw new Error("Page edit stability measurement is missing");
-      current.observer.disconnect();
-      return {
-        editorRemovals: current.editorRemovals,
-        skeletonAdds: current.skeletonAdds,
-        titleRemovals: current.titleRemovals,
-      };
-    });
-    expect(measurement).toEqual({
-      editorRemovals: 0,
-      skeletonAdds: 0,
-      titleRemovals: 0,
-    });
-    await expect(editor).toBeVisible();
-  } finally {
-    await harness.close();
-  }
-});
+      await expect(promotedCards).toHaveCount(0, { timeout: 15_000 });
+      await expect
+        .poll(async () => await readConvergenceBoardTotal(page, project), { timeout: 15_000 })
+        .toBe(3);
+      await expect
+        .poll(
+          async () => {
+            const restored = requireIpcValue<Record<string, unknown>>(
+              await invokeIpc(page, "pages:detail:get", project.projectId, source.pageId),
+              "Read restored source Page detail",
+            );
+            return isRecord(restored.page) ? restored.page.plainText : null;
+          },
+          { timeout: 15_000 },
+        )
+        .toEqual(expect.stringContaining("1XL(ui, unclear) DnD smoke title"));
+      await page.getByRole("tab", { name: "DnD source Page" }).click();
+      await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
+      await expect(sourceBlock).toHaveCount(1, { timeout: 15_000 });
 
-test("moves selected Blocks to a DB status through the picker @move-picker-smoke", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "move-picker" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
-
-    const project = await createConvergenceProject(
-      page,
-      "Move picker smoke",
-      workspace,
-    );
-    const source = await createConvergenceBoardPage(
-      page,
-      project,
-      "Picker source Page",
-      "Page containing the picker move fixture",
-    );
-    await seedConvergenceDocument(
-      page,
-      project,
-      source,
-      [
-        "Before picker sibling",
-        "Picker promoted title",
-        "After picker sibling",
-      ].join("\n"),
-    );
-
-    await page.getByRole("button", {
-      name: "Open Move picker smoke",
-      exact: true,
-    }).click();
-    await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const triageColumn = page.locator(
-      '[data-board-column-root][data-board-column-id="triage"]',
-    );
-    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
-    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(1);
-
-    await triageColumn
-      .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-      .locator('[data-card-context-menu-trigger="true"]')
-      .evaluate((element) => (element as HTMLElement).click());
-    await page.getByRole("tab", { name: "Picker source Page" }).waitFor();
-
-    const sourcePanel = page.getByRole("tabpanel", {
-      name: /Picker source Page$/,
-    });
-    const sourceSurface = sourcePanel.locator(
-      '.nfm-editor .ProseMirror[contenteditable="true"]',
-    );
-    const sourceBlock = sourceSurface.locator(".bn-block[data-id]").filter({
-      hasText: "Picker promoted title",
-    }).first();
-    await expect(sourceBlock).toBeVisible({ timeout: 15_000 });
-    await sourceBlock.click();
-    await page.keyboard.press(
-      `${process.platform === "darwin" ? "Meta" : "Control"}+/`,
-    );
-
-    await page.getByRole("dialog", { name: "Block actions" }).waitFor();
-    await page.getByRole("option", { name: /^Move to/ }).click();
-    await page.getByRole("combobox", { name: "Move blocks to" }).waitFor();
-    await page.locator(
-      `[data-nfm-move-to-row-kind="db-column"]`
-        + `[data-nfm-move-to-project-id="${project.projectId}"]`,
-    ).filter({ hasText: "Triage" }).click();
-
-    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(2, {
-      timeout: 15_000,
-    });
-    await expect(triageColumn.locator("[data-board-uuid-v7]").filter({
-      hasText: "Picker promoted title",
-    })).toHaveCount(1);
-    await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
-    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
-      hasText: "Before picker sibling",
-    })).toHaveCount(1);
-    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
-      hasText: "After picker sibling",
-    })).toHaveCount(1);
-    await expect(page.getByRole("alert").filter({
-      hasText: "Something went wrong",
-    })).toHaveCount(0);
-  } finally {
-    await harness.close();
-  }
-});
-
-// This is the native source-gesture smoke. High-pressure tests below remain on
-// the direct typed transfer boundary because they test transaction convergence,
-// not the handle-to-dragover pipeline exercised here.
-test("moves a Block into Board and List views with native DnD @dnd-smoke", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "native-dnd" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
-
-    const project = await createConvergenceProject(
-      page,
-      "Native DnD smoke",
-      workspace,
-    );
-    const database = await readConvergenceDatabase(page, project);
-    const firstBoardFixture = await createConvergenceBoardPage(
-      page,
-      project,
-      "Board fixture one",
-      "First existing Board Page",
-    );
-    await createConvergenceBoardPage(
-      page,
-      project,
-      "Board fixture two",
-      "Second existing Board Page",
-    );
-    const source = await createConvergenceBoardPage(
-      page,
-      project,
-      "DnD source Page",
-      "Page containing the native DnD fixture",
-    );
-    await seedConvergenceDocument(
-      page,
-      project,
-      source,
-      [
-        "Before smoke sibling",
-        "1XL(ui, unclear) DnD smoke title",
-        "\tDnD smoke first child",
-        "\tDnD smoke middle child",
-        "\tDnD smoke last child",
-      ].join("\n"),
-    );
-
-    await page.getByRole("button", {
-      name: "Open Native DnD smoke",
-      exact: true,
-    }).click();
-    await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const triageColumn = page.locator(
-      '[data-board-column-root][data-board-column-id="triage"]',
-    );
-    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
-    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(3, {
-      timeout: 15_000,
-    });
-
-    const sourceCard = triageColumn.locator(
-      `[data-board-uuid-v7="${source.pageId}"]`,
-    );
-    await expect(sourceCard).toBeVisible();
-    // Opening the fixture Page is setup for the gesture under test. Dispatch
-    // the card click directly so its delayed hover tooltip cannot race and
-    // intercept Playwright's pointer action during repeat runs.
-    await sourceCard.locator('[data-card-context-menu-trigger="true"]')
-      .evaluate((element) => (element as HTMLElement).click());
-    await page.getByRole("tab", { name: "DnD source Page" }).waitFor();
-    await expect(triageColumn).toBeVisible({ timeout: 15_000 });
-
-    const sourcePanel = page.getByRole("tabpanel", {
-      name: /DnD source Page$/,
-    });
-    await expect(sourcePanel).toBeVisible();
-    const sourceEditor = sourcePanel.locator(".nfm-editor");
-    const sourceSurface = sourceEditor.locator(
-      '.ProseMirror[contenteditable="true"]',
-    );
-    await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
-    const sourceBlock = sourceSurface.locator(".bn-block[data-id]").filter({
-      hasText: "1XL(ui, unclear) DnD smoke title",
-    }).first();
-    await expect(sourceBlock).toBeVisible();
-
-    const triageHeader = page.locator(
-      '[data-database-board-column-header="true"]',
-    ).filter({ hasText: "Triage" });
-    await triageHeader.hover();
-    await triageHeader.getByRole("button", {
-      name: "More options for Triage",
-    }).click();
-    await page.getByRole("button", { name: "Collapse", exact: true }).click();
-    await expect(triageColumn).toHaveAttribute(
-      "data-board-column-collapsed",
-      "true",
-    );
-    const collapsedTriageRail = triageColumn.getByRole("button", {
-      name: "Expand Triage",
-    });
-    await expect(collapsedTriageRail).toBeVisible();
-    const collapsedHeader = triageHeader;
-    const collapsedDropFeedback = collapsedHeader.locator(
-      '[data-board-collapsed-drop-indicator="true"]',
-    );
-
-    await expectClosingSideMenuToBeInert({ page, sourceBlock, sourceEditor });
-    await dragBlockFromEditorWithMouse({
-      page,
-      sourceBlock,
-      sourceEditor,
-      target: collapsedTriageRail,
-      expectedFeedback: collapsedDropFeedback,
-      onFeedback: async () => {
-        await expect(collapsedDropFeedback.locator(
-          '[data-board-property-change-indicator="true"]',
-        )).toBeVisible();
-        const [headerBox, moreBox, lineBox] = await Promise.all([
-          collapsedHeader.boundingBox(),
-          collapsedHeader.getByRole("button", {
-            name: "More options for Triage",
-          }).boundingBox(),
-          collapsedDropFeedback.boundingBox(),
-        ]);
-        if (!headerBox || !moreBox || !lineBox) {
-          throw new Error("Collapsed Board drop feedback geometry is unavailable");
-        }
-        expect(headerBox.height).toBeGreaterThan(40);
-        expect(lineBox.y).toBeGreaterThanOrEqual(moreBox.y + moreBox.height);
-        expect(Math.abs(
-          lineBox.y + lineBox.height - (headerBox.y + headerBox.height),
-        )).toBeLessThanOrEqual(1);
-      },
-      exerciseAncestorScrollLifecycle: true,
-    });
-
-    await collapsedTriageRail.click();
-    await expect(triageColumn).toHaveAttribute(
-      "data-board-column-collapsed",
-      "false",
-    );
-    await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(4, {
-      timeout: 15_000,
-    });
-    await expect.poll(
-      async () => await readConvergenceBoardTotal(page, project),
-      { timeout: 15_000 },
-    ).toBe(4);
-    const promotedCards = triageColumn.locator(
-      `[data-board-uuid-v7]:not([data-board-uuid-v7="${source.pageId}"])`,
-    ).filter({ hasText: "DnD smoke title" });
-    await expect(promotedCards).toHaveCount(1, { timeout: 15_000 });
-    await expect(promotedCards).toBeVisible();
-    await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
-    await expect(sourceSurface.locator(".bn-block[data-id]").filter({
-      hasText: "Before smoke sibling",
-    })).toHaveCount(1);
-    await expect(sourcePanel.getByRole("button", { name: "Reload" })).toHaveCount(0);
-    await expect(sourceSurface).toHaveAttribute("contenteditable", "true");
-
-    const promotedPageId = requireString(
-      await promotedCards.getAttribute("data-board-uuid-v7"),
-      "Native DnD promoted Page id",
-    );
-    const detail = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "pages:detail:get",
-        project.projectId,
-        promotedPageId,
-      ),
-      "Read native DnD promoted Page detail",
-    );
-    expect(detail.page).toMatchObject({
-      title: "DnD smoke title",
-      parent: {
-        kind: "data_source",
-        dataSourceId: database.dataSourceId,
-      },
-      plainText: expect.stringContaining("DnD smoke first child"),
-    });
-    expect(detail.page).toMatchObject({
-      plainText: expect.stringContaining("DnD smoke last child"),
-    });
-    expect(detail.dataSourceContext).toMatchObject({
-      kind: "member",
-      values: {
-        priority: { value: "p1-high" },
-        estimate: { value: "xl" },
-        status: { value: "triage" },
-      },
-    });
-    const dataSourceContext = detail.dataSourceContext;
-    if (!isRecord(dataSourceContext) || !isRecord(dataSourceContext.values)) {
-      throw new Error("Native DnD Data Source context is unavailable");
-    }
-    const tagsValue = dataSourceContext.values.tags;
-    if (!isRecord(tagsValue)) {
-      throw new Error("Native DnD Tags value is unavailable");
-    }
-    const tags = tagsValue.value;
-    expect(tags).toEqual(expect.any(Array));
-    expect(tags).toHaveLength(2);
-    const promotionToast = page.locator('[data-slot="toast-item"]')
-      .filter({ hasText: "Task shorthand applied" });
-    await expect(promotionToast.locator('[role="alert"]')).toBeVisible();
-    await promotionToast.getByRole("button", { name: "Undo" }).click();
-
-    await expect(promotedCards).toHaveCount(0, { timeout: 15_000 });
-    await expect.poll(
-      async () => await readConvergenceBoardTotal(page, project),
-      { timeout: 15_000 },
-    ).toBe(3);
-    await expect.poll(async () => {
-      const restored = requireIpcValue<Record<string, unknown>>(
-        await invokeIpc(
-          page,
-          "pages:detail:get",
-          project.projectId,
-          source.pageId,
-        ),
-        "Read restored source Page detail",
+      await page
+        .getByRole("tablist", { name: "Database views" })
+        .getByRole("tab", { name: "List", exact: true })
+        .click();
+      const list = page.getByRole("grid", { name: /List$/ });
+      await expect(list).toBeVisible({ timeout: 15_000 });
+      const listTarget = list.locator(
+        `[data-list-row="true"][data-database-view-page-id="${firstBoardFixture.pageId}"]`,
       );
-      return isRecord(restored.page) ? restored.page.plainText : null;
-    }, { timeout: 15_000 }).toEqual(
-      expect.stringContaining("1XL(ui, unclear) DnD smoke title"),
-    );
-    await page.getByRole("tab", { name: "DnD source Page" }).click();
-    await expect(sourceSurface).toBeVisible({ timeout: 15_000 });
-    await expect(sourceBlock).toHaveCount(1, { timeout: 15_000 });
+      await expect(listTarget).toBeVisible({ timeout: 15_000 });
 
-    await page.getByRole("tablist", { name: "Database views" })
-      .getByRole("tab", { name: "List", exact: true })
-      .click();
-    const list = page.getByRole("grid", { name: /List$/ });
-    await expect(list).toBeVisible({ timeout: 15_000 });
-    const listTarget = list.locator(
-      `[data-list-row="true"][data-database-view-page-id="${firstBoardFixture.pageId}"]`,
-    );
-    await expect(listTarget).toBeVisible({ timeout: 15_000 });
-
-    await dragBlockFromEditorWithMouse({
-      page,
-      sourceBlock,
-      sourceEditor,
-      target: listTarget,
-      targetYRatio: 0.25,
-      expectedFeedback: listTarget.locator('[data-list-drop-indicator="true"]'),
-    });
-
-    const promotedListRows = list.locator(
-      '[data-list-row="true"][data-database-view-page-id]',
-    ).filter({ hasText: "DnD smoke title" });
-    await expect(promotedListRows).toHaveCount(1, { timeout: 15_000 });
-    await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
-    await expect(sourcePanel.getByRole("button", { name: "Reload" })).toHaveCount(0);
-    await expect(sourceSurface).toHaveAttribute("contenteditable", "true");
-    const promotedListPageId = requireString(
-      await promotedListRows.getAttribute("data-database-view-page-id"),
-      "Native List DnD promoted Page id",
-    );
-    const promotedListDetail = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
+      await dragBlockFromEditorWithMouse({
         page,
-        "pages:detail:get",
-        project.projectId,
-        promotedListPageId,
-      ),
-      "Read native List DnD promoted Page detail",
-    );
-    expect(promotedListDetail.page).toMatchObject({
-      title: "DnD smoke title",
-      parent: {
-        kind: "data_source",
-        dataSourceId: database.dataSourceId,
-      },
-    });
-    expect(promotedListDetail.dataSourceContext).toMatchObject({
-      kind: "member",
-      values: {
-        priority: { value: "p1-high" },
-        estimate: { value: "xl" },
-        status: { value: "triage" },
-      },
-    });
-    const listPromotionToast = page.locator('[data-slot="toast-item"]')
-      .filter({ hasText: "Task shorthand applied" })
-      .last();
-    await expect(listPromotionToast.locator('[role="alert"]')).toBeVisible();
-    await listPromotionToast.getByRole("button", { name: "Undo" }).click();
-    await expect(promotedListRows).toHaveCount(0, { timeout: 15_000 });
-    await expect(sourceBlock).toHaveCount(1, { timeout: 15_000 });
-  } finally {
-    await harness.close();
-  }
-});
+        sourceBlock,
+        sourceEditor,
+        target: listTarget,
+        targetYRatio: 0.25,
+        expectedFeedback: listTarget.locator('[data-list-drop-indicator="true"]'),
+      });
 
-test("opens and pointer-reorders a nested List subtree without changing its internal parent @list-dnd-smoke", async () => {
-  test.setTimeout(120_000);
-  const harness = await ElectronScenarioHarness.create({ label: "list-dnd" });
-  const workspace = harness.profile.initialProjectsDirectory;
-  try {
-    const page = await harness.launch();
+      const promotedListRows = list
+        .locator('[data-list-row="true"][data-database-view-page-id]')
+        .filter({ hasText: "DnD smoke title" });
+      await expect(promotedListRows).toHaveCount(1, { timeout: 15_000 });
+      await expect(sourceBlock).toHaveCount(0, { timeout: 15_000 });
+      await expect(sourcePanel.getByRole("button", { name: "Reload" })).toHaveCount(0);
+      await expect(sourceSurface).toHaveAttribute("contenteditable", "true");
+      const promotedListPageId = requireString(
+        await promotedListRows.getAttribute("data-database-view-page-id"),
+        "Native List DnD promoted Page id",
+      );
+      const promotedListDetail = requireIpcValue<Record<string, unknown>>(
+        await invokeIpc(page, "pages:detail:get", project.projectId, promotedListPageId),
+        "Read native List DnD promoted Page detail",
+      );
+      expect(promotedListDetail.page).toMatchObject({
+        title: "DnD smoke title",
+        parent: {
+          kind: "data_source",
+          dataSourceId: database.dataSourceId,
+        },
+      });
+      expect(promotedListDetail.dataSourceContext).toMatchObject({
+        kind: "member",
+        values: {
+          priority: { value: "p1-high" },
+          estimate: { value: "xl" },
+          status: { value: "triage" },
+        },
+      });
+      const listPromotionToast = page
+        .locator('[data-slot="toast-item"]')
+        .filter({ hasText: "Task shorthand applied" })
+        .last();
+      await expect(listPromotionToast.locator('[role="alert"]')).toBeVisible();
+      await listPromotionToast.getByRole("button", { name: "Undo" }).click();
+      await expect(promotedListRows).toHaveCount(0, { timeout: 15_000 });
+      await expect(sourceBlock).toHaveCount(1, { timeout: 15_000 });
+    } finally {
+      await harness.close();
+    }
+  });
 
-    const project = await createConvergenceProject(
-      page,
-      "Native List DnD smoke",
-      workspace,
-    );
-    const firstTitle = "List fixture one";
-    const firstFixture = await createConvergenceBoardPage(
-      page,
-      project,
-      firstTitle,
-      "First List Page",
-    );
-    const secondFixture = await createConvergenceBoardPage(
-      page,
-      project,
-      "List fixture two",
-      "Second List Page",
-    );
-    const thirdFixture = await createConvergenceBoardPage(
-      page,
-      project,
-      "List fixture three",
-      "Third List Page",
-    );
-    const listDescriptor = requireIpcValue<{ readonly dataSourceId: string }>(
-      await invokeIpc(
+  test("opens and pointer-reorders a nested List subtree without changing its internal parent @list-dnd-smoke", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "list-dnd" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+
+      const project = await createConvergenceProject(page, "Native List DnD smoke", workspace);
+      const firstTitle = "List fixture one";
+      const firstFixture = await createConvergenceBoardPage(
         page,
-        "database:list-window:get",
-        project.projectId,
-        { databaseViewId: project.defaultDatabaseViewId, first: 50 },
-      ),
-      "Read List Data Source",
-    );
-    await requireIpcValue(
-      await invokeIpc(
+        project,
+        firstTitle,
+        "First List Page",
+      );
+      const secondFixture = await createConvergenceBoardPage(
         page,
-        "database-module:apply",
-        project.projectId,
-        {
+        project,
+        "List fixture two",
+        "Second List Page",
+      );
+      const thirdFixture = await createConvergenceBoardPage(
+        page,
+        project,
+        "List fixture three",
+        "Third List Page",
+      );
+      const listDescriptor = requireIpcValue<{ readonly dataSourceId: string }>(
+        await invokeIpc(page, "database:list-window:get", project.projectId, {
+          databaseViewId: project.defaultDatabaseViewId,
+          first: 50,
+        }),
+        "Read List Data Source",
+      );
+      await requireIpcValue(
+        await invokeIpc(page, "database-module:apply", project.projectId, {
           operationId: createUuidV7(),
           projectId: project.projectId,
           storeEpoch: project.storeEpoch,
           actor: { kind: "electron_e2e" },
-          operations: [{
-            kind: "set_task_parent",
-            dataSourceId: listDescriptor.dataSourceId,
-            pages: [{
-              pageId: secondFixture.pageId,
-              expectedValueRevision: 1,
-            }],
-            parentPageId: firstFixture.pageId,
-          }, {
-            kind: "put_view_personal_presentation",
-            viewId: project.defaultDatabaseViewId,
-            expectedRevision: 0,
-            presentationOverride: {
-              hierarchy: { showSubPages: true, nestedSubPages: true },
+          operations: [
+            {
+              kind: "set_task_parent",
+              dataSourceId: listDescriptor.dataSourceId,
+              pages: [
+                {
+                  pageId: secondFixture.pageId,
+                  expectedValueRevision: 1,
+                },
+              ],
+              parentPageId: firstFixture.pageId,
             },
-          }],
-        },
-      ),
-      "Nest List child fixture",
-    );
+            {
+              kind: "put_view_personal_presentation",
+              viewId: project.defaultDatabaseViewId,
+              expectedRevision: 0,
+              presentationOverride: {
+                hierarchy: { showSubPages: true, nestedSubPages: true },
+              },
+            },
+          ],
+        }),
+        "Nest List child fixture",
+      );
 
-    await page.getByRole("button", {
-      name: "Open Native List DnD smoke",
-      exact: true,
-    }).click();
-    const board = page.locator("[data-board-column-root]").first();
-    await expect(board).toBeVisible({ timeout: 15_000 });
-    await page.getByRole("tablist", { name: "Database views" })
-      .getByRole("tab", { name: "List", exact: true })
-      .click();
+      await page
+        .getByRole("button", {
+          name: "Open Native List DnD smoke",
+          exact: true,
+        })
+        .click();
+      const board = page.locator("[data-board-column-root]").first();
+      await expect(board).toBeVisible({ timeout: 15_000 });
+      await page
+        .getByRole("tablist", { name: "Database views" })
+        .getByRole("tab", { name: "List", exact: true })
+        .click();
 
-    const grid = page.getByRole("grid", { name: /List$/ });
-    await expect(grid).toBeVisible({ timeout: 15_000 });
-    const rows = grid.locator(
-      '[data-list-row="true"][data-database-view-page-id]',
-    );
-    for (const fixture of [firstFixture, secondFixture, thirdFixture]) {
-      await expect(grid.locator(
-        `[data-list-row="true"][data-database-view-page-id="${fixture.pageId}"]`,
-      )).toHaveCount(1, { timeout: 15_000 });
-    }
-    const fixturePageIds = [
-      firstFixture.pageId,
-      secondFixture.pageId,
-      thirdFixture.pageId,
-    ];
-    let initialOrder: string[] = [];
-    await expect.poll(async () => {
-      initialOrder = await rows.evaluateAll((elements) => elements.map((element) =>
-        element.getAttribute("data-database-view-page-id") ?? ""
-      ));
-      return initialOrder;
-    }, { timeout: 15_000 }).toEqual(expect.arrayContaining(fixturePageIds));
-    const sourcePageId = firstFixture.pageId;
-    const childPageId = secondFixture.pageId;
-    const targetPageId = thirdFixture.pageId;
-    const sourceRow = grid.locator(
-      `[data-list-row="true"][data-database-view-page-id="${sourcePageId}"]`,
-    );
-    const targetRow = grid.locator(
-      `[data-list-row="true"][data-database-view-page-id="${targetPageId}"]`,
-    );
-
-    await dragListRowWithMouse({
-      page,
-      sourceRow,
-      targetRow,
-      position: "center",
-      expectedOverlayCount: 2,
-    });
-
-    const orderWithoutSource = initialOrder.filter((pageId) =>
-      pageId !== sourcePageId && pageId !== childPageId
-    );
-    const targetIndex = orderWithoutSource.indexOf(targetPageId);
-    expect(targetIndex).toBeGreaterThanOrEqual(0);
-    const expectedOrder = [
-      ...orderWithoutSource.slice(0, targetIndex + 1),
-      sourcePageId,
-      childPageId,
-      ...orderWithoutSource.slice(targetIndex + 1),
-    ];
-    await expect.poll(async () => await rows.evaluateAll((elements) => elements.map((element) =>
-      element.getAttribute("data-database-view-page-id") ?? ""
-    )), { timeout: 15_000 }).toEqual(expectedOrder);
-    await expect.poll(async () => {
-      const result = requireIpcValue<{
-        readonly rows: readonly {
-          readonly kind: string;
-          readonly row?: {
-            readonly page?: { readonly pageId?: string };
-            readonly taskParent?: { readonly parentPageId?: string | null };
-          };
-        }[];
-      }>(await invokeIpc(
-        page,
-        "database:list-window:get",
-        project.projectId,
-        {
-          databaseViewId: project.defaultDatabaseViewId,
-          first: 50,
-          presentationOverride: {
-            layout: "list",
-            hierarchy: { showSubPages: true, nestedSubPages: true },
+      const grid = page.getByRole("grid", { name: /List$/ });
+      await expect(grid).toBeVisible({ timeout: 15_000 });
+      const rows = grid.locator('[data-list-row="true"][data-database-view-page-id]');
+      for (const fixture of [firstFixture, secondFixture, thirdFixture]) {
+        await expect(
+          grid.locator(`[data-list-row="true"][data-database-view-page-id="${fixture.pageId}"]`),
+        ).toHaveCount(1, { timeout: 15_000 });
+      }
+      const fixturePageIds = [firstFixture.pageId, secondFixture.pageId, thirdFixture.pageId];
+      let initialOrder: string[] = [];
+      await expect
+        .poll(
+          async () => {
+            initialOrder = await rows.evaluateAll((elements) =>
+              elements.map((element) => element.getAttribute("data-database-view-page-id") ?? ""),
+            );
+            return initialOrder;
           },
-        },
-      ), "Read reordered List window");
-      const order = result.rows.flatMap((row) =>
-        row.kind === "page" && row.row?.page?.pageId ? [row.row.page.pageId] : []
+          { timeout: 15_000 },
+        )
+        .toEqual(expect.arrayContaining(fixturePageIds));
+      const sourcePageId = firstFixture.pageId;
+      const childPageId = secondFixture.pageId;
+      const targetPageId = thirdFixture.pageId;
+      const sourceRow = grid.locator(
+        `[data-list-row="true"][data-database-view-page-id="${sourcePageId}"]`,
       );
-      const source = result.rows.find((row) =>
-        row.kind === "page" && row.row?.page?.pageId === sourcePageId
+      const targetRow = grid.locator(
+        `[data-list-row="true"][data-database-view-page-id="${targetPageId}"]`,
       );
-      const child = result.rows.find((row) =>
-        row.kind === "page" && row.row?.page?.pageId === childPageId
-      );
-      return {
-        order,
-        sourceParentPageId: source?.row?.taskParent?.parentPageId ?? null,
-        childParentPageId: child?.row?.taskParent?.parentPageId ?? null,
-      };
-    }, { timeout: 15_000 }).toEqual({
-      order: expectedOrder,
-      sourceParentPageId: null,
-      childParentPageId: sourcePageId,
-    });
 
-    await targetRow.locator('[data-list-grid-column="indent"]').click();
-    const pageStage = page.locator('[data-page-stage-surface="true"]:visible');
-    await expect(pageStage).toBeVisible({ timeout: 15_000 });
-    await expect(pageStage.getByRole("textbox", { name: "Page title" }))
-      .toHaveText("List fixture three", { timeout: 15_000 });
-    await expect(page.locator('[data-slot="toast-item"] [role="alert"]'))
-      .toHaveCount(0);
-  } finally {
-    await harness.close();
-  }
-});
+      await dragListRowWithMouse({
+        page,
+        sourceRow,
+        targetRow,
+        position: "center",
+        expectedOverlayCount: 2,
+      });
+
+      const orderWithoutSource = initialOrder.filter(
+        (pageId) => pageId !== sourcePageId && pageId !== childPageId,
+      );
+      const targetIndex = orderWithoutSource.indexOf(targetPageId);
+      expect(targetIndex).toBeGreaterThanOrEqual(0);
+      const expectedOrder = [
+        ...orderWithoutSource.slice(0, targetIndex + 1),
+        sourcePageId,
+        childPageId,
+        ...orderWithoutSource.slice(targetIndex + 1),
+      ];
+      await expect
+        .poll(
+          async () =>
+            await rows.evaluateAll((elements) =>
+              elements.map((element) => element.getAttribute("data-database-view-page-id") ?? ""),
+            ),
+          { timeout: 15_000 },
+        )
+        .toEqual(expectedOrder);
+      await expect
+        .poll(
+          async () => {
+            const result = requireIpcValue<{
+              readonly rows: readonly {
+                readonly kind: string;
+                readonly row?: {
+                  readonly page?: { readonly pageId?: string };
+                  readonly taskParent?: { readonly parentPageId?: string | null };
+                };
+              }[];
+            }>(
+              await invokeIpc(page, "database:list-window:get", project.projectId, {
+                databaseViewId: project.defaultDatabaseViewId,
+                first: 50,
+                presentationOverride: {
+                  layout: "list",
+                  hierarchy: { showSubPages: true, nestedSubPages: true },
+                },
+              }),
+              "Read reordered List window",
+            );
+            const order = result.rows.flatMap((row) =>
+              row.kind === "page" && row.row?.page?.pageId ? [row.row.page.pageId] : [],
+            );
+            const source = result.rows.find(
+              (row) => row.kind === "page" && row.row?.page?.pageId === sourcePageId,
+            );
+            const child = result.rows.find(
+              (row) => row.kind === "page" && row.row?.page?.pageId === childPageId,
+            );
+            return {
+              order,
+              sourceParentPageId: source?.row?.taskParent?.parentPageId ?? null,
+              childParentPageId: child?.row?.taskParent?.parentPageId ?? null,
+            };
+          },
+          { timeout: 15_000 },
+        )
+        .toEqual({
+          order: expectedOrder,
+          sourceParentPageId: null,
+          childParentPageId: sourcePageId,
+        });
+
+      await targetRow.locator('[data-list-grid-column="indent"]').click();
+      const pageStage = page.locator('[data-page-stage-surface="true"]:visible');
+      await expect(pageStage).toBeVisible({ timeout: 15_000 });
+      await expect(pageStage.getByRole("textbox", { name: "Page title" })).toHaveText(
+        "List fixture three",
+        { timeout: 15_000 },
+      );
+      await expect(page.locator('[data-slot="toast-item"] [role="alert"]')).toHaveCount(0);
+    } finally {
+      await harness.close();
+    }
+  });
 });
 
 test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @performance", async ({}, testInfo) => {
@@ -2735,21 +2748,18 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
     for (let round = 0; round < PAGE_READY_ROUNDS; round += 1) {
       const title = `History Page ${round.toString().padStart(2, "0")}`;
       fixturePages.push({
-        ...await createConvergenceBoardPage(
+        ...(await createConvergenceBoardPage(
           setupPage,
           project,
           title,
           `Deterministic Page-ready fixture ${round}`,
-        ),
+        )),
         title,
       });
     }
 
     await harness.stopCoreForOfflineFixture();
-    const history = seedSyntheticLocalCommitHistory(
-      nodexHome,
-      PAGE_READY_HISTORY_COMMITS,
-    );
+    const history = seedSyntheticLocalCommitHistory(nodexHome, PAGE_READY_HISTORY_COMMITS);
     expect(history).toMatchObject({
       commitCountAfter: PAGE_READY_HISTORY_COMMITS,
     });
@@ -2776,19 +2786,18 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
       requestTimeoutMs: 60_000,
     });
     const healthBefore = await coreClient.health();
-    expect(healthBefore.metrics.commit_head).toBeGreaterThanOrEqual(
-      history.commitHeadAfter,
-    );
+    expect(healthBefore.metrics.commit_head).toBeGreaterThanOrEqual(history.commitHeadAfter);
 
-    await page.getByRole("button", {
-      name: "Open Large history Page ready",
-      exact: true,
-    }).click();
+    await page
+      .getByRole("button", {
+        name: "Open Large history Page ready",
+        exact: true,
+      })
+      .click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    await expect.poll(
-      async () => await page.locator("[data-board-uuid-v7]").count(),
-      { timeout: 15_000 },
-    ).toBe(PAGE_READY_ROUNDS);
+    await expect
+      .poll(async () => await page.locator("[data-board-uuid-v7]").count(), { timeout: 15_000 })
+      .toBe(PAGE_READY_ROUNDS);
 
     const pageReadySamples: Array<{
       readonly cold: boolean;
@@ -2796,9 +2805,7 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
       readonly round: number;
     }> = [];
     for (const [round, fixturePage] of fixturePages.entries()) {
-      const card = page.locator(
-        `[data-board-uuid-v7="${fixturePage.pageId}"]`,
-      );
+      const card = page.locator(`[data-board-uuid-v7="${fixturePage.pageId}"]`);
       await expect(card).toBeVisible({ timeout: 15_000 });
       await page.evaluate((loadingLabel) => {
         const target = globalThis as typeof globalThis & {
@@ -2820,16 +2827,17 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
         target.__nodexPageReadyMeasurement = measurement;
         const sample = (): boolean => {
           if (
-            measurement.skeletonAt === null
-            && [...document.querySelectorAll<HTMLElement>('[role="status"][aria-busy="true"]')]
-              .some((status) => status.getAttribute("aria-label") === loadingLabel)
+            measurement.skeletonAt === null &&
+            [...document.querySelectorAll<HTMLElement>('[role="status"][aria-busy="true"]')].some(
+              (status) => status.getAttribute("aria-label") === loadingLabel,
+            )
           ) {
             measurement.skeletonAt = performance.now();
           }
           if (measurement.skeletonAt === null) return false;
           const editor = document.querySelector(
-            '[data-page-stage-surface="true"] '
-              + '.nfm-editor .ProseMirror[contenteditable="true"]',
+            '[data-page-stage-surface="true"] ' +
+              '.nfm-editor .ProseMirror[contenteditable="true"]',
           );
           if (!editor) return false;
           measurement.durationMs = performance.now() - measurement.skeletonAt;
@@ -2845,40 +2853,58 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
         if (sample()) observer.disconnect();
       }, `Loading ${fixturePage.title}`);
       await card.click({ force: true });
-      await expect.poll(async () => await page.evaluate(() => (
-        globalThis as typeof globalThis & {
-          __nodexPageReadyMeasurement?: { durationMs: number | null };
-        }
-      ).__nodexPageReadyMeasurement?.durationMs ?? null), {
-        timeout: 15_000,
-      }).not.toBeNull();
-      const durationMs = await page.evaluate(() => (
-        globalThis as typeof globalThis & {
-          __nodexPageReadyMeasurement?: { durationMs: number | null };
-        }
-      ).__nodexPageReadyMeasurement?.durationMs ?? Number.NaN);
+      await expect
+        .poll(
+          async () =>
+            await page.evaluate(
+              () =>
+                (
+                  globalThis as typeof globalThis & {
+                    __nodexPageReadyMeasurement?: { durationMs: number | null };
+                  }
+                ).__nodexPageReadyMeasurement?.durationMs ?? null,
+            ),
+          {
+            timeout: 15_000,
+          },
+        )
+        .not.toBeNull();
+      const durationMs = await page.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __nodexPageReadyMeasurement?: { durationMs: number | null };
+            }
+          ).__nodexPageReadyMeasurement?.durationMs ?? Number.NaN,
+      );
       if (!Number.isFinite(durationMs)) {
         throw new Error("Page editor readiness measurement is missing");
       }
       await page.getByRole("tab", { name: fixturePage.title, exact: true }).waitFor();
-      const editor = page.locator(
-        '[data-page-stage-surface="true"]:visible '
-          + '.nfm-editor .ProseMirror[contenteditable="true"]',
-      ).last();
+      const editor = page
+        .locator(
+          '[data-page-stage-surface="true"]:visible ' +
+            '.nfm-editor .ProseMirror[contenteditable="true"]',
+        )
+        .last();
       await expect(editor).toBeVisible({ timeout: 15_000 });
       pageReadySamples.push({
         cold: round === 0,
         durationMs,
         round,
       });
-      await page.getByRole("button", {
-        name: `Close ${fixturePage.title} tab`,
-        exact: true,
-      }).click({ force: true });
-      await expect(page.getByRole("tab", {
-        name: fixturePage.title,
-        exact: true,
-      })).toHaveCount(0);
+      await page
+        .getByRole("button", {
+          name: `Close ${fixturePage.title} tab`,
+          exact: true,
+        })
+        .click({ force: true });
+      await expect(
+        page.getByRole("tab", {
+          name: fixturePage.title,
+          exact: true,
+        }),
+      ).toHaveCount(0);
       await page.evaluate(async () => {
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -2892,9 +2918,8 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
     const normalizedOneMinuteLoad = os.loadavg()[0] / Math.max(1, os.cpus().length);
     const noisyEnvironment = normalizedOneMinuteLoad >= 1;
     const frozenBaselineUpperBoundMs = 92;
-    const medianDeltaRatio = (
-      pageReadySummary.p50 - frozenBaselineUpperBoundMs
-    ) / frozenBaselineUpperBoundMs;
+    const medianDeltaRatio =
+      (pageReadySummary.p50 - frozenBaselineUpperBoundMs) / frozenBaselineUpperBoundMs;
     const enforcePerformanceGates = process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1";
     console.info(`[page-ready-samples] ${JSON.stringify(pageReadySamples)}`);
     if (enforcePerformanceGates) {
@@ -2911,9 +2936,7 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
     const coreCpuPercentSamples: number[] = [];
     const electronCpuPercentSamples: Array<readonly ElectronProcessCpuSample[]> = [];
     for (let second = 0; second < IDLE_CPU_SAMPLE_SECONDS; second += 1) {
-      coreCpuPercentSamples.push(
-        readProcessCpuPercent(coreClient.handshake.generation.pid),
-      );
+      coreCpuPercentSamples.push(readProcessCpuPercent(coreClient.handshake.generation.pid));
       electronCpuPercentSamples.push(await readElectronProcessCpu(application));
       await page.waitForTimeout(1_000);
     }
@@ -2921,10 +2944,7 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
     const electronCpuAfter = await readElectronProcessCpu(application);
     const healthAfter = await coreClient.health();
     const coreCpuDeltaSeconds = Math.max(0, coreCpuAfter - coreCpuBefore);
-    const electronCpuDeltaSeconds = cumulativeElectronCpuDelta(
-      electronCpuBefore,
-      electronCpuAfter,
-    );
+    const electronCpuDeltaSeconds = cumulativeElectronCpuDelta(electronCpuBefore, electronCpuAfter);
     const coreAverageCores = coreCpuDeltaSeconds / IDLE_CPU_SAMPLE_SECONDS;
     if (enforcePerformanceGates) {
       expect(coreAverageCores).toBeLessThanOrEqual(0.05);
@@ -2937,9 +2957,11 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
     expect(healthAfter.metrics.active_writer_commands).toBe(0);
 
     const rendererLongTasks = await page.evaluate(() => [
-      ...((globalThis as typeof globalThis & {
-        __nodexPageReadyLongTasks?: number[];
-      }).__nodexPageReadyLongTasks ?? []),
+      ...((
+        globalThis as typeof globalThis & {
+          __nodexPageReadyLongTasks?: number[];
+        }
+      ).__nodexPageReadyLongTasks ?? []),
     ]);
     const appMetrics = await application.evaluate(({ app }) => app.getAppMetrics());
     const metrics = {
@@ -2972,17 +2994,13 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
         absoluteGateMs: 150,
         medianDeltaRatio,
         noisyEnvironment,
-        verdictBasis: noisyEnvironment
-          ? "median-vs-frozen-pre-commit-upper-bound"
-          : "p95",
+        verdictBasis: noisyEnvironment ? "median-vs-frozen-pre-commit-upper-bound" : "p95",
       },
       globalReplay: {
         eventReplayLagMaxBefore: healthBefore.metrics.event_replay_lag_max,
         eventReplayLagMaxAfter: healthAfter.metrics.event_replay_lag_max,
-        publicationCountBefore:
-          healthBefore.metrics.local_commit_publication_duration.count,
-        publicationCountAfter:
-          healthAfter.metrics.local_commit_publication_duration.count,
+        publicationCountBefore: healthBefore.metrics.local_commit_publication_duration.count,
+        publicationCountAfter: healthAfter.metrics.local_commit_publication_duration.count,
       },
       idleCpu: {
         sampleSeconds: IDLE_CPU_SAMPLE_SECONDS,
@@ -3017,11 +3035,13 @@ test("keeps Page ready and idle CPU bounded with 14k LocalCommit history @perfor
       path: metricsPath,
       contentType: "application/json",
     });
-    console.info(`[page-ready-14k-history] ${JSON.stringify({
-      coreAverageCores,
-      pageReadyP95Ms: pageReadySummary.p95,
-      pageReadyMaxMs: pageReadySummary.max,
-    })}`);
+    console.info(
+      `[page-ready-14k-history] ${JSON.stringify({
+        coreAverageCores,
+        pageReadyP95Ms: pageReadySummary.p95,
+        pageReadyMaxMs: pageReadySummary.max,
+      })}`,
+    );
   } finally {
     await harness.close();
   }
@@ -3035,18 +3055,10 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     const page = await harness.launch();
     const application = harness.application;
 
-    const project = await createConvergenceProject(
-      page,
-      "Cross-tab Board stress",
-      workspace,
-    );
+    const project = await createConvergenceProject(page, "Cross-tab Board stress", workspace);
     const database = await readConvergenceDatabase(page, project);
     const initialTriageFixturePageCount = HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT - 1;
-    const boardFixture = await createConvergencePage(
-      page,
-      project,
-      "Board fixture seed",
-    );
+    const boardFixture = await createConvergencePage(page, project, "Board fixture seed");
     const seededBoard = await seedConvergenceDocument(
       page,
       project,
@@ -3067,10 +3079,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
       project,
       database,
       seededBoard.documentId,
-      seededBoard.blockIds.slice(
-        initialTriageFixturePageCount + 1,
-        HIGH_PRESSURE_BOARD_PAGE_COUNT,
-      ),
+      seededBoard.blockIds.slice(initialTriageFixturePageCount + 1, HIGH_PRESSURE_BOARD_PAGE_COUNT),
       "plan",
       "Seed cross-tab Plan Pages",
     );
@@ -3093,24 +3102,21 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
       buildHighPressureSourceNfm("title-A-cross-tab"),
     );
     expect(seededSource.blockIds).toHaveLength(
-      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
-        + HIGH_PRESSURE_CHILD_BLOCK_COUNT
-        + 1,
+      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2 + HIGH_PRESSURE_CHILD_BLOCK_COUNT + 1,
     );
 
-    await page.getByRole("button", {
-      name: "Open Cross-tab Board stress",
-      exact: true,
-    }).click();
+    await page
+      .getByRole("button", {
+        name: "Open Cross-tab Board stress",
+        exact: true,
+      })
+      .click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const triageColumn = page.locator(
-      '[data-board-column-root][data-board-column-id="triage"]',
-    );
+    const triageColumn = page.locator('[data-board-column-root][data-board-column-id="triage"]');
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
-    await expect.poll(
-      async () => await page.locator("[data-board-uuid-v7]").count(),
-      { timeout: 15_000 },
-    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    await expect
+      .poll(async () => await page.locator("[data-board-uuid-v7]").count(), { timeout: 15_000 })
+      .toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
 
     const sourceCard = page.locator(`[data-board-uuid-v7="${source.pageId}"]`);
     await expect(sourceCard).toBeVisible({ timeout: 15_000 });
@@ -3118,28 +3124,31 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     await page.getByRole("tab", { name: "Cross-tab source" }).waitFor();
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
 
-    const sourceEditor = page.locator(
-      '.nfm-editor .ProseMirror[contenteditable="true"]',
-    ).last();
+    const sourceEditor = page.locator('.nfm-editor .ProseMirror[contenteditable="true"]').last();
     await expect(sourceEditor).toBeVisible({ timeout: 15_000 });
-    const titleBlock = sourceEditor.locator(".bn-block[data-id]").filter({
-      hasText: "title-A-cross-tab",
-    }).first();
+    const titleBlock = sourceEditor
+      .locator(".bn-block[data-id]")
+      .filter({
+        hasText: "title-A-cross-tab",
+      })
+      .first();
     await expect(titleBlock).toBeVisible({ timeout: 15_000 });
 
     const audienceWindowOpened = application.waitForEvent("window");
     expect(await invokeIpc(page, "window:new", {})).toBe(true);
     const audiencePage = await audienceWindowOpened;
     await audiencePage.evaluate(() => window.api?.awaitInitialization?.());
-    await audiencePage.getByRole("button", {
-      name: "Open Cross-tab Board stress",
-      exact: true,
-    }).click();
+    await audiencePage
+      .getByRole("button", {
+        name: "Open Cross-tab Board stress",
+        exact: true,
+      })
+      .click();
     await audiencePage.getByRole("tab", { name: "Project Home" }).waitFor();
     const webContentsIds = await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
         .filter((window) => !window.isDestroyed())
-        .map((window) => window.webContents.id)
+        .map((window) => window.webContents.id),
     );
     expect(new Set(webContentsIds).size).toBeGreaterThanOrEqual(2);
 
@@ -3147,22 +3156,19 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
       '[data-board-column-root][data-board-column-id="triage"]',
     );
     await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
-    await expect.poll(
-      async () => await audiencePage.locator("[data-board-uuid-v7]").count(),
-      { timeout: 15_000 },
-    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
-    const audienceSourceCard = audiencePage.locator(
-      `[data-board-uuid-v7="${source.pageId}"]`,
-    );
+    await expect
+      .poll(async () => await audiencePage.locator("[data-board-uuid-v7]").count(), {
+        timeout: 15_000,
+      })
+      .toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    const audienceSourceCard = audiencePage.locator(`[data-board-uuid-v7="${source.pageId}"]`);
     await expect(audienceSourceCard).toBeVisible({ timeout: 15_000 });
-    await audienceSourceCard
-      .locator('button[data-card-context-menu-trigger="true"]')
-      .click();
+    await audienceSourceCard.locator('button[data-card-context-menu-trigger="true"]').click();
     await audiencePage.getByRole("tab", { name: "Cross-tab source" }).waitFor();
     await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
-    const audienceSourceEditor = audiencePage.locator(
-      '.nfm-editor .ProseMirror[contenteditable="true"]',
-    ).last();
+    const audienceSourceEditor = audiencePage
+      .locator('.nfm-editor .ProseMirror[contenteditable="true"]')
+      .last();
     await expect(audienceSourceEditor).toBeVisible({ timeout: 15_000 });
     const audienceTitleBlock = audienceSourceEditor
       .locator(".bn-block[data-id]")
@@ -3194,20 +3200,12 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     });
 
     const sourceDescriptorBefore = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "block-document:owned:prepare",
-        project.projectId,
-        source.pageId,
-      ),
+      await invokeIpc(page, "block-document:owned:prepare", project.projectId, source.pageId),
       "Read source Page Document before promotion",
     );
     const sourceGeneration = sourceDescriptorBefore.generation;
     const sourceHeadSeq = sourceDescriptorBefore.headSeq;
-    if (
-      typeof sourceGeneration !== "number"
-      || typeof sourceHeadSeq !== "number"
-    ) {
+    if (typeof sourceGeneration !== "number" || typeof sourceHeadSeq !== "number") {
       throw new Error("Cross-tab source Page did not expose a causal Document head");
     }
 
@@ -3216,36 +3214,33 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     // destination/source surfaces remain mounted, then verify the complete
     // publication outcome without conflating gesture and convergence pressure.
     const startedAt = performance.now();
-    const transferCommand = await invokeIpc(
-        page,
-        "blocks:transfer",
-        project.projectId,
+    const transferCommand = await invokeIpc(page, "blocks:transfer", project.projectId, {
+      operationId: createUuidV7(),
+      projectId: project.projectId,
+      storeEpoch: project.storeEpoch,
+      mode: "move",
+      rootBlockIds: [seededSource.blockIds[HIGH_PRESSURE_SIBLING_BLOCK_COUNT]],
+      causalDependencies: [
         {
-          operationId: createUuidV7(),
-          projectId: project.projectId,
-          storeEpoch: project.storeEpoch,
-          mode: "move",
-          rootBlockIds: [seededSource.blockIds[HIGH_PRESSURE_SIBLING_BLOCK_COUNT]],
-          causalDependencies: [{
-            documentId: seededSource.documentId,
-            generation: sourceGeneration,
-            expectedHeadSeq: sourceHeadSeq,
-          }],
-          source: { kind: "page", pageId: source.pageId },
-          target: {
-            kind: "data_source",
-            dataSourceId: database.dataSourceId,
-            placement: {
-              kind: "direct",
-              viewId: database.viewId,
-              presentationOverride: { layout: "board" },
-              groupKey: "triage",
-              beforePageId: triageAnchorPageId,
-            },
-          },
-          promotionPolicy: "literal",
+          documentId: seededSource.documentId,
+          generation: sourceGeneration,
+          expectedHeadSeq: sourceHeadSeq,
         },
-      );
+      ],
+      source: { kind: "page", pageId: source.pageId },
+      target: {
+        kind: "data_source",
+        dataSourceId: database.dataSourceId,
+        placement: {
+          kind: "direct",
+          viewId: database.viewId,
+          presentationOverride: { layout: "board" },
+          groupKey: "triage",
+          beforePageId: triageAnchorPageId,
+        },
+      },
+      promotionPolicy: "literal",
+    });
     const transfer = requireIpcValue<Record<string, unknown>>(
       transferCommand,
       "Promote title-A in the live cross-tab surfaces",
@@ -3272,17 +3267,17 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
         },
       },
     });
-    const localCommit = isRecord(transferCommand)
-      ? transferCommand.localCommit
-      : undefined;
+    const localCommit = isRecord(transferCommand) ? transferCommand.localCommit : undefined;
     const delivery = isRecord(localCommit) ? localCommit.delivery : undefined;
-    const effects = isRecord(delivery) && Array.isArray(delivery.projection_effects)
-      ? delivery.projection_effects
-      : [];
+    const effects =
+      isRecord(delivery) && Array.isArray(delivery.projection_effects)
+        ? delivery.projection_effects
+        : [];
     const boardEffect = effects.find((effect) => {
       if (!isRecord(effect) || !isRecord(effect.patch)) return false;
-      return effect.patch.kind === "database_row_upsert"
-        && effect.patch.view_id === database.viewId;
+      return (
+        effect.patch.kind === "database_row_upsert" && effect.patch.view_id === database.viewId
+      );
     });
     if (!isRecord(boardEffect)) {
       throw new Error("Cross-tab promotion returned no Board projection effect");
@@ -3304,69 +3299,71 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
       "Cross-tab promoted Page id",
     );
     const groupsAfterTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "database:view-groups:get",
-        project.projectId,
-        {
-          databaseViewId: database.viewId,
-          minimumCommitSeq: commitSeq,
-        },
-      ),
+      await invokeIpc(page, "database:view-groups:get", project.projectId, {
+        databaseViewId: database.viewId,
+        minimumCommitSeq: commitSeq,
+      }),
       "Read canonical Board totals after cross-tab promotion",
     );
     expect(groupsAfterTransfer.totalRows).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + 1);
     const triageAfterTransfer = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "database:view-window:get",
-        project.projectId,
-        {
-          databaseViewId: database.viewId,
-          groupScope: { kind: "path", groupKey: "triage", subgroupKey: null },
-          first: HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT + 1,
-          minimumCommitSeq: commitSeq,
-        },
-      ),
+      await invokeIpc(page, "database:view-window:get", project.projectId, {
+        databaseViewId: database.viewId,
+        groupScope: { kind: "path", groupKey: "triage", subgroupKey: null },
+        first: HIGH_PRESSURE_BOARD_TRIAGE_PAGE_COUNT + 1,
+        minimumCommitSeq: commitSeq,
+      }),
       "Read canonical Triage window after cross-tab promotion",
     );
-    expect(triageAfterTransfer.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        page: expect.objectContaining({ id: resultPageId }),
-      }),
-    ]));
+    expect(triageAfterTransfer.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          page: expect.objectContaining({ id: resultPageId }),
+        }),
+      ]),
+    );
     try {
-      await expect.poll(async () => await audiencePage.evaluate((targetCommitSeq) => {
-        const deliveries = (
-          globalThis as typeof globalThis & {
-            __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
-          }
-        ).__nodexRecipientDeliveries ?? [];
-        return deliveries.some((delivery) => {
-          const payload = delivery.payload as Record<string, unknown> | undefined;
-          const packet = payload?.packet as Record<string, unknown> | undefined;
-          const manifest = packet?.manifest as Record<string, unknown> | undefined;
-          const identity = manifest?.identity as Record<string, unknown> | undefined;
-          return payload?.kind === "packet"
-            && identity?.commit_seq === targetCommitSeq;
-        });
-      }, commitSeq), { timeout: 5_000 }).toBe(true);
+      await expect
+        .poll(
+          async () =>
+            await audiencePage.evaluate((targetCommitSeq) => {
+              const deliveries =
+                (
+                  globalThis as typeof globalThis & {
+                    __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
+                  }
+                ).__nodexRecipientDeliveries ?? [];
+              return deliveries.some((delivery) => {
+                const payload = delivery.payload as Record<string, unknown> | undefined;
+                const packet = payload?.packet as Record<string, unknown> | undefined;
+                const manifest = packet?.manifest as Record<string, unknown> | undefined;
+                const identity = manifest?.identity as Record<string, unknown> | undefined;
+                return payload?.kind === "packet" && identity?.commit_seq === targetCommitSeq;
+              });
+            }, commitSeq),
+          { timeout: 5_000 },
+        )
+        .toBe(true);
     } catch (error) {
-      const deliveries = await audiencePage.evaluate(() => (
-        globalThis as typeof globalThis & {
-          __nodexRecipientDeliveries?: unknown[];
-        }
-      ).__nodexRecipientDeliveries ?? []);
+      const deliveries = await audiencePage.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __nodexRecipientDeliveries?: unknown[];
+            }
+          ).__nodexRecipientDeliveries ?? [],
+      );
       console.info(`[cross-webcontents-recipient-deliveries] ${JSON.stringify(deliveries)}`);
       throw error;
     }
     const audienceAdmittedAt = performance.now();
     const recipientDeliverySummary = await audiencePage.evaluate((targetCommitSeq) => {
-      const deliveries = (
-        globalThis as typeof globalThis & {
-          __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
-        }
-      ).__nodexRecipientDeliveries ?? [];
+      const deliveries =
+        (
+          globalThis as typeof globalThis & {
+            __nodexRecipientDeliveries?: Array<Record<string, unknown>>;
+          }
+        ).__nodexRecipientDeliveries ?? [];
       return deliveries.flatMap((delivery) => {
         const payload = delivery.payload as Record<string, unknown> | undefined;
         const packet = payload?.packet as Record<string, unknown> | undefined;
@@ -3375,77 +3372,79 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
         if (payload?.kind !== "packet" || identity?.commit_seq !== targetCommitSeq) {
           return [];
         }
-        const effects = Array.isArray(packet?.projection_effects)
-          ? packet.projection_effects
-          : [];
+        const effects = Array.isArray(packet?.projection_effects) ? packet.projection_effects : [];
         return effects.flatMap((candidate) => {
-          if (
-            typeof candidate !== "object"
-            || candidate === null
-            || Array.isArray(candidate)
-          ) return [];
+          if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate))
+            return [];
           const effect = candidate as Record<string, unknown>;
           if (
-            typeof effect.patch !== "object"
-            || effect.patch === null
-            || Array.isArray(effect.patch)
-          ) return [];
+            typeof effect.patch !== "object" ||
+            effect.patch === null ||
+            Array.isArray(effect.patch)
+          )
+            return [];
           const patch = effect.patch as Record<string, unknown>;
-          return [{
-            deliveryId: delivery.deliveryId,
-            recipientLeaseId: delivery.recipientLeaseId,
-            address: delivery.deliveryAddress,
-            baseRevision: effect.base_revision,
-            resultRevision: effect.result_revision,
-            patchKind: patch.kind,
-            viewId: patch.view_id,
-          }];
+          return [
+            {
+              deliveryId: delivery.deliveryId,
+              recipientLeaseId: delivery.recipientLeaseId,
+              address: delivery.deliveryAddress,
+              baseRevision: effect.base_revision,
+              resultRevision: effect.result_revision,
+              patchKind: patch.kind,
+              viewId: patch.view_id,
+            },
+          ];
         });
       });
     }, commitSeq);
-    expect(recipientDeliverySummary).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        deliveryId: expect.stringMatching(/^[a-f0-9]{64}$/u),
-        recipientLeaseId: expect.stringMatching(/^[a-f0-9]{64}$/u),
-        address: expect.objectContaining({
-          kind: "project",
-          project_id: project.projectId,
+    expect(recipientDeliverySummary).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deliveryId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          recipientLeaseId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          address: expect.objectContaining({
+            kind: "project",
+            project_id: project.projectId,
+          }),
+          patchKind: "database_row_upsert",
+          viewId: database.viewId,
         }),
-        patchKind: "database_row_upsert",
-        viewId: database.viewId,
-      }),
-    ]));
-    const transferredCard = page.locator('[data-board-uuid-v7]').filter({
-      hasText: "title-A-cross-tab",
-    }).first();
+      ]),
+    );
+    const transferredCard = page
+      .locator("[data-board-uuid-v7]")
+      .filter({
+        hasText: "title-A-cross-tab",
+      })
+      .first();
     const audienceTransferredCard = audiencePage
-      .locator('[data-board-uuid-v7]')
+      .locator("[data-board-uuid-v7]")
       .filter({ hasText: "title-A-cross-tab" })
       .first();
     const [cardVisibleAt, sourceRemovedAt, audienceCardVisibleAt, audienceSourceRemovedAt] =
       await Promise.all([
-      expect(transferredCard).toBeVisible({ timeout: 15_000 })
-        .then(async () => {
-          await expect(transferredCard).toContainText("title-A-cross-tab");
-          return performance.now();
-        }),
-      expect(titleBlock).toHaveCount(0, { timeout: 15_000 })
-        .then(() => performance.now()),
-      expect(audienceTransferredCard).toBeVisible({ timeout: 15_000 })
-        .then(async () => {
-          await expect(audienceTransferredCard).toContainText("title-A-cross-tab");
-          return performance.now();
-        }),
-      expect(audienceTitleBlock).toHaveCount(0, { timeout: 15_000 })
-        .then(() => performance.now()),
-    ]);
+        expect(transferredCard)
+          .toBeVisible({ timeout: 15_000 })
+          .then(async () => {
+            await expect(transferredCard).toContainText("title-A-cross-tab");
+            return performance.now();
+          }),
+        expect(titleBlock)
+          .toHaveCount(0, { timeout: 15_000 })
+          .then(() => performance.now()),
+        expect(audienceTransferredCard)
+          .toBeVisible({ timeout: 15_000 })
+          .then(async () => {
+            await expect(audienceTransferredCard).toContainText("title-A-cross-tab");
+            return performance.now();
+          }),
+        expect(audienceTitleBlock)
+          .toHaveCount(0, { timeout: 15_000 })
+          .then(() => performance.now()),
+      ]);
     const sourceDescriptorAfter = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "block-document:owned:prepare",
-        project.projectId,
-        source.pageId,
-      ),
+      await invokeIpc(page, "block-document:owned:prepare", project.projectId, source.pageId),
       "Read source Page Document after promotion",
     );
     expect(sourceDescriptorAfter).toMatchObject({
@@ -3455,12 +3454,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     expect(sourceDescriptorAfter.headSeq).toBeGreaterThan(2);
 
     const detail = requireIpcValue<Record<string, unknown>>(
-      await invokeIpc(
-        page,
-        "pages:detail:get",
-        project.projectId,
-        resultPageId,
-      ),
+      await invokeIpc(page, "pages:detail:get", project.projectId, resultPageId),
       "Read cross-tab transferred Page detail",
     );
     expect(detail.page).toMatchObject({
@@ -3486,10 +3480,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
     const metrics = {
       fixtureSeed: "cross-tab-board-transfer-v1-100x100x100",
       boardInitialPageCount: HIGH_PRESSURE_BOARD_PAGE_COUNT,
-      sourceBlockCount:
-        HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
-        + HIGH_PRESSURE_CHILD_BLOCK_COUNT
-        + 1,
+      sourceBlockCount: HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2 + HIGH_PRESSURE_CHILD_BLOCK_COUNT + 1,
       movedChildBlockCount: HIGH_PRESSURE_CHILD_BLOCK_COUNT,
       requestToCommitMs: committedAt - startedAt,
       commitToCardMs: cardVisibleAt - committedAt,
@@ -3529,11 +3520,7 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
     const page = await harness.launch();
     const application = harness.application;
 
-    const project = await createConvergenceProject(
-      page,
-      "Board stress convergence",
-      workspace,
-    );
+    const project = await createConvergenceProject(page, "Board stress convergence", workspace);
     const fixturePreparationStartedAt = performance.now();
     const boardSeedPage = await createConvergencePage(page, project, "Board fixture seed");
     const seededBoard = await seedConvergenceDocument(
@@ -3570,33 +3557,26 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
       triageFixturePageIds[0],
       "First Triage fixture Page id",
     );
-    expect(await readConvergenceBoardTotal(page, project)).toBe(
-      HIGH_PRESSURE_BOARD_PAGE_COUNT,
-    );
+    expect(await readConvergenceBoardTotal(page, project)).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
 
     const blocksPerRound =
-      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2
-      + HIGH_PRESSURE_CHILD_BLOCK_COUNT
-      + 1;
+      HIGH_PRESSURE_SIBLING_BLOCK_COUNT * 2 + HIGH_PRESSURE_CHILD_BLOCK_COUNT + 1;
     const openProjectStartedAt = performance.now();
-    await page.getByRole("button", {
-      name: "Open Board stress convergence",
-      exact: true,
-    }).click();
+    await page
+      .getByRole("button", {
+        name: "Open Board stress convergence",
+        exact: true,
+      })
+      .click();
     await page.getByRole("tab", { name: "Project Home" }).waitFor();
-    const boardColumn = page.locator(
-      '[data-board-column-root][data-board-column-id="triage"]',
-    );
+    const boardColumn = page.locator('[data-board-column-root][data-board-column-id="triage"]');
     await expect(boardColumn).toBeVisible({ timeout: 15_000 });
     const initialBoardCards = page.locator("[data-board-uuid-v7]");
-    await expect.poll(
-      async () => await initialBoardCards.count(),
-      { timeout: 15_000 },
-    ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
+    await expect
+      .poll(async () => await initialBoardCards.count(), { timeout: 15_000 })
+      .toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
     const boardInitialRenderMs = performance.now() - openProjectStartedAt;
-    const initialDomNodes = await page.evaluate(
-      () => document.getElementsByTagName("*").length,
-    );
+    const initialDomNodes = await page.evaluate(() => document.getElementsByTagName("*").length);
 
     await page.evaluate(() => {
       const state = {
@@ -3619,8 +3599,10 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
     const normalizedOneMinuteLoads: number[] = [];
     const coreStageDurations = {} as Record<CoreTransferStage, number[]>;
     const coreStageObservationCounts = {} as Record<CoreTransferStage, number>;
-    let firstTransferVisibilityFacts: BoardTransferPerformanceMetrics["firstTransferVisibilityFacts"] = [];
-    let firstTransferVisibilityRows: BoardTransferPerformanceMetrics["firstTransferVisibilityRows"] = [];
+    let firstTransferVisibilityFacts: BoardTransferPerformanceMetrics["firstTransferVisibilityFacts"] =
+      [];
+    let firstTransferVisibilityRows: BoardTransferPerformanceMetrics["firstTransferVisibilityRows"] =
+      [];
     for (const stage of Object.keys(CORE_TRANSFER_STAGES) as CoreTransferStage[]) {
       coreStageDurations[stage] = [];
       coreStageObservationCounts[stage] = 0;
@@ -3652,37 +3634,30 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
       const titleBlockId = seededSource.blockIds[HIGH_PRESSURE_SIBLING_BLOCK_COUNT];
       if (!titleBlockId) throw new Error("High-pressure source title Block is missing");
       const coreMetricsBefore = (await metricsClient.health()).metrics;
-      normalizedOneMinuteLoads.push(
-        os.loadavg()[0] / Math.max(1, os.cpus().length),
-      );
+      normalizedOneMinuteLoads.push(os.loadavg()[0] / Math.max(1, os.cpus().length));
       const transferStartedAt = performance.now();
       const receipt = requireIpcValue<Record<string, unknown>>(
-        await invokeIpc(
-          page,
-          "blocks:transfer",
-          project.projectId,
-          {
-            operationId: createUuidV7(),
-            projectId: project.projectId,
-            storeEpoch: project.storeEpoch,
-            mode: "move",
-            rootBlockIds: [titleBlockId],
-            causalDependencies: [],
-            source: { kind: "document", documentId: seededSource.documentId },
-            target: {
-              kind: "data_source",
-              dataSourceId: database.dataSourceId,
-              placement: {
-                kind: "direct",
-                viewId: database.viewId,
-                presentationOverride: { layout: "board" },
-                groupKey: "triage",
-                beforePageId: firstTriagePageId,
-              },
+        await invokeIpc(page, "blocks:transfer", project.projectId, {
+          operationId: createUuidV7(),
+          projectId: project.projectId,
+          storeEpoch: project.storeEpoch,
+          mode: "move",
+          rootBlockIds: [titleBlockId],
+          causalDependencies: [],
+          source: { kind: "document", documentId: seededSource.documentId },
+          target: {
+            kind: "data_source",
+            dataSourceId: database.dataSourceId,
+            placement: {
+              kind: "direct",
+              viewId: database.viewId,
+              presentationOverride: { layout: "board" },
+              groupKey: "triage",
+              beforePageId: firstTriagePageId,
             },
-            promotionPolicy: "literal",
           },
-        ),
+          promotionPolicy: "literal",
+        }),
         `Transfer high-pressure title Block ${index + 1}`,
       );
       const transferCommittedAt = performance.now();
@@ -3716,8 +3691,9 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
       }
 
       const evidence = Array.isArray(receipt.transformationEvidence)
-        ? receipt.transformationEvidence.find((entry) =>
-          isRecord(entry) && entry.sourceBlockId === titleBlockId)
+        ? receipt.transformationEvidence.find(
+            (entry) => isRecord(entry) && entry.sourceBlockId === titleBlockId,
+          )
         : undefined;
       if (!isRecord(evidence)) {
         throw new Error("High-pressure Block transfer returned no title transformation evidence");
@@ -3740,35 +3716,28 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
           `Read high-pressure source Page ${index + 1} after transfer`,
         ),
       }));
-      const cardObservation = expect(card).toBeVisible({ timeout: 15_000 })
+      const cardObservation = expect(card)
+        .toBeVisible({ timeout: 15_000 })
         .then(async () => {
           await expect(card).toContainText(`title-A-${index}`);
           return performance.now();
         });
-      const [{ observedAt: sourceObservedAt, sourceDetail }, cardVisibleAt] =
-        await Promise.all([sourceObservation, cardObservation]);
-      const sourcePageAfter = isRecord(sourceDetail.page)
-        ? sourceDetail.page
-        : null;
+      const [{ observedAt: sourceObservedAt, sourceDetail }, cardVisibleAt] = await Promise.all([
+        sourceObservation,
+        cardObservation,
+      ]);
+      const sourcePageAfter = isRecord(sourceDetail.page) ? sourceDetail.page : null;
       const sourcePlainText = sourcePageAfter?.plainText;
       if (typeof sourcePlainText !== "string") {
         throw new Error("High-pressure source Page returned no plain text");
       }
       expect(sourcePlainText).toBe(HIGH_PRESSURE_SOURCE_REMAINDER);
-      transferToSourceRemovalDurations.push(
-        sourceObservedAt - transferCommittedAt,
-      );
+      transferToSourceRemovalDurations.push(sourceObservedAt - transferCommittedAt);
       transferToCardDurations.push(cardVisibleAt - transferCommittedAt);
 
       if (index === 0) {
         const detail = requireIpcValue<Record<string, unknown>>(
-          await invokeIpc(
-            page,
-            "pages:detail:get",
-            project.projectId,
-            resultPageId,
-            commitSeq,
-          ),
+          await invokeIpc(page, "pages:detail:get", project.projectId, resultPageId, commitSeq),
           "Read high-pressure transferred Page detail",
         );
         expect(detail.page).toMatchObject({
@@ -3785,36 +3754,40 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
           plainText: expect.stringContaining("child-placeholder-099"),
         });
       }
-      await expect.poll(
-        async () => await readConvergenceBoardTotal(page, project, commitSeq),
-        { timeout: 15_000 },
-      ).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + index + 1);
+      await expect
+        .poll(async () => await readConvergenceBoardTotal(page, project, commitSeq), {
+          timeout: 15_000,
+        })
+        .toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + index + 1);
     }
     expect(await readConvergenceBoardTotal(page, project, lastChangeLogSeq)).toBe(
       HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
     );
     const transferCommitSummary = summarizeDurations(transferCommitDurations);
-    const transferToSourceRemovalSummary = summarizeDurations(
-      transferToSourceRemovalDurations,
-    );
+    const transferToSourceRemovalSummary = summarizeDurations(transferToSourceRemovalDurations);
     const transferToCardSummary = summarizeDurations(transferToCardDurations);
     const coreStages = Object.fromEntries(
       Object.entries(coreStageDurations).map(([stage, durations]) => {
         const summary = summarizeDurations(durations);
-        return [stage, {
-          p50Ms: summary.p50,
-          p95Ms: summary.p95,
-          p99Ms: summary.p99,
-          maxMs: summary.max,
-          observationCount: coreStageObservationCounts[stage as CoreTransferStage],
-        }];
+        return [
+          stage,
+          {
+            p50Ms: summary.p50,
+            p95Ms: summary.p95,
+            p99Ms: summary.p99,
+            maxMs: summary.max,
+            observationCount: coreStageObservationCounts[stage as CoreTransferStage],
+          },
+        ];
       }),
     ) as Record<CoreTransferStage, CoreTransferStageSummary>;
 
     const rendererMetrics = await page.evaluate(() => {
-      const state = (window as typeof window & {
-        __nodexBoardTransferPerformance?: { longTasks: number[] };
-      }).__nodexBoardTransferPerformance;
+      const state = (
+        window as typeof window & {
+          __nodexBoardTransferPerformance?: { longTasks: number[] };
+        }
+      ).__nodexBoardTransferPerformance;
       const longTasks = [...(state?.longTasks ?? [])];
       return {
         finalDomNodes: document.getElementsByTagName("*").length,
@@ -3824,10 +3797,8 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
       };
     });
     const peakWorkingSetBytes = await application.evaluate(({ app }) =>
-      Math.max(
-        0,
-        ...app.getAppMetrics().map((metric) => metric.memory.peakWorkingSetSize * 1_024),
-      ));
+      Math.max(0, ...app.getAppMetrics().map((metric) => metric.memory.peakWorkingSetSize * 1_024)),
+    );
     const cpus = os.cpus();
     const metrics: BoardTransferPerformanceMetrics = {
       fixtureSeed: "board-transfer-v1-100x100x100",
@@ -3890,9 +3861,7 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
     console.info(`[board-transfer-high-pressure] ${JSON.stringify(metrics)}`);
 
     expect(metrics.initialBoardPageCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
-    expect(metrics.finalBoardPageCount).toBe(
-      HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS,
-    );
+    expect(metrics.finalBoardPageCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT + HIGH_PRESSURE_ROUNDS);
     expect(metrics.initialRenderedBoardCardCount).toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
     expect(metrics.finalRenderedBoardCardCount).toBeGreaterThanOrEqual(
       metrics.initialRenderedBoardCardCount,
@@ -3906,9 +3875,7 @@ test("measures high-pressure nested Block transfer into a populated Board @perfo
         expect(metrics.transferCommitP99Ms).not.toBeNull();
         expect(metrics.transferCommitP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(350);
         expect(metrics.transferToSourceRemovalP99Ms).not.toBeNull();
-        expect(
-          metrics.transferToSourceRemovalP99Ms ?? Number.POSITIVE_INFINITY,
-        ).toBeLessThan(100);
+        expect(metrics.transferToSourceRemovalP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(100);
         expect(metrics.transferToCardP99Ms).not.toBeNull();
         expect(metrics.transferToCardP99Ms ?? Number.POSITIVE_INFINITY).toBeLessThan(100);
       }
@@ -3938,28 +3905,32 @@ test("keeps representative large-content surfaces bounded in a real Electron ren
   try {
     application = await launchLargeContentFixtureApplication();
 
-    const scenarios: LargeContentScenario[] = [
-      "workspace",
-      "markdown",
-      "tool",
-      "startup",
-    ];
+    const scenarios: LargeContentScenario[] = ["workspace", "markdown", "tool", "startup"];
     const metrics: LargeContentScenarioMetrics[] = [];
     for (const scenario of scenarios) {
-      metrics.push(await sampleLargeContentScenario({
-        application,
-        artifactDir,
-        fixtureFile,
-        scenario,
-      }));
+      metrics.push(
+        await sampleLargeContentScenario({
+          application,
+          artifactDir,
+          fixtureFile,
+          scenario,
+        }),
+      );
     }
 
-    fs.writeFileSync(path.join(artifactDir, "metrics.json"), `${JSON.stringify({
-      capturedAt: new Date().toISOString(),
-      electron: process.versions.electron,
-      fixtureSizes: LARGE_CONTENT_FIXTURE_SIZES,
-      metrics,
-    }, null, 2)}\n`);
+    fs.writeFileSync(
+      path.join(artifactDir, "metrics.json"),
+      `${JSON.stringify(
+        {
+          capturedAt: new Date().toISOString(),
+          electron: process.versions.electron,
+          fixtureSizes: LARGE_CONTENT_FIXTURE_SIZES,
+          metrics,
+        },
+        null,
+        2,
+      )}\n`,
+    );
 
     const byScenario = Object.fromEntries(metrics.map((metric) => [metric.scenario, metric]));
     const enforcePerformanceTiming = process.env.NODEX_SKIP_PERFORMANCE_GATES !== "1";

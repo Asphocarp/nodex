@@ -21,15 +21,17 @@ const authenticatedAccount: CodexAccountSnapshot = {
   },
   rateLimitResetCredits: {
     availableCount: 2,
-    credits: [{
-      id: "reset-credit-1",
-      resetType: "codexRateLimits",
-      status: "available",
-      grantedAt: 1_784_246_400,
-      expiresAt: 1_810_166_400,
-      title: "Quota reset",
-      description: "Reset an eligible Codex quota window.",
-    }],
+    credits: [
+      {
+        id: "reset-credit-1",
+        resetType: "codexRateLimits",
+        status: "available",
+        grantedAt: 1_784_246_400,
+        expiresAt: 1_810_166_400,
+        title: "Quota reset",
+        description: "Reset an eligible Codex quota window.",
+      },
+    ],
   },
 };
 
@@ -147,7 +149,9 @@ describe("LeftSidebarFooter", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(textContent(view.container.ownerDocument.body).includes("Couldn’t reset quota. Try again.")).toBe(true);
+      expect(
+        textContent(view.container.ownerDocument.body).includes("Couldn’t reset quota. Try again."),
+      ).toBe(true);
     });
 
     await act(async () => {
@@ -155,7 +159,9 @@ describe("LeftSidebarFooter", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(textContent(view.container.ownerDocument.body).includes("Quota reset. 1 remaining.")).toBe(true);
+      expect(
+        textContent(view.container.ownerDocument.body).includes("Quota reset. 1 remaining."),
+      ).toBe(true);
     });
 
     expect(attempts).toHaveLength(2);

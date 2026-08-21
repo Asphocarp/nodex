@@ -1,10 +1,4 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
@@ -14,11 +8,7 @@ import {
 import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";
 import { readCanvasInlineFramePreference } from "@/lib/canvas-presentation-preference";
 import { installMeasuredResizeObserver } from "@/test/browser-globals";
-import {
-  CanvasBlock,
-  CanvasBlockFrame,
-  canvasInlineSurfaceActivationBudget,
-} from "./canvas-block";
+import { CanvasBlock, CanvasBlockFrame, canvasInlineSurfaceActivationBudget } from "./canvas-block";
 
 vi.mock("@/lib/use-element-visibility", () => ({
   useElementVisibility: () => ({
@@ -112,8 +102,9 @@ describe("CanvasBlock", () => {
     const surface = await screen.findByTestId("inline-canvas-surface");
     expect(surface.getAttribute("data-canvas-block-id")).toBe("canvas-1");
     expect(surface.getAttribute("data-variant")).toBe("inline");
-    expect(surface.getAttribute("data-viewport-preference-scope"))
-      .toBe(JSON.stringify(["inline", "canvas-1"]));
+    expect(surface.getAttribute("data-viewport-preference-scope")).toBe(
+      JSON.stringify(["inline", "canvas-1"]),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Open System map" }));
     expect(openCanvas).toHaveBeenCalledWith({
@@ -156,19 +147,14 @@ describe("CanvasBlock", () => {
     expect(mounted).toHaveLength(2);
     expect(screen.queryByText("Activate Canvas")).toBeNull();
 
-    const firstShell = document.querySelector(
-      '[data-canvas-block="canvas-1"]',
-    );
+    const firstShell = document.querySelector('[data-canvas-block="canvas-1"]');
     expect(firstShell).not.toBeNull();
     fireEvent.pointerDown(firstShell!);
     await waitFor(() => {
       const reactivated = screen.getAllByTestId("inline-canvas-surface");
       expect(reactivated).toHaveLength(2);
       expect(
-        reactivated.some(
-          (surface) =>
-            surface.getAttribute("data-canvas-block-id") === "canvas-1",
-        ),
+        reactivated.some((surface) => surface.getAttribute("data-canvas-block-id") === "canvas-1"),
       ).toBe(true);
     });
   });
@@ -197,10 +183,7 @@ describe("CanvasBlock", () => {
 
     render(
       <BlockReferenceRuntimeProvider value={host}>
-        <CanvasBlock
-          canvasBlockId="canvas-1"
-          hostEditor={hostEditor}
-        />
+        <CanvasBlock canvasBlockId="canvas-1" hostEditor={hostEditor} />
       </BlockReferenceRuntimeProvider>,
     );
     await screen.findByTestId("inline-canvas-surface");
@@ -233,9 +216,7 @@ describe("CanvasBlock", () => {
       </BlockReferenceRuntimeProvider>,
     );
     await screen.findByTestId("inline-canvas-surface");
-    const firstFrame = first.container.querySelector<HTMLElement>(
-      "[data-canvas-inline-frame]",
-    );
+    const firstFrame = first.container.querySelector<HTMLElement>("[data-canvas-inline-frame]");
     expect(firstFrame?.style.height).toBe("288px");
     if (firstFrame) firstFrame.style.height = "520px";
     await act(async () => {
@@ -243,29 +224,35 @@ describe("CanvasBlock", () => {
     });
     first.unmount();
 
-    expect(readCanvasInlineFramePreference({
-      storeEpoch: "epoch-1",
-      canvasBlockId: "canvas-1",
-    })).toEqual({ heightPx: 520 });
+    expect(
+      readCanvasInlineFramePreference({
+        storeEpoch: "epoch-1",
+        canvasBlockId: "canvas-1",
+      }),
+    ).toEqual({ heightPx: 520 });
 
     const second = render(
-      <BlockReferenceRuntimeProvider value={{
-        ...host,
-        documentSurfaceId: "page-client-2",
-      }}>
+      <BlockReferenceRuntimeProvider
+        value={{
+          ...host,
+          documentSurfaceId: "page-client-2",
+        }}
+      >
         <CanvasBlock canvasBlockId="canvas-1" />
       </BlockReferenceRuntimeProvider>,
     );
     await screen.findByTestId("inline-canvas-surface");
-    expect(second.container.querySelector<HTMLElement>(
-      "[data-canvas-inline-frame]",
-    )?.style.height).toBe("520px");
+    expect(
+      second.container.querySelector<HTMLElement>("[data-canvas-inline-frame]")?.style.height,
+    ).toBe("520px");
 
     second.unmount();
-    expect(readCanvasInlineFramePreference({
-      storeEpoch: "epoch-1",
-      canvasBlockId: "canvas-1",
-    })).toEqual({ heightPx: 520 });
+    expect(
+      readCanvasInlineFramePreference({
+        storeEpoch: "epoch-1",
+        canvasBlockId: "canvas-1",
+      }),
+    ).toEqual({ heightPx: 520 });
   });
 
   test("keeps compact height out of the expanded frame preference", async () => {
@@ -281,9 +268,7 @@ describe("CanvasBlock", () => {
         <div />
       </CanvasBlockFrame>,
     );
-    const viewport = frame.container.querySelector<HTMLElement>(
-      "[data-canvas-inline-frame]",
-    );
+    const viewport = frame.container.querySelector<HTMLElement>("[data-canvas-inline-frame]");
     expect(viewport?.style.height).toBe("288px");
     if (viewport) viewport.style.height = "520px";
     await act(async () => {
@@ -302,10 +287,12 @@ describe("CanvasBlock", () => {
       </CanvasBlockFrame>,
     );
     expect(viewport?.style.height).toBe("");
-    expect(readCanvasInlineFramePreference({
-      storeEpoch: "epoch-1",
-      canvasBlockId: "canvas-compact",
-    })).toEqual({ heightPx: 520 });
+    expect(
+      readCanvasInlineFramePreference({
+        storeEpoch: "epoch-1",
+        canvasBlockId: "canvas-compact",
+      }),
+    ).toEqual({ heightPx: 520 });
 
     frame.rerender(
       <CanvasBlockFrame

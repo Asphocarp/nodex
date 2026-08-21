@@ -3,11 +3,7 @@ import * as path from "path";
 import { createHash, randomUUID } from "node:crypto";
 
 import { getNodexHome } from "./assets-deps";
-import {
-  getAssetSource,
-  isSafeAssetFileName,
-  parseAssetSource,
-} from "../../shared/assets";
+import { getAssetSource, isSafeAssetFileName, parseAssetSource } from "../../shared/assets";
 import {
   MAX_MANAGED_IMAGE_BYTES,
   MAX_MANAGED_PREVIEW_BYTES,
@@ -113,10 +109,7 @@ export function getAssetsPathPrefix(): string {
   return getCachedAssetPaths().pathPrefix;
 }
 
-function assertAssetPathInsideRoot(
-  targetPath: string,
-  assetsRootPath: string,
-): void {
+function assertAssetPathInsideRoot(targetPath: string, assetsRootPath: string): void {
   const rootPath = path.resolve(assetsRootPath);
   const pathPrefix = `${rootPath}${path.sep}`;
   if (targetPath === rootPath || targetPath.startsWith(pathPrefix)) {
@@ -130,10 +123,7 @@ function resolveFlatAssetPath(fileName: string): string {
   return resolveAssetPathInRoot(getAssetsRootPath(), fileName);
 }
 
-export function resolveAssetPathInRoot(
-  assetsRootPath: string,
-  fileName: string,
-): string {
+export function resolveAssetPathInRoot(assetsRootPath: string, fileName: string): string {
   if (!isSafeAssetFileName(fileName)) {
     throw new Error("Invalid file name");
   }
@@ -149,9 +139,11 @@ export function resolveAssetPath(fileName: string): string {
 
 export function getMimeTypeForAssetFile(fileName: string): string {
   const extension = path.extname(fileName).toLowerCase();
-  return EXTENSION_TO_IMAGE_MIME[extension]
-    ?? EXTENSION_TO_TEXT_MIME[extension]
-    ?? "application/octet-stream";
+  return (
+    EXTENSION_TO_IMAGE_MIME[extension] ??
+    EXTENSION_TO_TEXT_MIME[extension] ??
+    "application/octet-stream"
+  );
 }
 
 export function getImageMimeTypeForAssetFile(fileName: string): string | null {
@@ -171,16 +163,13 @@ function resolveStoredExtension(fileName: string, mimeType: string): string {
   const imageExtension = IMAGE_MIME_TO_EXTENSION[mimeType];
   if (imageExtension) return imageExtension;
 
-  const textExtension = Object.entries(EXTENSION_TO_TEXT_MIME)
-    .find(([, candidateMimeType]) => candidateMimeType === mimeType)?.[0];
+  const textExtension = Object.entries(EXTENSION_TO_TEXT_MIME).find(
+    ([, candidateMimeType]) => candidateMimeType === mimeType,
+  )?.[0];
   return textExtension ?? "";
 }
 
-function writeAssetBytesAtRoot(
-  assetsRootPath: string,
-  fileName: string,
-  bytes: Buffer,
-): string {
+function writeAssetBytesAtRoot(assetsRootPath: string, fileName: string, bytes: Buffer): string {
   const absolutePath = resolveAssetPathInRoot(assetsRootPath, fileName);
   fs.mkdirSync(assetsRootPath, { recursive: true });
   fs.writeFileSync(absolutePath, bytes);
@@ -209,27 +198,18 @@ const decodeInlineImageDataUrl = (
   return { bytes, mimeType };
 };
 
-const assertContentAddressedAsset = (
-  absolutePath: string,
-  expectedHash: string,
-): void => {
+const assertContentAddressedAsset = (absolutePath: string, expectedHash: string): void => {
   const stats = fs.lstatSync(absolutePath);
   if (!stats.isFile() || stats.isSymbolicLink()) {
     throw new Error("Managed Canvas image asset must be a regular file");
   }
-  const actualHash = createHash("sha256")
-    .update(fs.readFileSync(absolutePath))
-    .digest("hex");
+  const actualHash = createHash("sha256").update(fs.readFileSync(absolutePath)).digest("hex");
   if (actualHash === expectedHash) return;
   throw new Error("Managed Canvas image asset hash collision");
 };
 
-const isAlreadyExistsError = (
-  error: unknown,
-): error is NodeJS.ErrnoException =>
-  error instanceof Error
-  && "code" in error
-  && error.code === "EEXIST";
+const isAlreadyExistsError = (error: unknown): error is NodeJS.ErrnoException =>
+  error instanceof Error && "code" in error && error.code === "EEXIST";
 
 const publishContentAddressedAsset = (
   assetsRootPath: string,
@@ -285,12 +265,7 @@ const materializeCanvasImageBytesAtRoot = (
   const contentHash = createHash("sha256").update(bytes).digest("hex");
   const extension = IMAGE_MIME_TO_EXTENSION[mimeType] ?? "";
   const fileName = `canvas-${contentHash}${extension}`;
-  publishContentAddressedAsset(
-    assetsRootPath,
-    fileName,
-    bytes,
-    contentHash,
-  );
+  publishContentAddressedAsset(assetsRootPath, fileName, bytes, contentHash);
   return {
     source: getAssetSource(fileName),
     fileName,
@@ -310,11 +285,7 @@ export function materializeInlineImageAtRoot(
 ): { readonly source: string; readonly fileName: string; readonly mimeType: string } {
   const { bytes, mimeType } = decodeInlineImageDataUrl(dataUrl);
   if (options.namespace === "canvas") {
-    const result = materializeCanvasImageBytesAtRoot(
-      bytes,
-      mimeType,
-      options.assetsRootPath,
-    );
+    const result = materializeCanvasImageBytesAtRoot(bytes, mimeType, options.assetsRootPath);
     return {
       source: result.source,
       fileName: result.fileName,
@@ -324,19 +295,16 @@ export function materializeInlineImageAtRoot(
   const contentHash = createHash("sha256").update(bytes).digest("hex");
   const extension = IMAGE_MIME_TO_EXTENSION[mimeType] ?? "";
   const fileName = `${options.namespace}-${contentHash}${extension}`;
-  publishContentAddressedAsset(
-    options.assetsRootPath,
-    fileName,
-    bytes,
-    contentHash,
-  );
+  publishContentAddressedAsset(options.assetsRootPath, fileName, bytes, contentHash);
   return { source: getAssetSource(fileName), fileName, mimeType };
 }
 
 /** Live-store wrapper retained for non-staged call sites. */
-export function materializeInlineCanvasImage(
-  dataUrl: string,
-): { readonly source: string; readonly fileName: string; readonly mimeType: string } {
+export function materializeInlineCanvasImage(dataUrl: string): {
+  readonly source: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+} {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
     return materializeInlineImageAtRoot(dataUrl, {
@@ -354,11 +322,7 @@ export function materializeCanvasImage(
   const mutation = storeMaintenanceGate.beginMutation();
   try {
     const upload = normalizeAssetUploadInput(input);
-    return materializeCanvasImageBytesAtRoot(
-      upload.bytes,
-      upload.mimeType,
-      getAssetsRootPath(),
-    );
+    return materializeCanvasImageBytesAtRoot(upload.bytes, upload.mimeType, getAssetsRootPath());
   } finally {
     mutation.release();
   }
@@ -366,16 +330,16 @@ export function materializeCanvasImage(
 
 function inferMimeTypeFromLocalPath(localPath: string): string {
   const extension = path.extname(localPath).toLowerCase();
-  return EXTENSION_TO_IMAGE_MIME[extension]
-    ?? EXTENSION_TO_TEXT_MIME[extension]
-    ?? "application/octet-stream";
+  return (
+    EXTENSION_TO_IMAGE_MIME[extension] ??
+    EXTENSION_TO_TEXT_MIME[extension] ??
+    "application/octet-stream"
+  );
 }
 
 function normalizeMimeType(mimeType: string): string {
   const normalized = mimeType.trim().split(";")[0]?.trim();
-  return normalized && normalized.length > 0
-    ? normalized
-    : "application/octet-stream";
+  return normalized && normalized.length > 0 ? normalized : "application/octet-stream";
 }
 
 function buildFolderManifest(
@@ -397,7 +361,8 @@ function buildFolderManifest(
       return;
     }
 
-    const children = fs.readdirSync(currentPath, { withFileTypes: true })
+    const children = fs
+      .readdirSync(currentPath, { withFileTypes: true })
       .sort((left, right) => left.name.localeCompare(right.name));
 
     for (const child of children) {
@@ -435,9 +400,11 @@ function buildFolderManifest(
   };
 }
 
-function normalizeAssetUploadInput(
-  input: ManagedAssetUploadInput,
-): { name: string; mimeType: string; bytes: Buffer } {
+function normalizeAssetUploadInput(input: ManagedAssetUploadInput): {
+  name: string;
+  mimeType: string;
+  bytes: Buffer;
+} {
   if (!input || typeof input !== "object") {
     throw new Error("Asset upload is required");
   }
@@ -457,9 +424,7 @@ function normalizeAssetUploadInput(
   };
 }
 
-export function saveUploadedImage(
-  input: ManagedAssetUploadInput,
-): ManagedImageSaveResult {
+export function saveUploadedImage(input: ManagedAssetUploadInput): ManagedImageSaveResult {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
     const upload = normalizeAssetUploadInput(input);
@@ -487,9 +452,7 @@ export function saveUploadedImage(
   }
 }
 
-export function saveUploadedResource(
-  input: ManagedAssetUploadInput,
-): ManagedResourceSaveResult {
+export function saveUploadedResource(input: ManagedAssetUploadInput): ManagedResourceSaveResult {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
     const upload = normalizeAssetUploadInput(input);
@@ -518,9 +481,7 @@ export function saveUploadedResource(
   }
 }
 
-export function materializeLocalResource(
-  localPath: string,
-): ManagedResourceSaveResult {
+export function materializeLocalResource(localPath: string): ManagedResourceSaveResult {
   const mutation = storeMaintenanceGate.beginMutation();
   try {
     const trimmedLocalPath = localPath.trim();
@@ -630,13 +591,13 @@ function isManagedFolderManifest(value: unknown): value is ManagedFolderManifest
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const manifest = value as Partial<ManagedFolderManifest>;
   if (
-    typeof manifest.rootName !== "string"
-    || typeof manifest.generatedAt !== "string"
-    || typeof manifest.maxEntries !== "number"
-    || typeof manifest.maxDepth !== "number"
-    || typeof manifest.truncated !== "boolean"
-    || !Array.isArray(manifest.entries)
-    || manifest.entries.length > 100
+    typeof manifest.rootName !== "string" ||
+    typeof manifest.generatedAt !== "string" ||
+    typeof manifest.maxEntries !== "number" ||
+    typeof manifest.maxDepth !== "number" ||
+    typeof manifest.truncated !== "boolean" ||
+    !Array.isArray(manifest.entries) ||
+    manifest.entries.length > 100
   ) {
     return false;
   }
@@ -644,30 +605,29 @@ function isManagedFolderManifest(value: unknown): value is ManagedFolderManifest
     if (!entry || typeof entry !== "object") return false;
     const candidate = entry as Partial<ManagedFolderManifestEntry>;
     return (
-      typeof candidate.path === "string"
-      && candidate.path.length <= 4096
-      && (candidate.kind === "file" || candidate.kind === "folder")
-      && (candidate.bytes === undefined || (
-        typeof candidate.bytes === "number"
-        && Number.isFinite(candidate.bytes)
-        && candidate.bytes >= 0
-      ))
+      typeof candidate.path === "string" &&
+      candidate.path.length <= 4096 &&
+      (candidate.kind === "file" || candidate.kind === "folder") &&
+      (candidate.bytes === undefined ||
+        (typeof candidate.bytes === "number" &&
+          Number.isFinite(candidate.bytes) &&
+          candidate.bytes >= 0))
     );
   });
 }
 
 function isTextPreviewMimeType(mimeType: string): boolean {
-  return mimeType.startsWith("text/")
-    || mimeType === "application/json"
-    || mimeType === "application/sql"
-    || mimeType === "application/toml"
-    || mimeType === "application/xml"
-    || mimeType === "application/yaml";
+  return (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/sql" ||
+    mimeType === "application/toml" ||
+    mimeType === "application/xml" ||
+    mimeType === "application/yaml"
+  );
 }
 
-export function readManagedAssetPreview(
-  input: ManagedAssetPreviewInput,
-): ManagedAssetPreview {
+export function readManagedAssetPreview(input: ManagedAssetPreviewInput): ManagedAssetPreview {
   const fileName = parseManagedAssetFileName(input.source);
   const mimeType = getMimeTypeForAssetFile(fileName);
   if (input.kind === "text") {

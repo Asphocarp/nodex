@@ -5,7 +5,10 @@ import {
   NodexToastProvider,
 } from "../../../../components/ui/toast";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
-import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
+import {
+  installAsyncRequestAnimationFrame,
+  installWindowApi,
+} from "../../../../test/browser-globals";
 import { renderWithMaitai as render, settleAsyncRender } from "../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
@@ -61,8 +64,11 @@ function buildTurnDiffEntry(input?: {
 }
 
 function findButtonByText(container: HTMLElement, text: string): HTMLButtonElement | null {
-  return Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-    .find((button) => button.textContent?.includes(text)) ?? null;
+  return (
+    Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      button.textContent?.includes(text),
+    ) ?? null
+  );
 }
 
 function createApplyPatchTestClient(
@@ -73,7 +79,7 @@ function createApplyPatchTestClient(
       if (input.method !== "apply-patch") {
         throw new Error(`Unexpected Git worker method: ${input.method}`);
       }
-      return await apply(input.params) as never;
+      return (await apply(input.params)) as never;
     },
   };
 }
@@ -84,7 +90,7 @@ describe("TurnDiffSurface", () => {
     __resetNodexToastStoreForTests();
     installWindowApi({
       invoke: async () => true,
-      on: () => () => { },
+      on: () => () => {},
     });
   });
 
@@ -107,7 +113,9 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.textContent?.includes("src/file-3.ts"))).toBe(true);
     expect(Boolean(container.textContent?.includes("src/file-4.ts"))).toBe(false);
     expect(Boolean(container.textContent?.includes("Show 9 more files"))).toBe(true);
-    expect(Boolean(container.querySelector('button[aria-label="Review changed files"]'))).toBe(true);
+    expect(Boolean(container.querySelector('button[aria-label="Review changed files"]'))).toBe(
+      true,
+    );
   });
 
   test("does not render a dead Review CTA when no opener route is available", () => {
@@ -140,9 +148,11 @@ describe("TurnDiffSurface", () => {
 
     const deferredRows = container.querySelectorAll(".thread-diff-virtualized");
     expect(deferredRows.length).toBe(3);
-    expect(Array.from(deferredRows).every((row) => (
-      row.querySelector<HTMLElement>(".h-9")?.classList.contains("h-9") === true
-    ))).toBe(true);
+    expect(
+      Array.from(deferredRows).every(
+        (row) => row.querySelector<HTMLElement>(".h-9")?.classList.contains("h-9") === true,
+      ),
+    ).toBe(true);
     expect(container.firstElementChild?.classList.contains("thread-diff-virtualized")).toBe(false);
   });
 
@@ -167,7 +177,11 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.textContent?.includes("Collapse files"))).toBe(true);
     expect(container.querySelectorAll('button[aria-expanded="true"]').length).toBe(1);
 
-    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]') as HTMLButtonElement);
+    fireEvent.click(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-expanded="true"]',
+      ) as HTMLButtonElement,
+    );
     await settleAsyncRender();
     expect(Boolean(container.textContent?.includes("src/file-5.ts"))).toBe(false);
   });
@@ -188,7 +202,11 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
+    fireEvent.click(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Review changed files"]',
+      ) as HTMLButtonElement,
+    );
     expect(openedTargets[0]?.source.kind).toBe("selected-turn");
     expect(openedTargets[0]?.targetPath ?? null).toBe(null);
 
@@ -215,7 +233,9 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.click(findButtonByText(container, "src/file-1.ts") as HTMLButtonElement, { metaKey: true });
+    fireEvent.click(findButtonByText(container, "src/file-1.ts") as HTMLButtonElement, {
+      metaKey: true,
+    });
     expect(reviewOpenCount).toBe(0);
     expect(sidePanelTarget).toMatchObject({
       path: "/tmp/project/src/file-1.ts",
@@ -247,7 +267,9 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.textContent?.includes("src/absolute-1.ts"))).toBe(true);
     expect(Boolean(container.textContent?.includes("/tmp/project/src/absolute-1.ts"))).toBe(false);
 
-    fireEvent.click(findButtonByText(container, "src/absolute-1.ts") as HTMLButtonElement, { metaKey: true });
+    fireEvent.click(findButtonByText(container, "src/absolute-1.ts") as HTMLButtonElement, {
+      metaKey: true,
+    });
     expect(sidePanelPath).toBe("/tmp/project/src/absolute-1.ts");
   });
 
@@ -262,7 +284,10 @@ describe("TurnDiffSurface", () => {
         />
       </TooltipProvider>,
     );
-    const enabledRow = findButtonByText(enabledView.container, "src/file-1.ts") as HTMLButtonElement;
+    const enabledRow = findButtonByText(
+      enabledView.container,
+      "src/file-1.ts",
+    ) as HTMLButtonElement;
     expect(enabledRow.getAttribute("data-state") ?? null).toBe("closed");
     enabledView.unmount();
 
@@ -280,7 +305,10 @@ describe("TurnDiffSurface", () => {
         />
       </TooltipProvider>,
     );
-    const disabledRow = findButtonByText(disabledView.container, "src/file-1.ts") as HTMLButtonElement;
+    const disabledRow = findButtonByText(
+      disabledView.container,
+      "src/file-1.ts",
+    ) as HTMLButtonElement;
     expect(disabledRow.getAttribute("data-state") ?? null).toBe(null);
 
     fireEvent.click(disabledRow);
@@ -300,7 +328,7 @@ describe("TurnDiffSurface", () => {
     );
 
     expect(Boolean(container.textContent?.includes("Edited one.ts"))).toBe(true);
-    expect(container.querySelectorAll('button[aria-expanded]').length).toBe(0);
+    expect(container.querySelectorAll("button[aria-expanded]").length).toBe(0);
     expect(Boolean(container.textContent?.includes("src/one.ts"))).toBe(false);
   });
 
@@ -345,7 +373,9 @@ describe("TurnDiffSurface", () => {
     );
 
     expect(Boolean(container.textContent?.includes("2 files changed"))).toBe(true);
-    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(
+      true,
+    );
 
     fireEvent.click(container.querySelector("button") as HTMLButtonElement);
     expect(openedSourceKind).toBe("last-turn");
@@ -368,27 +398,35 @@ describe("TurnDiffSurface", () => {
 
     expect(Boolean(container.textContent?.includes("·"))).toBe(true);
     expect(Boolean(container.textContent?.includes("1 file changed"))).toBe(true);
-    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(
+      true,
+    );
 
-    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
+    fireEvent.click(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Review changed files"]',
+      ) as HTMLButtonElement,
+    );
     expect(openedPath).toBe(null);
   });
 
   test("parses Codex-style file stats including quoted paths and duplicate file headers", () => {
-    const stats = turnDiffSurfaceTestHelpers.parseUnifiedDiffFileStats([
-      'diff --git "a/src/weird file.ts" "b/src/weird file.ts"',
-      "--- a/src/weird file.ts",
-      "+++ b/src/weird file.ts",
-      "@@ -1 +1 @@",
-      "-old",
-      "+new",
-      "diff --git a/src/weird file.ts b/src/weird file.ts",
-      "--- a/src/weird file.ts",
-      "+++ b/src/weird file.ts",
-      "@@ -2 +2 @@",
-      "-old2",
-      "+new2",
-    ].join("\n"));
+    const stats = turnDiffSurfaceTestHelpers.parseUnifiedDiffFileStats(
+      [
+        'diff --git "a/src/weird file.ts" "b/src/weird file.ts"',
+        "--- a/src/weird file.ts",
+        "+++ b/src/weird file.ts",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+        "diff --git a/src/weird file.ts b/src/weird file.ts",
+        "--- a/src/weird file.ts",
+        "+++ b/src/weird file.ts",
+        "@@ -2 +2 @@",
+        "-old2",
+        "+new2",
+      ].join("\n"),
+    );
 
     expect(stats.length).toBe(1);
     expect(stats[0]?.path ?? null).toBe("src/weird file.ts");
@@ -397,36 +435,42 @@ describe("TurnDiffSurface", () => {
   });
 
   test("builds cwd-relative display paths without changing relative diff paths", () => {
-    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
-      "/tmp/project/src/absolute.ts",
-      "/tmp/project",
-    )).toBe("src/absolute.ts");
-    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
-      "/tmp/other/src/outside.ts",
-      "/tmp/project",
-    )).toBe("../other/src/outside.ts");
-    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
-      "src/relative.ts",
-      "/tmp/project",
-    )).toBe("src/relative.ts");
-    expect(turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
-      "/tmp/project",
-      "/tmp/project",
-    )).toBe("project");
+    expect(
+      turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
+        "/tmp/project/src/absolute.ts",
+        "/tmp/project",
+      ),
+    ).toBe("src/absolute.ts");
+    expect(
+      turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath(
+        "/tmp/other/src/outside.ts",
+        "/tmp/project",
+      ),
+    ).toBe("../other/src/outside.ts");
+    expect(
+      turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath("src/relative.ts", "/tmp/project"),
+    ).toBe("src/relative.ts");
+    expect(
+      turnDiffSurfaceTestHelpers.buildTurnDiffDisplayPath("/tmp/project", "/tmp/project"),
+    ).toBe("project");
   });
 
   test("builds patch batches from patchBatches and falls back only when they are absent", () => {
     const payload = {
       unifiedDiff: diffForPath("src/fallback.ts"),
-      patchBatches: [{
-        cwd: "/tmp/one",
-        changes: [{
-          path: "src/one.ts",
-          type: "update",
-          unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-          movePath: null,
-        }],
-      }],
+      patchBatches: [
+        {
+          cwd: "/tmp/one",
+          changes: [
+            {
+              path: "src/one.ts",
+              type: "update",
+              unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+              movePath: null,
+            },
+          ],
+        },
+      ],
     };
 
     const batches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches(payload, "/tmp/project");
@@ -434,16 +478,22 @@ describe("TurnDiffSurface", () => {
     expect(batches[0]?.cwd ?? null).toBe("/tmp/one");
     expect(Boolean(batches[0]?.diff.includes("src/one.ts"))).toBe(true);
 
-    const fallbackBatches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches({
-      unifiedDiff: diffForPath("src/fallback.ts"),
-    }, "/tmp/project");
+    const fallbackBatches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches(
+      {
+        unifiedDiff: diffForPath("src/fallback.ts"),
+      },
+      "/tmp/project",
+    );
     expect(fallbackBatches.length).toBe(1);
     expect(fallbackBatches[0]?.cwd ?? null).toBe("/tmp/project");
 
-    const emptyPatchBatches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches({
-      unifiedDiff: diffForPath("src/fallback.ts"),
-      patchBatches: [],
-    }, "/tmp/project");
+    const emptyPatchBatches = turnDiffSurfaceTestHelpers.buildTurnDiffApplyBatches(
+      {
+        unifiedDiff: diffForPath("src/fallback.ts"),
+        patchBatches: [],
+      },
+      "/tmp/project",
+    );
     expect(emptyPatchBatches.length).toBe(0);
   });
 
@@ -469,8 +519,28 @@ describe("TurnDiffSurface", () => {
               rawItem: {
                 showRevertButton: true,
                 patchBatches: [
-                  { cwd: "/tmp/one", changes: [{ path: "src/one.ts", type: "update", unifiedDiff: "@@ -1 +1 @@\n-old\n+new", movePath: null }] },
-                  { cwd: "/tmp/two", changes: [{ path: "src/two.ts", type: "update", unifiedDiff: "@@ -1 +1 @@\n-old\n+new", movePath: null }] },
+                  {
+                    cwd: "/tmp/one",
+                    changes: [
+                      {
+                        path: "src/one.ts",
+                        type: "update",
+                        unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+                        movePath: null,
+                      },
+                    ],
+                  },
+                  {
+                    cwd: "/tmp/two",
+                    changes: [
+                      {
+                        path: "src/two.ts",
+                        type: "update",
+                        unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+                        movePath: null,
+                      },
+                    ],
+                  },
                 ],
               },
             })}
@@ -486,16 +556,18 @@ describe("TurnDiffSurface", () => {
     await waitFor(() => {
       expect(Boolean(baseElement.textContent?.includes("Changes reverted"))).toBe(true);
     });
-    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"cwd\":\"/tmp/two\"")).toBe(true);
-    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"revert\":true")).toBe(true);
-    expect(JSON.stringify(invokePayloads[0] ?? {}).includes("\"operationSource\":\"thread_diff\"")).toBe(true);
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes('"cwd":"/tmp/two"')).toBe(true);
+    expect(JSON.stringify(invokePayloads[0] ?? {}).includes('"revert":true')).toBe(true);
+    expect(
+      JSON.stringify(invokePayloads[0] ?? {}).includes('"operationSource":"thread_diff"'),
+    ).toBe(true);
 
     fireEvent.click(findButtonByText(container, "Reapply") as HTMLButtonElement);
     await waitFor(() => {
       expect(Boolean(baseElement.textContent?.includes("Changes reapplied"))).toBe(true);
     });
-    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"cwd\":\"/tmp/one\"")).toBe(true);
-    expect(JSON.stringify(invokePayloads[2] ?? {}).includes("\"revert\":false")).toBe(true);
+    expect(JSON.stringify(invokePayloads[2] ?? {}).includes('"cwd":"/tmp/one"')).toBe(true);
+    expect(JSON.stringify(invokePayloads[2] ?? {}).includes('"revert":false')).toBe(true);
   });
 
   test("opens a patch failure dialog with applied skipped and conflicted paths", async () => {

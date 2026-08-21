@@ -30,11 +30,9 @@ describe("initial Project welcome Page", () => {
   });
 
   test("rejects paths that cannot be represented by the Project source contract", () => {
-    expect(() =>
-      renderInitialProjectWelcomePage({ sourceRoot: "" }),
-    ).toThrow("bounded path");
-    expect(() =>
-      renderInitialProjectWelcomePage({ sourceRoot: "/tmp/a\nb" }),
-    ).toThrow("bounded path");
+    expect(() => renderInitialProjectWelcomePage({ sourceRoot: "" })).toThrow("bounded path");
+    expect(() => renderInitialProjectWelcomePage({ sourceRoot: "/tmp/a\nb" })).toThrow(
+      "bounded path",
+    );
   });
 });

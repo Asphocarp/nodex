@@ -1,6 +1,12 @@
 import { createExtension } from "@blocknote/core";
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type EditorState,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { escapeAttributeValue, findBlockElementById } from "./block-dom-selectors";
 
@@ -16,10 +22,7 @@ interface NfmSearchPluginState {
   decorations: DecorationSet;
 }
 
-type NfmSearchAction =
-  | { type: "set-query"; query: string }
-  | { type: "next" }
-  | { type: "prev" };
+type NfmSearchAction = { type: "set-query"; query: string } | { type: "next" } | { type: "prev" };
 
 interface BlockRef {
   id: string;
@@ -58,9 +61,7 @@ function buildDecorations(
   const decorations = matches.map((match, index) =>
     Decoration.inline(match.from, match.to, {
       class:
-        index === activeIndex
-          ? "nfm-search-match nfm-search-match-active"
-          : "nfm-search-match",
+        index === activeIndex ? "nfm-search-match nfm-search-match-active" : "nfm-search-match",
     }),
   );
   return DecorationSet.create(doc, decorations);
@@ -114,15 +115,11 @@ function createSearchPlugin(): Plugin<NfmSearchPluginState> {
         }
 
         const query =
-          action?.type === "set-query"
-            ? normalizeQuery(action.query)
-            : previousState.query;
+          action?.type === "set-query" ? normalizeQuery(action.query) : previousState.query;
         const queryChanged = query !== previousState.query;
         const shouldRecomputeMatches = tr.docChanged || queryChanged;
 
-        const matches = shouldRecomputeMatches
-          ? findMatches(tr.doc, query)
-          : previousState.matches;
+        const matches = shouldRecomputeMatches ? findMatches(tr.doc, query) : previousState.matches;
 
         let activeIndex = previousState.activeIndex;
 
@@ -221,10 +218,10 @@ export function replaceActiveNfmSearchMatch(
   const active = state.matches[state.activeIndex];
   editor.transact((tr) => {
     tr.insertText(replacement, active.from, active.to);
-    tr.setMeta(
-      nfmSearchPluginKey,
-      { type: "set-query", query: state.query } satisfies NfmSearchAction,
-    );
+    tr.setMeta(nfmSearchPluginKey, {
+      type: "set-query",
+      query: state.query,
+    } satisfies NfmSearchAction);
   });
   return true;
 }
@@ -242,10 +239,10 @@ export function replaceAllNfmSearchMatches(
       const match = state.matches[i];
       tr.insertText(replacement, match.from, match.to);
     }
-    tr.setMeta(
-      nfmSearchPluginKey,
-      { type: "set-query", query: state.query } satisfies NfmSearchAction,
-    );
+    tr.setMeta(nfmSearchPluginKey, {
+      type: "set-query",
+      query: state.query,
+    } satisfies NfmSearchAction);
   });
 
   return state.matches.length;
@@ -291,10 +288,7 @@ function expandCollapsedToggle(editorDom: ParentNode | undefined, blockId: strin
   toggleButton?.click();
 }
 
-function getBlockIdAtPosition(
-  editor: EditorWithSearchNavigation,
-  position: number,
-): string | null {
+function getBlockIdAtPosition(editor: EditorWithSearchNavigation, position: number): string | null {
   try {
     const { node } = editor.prosemirrorView.domAtPos(Math.max(position, 0));
     const el = node instanceof Element ? node : node.parentElement;
@@ -310,10 +304,8 @@ export function revealActiveNfmSearchMatch(editor: EditorWithSearchNavigation): 
 
   const blockId = getBlockIdAtPosition(editor, activeMatch.from);
   if (blockId) {
-    const collapsedAncestors = getCollapsedToggleAncestorIds(
-      editor.domElement,
-      blockId,
-      (id) => editor.getParentBlock(id),
+    const collapsedAncestors = getCollapsedToggleAncestorIds(editor.domElement, blockId, (id) =>
+      editor.getParentBlock(id),
     );
     for (const ancestorId of collapsedAncestors) {
       expandCollapsedToggle(editor.domElement, ancestorId);

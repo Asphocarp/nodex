@@ -1,23 +1,9 @@
 import { FileIcon, FolderIcon, FolderOpenIcon, PageIcon } from "@/components/shared/icons";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ComponentType,
-} from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
-import {
-  ArrowUpRight,
-  Copy,
-  Link2,
-} from "@/components/shared/icons/generic-icons";
+import { ArrowUpRight, Copy, Link2 } from "@/components/shared/icons/generic-icons";
 
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { readManagedAssetPreview } from "@/lib/assets";
 import { invoke } from "@/lib/api";
@@ -48,12 +34,14 @@ const ATTACHMENT_INLINE_LABEL_LIMIT = 48;
 
 export function isTextLikeMimeType(mimeType: string): boolean {
   if (!mimeType) return false;
-  return mimeType.startsWith("text/")
-    || mimeType === "application/json"
-    || mimeType === "application/sql"
-    || mimeType === "application/toml"
-    || mimeType === "application/xml"
-    || mimeType === "application/yaml";
+  return (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/sql" ||
+    mimeType === "application/toml" ||
+    mimeType === "application/xml" ||
+    mimeType === "application/yaml"
+  );
 }
 
 function getAttachmentSizeLabel(props: Pick<AttachmentProps, "kind" | "bytes">): string {
@@ -96,10 +84,10 @@ async function loadAttachmentPreview(props: AttachmentProps): Promise<Attachment
     return preview.kind === "folder"
       ? { type: "folder", manifest: preview.manifest }
       : {
-        type: "text",
-        content: preview.content,
-        truncated: preview.truncated,
-      };
+          type: "text",
+          content: preview.content,
+          truncated: preview.truncated,
+        };
   } catch {
     return null;
   }
@@ -142,7 +130,8 @@ function AttachmentPopover({
 
   const sizeLabel = getAttachmentSizeLabel(props);
   const stateLabel = props.mode === "materialized" ? "Saved in Nodex" : "Linked to the original";
-  const hasOriginal = typeof props.origin === "string" && props.origin.length > 0 && props.origin !== props.source;
+  const hasOriginal =
+    typeof props.origin === "string" && props.origin.length > 0 && props.origin !== props.source;
 
   const resolvePrimaryPath = useCallback(async (): Promise<string | null> => {
     if (props.mode === "link") return props.source || null;
@@ -150,9 +139,12 @@ function AttachmentPopover({
     return typeof resolved === "string" && resolved.trim().length > 0 ? resolved : null;
   }, [props.mode, props.source]);
 
-  const openPath = useCallback(async (path: string, nextOpener = opener) => {
-    await invoke("shell:open-file-link", { path }, nextOpener);
-  }, [opener]);
+  const openPath = useCallback(
+    async (path: string, nextOpener = opener) => {
+      await invoke("shell:open-file-link", { path }, nextOpener);
+    },
+    [opener],
+  );
 
   const handleReveal = useCallback(async () => {
     const targetPath = await resolvePrimaryPath();
@@ -184,16 +176,15 @@ function AttachmentPopover({
             {props.name || "Untitled attachment"}
           </div>
           <div className="mt-0.5 text-xs text-[color-mix(in_srgb,var(--foreground)_54%,transparent)]">
-            {props.kind}{sizeLabel ? ` • ${sizeLabel}` : ""} • {stateLabel}
+            {props.kind}
+            {sizeLabel ? ` • ${sizeLabel}` : ""} • {stateLabel}
           </div>
         </div>
       </div>
 
       <div className="mt-3 space-y-1 text-xs text-[color-mix(in_srgb,var(--foreground)_58%,transparent)]">
         <div className="truncate">Source: {props.source}</div>
-        {hasOriginal && (
-          <div className="truncate">Original: {props.origin}</div>
-        )}
+        {hasOriginal && <div className="truncate">Original: {props.origin}</div>}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -240,7 +231,8 @@ function AttachmentPopover({
               </div>
               {preview.manifest.truncated && (
                 <p className="mt-2 text-[11px] text-[color-mix(in_srgb,var(--foreground)_50%,transparent)]">
-                  Snapshot limited to {preview.manifest.maxEntries} entries and {preview.manifest.maxDepth} levels.
+                  Snapshot limited to {preview.manifest.maxEntries} entries and{" "}
+                  {preview.manifest.maxDepth} levels.
                 </p>
               )}
             </div>
@@ -250,7 +242,8 @@ function AttachmentPopover({
 
       {!canPreviewAttachment(props) && props.mode === "link" && (
         <p className="mt-3 text-xs text-[color-mix(in_srgb,var(--foreground)_52%,transparent)]">
-          This attachment keeps a link to the original location instead of copying its contents into Nodex.
+          This attachment keeps a link to the original location instead of copying its contents into
+          Nodex.
         </p>
       )}
 
@@ -288,11 +281,7 @@ function AttachmentActionButton({
   );
 }
 
-function AttachmentInlineContent({
-  inlineContent,
-}: {
-  inlineContent: { props: AttachmentProps };
-}) {
+function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: AttachmentProps } }) {
   const [open, setOpen] = useState(false);
   const label = useMemo(() => getAttachmentLabel(inlineContent.props), [inlineContent.props]);
   const tooltipLines = getAttachmentTooltipLines(inlineContent.props);
@@ -368,31 +357,28 @@ function AttachmentInlineContent({
 }
 
 export function createAttachmentInlineContentSpec() {
-  return createReactInlineContentSpec(
-    attachmentInlineContentConfig,
-    {
-      render: ({ inlineContent }) => (
-        <AttachmentInlineContent inlineContent={inlineContent as { props: AttachmentProps }} />
-      ),
-      toExternalHTML: ({ inlineContent }) => {
-        const Icon = getAttachmentIcon(
-          (inlineContent as { props: AttachmentProps }).props.kind,
-          (inlineContent as { props: AttachmentProps }).props.mode,
-        );
-        const label = getAttachmentLabel((inlineContent as { props: AttachmentProps }).props, 80);
-        const modeLabel =
-          (inlineContent as { props: AttachmentProps }).props.mode === "link"
-            ? "Linked attachment"
-            : "Saved attachment";
+  return createReactInlineContentSpec(attachmentInlineContentConfig, {
+    render: ({ inlineContent }) => (
+      <AttachmentInlineContent inlineContent={inlineContent as { props: AttachmentProps }} />
+    ),
+    toExternalHTML: ({ inlineContent }) => {
+      const Icon = getAttachmentIcon(
+        (inlineContent as { props: AttachmentProps }).props.kind,
+        (inlineContent as { props: AttachmentProps }).props.mode,
+      );
+      const label = getAttachmentLabel((inlineContent as { props: AttachmentProps }).props, 80);
+      const modeLabel =
+        (inlineContent as { props: AttachmentProps }).props.mode === "link"
+          ? "Linked attachment"
+          : "Saved attachment";
 
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 text-xs text-[var(--foreground)]">
-            <Icon className="size-3" />
-            <span>{label}</span>
-            <span className="opacity-60">({modeLabel})</span>
-          </span>
-        );
-      },
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 text-xs text-[var(--foreground)]">
+          <Icon className="size-3" />
+          <span>{label}</span>
+          <span className="opacity-60">({modeLabel})</span>
+        </span>
+      );
     },
-  );
+  });
 }

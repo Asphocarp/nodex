@@ -5,7 +5,5 @@ export function formatBoundedWorktreeOutput(input: {
   readonly text: string;
   readonly didTruncate: boolean;
 }): string {
-  return input.didTruncate
-    ? `${WORKTREE_OUTPUT_TRUNCATION_MARKER}${input.text}`
-    : input.text;
+  return input.didTruncate ? `${WORKTREE_OUTPUT_TRUNCATION_MARKER}${input.text}` : input.text;
 }

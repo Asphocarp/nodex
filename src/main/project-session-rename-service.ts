@@ -3,9 +3,7 @@ import { ProjectSessionRenameInputSchema } from "../shared/schemas/project-sessi
 import type { ProjectSession, ProjectSessionRenameInput } from "../shared/types";
 
 export interface ProjectSessionRenameServiceDeps {
-  getProjectSession: (
-    sessionId: string,
-  ) => ProjectSession | null | Promise<ProjectSession | null>;
+  getProjectSession: (sessionId: string) => ProjectSession | null | Promise<ProjectSession | null>;
   renameProjectSession: (
     sessionId: string,
     input: ProjectSessionRenameInput,
@@ -30,9 +28,11 @@ export async function renameProjectSessionChat(
   if (existing.thread) {
     const renamedThread = await deps.setThreadName(existing.thread.threadId, parsed.title);
     if (!renamedThread) return existing;
-    return await deps.renameProjectSession(sessionId, {
-      title: normalizedTitle,
-    }) ?? existing;
+    return (
+      (await deps.renameProjectSession(sessionId, {
+        title: normalizedTitle,
+      })) ?? existing
+    );
   }
 
   return await deps.renameProjectSession(sessionId, {

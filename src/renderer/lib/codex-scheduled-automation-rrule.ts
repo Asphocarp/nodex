@@ -23,7 +23,10 @@ export function parseCodexScheduledAutomationRruleFields(
       if (separatorIndex <= 0) continue;
 
       const key = part.slice(0, separatorIndex).trim().toUpperCase();
-      const fieldValue = part.slice(separatorIndex + 1).trim().toUpperCase();
+      const fieldValue = part
+        .slice(separatorIndex + 1)
+        .trim()
+        .toUpperCase();
       if (!key || !fieldValue) continue;
       fields.set(key, fieldValue);
     }

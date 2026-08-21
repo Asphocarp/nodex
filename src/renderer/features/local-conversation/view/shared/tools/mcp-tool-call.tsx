@@ -20,11 +20,12 @@ import {
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CodexShimmerText } from "../codex-shimmer-text";
-import { AutomaticApprovalReviewRows, AutomaticApprovalReviewShield } from "../automatic-approval-review-surface";
-import { ThreadActivityHeader, ThreadActivityShell, ToolErrorDetail } from "./tool-primitives";
 import {
-  asRecord,
-} from "./tool-call-utils";
+  AutomaticApprovalReviewRows,
+  AutomaticApprovalReviewShield,
+} from "../automatic-approval-review-surface";
+import { ThreadActivityHeader, ThreadActivityShell, ToolErrorDetail } from "./tool-primitives";
+import { asRecord } from "./tool-call-utils";
 import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
 import { resolveMcpToolActivityLabel } from "./mcp-tool-call-labels";
 import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
@@ -77,9 +78,7 @@ function mcpContentBlockText(block: CodexMcpToolCallContentBlock): string | null
       formatAnnotations(resource.annotations)
         ? `Annotations ${formatAnnotations(resource.annotations)}`
         : null,
-      resource.text ?? resource.blob
-        ? `Content\n${resource.text ?? resource.blob ?? ""}`
-        : null,
+      (resource.text ?? resource.blob) ? `Content\n${resource.text ?? resource.blob ?? ""}` : null,
     ].filter((value): value is string => value !== null);
     return fields.join("\n");
   }
@@ -92,9 +91,10 @@ function mcpContentBlockText(block: CodexMcpToolCallContentBlock): string | null
   return stringifyMcpValue(block.raw, 2);
 }
 
-function budgetMcpContentBlocks(
-  blocks: readonly CodexMcpToolCallContentBlock[],
-): { readonly blocks: readonly BudgetedMcpContentBlock[]; readonly omittedCharacters: number } {
+function budgetMcpContentBlocks(blocks: readonly CodexMcpToolCallContentBlock[]): {
+  readonly blocks: readonly BudgetedMcpContentBlock[];
+  readonly omittedCharacters: number;
+} {
   const result: BudgetedMcpContentBlock[] = [];
   let remainingCharacters = INLINE_TEXT_PREVIEW_MAX_CHARS;
   let omittedCharacters = 0;
@@ -227,11 +227,7 @@ function McpUnknownBlock({
   );
 }
 
-function McpContentBlock({
-  block,
-  textValue,
-  textPreview,
-}: BudgetedMcpContentBlock) {
+function McpContentBlock({ block, textValue, textPreview }: BudgetedMcpContentBlock) {
   if (block.type === "text") {
     const value = textValue ?? appendAnnotations(block.text, block.annotations);
     return (
@@ -275,11 +271,7 @@ function McpContentBlock({
 
   if (block.type === "embedded_resource") {
     return (
-      <McpEmbeddedResourceBlock
-        block={block}
-        textValue={textValue}
-        textPreview={textPreview}
-      />
+      <McpEmbeddedResourceBlock block={block} textValue={textValue} textPreview={textPreview} />
     );
   }
 
@@ -314,7 +306,12 @@ function McpContentBlock({
 
     return (
       <div className="flex flex-col gap-0.5">
-        <audio className="w-full gap-0.5" controls src={`data:${block.mimeType};base64,${block.data}`} preload="metadata" />
+        <audio
+          className="w-full gap-0.5"
+          controls
+          src={`data:${block.mimeType};base64,${block.data}`}
+          preload="metadata"
+        />
         {textValue && textPreview?.kind === "omitted" ? (
           <ToolCallCodePanel
             title="annotations"
@@ -386,28 +383,35 @@ function McpResultBody({
   const successResult = result?.type === "success" ? result : null;
   const errorText = result?.type === "error" ? result.error : null;
   const structuredContentJson = useMemo(
-    () => successResult?.structuredContent != null
-      ? stringifyMcpValue(successResult.structuredContent, 2)
-      : null,
+    () =>
+      successResult?.structuredContent != null
+        ? stringifyMcpValue(successResult.structuredContent, 2)
+        : null,
     [successResult],
   );
   const shouldRenderMcpApp = Boolean(resourceUri) && (!payload.completed || successResult !== null);
-  const hasMcpAppBranch = shouldRenderMcpApp && (resourceLoading || Boolean(resourceError) || resource !== null);
-  const isMcpAppLoading = shouldRenderMcpApp && resourceLoading && resource === null && !resourceError;
-  const mcpAppError = shouldRenderMcpApp && resourceError && resource === null
-    ? `Failed to load MCP app: ${resourceError}`
-    : null;
+  const hasMcpAppBranch =
+    shouldRenderMcpApp && (resourceLoading || Boolean(resourceError) || resource !== null);
+  const isMcpAppLoading =
+    shouldRenderMcpApp && resourceLoading && resource === null && !resourceError;
+  const mcpAppError =
+    shouldRenderMcpApp && resourceError && resource === null
+      ? `Failed to load MCP app: ${resourceError}`
+      : null;
   const { displayContent, displayStructuredContentJson } = useMemo(
-    () => successResult
-      ? resolveMcpExpandedSuccessDisplay({
-          content: successResult.content.filter((block) => !shouldHideDuplicateMcpTextContent(block, resource)),
-          structuredContentJson,
-          isExpanded: true,
-        })
-      : {
-          displayContent: [],
-          displayStructuredContentJson: null,
-        },
+    () =>
+      successResult
+        ? resolveMcpExpandedSuccessDisplay({
+            content: successResult.content.filter(
+              (block) => !shouldHideDuplicateMcpTextContent(block, resource),
+            ),
+            structuredContentJson,
+            isExpanded: true,
+          })
+        : {
+            displayContent: [],
+            displayStructuredContentJson: null,
+          },
     [resource, structuredContentJson, successResult],
   );
   const shouldShowStructuredContent = shouldShowMcpStructuredContent({
@@ -420,25 +424,30 @@ function McpResultBody({
     () => budgetMcpContentBlocks(displayContent),
     [displayContent],
   );
-  const capabilityId = useMemo(() => (
-    resource
-      ? buildMcpAppCapabilityId({
-          callId: payload.callId,
-          resourceUri: resource.uri,
-          server: payload.invocation.server,
-          threadId,
-          tool: payload.invocation.tool,
-        })
-      : null
-  ), [payload.callId, payload.invocation.server, payload.invocation.tool, resource, threadId]);
-  const runtimeConfig = useMemo(() => ({
-    currentToolName: payload.invocation.tool,
-    server: payload.invocation.server,
-    statuses: mcpServerStatuses,
-    threadId,
-    toolInput: payload.invocation.arguments,
-    toolResult: successResult?.raw ?? null,
-  }), [mcpServerStatuses, payload.invocation, successResult, threadId]);
+  const capabilityId = useMemo(
+    () =>
+      resource
+        ? buildMcpAppCapabilityId({
+            callId: payload.callId,
+            resourceUri: resource.uri,
+            server: payload.invocation.server,
+            threadId,
+            tool: payload.invocation.tool,
+          })
+        : null,
+    [payload.callId, payload.invocation.server, payload.invocation.tool, resource, threadId],
+  );
+  const runtimeConfig = useMemo(
+    () => ({
+      currentToolName: payload.invocation.tool,
+      server: payload.invocation.server,
+      statuses: mcpServerStatuses,
+      threadId,
+      toolInput: payload.invocation.arguments,
+      toolResult: successResult?.raw ?? null,
+    }),
+    [mcpServerStatuses, payload.invocation, successResult, threadId],
+  );
 
   const appBody = isMcpAppLoading ? (
     <McpAppLoadingPlaceholder resource={resource} />
@@ -464,7 +473,8 @@ function McpResultBody({
           ))}
           {budgetedDisplayContent.omittedCharacters > 0 ? (
             <div className="px-2 py-1 text-xs text-token-description-foreground">
-              {budgetedDisplayContent.omittedCharacters.toLocaleString()} additional text characters omitted
+              {budgetedDisplayContent.omittedCharacters.toLocaleString()} additional text characters
+              omitted
             </div>
           ) : null}
         </div>
@@ -476,10 +486,7 @@ function McpResultBody({
       {shouldShowStructuredContent && displayStructuredContentJson ? (
         <ToolCallCodePanel
           title="json"
-          preview={buildTextPreview(
-            displayStructuredContentJson,
-            INLINE_TEXT_PREVIEW_MAX_CHARS,
-          )}
+          preview={buildTextPreview(displayStructuredContentJson, INLINE_TEXT_PREVIEW_MAX_CHARS)}
           getCopyText={() => displayStructuredContentJson}
           getFullText={() => displayStructuredContentJson}
           preClassName="font-vscode-editor text-size-chat text-token-description-foreground/80"
@@ -488,11 +495,7 @@ function McpResultBody({
       {shouldShowRawDialog ? (
         <div className="inline-flex w-fit items-center gap-1">
           {resource && onOpenMcpAppSidePanel ? (
-            <NodexTooltip
-              tooltipContent="Open app in side panel"
-              side="top"
-              delayDuration={0}
-            >
+            <NodexTooltip tooltipContent="Open app in side panel" side="top" delayDuration={0}>
               <button
                 type="button"
                 className={cn(
@@ -501,7 +504,9 @@ function McpResultBody({
                 )}
                 aria-label="Open MCP app in side panel"
                 onClick={() => {
-                  void onOpenMcpAppSidePanel(buildMcpAppSidePanelInput({ threadId, payload, resource }));
+                  void onOpenMcpAppSidePanel(
+                    buildMcpAppSidePanelInput({ threadId, payload, resource }),
+                  );
                 }}
               >
                 <PanelRightVisibleIcon />
@@ -560,7 +565,10 @@ export function McpToolCall({
   const bodyId = useId();
   const payload = item.mcpToolCall ?? null;
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
+  const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(
+    rawDialogOpen,
+    onRawDialogOpenChange,
+  );
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
   const hasSuccessfulResult = payload?.result?.type === "success";
   const mcpApps = useThreadMcpApps();
@@ -570,38 +578,42 @@ export function McpToolCall({
   const mcpServerStatuses = statusData ?? EMPTY_MCP_SERVER_STATUSES;
 
   const resourceUri = useMemo(
-    () => payload ? resolveMcpAppResourceUri({ payload, mcpServerStatuses }) : null,
+    () => (payload ? resolveMcpAppResourceUri({ payload, mcpServerStatuses }) : null),
     [payload, mcpServerStatuses],
   );
   const resourceScopeUri = useMemo(
-    () => payload ? resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses }) : null,
+    () => (payload ? resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses }) : null),
     [payload, mcpServerStatuses],
   );
-  const resourceParams = useMemo(() => (
-    payload && resourceUri
-      ? {
-        threadId: item.threadId,
-        server: payload.invocation.server,
-        uri: resourceUri,
-      }
-      : null
-  ), [item.threadId, payload, resourceUri]);
+  const resourceParams = useMemo(
+    () =>
+      payload && resourceUri
+        ? {
+            threadId: item.threadId,
+            server: payload.invocation.server,
+            uri: resourceUri,
+          }
+        : null,
+    [item.threadId, payload, resourceUri],
+  );
   const {
     data: resourceResponse = null,
     error: resourceQueryError,
     isLoading: resourceLoading,
   } = useMcpResource(resourceParams);
   const resourceError = resourceQueryError
-    ? resourceQueryError instanceof Error ? resourceQueryError.message : String(resourceQueryError)
+    ? resourceQueryError instanceof Error
+      ? resourceQueryError.message
+      : String(resourceQueryError)
     : null;
   const renderableResource = useMemo(
-    () => resourceUri ? resolveMcpRenderableResource(resourceUri, resourceResponse) : null,
+    () => (resourceUri ? resolveMcpRenderableResource(resourceUri, resourceResponse) : null),
     [resourceResponse, resourceUri],
   );
   const isMcpAppReviewCardMode = Boolean(
-    resourceUri
-    && (!payload?.completed || hasSuccessfulResult)
-    && (resourceLoading || resourceError || renderableResource),
+    resourceUri &&
+    (!payload?.completed || hasSuccessfulResult) &&
+    (resourceLoading || resourceError || renderableResource),
   );
   const summary = payload
     ? resolveMcpToolActivityLabel({
@@ -619,14 +631,16 @@ export function McpToolCall({
   const header = (
     <ThreadActivityHeader
       accessory={hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
-      disclosure={canExpand
-        ? {
-            expanded: isBodyExpanded,
-            onToggle: () => {
-              setIsExpanded((current) => !current);
-            },
-          }
-        : undefined}
+      disclosure={
+        canExpand
+          ? {
+              expanded: isBodyExpanded,
+              onToggle: () => {
+                setIsExpanded((current) => !current);
+              },
+            }
+          : undefined
+      }
     >
       <ToolActivityIcon descriptor={resolveMcpSourceIcon(item, mcpApps)} />
       <CodexShimmerText
@@ -682,11 +696,5 @@ export function McpToolCall({
     </motion.div>
   ) : null;
 
-  return (
-    <ThreadActivityShell
-      body={body}
-      className="group"
-      header={header}
-    />
-  );
+  return <ThreadActivityShell body={body} className="group" header={header} />;
 }

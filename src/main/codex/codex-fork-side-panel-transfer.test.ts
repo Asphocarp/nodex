@@ -19,13 +19,15 @@ function makeHarness() {
       return { value: sourceConversationId };
     },
     rebase: async (snapshot, input) => {
-      events.push([
-        "rebase",
-        snapshot.value,
-        input.targetConversationId,
-        input.sourceWorkspaceRoot ?? "-",
-        input.targetWorkspaceRoot ?? "-",
-      ].join(":"));
+      events.push(
+        [
+          "rebase",
+          snapshot.value,
+          input.targetConversationId,
+          input.sourceWorkspaceRoot ?? "-",
+          input.targetWorkspaceRoot ?? "-",
+        ].join(":"),
+      );
       if (rebaseFailure) throw rebaseFailure;
       return { value: `${snapshot.value}->${input.targetConversationId}` };
     },
@@ -77,11 +79,13 @@ describe("CodexForkSidePanelTransferManager", () => {
     });
     events.length = 0;
 
-    expect(await manager.promotePending({
-      pendingWorktreeId: "missing",
-      targetConversationId: "target",
-      targetWorkspaceRoot: "/target",
-    })).toBe(false);
+    expect(
+      await manager.promotePending({
+        pendingWorktreeId: "missing",
+        targetConversationId: "target",
+        targetWorkspaceRoot: "/target",
+      }),
+    ).toBe(false);
     expect(events.length).toBe(0);
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
   });
@@ -94,19 +98,23 @@ describe("CodexForkSidePanelTransferManager", () => {
       sourceWorkspaceRoot: "/source",
     });
 
-    expect(await manager.promotePending({
-      pendingWorktreeId: "pending",
-      targetConversationId: "target",
-      targetWorkspaceRoot: "/target",
-    })).toBe(true);
+    expect(
+      await manager.promotePending({
+        pendingWorktreeId: "pending",
+        targetConversationId: "target",
+        targetWorkspaceRoot: "/target",
+      }),
+    ).toBe(true);
     expect(events.at(-1)).toBe("rebase:source:target:/source:/target");
     expect(manager.getPendingSnapshot("pending")).toBe(null);
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
-    expect(await manager.promotePending({
-      pendingWorktreeId: "pending",
-      targetConversationId: "other",
-      targetWorkspaceRoot: "/other",
-    })).toBe(false);
+    expect(
+      await manager.promotePending({
+        pendingWorktreeId: "pending",
+        targetConversationId: "other",
+        targetWorkspaceRoot: "/other",
+      }),
+    ).toBe(false);
   });
 
   test("retains pending and the previous target when rebase throws", async () => {
@@ -162,20 +170,24 @@ describe("CodexForkSidePanelTransferManager", () => {
       targetConversationId: "target",
     });
 
-    expect(await manager.consumeTarget({
-      routeKind: "local-thread",
-      targetConversationId: "target",
-      targetProjectSessionId: "session-target",
-    })).toEqual({ value: "source->target" });
+    expect(
+      await manager.consumeTarget({
+        routeKind: "local-thread",
+        targetConversationId: "target",
+        targetProjectSessionId: "session-target",
+      }),
+    ).toEqual({ value: "source->target" });
     expect(events.slice(-2).join(",")).toBe(
       "apply-prefix:source->target:session-target,apply-complete:target",
     );
     expect(manager.getTargetSnapshot("target")).toBe(null);
-    expect(await manager.consumeTarget({
-      routeKind: "local-thread",
-      targetConversationId: "target",
-      targetProjectSessionId: "session-target",
-    })).toBe(null);
+    expect(
+      await manager.consumeTarget({
+        routeKind: "local-thread",
+        targetConversationId: "target",
+        targetProjectSessionId: "session-target",
+      }),
+    ).toBe(null);
   });
 
   test("retains target and replays an applied prefix after an apply throw", async () => {
@@ -200,11 +212,13 @@ describe("CodexForkSidePanelTransferManager", () => {
     expect(manager.getTargetSnapshot("target")?.value).toBe("source->target");
 
     setApplyFailure(null);
-    expect(await manager.consumeTarget({
-      routeKind: "local-thread",
-      targetConversationId: "target",
-      targetProjectSessionId: "session-target",
-    })).toEqual({ value: "source->target" });
+    expect(
+      await manager.consumeTarget({
+        routeKind: "local-thread",
+        targetConversationId: "target",
+        targetProjectSessionId: "session-target",
+      }),
+    ).toEqual({ value: "source->target" });
     expect(events.filter((event) => event.startsWith("apply-prefix:")).length).toBe(2);
   });
 

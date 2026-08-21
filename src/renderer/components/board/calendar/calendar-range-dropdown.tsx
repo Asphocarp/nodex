@@ -36,10 +36,7 @@ const RANGE_OPTIONS: CalendarRangeOption[] = [
   { mode: "multi-week", label: "Multi-Week" },
 ];
 
-export function CalendarRangeDropdown({
-  range,
-  onRangeChange,
-}: CalendarRangeDropdownProps) {
+export function CalendarRangeDropdown({ range, onRangeChange }: CalendarRangeDropdownProps) {
   const trigger = (
     <NodexDropdownButtonTrigger
       className="h-8 min-w-24 justify-center border-(--accent-blue) bg-[color-mix(in_srgb,var(--accent-blue)_10%,transparent)] px-3 text-sm font-medium text-(--accent-blue) hover:bg-[color-mix(in_srgb,var(--accent-blue)_14%,transparent)] [&_svg]:text-(--accent-blue)"
@@ -59,8 +56,8 @@ export function CalendarRangeDropdown({
     >
       {RANGE_OPTIONS.map((option, index) => {
         const selected = option.mode === range.mode;
-        const row = option.mode === "multi-day" || option.mode === "multi-week"
-          ? (
+        const row =
+          option.mode === "multi-day" || option.mode === "multi-week" ? (
             <CalendarRangeEditableRow
               key={option.mode}
               option={option}
@@ -68,8 +65,7 @@ export function CalendarRangeDropdown({
               selected={selected}
               onRangeChange={onRangeChange}
             />
-          )
-          : (
+          ) : (
             <NodexDropdownItem
               key={option.mode}
               onSelect={() => onRangeChange({ ...range, mode: option.mode })}
@@ -104,9 +100,10 @@ function CalendarRangeEditableRow({
   selected: boolean;
   onRangeChange: (range: CalendarRangeState) => void;
 }) {
-  const value = option.mode === "multi-day"
-    ? clampCalendarMultiDayCount(range.multiDayCount)
-    : clampCalendarMultiWeekCount(range.multiWeekCount);
+  const value =
+    option.mode === "multi-day"
+      ? clampCalendarMultiDayCount(range.multiDayCount)
+      : clampCalendarMultiWeekCount(range.multiWeekCount);
 
   const applyStep = (delta: number) => {
     if (option.mode === "multi-day") {
@@ -154,7 +151,7 @@ function CalendarRangeEditableRow({
       onSelect={() => onRangeChange({ ...range, mode: option.mode })}
       onKeyDown={handleKeyDown}
       leftSlot={<SelectionSlot selected={selected} />}
-      rightSlot={(
+      rightSlot={
         <span className="relative grid min-w-20 grid-cols-1 items-center justify-items-end">
           <span className="col-start-1 row-start-1 text-token-description-foreground group-hover/dropdown-range:opacity-0 group-focus-within/dropdown-range:opacity-0">
             {formatCalendarRangeStaticValue(option.mode, range)}
@@ -183,11 +180,8 @@ function CalendarRangeEditableRow({
             </button>
           </span>
         </span>
-      )}
-      className={cn(
-        "group/dropdown-range",
-        selected && "text-(--accent-blue)",
-      )}
+      }
+      className={cn("group/dropdown-range", selected && "text-(--accent-blue)")}
     >
       {option.label}
     </NodexDropdownItem>

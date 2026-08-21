@@ -8,7 +8,9 @@ import {
 } from "./slash-command-filter";
 import type { ComposerSlashCommand } from "./slash-command-types";
 
-function command(input: Partial<ComposerSlashCommand> & { id: string; title: string }): ComposerSlashCommand {
+function command(
+  input: Partial<ComposerSlashCommand> & { id: string; title: string },
+): ComposerSlashCommand {
   return {
     group: "Commands",
     icon: null,
@@ -38,9 +40,16 @@ describe("composer slash command filtering", () => {
   });
 
   test("rejects command tokens after another slash, email text, or cursor drift", () => {
-    expect(detectComposerSlashTrigger({ text: "http://x", cursor: "http://x".length }).active).toBe(false);
-    expect(detectComposerSlashTrigger({ text: "email@example.com", cursor: "email@example.com".length }).active).toBe(false);
-    expect(detectComposerSlashTrigger({ text: "/model later", cursor: "/model later".length }).active).toBe(false);
+    expect(detectComposerSlashTrigger({ text: "http://x", cursor: "http://x".length }).active).toBe(
+      false,
+    );
+    expect(
+      detectComposerSlashTrigger({ text: "email@example.com", cursor: "email@example.com".length })
+        .active,
+    ).toBe(false);
+    expect(
+      detectComposerSlashTrigger({ text: "/model later", cursor: "/model later".length }).active,
+    ).toBe(false);
   });
 
   test("applies empty-composer gating and fuzzy matching", () => {
@@ -94,9 +103,15 @@ describe("composer slash command filtering", () => {
       { command: command({ id: "model", title: "Model" }), score: 1, matchedTitleIndexes: [] },
     ];
 
-    expect(resolveNextSlashHighlight({ matches, currentCommandId: null, direction: "first" })).toBe("compact");
-    expect(resolveNextSlashHighlight({ matches, currentCommandId: "compact", direction: "next" })).toBe("model");
-    expect(resolveNextSlashHighlight({ matches, currentCommandId: "compact", direction: "previous" })).toBe("model");
+    expect(resolveNextSlashHighlight({ matches, currentCommandId: null, direction: "first" })).toBe(
+      "compact",
+    );
+    expect(
+      resolveNextSlashHighlight({ matches, currentCommandId: "compact", direction: "next" }),
+    ).toBe("model");
+    expect(
+      resolveNextSlashHighlight({ matches, currentCommandId: "compact", direction: "previous" }),
+    ).toBe("model");
   });
 
   test("preserves the highlighted row across equivalent item updates", () => {
@@ -110,15 +125,23 @@ describe("composer slash command filtering", () => {
     ];
 
     expect(resolvePreservedSlashHighlight({ matches, currentCommandId: null })).toBe("compact");
-    expect(resolvePreservedSlashHighlight({ matches: updatedMatches, currentCommandId: "model" })).toBe("model");
-    expect(resolvePreservedSlashHighlight({ matches, currentCommandId: "missing" })).toBe("compact");
-    expect(resolveComposerSlashHighlight({
-      matches: updatedMatches,
-      intent: { commandId: "model", source: "pointer" },
-    })).toEqual({ commandId: "model", source: "pointer" });
-    expect(resolveComposerSlashHighlight({
-      matches,
-      intent: { commandId: "missing", source: "pointer" },
-    })).toEqual({ commandId: "compact", source: "programmatic" });
+    expect(
+      resolvePreservedSlashHighlight({ matches: updatedMatches, currentCommandId: "model" }),
+    ).toBe("model");
+    expect(resolvePreservedSlashHighlight({ matches, currentCommandId: "missing" })).toBe(
+      "compact",
+    );
+    expect(
+      resolveComposerSlashHighlight({
+        matches: updatedMatches,
+        intent: { commandId: "model", source: "pointer" },
+      }),
+    ).toEqual({ commandId: "model", source: "pointer" });
+    expect(
+      resolveComposerSlashHighlight({
+        matches,
+        intent: { commandId: "missing", source: "pointer" },
+      }),
+    ).toEqual({ commandId: "compact", source: "programmatic" });
   });
 });

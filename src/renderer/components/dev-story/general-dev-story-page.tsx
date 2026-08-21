@@ -15,10 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "@/components/ui/dropdown";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
 import { ToolbarDropdownMenu } from "@/features/local-conversation/view/shared/toolbar-dropdown-menu";
@@ -48,26 +45,30 @@ const STORY_SECTIONS: Array<{
   label: string;
   description: string;
 }> = [
-    {
-      id: "primitives",
-      label: "Primitives",
-      description: "Core inputs, actions, and selection controls.",
-    },
-    {
-      id: "feedback",
-      label: "Feedback",
-      description: "Overlays, scrollers, and transient guidance.",
-    },
-    {
-      id: "patterns",
-      label: "App Patterns",
-      description: "House interaction shapes reused across the renderer.",
-    },
-  ];
+  {
+    id: "primitives",
+    label: "Primitives",
+    description: "Core inputs, actions, and selection controls.",
+  },
+  {
+    id: "feedback",
+    label: "Feedback",
+    description: "Overlays, scrollers, and transient guidance.",
+  },
+  {
+    id: "patterns",
+    label: "App Patterns",
+    description: "House interaction shapes reused across the renderer.",
+  },
+];
 
 const BRANCH_ITEMS = [
   { value: "main", label: "main", description: "Stable default branch" },
-  { value: "codex/ui-story-page", label: "codex/ui-story-page", description: "Current feature branch" },
+  {
+    value: "codex/ui-story-page",
+    label: "codex/ui-story-page",
+    description: "Current feature branch",
+  },
   { value: "release/0.6", label: "release/0.6", description: "Pre-release stabilization" },
 ];
 
@@ -103,9 +104,7 @@ function StorySection({
         <div className="text-xs font-semibold tracking-wide text-(--foreground-tertiary) uppercase">
           {title}
         </div>
-        <div className="max-w-3xl text-sm/relaxed text-(--foreground-secondary)">
-          {description}
-        </div>
+        <div className="max-w-3xl text-sm/relaxed text-(--foreground-secondary)">{description}</div>
       </div>
       <div className="grid gap-3 xl:grid-cols-2">{children}</div>
     </section>
@@ -136,11 +135,12 @@ function ShowcaseCard({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-medium text-(--foreground)">{title}</div>
-            <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-              {description}
-            </div>
+            <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">{description}</div>
           </div>
-          <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+          <Badge
+            variant="outline"
+            className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+          >
             Live
           </Badge>
         </div>
@@ -151,13 +151,7 @@ function ShowcaseCard({
   );
 }
 
-function PreviewSurface({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+function PreviewSurface({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
       className={cn(
@@ -183,9 +177,7 @@ function PatternRow({
     <div className="flex items-center justify-between gap-5 p-3">
       <div className="min-w-0">
         <div className="text-sm text-(--foreground)">{label}</div>
-        <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          {description}
-        </div>
+        <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">{description}</div>
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
@@ -213,7 +205,8 @@ function DialogPreview() {
           <DialogHeader>
             <DialogTitle>Apply spacing preset?</DialogTitle>
             <DialogDescription>
-              This would update the current Storybook gallery density controls to the balanced preset.
+              This would update the current Storybook gallery density controls to the balanced
+              preset.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -260,8 +253,13 @@ export function GeneralDevStoryPage({
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="max-w-3xl">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge className="bg-foreground text-(--background)">Renderer Source of Truth</Badge>
-                  <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                  <Badge className="bg-foreground text-(--background)">
+                    Renderer Source of Truth
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                  >
                     11 shared patterns
                   </Badge>
                 </div>
@@ -269,7 +267,9 @@ export function GeneralDevStoryPage({
                   Common UI components
                 </h1>
                 <div className="mt-3 text-base/relaxed text-(--foreground-secondary)">
-                  This page is for refinement, not marketing. It keeps shared building blocks visible together so spacing, state contrast, and overlay behavior can be compared without threading through live project data.
+                  This page is for refinement, not marketing. It keeps shared building blocks
+                  visible together so spacing, state contrast, and overlay behavior can be compared
+                  without threading through live project data.
                 </div>
               </div>
 
@@ -279,13 +279,22 @@ export function GeneralDevStoryPage({
                   Current sample state
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                  >
                     Density: {densityLabel}
                   </Badge>
-                  <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                  >
                     Permission: {permissionMode}
                   </Badge>
-                  <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                  >
                     Storybook globals live
                   </Badge>
                 </div>
@@ -306,13 +315,16 @@ export function GeneralDevStoryPage({
 
             <div className="grid gap-3 lg:grid-cols-3">
               <div className="rounded-[18px] border-[0.5px] border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-[color-mix(in_srgb,var(--foreground)_3%,transparent)] px-3 py-3 text-sm/relaxed text-(--foreground-secondary)">
-                Storybook owns the global environment for this gallery. Theme and typography live in the toolbar, while scene-level state belongs in story args.
+                Storybook owns the global environment for this gallery. Theme and typography live in
+                the toolbar, while scene-level state belongs in story args.
               </div>
               <div className="rounded-[18px] border-[0.5px] border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-[color-mix(in_srgb,var(--foreground)_3%,transparent)] px-3 py-3 text-sm/relaxed text-(--foreground-secondary)">
-                Use real production components as the source of truth instead of parallel demo-only lookalikes.
+                Use real production components as the source of truth instead of parallel demo-only
+                lookalikes.
               </div>
               <div className="rounded-[18px] border-[0.5px] border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-[color-mix(in_srgb,var(--foreground)_3%,transparent)] px-3 py-3 text-sm/relaxed text-(--foreground-secondary)">
-                Keep selector poppers on one shared chrome system while letting triggers stay local to their surface.
+                Keep selector poppers on one shared chrome system while letting triggers stay local
+                to their surface.
               </div>
             </div>
           </div>
@@ -356,7 +368,10 @@ export function GeneralDevStoryPage({
               source="src/renderer/components/ui/input.tsx + textarea.tsx"
             >
               <PreviewSurface className="flex flex-col gap-3">
-                <Input placeholder="Search Pages, files, or commands" defaultValue="stage-threads" />
+                <Input
+                  placeholder="Search Pages, files, or commands"
+                  defaultValue="stage-threads"
+                />
                 <Input disabled value="Disabled field state" readOnly />
               </PreviewSurface>
             </ShowcaseCard>
@@ -375,11 +390,11 @@ export function GeneralDevStoryPage({
                       value: option.value,
                       label: option.label,
                     }))}
-                    triggerButton={(
+                    triggerButton={
                       <NodexDropdownButtonTrigger className="w-full" muted>
                         {densityLabel}
                       </NodexDropdownButtonTrigger>
-                    )}
+                    }
                   />
                   <div className="text-sm/relaxed text-(--foreground-secondary)">
                     Current value: <span className="text-(--foreground)">{densityLabel}</span>
@@ -411,9 +426,13 @@ export function GeneralDevStoryPage({
             >
               <PreviewSurface className="items-center justify-between gap-4">
                 <div className="max-w-sm text-sm/relaxed text-(--foreground-secondary)">
-                  Hover the action to inspect the default tooltip treatment used throughout the workbench.
+                  Hover the action to inspect the default tooltip treatment used throughout the
+                  workbench.
                 </div>
-                <NodexTooltip tooltipContent="Keeps controls quiet until intent is clear." side="top">
+                <NodexTooltip
+                  tooltipContent="Keeps controls quiet until intent is clear."
+                  side="top"
+                >
                   <Button variant="outline">
                     <BellIcon className="size-4" />
                     Hover for tooltip
@@ -438,7 +457,9 @@ export function GeneralDevStoryPage({
                         <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground-5 text-xs text-(--foreground-secondary)">
                           {index + 1}
                         </span>
-                        <span className="text-sm/relaxed text-(--foreground-secondary)">{item}</span>
+                        <span className="text-sm/relaxed text-(--foreground-secondary)">
+                          {item}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -477,7 +498,8 @@ export function GeneralDevStoryPage({
                   />
                 </div>
                 <div className="text-sm/relaxed text-(--foreground-secondary)">
-                  These controls favor low chrome, strong hover states, and floating frosted menus instead of permanent boxed filters.
+                  These controls favor low chrome, strong hover states, and floating frosted menus
+                  instead of permanent boxed filters.
                 </div>
               </PreviewSurface>
             </ShowcaseCard>
@@ -493,7 +515,10 @@ export function GeneralDevStoryPage({
                     label="Stage density"
                     description="How tightly stage content and supporting chrome are packed."
                   >
-                    <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                    <Badge
+                      variant="outline"
+                      className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                    >
                       {densityLabel}
                     </Badge>
                   </PatternRow>
@@ -526,20 +551,44 @@ export function GeneralDevStoryPage({
             >
               <PreviewSurface className="flex flex-col justify-between gap-4">
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", pageStagePropertyValueHoverSurface)}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center gap-2 px-2 py-1",
+                      pageStagePropertyValueHoverSurface,
+                    )}
+                  >
                     <span className={pageStagePropertyTextSize}>In progress</span>
-                    <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">P1</Badge>
+                    <Badge
+                      variant="outline"
+                      className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                    >
+                      P1
+                    </Badge>
                   </button>
-                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", pageStagePropertyValueHoverSurface)}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center gap-2 px-2 py-1",
+                      pageStagePropertyValueHoverSurface,
+                    )}
+                  >
                     <span className={pageStagePropertyTextSize}>ui</span>
                     <span className={pageStagePropertyTextSize}>threads</span>
                   </button>
-                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", pageStagePropertyEmptyValueInteractive)}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center gap-2 px-2 py-1",
+                      pageStagePropertyEmptyValueInteractive,
+                    )}
+                  >
                     <span>Empty</span>
                   </button>
                 </div>
                 <div className="text-sm/relaxed text-(--foreground-secondary)">
-                  The shared page-stage value styles keep metadata readable without turning every property into a boxed input.
+                  The shared page-stage value styles keep metadata readable without turning every
+                  property into a boxed input.
                 </div>
               </PreviewSurface>
             </ShowcaseCard>
@@ -554,9 +603,15 @@ export function GeneralDevStoryPage({
                   <Button variant="ghost" size="icon-sm" aria-label="Search">
                     <SearchIcon className="size-4" />
                   </Button>
-                  <Input className="max-w-sm border-none bg-transparent px-0 focus:border-transparent" placeholder="Search stories, controls, or tokens" />
+                  <Input
+                    className="max-w-sm border-none bg-transparent px-0 focus:border-transparent"
+                    placeholder="Search stories, controls, or tokens"
+                  />
                   <div className="ml-auto flex items-center gap-2">
-                    <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                    <Badge
+                      variant="outline"
+                      className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                    >
                       <Filter className="mr-1 size-3" />
                       Filters
                     </Badge>
@@ -567,13 +622,22 @@ export function GeneralDevStoryPage({
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                  >
                     Search shell
                   </Badge>
-                  <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                  >
                     Toolbar affordances
                   </Badge>
-                  <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-foreground-5 text-(--foreground-secondary)"
+                  >
                     Input quiet state
                   </Badge>
                 </div>

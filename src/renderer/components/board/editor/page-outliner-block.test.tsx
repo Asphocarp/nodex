@@ -2,9 +2,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { BlockReferenceRuntimeProvider } from "@/components/block-documents/block-reference-runtime-context";
 import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
-import {
-  ReferenceSurfaceActivationBudget,
-} from "@/lib/reference-surface-state";
+import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
 import { PageOutlinerBlock } from "./page-outliner-block";
 import {
@@ -26,9 +24,7 @@ const targetModel = vi.hoisted(() => ({
     documentGeneration: 1,
     documentHeadSeq: 1,
     title: "Nested Page",
-    richTitle: [
-      { type: "text" as const, text: "Nested Page", styles: {} },
-    ],
+    richTitle: [{ type: "text" as const, text: "Nested Page", styles: {} }],
     preview: "Body",
     plainText: "Body",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -101,17 +97,20 @@ class ControlledIntersectionObserver implements IntersectionObserver {
   emit(isIntersecting: boolean): void {
     if (!this.observed) throw new Error("No observed Page outliner anchor");
     const rect = this.observed.getBoundingClientRect();
-    this.callback([
-      {
-        boundingClientRect: rect,
-        intersectionRatio: isIntersecting ? 1 : 0,
-        intersectionRect: rect,
-        isIntersecting,
-        rootBounds: null,
-        target: this.observed,
-        time: performance.now(),
-      },
-    ], this);
+    this.callback(
+      [
+        {
+          boundingClientRect: rect,
+          intersectionRatio: isIntersecting ? 1 : 0,
+          intersectionRect: rect,
+          isIntersecting,
+          rootBounds: null,
+          target: this.observed,
+          time: performance.now(),
+        },
+      ],
+      this,
+    );
   }
 }
 
@@ -283,9 +282,7 @@ describe("PageOutlinerBlock", () => {
     });
     await waitFor(() => expect(view.getByTestId("expanded-page-runtime")).toBeTruthy());
 
-    expect(
-      view.container.querySelector("[data-page-outliner-target='nested-page']"),
-    ).toBe(anchor);
+    expect(view.container.querySelector("[data-page-outliner-target='nested-page']")).toBe(anchor);
     expect(ControlledIntersectionObserver.latest?.observed).toBe(anchor);
     expect(activationBudget.getActiveKeys()).toHaveLength(1);
   });
@@ -323,12 +320,8 @@ describe("PageOutlinerBlock", () => {
         />
       </BlockReferenceRuntimeProvider>,
     );
-    const rows = view.container.querySelectorAll(
-      "[data-page-outliner-target='nested-page']",
-    );
-    const firstDisclosure = view
-      .getAllByRole("button", { name: "Expand Nested Page" })
-      .at(0);
+    const rows = view.container.querySelectorAll("[data-page-outliner-target='nested-page']");
+    const firstDisclosure = view.getAllByRole("button", { name: "Expand Nested Page" }).at(0);
     if (!firstDisclosure) throw new Error("Missing first Page disclosure");
 
     await act(async () => {

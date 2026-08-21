@@ -33,12 +33,7 @@ function ForkChoice({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={choiceClassName}
-      disabled={disabled}
-      onClick={onClick}
-    >
+    <button type="button" className={choiceClassName} disabled={disabled} onClick={onClick}>
       <BranchStatusIcon className="icon-xs shrink-0 opacity-75" />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-sm font-medium electron:text-base">{title}</span>
@@ -68,10 +63,7 @@ export function LocalConversationForkFromTurnDialog({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent
-        size="compact"
-        showCloseButton={false}
-      >
+      <DialogContent size="compact" showCloseButton={false}>
         <DialogFrame className="gap-4">
           <DialogHeader>
             <DialogTitle>Continue in a new chat</DialogTitle>
@@ -80,18 +72,22 @@ export function LocalConversationForkFromTurnDialog({
           <div className="flex flex-col gap-1">
             <ForkChoice
               title={isWorktreeThread ? "Use this worktree" : "Use this workspace"}
-              description={isWorktreeThread
-                ? "Continue from this message in the same worktree"
-                : "Continue from this message in a new local chat"}
+              description={
+                isWorktreeThread
+                  ? "Continue from this message in the same worktree"
+                  : "Continue from this message in a new local chat"
+              }
               disabled={isSubmitting}
               onClick={onForkIntoLocal}
             />
             {showWorktreeOption ? (
               <ForkChoice
                 title="Use a new worktree"
-                description={canForkIntoWorktree
-                  ? "Continue from this message in a new worktree"
-                  : "A Git repository is required to continue in a new worktree"}
+                description={
+                  canForkIntoWorktree
+                    ? "Continue from this message in a new worktree"
+                    : "A Git repository is required to continue in a new worktree"
+                }
                 disabled={isSubmitting || !canForkIntoWorktree}
                 onClick={onForkIntoWorktree}
               />

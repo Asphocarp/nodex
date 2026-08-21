@@ -39,8 +39,13 @@ const runs = new Map<string, CodexAutomationRun>();
 const automationModule = {
   listDefinitions: async () => [...definitions.values()],
   getDefinition: async (id: string) => definitions.get(id) ?? null,
-  createDefinition: async (input: Parameters<DesktopAutomationModulePort["createDefinition"]>[0]) => {
-    const id = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  createDefinition: async (
+    input: Parameters<DesktopAutomationModulePort["createDefinition"]>[0],
+  ) => {
+    const id = input.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
     const now = Date.now();
     const item = {
       id,
@@ -67,7 +72,9 @@ const automationModule = {
     definitions.set(id, item);
     return item;
   },
-  updateDefinition: async (input: Parameters<DesktopAutomationModulePort["updateDefinition"]>[0]) => {
+  updateDefinition: async (
+    input: Parameters<DesktopAutomationModulePort["updateDefinition"]>[0],
+  ) => {
     const current = definitions.get(input.id);
     if (!current) return null;
     const item = {
@@ -86,8 +93,7 @@ const automationModule = {
       reasoningEffort: input.reasoningEffort ?? null,
       serviceTier: input.serviceTier ?? current.serviceTier,
       cwds: input.cwds ?? current.cwds,
-      executionEnvironment:
-        input.executionEnvironment ?? current.executionEnvironment,
+      executionEnvironment: input.executionEnvironment ?? current.executionEnvironment,
       localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
       updatedAt: Date.now(),
     };
@@ -100,7 +106,7 @@ const automationModule = {
     return {
       item,
       success: true,
-      status: item ? "deleted" as const : "not_found" as const,
+      status: item ? ("deleted" as const) : ("not_found" as const),
       deletedRunCount: 0,
     };
   },
@@ -137,10 +143,12 @@ const automationModule = {
     unreadRunCounts: {
       total: [...runs.values()].filter((run) => run.readAt === null).length,
       automationIds: [...new Set([...runs.values()].map((run) => run.automationId))],
-      unreadRuns: [...runs.values()].filter((run) => run.readAt === null).map((run) => ({
-        automationId: run.automationId,
-        threadId: run.threadId,
-      })),
+      unreadRuns: [...runs.values()]
+        .filter((run) => run.readAt === null)
+        .map((run) => ({
+          automationId: run.automationId,
+          threadId: run.threadId,
+        })),
     },
   }),
   setRunReadState: async (input: { readonly threadId: string; readonly readAt: number | null }) => {
@@ -157,14 +165,18 @@ function countEvents(channel: string): number {
 }
 
 function latestScheduledChangedEvent(): CodexScheduledAutomationChangedEvent {
-  const event = sentIpcEvents.filter((item) => item.channel === "codex:scheduled-automations:changed").at(-1);
+  const event = sentIpcEvents
+    .filter((item) => item.channel === "codex:scheduled-automations:changed")
+    .at(-1);
   const payload = event?.args[0] as CodexScheduledAutomationChangedEvent | undefined;
   if (!payload) throw new Error("Missing scheduled automation change event");
   return payload;
 }
 
 function latestAutomationRunsUpdatedEvent(): CodexAutomationRunsUpdatedEvent {
-  const event = sentIpcEvents.filter((item) => item.channel === "codex:automation-runs:updated").at(-1);
+  const event = sentIpcEvents
+    .filter((item) => item.channel === "codex:automation-runs:updated")
+    .at(-1);
   const payload = event?.args[0] as CodexAutomationRunsUpdatedEvent | undefined;
   if (!payload) throw new Error("Missing automation runs update event");
   return payload;
@@ -182,17 +194,17 @@ beforeAll(async () => {
     runScheduledAutomationNow: async (input) => {
       runNowInputs.push(input);
     },
-    prepareCreateInput: async (input) => input.modelProvider
-      ? { ...input, harnessId: "resolved-harness" }
-      : input,
-    prepareUpdateInput: async (input, current) => input.modelProvider || current?.modelProvider
-      ? {
-          ...input,
-          model: input.model ?? current?.model ?? null,
-          modelProvider: input.modelProvider ?? current?.modelProvider ?? null,
-          harnessId: "resolved-harness",
-        }
-      : input,
+    prepareCreateInput: async (input) =>
+      input.modelProvider ? { ...input, harnessId: "resolved-harness" } : input,
+    prepareUpdateInput: async (input, current) =>
+      input.modelProvider || current?.modelProvider
+        ? {
+            ...input,
+            model: input.model ?? current?.model ?? null,
+            modelProvider: input.modelProvider ?? current?.modelProvider ?? null,
+            harnessId: "resolved-harness",
+          }
+        : input,
     resolveAutomationArchiveMessages: async () => ({
       archivedAssistantMessage: null,
       archivedUserMessage: null,
@@ -238,80 +250,84 @@ describe("scheduled automation IPC contract", () => {
   test("returns list/create/update/delete response shapes and broadcasts task changes", async () => {
     definitions.clear();
     sentIpcEvents.length = 0;
-      const createResponse = await invokeIpc("codex:scheduled-automations:create", {
-        kind: "cron",
-        name: "Daily Report",
-        prompt: "Summarize the repository state.",
-        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
-        cwds: ["/repo/project-alpha"],
-        executionEnvironment: "worktree",
-        model: "gpt-5",
-        reasoningEffort: "medium",
-        localEnvironmentConfigPath: ".codex/environments/default.toml",
-      }) as CodexScheduledAutomationMutationResponse;
+    const createResponse = (await invokeIpc("codex:scheduled-automations:create", {
+      kind: "cron",
+      name: "Daily Report",
+      prompt: "Summarize the repository state.",
+      rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+      cwds: ["/repo/project-alpha"],
+      executionEnvironment: "worktree",
+      model: "gpt-5",
+      reasoningEffort: "medium",
+      localEnvironmentConfigPath: ".codex/environments/default.toml",
+    })) as CodexScheduledAutomationMutationResponse;
 
-      expect(createResponse.item.id).toBe("daily-report");
-      expect(createResponse.item.status).toBe("ACTIVE");
-      expect(createResponse.item.targetThreadId).toBe(null);
-      expect(createResponse.item.cwds[0]).toBe("/repo/project-alpha");
-      expect(createResponse.item.localEnvironmentConfigPath).toBe(".codex/environments/default.toml");
-      expect(countEvents("codex:scheduled-automations:changed")).toBe(1);
-      expect(latestScheduledChangedEvent().reason).toBe("upsert");
-      expect(latestScheduledChangedEvent().automationId).toBe("daily-report");
+    expect(createResponse.item.id).toBe("daily-report");
+    expect(createResponse.item.status).toBe("ACTIVE");
+    expect(createResponse.item.targetThreadId).toBe(null);
+    expect(createResponse.item.cwds[0]).toBe("/repo/project-alpha");
+    expect(createResponse.item.localEnvironmentConfigPath).toBe(".codex/environments/default.toml");
+    expect(countEvents("codex:scheduled-automations:changed")).toBe(1);
+    expect(latestScheduledChangedEvent().reason).toBe("upsert");
+    expect(latestScheduledChangedEvent().automationId).toBe("daily-report");
 
-      const listResponse = await invokeIpc("codex:scheduled-automations:list") as CodexScheduledAutomationListResponse;
-      expect(Array.isArray(listResponse.items)).toBe(true);
-      expect(listResponse.items.length).toBe(1);
-      expect(listResponse.items[0]?.id).toBe("daily-report");
+    const listResponse = (await invokeIpc(
+      "codex:scheduled-automations:list",
+    )) as CodexScheduledAutomationListResponse;
+    expect(Array.isArray(listResponse.items)).toBe(true);
+    expect(listResponse.items.length).toBe(1);
+    expect(listResponse.items[0]?.id).toBe("daily-report");
 
-      const updateResponse = await invokeIpc("codex:scheduled-automations:update", {
-        id: "daily-report",
-        kind: "cron",
-        status: "PAUSED",
-        name: "Paused Daily Report",
-        prompt: "Summarize less frequently.",
-        rrule: "FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=30",
-        cwds: ["/repo/project-alpha"],
-        executionEnvironment: "local",
-        model: "gpt-5.1",
-        reasoningEffort: "high",
-        localEnvironmentConfigPath: null,
-      }) as CodexScheduledAutomationMutationResponse;
+    const updateResponse = (await invokeIpc("codex:scheduled-automations:update", {
+      id: "daily-report",
+      kind: "cron",
+      status: "PAUSED",
+      name: "Paused Daily Report",
+      prompt: "Summarize less frequently.",
+      rrule: "FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=30",
+      cwds: ["/repo/project-alpha"],
+      executionEnvironment: "local",
+      model: "gpt-5.1",
+      reasoningEffort: "high",
+      localEnvironmentConfigPath: null,
+    })) as CodexScheduledAutomationMutationResponse;
 
-      expect(updateResponse.item.id).toBe("daily-report");
-      expect(updateResponse.item.status).toBe("PAUSED");
-      expect(updateResponse.item.executionEnvironment).toBe("local");
-      expect(updateResponse.item.model).toBe("gpt-5.1");
-      expect(updateResponse.item.reasoningEffort).toBe("high");
-      expect(updateResponse.item.localEnvironmentConfigPath).toBe(null);
-      expect(countEvents("codex:scheduled-automations:changed")).toBe(2);
-      expect(latestScheduledChangedEvent().reason).toBe("upsert");
+    expect(updateResponse.item.id).toBe("daily-report");
+    expect(updateResponse.item.status).toBe("PAUSED");
+    expect(updateResponse.item.executionEnvironment).toBe("local");
+    expect(updateResponse.item.model).toBe("gpt-5.1");
+    expect(updateResponse.item.reasoningEffort).toBe("high");
+    expect(updateResponse.item.localEnvironmentConfigPath).toBe(null);
+    expect(countEvents("codex:scheduled-automations:changed")).toBe(2);
+    expect(latestScheduledChangedEvent().reason).toBe("upsert");
 
-      const updatedListResponse = await invokeIpc("codex:scheduled-automations:list") as CodexScheduledAutomationListResponse;
-      expect(updatedListResponse.items[0]?.model).toBe("gpt-5.1");
-      expect(updatedListResponse.items[0]?.reasoningEffort).toBe("high");
+    const updatedListResponse = (await invokeIpc(
+      "codex:scheduled-automations:list",
+    )) as CodexScheduledAutomationListResponse;
+    expect(updatedListResponse.items[0]?.model).toBe("gpt-5.1");
+    expect(updatedListResponse.items[0]?.reasoningEffort).toBe("high");
 
-      const deleteResponse = await invokeIpc("codex:scheduled-automations:delete", {
-        id: "daily-report",
-      }) as CodexScheduledAutomationDeleteResponse;
+    const deleteResponse = (await invokeIpc("codex:scheduled-automations:delete", {
+      id: "daily-report",
+    })) as CodexScheduledAutomationDeleteResponse;
 
-      expect(deleteResponse.success).toBe(true);
-      expect(deleteResponse.status).toBe("deleted");
-      expect(deleteResponse.item?.id).toBe("daily-report");
-      expect(countEvents("codex:scheduled-automations:changed")).toBe(3);
-      expect(latestScheduledChangedEvent().reason).toBe("delete");
+    expect(deleteResponse.success).toBe(true);
+    expect(deleteResponse.status).toBe("deleted");
+    expect(deleteResponse.item?.id).toBe("daily-report");
+    expect(countEvents("codex:scheduled-automations:changed")).toBe(3);
+    expect(latestScheduledChangedEvent().reason).toBe("delete");
 
-      const deleteAgainResponse = await invokeIpc("codex:scheduled-automations:delete", {
-        id: "daily-report",
-      }) as CodexScheduledAutomationDeleteResponse;
+    const deleteAgainResponse = (await invokeIpc("codex:scheduled-automations:delete", {
+      id: "daily-report",
+    })) as CodexScheduledAutomationDeleteResponse;
 
-      expect(deleteAgainResponse.success).toBe(true);
-      expect(deleteAgainResponse.status).toBe("not_found");
-      expect(deleteAgainResponse.item).toBe(null);
+    expect(deleteAgainResponse.success).toBe(true);
+    expect(deleteAgainResponse.status).toBe("not_found");
+    expect(deleteAgainResponse.item).toBe(null);
   });
 
   test("persists the main-process-resolved provider profile", async () => {
-    const response = await invokeIpc("codex:scheduled-automations:create", {
+    const response = (await invokeIpc("codex:scheduled-automations:create", {
       kind: "cron",
       name: "Kimi report",
       prompt: "Summarize the repository.",
@@ -323,14 +339,14 @@ describe("scheduled automation IPC contract", () => {
       serviceTier: null,
       cwds: ["/repo/project-alpha"],
       executionEnvironment: "local",
-    }) as CodexScheduledAutomationMutationResponse;
+    })) as CodexScheduledAutomationMutationResponse;
 
     expect(response.item.modelProvider).toBe("openrouter");
     expect(response.item.model).toBe("moonshotai/kimi-k3");
     expect(response.item.harnessId).toBe("resolved-harness");
     expect(response.item.reasoningEffort).toBe("Thinking");
 
-    const updated = await invokeIpc("codex:scheduled-automations:update", {
+    const updated = (await invokeIpc("codex:scheduled-automations:update", {
       id: response.item.id,
       kind: "cron",
       status: "PAUSED",
@@ -344,7 +360,7 @@ describe("scheduled automation IPC contract", () => {
       serviceTier: null,
       cwds: ["/repo/project-alpha"],
       executionEnvironment: "local",
-    }) as CodexScheduledAutomationMutationResponse;
+    })) as CodexScheduledAutomationMutationResponse;
 
     expect(updated.item.modelProvider).toBe("openrouter");
     expect(updated.item.model).toBe("moonshotai/kimi-k3");
@@ -352,19 +368,21 @@ describe("scheduled automation IPC contract", () => {
   });
 
   test("forwards run-now input to the automation runtime and returns success", async () => {
-    const response = await invokeIpc("codex:scheduled-automations:run-now", {
+    const response = (await invokeIpc("codex:scheduled-automations:run-now", {
       id: "heartbeat-follow-up",
       collaborationMode: "plan",
       permissions: null,
-    }) as CodexScheduledAutomationRunNowResponse;
+    })) as CodexScheduledAutomationRunNowResponse;
 
     expect(response.success).toBe(true);
     expect(runNowInputs.length).toBe(1);
-    expect(JSON.stringify(runNowInputs[0])).toBe(JSON.stringify({
-      id: "heartbeat-follow-up",
-      collaborationMode: "plan",
-      permissions: null,
-    }));
+    expect(JSON.stringify(runNowInputs[0])).toBe(
+      JSON.stringify({
+        id: "heartbeat-follow-up",
+        collaborationMode: "plan",
+        permissions: null,
+      }),
+    );
   });
 
   test("returns previous-run inbox and mutation response shapes with run update events", async () => {
@@ -372,71 +390,74 @@ describe("scheduled automation IPC contract", () => {
     runs.clear();
     sentIpcEvents.length = 0;
     unarchivedThreadIds.length = 0;
-      const createResponse = await invokeIpc("codex:scheduled-automations:create", {
-        kind: "cron",
-        name: "Review Runs",
-        prompt: "Run and wait for review.",
-        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
-        cwds: ["/repo/project-alpha"],
-        executionEnvironment: "worktree",
-      }) as CodexScheduledAutomationMutationResponse;
-      const automationId = createResponse.item.id;
+    const createResponse = (await invokeIpc("codex:scheduled-automations:create", {
+      kind: "cron",
+      name: "Review Runs",
+      prompt: "Run and wait for review.",
+      rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+      cwds: ["/repo/project-alpha"],
+      executionEnvironment: "worktree",
+    })) as CodexScheduledAutomationMutationResponse;
+    const automationId = createResponse.item.id;
 
-      runs.set("thread-run-1", {
-        threadId: "thread-run-1",
-        automationId,
-        status: "PENDING_REVIEW",
-        readAt: null,
-        threadTitle: "Review Runs execution",
-        sourceCwd: "/repo/project-alpha",
-        inboxTitle: null,
-        inboxSummary: null,
-        archivedUserMessage: null,
-        archivedAssistantMessage: null,
-        archivedReason: null,
-        createdAt: 10,
-        updatedAt: 20,
-      });
+    runs.set("thread-run-1", {
+      threadId: "thread-run-1",
+      automationId,
+      status: "PENDING_REVIEW",
+      readAt: null,
+      threadTitle: "Review Runs execution",
+      sourceCwd: "/repo/project-alpha",
+      inboxTitle: null,
+      inboxSummary: null,
+      archivedUserMessage: null,
+      archivedAssistantMessage: null,
+      archivedReason: null,
+      createdAt: 10,
+      updatedAt: 20,
+    });
 
-      const inboxResponse = await invokeIpc("codex:automation-runs:inbox-items", 25) as CodexAutomationRunsInboxResponse;
-      expect(inboxResponse.items.length).toBe(1);
-      expect(inboxResponse.items[0]?.threadId).toBe("thread-run-1");
-      expect(inboxResponse.unreadRunCounts.total).toBe(1);
-      expect(inboxResponse.unreadRunCounts.automationIds[0]).toBe(automationId);
+    const inboxResponse = (await invokeIpc(
+      "codex:automation-runs:inbox-items",
+      25,
+    )) as CodexAutomationRunsInboxResponse;
+    expect(inboxResponse.items.length).toBe(1);
+    expect(inboxResponse.items[0]?.threadId).toBe("thread-run-1");
+    expect(inboxResponse.unreadRunCounts.total).toBe(1);
+    expect(inboxResponse.unreadRunCounts.automationIds[0]).toBe(automationId);
 
-      const readItem = await invokeIpc("codex:automation-runs:set-read-state", {
-        threadId: "thread-run-1",
-        readAt: 30,
-      }) as CodexAutomationInboxItem | null;
-      expect(readItem?.readAt).toBe(30);
-      expect(latestAutomationRunsUpdatedEvent().reason).toBe("read-state");
-      expect(latestAutomationRunsUpdatedEvent().automationId).toBe(automationId);
+    const readItem = (await invokeIpc("codex:automation-runs:set-read-state", {
+      threadId: "thread-run-1",
+      readAt: 30,
+    })) as CodexAutomationInboxItem | null;
+    expect(readItem?.readAt).toBe(30);
+    expect(latestAutomationRunsUpdatedEvent().reason).toBe("read-state");
+    expect(latestAutomationRunsUpdatedEvent().automationId).toBe(automationId);
 
-      const archiveResponse = await invokeIpc("codex:automation-runs:archive", {
-        threadId: "thread-run-1",
-        archivedAssistantMessage: "Done",
-        archivedUserMessage: "Please run it.",
-        archivedReason: "manual",
-      }) as CodexAutomationRunMutationResponse;
-      expect(archiveResponse.success).toBe(true);
-      expect(latestAutomationRunsUpdatedEvent().reason).toBe("archive");
+    const archiveResponse = (await invokeIpc("codex:automation-runs:archive", {
+      threadId: "thread-run-1",
+      archivedAssistantMessage: "Done",
+      archivedUserMessage: "Please run it.",
+      archivedReason: "manual",
+    })) as CodexAutomationRunMutationResponse;
+    expect(archiveResponse.success).toBe(true);
+    expect(latestAutomationRunsUpdatedEvent().reason).toBe("archive");
 
-      const unarchiveResponse = await invokeIpc("codex:automation-runs:unarchive", {
-        threadId: "thread-run-1",
-      }) as CodexAutomationRunMutationResponse;
-      expect(unarchiveResponse.success).toBe(true);
-      expect(unarchivedThreadIds[0]).toBe("thread-run-1");
-      expect(latestAutomationRunsUpdatedEvent().reason).toBe("unarchive");
+    const unarchiveResponse = (await invokeIpc("codex:automation-runs:unarchive", {
+      threadId: "thread-run-1",
+    })) as CodexAutomationRunMutationResponse;
+    expect(unarchiveResponse.success).toBe(true);
+    expect(unarchivedThreadIds[0]).toBe("thread-run-1");
+    expect(latestAutomationRunsUpdatedEvent().reason).toBe("unarchive");
 
-      const markAllReadResponse = await invokeIpc("codex:automation-runs:mark-all-read", {
-        readAt: 40,
-      }) as CodexAutomationRunMarkAllReadResponse;
-      expect(markAllReadResponse.changedCount).toBe(0);
+    const markAllReadResponse = (await invokeIpc("codex:automation-runs:mark-all-read", {
+      readAt: 40,
+    })) as CodexAutomationRunMarkAllReadResponse;
+    expect(markAllReadResponse.changedCount).toBe(0);
 
-      const deleteResponse = await invokeIpc("codex:automation-runs:delete", {
-        threadId: "thread-run-1",
-      }) as CodexAutomationRunMutationResponse;
-      expect(deleteResponse.success).toBe(true);
-      expect(latestAutomationRunsUpdatedEvent().reason).toBe("delete");
+    const deleteResponse = (await invokeIpc("codex:automation-runs:delete", {
+      threadId: "thread-run-1",
+    })) as CodexAutomationRunMutationResponse;
+    expect(deleteResponse.success).toBe(true);
+    expect(latestAutomationRunsUpdatedEvent().reason).toBe("delete");
   });
 });

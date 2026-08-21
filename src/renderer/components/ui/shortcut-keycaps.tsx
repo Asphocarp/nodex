@@ -1,10 +1,7 @@
 import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/utils";
 
-export interface ShortcutKeycapsProps extends Omit<
-  ComponentPropsWithoutRef<"kbd">,
-  "children"
-> {
+export interface ShortcutKeycapsProps extends Omit<ComponentPropsWithoutRef<"kbd">, "children"> {
   readonly keys: readonly string[];
   readonly density?: "compact" | "default" | "settings";
   readonly tone?: "muted" | "current";
@@ -56,9 +53,7 @@ export function ShortcutKeycapSequence({
       {chords.map((chord, index) => (
         <span key={`${chord}-${index}`} className="inline-flex items-center gap-1">
           {index > 0 ? (
-            <span className="text-[10px] font-medium text-token-description-foreground">
-              then
-            </span>
+            <span className="text-[10px] font-medium text-token-description-foreground">then</span>
           ) : null}
           <ShortcutKeycaps keys={[chord]} density={density} tone={tone} />
         </span>

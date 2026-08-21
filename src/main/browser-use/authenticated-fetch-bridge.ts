@@ -6,13 +6,7 @@ const MAX_HEADER_NAME_LENGTH = 128;
 const MAX_HEADER_VALUE_LENGTH = 8_192;
 const DEFAULT_MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 
-const BrowserUseFetchMethodSchema = z.enum([
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-]);
+const BrowserUseFetchMethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const HeaderNameSchema = z
   .string()
   .trim()
@@ -29,9 +23,7 @@ const RequestSchema = z.strictObject({
   body: z.string().nullable().default(null),
 });
 
-export type BrowserUseAuthenticatedFetchMethod = z.infer<
-  typeof BrowserUseFetchMethodSchema
->;
+export type BrowserUseAuthenticatedFetchMethod = z.infer<typeof BrowserUseFetchMethodSchema>;
 
 export interface BrowserUseAllowedApiRequest {
   url: string;
@@ -73,15 +65,15 @@ export type BrowserUseFetchValidationErrorCode =
 
 export type BrowserUseAllowedApiRequestValidation =
   | {
-    ok: true;
-    request: Required<BrowserUseAllowedApiRequest>;
-    rule: BrowserUseAuthenticatedFetchRule;
-  }
+      ok: true;
+      request: Required<BrowserUseAllowedApiRequest>;
+      rule: BrowserUseAuthenticatedFetchRule;
+    }
   | {
-    ok: false;
-    code: BrowserUseFetchValidationErrorCode;
-    message: string;
-  };
+      ok: false;
+      code: BrowserUseFetchValidationErrorCode;
+      message: string;
+    };
 
 const FORBIDDEN_CALLER_HEADERS = new Set([
   "authorization",
@@ -130,9 +122,7 @@ function matchesPathPrefix(pathname: string, pathPrefix: string): boolean {
   return pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`);
 }
 
-function normalizeAllowedHeaders(
-  rule: BrowserUseAuthenticatedFetchRule,
-): Set<string> | null {
+function normalizeAllowedHeaders(rule: BrowserUseAuthenticatedFetchRule): Set<string> | null {
   const headers = rule.allowedRequestHeaders ?? [];
   if (headers.length > MAX_HEADER_COUNT) return null;
 
@@ -179,10 +169,10 @@ export function validateBrowserUseAllowedApiRequest(
     return invalid("invalid-request", "The Browser Use API request URL is invalid.");
   }
   if (
-    (requestUrl.protocol !== "http:" && requestUrl.protocol !== "https:")
-    || requestUrl.username
-    || requestUrl.password
-    || requestUrl.hash
+    (requestUrl.protocol !== "http:" && requestUrl.protocol !== "https:") ||
+    requestUrl.username ||
+    requestUrl.password ||
+    requestUrl.hash
   ) {
     return invalid("invalid-request", "The Browser Use API request URL is invalid.");
   }
@@ -196,20 +186,20 @@ export function validateBrowserUseAllowedApiRequest(
     const allowedHeaders = normalizeAllowedHeaders(rule);
     const maxBodyBytes = rule.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES;
     if (
-      !origin
-      || !isValidPathPrefix(rule.pathPrefix, origin.origin)
-      || rule.methods.length === 0
-      || !rule.methods.every((method) => BrowserUseFetchMethodSchema.safeParse(method).success)
-      || !allowedHeaders
-      || !Number.isSafeInteger(maxBodyBytes)
-      || maxBodyBytes < 0
+      !origin ||
+      !isValidPathPrefix(rule.pathPrefix, origin.origin) ||
+      rule.methods.length === 0 ||
+      !rule.methods.every((method) => BrowserUseFetchMethodSchema.safeParse(method).success) ||
+      !allowedHeaders ||
+      !Number.isSafeInteger(maxBodyBytes) ||
+      maxBodyBytes < 0
     ) {
       return invalid("invalid-allowlist", "The Browser Use API allowlist is invalid.");
     }
 
     if (
-      requestUrl.origin === origin.origin
-      && matchesPathPrefix(requestUrl.pathname, rule.pathPrefix)
+      requestUrl.origin === origin.origin &&
+      matchesPathPrefix(requestUrl.pathname, rule.pathPrefix)
     ) {
       matchingOriginRules.push({ rule, allowedHeaders });
     }
@@ -223,7 +213,7 @@ export function validateBrowserUseAllowedApiRequest(
   }
 
   const matchingMethodRules = matchingOriginRules.filter(({ rule }) =>
-    rule.methods.includes(requestResult.data.method)
+    rule.methods.includes(requestResult.data.method),
   );
   if (matchingMethodRules.length === 0) {
     return invalid(
@@ -238,9 +228,9 @@ export function validateBrowserUseAllowedApiRequest(
   }
 
   const matchingHeaderRule = matchingMethodRules.find(({ allowedHeaders }) =>
-    Object.keys(headers).every((name) =>
-      !FORBIDDEN_CALLER_HEADERS.has(name) && allowedHeaders.has(name)
-    )
+    Object.keys(headers).every(
+      (name) => !FORBIDDEN_CALLER_HEADERS.has(name) && allowedHeaders.has(name),
+    ),
   );
   if (!matchingHeaderRule) {
     return invalid(
@@ -250,15 +240,12 @@ export function validateBrowserUseAllowedApiRequest(
   }
 
   const body = requestResult.data.body;
-  if (body !== null && (requestResult.data.method === "GET")) {
-    return invalid(
-      "body-not-allowed",
-      "The Browser Use API request method does not allow a body.",
-    );
+  if (body !== null && requestResult.data.method === "GET") {
+    return invalid("body-not-allowed", "The Browser Use API request method does not allow a body.");
   }
 
-  const maxBodyBytes = matchingHeaderRule.rule.maxRequestBodyBytes
-    ?? DEFAULT_MAX_REQUEST_BODY_BYTES;
+  const maxBodyBytes =
+    matchingHeaderRule.rule.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES;
   if (body !== null && requestBodyByteLength(body) > maxBodyBytes) {
     return invalid(
       "body-too-large",

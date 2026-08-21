@@ -106,10 +106,7 @@ import {
 } from "./database-list-icons";
 import { databaseListGroupLabel } from "./database-list-property-presentation";
 import { isWorkflowStatus } from "../../../../shared/workflow-status";
-import {
-  DATABASE_LIST_INTERACTIVE_SELECTOR,
-  DatabaseListRow,
-} from "./database-list-row";
+import { DATABASE_LIST_INTERACTIVE_SELECTOR, DatabaseListRow } from "./database-list-row";
 import type { DatabaseViewPageMenuSession } from "../database-view-page-context-menu";
 import { DatabaseViewPageContextMenuHost } from "../database-view-page-context-menu-host";
 import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
@@ -217,10 +214,12 @@ interface DatabaseListOptimisticMove {
   readonly groupKey: string | null;
   readonly subgroupKey: string | null;
   readonly receiptCommitSeq: number | null;
-  readonly normalizedTarget: Extract<
-    NonNullable<DatabaseViewMutationReceipt>["operationOutcomes"][number],
-    { readonly kind: "list_occurrence_move" }
-  >["normalizedTarget"] | null;
+  readonly normalizedTarget:
+    | Extract<
+        NonNullable<DatabaseViewMutationReceipt>["operationOutcomes"][number],
+        { readonly kind: "list_occurrence_move" }
+      >["normalizedTarget"]
+    | null;
 }
 
 interface DatabaseListInteractionState {
@@ -255,15 +254,13 @@ const reduceDatabaseListInteraction = (
 
   const selection = action.update(state.selection);
   const occurrenceKey = selection.activeOccurrenceKey;
-  const focusRequest = action.focusRequestId !== undefined && occurrenceKey
-    ? { id: action.focusRequestId, occurrenceKey }
-    : action.preserveFocusRequest
-      ? state.focusRequest
-      : null;
-  if (
-    selection === state.selection
-    && focusRequest === state.focusRequest
-  ) return state;
+  const focusRequest =
+    action.focusRequestId !== undefined && occurrenceKey
+      ? { id: action.focusRequestId, occurrenceKey }
+      : action.preserveFocusRequest
+        ? state.focusRequest
+        : null;
+  if (selection === state.selection && focusRequest === state.focusRequest) return state;
   return { selection, focusRequest };
 };
 
@@ -273,8 +270,7 @@ const propertyValueMutationKey = (pageId: string, propertyId: string): string =>
 const propertyDefinitionMutationKey = (propertyId: string): string =>
   `PROPERTY_DEFINITION_${encodeURIComponent(propertyId)}`;
 
-const pageMutationKey = (pageId: string): string =>
-  `PAGE_${encodeURIComponent(pageId)}`;
+const pageMutationKey = (pageId: string): string => `PAGE_${encodeURIComponent(pageId)}`;
 
 const updateMutationCounts = (
   current: ReadonlyMap<string, number>,
@@ -304,8 +300,7 @@ const searchablePropertyValues = (
     .map((entry) => {
       const property = propertyById.get(entry.propertyId);
       return databasePropertyValueSearchText(entry.value, {
-        optionBacked: property?.valueType === "select"
-          || property?.valueType === "multi_select",
+        optionBacked: property?.valueType === "select" || property?.valueType === "multi_select",
         options: optionRegistries[entry.propertyId],
       });
     })
@@ -324,8 +319,7 @@ const searchableAuthorityValues = (
     .map((entry) => {
       const property = propertyById.get(entry.propertyId);
       return databasePropertyValueSearchText(entry.value, {
-        optionBacked: property?.valueType === "select"
-          || property?.valueType === "multi_select",
+        optionBacked: property?.valueType === "select" || property?.valueType === "multi_select",
         options: optionRegistries[entry.propertyId],
       });
     })
@@ -336,9 +330,11 @@ const availableListFields = (
   model: DatabaseViewRenderModel,
   fields: readonly DatabaseViewField[],
 ): readonly DatabaseViewField[] => {
-  const propertyIds = new Set(model.query.properties.flatMap((property) =>
-    property.lifecycle === "active" ? [String(property.propertyId)] : []
-  ));
+  const propertyIds = new Set(
+    model.query.properties.flatMap((property) =>
+      property.lifecycle === "active" ? [String(property.propertyId)] : [],
+    ),
+  );
   return fields.filter((field) => {
     if (field.kind === "intrinsic") return true;
     if (!propertyIds.has(String(field.propertyId))) return false;
@@ -351,8 +347,8 @@ const groupLabel = (
   propertyId: string | undefined,
   key: string | null,
 ): string => {
-  const property = model.query.properties.find((candidate) =>
-    candidate.lifecycle === "active" && candidate.propertyId === propertyId
+  const property = model.query.properties.find(
+    (candidate) => candidate.lifecycle === "active" && candidate.propertyId === propertyId,
   );
   const option = property
     ? readDatabasePropertyOptions(property).find((candidate) => candidate.id === key)
@@ -360,17 +356,16 @@ const groupLabel = (
   return databaseListGroupLabel(propertyId, key, option?.name);
 };
 
-const databaseListGroupMarker = (
-  propertyId: string | undefined,
-  key: string | null,
-): ReactNode => {
+const databaseListGroupMarker = (propertyId: string | undefined, key: string | null): ReactNode => {
   if (propertyId === "status" && key) {
     return <StatusIcon statusId={key} className="size-4 shrink-0" />;
   }
   if (propertyId === "priority" && isPriority(key)) {
     return <DatabaseListPriorityIcon priority={key} className="size-4" />;
   }
-  return <span className="size-2 shrink-0 rounded-full ring-[1px] ring-[var(--database-list-icon-muted)]" />;
+  return (
+    <span className="size-2 shrink-0 rounded-full ring-[1px] ring-[var(--database-list-icon-muted)]" />
+  );
 };
 
 const initialSelection = (
@@ -384,9 +379,9 @@ const initialSelection = (
       activeOccurrenceKey: firstVisibleOccurrenceKey,
     };
   }
-  const selectedOccurrenceKeys = new Set(rows.flatMap((row) =>
-    row.kind === "page" && pageIds.has(row.pageId) ? [row.key] : []
-  ));
+  const selectedOccurrenceKeys = new Set(
+    rows.flatMap((row) => (row.kind === "page" && pageIds.has(row.pageId) ? [row.key] : [])),
+  );
   const first = selectedOccurrenceKeys.values().next().value ?? null;
   return {
     selectedOccurrenceKeys,
@@ -407,10 +402,8 @@ const idleCallback = (callback: () => void): (() => void) => {
   return () => globalThis.clearTimeout(id);
 };
 
-const samePageIds = (
-  left: ReadonlySet<string>,
-  right: ReadonlySet<string>,
-): boolean => left.size === right.size && [...left].every((pageId) => right.has(pageId));
+const samePageIds = (left: ReadonlySet<string>, right: ReadonlySet<string>): boolean =>
+  left.size === right.size && [...left].every((pageId) => right.has(pageId));
 
 export function DatabaseList({
   model,
@@ -453,8 +446,7 @@ export function DatabaseList({
     readonly pageIds: ReadonlySet<string>;
   } | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const presentation = effectivePresentation?.presentation
-    ?? model.query.view.config.presentation;
+  const presentation = effectivePresentation?.presentation ?? model.query.view.config.presentation;
   const effective = effectivePresentation ?? {
     layout: "list" as const,
     presentation,
@@ -468,14 +460,16 @@ export function DatabaseList({
     return withForcedDatabaseListField(listConfig.fields, forcedDisplayField);
   }, [forcedDisplayField, listConfig.fields]);
   const requiredOptionIds = useMemo(() => {
-    const displayedPropertyIds = new Set(sessionListFields.flatMap((field) =>
-      field.kind === "property" ? [String(field.propertyId)] : []
-    ));
+    const displayedPropertyIds = new Set(
+      sessionListFields.flatMap((field) =>
+        field.kind === "property" ? [String(field.propertyId)] : [],
+      ),
+    );
     return collectRequiredPropertyOptionIds({
       properties: model.query.properties,
       rows: [
         ...model.query.rows,
-        ...coreWindow.rows.flatMap((item) => item.kind === "page" ? [item.row] : []),
+        ...coreWindow.rows.flatMap((item) => (item.kind === "page" ? [item.row] : [])),
       ],
       propertyIds: displayedPropertyIds,
     });
@@ -485,15 +479,15 @@ export function DatabaseList({
     properties: model.query.properties,
     requiredOptionIds,
   });
-  const nested = presentation.hierarchy.showSubPages
-    && presentation.hierarchy.nestedSubPages;
-  const [localCollapsedOccurrenceKeys, setLocalCollapsedOccurrenceKeys] = useState<ReadonlySet<string>>(
-    () => new Set(controlledCollapsedOccurrenceKeys ?? []),
-  );
+  const nested = presentation.hierarchy.showSubPages && presentation.hierarchy.nestedSubPages;
+  const [localCollapsedOccurrenceKeys, setLocalCollapsedOccurrenceKeys] = useState<
+    ReadonlySet<string>
+  >(() => new Set(controlledCollapsedOccurrenceKeys ?? []));
   const collapsedOccurrenceKeys = useMemo(
-    () => controlledCollapsedOccurrenceKeys === undefined
-      ? localCollapsedOccurrenceKeys
-      : new Set(controlledCollapsedOccurrenceKeys),
+    () =>
+      controlledCollapsedOccurrenceKeys === undefined
+        ? localCollapsedOccurrenceKeys
+        : new Set(controlledCollapsedOccurrenceKeys),
     [controlledCollapsedOccurrenceKeys, localCollapsedOccurrenceKeys],
   );
   const [scrollTop, setScrollTop] = useState(0);
@@ -501,7 +495,9 @@ export function DatabaseList({
   const [overscan, setOverscan] = useState(INITIAL_OVERSCAN);
   const [pointerSuppressed, setPointerSuppressed] = useState(false);
   const [dndActive, setDndActive] = useState(false);
-  const [blockDropPreview, setBlockDropPreview] = useState<DatabaseListBlockDropPreview | null>(null);
+  const [blockDropPreview, setBlockDropPreview] = useState<DatabaseListBlockDropPreview | null>(
+    null,
+  );
   const [blockDropMessage, setBlockDropMessage] = useState<string | null>(null);
   const [optimisticMove, setOptimisticMove] = useState<DatabaseListOptimisticMove | null>(null);
   const [pendingMutationCount, setPendingMutationCount] = useState(0);
@@ -527,19 +523,20 @@ export function DatabaseList({
     ).map((column): DatabaseViewRenderColumn => ({
       ...column,
       name: groupLabel(model, presentation.group?.propertyId, column.groupKey),
-      rows: compiledSearchQuery.normalizedQuery.length === 0
-        ? column.rows
-        : column.rows.filter((row) => matchesPageCollectionSearchQuery(
-            row.pageKey,
-            normalizeSearchText(
-              `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, propertyOptionRegistries.options)}`,
+      rows:
+        compiledSearchQuery.normalizedQuery.length === 0
+          ? column.rows
+          : column.rows.filter((row) =>
+              matchesPageCollectionSearchQuery(
+                row.pageKey,
+                normalizeSearchText(
+                  `${row.title} ${row.preview} ${row.plainText} ${searchablePropertyValues(model, row.pageId, propertyOptionRegistries.options)}`,
+                ),
+                compiledSearchQuery,
+              ),
             ),
-            compiledSearchQuery,
-          )),
-        }));
-    return presentation.groupDirection === "desc"
-      ? [...projected].reverse()
-      : projected;
+    }));
+    return presentation.groupDirection === "desc" ? [...projected].reverse() : projected;
   }, [
     listConfig.showEmptyGroups,
     model,
@@ -548,70 +545,74 @@ export function DatabaseList({
     propertyOptionRegistries.options,
     compiledSearchQuery,
   ]);
-  const totalRowsByScope = useMemo(() => new Map(columns.map((column) => [
-    column.scopeKey,
-    groupPagination?.get(column.scopeKey)?.totalRows ?? column.rows.length,
-  ])), [columns, groupPagination]);
+  const totalRowsByScope = useMemo(
+    () =>
+      new Map(
+        columns.map((column) => [
+          column.scopeKey,
+          groupPagination?.get(column.scopeKey)?.totalRows ?? column.rows.length,
+        ]),
+      ),
+    [columns, groupPagination],
+  );
   const taskFilterCapabilities = useMemo(
     () => resolveDatabaseTaskFilterCapabilities(model.query.properties),
     [model.query.properties],
   );
   const statusOptions = taskFilterCapabilities.status?.options ?? [];
   const priorityOptions = taskFilterCapabilities.priority?.options ?? [];
-  const clientProjection = useMemo(() => buildDatabaseListProjection({
-    columns,
-    grouped,
-    subgrouped,
-    showSubPages: presentation.hierarchy.showSubPages,
-    nested,
-    collapsedOccurrenceKeys,
-    totalRowsByScope,
-  }), [
-    collapsedOccurrenceKeys,
-    columns,
-    grouped,
-    nested,
-    presentation.hierarchy.showSubPages,
-    subgrouped,
-    totalRowsByScope,
-  ]);
-  const coreProjection = useMemo(() => projectCoreDatabaseListRows({
-    rows: coreWindow.rows,
-    properties: model.query.properties,
-    collapsedOccurrenceKeys,
-    groupLabel: (key) => groupLabel(
+  const clientProjection = useMemo(
+    () =>
+      buildDatabaseListProjection({
+        columns,
+        grouped,
+        subgrouped,
+        showSubPages: presentation.hierarchy.showSubPages,
+        nested,
+        collapsedOccurrenceKeys,
+        totalRowsByScope,
+      }),
+    [
+      collapsedOccurrenceKeys,
+      columns,
+      grouped,
+      nested,
+      presentation.hierarchy.showSubPages,
+      subgrouped,
+      totalRowsByScope,
+    ],
+  );
+  const coreProjection = useMemo(
+    () =>
+      projectCoreDatabaseListRows({
+        rows: coreWindow.rows,
+        properties: model.query.properties,
+        collapsedOccurrenceKeys,
+        groupLabel: (key) => groupLabel(model, presentation.group?.propertyId, key),
+        subgroupLabel: (key) => groupLabel(model, presentation.subgroup?.propertyId, key),
+        ...(compiledSearchQuery.normalizedQuery.length === 0
+          ? {}
+          : {
+              matchesPage: (row: DatabaseViewRenderRow, authority: DataSourcePageRowV2) =>
+                matchesPageCollectionSearchQuery(
+                  row.pageKey,
+                  normalizeSearchText(
+                    `${row.title} ${row.preview} ${row.plainText} ${searchableAuthorityValues(authority, model.query.properties, propertyOptionRegistries.options)}`,
+                  ),
+                  compiledSearchQuery,
+                ),
+            }),
+      }),
+    [
+      collapsedOccurrenceKeys,
+      coreWindow.rows,
       model,
       presentation.group?.propertyId,
-      key,
-    ),
-    subgroupLabel: (key) => groupLabel(
-      model,
       presentation.subgroup?.propertyId,
-      key,
-    ),
-    ...(compiledSearchQuery.normalizedQuery.length === 0
-      ? {}
-      : {
-          matchesPage: (
-            row: DatabaseViewRenderRow,
-            authority: DataSourcePageRowV2,
-          ) => matchesPageCollectionSearchQuery(
-            row.pageKey,
-            normalizeSearchText(
-              `${row.title} ${row.preview} ${row.plainText} ${searchableAuthorityValues(authority, model.query.properties, propertyOptionRegistries.options)}`,
-            ),
-            compiledSearchQuery,
-          ),
-        }),
-  }), [
-    collapsedOccurrenceKeys,
-    coreWindow.rows,
-    model,
-    presentation.group?.propertyId,
-    presentation.subgroup?.propertyId,
-    propertyOptionRegistries.options,
-    compiledSearchQuery,
-  ]);
+      propertyOptionRegistries.options,
+      compiledSearchQuery,
+    ],
+  );
   // Authorized runtime Views have exactly one ordering authority: Core's List
   // occurrence projection. Falling back to the Board query while that window
   // loads makes rows visibly reorder once or several times during handoff.
@@ -622,21 +623,22 @@ export function DatabaseList({
   });
   // Recompute the optimistic hierarchy over each fresh authoritative row set,
   // so concurrent title/Property updates keep flowing during a pending move.
-  const projection = useMemo(() => optimisticMove
-    ? applyOptimisticDatabaseListDrop({
-        rows: authoritativeProjection,
-        occurrenceKeys: optimisticMove.rootOccurrenceKeys,
-        targetOccurrenceKey: optimisticMove.targetOccurrenceKey,
-        position: optimisticMove.position,
-        groupKey: optimisticMove.groupKey,
-        subgroupKey: optimisticMove.subgroupKey,
-      })
-    : authoritativeProjection, [authoritativeProjection, optimisticMove]);
+  const projection = useMemo(
+    () =>
+      optimisticMove
+        ? applyOptimisticDatabaseListDrop({
+            rows: authoritativeProjection,
+            occurrenceKeys: optimisticMove.rootOccurrenceKeys,
+            targetOccurrenceKey: optimisticMove.targetOccurrenceKey,
+            position: optimisticMove.position,
+            groupKey: optimisticMove.groupKey,
+            subgroupKey: optimisticMove.subgroupKey,
+          })
+        : authoritativeProjection,
+    [authoritativeProjection, optimisticMove],
+  );
   const authorityByPageId = useMemo(() => {
-    const authority = new Map(model.query.rows.map((row) => [
-      row.page.pageId,
-      row,
-    ] as const));
+    const authority = new Map(model.query.rows.map((row) => [row.page.pageId, row] as const));
     for (const [pageId, row] of coreProjection.authorityByPageId) {
       authority.set(pageId, row);
     }
@@ -679,22 +681,14 @@ export function DatabaseList({
   effectiveRef.current = effective;
   const coreWindowRef = useRef(coreWindow);
   coreWindowRef.current = coreWindow;
-  const [interaction, dispatchInteraction] = useReducer(
-    reduceDatabaseListInteraction,
-    {
-      selection: initialSelection(projection, initialSelectedPageIds),
-      focusRequest: null,
-    },
-  );
+  const [interaction, dispatchInteraction] = useReducer(reduceDatabaseListInteraction, {
+    selection: initialSelection(projection, initialSelectedPageIds),
+    focusRequest: null,
+  });
   const { focusRequest, selection } = interaction;
   const focusRequestIdRef = useRef(0);
-  const updateSelection = (
-    update: DatabaseListSelectionUpdate,
-    requestFocus = false,
-  ): void => {
-    const focusRequestId = requestFocus
-      ? ++focusRequestIdRef.current
-      : undefined;
+  const updateSelection = (update: DatabaseListSelectionUpdate, requestFocus = false): void => {
+    const focusRequestId = requestFocus ? ++focusRequestIdRef.current : undefined;
     dispatchInteraction({
       kind: "update-selection",
       update,
@@ -706,31 +700,38 @@ export function DatabaseList({
     [model, sessionListFields],
   );
   const selectedPropertyIds = useMemo(
-    () => new Set(sessionListFields.flatMap((field) =>
-      field.kind === "property" ? [String(field.propertyId)] : []
-    )),
+    () =>
+      new Set(
+        sessionListFields.flatMap((field) =>
+          field.kind === "property" ? [String(field.propertyId)] : [],
+        ),
+      ),
     [sessionListFields],
   );
   const activePropertyIds = useMemo(
-    () => new Set(model.query.properties.flatMap((property) =>
-      property.lifecycle === "active" ? [String(property.propertyId)] : []
-    )),
+    () =>
+      new Set(
+        model.query.properties.flatMap((property) =>
+          property.lifecycle === "active" ? [String(property.propertyId)] : [],
+        ),
+      ),
     [model.query.properties],
   );
-  const coreColumnVisibility = useMemo(() => ({
-    priority: selectedPropertyIds.has("priority") && activePropertyIds.has("priority"),
-    status: selectedPropertyIds.has("status") && activePropertyIds.has("status"),
-  }), [activePropertyIds, selectedPropertyIds]);
-  const identifierSamples = useMemo(() => databaseListIdentifierSamples(
-    projection,
-    (row) => row.kind === "page" ? row.row.pageKey : null,
-  ), [projection]);
-  const {
-    identityFields,
-    inlineFields,
-    trailingFields,
-    gridTemplateColumns,
-  } = useDatabaseListGrid(
+  const coreColumnVisibility = useMemo(
+    () => ({
+      priority: selectedPropertyIds.has("priority") && activePropertyIds.has("priority"),
+      status: selectedPropertyIds.has("status") && activePropertyIds.has("status"),
+    }),
+    [activePropertyIds, selectedPropertyIds],
+  );
+  const identifierSamples = useMemo(
+    () =>
+      databaseListIdentifierSamples(projection, (row) =>
+        row.kind === "page" ? row.row.pageKey : null,
+      ),
+    [projection],
+  );
+  const { identityFields, inlineFields, trailingFields, gridTemplateColumns } = useDatabaseListGrid(
     allFields,
     coreColumnVisibility,
     identifierSamples,
@@ -739,44 +740,40 @@ export function DatabaseList({
     const identities = new Map<string, DatabaseListPageIdentity>();
     for (const row of projection) {
       if (row.kind !== "page") continue;
-      identities.set(
-        row.key,
-        projectDatabaseListPageIdentity(
-          row.row.pageKey,
-          identityFields,
-        ),
-      );
+      identities.set(row.key, projectDatabaseListPageIdentity(row.row.pageKey, identityFields));
     }
     return identities;
   }, [identityFields, projection]);
-  const virtualWindow = useMemo(() => computeDatabaseListVirtualWindow(
-    projection,
-    scrollTop,
-    viewportHeight,
-    dndActive ? Math.max(overscan, 1_200) : overscan,
-  ), [dndActive, overscan, projection, scrollTop, viewportHeight]);
-  const renderedRows = projection.slice(
-    virtualWindow.startIndex,
-    virtualWindow.endIndex,
+  const virtualWindow = useMemo(
+    () =>
+      computeDatabaseListVirtualWindow(
+        projection,
+        scrollTop,
+        viewportHeight,
+        dndActive ? Math.max(overscan, 1_200) : overscan,
+      ),
+    [dndActive, overscan, projection, scrollTop, viewportHeight],
   );
+  const renderedRows = projection.slice(virtualWindow.startIndex, virtualWindow.endIndex);
   const mountedActiveOccurrenceKey = databaseListMountedActiveOccurrenceKey({
     rows: projection,
     startIndex: virtualWindow.startIndex,
     endIndex: virtualWindow.endIndex,
     activeOccurrenceKey: selection.activeOccurrenceKey,
   });
-  const selectedPageIds = useMemo(() => selectedDatabaseListPageIds(
-    projection,
-    selection,
-  ), [projection, selection]);
+  const selectedPageIds = useMemo(
+    () => selectedDatabaseListPageIds(projection, selection),
+    [projection, selection],
+  );
   const pageDragRows = useMemo(
-    () => projection.flatMap((entry) => entry.kind === "page" ? [entry.row] : []),
+    () => projection.flatMap((entry) => (entry.kind === "page" ? [entry.row] : [])),
     [projection],
   );
-  const pageDragDisabled = model.readOnlyReason !== null
-    || !coreWindow.active
-    || optimisticMove !== null
-    || blockDropPreview !== null;
+  const pageDragDisabled =
+    model.readOnlyReason !== null ||
+    !coreWindow.active ||
+    optimisticMove !== null ||
+    blockDropPreview !== null;
   const projectionIndexByKey = useMemo(
     () => new Map(projection.map((row, index) => [row.key, index] as const)),
     [projection],
@@ -790,35 +787,31 @@ export function DatabaseList({
       ? Math.max(0, coreWindow.totalProjectionRowCount - coreWindow.rows.length)
       : 0
     : [...(groupPagination?.values() ?? [])].reduce(
-        (total, state) => total
-          + Math.max(0, (state.totalRows ?? state.loadedRows) - state.loadedRows),
+        (total, state) =>
+          total + Math.max(0, (state.totalRows ?? state.loadedRows) - state.loadedRows),
         0,
       );
   const paginationError = usesCoreAuthority
     ? null
-    : [...(groupPagination?.values() ?? [])]
-        .find((state) => state.error !== null)?.error ?? null;
-  const visibleError = mutationError
-    ?? coreWindow.error
-    ?? continuationError
-    ?? paginationError;
-  const activePage = projection.find((row): row is DatabaseListPageRow =>
-    row.kind === "page" && row.key === selection.activeOccurrenceKey
-  ) ?? null;
-  const selectionCount = selection.allMatching && coreWindow.active
-    ? coreWindow.isComplete
-      ? selectedPageIds.size
-      : coreWindow.totalModelCount
-    : selectedPageIds.size;
+    : ([...(groupPagination?.values() ?? [])].find((state) => state.error !== null)?.error ?? null);
+  const visibleError = mutationError ?? coreWindow.error ?? continuationError ?? paginationError;
+  const activePage =
+    projection.find(
+      (row): row is DatabaseListPageRow =>
+        row.kind === "page" && row.key === selection.activeOccurrenceKey,
+    ) ?? null;
+  const selectionCount =
+    selection.allMatching && coreWindow.active
+      ? coreWindow.isComplete
+        ? selectedPageIds.size
+        : coreWindow.totalModelCount
+      : selectedPageIds.size;
 
   useEffect(() => {
     dispatchInteraction({
       kind: "update-selection",
-      update: (current) => syncDatabaseListSelection(
-        current,
-        projection,
-        previousProjectionRef.current,
-      ),
+      update: (current) =>
+        syncDatabaseListSelection(current, projection, previousProjectionRef.current),
       preserveFocusRequest: true,
     });
     previousProjectionRef.current = projection;
@@ -828,18 +821,19 @@ export function DatabaseList({
     if (!optimisticMove) return;
     const receiptCommitSeq = optimisticMove.receiptCommitSeq;
     if (
-      receiptCommitSeq === null
-      || receiptCommitSeq === undefined
-      || !coreWindow.active
-      || coreWindow.storeEpoch !== model.storeEpoch
-      || coreWindow.commitSeq < receiptCommitSeq
-      || !optimisticMove.normalizedTarget
-      || !databaseListProjectionReflectsMove({
+      receiptCommitSeq === null ||
+      receiptCommitSeq === undefined ||
+      !coreWindow.active ||
+      coreWindow.storeEpoch !== model.storeEpoch ||
+      coreWindow.commitSeq < receiptCommitSeq ||
+      !optimisticMove.normalizedTarget ||
+      !databaseListProjectionReflectsMove({
         rows: authoritativeProjection,
         moveRootPageIds: [...optimisticMove.rootPageIds],
         normalizedTarget: optimisticMove.normalizedTarget,
       })
-    ) return;
+    )
+      return;
     setOptimisticMove(null);
   }, [
     authoritativeProjection,
@@ -857,8 +851,8 @@ export function DatabaseList({
     }
     const previous = lastReportedSelectionRef.current;
     if (
-      previous?.handler === onSelectedPageIdsChange
-      && samePageIds(previous.pageIds, selectedPageIds)
+      previous?.handler === onSelectedPageIdsChange &&
+      samePageIds(previous.pageIds, selectedPageIds)
     ) {
       return;
     }
@@ -874,9 +868,7 @@ export function DatabaseList({
     if (!scroller) return;
     const measure = (): void => setViewportHeight(scroller.clientHeight);
     measure();
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(scroller);
     return () => observer?.disconnect();
   }, [scrollStateKey]);
@@ -934,11 +926,9 @@ export function DatabaseList({
     if (!focusRequest) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    const target = [...(hostRef.current?.querySelectorAll<HTMLElement>(
-      "[data-list-key]",
-    ) ?? [])].find(
-      (candidate) => candidate.dataset.listKey === focusRequest.occurrenceKey,
-    );
+    const target = [
+      ...(hostRef.current?.querySelectorAll<HTMLElement>("[data-list-key]") ?? []),
+    ].find((candidate) => candidate.dataset.listKey === focusRequest.occurrenceKey);
     if (target) {
       target.focus({ preventScroll: true });
       target.scrollIntoView({ block: "nearest" });
@@ -963,18 +953,16 @@ export function DatabaseList({
     }
     scroller.scrollTop = nextTop;
     setScrollTop(nextTop);
-  }, [
-    focusRequest,
-    projection,
-    virtualWindow.endIndex,
-    virtualWindow.startIndex,
-  ]);
+  }, [focusRequest, projection, virtualWindow.endIndex, virtualWindow.startIndex]);
 
-  useEffect(() => () => {
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    if (scrollDelayRef.current !== null) window.clearTimeout(scrollDelayRef.current);
-    if (pointerTimerRef.current !== null) window.clearTimeout(pointerTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+      if (scrollDelayRef.current !== null) window.clearTimeout(scrollDelayRef.current);
+      if (pointerTimerRef.current !== null) window.clearTimeout(pointerTimerRef.current);
+    },
+    [],
+  );
 
   const loadMoreGroup = async (scopeKey: string): Promise<void> => {
     if (!onLoadMoreGroup || inFlightScopesRef.current.has(scopeKey)) return;
@@ -1002,8 +990,8 @@ export function DatabaseList({
       if (!pagination.hasMore || pagination.loadingMore) continue;
       void loadMoreGroup(pagination.scopeKey);
     }
-  // Pagination functions intentionally read their latest in-flight refs.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Pagination functions intentionally read their latest in-flight refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     coreWindow.active,
     coreWindow.isComplete,
@@ -1041,8 +1029,7 @@ export function DatabaseList({
       await onCommitted?.();
       return receipt;
     } catch (cause) {
-      const message = options.errorMessage
-        ?? "Couldn’t update these pages. Refresh and try again.";
+      const message = options.errorMessage ?? "Couldn’t update these pages. Refresh and try again.";
       if (options.deferError) {
         // A semantic caller may rebase once before surfacing the conflict.
       } else if (options.inlineError && mutationKeys.length > 0) {
@@ -1067,9 +1054,9 @@ export function DatabaseList({
     if (usesCoreAuthority) {
       return coreWindow.active && !coreWindow.loading && coreWindow.isComplete;
     }
-    const column = columns.find((candidate) => pageIds.every((pageId) =>
-      candidate.rows.some((row) => row.pageId === pageId)
-    ));
+    const column = columns.find((candidate) =>
+      pageIds.every((pageId) => candidate.rows.some((row) => row.pageId === pageId)),
+    );
     return column ? groupPagination?.get(column.scopeKey)?.hasMore !== true : false;
   };
 
@@ -1103,37 +1090,39 @@ export function DatabaseList({
     value: string | null,
   ): void => {
     try {
-      void commit(buildDatabaseViewPropertyValueOperations({
-        model: mutationModel,
-        pageId,
-        propertyId,
-        value,
-      }), {
-        mutationKeys: [propertyValueMutationKey(pageId, propertyId)],
-        errorMessage: "Couldn’t save this property. Try again.",
-        inlineError: true,
-      });
+      void commit(
+        buildDatabaseViewPropertyValueOperations({
+          model: mutationModel,
+          pageId,
+          propertyId,
+          value,
+        }),
+        {
+          mutationKeys: [propertyValueMutationKey(pageId, propertyId)],
+          errorMessage: "Couldn’t save this property. Try again.",
+          inlineError: true,
+        },
+      );
     } catch {
       setMutationError(`Couldn’t update this Page’s ${propertyId}.`);
     }
   };
 
-  const setPropertyValue = (
-    pageId: string,
-    propertyId: string,
-    value: DatabaseJsonValue,
-  ): void => {
+  const setPropertyValue = (pageId: string, propertyId: string, value: DatabaseJsonValue): void => {
     try {
-      void commit(buildDatabaseViewPropertyValueOperations({
-        model: mutationModel,
-        pageId,
-        propertyId,
-        value,
-      }), {
-        mutationKeys: [propertyValueMutationKey(pageId, propertyId)],
-        errorMessage: "Couldn’t save this property. Try again.",
-        inlineError: true,
-      });
+      void commit(
+        buildDatabaseViewPropertyValueOperations({
+          model: mutationModel,
+          pageId,
+          propertyId,
+          value,
+        }),
+        {
+          mutationKeys: [propertyValueMutationKey(pageId, propertyId)],
+          errorMessage: "Couldn’t save this property. Try again.",
+          inlineError: true,
+        },
+      );
     } catch {
       setMutationError("Couldn’t update this property.");
     }
@@ -1148,16 +1137,19 @@ export function DatabaseList({
     },
   ): void => {
     try {
-      void commit(buildDataSourceMultiSelectPatchOperations({
-        pageId,
-        dataSourceId: model.dataSourceId,
-        property,
-        ...delta,
-      }), {
-        mutationKeys: [propertyValueMutationKey(pageId, property.propertyId)],
-        errorMessage: "Couldn’t save this property. Try again.",
-        inlineError: true,
-      });
+      void commit(
+        buildDataSourceMultiSelectPatchOperations({
+          pageId,
+          dataSourceId: model.dataSourceId,
+          property,
+          ...delta,
+        }),
+        {
+          mutationKeys: [propertyValueMutationKey(pageId, property.propertyId)],
+          errorMessage: "Couldn’t save this property. Try again.",
+          inlineError: true,
+        },
+      );
     } catch {
       setMutationError("Couldn’t update this property.");
     }
@@ -1171,19 +1163,26 @@ export function DatabaseList({
       readonly removeEdgeIds: readonly string[];
     },
   ): void => {
-    void commit([{
-      kind: "edit_property_values",
-      edits: [{
-        pageId,
-        dataSourceId: model.dataSourceId,
-        propertyId: parseDataSourcePropertyId(propertyId),
-        edit: { kind: "patch_set", delta: { kind: "relation", ...delta } },
-      }],
-    }], {
-      mutationKeys: [propertyValueMutationKey(pageId, propertyId)],
-      errorMessage: "Couldn’t save this property. Try again.",
-      inlineError: true,
-    });
+    void commit(
+      [
+        {
+          kind: "edit_property_values",
+          edits: [
+            {
+              pageId,
+              dataSourceId: model.dataSourceId,
+              propertyId: parseDataSourcePropertyId(propertyId),
+              edit: { kind: "patch_set", delta: { kind: "relation", ...delta } },
+            },
+          ],
+        },
+      ],
+      {
+        mutationKeys: [propertyValueMutationKey(pageId, propertyId)],
+        errorMessage: "Couldn’t save this property. Try again.",
+        inlineError: true,
+      },
+    );
   };
 
   const replaceRelation = (
@@ -1192,17 +1191,20 @@ export function DatabaseList({
     targetPageId: string | null,
   ): void => {
     const current = authorityByPageId.get(pageId)?.values[property.propertyId];
-    void commit(buildDataSourceRelationReplacementOperations({
-      pageId,
-      dataSourceId: model.dataSourceId,
-      property,
-      expectedValueRevision: current?.revision ?? 0,
-      targetPageId,
-    }), {
-      mutationKeys: [propertyValueMutationKey(pageId, property.propertyId)],
-      errorMessage: "Couldn’t save this property. Try again.",
-      inlineError: true,
-    });
+    void commit(
+      buildDataSourceRelationReplacementOperations({
+        pageId,
+        dataSourceId: model.dataSourceId,
+        property,
+        expectedValueRevision: current?.revision ?? 0,
+        targetPageId,
+      }),
+      {
+        mutationKeys: [propertyValueMutationKey(pageId, property.propertyId)],
+        errorMessage: "Couldn’t save this property. Try again.",
+        inlineError: true,
+      },
+    );
   };
 
   const createOption = async (
@@ -1211,44 +1213,48 @@ export function DatabaseList({
     option: { readonly optionId: string; readonly name: string; readonly color?: string },
   ): Promise<void> => {
     const current = authorityByPageId.get(pageId)?.values[property.propertyId];
-    await commit(buildDataSourceCreateOptionAndSelectOperations({
-      pageId,
-      dataSourceId: model.dataSourceId,
-      property,
-      current,
-      option: {
-        id: option.optionId,
-        name: option.name,
-        ...(option.color === undefined ? {} : { color: option.color }),
+    await commit(
+      buildDataSourceCreateOptionAndSelectOperations({
+        pageId,
+        dataSourceId: model.dataSourceId,
+        property,
+        current,
+        option: {
+          id: option.optionId,
+          name: option.name,
+          ...(option.color === undefined ? {} : { color: option.color }),
+        },
+      }),
+      {
+        mutationKeys: [
+          propertyDefinitionMutationKey(property.propertyId),
+          propertyValueMutationKey(pageId, property.propertyId),
+        ],
+        errorMessage: "Couldn’t save this property. Try again.",
+        inlineError: true,
+        propagateError: true,
       },
-    }), {
-      mutationKeys: [
-        propertyDefinitionMutationKey(property.propertyId),
-        propertyValueMutationKey(pageId, property.propertyId),
-      ],
-      errorMessage: "Couldn’t save this property. Try again.",
-      inlineError: true,
-      propagateError: true,
-    });
+    );
   };
 
   const propertyRuntime: DatabaseListPropertyRuntime = {
     disabled: model.readOnlyReason !== null,
     isPending: (pageId, propertyId) =>
-      pendingMutationKeys.has(propertyValueMutationKey(pageId, propertyId))
-      || pendingMutationKeys.has(propertyDefinitionMutationKey(propertyId)),
+      pendingMutationKeys.has(propertyValueMutationKey(pageId, propertyId)) ||
+      pendingMutationKeys.has(propertyDefinitionMutationKey(propertyId)),
     errorFor: (pageId, propertyId) =>
-      inlineMutationErrors.get(propertyValueMutationKey(pageId, propertyId))
-      ?? inlineMutationErrors.get(propertyDefinitionMutationKey(propertyId))
-      ?? null,
+      inlineMutationErrors.get(propertyValueMutationKey(pageId, propertyId)) ??
+      inlineMutationErrors.get(propertyDefinitionMutationKey(propertyId)) ??
+      null,
     options: propertyOptionRegistries.options,
     optionStates: propertyOptionRegistries.states,
     optionHasMore: propertyOptionRegistries.hasMore,
     optionLoadingMore: propertyOptionRegistries.loadingMore,
-    relationCandidates: () => [...authorityByPageId.values()].map((row) => ({
-      pageId: row.page.pageId,
-      title: row.page.title,
-    })),
+    relationCandidates: () =>
+      [...authorityByPageId.values()].map((row) => ({
+        pageId: row.page.pageId,
+        title: row.page.title,
+      })),
     onSetValue: setPropertyValue,
     onPatchOptions: patchOptions,
     onPatchRelation: patchRelation,
@@ -1283,19 +1289,22 @@ export function DatabaseList({
 
   const undoListMove = async (recipe: DatabaseListMoveUndoRecipeV2): Promise<boolean> => {
     try {
-      const receipt = await commit([{
-        kind: "undo_list_occurrence_move",
-        recipe,
-      }], {
-        mutationKeys: recipe.postParentGuards.map((guard) => pageMutationKey(guard.pageId)),
-        errorMessage: "Couldn’t safely undo this List move.",
-        propagateError: true,
-      });
+      const receipt = await commit(
+        [
+          {
+            kind: "undo_list_occurrence_move",
+            recipe,
+          },
+        ],
+        {
+          mutationKeys: recipe.postParentGuards.map((guard) => pageMutationKey(guard.pageId)),
+          errorMessage: "Couldn’t safely undo this List move.",
+          propagateError: true,
+        },
+      );
       return receipt !== null;
     } catch {
-      setMutationError(
-        "This move can’t be undone because one of its Pages changed afterward.",
-      );
+      setMutationError("This move can’t be undone because one of its Pages changed afterward.");
       return false;
     }
   };
@@ -1314,11 +1323,13 @@ export function DatabaseList({
       setMutationError("This drop target is no longer available.");
       return;
     }
-    if (!databaseListDragTargetChangesPlacement({
-      rows: authoritativeProjection,
-      sources: drop.sources,
-      target: drop.previewTarget,
-    })) {
+    if (
+      !databaseListDragTargetChangesPlacement({
+        rows: authoritativeProjection,
+        sources: drop.sources,
+        target: drop.previewTarget,
+      })
+    ) {
       setMutationError(null);
       return;
     }
@@ -1364,36 +1375,36 @@ export function DatabaseList({
             modelOverride: mutationModelRef.current,
           });
           const outcome = receipt?.operationOutcomes.find(
-            (candidate) => candidate.kind === "list_occurrence_move"
-              && candidate.operationIndex === 0,
+            (candidate) =>
+              candidate.kind === "list_occurrence_move" && candidate.operationIndex === 0,
           );
           if (!receipt || !outcome || outcome.kind !== "list_occurrence_move") {
             throw new Error("The List move receipt omitted its semantic outcome");
           }
           mutationHistory.registerListMove(outcome.undoRecipe);
-          setOptimisticMove((current) => current
-            && current.sessionId === optimistic.sessionId
-            ? {
-                ...current,
-                receiptCommitSeq: receipt.commitSeq,
-                normalizedTarget: outcome.normalizedTarget,
-              }
-            : current);
+          setOptimisticMove((current) =>
+            current && current.sessionId === optimistic.sessionId
+              ? {
+                  ...current,
+                  receiptCommitSeq: receipt.commitSeq,
+                  normalizedTarget: outcome.normalizedTarget,
+                }
+              : current,
+          );
           return;
         } catch (cause) {
-          const canRebase = attemptIndex === 0
-            && cause instanceof DatabaseViewMutationError
-            && cause.commandError.code === "revision_conflict";
+          const canRebase =
+            attemptIndex === 0 &&
+            cause instanceof DatabaseViewMutationError &&
+            cause.commandError.code === "revision_conflict";
           if (!canRebase) break;
           attemptWindow = await coreWindowRef.current.refresh();
         }
       }
       setOptimisticMove((current) =>
-        current?.sessionId === optimistic.sessionId ? null : current
+        current?.sessionId === optimistic.sessionId ? null : current,
       );
-      setMutationError(
-        "Couldn’t move these Pages. Review the latest hierarchy and try again.",
-      );
+      setMutationError("Couldn’t move these Pages. Review the latest hierarchy and try again.");
     })();
   };
 
@@ -1414,14 +1425,16 @@ export function DatabaseList({
     }
   };
 
-  const toggleCollapseKey = (key: string): void => updateCollapsedOccurrences([{
-    key,
-    collapsed: !collapsedOccurrenceKeys.has(key),
-  }]);
+  const toggleCollapseKey = (key: string): void =>
+    updateCollapsedOccurrences([
+      {
+        key,
+        collapsed: !collapsedOccurrenceKeys.has(key),
+      },
+    ]);
 
-  const mutationHistoryProjectId = model.accessContext.kind === "project"
-    ? model.accessContext.projectId
-    : null;
+  const mutationHistoryProjectId =
+    model.accessContext.kind === "project" ? model.accessContext.projectId : null;
 
   const blockDropRejection = (): string | null =>
     resolveDatabaseListBlockDropRejection({
@@ -1429,9 +1442,10 @@ export function DatabaseList({
       readOnly: model.readOnlyReason !== null,
       projectScoped: mutationHistoryProjectId !== null,
       searchActive: compiledSearchQuery.normalizedQuery.length > 0,
-      projectionReady: coreWindow.active
-        && coreWindow.storeEpoch === model.storeEpoch
-        && coreWindow.projection !== null,
+      projectionReady:
+        coreWindow.active &&
+        coreWindow.storeEpoch === model.storeEpoch &&
+        coreWindow.projection !== null,
     });
 
   const previewBlockDrop = (
@@ -1539,56 +1553,72 @@ export function DatabaseList({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.defaultPrevented || dndActive) return;
-    if (handleDatabaseViewMutationHistoryKeyDown({
-      event,
-      history: mutationHistory,
-      undoListMove,
-      undoBlockTransfer: mutationHistoryProjectId
-        ? async (token) => await undoDatabaseViewBlockTransfer({
-            projectId: mutationHistoryProjectId,
-            storeEpoch: model.storeEpoch,
-            token,
-            onCommitted,
-          })
-        : undefined,
-    })) return;
+    if (
+      handleDatabaseViewMutationHistoryKeyDown({
+        event,
+        history: mutationHistory,
+        undoListMove,
+        undoBlockTransfer: mutationHistoryProjectId
+          ? async (token) =>
+              await undoDatabaseViewBlockTransfer({
+                projectId: mutationHistoryProjectId,
+                storeEpoch: model.storeEpoch,
+                token,
+                onCommitted,
+              })
+          : undefined,
+      })
+    )
+      return;
     if ((event.target as HTMLElement).closest(DATABASE_LIST_INTERACTIVE_SELECTOR)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      updateSelection((current) => moveDatabaseListActiveOccurrence({
-        state: current,
-        rows: projection,
-        direction: event.key === "ArrowDown" ? 1 : -1,
-        extendSelection: event.shiftKey,
-      }), true);
+      updateSelection(
+        (current) =>
+          moveDatabaseListActiveOccurrence({
+            state: current,
+            rows: projection,
+            direction: event.key === "ArrowDown" ? 1 : -1,
+            extendSelection: event.shiftKey,
+          }),
+        true,
+      );
       return;
     }
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      updateSelection((current) => moveDatabaseListActiveOccurrenceToBoundary({
-        state: current,
-        rows: projection,
-        boundary: event.key === "Home" ? "first" : "last",
-        extendSelection: event.shiftKey,
-      }), true);
+      updateSelection(
+        (current) =>
+          moveDatabaseListActiveOccurrenceToBoundary({
+            state: current,
+            rows: projection,
+            boundary: event.key === "Home" ? "first" : "last",
+            extendSelection: event.shiftKey,
+          }),
+        true,
+      );
       return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
-      updateSelection((current) => selectAllDatabaseListOccurrences({
-        state: current,
-        rows: projection,
-      }));
+      updateSelection((current) =>
+        selectAllDatabaseListOccurrences({
+          state: current,
+          rows: projection,
+        }),
+      );
       return;
     }
     if (event.key === " " && activePage) {
       event.preventDefault();
-      updateSelection((current) => selectDatabaseListOccurrence({
-        state: current,
-        rows: projection,
-        occurrenceKey: activePage.key,
-        mode: "toggle",
-      }));
+      updateSelection((current) =>
+        selectDatabaseListOccurrence({
+          state: current,
+          rows: projection,
+          occurrenceKey: activePage.key,
+          mode: "toggle",
+        }),
+      );
       return;
     }
     if (event.key === "Enter" && activePage) {
@@ -1597,8 +1627,8 @@ export function DatabaseList({
       return;
     }
     if (
-      event.key === "Escape"
-      && (selection.allMatching || selection.selectedOccurrenceKeys.size > 0)
+      event.key === "Escape" &&
+      (selection.allMatching || selection.selectedOccurrenceKeys.size > 0)
     ) {
       event.preventDefault();
       updateSelection((current) => ({
@@ -1613,15 +1643,13 @@ export function DatabaseList({
     if (event.key.toLowerCase() !== "t") return;
     event.preventDefault();
     if (event.altKey) {
-      const collapsibleKeys = projection.flatMap((row) =>
-        row.kind === "group" ? [row.key] : []
+      const collapsibleKeys = projection.flatMap((row) => (row.kind === "group" ? [row.key] : []));
+      const collapse = !collapsibleKeys.some((key) => collapsedOccurrenceKeys.has(key));
+      updateCollapsedOccurrences(
+        collapsibleKeys
+          .filter((key) => collapsedOccurrenceKeys.has(key) !== collapse)
+          .map((key) => ({ key, collapsed: collapse })),
       );
-      const collapse = !collapsibleKeys.some((key) =>
-        collapsedOccurrenceKeys.has(key)
-      );
-      updateCollapsedOccurrences(collapsibleKeys
-        .filter((key) => collapsedOccurrenceKeys.has(key) !== collapse)
-        .map((key) => ({ key, collapsed: collapse })));
       return;
     }
     if (!activePage || !grouped) return;
@@ -1635,10 +1663,10 @@ export function DatabaseList({
     const projectionIndex = projectionIndexByKey.get(item.key) ?? -1;
     const previousRow = projection[projectionIndex - 1];
     const nextRow = projection[projectionIndex + 1];
-    const selectedBefore = previousRow?.kind === "page"
-      && isDatabaseListOccurrenceSelected(selection, previousRow.key);
-    const selectedAfter = nextRow?.kind === "page"
-      && isDatabaseListOccurrenceSelected(selection, nextRow.key);
+    const selectedBefore =
+      previousRow?.kind === "page" && isDatabaseListOccurrenceSelected(selection, previousRow.key);
+    const selectedAfter =
+      nextRow?.kind === "page" && isDatabaseListOccurrenceSelected(selection, nextRow.key);
     const row = (
       <DatabaseListRow
         key={item.key}
@@ -1649,32 +1677,35 @@ export function DatabaseList({
         selectedAfter={selectedAfter}
         active={mountedActiveOccurrenceKey === item.key}
         presented={presentedPageIds?.has(item.pageId) ?? false}
-        inlineProperties={(
+        inlineProperties={
           <DatabaseListInlineProperties
             fields={inlineFields}
             properties={model.query.properties}
             authority={authority}
             runtime={propertyRuntime}
           />
-        )}
-        trailingCells={(
-          <DatabaseListTrailingPropertyCells
-            fields={trailingFields}
-            authority={authority}
-          />
-        )}
+        }
+        trailingCells={
+          <DatabaseListTrailingPropertyCells fields={trailingFields} authority={authority} />
+        }
         ariaRowIndex={logicalIndex + 1}
-        onSelect={(mode) => updateSelection((current) => selectDatabaseListOccurrence({
-          state: current,
-          rows: projection,
-          occurrenceKey: item.key,
-          mode,
-        }))}
-        onActivate={() => updateSelection((current) =>
-          current.activeOccurrenceKey === item.key
-            ? current
-            : { ...current, activeOccurrenceKey: item.key }
-        )}
+        onSelect={(mode) =>
+          updateSelection((current) =>
+            selectDatabaseListOccurrence({
+              state: current,
+              rows: projection,
+              occurrenceKey: item.key,
+              mode,
+            }),
+          )
+        }
+        onActivate={() =>
+          updateSelection((current) =>
+            current.activeOccurrenceKey === item.key
+              ? current
+              : { ...current, activeOccurrenceKey: item.key },
+          )
+        }
         onOpen={(titleSnapshot, openMode) => {
           onOpenPage(item.pageId, titleSnapshot, openMode);
         }}
@@ -1683,41 +1714,40 @@ export function DatabaseList({
         onSetStatus={(optionId) => setProperty(item.pageId, "status", optionId)}
         onSetPriority={(optionId) => setProperty(item.pageId, "priority", optionId)}
         statusMutationDisabled={
-          model.readOnlyReason !== null
-          || pendingMutationKeys.has(propertyValueMutationKey(item.pageId, "status"))
+          model.readOnlyReason !== null ||
+          pendingMutationKeys.has(propertyValueMutationKey(item.pageId, "status"))
         }
         priorityMutationDisabled={
-          model.readOnlyReason !== null
-          || pendingMutationKeys.has(propertyValueMutationKey(item.pageId, "priority"))
+          model.readOnlyReason !== null ||
+          pendingMutationKeys.has(propertyValueMutationKey(item.pageId, "priority"))
         }
         showPriority={coreColumnVisibility.priority}
         showStatus={coreColumnVisibility.status}
-        identity={pageIdentityByOccurrenceKey.get(item.key)
-          ?? EMPTY_DATABASE_LIST_PAGE_IDENTITY}
+        identity={pageIdentityByOccurrenceKey.get(item.key) ?? EMPTY_DATABASE_LIST_PAGE_IDENTITY}
         nestingContinuations={nestingContinuationsByKey.get(item.key) ?? []}
         externalDropEdge={
-          blockDropPreview?.feedback.kind === "line"
-          && blockDropPreview.feedback.occurrenceKey === item.key
+          blockDropPreview?.feedback.kind === "line" &&
+          blockDropPreview.feedback.occurrenceKey === item.key
             ? blockDropPreview.feedback.edge
             : null
         }
-        pragmaticDragData={pageDragDisabled || item.transientKind !== "none"
-          ? null
-          : buildDatabaseViewPageDragData({
-              model: mutationModel,
-              row: item.row,
-              allRows: pageDragRows,
-              selectedPageIds,
-              instanceId: pageDragInstanceId,
-            })}
+        pragmaticDragData={
+          pageDragDisabled || item.transientKind !== "none"
+            ? null
+            : buildDatabaseViewPageDragData({
+                model: mutationModel,
+                row: item.row,
+                allRows: pageDragRows,
+                selectedPageIds,
+                instanceId: pageDragInstanceId,
+              })
+        }
       />
     );
     return row;
   };
 
-  const resolvePageMenuSession = (
-    targetKey: string,
-  ): DatabaseViewPageMenuSession | null => {
+  const resolvePageMenuSession = (targetKey: string): DatabaseViewPageMenuSession | null => {
     const item = projection.find(
       (candidate): candidate is DatabaseListPageRow =>
         candidate.kind === "page" && candidate.key === targetKey,
@@ -1744,9 +1774,7 @@ export function DatabaseList({
       page: {
         libraryId: model.libraryId,
         accessContext: model.accessContext,
-        projectId: model.accessContext.kind === "project"
-          ? model.accessContext.projectId
-          : null,
+        projectId: model.accessContext.kind === "project" ? model.accessContext.projectId : null,
         pageId: item.pageId,
         pageKey: item.row.pageKey,
         titleSnapshot: item.row.title,
@@ -1774,12 +1802,14 @@ export function DatabaseList({
   const canMoveSelection = (direction: "up" | "down"): boolean => {
     if (selection.allMatching && usesCoreAuthority && !coreWindow.isComplete) return false;
     try {
-      return buildDatabaseViewMovePageRunOperations({
-        model: mutationModel,
-        pageIds: selectedIds,
-        direction,
-        groupComplete: isGroupComplete(selectedIds),
-      }).length > 0;
+      return (
+        buildDatabaseViewMovePageRunOperations({
+          model: mutationModel,
+          pageIds: selectedIds,
+          direction,
+          groupComplete: isGroupComplete(selectedIds),
+        }).length > 0
+      );
     } catch {
       return false;
     }
@@ -1802,321 +1832,324 @@ export function DatabaseList({
       onCommit={dropPages}
     >
       <DatabaseViewPageContextMenuHost resolveSession={resolvePageMenuSession}>
-      <div
-        ref={hostRef}
-        data-database-view-id={model.databaseViewId}
-        data-page-create-surface-id={pageCreateSurfaceId}
-        className={cn(
-          "relative h-full min-h-0 min-w-0 bg-[var(--database-list-surface)] text-[var(--database-list-text-primary)]",
-          DATABASE_LIST_THEME_CLASS_NAME,
-        )}
-      >
         <div
-          ref={scrollerRef}
-          role="grid"
-          aria-label="Database List"
-          aria-rowcount={projection.length + logicalExtraRows}
-          aria-busy={mutationPending || coreWindow.loading || undefined}
-          data-list-container="true"
+          ref={hostRef}
+          data-database-view-id={model.databaseViewId}
+          data-page-create-surface-id={pageCreateSurfaceId}
           className={cn(
-            "h-full min-h-0 overflow-auto overscroll-contain [scrollbar-gutter:stable]",
-            selectionCount > 0 ? "pb-16" : "pb-2",
-            pointerSuppressed && !dndActive && "[&_[data-list-row=true]]:pointer-events-none",
+            "relative h-full min-h-0 min-w-0 bg-[var(--database-list-surface)] text-[var(--database-list-text-primary)]",
+            DATABASE_LIST_THEME_CLASS_NAME,
           )}
-          onKeyDown={handleKeyDown}
-          onDragEnter={handleBlockDragOver}
-          onDragOver={handleBlockDragOver}
-          onDragLeave={handleBlockDragLeave}
-          onDrop={(event) => {
-            void handleBlockDrop(event);
-          }}
-          onScroll={(event) => {
-          const nextTop = event.currentTarget.scrollTop;
-          latestScrollTopRef.current = nextTop;
-          const flushScroll = (): void => {
-            scrollDelayRef.current = null;
-            scrollFrameRef.current = requestAnimationFrame(() => {
-              const committedTop = latestScrollTopRef.current;
-              lastScrollCommitAtRef.current = performance.now();
-              setScrollTop(committedTop);
-              try {
-                window.sessionStorage.setItem(`${scrollStateKey}:top`, String(committedTop));
-                const anchor = captureDatabaseListScrollAnchor(projection, committedTop);
-                if (anchor) {
-                  window.sessionStorage.setItem(
-                    `${scrollStateKey}:anchor`,
-                    JSON.stringify(anchor),
-                  );
-                }
-              } catch {
-                // A blocked session store must not affect List scrolling.
-              }
-              scrollFrameRef.current = null;
-            });
-          };
-          if (scrollFrameRef.current === null && scrollDelayRef.current === null) {
-            const elapsed = performance.now() - lastScrollCommitAtRef.current;
-            if (elapsed >= 50) flushScroll();
-            else {
-              scrollDelayRef.current = window.setTimeout(flushScroll, 50 - elapsed);
-            }
-          }
-          setPointerSuppressed(true);
-          if (pointerTimerRef.current !== null) window.clearTimeout(pointerTimerRef.current);
-          pointerTimerRef.current = window.setTimeout(() => {
-            setPointerSuppressed(false);
-            pointerTimerRef.current = null;
-          }, 100);
-          }}
         >
-        {visibleError ? (
           <div
-            role="alert"
-            className="sticky top-0 z-20 mx-2 mb-2 flex min-h-8 items-center justify-between gap-3 rounded-lg border border-token-error-foreground/15 bg-token-error-background/90 px-2.5 text-xs text-token-error-foreground backdrop-blur"
-          >
-            <span>{visibleError}</span>
-            {coreWindow.error || continuationError || paginationError ? (
-              <NodexButton
-                size="xs"
-                variant="ghost"
-                onClick={() => {
-                  if (coreWindow.error) {
-                    coreWindow.retry();
-                    return;
-                  }
-                  setContinuationError(null);
-                  for (const pagination of groupPagination?.values() ?? []) {
-                    if (pagination.hasMore) void loadMoreGroup(pagination.scopeKey);
-                  }
-                }}
-              >
-                Retry
-              </NodexButton>
-            ) : null}
-          </div>
-        ) : null}
-        {projection.length === 0 ? (
-          <div className="flex min-h-40 items-center justify-center text-sm text-token-description-foreground">
-            {usesCoreAuthority && coreWindow.loading
-              ? "Loading Pages…"
-              : compiledSearchQuery.normalizedQuery.length > 0
-                ? "No matching Pages"
-                : "No Pages in this View"}
-          </div>
-        ) : (
-          <div
-            data-list-layout-grid="true"
-            className="grid min-w-[320px] items-stretch gap-x-2"
-            style={{ gridTemplateColumns } as CSSProperties}
-          >
-            {virtualWindow.paddingStart > 0 ? (
-              <div
-                aria-hidden="true"
-                className="col-span-full"
-                style={{ height: virtualWindow.paddingStart }}
-              />
-            ) : null}
-            {renderedRows.map((item, renderedIndex) => {
-              const logicalIndex = virtualWindow.startIndex + renderedIndex;
-              if (item.kind === "page") return renderPage(item, logicalIndex);
-              if (item.kind === "subgroup") {
-                return (
-                  <DatabaseListGroupDropTarget
-                    item={item}
-                    key={item.key}
-                    role="row"
-                    aria-rowindex={logicalIndex + 1}
-                    data-list-row="true"
-                    data-list-key={item.key}
-                    data-database-list-block-drop={
-                      blockDropPreview?.feedback.kind === "surface"
-                      && blockDropPreview.feedback.occurrenceKey === item.key
-                        ? "true"
-                        : undefined
+            ref={scrollerRef}
+            role="grid"
+            aria-label="Database List"
+            aria-rowcount={projection.length + logicalExtraRows}
+            aria-busy={mutationPending || coreWindow.loading || undefined}
+            data-list-container="true"
+            className={cn(
+              "h-full min-h-0 overflow-auto overscroll-contain [scrollbar-gutter:stable]",
+              selectionCount > 0 ? "pb-16" : "pb-2",
+              pointerSuppressed && !dndActive && "[&_[data-list-row=true]]:pointer-events-none",
+            )}
+            onKeyDown={handleKeyDown}
+            onDragEnter={handleBlockDragOver}
+            onDragOver={handleBlockDragOver}
+            onDragLeave={handleBlockDragLeave}
+            onDrop={(event) => {
+              void handleBlockDrop(event);
+            }}
+            onScroll={(event) => {
+              const nextTop = event.currentTarget.scrollTop;
+              latestScrollTopRef.current = nextTop;
+              const flushScroll = (): void => {
+                scrollDelayRef.current = null;
+                scrollFrameRef.current = requestAnimationFrame(() => {
+                  const committedTop = latestScrollTopRef.current;
+                  lastScrollCommitAtRef.current = performance.now();
+                  setScrollTop(committedTop);
+                  try {
+                    window.sessionStorage.setItem(`${scrollStateKey}:top`, String(committedTop));
+                    const anchor = captureDatabaseListScrollAnchor(projection, committedTop);
+                    if (anchor) {
+                      window.sessionStorage.setItem(
+                        `${scrollStateKey}:anchor`,
+                        JSON.stringify(anchor),
+                      );
                     }
-                    className="sticky top-[35.5px] z-[9] grid h-8 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
-                  >
-                    <div
-                      role="gridcell"
-                      className={cn(
-                        "mx-2 grid h-8 items-center gap-x-2 rounded-lg bg-[var(--database-list-subgroup)] [grid-template-columns:subgrid] [grid-column:1/-1]",
-                        blockDropPreview?.feedback.kind === "surface"
-                          && blockDropPreview.feedback.occurrenceKey === item.key
-                          && "ring-1 ring-inset ring-[var(--database-list-drop-indicator)]",
-                      )}
-                    >
-                      <span aria-hidden="true" style={{ gridColumn: "indent" }} />
-                      <span
-                        className="flex items-center justify-center text-[var(--database-list-text-muted)]"
-                        style={{ gridColumn: "checkbox" }}
-                      >
-                        {databaseListGroupMarker(
-                          presentation.subgroup?.propertyId,
-                          item.subgroupKey,
-                        )}
-                      </span>
-                      <span
-                        className="flex min-w-0 items-center gap-2"
-                        style={{ gridColumn: "identifier / list-end" }}
-                      >
-                        <span className="truncate text-xs font-medium text-[var(--database-list-group-text)]">
-                          {groupLabel(
-                            model,
-                            presentation.subgroup?.propertyId,
-                            item.subgroupKey,
-                          )}
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-[var(--database-list-group-count)]">
-                          {item.totalRows}
-                        </span>
-                      </span>
-                    </div>
-                  </DatabaseListGroupDropTarget>
-                );
-              }
-              const resolvedGroupLabel = groupLabel(
-                model,
-                presentation.group?.propertyId,
-                item.groupKey,
-              );
-              const groupCreateAction = model.readOnlyReason === null
-                && presentation.group?.propertyId === "status"
-                && isWorkflowStatus(item.groupKey)
-                && onRequestCreatePage
-                ? { status: item.groupKey, request: onRequestCreatePage }
-                : null;
-              return (
-                <DatabaseListGroupDropTarget
-                  item={item}
-                  key={item.key}
-                  role="row"
-                  aria-rowindex={logicalIndex + 1}
-                  data-list-row="true"
-                  data-list-key={item.key}
-                  data-database-list-block-drop={
-                    blockDropPreview?.feedback.kind === "surface"
-                    && blockDropPreview.feedback.occurrenceKey === item.key
-                      ? "true"
-                      : undefined
+                  } catch {
+                    // A blocked session store must not affect List scrolling.
                   }
-                  className="sticky top-[-0.5px] z-10 mb-0.5 grid h-9 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
-                >
-                  <div
-                    role="gridcell"
-                    data-list-group-divider="true"
-                    className={cn(
-                      "mx-2 grid h-9 items-center gap-x-2 overflow-hidden rounded-lg pr-2 [grid-template-columns:subgrid] [grid-column:1/-1]",
-                      blockDropPreview?.feedback.kind === "surface"
-                        && blockDropPreview.feedback.occurrenceKey === item.key
-                        && "ring-1 ring-inset ring-[var(--database-list-drop-indicator)]",
-                    )}
-                    style={{
-                      background: "linear-gradient(90deg, var(--database-list-group-start) 0%, var(--database-list-group-end) 100%), var(--database-list-group-end)",
+                  scrollFrameRef.current = null;
+                });
+              };
+              if (scrollFrameRef.current === null && scrollDelayRef.current === null) {
+                const elapsed = performance.now() - lastScrollCommitAtRef.current;
+                if (elapsed >= 50) flushScroll();
+                else {
+                  scrollDelayRef.current = window.setTimeout(flushScroll, 50 - elapsed);
+                }
+              }
+              setPointerSuppressed(true);
+              if (pointerTimerRef.current !== null) window.clearTimeout(pointerTimerRef.current);
+              pointerTimerRef.current = window.setTimeout(() => {
+                setPointerSuppressed(false);
+                pointerTimerRef.current = null;
+              }, 100);
+            }}
+          >
+            {visibleError ? (
+              <div
+                role="alert"
+                className="sticky top-0 z-20 mx-2 mb-2 flex min-h-8 items-center justify-between gap-3 rounded-lg border border-token-error-foreground/15 bg-token-error-background/90 px-2.5 text-xs text-token-error-foreground backdrop-blur"
+              >
+                <span>{visibleError}</span>
+                {coreWindow.error || continuationError || paginationError ? (
+                  <NodexButton
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      if (coreWindow.error) {
+                        coreWindow.retry();
+                        return;
+                      }
+                      setContinuationError(null);
+                      for (const pagination of groupPagination?.values() ?? []) {
+                        if (pagination.hasMore) void loadMoreGroup(pagination.scopeKey);
+                      }
                     }}
                   >
-                    <span aria-hidden="true" style={{ gridColumn: "indent" }} />
-                    <button
-                      type="button"
-                      aria-expanded={!item.collapsed}
-                      aria-label={`${item.collapsed ? "Expand" : "Collapse"} ${resolvedGroupLabel}`}
-                      className="grid size-7 place-items-center rounded-full text-[var(--database-list-text-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
-                      style={{ gridColumn: "checkbox" }}
-                      onClick={() => toggleCollapseKey(item.key)}
-                    >
-                      <DatabaseListDisclosureIcon open={!item.collapsed} />
-                    </button>
-                    {coreColumnVisibility.priority ? (
-                      <span
-                        className="flex size-4 items-center justify-center text-[var(--database-list-text-muted)]"
-                        style={{ gridColumn: "priority" }}
-                      >
-                        {databaseListGroupMarker(
-                          presentation.group?.propertyId,
-                          item.groupKey,
-                        )}
-                      </span>
-                    ) : null}
-                    <span
-                      className="flex min-w-0 items-center gap-2"
-                      style={{ gridColumn: "identifier / list-end" }}
-                    >
-                      {!coreColumnVisibility.priority ? databaseListGroupMarker(
-                        presentation.group?.propertyId,
-                        item.groupKey,
-                      ) : null}
-                      <span className="truncate text-[13px] font-medium leading-[normal] text-[var(--database-list-group-text)]">
-                        {resolvedGroupLabel}
-                      </span>
-                      <span className="shrink-0 text-xs tabular-nums text-[var(--database-list-group-count)]">
-                        {item.totalRows}
-                      </span>
-                      {groupCreateAction ? (
-                        <NodexButton
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label="Create new Page"
-                          data-page-create-trigger="header"
-                          data-page-create-column-id={groupCreateAction.status}
-                          className="ml-auto size-6 rounded-full px-0.5 text-[var(--database-list-text-muted)]"
-                          onClick={() => groupCreateAction.request(groupCreateAction.status)}
-                        >
-                          <DatabaseListPlusIcon />
-                        </NodexButton>
-                      ) : null}
-                    </span>
-                  </div>
-                </DatabaseListGroupDropTarget>
-              );
-            })}
-            {virtualWindow.paddingEnd > 0 ? (
+                    Retry
+                  </NodexButton>
+                ) : null}
+              </div>
+            ) : null}
+            {projection.length === 0 ? (
+              <div className="flex min-h-40 items-center justify-center text-sm text-token-description-foreground">
+                {usesCoreAuthority && coreWindow.loading
+                  ? "Loading Pages…"
+                  : compiledSearchQuery.normalizedQuery.length > 0
+                    ? "No matching Pages"
+                    : "No Pages in this View"}
+              </div>
+            ) : (
               <div
-                aria-hidden="true"
-                className="col-span-full"
-                style={{ height: virtualWindow.paddingEnd }}
-              />
+                data-list-layout-grid="true"
+                className="grid min-w-[320px] items-stretch gap-x-2"
+                style={{ gridTemplateColumns } as CSSProperties}
+              >
+                {virtualWindow.paddingStart > 0 ? (
+                  <div
+                    aria-hidden="true"
+                    className="col-span-full"
+                    style={{ height: virtualWindow.paddingStart }}
+                  />
+                ) : null}
+                {renderedRows.map((item, renderedIndex) => {
+                  const logicalIndex = virtualWindow.startIndex + renderedIndex;
+                  if (item.kind === "page") return renderPage(item, logicalIndex);
+                  if (item.kind === "subgroup") {
+                    return (
+                      <DatabaseListGroupDropTarget
+                        item={item}
+                        key={item.key}
+                        role="row"
+                        aria-rowindex={logicalIndex + 1}
+                        data-list-row="true"
+                        data-list-key={item.key}
+                        data-database-list-block-drop={
+                          blockDropPreview?.feedback.kind === "surface" &&
+                          blockDropPreview.feedback.occurrenceKey === item.key
+                            ? "true"
+                            : undefined
+                        }
+                        className="sticky top-[35.5px] z-[9] grid h-8 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
+                      >
+                        <div
+                          role="gridcell"
+                          className={cn(
+                            "mx-2 grid h-8 items-center gap-x-2 rounded-lg bg-[var(--database-list-subgroup)] [grid-template-columns:subgrid] [grid-column:1/-1]",
+                            blockDropPreview?.feedback.kind === "surface" &&
+                              blockDropPreview.feedback.occurrenceKey === item.key &&
+                              "ring-1 ring-inset ring-[var(--database-list-drop-indicator)]",
+                          )}
+                        >
+                          <span aria-hidden="true" style={{ gridColumn: "indent" }} />
+                          <span
+                            className="flex items-center justify-center text-[var(--database-list-text-muted)]"
+                            style={{ gridColumn: "checkbox" }}
+                          >
+                            {databaseListGroupMarker(
+                              presentation.subgroup?.propertyId,
+                              item.subgroupKey,
+                            )}
+                          </span>
+                          <span
+                            className="flex min-w-0 items-center gap-2"
+                            style={{ gridColumn: "identifier / list-end" }}
+                          >
+                            <span className="truncate text-xs font-medium text-[var(--database-list-group-text)]">
+                              {groupLabel(
+                                model,
+                                presentation.subgroup?.propertyId,
+                                item.subgroupKey,
+                              )}
+                            </span>
+                            <span className="shrink-0 text-xs tabular-nums text-[var(--database-list-group-count)]">
+                              {item.totalRows}
+                            </span>
+                          </span>
+                        </div>
+                      </DatabaseListGroupDropTarget>
+                    );
+                  }
+                  const resolvedGroupLabel = groupLabel(
+                    model,
+                    presentation.group?.propertyId,
+                    item.groupKey,
+                  );
+                  const groupCreateAction =
+                    model.readOnlyReason === null &&
+                    presentation.group?.propertyId === "status" &&
+                    isWorkflowStatus(item.groupKey) &&
+                    onRequestCreatePage
+                      ? { status: item.groupKey, request: onRequestCreatePage }
+                      : null;
+                  return (
+                    <DatabaseListGroupDropTarget
+                      item={item}
+                      key={item.key}
+                      role="row"
+                      aria-rowindex={logicalIndex + 1}
+                      data-list-row="true"
+                      data-list-key={item.key}
+                      data-database-list-block-drop={
+                        blockDropPreview?.feedback.kind === "surface" &&
+                        blockDropPreview.feedback.occurrenceKey === item.key
+                          ? "true"
+                          : undefined
+                      }
+                      className="sticky top-[-0.5px] z-10 mb-0.5 grid h-9 items-center gap-x-2 bg-[var(--database-list-surface)] [grid-template-columns:subgrid] [grid-column:1/-1]"
+                    >
+                      <div
+                        role="gridcell"
+                        data-list-group-divider="true"
+                        className={cn(
+                          "mx-2 grid h-9 items-center gap-x-2 overflow-hidden rounded-lg pr-2 [grid-template-columns:subgrid] [grid-column:1/-1]",
+                          blockDropPreview?.feedback.kind === "surface" &&
+                            blockDropPreview.feedback.occurrenceKey === item.key &&
+                            "ring-1 ring-inset ring-[var(--database-list-drop-indicator)]",
+                        )}
+                        style={{
+                          background:
+                            "linear-gradient(90deg, var(--database-list-group-start) 0%, var(--database-list-group-end) 100%), var(--database-list-group-end)",
+                        }}
+                      >
+                        <span aria-hidden="true" style={{ gridColumn: "indent" }} />
+                        <button
+                          type="button"
+                          aria-expanded={!item.collapsed}
+                          aria-label={`${item.collapsed ? "Expand" : "Collapse"} ${resolvedGroupLabel}`}
+                          className="grid size-7 place-items-center rounded-full text-[var(--database-list-text-muted)] outline-none hover:bg-[var(--database-list-row-hover)] focus-visible:ring-1 focus-visible:ring-[var(--database-list-focus)]"
+                          style={{ gridColumn: "checkbox" }}
+                          onClick={() => toggleCollapseKey(item.key)}
+                        >
+                          <DatabaseListDisclosureIcon open={!item.collapsed} />
+                        </button>
+                        {coreColumnVisibility.priority ? (
+                          <span
+                            className="flex size-4 items-center justify-center text-[var(--database-list-text-muted)]"
+                            style={{ gridColumn: "priority" }}
+                          >
+                            {databaseListGroupMarker(presentation.group?.propertyId, item.groupKey)}
+                          </span>
+                        ) : null}
+                        <span
+                          className="flex min-w-0 items-center gap-2"
+                          style={{ gridColumn: "identifier / list-end" }}
+                        >
+                          {!coreColumnVisibility.priority
+                            ? databaseListGroupMarker(presentation.group?.propertyId, item.groupKey)
+                            : null}
+                          <span className="truncate text-[13px] font-medium leading-[normal] text-[var(--database-list-group-text)]">
+                            {resolvedGroupLabel}
+                          </span>
+                          <span className="shrink-0 text-xs tabular-nums text-[var(--database-list-group-count)]">
+                            {item.totalRows}
+                          </span>
+                          {groupCreateAction ? (
+                            <NodexButton
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label="Create new Page"
+                              data-page-create-trigger="header"
+                              data-page-create-column-id={groupCreateAction.status}
+                              className="ml-auto size-6 rounded-full px-0.5 text-[var(--database-list-text-muted)]"
+                              onClick={() => groupCreateAction.request(groupCreateAction.status)}
+                            >
+                              <DatabaseListPlusIcon />
+                            </NodexButton>
+                          ) : null}
+                        </span>
+                      </div>
+                    </DatabaseListGroupDropTarget>
+                  );
+                })}
+                {virtualWindow.paddingEnd > 0 ? (
+                  <div
+                    aria-hidden="true"
+                    className="col-span-full"
+                    style={{ height: virtualWindow.paddingEnd }}
+                  />
+                ) : null}
+              </div>
+            )}
+            {coreWindow.loadingMore ||
+            (!usesCoreAuthority &&
+              [...(groupPagination?.values() ?? [])].some((state) => state.loadingMore)) ? (
+              <div
+                role="status"
+                className="flex h-8 items-center justify-center gap-1.5 text-xs text-token-description-foreground"
+              >
+                <ActivitySpinnerIcon className="icon-2xs" />
+                Loading more…
+              </div>
             ) : null}
           </div>
-        )}
-        {coreWindow.loadingMore
-          || (!usesCoreAuthority
-            && [...(groupPagination?.values() ?? [])].some((state) => state.loadingMore)) ? (
-          <div role="status" className="flex h-8 items-center justify-center gap-1.5 text-xs text-token-description-foreground">
-            <ActivitySpinnerIcon className="icon-2xs" />
-            Loading more…
-          </div>
-        ) : null}
-        </div>
-        {blockDropPreview?.feedback.kind === "surface"
-          && blockDropPreview.feedback.occurrenceKey === null ? (
-          <div
-            aria-hidden="true"
-            data-database-list-block-drop-root="true"
-            className="pointer-events-none absolute inset-1 z-[18] rounded-lg ring-1 ring-inset ring-[var(--database-list-drop-indicator)]"
+          {blockDropPreview?.feedback.kind === "surface" &&
+          blockDropPreview.feedback.occurrenceKey === null ? (
+            <div
+              aria-hidden="true"
+              data-database-list-block-drop-root="true"
+              className="pointer-events-none absolute inset-1 z-[18] rounded-lg ring-1 ring-inset ring-[var(--database-list-drop-indicator)]"
+            />
+          ) : null}
+          {blockDropMessage ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="pointer-events-none absolute right-3 top-2 z-20 bg-[var(--database-list-surface)] px-1.5 py-1 text-xs text-[var(--database-list-text-muted)] shadow-sm"
+            >
+              {blockDropMessage}
+            </div>
+          ) : null}
+          <DatabaseListSelectionActionBar
+            count={selectionCount}
+            canMoveUp={canMoveSelectionUp}
+            canMoveDown={canMoveSelectionDown}
+            onMove={(direction) => movePages(selectedIds, direction)}
+            onClear={() =>
+              updateSelection((current) => ({
+                ...current,
+                selectedOccurrenceKeys: new Set(),
+                allMatching: false,
+                excludedOccurrenceKeys: new Set(),
+                anchorOccurrenceKey: null,
+              }))
+            }
           />
-        ) : null}
-        {blockDropMessage ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="pointer-events-none absolute right-3 top-2 z-20 bg-[var(--database-list-surface)] px-1.5 py-1 text-xs text-[var(--database-list-text-muted)] shadow-sm"
-          >
-            {blockDropMessage}
-          </div>
-        ) : null}
-        <DatabaseListSelectionActionBar
-          count={selectionCount}
-          canMoveUp={canMoveSelectionUp}
-          canMoveDown={canMoveSelectionDown}
-          onMove={(direction) => movePages(selectedIds, direction)}
-          onClear={() => updateSelection((current) => ({
-            ...current,
-            selectedOccurrenceKeys: new Set(),
-            allMatching: false,
-            excludedOccurrenceKeys: new Set(),
-            anchorOccurrenceKey: null,
-          }))}
-        />
-      </div>
+        </div>
       </DatabaseViewPageContextMenuHost>
     </DatabaseListDndProvider>
   );

@@ -20,10 +20,7 @@ describe("normalizeSourceRootKey", () => {
 
 describe("dedupeSourceRoots", () => {
   test("keeps first occurrence and drops case-insensitive duplicates", () => {
-    expect(dedupeSourceRoots(["/repo/a", "/Repo/A", "/repo/b"])).toEqual([
-      "/repo/a",
-      "/repo/b",
-    ]);
+    expect(dedupeSourceRoots(["/repo/a", "/Repo/A", "/repo/b"])).toEqual(["/repo/a", "/repo/b"]);
   });
 
   test("treats backslash and forward-slash paths as the same folder", () => {

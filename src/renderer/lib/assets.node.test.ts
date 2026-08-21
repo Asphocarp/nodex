@@ -7,9 +7,7 @@ describe("assets helpers", () => {
   test("maps canonical managed asset URI to the private display protocol", () => {
     const source = getAssetSource("abc.png");
 
-    expect(resolveAssetSourceToDisplayUrl(source)).toBe(
-      "nodex-asset://managed/abc.png",
-    );
+    expect(resolveAssetSourceToDisplayUrl(source)).toBe("nodex-asset://managed/abc.png");
   });
 
   test("passes through non-asset URLs", () => {

@@ -9,9 +9,7 @@ import {
   NodexAgentDynamicToolFailure,
   type NodexAgentDynamicExecutionContext,
 } from "../agent-tools/dynamic-service-core";
-import {
-  NodexAgentV3DynamicService,
-} from "../agent-tools/dynamic-service-v3";
+import { NodexAgentV3DynamicService } from "../agent-tools/dynamic-service-v3";
 import { DynamicToolRegistryError } from "./dynamic-tool-registry";
 import {
   buildNodexAgentV3DynamicToolCatalog,
@@ -20,9 +18,7 @@ import {
 
 let activeNodexAgentV3DynamicService: NodexAgentV3DynamicService | null = null;
 
-export function configureNodexAgentV3DynamicService(
-  service: NodexAgentV3DynamicService,
-): void {
+export function configureNodexAgentV3DynamicService(service: NodexAgentV3DynamicService): void {
   activeNodexAgentV3DynamicService = service;
 }
 
@@ -52,22 +48,12 @@ function serializeSuccess(output: unknown): DynamicToolCallResponse {
 }
 
 function mapRegistryFailure(error: DynamicToolRegistryError): ToolFailure {
-  const issueSuffix = error.issues.length > 0
-    ? `: ${error.issues.join("; ")}`
-    : "";
+  const issueSuffix = error.issues.length > 0 ? `: ${error.issues.join("; ")}` : "";
   if (error.code === "invalid_arguments") {
-    return buildFailure(
-      "invalid_arguments",
-      `${error.message}${issueSuffix}`,
-      "none",
-    );
+    return buildFailure("invalid_arguments", `${error.message}${issueSuffix}`, "none");
   }
   if (error.code === "tool_catalog_stale" || error.code === "tool_not_found") {
-    return buildFailure(
-      "tool_catalog_stale",
-      error.message,
-      "start_new_task",
-    );
+    return buildFailure("tool_catalog_stale", error.message, "start_new_task");
   }
   return buildFailure(
     "internal_error",
@@ -88,28 +74,28 @@ export async function executeNodexAgentDynamicToolCall(
     readonly authority: FrozenNodexAgentTurnAuthority | null;
     readonly access: NodexAgentAccess;
     readonly resourceAccess?: NodexAgentResourceAccessOverlay;
-    readonly resolveResourceAccess: NodexAgentDynamicExecutionContext[
-      "resolveResourceAccess"
-    ];
-    readonly recordTaskResourceAccess?: NodexAgentDynamicExecutionContext[
-      "recordTaskResourceAccess"
-    ];
+    readonly resolveResourceAccess: NodexAgentDynamicExecutionContext["resolveResourceAccess"];
+    readonly recordTaskResourceAccess?: NodexAgentDynamicExecutionContext["recordTaskResourceAccess"];
     readonly authorize: NodexAgentDynamicExecutionContext["authorize"];
   },
 ): Promise<DynamicToolCallResponse> {
   if (params.namespace !== NODEX_APP_TOOL_NAMESPACE) {
-    return serializeFailure(buildFailure(
-      "tool_catalog_stale",
-      `Unsupported Nodex dynamic tool namespace: ${params.namespace ?? "<none>"}`,
-      "start_new_task",
-    ));
+    return serializeFailure(
+      buildFailure(
+        "tool_catalog_stale",
+        `Unsupported Nodex dynamic tool namespace: ${params.namespace ?? "<none>"}`,
+        "start_new_task",
+      ),
+    );
   }
   if (input.toolsetRevision === null) {
-    return serializeFailure(buildFailure(
-      "tool_catalog_stale",
-      "This task was not launched with the Nodex agent-tool catalog",
-      "start_new_task",
-    ));
+    return serializeFailure(
+      buildFailure(
+        "tool_catalog_stale",
+        "This task was not launched with the Nodex agent-tool catalog",
+        "start_new_task",
+      ),
+    );
   }
 
   try {
@@ -120,12 +106,14 @@ export async function executeNodexAgentDynamicToolCall(
         tool: params.tool,
         arguments: params.arguments,
       });
-      return serializeFailure(buildFailure(
-        "internal_error",
-        "Nodex Agent tools are unavailable before Rust Core initialization",
-        "retry_same",
-        true,
-      ));
+      return serializeFailure(
+        buildFailure(
+          "internal_error",
+          "Nodex Agent tools are unavailable before Rust Core initialization",
+          "retry_same",
+          true,
+        ),
+      );
     }
     const result = await service.registry.execute(
       {
@@ -155,11 +143,13 @@ export async function executeNodexAgentDynamicToolCall(
     if (error instanceof DynamicToolRegistryError) {
       return serializeFailure(mapRegistryFailure(error));
     }
-    return serializeFailure(buildFailure(
-      "internal_error",
-      error instanceof Error ? error.message : "Nodex dynamic tool execution failed",
-      "retry_same",
-      true,
-    ));
+    return serializeFailure(
+      buildFailure(
+        "internal_error",
+        error instanceof Error ? error.message : "Nodex dynamic tool execution failed",
+        "retry_same",
+        true,
+      ),
+    );
   }
 }

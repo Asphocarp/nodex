@@ -68,8 +68,14 @@ describe("AgentImportSettingsPage", () => {
     });
 
     expect(await screen.findByText("/tmp/source-codex")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Import Recent conversations" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("checkbox", { name: "Import MCP servers" }).getAttribute("aria-checked")).toBe("false");
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Import Recent conversations" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("checkbox", { name: "Import MCP servers" }).getAttribute("aria-checked"),
+    ).toBe("false");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Import" }));

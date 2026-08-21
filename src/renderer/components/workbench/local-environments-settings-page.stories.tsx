@@ -53,7 +53,8 @@ const ENVIRONMENT: WorktreeEnvironmentDefinition = {
   version: 1,
   name: "Alpha environment",
   setup: {
-    script: 'cd "$CODEX_WORKTREE_PATH"\npip install -r requirements.txt\nnpm install\n./run/setup.sh',
+    script:
+      'cd "$CODEX_WORKTREE_PATH"\npip install -r requirements.txt\nnpm install\n./run/setup.sh',
     platformScripts: {
       linux: "pnpm install --frozen-lockfile",
       win32: "python -m pip install -r requirements.txt\npnpm install",
@@ -74,7 +75,7 @@ function buildSnapshot(
   const config = {
     configPath: ".codex/environments/environment.toml",
     fileName: "environment.toml",
-    state: environment ? "success" as const : "parseError" as const,
+    state: environment ? ("success" as const) : ("parseError" as const),
     exists: true,
     name: environment?.name ?? "environment.toml",
     hasSetupScript: Boolean(environment?.setup.script),
@@ -112,10 +113,16 @@ function PageStory({
   const [client] = useState(() => {
     const nextClient = createTestQueryClient();
     for (const project of PROJECTS) {
-      const projectSnapshot = project.id === snapshot.projectId ? snapshot : buildSnapshot(project, {
-        environment: { ...ENVIRONMENT, name: `${project.name} environment` },
-      });
-      nextClient.setQueryData(queryKeys.localEnvironments.configs(project.id), projectSnapshot.configs);
+      const projectSnapshot =
+        project.id === snapshot.projectId
+          ? snapshot
+          : buildSnapshot(project, {
+              environment: { ...ENVIRONMENT, name: `${project.name} environment` },
+            });
+      nextClient.setQueryData(
+        queryKeys.localEnvironments.configs(project.id),
+        projectSnapshot.configs,
+      );
       nextClient.setQueryData(
         queryKeys.localEnvironments.config(project.id, projectSnapshot.configPath),
         projectSnapshot,
@@ -168,7 +175,9 @@ function EditorStory({
     <div className={narrow ? "h-[800px] w-[1100px]" : "h-[1232px] w-full"}>
       <NodexSettingsPageSurface
         title="Edit local environment"
-        backSlot={<span className="text-sm text-token-text-secondary">Environments › Alpha › edit</span>}
+        backSlot={
+          <span className="text-sm text-token-text-secondary">Environments › Alpha › edit</span>
+        }
       >
         <LocalEnvironmentEditor
           environment={environment}
@@ -212,28 +221,40 @@ export const SummaryPlatformFallback: Story = {
 export const SummaryActionExpanded: Story = {
   render: () => <PageStory />,
   play: async ({ canvasElement }) => {
-    await waitFor(() => getByRole(canvasElement, "button", { name: "Show full command for Run tests" }));
-    fireEvent.click(getByRole(canvasElement, "button", { name: "Show full command for Run tests" }));
+    await waitFor(() =>
+      getByRole(canvasElement, "button", { name: "Show full command for Run tests" }),
+    );
+    fireEvent.click(
+      getByRole(canvasElement, "button", { name: "Show full command for Run tests" }),
+    );
   },
 };
 export const ParseError: Story = {
   render: () => <PageStory snapshot={buildSnapshot(PROJECTS[0], { environment: null })} />,
 };
 export const ReadError: Story = {
-  render: () => <PageStory snapshot={buildSnapshot(PROJECTS[0], {
-    environment: null,
-    revision: null,
-    parseErrorMessage: null,
-    readErrorMessage: "The environment file could not be read.",
-  })} />,
+  render: () => (
+    <PageStory
+      snapshot={buildSnapshot(PROJECTS[0], {
+        environment: null,
+        revision: null,
+        parseErrorMessage: null,
+        readErrorMessage: "The environment file could not be read.",
+      })}
+    />
+  ),
 };
 export const TooLarge: Story = {
-  render: () => <PageStory snapshot={buildSnapshot(PROJECTS[0], {
-    environment: null,
-    revision: null,
-    parseErrorMessage: null,
-    tooLargeMessage: "Environment file is too large",
-  })} />,
+  render: () => (
+    <PageStory
+      snapshot={buildSnapshot(PROJECTS[0], {
+        environment: null,
+        revision: null,
+        parseErrorMessage: null,
+        tooLargeMessage: "Environment file is too large",
+      })}
+    />
+  ),
 };
 export const EditorDefault: Story = { render: () => <EditorStory /> };
 export const EditorBottom: Story = {
@@ -269,7 +290,14 @@ export const NameMissing: Story = {
   },
 };
 export const ActionIncompleteName: Story = {
-  render: () => <EditorStory environment={{ ...ENVIRONMENT, actions: [{ name: "", icon: null, command: "", platform: null }] }} />,
+  render: () => (
+    <EditorStory
+      environment={{
+        ...ENVIRONMENT,
+        actions: [{ name: "", icon: null, command: "", platform: null }],
+      }}
+    />
+  ),
   play: async ({ canvasElement }) => {
     fireEvent.change(getByRole(canvasElement, "textbox", { name: "Action script" }), {
       target: { value: "pnpm test" },
@@ -277,7 +305,14 @@ export const ActionIncompleteName: Story = {
   },
 };
 export const ActionIncompleteCommand: Story = {
-  render: () => <EditorStory environment={{ ...ENVIRONMENT, actions: [{ name: "", icon: null, command: "", platform: null }] }} />,
+  render: () => (
+    <EditorStory
+      environment={{
+        ...ENVIRONMENT,
+        actions: [{ name: "", icon: null, command: "", platform: null }],
+      }}
+    />
+  ),
   play: async ({ canvasElement }) => {
     fireEvent.change(getAllByRole(canvasElement, "textbox", { name: "Name" })[1]!, {
       target: { value: "Run checks" },
@@ -293,7 +328,9 @@ export const BlankActionAdded: Story = {
 export const IconMenuOpen: Story = {
   render: () => <EditorStory />,
   play: async ({ canvasElement }) => {
-    fireEvent.pointerDown(getAllByRole(canvasElement, "button", { name: "Test" })[0]!, { button: 0 });
+    fireEvent.pointerDown(getAllByRole(canvasElement, "button", { name: "Test" })[0]!, {
+      button: 0,
+    });
   },
 };
 export const Conflict: Story = {

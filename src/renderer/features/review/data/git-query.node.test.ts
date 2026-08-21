@@ -1,6 +1,10 @@
 import { QueryClient, QueryObserver } from "@tanstack/query-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { GitWorkerMessageForView, GitWorkerMethod, GitWorkerMethodMap } from "../../../../shared/git-worker-protocol";
+import type {
+  GitWorkerMessageForView,
+  GitWorkerMethod,
+  GitWorkerMethodMap,
+} from "../../../../shared/git-worker-protocol";
 import {
   buildGitWorkerQueryKey,
   createGitLiveWorkerQuery,
@@ -18,25 +22,26 @@ class FakeGitWorkerClient implements GitWorkerQueryClient {
     signal?: AbortSignal;
   }): Promise<GitWorkerMethodMap[Method]["result"]> {
     this.requests.push({ method: input.method, params: input.params });
-    const value = input.method === "subscribe-live-query"
-      ? { subscribed: true }
-      : input.method === "unsubscribe-live-query"
-        ? { unsubscribed: true }
-        : input.method === "recover-live-query"
-          ? { recovered: true }
-          : input.method === "refresh-live-query"
-            ? { refreshed: true }
-            : {
-              cwd: "/repo",
-              baseRef: "main",
-              files: [],
-              additions: 0,
-              deletions: 0,
-              isGitRepository: true,
-              currentBranch: "feature",
-              defaultBranch: "main",
-              errorMessage: null,
-            };
+    const value =
+      input.method === "subscribe-live-query"
+        ? { subscribed: true }
+        : input.method === "unsubscribe-live-query"
+          ? { unsubscribed: true }
+          : input.method === "recover-live-query"
+            ? { recovered: true }
+            : input.method === "refresh-live-query"
+              ? { refreshed: true }
+              : {
+                  cwd: "/repo",
+                  baseRef: "main",
+                  files: [],
+                  additions: 0,
+                  deletions: 0,
+                  isGitRepository: true,
+                  currentBranch: "feature",
+                  defaultBranch: "main",
+                  errorMessage: null,
+                };
     return value as GitWorkerMethodMap[Method]["result"];
   }
 
@@ -51,9 +56,7 @@ class FakeGitWorkerClient implements GitWorkerQueryClient {
 }
 
 function subscriptionId(client: FakeGitWorkerClient): string {
-  const request = client.requests.find((candidate) =>
-    candidate.method === "subscribe-live-query"
-  );
+  const request = client.requests.find((candidate) => candidate.method === "subscribe-live-query");
   if (!request) throw new Error("Expected a live query subscription");
   return (request.params as { subscriptionId: string }).subscriptionId;
 }
@@ -88,44 +91,47 @@ describe("Git query adapter", () => {
     const queryClient = new QueryClient();
     const workerClient = new FakeGitWorkerClient();
     const coordinator = new GitLiveQueryCoordinator(queryClient, workerClient);
-    const options = createGitLiveWorkerQuery({
-      method: "branch-diff-stats",
-      params: { cwd: "/repo" },
-      repository: {
-        hostId: "local",
-        commonDir: "/repo/.git",
-        root: "/repo",
+    const options = createGitLiveWorkerQuery(
+      {
+        method: "branch-diff-stats",
+        params: { cwd: "/repo" },
+        repository: {
+          hostId: "local",
+          commonDir: "/repo/.git",
+          root: "/repo",
+        },
       },
-    }, workerClient);
+      workerClient,
+    );
     const first = new QueryObserver(queryClient, options);
     const second = new QueryObserver(queryClient, options);
     const releaseFirst = first.subscribe(() => undefined);
     const releaseSecond = second.subscribe(() => undefined);
     await Promise.resolve();
 
-    expect(workerClient.requests.filter((request) =>
-      request.method === "subscribe-live-query"
-    )).toHaveLength(1);
+    expect(
+      workerClient.requests.filter((request) => request.method === "subscribe-live-query"),
+    ).toHaveLength(1);
 
     releaseFirst();
     releaseSecond();
     await vi.advanceTimersByTimeAsync(249);
-    expect(workerClient.requests.some((request) =>
-      request.method === "unsubscribe-live-query"
-    )).toBe(false);
+    expect(
+      workerClient.requests.some((request) => request.method === "unsubscribe-live-query"),
+    ).toBe(false);
 
     const remounted = new QueryObserver(queryClient, options);
     const releaseRemounted = remounted.subscribe(() => undefined);
     await vi.advanceTimersByTimeAsync(1);
-    expect(workerClient.requests.filter((request) =>
-      request.method === "subscribe-live-query"
-    )).toHaveLength(1);
+    expect(
+      workerClient.requests.filter((request) => request.method === "subscribe-live-query"),
+    ).toHaveLength(1);
 
     releaseRemounted();
     await vi.advanceTimersByTimeAsync(250);
-    expect(workerClient.requests.filter((request) =>
-      request.method === "unsubscribe-live-query"
-    )).toHaveLength(1);
+    expect(
+      workerClient.requests.filter((request) => request.method === "unsubscribe-live-query"),
+    ).toHaveLength(1);
     coordinator.dispose();
   });
 
@@ -133,10 +139,13 @@ describe("Git query adapter", () => {
     const queryClient = new QueryClient();
     const workerClient = new FakeGitWorkerClient();
     const coordinator = new GitLiveQueryCoordinator(queryClient, workerClient);
-    const options = createGitLiveWorkerQuery({
-      method: "branch-diff-stats",
-      params: { cwd: "/repo" },
-    }, workerClient);
+    const options = createGitLiveWorkerQuery(
+      {
+        method: "branch-diff-stats",
+        params: { cwd: "/repo" },
+      },
+      workerClient,
+    );
     const observer = new QueryObserver(queryClient, options);
     const release = observer.subscribe(() => undefined);
     await Promise.resolve();
@@ -173,9 +182,9 @@ describe("Git query adapter", () => {
       workerId: "git",
       epoch: 2,
     });
-    expect(workerClient.requests.filter((request) =>
-      request.method === "subscribe-live-query"
-    )).toHaveLength(2);
+    expect(
+      workerClient.requests.filter((request) => request.method === "subscribe-live-query"),
+    ).toHaveLength(2);
 
     release();
     coordinator.dispose();

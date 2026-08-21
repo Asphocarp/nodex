@@ -7,8 +7,10 @@ import type {
 } from "./types";
 import { CoreEventCompatibilityError } from "./uds-http";
 
-export interface SupervisedDocumentLiveSubscription
-  extends Omit<CoreDocumentEventSubscription, "barrier"> {
+export interface SupervisedDocumentLiveSubscription extends Omit<
+  CoreDocumentEventSubscription,
+  "barrier"
+> {
   readonly ready: Promise<DocumentLiveBarrier>;
   waitUntilConnected(): Promise<void>;
   reconnectAfterSubscriptionLoss(): Promise<void>;
@@ -24,14 +26,9 @@ interface DocumentLiveStreamSupervisorInput {
   readonly onEvent: (event: CoreEventEnvelope) => void | Promise<void>;
   readonly onRepair: (repair: DocumentLiveRepair) => void | Promise<void>;
   readonly onRealtime: (event: DocumentSyncRealtimeEvent) => void | Promise<void>;
-  readonly onOpened?: (
-    barrier: DocumentLiveBarrier,
-    reconnected: boolean,
-  ) => void | Promise<void>;
+  readonly onOpened?: (barrier: DocumentLiveBarrier, reconnected: boolean) => void | Promise<void>;
   readonly onInterrupted?: (error: unknown | null) => void;
-  readonly onConnectionStateChanged?: (
-    state: "connected" | "disconnected",
-  ) => void;
+  readonly onConnectionStateChanged?: (state: "connected" | "disconnected") => void;
   readonly shouldRetry?: (error: unknown | null) => boolean;
   readonly maxInitialOpenAttempts?: number;
   readonly retryDelayMs?: number;
@@ -45,7 +42,7 @@ interface Deferred<Value> {
   reject(error: unknown): void;
 }
 
-const deferred = <Value,>(): Deferred<Value> => {
+const deferred = <Value>(): Deferred<Value> => {
   let settled = false;
   let resolvePromise: (value: Value) => void = () => undefined;
   let rejectPromise: (error: unknown) => void = () => undefined;
@@ -182,21 +179,16 @@ export function superviseDocumentLiveStream(
           transitionToDisconnected();
         }
         if (closed) return;
-        const terminal = interruption instanceof CoreEventCompatibilityError
-          || (
-            !everConnected
-            && initialOpenAttempts >= (
-              input.maxInitialOpenAttempts ?? Number.POSITIVE_INFINITY
-            )
-          )
-          || (
-            interruption !== null
-            && input.shouldRetry !== undefined
-            && !input.shouldRetry(interruption)
-          );
+        const terminal =
+          interruption instanceof CoreEventCompatibilityError ||
+          (!everConnected &&
+            initialOpenAttempts >= (input.maxInitialOpenAttempts ?? Number.POSITIVE_INFINITY)) ||
+          (interruption !== null &&
+            input.shouldRetry !== undefined &&
+            !input.shouldRetry(interruption));
         if (terminal) {
-          terminalError = interruption
-            ?? new Error("Core Document live stream ended before its barrier");
+          terminalError =
+            interruption ?? new Error("Core Document live stream ended before its barrier");
           ready.reject(terminalError);
           connection.reject(terminalError);
           input.onInterrupted?.(interruption);

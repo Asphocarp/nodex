@@ -10,11 +10,19 @@ import {
 } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import { formatElapsedSince } from "@/lib/elapsed-time";
-import type { Project, ProjectCreateInput, ProjectLifecycleMutationResult, ProjectUpdateInput } from "@/lib/types";
+import type {
+  Project,
+  ProjectCreateInput,
+  ProjectLifecycleMutationResult,
+  ProjectUpdateInput,
+} from "@/lib/types";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
 import { LeftSidebarFooter, type LeftSidebarFooterProps } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
-import { SIDEBAR_SECTION_ITEM_LIMITS, type SidebarSectionItemLimit } from "../../lib/sidebar-section-prefs";
+import {
+  SIDEBAR_SECTION_ITEM_LIMITS,
+  type SidebarSectionItemLimit,
+} from "../../lib/sidebar-section-prefs";
 import {
   ArrowDown,
   ArrowUp,
@@ -103,21 +111,14 @@ function SidebarSectionMoreActionsMenu({
 }) {
   if (!group.moreActions) return null;
 
-  const {
-    itemLimit,
-    canMoveUp,
-    canMoveDown,
-    onItemLimitChange,
-    onMoveUp,
-    onMoveDown,
-    onHide,
-  } = group.moreActions;
+  const { itemLimit, canMoveUp, canMoveDown, onItemLimitChange, onMoveUp, onMoveDown, onHide } =
+    group.moreActions;
 
   return (
     <NodexDropdownMenu
       align="end"
       contentWidth="sm"
-      triggerButton={(
+      triggerButton={
         <NodexDropdownButtonTrigger
           aria-label={`${group.label} actions`}
           showChevron={false}
@@ -130,13 +131,13 @@ function SidebarSectionMoreActionsMenu({
         >
           <ProjectActionsIcon className="size-4" />
         </NodexDropdownButtonTrigger>
-      )}
+      }
       onCloseAutoFocus={(event) => event.preventDefault()}
     >
       <NodexDropdownFlyoutSubmenuItem
         label="Show"
         contentClassName="min-w-[180px]"
-        triggerContent={(
+        triggerContent={
           <div className="flex min-h-5 w-full items-center gap-2 text-sm">
             <Hash className="size-4 shrink-0 text-(--sidebar-foreground-secondary)" />
             <span className="min-w-0 flex-1 truncate">Show</span>
@@ -145,7 +146,7 @@ function SidebarSectionMoreActionsMenu({
             </span>
             <ChevronRightIcon className="size-3.5 shrink-0 text-(--sidebar-foreground-tertiary)" />
           </div>
-        )}
+        }
       >
         {SIDEBAR_SECTION_ITEM_LIMITS.map((limit) => (
           <NodexDropdownItem
@@ -154,7 +155,9 @@ function SidebarSectionMoreActionsMenu({
               onBeforeItemLimitChange();
               onItemLimitChange(limit);
             }}
-            rightSlot={itemLimit === limit ? <Check className="size-4 shrink-0 text-(--foreground)" /> : null}
+            rightSlot={
+              itemLimit === limit ? <Check className="size-4 shrink-0 text-(--foreground)" /> : null
+            }
           >
             {limit} items
           </NodexDropdownItem>
@@ -220,9 +223,12 @@ export function LeftSidebar({
   );
   const [elapsedNowMs, setElapsedNowMs] = useState(() => Date.now());
   const hasElapsedSidebarItems = useMemo(
-    () => visibleStageGroups.some((group) =>
-      group.sections.some((section) => section.items.some((item) => isFiniteTimestamp(item.updatedAtMs))),
-    ),
+    () =>
+      visibleStageGroups.some((group) =>
+        group.sections.some((section) =>
+          section.items.some((item) => isFiniteTimestamp(item.updatedAtMs)),
+        ),
+      ),
     [visibleStageGroups],
   );
 
@@ -254,7 +260,6 @@ export function LeftSidebar({
     };
 
     const onMouseUp = () => {
-
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
       document.removeEventListener("mousemove", onMouseMove);
@@ -313,10 +318,12 @@ export function LeftSidebar({
 
           const renderStageItem = (item: StageSidebarItem) => {
             const itemUpdatedAtMs = isFiniteTimestamp(item.updatedAtMs) ? item.updatedAtMs : null;
-            const elapsedLabel = itemUpdatedAtMs === null ? null : formatElapsedSince(itemUpdatedAtMs, elapsedNowMs);
-            const elapsedTitle = itemUpdatedAtMs === null
-              ? undefined
-              : `Updated ${new Date(itemUpdatedAtMs).toLocaleString()}`;
+            const elapsedLabel =
+              itemUpdatedAtMs === null ? null : formatElapsedSince(itemUpdatedAtMs, elapsedNowMs);
+            const elapsedTitle =
+              itemUpdatedAtMs === null
+                ? undefined
+                : `Updated ${new Date(itemUpdatedAtMs).toLocaleString()}`;
             const itemPaddingClass = group.hideHeader
               ? "px-[var(--sidebar-row-padding-x)]"
               : item.icon
@@ -341,7 +348,9 @@ export function LeftSidebar({
                 )}
               >
                 {item.icon && <item.icon className="size-3.5 shrink-0 opacity-80" />}
-                <span className={cn("truncate", elapsedLabel && "min-w-0 flex-1")}>{item.label}</span>
+                <span className={cn("truncate", elapsedLabel && "min-w-0 flex-1")}>
+                  {item.label}
+                </span>
                 {elapsedLabel && (
                   <span
                     title={elapsedTitle}
@@ -435,10 +444,7 @@ export function LeftSidebar({
                       </button>
                     </CollapsiblePrimitive.Trigger>
                     <CollapsiblePrimitive.Content
-                      className={cn(
-                        "overflow-hidden",
-                        "data-[state=closed]:hidden",
-                      )}
+                      className={cn("overflow-hidden", "data-[state=closed]:hidden")}
                     >
                       <div className="mt-px flex flex-col gap-px">
                         {visibleItems.map((item) => (
@@ -452,10 +458,7 @@ export function LeftSidebar({
                             }}
                           >
                             <CollapsiblePrimitive.Content
-                              className={cn(
-                                "overflow-hidden",
-                                "data-[state=closed]:hidden",
-                              )}
+                              className={cn("overflow-hidden", "data-[state=closed]:hidden")}
                             >
                               <div className="flex flex-col gap-px">
                                 {overflowItems.map((item) => (
@@ -518,10 +521,7 @@ export function LeftSidebar({
                         }}
                       >
                         <CollapsiblePrimitive.Content
-                          className={cn(
-                            "overflow-hidden",
-                            "data-[state=closed]:hidden",
-                          )}
+                          className={cn("overflow-hidden", "data-[state=closed]:hidden")}
                         >
                           <div className="flex flex-col gap-px">
                             {overflowItems.map((item) => (
@@ -551,7 +551,10 @@ export function LeftSidebar({
           };
 
           return (
-            <section key={group.id} className={group.expanded ? "mb-3 last:mb-0" : "mb-1 last:mb-0"}>
+            <section
+              key={group.id}
+              className={group.expanded ? "mb-3 last:mb-0" : "mb-1 last:mb-0"}
+            >
               {!group.hideHeader && (
                 <div
                   className={cn(

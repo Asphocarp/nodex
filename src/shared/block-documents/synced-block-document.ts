@@ -31,18 +31,13 @@ export class SyncedBlockDocumentRootValidationError extends TypeError {
 
 const SYNCED_BLOCK_BODY_SCHEMA = {
   label: "Synced Block",
-  makeRootError: (message: string) =>
-    new SyncedBlockDocumentRootValidationError(message),
+  makeRootError: (message: string) => new SyncedBlockDocumentRootValidationError(message),
 } as const;
 
-export const openSyncedBlockDocument = (
-  document: Y.Doc,
-): SyncedBlockDocumentEnvelope =>
+export const openSyncedBlockDocument = (document: Y.Doc): SyncedBlockDocumentEnvelope =>
   openBodyOnlyBlockDocument(document, SYNCED_BLOCK_BODY_SCHEMA);
 
-export const assertValidSyncedBlockDocumentRoots = (
-  document: Y.Doc,
-): SyncedBlockDocumentEnvelope =>
+export const assertValidSyncedBlockDocumentRoots = (document: Y.Doc): SyncedBlockDocumentEnvelope =>
   assertValidBodyOnlyBlockDocumentRoots(document, SYNCED_BLOCK_BODY_SCHEMA);
 
 export const createSyncedBlockDocument = ({

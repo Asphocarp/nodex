@@ -50,41 +50,55 @@ function readForkTitleCommentBody(value: unknown): string {
   if (!Array.isArray(content)) return "";
 
   return content
-    .map((part) => part.content_type === "text" && typeof part.text === "string" ? part.text : "")
+    .map((part) => (part.content_type === "text" && typeof part.text === "string" ? part.text : ""))
     .join("");
 }
 
 function extractCodexXmlElement(value: string, tagName: string): string | null {
-  return new RegExp(`<${tagName}>\\s*([\\s\\S]*?)\\s*<\\/${tagName}>`, "i")
-    .exec(value)?.[1]?.trim() ?? null;
+  return (
+    new RegExp(`<${tagName}>\\s*([\\s\\S]*?)\\s*<\\/${tagName}>`, "i").exec(value)?.[1]?.trim() ??
+    null
+  );
 }
 
 function decodeCodexXmlText(value: string): string {
-  return value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
+  return value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 }
 
 function stripCodexCommentImageDescriptions(value: string): string {
   return value
     .replace(
-      new RegExp(`${CODEX_BROWSER_IMAGE_PREFIX} The element "[^"\\r\\n]*" that the user selected is outlined in blue and marked by comment marker \\d+\\.`, "g"),
+      new RegExp(
+        `${CODEX_BROWSER_IMAGE_PREFIX} The element "[^"\\r\\n]*" that the user selected is outlined in blue and marked by comment marker \\d+\\.`,
+        "g",
+      ),
       "",
     )
     .replace(
-      new RegExp(`${CODEX_BROWSER_IMAGE_PREFIX} The element the user selected is outlined in blue and marked by comment marker \\d+\\.`, "g"),
+      new RegExp(
+        `${CODEX_BROWSER_IMAGE_PREFIX} The element the user selected is outlined in blue and marked by comment marker \\d+\\.`,
+        "g",
+      ),
       "",
     )
     .replace(
-      new RegExp(`${CODEX_BROWSER_IMAGE_PREFIX} The selected region is outlined in blue and marked by comment marker \\d+\\.`, "g"),
+      new RegExp(
+        `${CODEX_BROWSER_IMAGE_PREFIX} The selected region is outlined in blue and marked by comment marker \\d+\\.`,
+        "g",
+      ),
       "",
     )
     .replace(
-      new RegExp(`${CODEX_BROWSER_IMAGE_PREFIX} The text the user selected is highlighted in blue and marked by comment marker \\d+\\.`, "g"),
+      new RegExp(
+        `${CODEX_BROWSER_IMAGE_PREFIX} The text the user selected is highlighted in blue and marked by comment marker \\d+\\.`,
+        "g",
+      ),
       "",
     )
-    .replace(/The next image was attached by the user as additional visual context for Comment \d+\./g, "")
+    .replace(
+      /The next image was attached by the user as additional visual context for Comment \d+\./g,
+      "",
+    )
     .replace(
       /The next image shows (?:PDF page \d+|the PDF page) at the time of Comment \d+\. The selected (?:point is marked in blue by|region is outlined in blue and marked by) comment marker \d+\./g,
       "",
@@ -101,9 +115,9 @@ function hasRecognizedCodexAppshot(value: string): boolean {
       parsedAttributes.set(attribute[1] ?? "", decodeCodexXmlText(attribute[2] ?? ""));
     }
     if (
-      (parsedAttributes.get("app")?.trim().length ?? 0) > 0
-      && (parsedAttributes.get("bundle-identifier")?.trim().length ?? 0) > 0
-      && body.length > 0
+      (parsedAttributes.get("app")?.trim().length ?? 0) > 0 &&
+      (parsedAttributes.get("bundle-identifier")?.trim().length ?? 0) > 0 &&
+      body.length > 0
     ) {
       return true;
     }
@@ -127,9 +141,9 @@ function projectCodexForkTitleUserMessage(rawText: string, hasImages: boolean): 
   }
 
   if (
-    message === null
-    && trimmed.startsWith("<codex_delegation>")
-    && trimmed.endsWith("</codex_delegation>")
+    message === null &&
+    trimmed.startsWith("<codex_delegation>") &&
+    trimmed.endsWith("</codex_delegation>")
   ) {
     const sourceThreadId = extractCodexXmlElement(trimmed, "source_thread_id");
     const delegatedInput = extractCodexXmlElement(trimmed, "input");
@@ -162,27 +176,29 @@ function readCodexPromptContext(rawText: string): string {
 }
 
 function isCodexAmbientBrowserTail(lines: readonly string[], startIndex: number): boolean {
-  const hasAmbientWrapper = lines[startIndex] === "<in-app-browser-context source=\"ambient-ui-state\">";
+  const hasAmbientWrapper =
+    lines[startIndex] === '<in-app-browser-context source="ambient-ui-state">';
   const wrapperCloseIndex = hasAmbientWrapper
     ? lines.indexOf("</in-app-browser-context>", startIndex + 1)
     : -1;
   const browserHeadingIndex = hasAmbientWrapper
     ? lines.indexOf("# In app browser:", startIndex + 1)
     : startIndex;
-  if (hasAmbientWrapper && (
-    wrapperCloseIndex < 0
-    || browserHeadingIndex < 0
-    || browserHeadingIndex >= wrapperCloseIndex
-  )) return false;
+  if (
+    hasAmbientWrapper &&
+    (wrapperCloseIndex < 0 || browserHeadingIndex < 0 || browserHeadingIndex >= wrapperCloseIndex)
+  )
+    return false;
 
   const heading = lines[browserHeadingIndex];
   const nextLine = lines[browserHeadingIndex + 1];
   let cursor: number;
   if (heading === "# In app browser:") {
     if (
-      nextLine !== "- The user has the in-app browser open."
-      && nextLine?.startsWith("- The user has the in-app browser open with ") !== true
-    ) return false;
+      nextLine !== "- The user has the in-app browser open." &&
+      nextLine?.startsWith("- The user has the in-app browser open with ") !== true
+    )
+      return false;
     cursor = browserHeadingIndex + 2;
     if (lines[cursor] === "- Current URLs:") {
       const urlsStart = cursor + 1;
@@ -194,9 +210,10 @@ function isCodexAmbientBrowserTail(lines: readonly string[], startIndex: number)
     }
   } else if (heading === "# Chrome tabs:") {
     if (
-      nextLine !== "- The user has the Chrome extension side panel open."
-      || lines[browserHeadingIndex + 2]?.startsWith("- Current URL: ") !== true
-    ) return false;
+      nextLine !== "- The user has the Chrome extension side panel open." ||
+      lines[browserHeadingIndex + 2]?.startsWith("- Current URL: ") !== true
+    )
+      return false;
     cursor = browserHeadingIndex + 3;
   } else {
     return false;
@@ -208,16 +225,19 @@ function isCodexAmbientBrowserTail(lines: readonly string[], startIndex: number)
   }
   let remaining = lines.slice(cursor);
   if (
-    heading === "# Chrome tabs:"
-    && remaining[0] === "- The user has selected text on the page. You MUST call `getTabContext` to read the user's selection."
+    heading === "# Chrome tabs:" &&
+    remaining[0] ===
+      "- The user has selected text on the page. You MUST call `getTabContext` to read the user's selection."
   ) {
     remaining = remaining.slice(1);
   }
   if (remaining.every((line) => line.trim().length === 0)) return true;
-  return heading === "# Chrome tabs:"
-    && remaining[0] === "- Selected tab:"
-    && remaining[1]?.startsWith("  - [selected] Tab ID ") === true
-    && remaining.slice(2).every((line) => line.trim().length === 0);
+  return (
+    heading === "# Chrome tabs:" &&
+    remaining[0] === "- Selected tab:" &&
+    remaining[1]?.startsWith("  - [selected] Tab ID ") === true &&
+    remaining.slice(2).every((line) => line.trim().length === 0)
+  );
 }
 
 function findCodexAmbientBrowserTailLine(lines: readonly string[]): number {
@@ -235,21 +255,25 @@ function extractSerializedCodexCommentSection(context: string, heading: string):
   const headingIndex = context.indexOf(heading);
   if (headingIndex < 0) return null;
   const content = context.slice(headingIndex + heading.length);
-  const boundaryIndex = CODEX_COMMENT_SECTION_BOUNDARIES
-    .map((candidate) => content.indexOf(`\n${candidate}`))
+  const boundaryIndex = CODEX_COMMENT_SECTION_BOUNDARIES.map((candidate) =>
+    content.indexOf(`\n${candidate}`),
+  )
     .concat(findCodexAmbientBrowserTailOffset(content))
     .filter((index) => index >= 0)
-    .reduce((minimum, index) => minimum < 0 ? index : Math.min(minimum, index), -1);
+    .reduce((minimum, index) => (minimum < 0 ? index : Math.min(minimum, index)), -1);
   return boundaryIndex < 0 ? content : content.slice(0, boundaryIndex);
 }
 
 function trimSerializedBrowserCommentBody(lines: readonly string[]): readonly string[] {
   const ambientBoundaryIndex = findCodexAmbientBrowserTailLine(lines);
   const instructionBoundaryIndex = lines.findIndex((line) =>
-    line.startsWith("Apply each annotation to the source code or design tokens that own the current UI."));
+    line.startsWith(
+      "Apply each annotation to the source code or design tokens that own the current UI.",
+    ),
+  );
   const boundaryIndex = [ambientBoundaryIndex, instructionBoundaryIndex]
     .filter((index) => index >= 0)
-    .reduce((minimum, index) => minimum < 0 ? index : Math.min(minimum, index), -1);
+    .reduce((minimum, index) => (minimum < 0 ? index : Math.min(minimum, index)), -1);
   return boundaryIndex < 0 ? lines : lines.slice(0, boundaryIndex);
 }
 
@@ -257,23 +281,31 @@ function readSerializedCodexCommentBody(lines: readonly string[], browserSection
   const commentMarkerIndex = lines.findIndex((line) => line === "Comment:");
   if (commentMarkerIndex >= 0) {
     const bodyLines = lines.slice(commentMarkerIndex + 1);
-    return (browserSection ? trimSerializedBrowserCommentBody(bodyLines) : bodyLines).join("\n").trim();
+    return (browserSection ? trimSerializedBrowserCommentBody(bodyLines) : bodyLines)
+      .join("\n")
+      .trim();
   }
 
   const requestedChangesIndex = lines.findIndex((line) => line === "Requested changes:");
   if (requestedChangesIndex >= 0) {
     const changeLines = lines.slice(requestedChangesIndex + 1);
-    const boundaryIndex = changeLines.findIndex((line) =>
-      line === "Style provenance:"
-      || line.startsWith("Apply each annotation to the source code or design tokens that own the current UI."));
+    const boundaryIndex = changeLines.findIndex(
+      (line) =>
+        line === "Style provenance:" ||
+        line.startsWith(
+          "Apply each annotation to the source code or design tokens that own the current UI.",
+        ),
+    );
     return (boundaryIndex < 0 ? changeLines : changeLines.slice(0, boundaryIndex))
-      .map((line) => line.startsWith("- ") ? line.slice(2) : line)
+      .map((line) => (line.startsWith("- ") ? line.slice(2) : line))
       .join("\n")
       .trim();
   }
 
   const bodyLines = lines.slice(1);
-  return (browserSection ? trimSerializedBrowserCommentBody(bodyLines) : bodyLines).join("\n").trim();
+  return (browserSection ? trimSerializedBrowserCommentBody(bodyLines) : bodyLines)
+    .join("\n")
+    .trim();
 }
 
 function readFirstSerializedCodexCommentBody(rawText: string): string {
@@ -285,14 +317,18 @@ function readFirstSerializedCodexCommentBody(rawText: string): string {
     let chunkStart: number | null = null;
     for (let index = 0; index <= lines.length; index += 1) {
       const line = lines[index] ?? "";
-      const startsChunk = line.startsWith("## Comment") || line.startsWith("## Requested annotation");
+      const startsChunk =
+        line.startsWith("## Comment") || line.startsWith("## Requested annotation");
       if (startsChunk && chunkStart === null) {
         chunkStart = index;
         continue;
       }
       if (index < lines.length && !startsChunk) continue;
       if (chunkStart !== null) {
-        const body = readSerializedCodexCommentBody(lines.slice(chunkStart, index), heading === "# Browser comments:");
+        const body = readSerializedCodexCommentBody(
+          lines.slice(chunkStart, index),
+          heading === "# Browser comments:",
+        );
         if (body) return body;
       }
       chunkStart = startsChunk ? index : null;
@@ -321,39 +357,44 @@ export function resolveCodexForkSourceConversationTitle(
   if (!turnInput.some((item) => item.type === "text")) return null;
 
   const commentBodies = (input.firstTurnCommentAttachments ?? []).map(readForkTitleCommentBody);
-  const compareKey = buildCodexSteeringCompareKey(turnInput, input.firstTurnCommentAttachments ?? []);
+  const compareKey = buildCodexSteeringCompareKey(
+    turnInput,
+    input.firstTurnCommentAttachments ?? [],
+  );
   const firstUserInput = compareKey.rawText;
-  const normalizedFirstUserInput = compareKey.imageCount > 0
-    ? stripCodexCommentImageDescriptions(firstUserInput)
-    : firstUserInput;
+  const normalizedFirstUserInput =
+    compareKey.imageCount > 0 ? stripCodexCommentImageDescriptions(firstUserInput) : firstUserInput;
   const message = projectCodexForkTitleUserMessage(normalizedFirstUserInput, false);
   const messageTitle = normalizeCodexManualThreadTitle(projectCodexMarkdownToPlainText(message));
   if (messageTitle) return messageTitle;
 
-  const firstCommentBody = commentBodies.length > 0
-    ? commentBodies.find((body) => body.trim().length > 0) ?? ""
-    : readFirstSerializedCodexCommentBody(normalizedFirstUserInput);
+  const firstCommentBody =
+    commentBodies.length > 0
+      ? (commentBodies.find((body) => body.trim().length > 0) ?? "")
+      : readFirstSerializedCodexCommentBody(normalizedFirstUserInput);
   return normalizeCodexManualThreadTitle(projectCodexMarkdownToPlainText(firstCommentBody));
 }
 
 function parseCodexForkTitleSuffix(title: string): { baseTitle: string; number: number } | null {
   const match = title.match(/^(.*) \((\d+)\)$/u);
   const number = Number(match?.[2]);
-  return match?.[1] !== undefined && number >= 2
-    ? { baseTitle: match[1], number }
-    : null;
+  return match?.[1] !== undefined && number >= 2 ? { baseTitle: match[1], number } : null;
 }
 
 function formatCodexForkTitle(baseTitle: string, number: number): string {
   const suffix = ` (${number})`;
   const availableBaseChars = CODEX_MANUAL_THREAD_TITLE_MAX_CHARS - suffix.length;
-  const fittedBase = baseTitle.length > availableBaseChars
-    ? `${baseTitle.slice(0, availableBaseChars - 1).trimEnd()}…`
-    : baseTitle;
+  const fittedBase =
+    baseTitle.length > availableBaseChars
+      ? `${baseTitle.slice(0, availableBaseChars - 1).trimEnd()}…`
+      : baseTitle;
   return `${fittedBase}${suffix}`;
 }
 
-function readCodexForkTitleNumber(title: string | null | undefined, baseTitle: string): number | null {
+function readCodexForkTitleNumber(
+  title: string | null | undefined,
+  baseTitle: string,
+): number | null {
   const normalizedTitle = title?.trim() ?? "";
   if (normalizedTitle === baseTitle) return 1;
   const parsed = parseCodexForkTitleSuffix(normalizedTitle);
@@ -397,23 +438,24 @@ function resolveCodexForkTitleLineage(
     const ancestorSuffix = parseCodexForkTitleSuffix(ancestorTitle);
     const candidateBases = new Set([ancestorTitle, ancestorSuffix?.baseTitle ?? ""]);
     for (const candidateBase of candidateBases) {
-      if (!candidateBase || formatCodexForkTitle(candidateBase, sourceSuffix.number) !== sourceTitle) continue;
+      if (
+        !candidateBase ||
+        formatCodexForkTitle(candidateBase, sourceSuffix.number) !== sourceTitle
+      )
+        continue;
 
       let rootId = ancestor.conversationId;
-      let parent = ancestor.forkedFromId === null
-        ? null
-        : threadsById.get(ancestor.forkedFromId) ?? null;
+      let parent =
+        ancestor.forkedFromId === null ? null : (threadsById.get(ancestor.forkedFromId) ?? null);
       while (parent !== null && readCodexForkTitleNumber(parent.title, candidateBase) !== null) {
         rootId = parent.conversationId;
-        parent = parent.forkedFromId === null
-          ? null
-          : threadsById.get(parent.forkedFromId) ?? null;
+        parent =
+          parent.forkedFromId === null ? null : (threadsById.get(parent.forkedFromId) ?? null);
       }
       return { baseTitle: candidateBase, rootId };
     }
-    ancestor = ancestor.forkedFromId === null
-      ? null
-      : threadsById.get(ancestor.forkedFromId) ?? null;
+    ancestor =
+      ancestor.forkedFromId === null ? null : (threadsById.get(ancestor.forkedFromId) ?? null);
   }
 
   return { baseTitle: sourceTitle, rootId: source.conversationId };
@@ -428,8 +470,10 @@ export function resolveCodexForkChildThreadTitle(
   if (!sourceTitle) return null;
 
   const threadsById = new Map(
-    [...knownThreads, { ...source, title: sourceTitle }]
-      .map((thread) => [thread.conversationId, thread]),
+    [...knownThreads, { ...source, title: sourceTitle }].map((thread) => [
+      thread.conversationId,
+      thread,
+    ]),
   );
   const lineage = resolveCodexForkTitleLineage({ ...source, title: sourceTitle }, threadsById);
   let maximumNumber = 1;
@@ -459,11 +503,13 @@ export function resolveCodexForkChildThreadTitleFromCatalog(
     threadsById.set(thread.conversationId, thread);
   }
 
-  const source = threadsById.get(input.source.conversationId) ?? {
-    conversationId: input.source.conversationId,
-    forkedFromId: input.source.forkedFromId ?? null,
-    title: input.source.title ?? null,
-  } satisfies CodexForkTitleThread;
+  const source =
+    threadsById.get(input.source.conversationId) ??
+    ({
+      conversationId: input.source.conversationId,
+      forkedFromId: input.source.forkedFromId ?? null,
+      title: input.source.title ?? null,
+    } satisfies CodexForkTitleThread);
   return resolveCodexForkChildThreadTitle(source, threadsById.values());
 }
 
@@ -472,7 +518,7 @@ export function cleanCodexAutoTitlePrompt(
   maxChars = CODEX_THREAD_TITLE_PROMPT_MAX_CHARS,
 ): string {
   const parts = prompt.split(CODEX_REQUEST_MARKER);
-  const normalizedPrompt = (parts.length <= 1 ? prompt : parts[parts.length - 1] ?? "").trim();
+  const normalizedPrompt = (parts.length <= 1 ? prompt : (parts[parts.length - 1] ?? "")).trim();
   if (!normalizedPrompt) {
     return "";
   }
@@ -484,13 +530,14 @@ export function cleanCodexAutoTitlePrompt(
   return normalizedPrompt.slice(0, maxChars).trimEnd();
 }
 
-export function normalizeCodexGeneratedThreadTitle(rawTitle: string | null | undefined): string | null {
+export function normalizeCodexGeneratedThreadTitle(
+  rawTitle: string | null | undefined,
+): string | null {
   let normalizedTitle = (
     rawTitle
       ?.replace(/\r\n/g, "\n")
       .split("\n")
-      .find((line) => line.trim().length > 0)
-    ?? ""
+      .find((line) => line.trim().length > 0) ?? ""
   ).trim();
   if (normalizedTitle.length === 0) {
     return null;
@@ -535,7 +582,9 @@ export interface CodexElectronDisplayThreadTitleInput {
   fallback?: string;
 }
 
-export function resolveCodexElectronDisplayThreadTitle(input: CodexElectronDisplayThreadTitleInput): string {
+export function resolveCodexElectronDisplayThreadTitle(
+  input: CodexElectronDisplayThreadTitleInput,
+): string {
   const explicitTitle = input.threadName?.trim();
   if (explicitTitle) {
     return explicitTitle;

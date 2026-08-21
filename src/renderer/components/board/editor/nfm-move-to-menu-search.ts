@@ -1,8 +1,4 @@
-import {
-  matchesSearchTokens,
-  normalizeSearchText,
-  tokenizeSearchQuery,
-} from "@/lib/search-text";
+import { matchesSearchTokens, normalizeSearchText, tokenizeSearchQuery } from "@/lib/search-text";
 import type { BoardSummary, Project } from "@/lib/types";
 import type { ProjectAppearance } from "../../../../shared/project-appearance";
 import { WORKFLOW_STATUS_COLUMNS } from "../../../../shared/workflow-status";
@@ -107,7 +103,6 @@ export function createNfmMoveToSearchIndex({
         boardOrder: columnOrder,
       });
     });
-
   });
 
   return {
@@ -133,7 +128,6 @@ export function createNfmMoveToSearchIndex({
           addColumnMatch(matchedColumnIdsByProjectId, document.projectId, document.columnId);
           continue;
         }
-
       }
 
       return {

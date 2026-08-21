@@ -43,6 +43,7 @@ otherwise inaccessible Page metadata. Ordinary telemetry and remote diagnostics
 follow the same content-redaction policy as Page titles and search queries.
 
 ## Threat Model
+
 Nodex is local-first. Main risks are malformed local inputs, accidental data loss, renderer capability abuse, and unsafe command/file-change approvals during Codex thread execution.
 
 ## Security Controls in Place
@@ -429,6 +430,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - The bundled Browser automation runtime always starts with its own ambient analytics and diagnostics network disabled. Nodex's telemetry setting never enables that runtime traffic, while page navigation and agent browser control remain available.
 
 ## Current Gaps
+
 - No role-based access control model (single-user/local trust assumption).
 - Security logging/auditing is still local-first and not audit-grade. Backend logs redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records; optional Sentry crash diagnostics are for failure triage, not an audit trail.
 - `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@6` across the current Library, in addition to unrestricted Codex filesystem and network access.
@@ -437,6 +439,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Dynamic-tool receipts are an idempotency and recovery ledger, not an audit-grade record of human intent. They intentionally exclude raw Nested Markdown/body content; the authorization preview is not retained as a second document history.
 
 ## Safe Operating Practices
+
 - Keep dependencies updated through reviewed pnpm, Cargo, and GitHub Actions
   Dependabot changes.
 - Use manual backups before destructive operations.
@@ -445,6 +448,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   disaster-recovery backup.
 
 ## Hardening Backlog
+
 - Basic security smoke checks in CI for IPC/body limits and absence of SQL inspection routes.
 - Approval policy profiles (for example, command/file-change scopes and allow-lists) beyond the current `sandbox`/`full-access`/`custom` permission presets.
 - Additional execution boundary controls for Codex subprocess invocations.

@@ -52,15 +52,7 @@ describe("Board keyboard navigation", () => {
   });
 
   test("resolves selected actions in visible Board order", () => {
-    expect(resolveBoardKeyboardActionPageIds(
-      board,
-      "c",
-      new Set(["c", "a"]),
-    )).toEqual(["a", "c"]);
-    expect(resolveBoardKeyboardActionPageIds(
-      board,
-      "b",
-      new Set(["a", "c"]),
-    )).toEqual(["b"]);
+    expect(resolveBoardKeyboardActionPageIds(board, "c", new Set(["c", "a"]))).toEqual(["a", "c"]);
+    expect(resolveBoardKeyboardActionPageIds(board, "b", new Set(["a", "c"]))).toEqual(["b"]);
   });
 });

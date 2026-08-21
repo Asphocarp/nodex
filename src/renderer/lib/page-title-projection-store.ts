@@ -15,18 +15,12 @@ interface PageTitleEntry {
 
 export interface PageTitleProjectionStore {
   createSource: (resourceKey: string, fallbackTitle: string) => PageTitleSource;
-  publishLive: (
-    resourceKey: string,
-    publisherId: string,
-    title: string,
-  ) => void;
+  publishLive: (resourceKey: string, publisherId: string, title: string) => void;
   releasePublisher: (resourceKey: string, publisherId: string) => void;
 }
 
-export const makePageTitleResourceKey = (
-  libraryId: string,
-  pageId: string,
-): string => JSON.stringify([libraryId, pageId]);
+export const makePageTitleResourceKey = (libraryId: string, pageId: string): string =>
+  JSON.stringify([libraryId, pageId]);
 
 const presentPageTitle = (title: string): string => title.trim() || "Untitled";
 
@@ -38,9 +32,8 @@ const latestLiveTitle = (entry: PageTitleEntry): string | undefined => {
   return latest?.title;
 };
 
-const readEntryTitle = (
-  entry: PageTitleEntry | undefined,
-): string | undefined => entry ? latestLiveTitle(entry) : undefined;
+const readEntryTitle = (entry: PageTitleEntry | undefined): string | undefined =>
+  entry ? latestLiveTitle(entry) : undefined;
 
 /**
  * Renderer-lifetime projection of Page titles into non-authoritative chrome.
@@ -65,10 +58,7 @@ export function createPageTitleProjectionStore(): PageTitleProjectionStore {
     return entry;
   };
 
-  const notifyIfChanged = (
-    entry: PageTitleEntry,
-    previousTitle: string | undefined,
-  ): void => {
+  const notifyIfChanged = (entry: PageTitleEntry, previousTitle: string | undefined): void => {
     if (readEntryTitle(entry) === previousTitle) return;
     entry.listeners.forEach((listener) => listener());
   };
@@ -91,9 +81,8 @@ export function createPageTitleProjectionStore(): PageTitleProjectionStore {
 
   return {
     createSource: (resourceKey, fallbackTitle) => ({
-      getSnapshot: () => presentPageTitle(
-        readEntryTitle(entries.get(resourceKey)) ?? fallbackTitle,
-      ),
+      getSnapshot: () =>
+        presentPageTitle(readEntryTitle(entries.get(resourceKey)) ?? fallbackTitle),
       subscribe: (listener) => {
         const entry = getOrCreateEntry(resourceKey);
         entry.listeners.add(listener);

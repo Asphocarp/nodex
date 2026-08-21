@@ -29,10 +29,7 @@ type ProjectionListener = (message: ProjectionStreamMessage) => void;
 type RevocationListener = (message: ResourceRevocationMessage) => void;
 type DocumentListener = (event: DocumentSyncRealtimeEvent) => void;
 type Atom = AuthorizedDeliveryPacket["atoms"][number];
-type AtomListener = (
-  packet: AuthorizedDeliveryPacket,
-  atom: Atom,
-) => void;
+type AtomListener = (packet: AuthorizedDeliveryPacket, atom: Atom) => void;
 
 export type RendererLocalCommitAdmission =
   | { readonly kind: "no_op" }
@@ -67,16 +64,11 @@ const DEFAULT_MAX_REMEMBERED_COMMITS = 100_000;
 const DEFAULT_MAX_IN_FLIGHT_ADMISSIONS = 256;
 const DOCUMENT_EVENT_PREPARATION_CONCURRENCY = 8;
 
-const sameValues = <Value>(
-  actual: readonly Value[],
-  expected: readonly Value[],
-): boolean => actual.length === expected.length
-  && actual.every((value, index) => value === expected[index]);
+const sameValues = <Value>(actual: readonly Value[], expected: readonly Value[]): boolean =>
+  actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 
 const bytesToHex = (bytes: ArrayBuffer): string =>
-  [...new Uint8Array(bytes)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
   const copy = Uint8Array.from(bytes);
@@ -87,68 +79,53 @@ const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
 const validatePacket = (packet: AuthorizedDeliveryPacket): void => {
   const identity = packet.manifest.identity;
   if (
-    packet.packet_version !== 4
-    || !identity.store_epoch
-    || identity.store_epoch !== identity.store_epoch.trim()
-    || !Number.isSafeInteger(identity.commit_seq)
-    || identity.commit_seq < 1
-    || !HASH_PATTERN.test(identity.manifest_hash)
-    || !HASH_PATTERN.test(packet.packet_hash)
+    packet.packet_version !== 4 ||
+    !identity.store_epoch ||
+    identity.store_epoch !== identity.store_epoch.trim() ||
+    !Number.isSafeInteger(identity.commit_seq) ||
+    identity.commit_seq < 1 ||
+    !HASH_PATTERN.test(identity.manifest_hash) ||
+    !HASH_PATTERN.test(packet.packet_hash)
   ) {
     throw new TypeError("Authorized local commit packet identity is invalid");
   }
   if (
-    !packet.authorization_scope.library_id
-    || packet.authorization_scope.library_id
-      !== packet.authorization_scope.library_id.trim()
+    !packet.authorization_scope.library_id ||
+    packet.authorization_scope.library_id !== packet.authorization_scope.library_id.trim()
   ) {
     throw new TypeError("Authorized local commit packet scope is invalid");
   }
   if (
-    authorizationScopeKey(packet.delivery_address)
-      !== authorizationScopeKey(packet.authorization_scope)
+    authorizationScopeKey(packet.delivery_address) !==
+    authorizationScopeKey(packet.authorization_scope)
   ) {
     throw new TypeError("Authorized local commit packet address is invalid");
   }
   const atomIds = packet.atoms.map((atom) => atom.descriptor.atom_id);
-  const documentOrders = packet.document_effects.map(
-    (effect) => effect.reference.effect_order,
-  );
+  const documentOrders = packet.document_effects.map((effect) => effect.reference.effect_order);
   const inlineDocumentOrders = packet.document_effects
     .filter((effect) => effect.inline_update !== null && effect.inline_update !== undefined)
     .map((effect) => effect.reference.effect_order);
-  const projectionScopeKeys = packet.projection_effects.map(
-    (effect) => effect.scope.canonical_key,
-  );
+  const projectionScopeKeys = packet.projection_effects.map((effect) => effect.scope.canonical_key);
   if (
-    !sameValues(packet.coverage.atom_ids, atomIds)
-    || !sameValues(packet.coverage.document_effect_orders, documentOrders)
-    || !sameValues(
-      packet.coverage.inline_document_effect_orders,
-      inlineDocumentOrders,
-    )
-    || !sameValues(packet.coverage.projection_scope_keys, projectionScopeKeys)
+    !sameValues(packet.coverage.atom_ids, atomIds) ||
+    !sameValues(packet.coverage.document_effect_orders, documentOrders) ||
+    !sameValues(packet.coverage.inline_document_effect_orders, inlineDocumentOrders) ||
+    !sameValues(packet.coverage.projection_scope_keys, projectionScopeKeys)
   ) {
     throw new TypeError("Authorized local commit packet coverage is invalid");
   }
 };
 
-const projectionScopeFromPacket = (
-  packet: AuthorizedDeliveryPacket,
-): ProjectionScope | null => deliveryAddressProjectionScope(packet.delivery_address);
+const projectionScopeFromPacket = (packet: AuthorizedDeliveryPacket): ProjectionScope | null =>
+  deliveryAddressProjectionScope(packet.delivery_address);
 
-const authorizationScopeKey = (
-  scope: AuthorizedDeliveryPacket["authorization_scope"],
-): string => scope.kind === "library"
-  ? JSON.stringify(["library", scope.library_id])
-  : scope.kind === "project"
-    ? JSON.stringify(["project", scope.library_id, scope.project_id])
-    : JSON.stringify([
-        "document",
-        scope.library_id,
-        scope.project_id ?? null,
-        scope.document_id,
-      ]);
+const authorizationScopeKey = (scope: AuthorizedDeliveryPacket["authorization_scope"]): string =>
+  scope.kind === "library"
+    ? JSON.stringify(["library", scope.library_id])
+    : scope.kind === "project"
+      ? JSON.stringify(["project", scope.library_id, scope.project_id])
+      : JSON.stringify(["document", scope.library_id, scope.project_id ?? null, scope.document_id]);
 
 const documentClaim = (
   _packet: AuthorizedDeliveryPacket,
@@ -156,7 +133,8 @@ const documentClaim = (
 ): { readonly key: string; readonly fingerprint: string } => {
   const reference = effect.reference;
   return {
-    key: JSON.stringify(["document",
+    key: JSON.stringify([
+      "document",
       reference.document_id,
       reference.generation,
       reference.base_head_seq,
@@ -186,12 +164,7 @@ const projectionDeliveryClaim = (
   resultRevision: number,
   effectHash: string,
 ): { readonly key: string; readonly fingerprint: string } => ({
-  key: JSON.stringify([
-    projectionScopeKey(scope),
-    "projection",
-    scopeKey,
-    resultRevision,
-  ]),
+  key: JSON.stringify([projectionScopeKey(scope), "projection", scopeKey, resultRevision]),
   fingerprint: effectHash,
 });
 
@@ -215,19 +188,13 @@ const atomClaim = (
     "atom",
     atom.descriptor.atom_id,
   ]),
-  fingerprint: JSON.stringify([
-    atom.descriptor.kind,
-    atom.descriptor.payload_hash,
-  ]),
+  fingerprint: JSON.stringify([atom.descriptor.kind, atom.descriptor.payload_hash]),
 });
 
 const documentResyncEvent = (
   packet: AuthorizedDeliveryPacket,
   effect: AuthorizedDeliveryPacket["document_effects"][number],
-  reason: Extract<
-    DocumentSyncRealtimeEvent,
-    { readonly kind: "resync-required" }
-  >["reason"],
+  reason: Extract<DocumentSyncRealtimeEvent, { readonly kind: "resync-required" }>["reason"],
 ): DocumentSyncRealtimeEvent => ({
   kind: "resync-required",
   documentId: effect.reference.document_id,
@@ -254,8 +221,8 @@ const prepareDocumentEvent = async (
   }
   const update = Uint8Array.from(inline);
   if (
-    update.byteLength !== effect.reference.update_byte_length
-    || await sha256Hex(update) !== effect.reference.update_hash
+    update.byteLength !== effect.reference.update_byte_length ||
+    (await sha256Hex(update)) !== effect.reference.update_hash
   ) {
     return {
       key: claim.key,
@@ -299,21 +266,21 @@ export class RendererLocalCommitIngress {
   readonly #onListenerError: ((error: unknown) => void) | undefined;
   #inFlightAdmissions = 0;
 
-  constructor(input: {
-    readonly maxRememberedCommits?: number;
-    readonly maxInFlightAdmissions?: number;
-    readonly onListenerError?: (error: unknown) => void;
-    readonly authorityFreshnessIndex?: AuthorityFreshnessIndex;
-  } = {}) {
+  constructor(
+    input: {
+      readonly maxRememberedCommits?: number;
+      readonly maxInFlightAdmissions?: number;
+      readonly onListenerError?: (error: unknown) => void;
+      readonly authorityFreshnessIndex?: AuthorityFreshnessIndex;
+    } = {},
+  ) {
     this.#maxRememberedCommits = Math.max(
       1,
       Math.floor(input.maxRememberedCommits ?? DEFAULT_MAX_REMEMBERED_COMMITS),
     );
     this.#maxInFlightAdmissions = Math.max(
       1,
-      Math.floor(
-        input.maxInFlightAdmissions ?? DEFAULT_MAX_IN_FLIGHT_ADMISSIONS,
-      ),
+      Math.floor(input.maxInFlightAdmissions ?? DEFAULT_MAX_IN_FLIGHT_ADMISSIONS),
     );
     this.#onListenerError = input.onListenerError;
     this.#authorityFreshnessIndex = input.authorityFreshnessIndex;
@@ -322,18 +289,16 @@ export class RendererLocalCommitIngress {
   async admitApply(apply: LocalCommitApply): Promise<RendererLocalCommitAdmission> {
     if (apply.status === "no_op" || !apply.delivery) return { kind: "no_op" };
     if (
-      apply.delivery.manifest.identity.store_epoch !== apply.commit.store_epoch
-      || apply.delivery.manifest.identity.commit_seq !== apply.commit.commit_seq
-      || apply.delivery.manifest.identity.manifest_hash !== apply.commit.manifest_hash
+      apply.delivery.manifest.identity.store_epoch !== apply.commit.store_epoch ||
+      apply.delivery.manifest.identity.commit_seq !== apply.commit.commit_seq ||
+      apply.delivery.manifest.identity.manifest_hash !== apply.commit.manifest_hash
     ) {
       throw new TypeError("Apply response delivery diverges from its commit identity");
     }
     return await this.admitPacket(apply.delivery);
   }
 
-  async admitPacket(
-    packet: AuthorizedDeliveryPacket,
-  ): Promise<RendererLocalCommitAdmission> {
+  async admitPacket(packet: AuthorizedDeliveryPacket): Promise<RendererLocalCommitAdmission> {
     validatePacket(packet);
     if (this.#inFlightAdmissions >= this.#maxInFlightAdmissions) {
       throw new LocalCommitIngressCapacityError();
@@ -348,13 +313,13 @@ export class RendererLocalCommitIngress {
 
   admitAddressReset(reset: AddressReset): void {
     if (
-      !HASH_PATTERN.test(reset.reset_id)
-      || !HASH_PATTERN.test(reset.recipient_lease_id)
-      || !reset.store_epoch
-      || !Number.isSafeInteger(reset.required_commit_seq)
-      || reset.required_commit_seq < 0
-      || authorizationScopeKey(reset.delivery_address)
-        !== authorizationScopeKey(reset.authorization_scope)
+      !HASH_PATTERN.test(reset.reset_id) ||
+      !HASH_PATTERN.test(reset.recipient_lease_id) ||
+      !reset.store_epoch ||
+      !Number.isSafeInteger(reset.required_commit_seq) ||
+      reset.required_commit_seq < 0 ||
+      authorizationScopeKey(reset.delivery_address) !==
+        authorizationScopeKey(reset.authorization_scope)
     ) {
       throw new TypeError("Recipient address reset is invalid");
     }
@@ -392,17 +357,11 @@ export class RendererLocalCommitIngress {
     );
   }
 
-  subscribeProjection(
-    scope: ProjectionScope,
-    listener: ProjectionListener,
-  ): () => void {
+  subscribeProjection(scope: ProjectionScope, listener: ProjectionListener): () => void {
     return this.#subscribe(this.#projectionListeners, projectionScopeKey(scope), listener);
   }
 
-  subscribeRevocation(
-    scope: ProjectionScope,
-    listener: RevocationListener,
-  ): () => void {
+  subscribeRevocation(scope: ProjectionScope, listener: RevocationListener): () => void {
     return this.#subscribe(this.#revocationListeners, projectionScopeKey(scope), listener);
   }
 
@@ -430,14 +389,9 @@ export class RendererLocalCommitIngress {
     };
   }
 
-  async #admitPacket(
-    packet: AuthorizedDeliveryPacket,
-  ): Promise<RendererLocalCommitAdmission> {
+  async #admitPacket(packet: AuthorizedDeliveryPacket): Promise<RendererLocalCommitAdmission> {
     const identity = packet.manifest.identity;
-    const commitKey = JSON.stringify([
-      identity.store_epoch,
-      identity.commit_seq,
-    ]);
+    const commitKey = JSON.stringify([identity.store_epoch, identity.commit_seq]);
     const preparedDocuments = await mapWithConcurrency(
       packet.document_effects,
       DOCUMENT_EVENT_PREPARATION_CONCURRENCY,
@@ -456,17 +410,20 @@ export class RendererLocalCommitIngress {
     // callback. A divergent claim must reject the packet atomically instead
     // of exposing a valid prefix and poisoning later replay.
     const novelVisibilityDeltas = packet.visibility_deltas.filter((delta) =>
-      this.#rememberClaim(state, visibilityClaim(delta))
+      this.#rememberClaim(state, visibilityClaim(delta)),
     );
     const novelDocuments = preparedDocuments.filter((prepared) =>
-      this.#rememberClaim(state, prepared)
+      this.#rememberClaim(state, prepared),
     );
     const novelProjections = packet.projection_effects.filter((effect) => {
-      this.#rememberClaim(state, projectionIntegrityClaim(
-        effect.scope.canonical_key,
-        effect.result_revision,
-        effect.effect_hash,
-      ));
+      this.#rememberClaim(
+        state,
+        projectionIntegrityClaim(
+          effect.scope.canonical_key,
+          effect.result_revision,
+          effect.effect_hash,
+        ),
+      );
       return this.#rememberClaim(
         state,
         projectionDeliveryClaim(
@@ -478,12 +435,13 @@ export class RendererLocalCommitIngress {
       );
     });
     const novelAtoms = packet.atoms.filter((atom) =>
-      this.#rememberClaim(state, atomClaim(packet, atom))
+      this.#rememberClaim(state, atomClaim(packet, atom)),
     );
-    const admitted = novelVisibilityDeltas.length
-      + novelDocuments.length
-      + novelProjections.length
-      + novelAtoms.length;
+    const admitted =
+      novelVisibilityDeltas.length +
+      novelDocuments.length +
+      novelProjections.length +
+      novelAtoms.length;
 
     this.#remembered.set(commitKey, state);
     this.#touch(commitKey, state);
@@ -516,25 +474,23 @@ export class RendererLocalCommitIngress {
     // Authorization loss is admitted before any post-state content in the
     // same packet, so stale surfaces cannot observe a later content callback.
     for (const delta of novelVisibilityDeltas) {
-      const scope = delta.authorization_scope.kind === "library"
-        ? {
-            kind: "library" as const,
-            libraryId: delta.authorization_scope.library_id,
-          }
-        : delta.authorization_scope.kind === "project"
+      const scope =
+        delta.authorization_scope.kind === "library"
           ? {
-              kind: "project" as const,
+              kind: "library" as const,
               libraryId: delta.authorization_scope.library_id,
-              projectId: delta.authorization_scope.project_id,
             }
-          : null;
+          : delta.authorization_scope.kind === "project"
+            ? {
+                kind: "project" as const,
+                libraryId: delta.authorization_scope.library_id,
+                projectId: delta.authorization_scope.project_id,
+              }
+            : null;
       if (!scope) continue;
       for (const revocation of revocationsFromVisibilityDelta(delta)) {
         if (!revocationScopeCanReceive(scope, revocation)) continue;
-        this.#publishRevocation(
-          scope,
-          revocationMessageFromDelivery(packet, revocation, scope),
-        );
+        this.#publishRevocation(scope, revocationMessageFromDelivery(packet, revocation, scope));
       }
     }
     for (const prepared of novelDocuments) {
@@ -544,10 +500,7 @@ export class RendererLocalCommitIngress {
       const scope = projectionScopeFromPacket(packet);
       if (!scope) continue;
       if (!projectionScopeCanReceive(scope, effect)) continue;
-      this.#publishProjection(
-        scope,
-        projectionMessageFromDelivery(packet, effect, scope),
-      );
+      this.#publishProjection(scope, projectionMessageFromDelivery(packet, effect, scope));
     }
     for (const atom of novelAtoms) {
       for (const listener of [...this.#atomListeners]) {
@@ -624,9 +577,7 @@ export class RendererLocalCommitIngress {
       kind: "reset",
       scope,
       stream: floor,
-      reason: reason === "store_epoch_changed"
-        ? "store_epoch_changed"
-        : "event_gap",
+      reason: reason === "store_epoch_changed" ? "store_epoch_changed" : "event_gap",
     });
     this.#publishRevocation(scope, {
       version: 1,
@@ -666,5 +617,4 @@ export const rendererLocalCommitIngress = new RendererLocalCommitIngress({
 
 export const admitLocalCommitApply = async (
   apply: LocalCommitApply,
-): Promise<RendererLocalCommitAdmission> =>
-  await rendererLocalCommitIngress.admitApply(apply);
+): Promise<RendererLocalCommitAdmission> => await rendererLocalCommitIngress.admitApply(apply);

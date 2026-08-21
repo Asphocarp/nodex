@@ -39,27 +39,27 @@ describe("Codex sidebar project thread workspace move", () => {
   test("blocks only source roots absent from a different destination", () => {
     const source = makeProject("source", ["/repo/source", "/repo/shared"]);
     const target = makeProject("target", ["/repo/shared"]);
-    expect(JSON.stringify(listMissingCodexProjectMoveSources(source, target)))
-      .toBe(JSON.stringify(["/repo/source"]));
+    expect(JSON.stringify(listMissingCodexProjectMoveSources(source, target))).toBe(
+      JSON.stringify(["/repo/source"]),
+    );
     expect(listMissingCodexProjectMoveSources(source, source).length).toBe(0);
     expect(listMissingCodexProjectMoveSources(null, target).length).toBe(0);
-    expect(JSON.stringify(listMissingCodexProjectMoveSources(source, null)))
-      .toBe(JSON.stringify(["/repo/source", "/repo/shared"]));
+    expect(JSON.stringify(listMissingCodexProjectMoveSources(source, null))).toBe(
+      JSON.stringify(["/repo/source", "/repo/shared"]),
+    );
   });
 
   test("treats a target ancestor as access to nested source roots without prefix leaks", () => {
-    const source = makeProject("source", [
-      "/repo/nodex",
-      "/repo-a",
-      "/repo/other/../shared",
-    ]);
+    const source = makeProject("source", ["/repo/nodex", "/repo-a", "/repo/other/../shared"]);
     const target = makeProject("target", ["/repo"]);
 
     expect(listMissingCodexProjectMoveSources(source, target)).toEqual(["/repo-a"]);
-    expect(listMissingCodexProjectMoveSources(
-      makeProject("source", ["/repo"]),
-      makeProject("target", ["/repo/nodex"]),
-    )).toEqual(["/repo"]);
+    expect(
+      listMissingCodexProjectMoveSources(
+        makeProject("source", ["/repo"]),
+        makeProject("target", ["/repo/nodex"]),
+      ),
+    ).toEqual(["/repo"]);
   });
 
   test("appends missing roots once and promotes the first root to primary", () => {
@@ -111,8 +111,9 @@ describe("Codex sidebar project thread workspace move", () => {
     expect(prompts[0]).toBe("Move me");
     expect(move.next.cwd).toBe("/generated/work");
     expect(move.next.projectlessOutputDirectory).toBe("/generated/outputs");
-    expect(JSON.stringify(move.runtimeWorkspaceRoots))
-      .toBe(JSON.stringify(["/generated", "/repo/a", "/repo/b"]));
+    expect(JSON.stringify(move.runtimeWorkspaceRoots)).toBe(
+      JSON.stringify(["/generated", "/repo/a", "/repo/b"]),
+    );
   });
 
   test("retains an existing worktree cwd and keeps projectless state unchanged", async () => {
@@ -129,15 +130,17 @@ describe("Codex sidebar project thread workspace move", () => {
       },
     });
     expect(worktree.next.cwd).toBe("/repo/.worktrees/thread/workspace");
-    expect(JSON.stringify(worktree.runtimeWorkspaceRoots))
-      .toBe(JSON.stringify(["/repo/.worktrees/thread/workspace", "/repo/source"]));
+    expect(JSON.stringify(worktree.runtimeWorkspaceRoots)).toBe(
+      JSON.stringify(["/repo/.worktrees/thread/workspace", "/repo/source"]),
+    );
 
     const projectless = resolveCodexProjectlessThreadWorkspaceMove({
       current,
       persistedRuntimeWorkspaceRoots: ["/repo/source"],
     });
     expect(projectless.next.cwd).toBe(current.cwd);
-    expect(JSON.stringify(projectless.runtimeWorkspaceRoots))
-      .toBe(JSON.stringify(["/repo/source"]));
+    expect(JSON.stringify(projectless.runtimeWorkspaceRoots)).toBe(
+      JSON.stringify(["/repo/source"]),
+    );
   });
 });

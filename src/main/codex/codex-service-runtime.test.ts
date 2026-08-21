@@ -63,12 +63,14 @@ describe("codex-service runtime bootstrap", () => {
           missingBinaryMessage: string;
         }>(service);
         const expectedRuntimeRootSuffix = path.join(".generated", "codex-runtime", "agent-runtime");
-        expect(client.binaryPath.endsWith(
-          path.join(expectedRuntimeRootSuffix, "bin", "interpreter"),
-        )).toBe(true);
-        expect((client.additionalSearchPaths[0] ?? "").endsWith(
-          path.join(expectedRuntimeRootSuffix, "codex-path"),
-        )).toBe(true);
+        expect(
+          client.binaryPath.endsWith(path.join(expectedRuntimeRootSuffix, "bin", "interpreter")),
+        ).toBe(true);
+        expect(
+          (client.additionalSearchPaths[0] ?? "").endsWith(
+            path.join(expectedRuntimeRootSuffix, "codex-path"),
+          ),
+        ).toBe(true);
         expect(client.missingBinaryMessage).toBe(
           "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
         );
@@ -92,8 +94,9 @@ describe("codex-service runtime bootstrap", () => {
       try {
         const expectedAgentHome = path.join(nodexHome, "agent");
         expect(Reflect.get(service, "runtimeStateHome")).toBe(expectedAgentHome);
-        expect(localClientOf<{ expectedCodexHome: string }>(service).expectedCodexHome)
-          .toBe(expectedAgentHome);
+        expect(localClientOf<{ expectedCodexHome: string }>(service).expectedCodexHome).toBe(
+          expectedAgentHome,
+        );
       } finally {
         await service.shutdown();
       }
@@ -133,10 +136,7 @@ describe("codex-service runtime bootstrap", () => {
         resolveEnv: () => Promise<NodeJS.ProcessEnv>;
       }>(service);
       const environment = await client.resolveEnv();
-      const parsed = parseToml(fs.readFileSync(
-        path.join(runtimeStateHome, "config.toml"),
-        "utf8",
-      ));
+      const parsed = parseToml(fs.readFileSync(path.join(runtimeStateHome, "config.toml"), "utf8"));
 
       expect(environment.INTERPRETER_HOME).toBe(runtimeStateHome);
       expect(parsed).toMatchObject({

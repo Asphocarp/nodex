@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  escapeAttributeValue,
-  getCollapsedToggleAncestorIds,
-} from "./search-extension";
+import { escapeAttributeValue, getCollapsedToggleAncestorIds } from "./search-extension";
 
 function makeBlockElement(collapsed: boolean): HTMLElement {
   const toggleWrapper = {
@@ -10,8 +7,7 @@ function makeBlockElement(collapsed: boolean): HTMLElement {
       name === "data-show-children" ? (collapsed ? "false" : "true") : null,
   } as unknown as HTMLElement;
   const outer = {
-    querySelector: (selector: string) =>
-      selector === ".bn-toggle-wrapper" ? toggleWrapper : null,
+    querySelector: (selector: string) => (selector === ".bn-toggle-wrapper" ? toggleWrapper : null),
   } as unknown as HTMLElement;
   return {
     closest: (selector: string) => (selector === ".bn-block-outer" ? outer : null),
@@ -43,11 +39,7 @@ describe("search extension helpers", () => {
       ["open-parent", { id: "root" }],
     ]);
 
-    const result = getCollapsedToggleAncestorIds(
-      editorDom,
-      "child",
-      (id) => parentById.get(id),
-    );
+    const result = getCollapsedToggleAncestorIds(editorDom, "child", (id) => parentById.get(id));
 
     expect(JSON.stringify(result)).toBe(JSON.stringify(["root", "parent"]));
   });

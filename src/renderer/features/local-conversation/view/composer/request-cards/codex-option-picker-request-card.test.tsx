@@ -1,9 +1,6 @@
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import type {
-  CodexCanonicalOptionPickerResponse,
-  CodexOptionPickerRequest,
-} from "@/lib/types";
+import type { CodexCanonicalOptionPickerResponse, CodexOptionPickerRequest } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
 import { CodexOptionPickerRequestCard } from "./codex-option-picker-request-card";
 
@@ -51,11 +48,13 @@ describe("CodexOptionPickerRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(JSON.stringify(responses[0])).toBe(JSON.stringify({
-      action: "submit",
-      selectedOptions: ["Projection"],
-      freeformAnswer: "Keep it flat",
-    }));
+    expect(JSON.stringify(responses[0])).toBe(
+      JSON.stringify({
+        action: "submit",
+        selectedOptions: ["Projection"],
+        freeformAnswer: "Keep it flat",
+      }),
+    );
   });
 
   test("preserves current answers for skip and clears them for dismiss", async () => {
@@ -82,21 +81,25 @@ describe("CodexOptionPickerRequestCard", () => {
       fireEvent.click(getByRole("button", { name: "Not now" }));
       await settleAsyncRender();
     });
-    expect(JSON.stringify(responses[0])).toBe(JSON.stringify({
-      action: "skip",
-      selectedOptions: ["Projection", "Surface"],
-      freeformAnswer: null,
-    }));
+    expect(JSON.stringify(responses[0])).toBe(
+      JSON.stringify({
+        action: "skip",
+        selectedOptions: ["Projection", "Surface"],
+        freeformAnswer: null,
+      }),
+    );
 
     await act(async () => {
       fireEvent.keyDown(container.firstElementChild as HTMLElement, { key: "Escape" });
       await settleAsyncRender();
     });
-    expect(JSON.stringify(responses[1])).toBe(JSON.stringify({
-      action: "dismiss",
-      selectedOptions: [],
-      freeformAnswer: null,
-    }));
+    expect(JSON.stringify(responses[1])).toBe(
+      JSON.stringify({
+        action: "dismiss",
+        selectedOptions: [],
+        freeformAnswer: null,
+      }),
+    );
 
     await act(async () => {
       fireEvent.change(getByLabelText("Something else"), { target: { value: "Freeform" } });

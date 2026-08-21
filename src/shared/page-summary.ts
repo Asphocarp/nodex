@@ -4,10 +4,9 @@ import { extractPlainText } from "./nfm";
 
 export const PAGE_DESCRIPTION_PREVIEW_LENGTH = 240;
 
-export function summarizePageDescription(description: string): Pick<
-  DatabasePageSummary,
-  "descriptionPreview" | "descriptionLength" | "hasDescription"
-> {
+export function summarizePageDescription(
+  description: string,
+): Pick<DatabasePageSummary, "descriptionPreview" | "descriptionLength" | "hasDescription"> {
   const preview = extractPlainText(description, PAGE_DESCRIPTION_PREVIEW_LENGTH);
   return {
     descriptionPreview: preview,
@@ -24,9 +23,7 @@ export function toDatabasePageSummary(page: DatabasePage): DatabasePageSummary {
   };
 }
 
-export function pageInputToSummaryPatch(
-  updates: Partial<PageInput>,
-): Partial<DatabasePageSummary> {
+export function pageInputToSummaryPatch(updates: Partial<PageInput>): Partial<DatabasePageSummary> {
   const patch: Partial<DatabasePageSummary> = {};
 
   if ("title" in updates) {
@@ -45,14 +42,17 @@ export function pageInputToSummaryPatch(
   if ("scheduledEnd" in updates) patch.scheduledEnd = updates.scheduledEnd ?? undefined;
   if ("isAllDay" in updates) patch.isAllDay = updates.isAllDay ?? undefined;
   if ("recurrence" in updates) patch.recurrence = updates.recurrence ?? undefined;
-  if ("reminders" in updates && Array.isArray(updates.reminders)) patch.reminders = updates.reminders;
+  if ("reminders" in updates && Array.isArray(updates.reminders))
+    patch.reminders = updates.reminders;
   if ("scheduleTimezone" in updates) patch.scheduleTimezone = updates.scheduleTimezone ?? undefined;
   if ("assignee" in updates) patch.assignee = updates.assignee ?? undefined;
   if ("runInTarget" in updates) patch.runInTarget = updates.runInTarget ?? undefined;
   if ("runInLocalPath" in updates) patch.runInLocalPath = updates.runInLocalPath ?? undefined;
   if ("runInBaseBranch" in updates) patch.runInBaseBranch = updates.runInBaseBranch ?? undefined;
-  if ("runInWorktreePath" in updates) patch.runInWorktreePath = updates.runInWorktreePath ?? undefined;
-  if ("runInEnvironmentPath" in updates) patch.runInEnvironmentPath = updates.runInEnvironmentPath ?? undefined;
+  if ("runInWorktreePath" in updates)
+    patch.runInWorktreePath = updates.runInWorktreePath ?? undefined;
+  if ("runInEnvironmentPath" in updates)
+    patch.runInEnvironmentPath = updates.runInEnvironmentPath ?? undefined;
 
   return patch;
 }

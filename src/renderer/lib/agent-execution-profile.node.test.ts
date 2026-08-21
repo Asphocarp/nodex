@@ -21,24 +21,26 @@ const CATALOG: AgentProviderCatalog = {
       isDefault: true,
       credentialEnvKey: null,
       recommendedHarnessId: null,
-      models: [{
-        providerId: "openai",
-        modelId: "gpt-5.5",
-        displayName: "GPT-5.5",
-        description: null,
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: null,
-        supportedReasoningEfforts: [{ value: "high", displayName: "High", description: null }],
-        defaultReasoningEffort: "high",
-        supportedServiceTiers: [
-          { value: null, displayName: "Standard", description: null },
-          { value: "fast", displayName: "Fast", description: null },
-        ],
-        defaultServiceTier: null,
-        inputCapabilities: ["text", "image"],
-        switchPolicy: "same-thread",
-      }],
+      models: [
+        {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: null,
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: null,
+          supportedReasoningEfforts: [{ value: "high", displayName: "High", description: null }],
+          defaultReasoningEffort: "high",
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: null },
+            { value: "fast", displayName: "Fast", description: null },
+          ],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "same-thread",
+        },
+      ],
     },
     {
       id: "kimi-for-coding",
@@ -50,27 +52,29 @@ const CATALOG: AgentProviderCatalog = {
       isDefault: false,
       credentialEnvKey: "KIMI_API_KEY",
       recommendedHarnessId: "kimi-code",
-      models: [{
-        providerId: "kimi-for-coding",
-        modelId: "kimi-k3",
-        displayName: "Kimi K3",
-        description: null,
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: "kimi-code",
-        supportedReasoningEfforts: [
-          { value: "Thinking", displayName: "Thinking", description: null },
-          { value: "Instant", displayName: "Instant", description: null },
-        ],
-        defaultReasoningEffort: "Thinking",
-        supportedServiceTiers: [
-          { value: null, displayName: "Standard", description: null },
-          { value: "priority", displayName: "Priority", description: null },
-        ],
-        defaultServiceTier: null,
-        inputCapabilities: ["text"],
-        switchPolicy: "new-thread",
-      }],
+      models: [
+        {
+          providerId: "kimi-for-coding",
+          modelId: "kimi-k3",
+          displayName: "Kimi K3",
+          description: null,
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: "kimi-code",
+          supportedReasoningEfforts: [
+            { value: "Thinking", displayName: "Thinking", description: null },
+            { value: "Instant", displayName: "Instant", description: null },
+          ],
+          defaultReasoningEffort: "Thinking",
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: null },
+            { value: "priority", displayName: "Priority", description: null },
+          ],
+          defaultServiceTier: null,
+          inputCapabilities: ["text"],
+          switchPolicy: "new-thread",
+        },
+      ],
     },
   ],
 };
@@ -118,7 +122,9 @@ describe("agent execution profile selection", () => {
     expect(kimi?.reasoningEffort).toBe("Thinking");
     expect(kimi?.serviceTier).toBeNull();
     expect(kimi && selectAgentReasoningEffort(CATALOG, kimi, "unsupported")).toBeNull();
-    expect(kimi && selectAgentReasoningEffort(CATALOG, kimi, "Instant")?.reasoningEffort).toBe("Instant");
+    expect(kimi && selectAgentReasoningEffort(CATALOG, kimi, "Instant")?.reasoningEffort).toBe(
+      "Instant",
+    );
 
     const openaiModel = CATALOG.providers[0]?.models[0];
     expect(openaiModel && selectAgentModel(openaiModel, kimi).reasoningEffort).toBe("high");
@@ -137,25 +143,28 @@ describe("agent execution profile selection", () => {
     });
 
     expect(profile?.serviceTier).toBe("priority");
-    expect(profile && selectAgentProvider(CATALOG, "kimi-for-coding", profile)?.serviceTier)
-      .toBe("priority");
+    expect(profile && selectAgentProvider(CATALOG, "kimi-for-coding", profile)?.serviceTier).toBe(
+      "priority",
+    );
   });
 
   test("maps the semantic Fast preference to the model-advertised wire tier", () => {
     const catalog: AgentProviderCatalog = {
-      providers: CATALOG.providers.map((provider) => provider.id !== "openai"
-        ? provider
-        : {
-            ...provider,
-            models: provider.models.map((model) => ({
-              ...model,
-              supportedServiceTiers: [
-                { value: null, displayName: "Standard", description: null },
-                { value: "priority", displayName: "Fast", description: null },
-              ],
-              defaultServiceTier: "fast",
-            })),
-          }),
+      providers: CATALOG.providers.map((provider) =>
+        provider.id !== "openai"
+          ? provider
+          : {
+              ...provider,
+              models: provider.models.map((model) => ({
+                ...model,
+                supportedServiceTiers: [
+                  { value: null, displayName: "Standard", description: null },
+                  { value: "priority", displayName: "Fast", description: null },
+                ],
+                defaultServiceTier: "fast",
+              })),
+            },
+      ),
     };
 
     const profile = resolveAgentExecutionProfile({
@@ -166,11 +175,13 @@ describe("agent execution profile selection", () => {
     });
 
     expect(profile?.serviceTier).toBe("priority");
-    expect(resolveAgentExecutionProfile({
-      catalog,
-      legacyModelId: "gpt-5.5",
-      legacyReasoningEffort: "high",
-    })?.serviceTier).toBe("priority");
+    expect(
+      resolveAgentExecutionProfile({
+        catalog,
+        legacyModelId: "gpt-5.5",
+        legacyReasoningEffort: "high",
+      })?.serviceTier,
+    ).toBe("priority");
   });
 
   test("preserves the task harness when changing intelligence within one provider", () => {
@@ -183,8 +194,7 @@ describe("agent execution profile selection", () => {
       serviceTier: null,
     };
 
-    expect(kimiModel && selectAgentModel(kimiModel, current).harnessId)
-      .toBe("custom-kimi-harness");
+    expect(kimiModel && selectAgentModel(kimiModel, current).harnessId).toBe("custom-kimi-harness");
   });
 
   test("projects active-thread intelligence without borrowing the global draft", () => {
@@ -213,26 +223,30 @@ describe("agent execution profile selection", () => {
       reasoningEffort: "high",
       serviceTier: "fast",
     });
-    expect(resolveEffectiveAgentExecutionProfile({
-      catalog: CATALOG,
-      activeThreadId: "thread_unknown",
-      threadProfile: null,
-      threadModelProvider: "removed",
-      liveModel: "gpt-5.5",
-      liveReasoningEffort: "high",
-      liveServiceTier: null,
-      draftProfile,
-    })).toBeNull();
-    expect(resolveEffectiveAgentExecutionProfile({
-      catalog: CATALOG,
-      activeThreadId: null,
-      threadProfile: null,
-      threadModelProvider: null,
-      liveModel: null,
-      liveReasoningEffort: null,
-      liveServiceTier: undefined,
-      draftProfile,
-    })).toEqual(draftProfile);
+    expect(
+      resolveEffectiveAgentExecutionProfile({
+        catalog: CATALOG,
+        activeThreadId: "thread_unknown",
+        threadProfile: null,
+        threadModelProvider: "removed",
+        liveModel: "gpt-5.5",
+        liveReasoningEffort: "high",
+        liveServiceTier: null,
+        draftProfile,
+      }),
+    ).toBeNull();
+    expect(
+      resolveEffectiveAgentExecutionProfile({
+        catalog: CATALOG,
+        activeThreadId: null,
+        threadProfile: null,
+        threadModelProvider: null,
+        liveModel: null,
+        liveReasoningEffort: null,
+        liveServiceTier: undefined,
+        draftProfile,
+      }),
+    ).toEqual(draftProfile);
   });
 
   test("treats an explicit standard tier as an override for a stored fast tier", () => {
@@ -252,12 +266,14 @@ describe("agent execution profile selection", () => {
   });
 
   test("fails closed for malformed persisted values", () => {
-    expect(parseStoredAgentExecutionProfile({
-      providerId: "anthropic",
-      modelId: "claude\u0000opus",
-      harnessId: null,
-      reasoningEffort: null,
-      serviceTier: null,
-    })).toBeNull();
+    expect(
+      parseStoredAgentExecutionProfile({
+        providerId: "anthropic",
+        modelId: "claude\u0000opus",
+        harnessId: null,
+        reasoningEffort: null,
+        serviceTier: null,
+      }),
+    ).toBeNull();
   });
 });

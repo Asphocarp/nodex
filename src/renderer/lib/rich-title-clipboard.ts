@@ -100,12 +100,7 @@ export function createRichTitleClipboardPayload(
   for (const item of value) {
     const itemStart = offset;
     offset += richTitleItemLength(item);
-    const selectedText = itemSelectionText(
-      item,
-      itemStart,
-      selectionStart,
-      selectionEnd,
-    );
+    const selectedText = itemSelectionText(item, itemStart, selectionStart, selectionEnd);
     if (selectedText === null) continue;
 
     plainText.push(selectedText);
@@ -164,15 +159,12 @@ export function resolveRichTitleClipboardColor(
     return value.length > 0 ? [{ property: "color", value }] : [];
   }
 
-  const backgroundValue = getPropertyValue(`--${baseColor}-bg`).trim()
-    || COLOR_FALLBACKS[color]
-    || "";
+  const backgroundValue =
+    getPropertyValue(`--${baseColor}-bg`).trim() || COLOR_FALLBACKS[color] || "";
   return [
     ...(backgroundValue.length > 0
       ? [{ property: "background-color" as const, value: backgroundValue }]
       : []),
-    ...(textValue.length > 0
-      ? [{ property: "color" as const, value: textValue }]
-      : []),
+    ...(textValue.length > 0 ? [{ property: "color" as const, value: textValue }] : []),
   ];
 }

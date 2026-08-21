@@ -32,7 +32,8 @@ export function createProjectAgentDockMaterializer(): ProjectAgentDockMaterializ
       const current = materializations.get(key);
       if (current) return current;
 
-      const materialization = port.ensureDefaultDraft(input.projectId)
+      const materialization = port
+        .ensureDefaultDraft(input.projectId)
         .then((session) => {
           if (session.projectId !== input.projectId) {
             throw new Error("Default draft does not belong to the Project Agent Dock");

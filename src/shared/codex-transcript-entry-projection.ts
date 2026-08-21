@@ -1,8 +1,4 @@
-import type {
-  CodexItemView,
-  CodexTranscriptEntry,
-  CodexTranscriptEntrySource,
-} from "./types";
+import type { CodexItemView, CodexTranscriptEntry, CodexTranscriptEntrySource } from "./types";
 
 export function projectCodexItemViewToTranscriptEntry(
   item: CodexItemView,

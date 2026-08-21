@@ -4,9 +4,7 @@ export const NFM_SEND_TO_THREAD_MODE_STORAGE_KEY = "nodex-nfm-send-to-thread-mod
 export const DEFAULT_NFM_SEND_TO_THREAD_MODE: NfmSendToThreadMode = "send";
 
 export function normalizeNfmSendToThreadMode(value: unknown): NfmSendToThreadMode {
-  return value === "send" || value === "wrap-toggle"
-    ? value
-    : DEFAULT_NFM_SEND_TO_THREAD_MODE;
+  return value === "send" || value === "wrap-toggle" ? value : DEFAULT_NFM_SEND_TO_THREAD_MODE;
 }
 
 export function readNfmSendToThreadMode(): NfmSendToThreadMode {
@@ -15,9 +13,7 @@ export function readNfmSendToThreadMode(): NfmSendToThreadMode {
   }
 
   try {
-    return normalizeNfmSendToThreadMode(
-      localStorage.getItem(NFM_SEND_TO_THREAD_MODE_STORAGE_KEY),
-    );
+    return normalizeNfmSendToThreadMode(localStorage.getItem(NFM_SEND_TO_THREAD_MODE_STORAGE_KEY));
   } catch {
     return DEFAULT_NFM_SEND_TO_THREAD_MODE;
   }

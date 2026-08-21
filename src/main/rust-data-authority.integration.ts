@@ -23,32 +23,19 @@ import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapt
 import { createDesktopDocumentSyncBridge } from "./core-client/desktop-document-sync-bridge";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
-import {
-  createDesktopAutomationModuleBridge,
-} from "./core-client/desktop-automation-module-bridge";
-import {
-  createDesktopStoreAdministrationBridge,
-} from "./core-client/desktop-store-administration-bridge";
+import { createDesktopAutomationModuleBridge } from "./core-client/desktop-automation-module-bridge";
+import { createDesktopStoreAdministrationBridge } from "./core-client/desktop-store-administration-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { parseDataSourcePropertyId } from "../shared/database-identities";
-import {
-  NODEX_APP_TOOL_NAMESPACE,
-  NODEX_APP_TOOLSET_REVISION,
-} from "../shared/nodex-agent-tools";
+import { NODEX_APP_TOOL_NAMESPACE, NODEX_APP_TOOLSET_REVISION } from "../shared/nodex-agent-tools";
 import { CreatePagesV6OutputSchema } from "../shared/nodex-agent-tools/v6-schemas";
-import {
-  primaryCanvasDocumentId,
-  type CanvasSceneRealtimeEvent,
-} from "../shared/block-documents";
+import { primaryCanvasDocumentId, type CanvasSceneRealtimeEvent } from "../shared/block-documents";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
 
-const waitUntil = async (
-  predicate: () => boolean,
-  message: string,
-): Promise<void> => {
+const waitUntil = async (predicate: () => boolean, message: string): Promise<void> => {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     if (predicate()) {
@@ -61,11 +48,9 @@ const waitUntil = async (
 
 const listCurrentProcessFiles = (): string => {
   if (process.platform !== "darwin") return "";
-  return execFileSync(
-    "/usr/sbin/lsof",
-    ["-a", "-p", String(process.pid), "-Fn"],
-    { encoding: "utf8" },
-  );
+  return execFileSync("/usr/sbin/lsof", ["-a", "-p", String(process.pid), "-Fn"], {
+    encoding: "utf8",
+  });
 };
 
 afterEach(() => {
@@ -100,9 +85,7 @@ describe("Electron native data authority", () => {
       expect(existsSync(databasePath)).toBe(true);
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
 
-      const workspaceAdapter = createCoreProjectWorkspaceAdapter(
-        runtime.rootClient,
-      );
+      const workspaceAdapter = createCoreProjectWorkspaceAdapter(runtime.rootClient);
       await expect(workspaceAdapter.readProjectBootstrap()).resolves.toEqual({
         status: "empty",
       });
@@ -124,9 +107,7 @@ describe("Electron native data authority", () => {
         authority: Promise.resolve(runtime),
       });
       await expect(desktopWorkspace.listProjects()).resolves.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: projectId }),
-        ]),
+        expect.arrayContaining([expect.objectContaining({ id: projectId })]),
       );
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const database = createCoreDatabaseModuleAdapter({
@@ -152,8 +133,8 @@ describe("Electron native data authority", () => {
       }
       const primaryDatabase = databaseCatalog.value.value.value;
       const primaryDataSource = primaryDatabase?.dataSources[0];
-      const primaryView = primaryDatabase?.views.find((view) =>
-        view.dataSourceId === primaryDataSource?.dataSourceId
+      const primaryView = primaryDatabase?.views.find(
+        (view) => view.dataSourceId === primaryDataSource?.dataSourceId,
       );
       if (!primaryDatabase || !primaryDataSource || !primaryView) {
         throw new Error("Core Database catalog omitted its primary authority");
@@ -167,15 +148,17 @@ describe("Electron native data authority", () => {
           kind: "electron_renderer",
           clientId: "renderer:electron-database-adapter",
         },
-        operations: [{
-          kind: "put_property",
-          dataSourceId: primaryDataSource.dataSourceId,
-          propertyId: nativePropertyId,
-          expectedDataSourceRevision: primaryDataSource.schemaRevision,
-          expectedPropertyRevision: 0,
-          name: "Native Core",
-          schema: { kind: "text" },
-        }],
+        operations: [
+          {
+            kind: "put_property",
+            dataSourceId: primaryDataSource.dataSourceId,
+            propertyId: nativePropertyId,
+            expectedDataSourceRevision: primaryDataSource.schemaRevision,
+            expectedPropertyRevision: 0,
+            name: "Native Core",
+            schema: { kind: "text" },
+          },
+        ],
       } as const;
       const databaseEvents: CoreEventEnvelope[] = [];
       const databaseEventSubscription = await runtime.rootClient.openEventStream(
@@ -197,23 +180,29 @@ describe("Electron native data authority", () => {
         },
       });
       await waitUntil(
-        () => databaseEvents.some((event) =>
-          event.packet.manifest.operation_id === databaseWrite.operationId),
+        () =>
+          databaseEvents.some(
+            (event) => event.packet.manifest.operation_id === databaseWrite.operationId,
+          ),
         "Core Database event was not published",
       );
-      expect(databaseEvents.find((event) =>
-        event.packet.manifest.operation_id === databaseWrite.operationId
-      )).toMatchObject({
+      expect(
+        databaseEvents.find(
+          (event) => event.packet.manifest.operation_id === databaseWrite.operationId,
+        ),
+      ).toMatchObject({
         packet: {
-          atoms: expect.arrayContaining([expect.objectContaining({
-            descriptor: expect.objectContaining({
-              kind: "database_changed",
+          atoms: expect.arrayContaining([
+            expect.objectContaining({
+              descriptor: expect.objectContaining({
+                kind: "database_changed",
+              }),
+              payload: expect.objectContaining({
+                module: "database",
+                event: expect.objectContaining({ project_id: projectId }),
+              }),
             }),
-            payload: expect.objectContaining({
-              module: "database",
-              event: expect.objectContaining({ project_id: projectId }),
-            }),
-          })]),
+          ]),
         },
       });
       await expect(database.apply(databaseWrite)).resolves.toMatchObject({
@@ -234,10 +223,7 @@ describe("Electron native data authority", () => {
           mode: "data_source",
         },
       });
-      if (
-        !updatedDataSource.ok
-        || updatedDataSource.value.value.kind !== "data_source"
-      ) {
+      if (!updatedDataSource.ok || updatedDataSource.value.value.kind !== "data_source") {
         throw new Error("Expected updated Core Data Source descriptor");
       }
       expect(updatedDataSource.value.value.value.properties).toEqual(
@@ -263,10 +249,7 @@ describe("Electron native data authority", () => {
           mode: "data_source",
         },
       });
-      if (
-        !libraryDataSource.ok
-        || libraryDataSource.value.value.kind !== "data_source"
-      ) {
+      if (!libraryDataSource.ok || libraryDataSource.value.value.kind !== "data_source") {
         throw new Error("Expected trusted Library Database read");
       }
       expect("projectId" in libraryDataSource.value).toBe(false);
@@ -274,16 +257,18 @@ describe("Electron native data authority", () => {
       const libraryDatabaseWrite = await libraryDatabase.apply({
         operationId: "electron-library-database-put-property",
         storeEpoch: runtime.rootClient.handshake.store_epoch,
-        operations: [{
-          kind: "put_property",
-          dataSourceId: primaryDataSource.dataSourceId,
-          propertyId: libraryPropertyId,
-          expectedDataSourceRevision:
-            libraryDataSource.value.value.value.dataSource.schemaRevision,
-          expectedPropertyRevision: 0,
-          name: "Library Core",
-          schema: { kind: "text" },
-        }],
+        operations: [
+          {
+            kind: "put_property",
+            dataSourceId: primaryDataSource.dataSourceId,
+            propertyId: libraryPropertyId,
+            expectedDataSourceRevision:
+              libraryDataSource.value.value.value.dataSource.schemaRevision,
+            expectedPropertyRevision: 0,
+            name: "Library Core",
+            schema: { kind: "text" },
+          },
+        ],
       });
       expect(libraryDatabaseWrite).toMatchObject({
         ok: true,
@@ -299,29 +284,34 @@ describe("Electron native data authority", () => {
       }
       expect("projectId" in libraryDatabaseWrite.value).toBe(false);
       await waitUntil(
-        () => databaseEvents.some((event) =>
-          event.packet.manifest.operation_id
-            === "electron-library-database-put-property"),
+        () =>
+          databaseEvents.some(
+            (event) =>
+              event.packet.manifest.operation_id === "electron-library-database-put-property",
+          ),
         "Core Library Database event was not published",
       );
-      expect(databaseEvents.find((event) =>
-        event.packet.manifest.operation_id === "electron-library-database-put-property"
-      )).toMatchObject({
+      expect(
+        databaseEvents.find(
+          (event) =>
+            event.packet.manifest.operation_id === "electron-library-database-put-property",
+        ),
+      ).toMatchObject({
         packet: {
-          atoms: expect.arrayContaining([expect.objectContaining({
-            descriptor: expect.objectContaining({
-              kind: "database_changed",
+          atoms: expect.arrayContaining([
+            expect.objectContaining({
+              descriptor: expect.objectContaining({
+                kind: "database_changed",
+              }),
+              payload: expect.objectContaining({
+                module: "database",
+                event: expect.objectContaining({ project_id: null }),
+              }),
             }),
-            payload: expect.objectContaining({
-              module: "database",
-              event: expect.objectContaining({ project_id: null }),
-            }),
-          })]),
+          ]),
         },
       });
-      const projectDocuments = createCoreDocumentSyncAdapter(
-        runtime.clientForProject(projectId),
-      );
+      const projectDocuments = createCoreDocumentSyncAdapter(runtime.clientForProject(projectId));
       const nativeSourceBlockId = "01981e00-0000-7000-8000-000000000001";
       const nativeSourceDocumentId = "01981e00-0000-7000-8000-000000000002";
       const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
@@ -340,28 +330,33 @@ describe("Electron native data authority", () => {
           kind: "create_synced_source" as const,
           sourceBlockId: nativeSourceBlockId,
           documentId: nativeSourceDocumentId,
-          initialBlocks: [{
-            id: nativeContentBlockId,
-            type: "paragraph",
-            props: {},
-            content: [{
-              type: "text",
-              text: "Native Additional Document command",
-              styles: {},
-            }],
-            children: [],
-          }, {
-            id: nativeEmptyBlockId,
-            type: "paragraph",
-            props: {},
-            content: [],
-            children: [],
-          }],
+          initialBlocks: [
+            {
+              id: nativeContentBlockId,
+              type: "paragraph",
+              props: {},
+              content: [
+                {
+                  type: "text",
+                  text: "Native Additional Document command",
+                  styles: {},
+                },
+              ],
+              children: [],
+            },
+            {
+              id: nativeEmptyBlockId,
+              type: "paragraph",
+              props: {},
+              content: [],
+              children: [],
+            },
+          ],
           placement: { kind: "library" as const },
         },
       };
-      const createdSyncedSource = await projectDocuments
-        .applyAdditionalDocumentCommand(createSyncedSource);
+      const createdSyncedSource =
+        await projectDocuments.applyAdditionalDocumentCommand(createSyncedSource);
       if (!createdSyncedSource.ok) {
         throw new Error(
           `Core Additional Document command failed: ${createdSyncedSource.error.code}: ${createdSyncedSource.error.message}`,
@@ -374,32 +369,30 @@ describe("Electron native data authority", () => {
           projectId,
           duplicate: false,
           effect: {
-            createdBlockIds: expect.arrayContaining([
-              nativeSourceBlockId,
-              nativeContentBlockId,
-            ]),
-            documentHeads: [{
-              documentId: nativeSourceDocumentId,
-              generation: 1,
-              headSeq: 1,
-            }],
+            createdBlockIds: expect.arrayContaining([nativeSourceBlockId, nativeContentBlockId]),
+            documentHeads: [
+              {
+                documentId: nativeSourceDocumentId,
+                generation: 1,
+                headSeq: 1,
+              },
+            ],
           },
         },
       });
       const desktopDocuments = createDesktopDocumentSyncBridge({
         authority: Promise.resolve(runtime),
       });
-      await expect(desktopDocuments.getOwnedDocumentDescriptor(
-        projectId,
-        nativeSourceBlockId,
-      )).resolves.toMatchObject({
+      await expect(
+        desktopDocuments.getOwnedDocumentDescriptor(projectId, nativeSourceBlockId),
+      ).resolves.toMatchObject({
         documentId: nativeSourceDocumentId,
         generation: 1,
         headSeq: 1,
       });
-      await expect(projectDocuments.applyAdditionalDocumentCommand(
-        createSyncedSource,
-      )).resolves.toMatchObject({
+      await expect(
+        projectDocuments.applyAdditionalDocumentCommand(createSyncedSource),
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           operationId: createSyncedSource.operationId,
@@ -420,9 +413,7 @@ describe("Electron native data authority", () => {
         },
         revisionKind: "manual" as const,
       };
-      const checkpoint = await projectDocuments.createCheckpoint(
-        checkpointRequest,
-      );
+      const checkpoint = await projectDocuments.createCheckpoint(checkpointRequest);
       if (!checkpoint.ok) {
         throw new Error(
           `Core Document checkpoint failed: ${checkpoint.error.code}: ${checkpoint.error.message}`,
@@ -443,9 +434,7 @@ describe("Electron native data authority", () => {
           },
         },
       });
-      await expect(
-        projectDocuments.createCheckpoint(checkpointRequest),
-      ).resolves.toMatchObject({
+      await expect(projectDocuments.createCheckpoint(checkpointRequest)).resolves.toMatchObject({
         ok: true,
         value: { duplicate: true },
       });
@@ -473,10 +462,7 @@ describe("Electron native data authority", () => {
           },
         },
       });
-      if (
-        !versionDetail.ok
-        || versionDetail.value.materialization.kind !== "synced_block"
-      ) {
+      if (!versionDetail.ok || versionDetail.value.materialization.kind !== "synced_block") {
         throw new Error("Expected native Synced Block version detail");
       }
       const changeRequest = {
@@ -491,10 +477,12 @@ describe("Electron native data authority", () => {
           kind: "electron_renderer",
           clientId: "renderer:electron-document-history",
         },
-        operations: [{
-          kind: "delete_block" as const,
-          blockId: nativeContentBlockId,
-        }],
+        operations: [
+          {
+            kind: "delete_block" as const,
+            blockId: nativeContentBlockId,
+          },
+        ],
       };
       const changed = await projectDocuments.applyDocumentMutation(changeRequest);
       expect(changed).toMatchObject({
@@ -552,32 +540,34 @@ describe("Electron native data authority", () => {
         limit: 20,
       });
       if (!restoredVersions.ok) {
-        throw new Error(
-          `Core restored history list failed: ${restoredVersions.error.message}`,
-        );
+        throw new Error(`Core restored history list failed: ${restoredVersions.error.message}`);
       }
       expect(restoredVersions.value).toHaveLength(4);
-      expect(restoredVersions.value).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          baseHeadSeq: 2,
-          revisionKind: "operation",
-          sourceMutationId: changeRequest.mutationId,
-        }),
-      ]));
+      expect(restoredVersions.value).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            baseHeadSeq: 2,
+            revisionKind: "operation",
+            sourceMutationId: changeRequest.mutationId,
+          }),
+        ]),
+      );
       const restoredVersion = restoredVersions.value.find(
         (version) =>
-          version.baseHeadSeq === 3
-          && version.revisionKind === "restore"
-          && version.sourceMutationId === restoreRequest.mutationId,
+          version.baseHeadSeq === 3 &&
+          version.revisionKind === "restore" &&
+          version.sourceMutationId === restoreRequest.mutationId,
       );
       if (!restoredVersion) {
         throw new Error("Core history omitted the post-restore checkpoint");
       }
-      await expect(projectDocuments.getVersion({
-        projectId,
-        documentId: nativeSourceDocumentId,
-        versionId: restoredVersion.versionId,
-      })).resolves.toMatchObject({
+      await expect(
+        projectDocuments.getVersion({
+          projectId,
+          documentId: nativeSourceDocumentId,
+          versionId: restoredVersion.versionId,
+        }),
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           summary: {
@@ -593,31 +583,32 @@ describe("Electron native data authority", () => {
       const nativeTargetSourceBlockId = "01981e00-0000-7000-8000-000000000005";
       const nativeTargetDocumentId = "01981e00-0000-7000-8000-000000000006";
       const nativeTargetAnchorBlockId = "01981e00-0000-7000-8000-000000000007";
-      const createdTransferTarget = await projectDocuments
-        .applyAdditionalDocumentCommand({
-          operationId: "electron-block-transfer-create-target",
-          projectId,
-          storeEpoch: runtime.rootClient.handshake.store_epoch,
-          clientSessionId: "renderer:electron-block-transfer",
-          actor: {
-            kind: "electron_renderer",
-            clientId: "renderer:electron-block-transfer",
-          },
-          coordination: { kind: "fifo_only" },
-          operation: {
-            kind: "create_synced_source",
-            sourceBlockId: nativeTargetSourceBlockId,
-            documentId: nativeTargetDocumentId,
-            initialBlocks: [{
+      const createdTransferTarget = await projectDocuments.applyAdditionalDocumentCommand({
+        operationId: "electron-block-transfer-create-target",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        clientSessionId: "renderer:electron-block-transfer",
+        actor: {
+          kind: "electron_renderer",
+          clientId: "renderer:electron-block-transfer",
+        },
+        coordination: { kind: "fifo_only" },
+        operation: {
+          kind: "create_synced_source",
+          sourceBlockId: nativeTargetSourceBlockId,
+          documentId: nativeTargetDocumentId,
+          initialBlocks: [
+            {
               id: nativeTargetAnchorBlockId,
               type: "paragraph",
               props: {},
               content: [],
               children: [],
-            }],
-            placement: { kind: "library" },
-          },
-        });
+            },
+          ],
+          placement: { kind: "library" },
+        },
+      });
       if (!createdTransferTarget.ok) {
         throw new Error(
           `Core Block transfer target creation failed: ${createdTransferTarget.error.message}`,
@@ -684,15 +675,14 @@ describe("Electron native data authority", () => {
           }),
         ]),
       });
-      await expect(transferAdapter.commit(transferIntent)).resolves
-        .toMatchObject({
-          ok: true,
-          value: {
-            operationId: transferIntent.operationId,
-            duplicate: true,
-            finalLocationRevisions: { [nativeContentBlockId]: 4 },
-          },
-        });
+      await expect(transferAdapter.commit(transferIntent)).resolves.toMatchObject({
+        ok: true,
+        value: {
+          operationId: transferIntent.operationId,
+          duplicate: true,
+          finalLocationRevisions: { [nativeContentBlockId]: 4 },
+        },
+      });
       const promoteToLibraryIntent = {
         ...transferIntent,
         operationId: "electron-native-block-transfer-promote-to-library",
@@ -705,9 +695,7 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const promotedToLibrary = await transferAdapter.commit(
-        promoteToLibraryIntent,
-      );
+      const promotedToLibrary = await transferAdapter.commit(promoteToLibraryIntent);
       if (!promotedToLibrary.ok) {
         throw new Error(
           `Core Library promotion failed: ${promotedToLibrary.error.code}: ${promotedToLibrary.error.message}`,
@@ -717,17 +705,19 @@ describe("Electron native data authority", () => {
         operationId: promoteToLibraryIntent.operationId,
         duplicate: false,
         resultRootBlockIds: [nativeContentBlockId],
-        transformationEvidence: [{
-          sourceBlockId: nativeContentBlockId,
-          resultPageId: nativeContentBlockId,
-          kind: "promote",
-          sourceBlockType: "paragraph",
-          consumedPropertyKeys: [],
-          bodyRootBlockIds: [expect.any(String)],
-          sourceToResultBlockIds: {
-            [nativeContentBlockId]: nativeContentBlockId,
+        transformationEvidence: [
+          {
+            sourceBlockId: nativeContentBlockId,
+            resultPageId: nativeContentBlockId,
+            kind: "promote",
+            sourceBlockType: "paragraph",
+            consumedPropertyKeys: [],
+            bodyRootBlockIds: [expect.any(String)],
+            sourceToResultBlockIds: {
+              [nativeContentBlockId]: nativeContentBlockId,
+            },
           },
-        }],
+        ],
         finalLocations: {
           [nativeContentBlockId]: {
             kind: "library",
@@ -768,27 +758,26 @@ describe("Electron native data authority", () => {
           },
         },
       };
-      const copiedToDataSource = await transferAdapter.commit(
-        copyToDataSourceIntent,
-      );
+      const copiedToDataSource = await transferAdapter.commit(copyToDataSourceIntent);
       if (!copiedToDataSource.ok) {
         throw new Error(
           `Core Data Source copy failed: ${copiedToDataSource.error.code}: ${copiedToDataSource.error.message}`,
         );
       }
-      const copiedDataSourcePageId =
-        copiedToDataSource.value.resultRootBlockIds[0];
+      const copiedDataSourcePageId = copiedToDataSource.value.resultRootBlockIds[0];
       if (!copiedDataSourcePageId) {
         throw new Error("Core Data Source copy omitted its Page root");
       }
       expect(copiedToDataSource.value).toMatchObject({
         operationId: copyToDataSourceIntent.operationId,
         duplicate: false,
-        transformationEvidence: [{
-          sourceBlockId: nativeTargetAnchorBlockId,
-          resultPageId: copiedDataSourcePageId,
-          kind: "promote",
-        }],
+        transformationEvidence: [
+          {
+            sourceBlockId: nativeTargetAnchorBlockId,
+            resultPageId: copiedDataSourcePageId,
+            kind: "promote",
+          },
+        ],
         finalLocations: {
           [copiedDataSourcePageId]: {
             kind: "data_source",
@@ -808,37 +797,41 @@ describe("Electron native data authority", () => {
         databaseModule: desktopDatabase,
         documentSync: desktopDocuments,
       });
-      const nativeAgentContext = await nativeAgentService.registry.execute({
-        namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-        tool: "get_context",
-      }, {
-        include: { databases: true },
-      }, {
-        threadId: "thread-native-context",
-        callId: "call-native-context",
-        authority: {
+      const nativeAgentContext = await nativeAgentService.registry.execute(
+        {
+          namespace: NODEX_APP_TOOL_NAMESPACE,
+          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+          tool: "get_context",
+        },
+        {
+          include: { databases: true },
+        },
+        {
           threadId: "thread-native-context",
-          turnId: "turn-native-context",
-          rootThreadId: "thread-native-context",
-          actorProjectId: projectId,
-          libraryId: runtime.rootClient.handshake.library_id,
-          storeEpoch: runtime.rootClient.handshake.store_epoch,
-          scope: "project",
-          source: "project_turn",
+          callId: "call-native-context",
+          authority: {
+            threadId: "thread-native-context",
+            turnId: "turn-native-context",
+            rootThreadId: "thread-native-context",
+            actorProjectId: projectId,
+            libraryId: runtime.rootClient.handshake.library_id,
+            storeEpoch: runtime.rootClient.handshake.store_epoch,
+            scope: "project",
+            source: "project_turn",
+          },
+          access: {
+            read: "allowed",
+            write: "consent_required",
+            domains: ["document", "placement", "database"] as (
+              | "document"
+              | "placement"
+              | "database"
+            )[],
+          },
+          resolveResourceAccess: async () => ({ kind: "authorized" }),
+          authorize: async () => "deny",
         },
-        access: {
-          read: "allowed",
-          write: "consent_required",
-          domains: ["document", "placement", "database"] as (
-            | "document"
-            | "placement"
-            | "database"
-          )[],
-        },
-        resolveResourceAccess: async () => ({ kind: "authorized" }),
-        authorize: async () => "deny",
-      });
+      );
       expect(nativeAgentContext.output).toMatchObject({
         data: {
           project: {
@@ -853,44 +846,31 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
-      const nativeWindow = await desktopDatabase.getDatabaseViewWindow(
-        projectId,
-        { first: 200 },
-      );
-      expect(nativeWindow.board.columns.find((column) => column.id === "ship")?.cards)
-        .toEqual(expect.arrayContaining([
+      const nativeWindow = await desktopDatabase.getDatabaseViewWindow(projectId, { first: 200 });
+      expect(nativeWindow.board.columns.find((column) => column.id === "ship")?.cards).toEqual(
+        expect.arrayContaining([
           expect.objectContaining({
             id: copiedDataSourcePageId,
             status: "ship",
             hasDescription: false,
           }),
-        ]));
-      const scopedWindow = await desktopDatabase.getDatabaseViewWindow(
-        projectId,
-        {
-          first: 200,
-          groupScope: { kind: "path", groupKey: "ship", subgroupKey: null },
-        },
+        ]),
       );
+      const scopedWindow = await desktopDatabase.getDatabaseViewWindow(projectId, {
+        first: 200,
+        groupScope: { kind: "path", groupKey: "ship", subgroupKey: null },
+      });
       expect(scopedWindow.rows.length).toBeGreaterThan(0);
-      expect(
-        scopedWindow.rows.every((row) => row.groupKey === "ship"),
-      ).toBe(true);
-      const nativeGroups = await desktopDatabase.getDatabaseViewGroups(
-        projectId,
-        {},
-      );
+      expect(scopedWindow.rows.every((row) => row.groupKey === "ship")).toBe(true);
+      const nativeGroups = await desktopDatabase.getDatabaseViewGroups(projectId, {});
       expect(nativeGroups.grouped).toBe(true);
       expect(nativeGroups.totalRows).toBeGreaterThan(0);
-      expect(
-        nativeGroups.groups.find((group) => group.groupKey === "ship")
-          ?.totalRows,
-      ).toBe(scopedWindow.rows.length);
-      await expect(desktopDatabase.getDatabaseRowPage(
-        projectId,
-        copiedDataSourcePageId,
-        "ship",
-      )).resolves.toMatchObject({
+      expect(nativeGroups.groups.find((group) => group.groupKey === "ship")?.totalRows).toBe(
+        scopedWindow.rows.length,
+      );
+      await expect(
+        desktopDatabase.getDatabaseRowPage(projectId, copiedDataSourcePageId, "ship"),
+      ).resolves.toMatchObject({
         id: copiedDataSourcePageId,
         status: "ship",
         order: 1,
@@ -946,19 +926,23 @@ describe("Electron native data authority", () => {
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         actor: lifecycleRequestBase.actor,
-        operations: [{
-          kind: "edit_property_values",
-          edits: [{
-            pageId: copiedDataSourcePageId,
-            dataSourceId: primaryDataSource.dataSourceId,
-            propertyId: parseDataSourcePropertyId("assignee"),
-            edit: {
-              kind: "replace",
-              expectedValueRevision: 1,
-              value: { kind: "text", value: "native-core" },
-            },
-          }],
-        }],
+        operations: [
+          {
+            kind: "edit_property_values",
+            edits: [
+              {
+                pageId: copiedDataSourcePageId,
+                dataSourceId: primaryDataSource.dataSourceId,
+                propertyId: parseDataSourcePropertyId("assignee"),
+                edit: {
+                  kind: "replace",
+                  expectedValueRevision: 1,
+                  value: { kind: "text", value: "native-core" },
+                },
+              },
+            ],
+          },
+        ],
       });
       if (!databasePropertyMutation.ok) {
         throw new Error(databasePropertyMutation.error.message);
@@ -969,14 +953,16 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         clientSessionId: "rust-authority-test",
         actor: lifecycleRequestBase.actor,
-        fields: [{
-          scope: "intrinsic",
-          blockId: copiedDataSourcePageId,
-          propertyKey: "run.target",
-          operation: "set",
-          expectedRevision: 1,
-          value: "cloud",
-        }],
+        fields: [
+          {
+            scope: "intrinsic",
+            blockId: copiedDataSourcePageId,
+            propertyKey: "run.target",
+            operation: "set",
+            expectedRevision: 1,
+            value: "cloud",
+          },
+        ],
       });
       if (!propertyMutation.ok) {
         throw new Error(
@@ -990,39 +976,47 @@ describe("Electron native data authority", () => {
           fields: [{ scope: "intrinsic", propertyKey: "run.target", revision: 2 }],
         },
       });
-      await expect(database.apply({
-        operationId: "electron-page-property-database",
-        projectId,
-        storeEpoch: runtime.rootClient.handshake.store_epoch,
-        actor: lifecycleRequestBase.actor,
-        operations: [{
-          kind: "edit_property_values",
-          edits: [{
-            pageId: copiedDataSourcePageId,
-            dataSourceId: primaryDataSource.dataSourceId,
-            propertyId: parseDataSourcePropertyId("assignee"),
-            edit: {
-              kind: "replace",
-              expectedValueRevision: 1,
-              value: { kind: "text", value: "native-core" },
+      await expect(
+        database.apply({
+          operationId: "electron-page-property-database",
+          projectId,
+          storeEpoch: runtime.rootClient.handshake.store_epoch,
+          actor: lifecycleRequestBase.actor,
+          operations: [
+            {
+              kind: "edit_property_values",
+              edits: [
+                {
+                  pageId: copiedDataSourcePageId,
+                  dataSourceId: primaryDataSource.dataSourceId,
+                  propertyId: parseDataSourcePropertyId("assignee"),
+                  edit: {
+                    kind: "replace",
+                    expectedValueRevision: 1,
+                    value: { kind: "text", value: "native-core" },
+                  },
+                },
+              ],
             },
-          }],
-        }],
-      })).resolves.toMatchObject({ ok: true, value: { duplicate: true } });
+          ],
+        }),
+      ).resolves.toMatchObject({ ok: true, value: { duplicate: true } });
       const propertyReplay = await lifecycleLibrary.applyBlockPropertyMutation({
         mutationId: "electron-page-property-mixed",
         projectId,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         clientSessionId: "rust-authority-test",
         actor: lifecycleRequestBase.actor,
-        fields: [{
-          scope: "intrinsic",
-          blockId: copiedDataSourcePageId,
-          propertyKey: "run.target",
-          operation: "set",
-          expectedRevision: 1,
-          value: "cloud",
-        }],
+        fields: [
+          {
+            scope: "intrinsic",
+            blockId: copiedDataSourcePageId,
+            propertyKey: "run.target",
+            operation: "set",
+            expectedRevision: 1,
+            value: "cloud",
+          },
+        ],
       });
       expect(propertyReplay).toMatchObject({
         ok: true,
@@ -1043,11 +1037,9 @@ describe("Electron native data authority", () => {
         value: { lifecycle: "archived", duplicate: false },
       });
       if (!archived.ok) throw new Error(archived.error.message);
-      await expect(desktopDatabase.getDatabaseRowPage(
-        projectId,
-        copiedDataSourcePageId,
-        "ship",
-      )).resolves.toMatchObject({ archived: true });
+      await expect(
+        desktopDatabase.getDatabaseRowPage(projectId, copiedDataSourcePageId, "ship"),
+      ).resolves.toMatchObject({ archived: true });
       const unarchived = await lifecycleLibrary.applyPageLifecycleMutation({
         ...lifecycleRequestBase,
         operationId: "electron-page-lifecycle-unarchive",
@@ -1072,9 +1064,7 @@ describe("Electron native data authority", () => {
           expectedParentRevision: unarchived.value.parentRevision,
         },
       };
-      const deleted = await lifecycleLibrary.applyPageLifecycleMutation(
-        deleteRequest,
-      );
+      const deleted = await lifecycleLibrary.applyPageLifecycleMutation(deleteRequest);
       expect(deleted).toMatchObject({
         ok: true,
         value: { lifecycle: "deleted" },
@@ -1110,9 +1100,7 @@ describe("Electron native data authority", () => {
           membershipId: restoreEvidence.membership?.membershipId,
         },
       });
-      const replayedDelete = await lifecycleLibrary.applyPageLifecycleMutation(
-        deleteRequest,
-      );
+      const replayedDelete = await lifecycleLibrary.applyPageLifecycleMutation(deleteRequest);
       expect(replayedDelete).toMatchObject({
         ok: true,
         value: { lifecycle: "deleted", duplicate: true },
@@ -1126,8 +1114,7 @@ describe("Electron native data authority", () => {
       }
       const restoredMembershipRevision =
         afterDeleteReplay.value.value.page?.membership?.membershipRevision;
-      const restoredParentRevision =
-        afterDeleteReplay.value.value.page?.parentRevision;
+      const restoredParentRevision = afterDeleteReplay.value.value.page?.parentRevision;
       expect(afterDeleteReplay).toMatchObject({
         ok: true,
         value: {
@@ -1146,16 +1133,16 @@ describe("Electron native data authority", () => {
       if (!restoredMembershipRevision || !restoredParentRevision) {
         throw new Error("Restored Page has no durable parent or membership revision");
       }
-      await expect(desktopDatabase.getDatabaseRowPage(
-        projectId,
-        copiedDataSourcePageId,
-        "ship",
-      )).resolves.toMatchObject({ archived: false });
-      await expect(desktopDatabase.resolveDatabaseViewReference({
-        accessContext: { kind: "project", projectId },
-        databaseViewId: primaryView.viewId,
-        hostBlockId: copiedDataSourcePageId,
-      })).resolves.toMatchObject({
+      await expect(
+        desktopDatabase.getDatabaseRowPage(projectId, copiedDataSourcePageId, "ship"),
+      ).resolves.toMatchObject({ archived: false });
+      await expect(
+        desktopDatabase.resolveDatabaseViewReference({
+          accessContext: { kind: "project", projectId },
+          databaseViewId: primaryView.viewId,
+          hostBlockId: copiedDataSourcePageId,
+        }),
+      ).resolves.toMatchObject({
         view: {
           id: primaryView.viewId,
           databaseBlockId: primaryDatabase.database.databaseId,
@@ -1168,11 +1155,13 @@ describe("Electron native data authority", () => {
           }),
         ]),
       });
-      await expect(desktopDatabase.resolveDatabaseViewReference({
-        accessContext: { kind: "library" },
-        databaseViewId: primaryView.viewId,
-        hostBlockId: copiedDataSourcePageId,
-      })).resolves.toMatchObject({
+      await expect(
+        desktopDatabase.resolveDatabaseViewReference({
+          accessContext: { kind: "library" },
+          databaseViewId: primaryView.viewId,
+          hostBlockId: copiedDataSourcePageId,
+        }),
+      ).resolves.toMatchObject({
         view: {
           id: primaryView.viewId,
           projectId: null,
@@ -1193,9 +1182,7 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const movedPageToLibrary = await transferAdapter.commit(
-        moveDataSourcePageToLibraryIntent,
-      );
+      const movedPageToLibrary = await transferAdapter.commit(moveDataSourcePageToLibraryIntent);
       if (!movedPageToLibrary.ok) {
         throw new Error(
           `Core Data Source Page move failed: ${movedPageToLibrary.error.code}: ${movedPageToLibrary.error.message}`,
@@ -1266,9 +1253,7 @@ describe("Electron native data authority", () => {
           pageId: nativeContentBlockId,
         },
       };
-      const nestedPage = await transferAdapter.commit(
-        moveDataSourcePageIntoPageIntent,
-      );
+      const nestedPage = await transferAdapter.commit(moveDataSourcePageIntoPageIntent);
       if (!nestedPage.ok) {
         throw new Error(
           `Core Page nesting failed: ${nestedPage.error.code}: ${nestedPage.error.message}`,
@@ -1300,16 +1285,13 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const copiedRecursivePage = await transferAdapter.commit(
-        copyRecursivePageIntent,
-      );
+      const copiedRecursivePage = await transferAdapter.commit(copyRecursivePageIntent);
       if (!copiedRecursivePage.ok) {
         throw new Error(
           `Core recursive Page copy failed: ${copiedRecursivePage.error.code}: ${copiedRecursivePage.error.message}`,
         );
       }
-      const copiedRecursiveRootId =
-        copiedRecursivePage.value.copiedBlockIds[nativeContentBlockId];
+      const copiedRecursiveRootId = copiedRecursivePage.value.copiedBlockIds[nativeContentBlockId];
       const copiedRecursiveChildId =
         copiedRecursivePage.value.copiedBlockIds[copiedDataSourcePageId];
       if (!copiedRecursiveRootId || !copiedRecursiveChildId) {
@@ -1347,18 +1329,15 @@ describe("Electron native data authority", () => {
           parentBlockId: nestedCopyParentBlockId,
         },
       };
-      const nestedMultiPageCopy = await transferAdapter.commit(
-        nestedMultiPageCopyIntent,
-      );
+      const nestedMultiPageCopy = await transferAdapter.commit(nestedMultiPageCopyIntent);
       if (!nestedMultiPageCopy.ok) {
         throw new Error(
           `Core nested multi-Page copy failed: ${nestedMultiPageCopy.error.code}: ${nestedMultiPageCopy.error.message}`,
         );
       }
       expect(nestedMultiPageCopy.value.resultRootBlockIds).toHaveLength(2);
-      const nestedCopyTarget = nestedMultiPageCopy.value.finalLocations[
-        nestedMultiPageCopy.value.resultRootBlockIds[0]!
-      ];
+      const nestedCopyTarget =
+        nestedMultiPageCopy.value.finalLocations[nestedMultiPageCopy.value.resultRootBlockIds[0]!];
       if (nestedCopyTarget?.kind !== "document") {
         throw new Error("Core nested multi-Page copy omitted its target Document");
       }
@@ -1385,9 +1364,7 @@ describe("Electron native data authority", () => {
           libraryId: runtime.rootClient.handshake.library_id,
         },
       };
-      const returnedNestedPage = await transferAdapter.commit(
-        moveNestedPageToLibraryIntent,
-      );
+      const returnedNestedPage = await transferAdapter.commit(moveNestedPageToLibraryIntent);
       if (!returnedNestedPage.ok) {
         throw new Error(
           `Core nested Page return failed: ${returnedNestedPage.error.code}: ${returnedNestedPage.error.message}`,
@@ -1416,17 +1393,18 @@ describe("Electron native data authority", () => {
         projectId: createdProject.id,
         noThreadFallbackTitle: "Electron Session Adapter",
       });
-      const pinnedSession = await workspace.setProjectSessionPinned(
-        createdSession.id,
-        { pinned: true },
-      );
+      const pinnedSession = await workspace.setProjectSessionPinned(createdSession.id, {
+        pinned: true,
+      });
       expect(pinnedSession).toMatchObject({
         id: createdSession.id,
         pinned: true,
       });
-      await expect(workspace.updateProjectSession(createdSession.id, {
-        noThreadFallbackTitle: "Electron Session Updated",
-      })).resolves.toMatchObject({
+      await expect(
+        workspace.updateProjectSession(createdSession.id, {
+          noThreadFallbackTitle: "Electron Session Updated",
+        }),
+      ).resolves.toMatchObject({
         noThreadFallbackTitle: "Electron Session Updated",
       });
       await expect(
@@ -1434,39 +1412,37 @@ describe("Electron native data authority", () => {
           orderedSessionIds: [createdSession.id],
         }),
       ).resolves.toBeUndefined();
-      await expect(
-        workspace.getProjectSession(createdSession.id),
-      ).resolves.toMatchObject({
+      await expect(workspace.getProjectSession(createdSession.id)).resolves.toMatchObject({
         id: createdSession.id,
         pinnedOrder: 0,
       });
       const threadTimestamp = Date.now();
-      await expect(workspace.upsertProjectSessionThreadLink({
-        sessionId: createdSession.id,
-        projectId: createdProject.id,
-        threadId: "thread:electron-session",
-        threadSource: "user",
-        serviceName: "electron-session",
-        agentNickname: "@Session",
-        agentRole: "launcher",
-        agentPath: "agents/session-launcher",
-        threadName: "Electron linked Thread",
-        threadPreview: "Native Session attach",
-        modelProvider: "openai",
-        cwd: nodexHome,
-        statusType: "idle",
-        statusActiveFlags: [],
-        createdAt: threadTimestamp,
-        updatedAt: threadTimestamp,
-      })).resolves.toMatchObject({
+      await expect(
+        workspace.upsertProjectSessionThreadLink({
+          sessionId: createdSession.id,
+          projectId: createdProject.id,
+          threadId: "thread:electron-session",
+          threadSource: "user",
+          serviceName: "electron-session",
+          agentNickname: "@Session",
+          agentRole: "launcher",
+          agentPath: "agents/session-launcher",
+          threadName: "Electron linked Thread",
+          threadPreview: "Native Session attach",
+          modelProvider: "openai",
+          cwd: nodexHome,
+          statusType: "idle",
+          statusActiveFlags: [],
+          createdAt: threadTimestamp,
+          updatedAt: threadTimestamp,
+        }),
+      ).resolves.toMatchObject({
         sessionId: createdSession.id,
         projectId: createdProject.id,
         threadId: "thread:electron-session",
         threadName: "Electron linked Thread",
       });
-      const attachedSessionThread = await workspace.getThread(
-        "thread:electron-session",
-      );
+      const attachedSessionThread = await workspace.getThread("thread:electron-session");
       expect(attachedSessionThread).toMatchObject({
         threadSource: "user",
         serviceName: "electron-session",
@@ -1474,13 +1450,12 @@ describe("Electron native data authority", () => {
         agentRole: "launcher",
         agentPath: "agents/session-launcher",
       });
-      await expect(workspace.replaceThreadDynamicToolCatalogs(
-        "thread:electron-session",
-        [
+      await expect(
+        workspace.replaceThreadDynamicToolCatalogs("thread:electron-session", [
           { namespace: "codex_app", toolsetRevision: 2 },
           { namespace: "nodex_app", toolsetRevision: 1 },
-        ],
-      )).resolves.toEqual([
+        ]),
+      ).resolves.toEqual([
         { namespace: "codex_app", toolsetRevision: 2 },
         { namespace: "nodex_app", toolsetRevision: 1 },
       ]);
@@ -1494,43 +1469,45 @@ describe("Electron native data authority", () => {
           { namespace: "nodex_app", toolsetRevision: 1 },
         ],
       });
+      await expect(workspace.readProjectPermissionMode(createdProject.id)).resolves.toBeNull();
       await expect(
-        workspace.readProjectPermissionMode(createdProject.id),
-      ).resolves.toBeNull();
-      await expect(workspace.setProjectPermissionMode(
-        createdProject.id,
-        "guardian-approvals",
-      )).resolves.toBe("guardian-approvals");
-      await expect(
-        workspace.readProjectPermissionMode(createdProject.id),
+        workspace.setProjectPermissionMode(createdProject.id, "guardian-approvals"),
       ).resolves.toBe("guardian-approvals");
+      await expect(workspace.readProjectPermissionMode(createdProject.id)).resolves.toBe(
+        "guardian-approvals",
+      );
       const sharedWritableRoot = path.join(nodexHome, "shared-workspace");
-      await expect(workspace.replaceThreadWritableRoots(
-        "thread:electron-session",
-        [nodexHome],
-      )).resolves.toEqual([nodexHome]);
-      await expect(workspace.mergeThreadWritableRoots(
-        "thread:electron-session",
-        [sharedWritableRoot, nodexHome],
-      )).resolves.toEqual([nodexHome, sharedWritableRoot]);
+      await expect(
+        workspace.replaceThreadWritableRoots("thread:electron-session", [nodexHome]),
+      ).resolves.toEqual([nodexHome]);
+      await expect(
+        workspace.mergeThreadWritableRoots("thread:electron-session", [
+          sharedWritableRoot,
+          nodexHome,
+        ]),
+      ).resolves.toEqual([nodexHome, sharedWritableRoot]);
       await expect(
         workspace.readThreadExecutionContext("thread:electron-session"),
       ).resolves.toMatchObject({
         writableRoots: [nodexHome, sharedWritableRoot],
       });
-      await expect(workspace.upsertThread("thread:electron-session", {
-        agentNickname: "@Electron",
-        agentRole: "worker",
-        agentPath: "agents/electron",
-      })).resolves.toMatchObject({
+      await expect(
+        workspace.upsertThread("thread:electron-session", {
+          agentNickname: "@Electron",
+          agentRole: "worker",
+          agentPath: "agents/electron",
+        }),
+      ).resolves.toMatchObject({
         agentNickname: "@Electron",
         agentRole: "worker",
         agentPath: "agents/electron",
       });
-      await expect(workspace.updateThread("thread:electron-session", {
-        threadName: "Electron metadata Thread",
-        status: { statusType: "idle", activeFlags: [] },
-      })).resolves.toMatchObject({
+      await expect(
+        workspace.updateThread("thread:electron-session", {
+          threadName: "Electron metadata Thread",
+          status: { statusType: "idle", activeFlags: [] },
+        }),
+      ).resolves.toMatchObject({
         threadName: "Electron metadata Thread",
         statusType: "idle",
         agentPath: "agents/electron",
@@ -1557,23 +1534,25 @@ describe("Electron native data authority", () => {
         createdAt: threadTimestamp + 2,
         updatedAt: threadTimestamp + 2,
       });
-      await expect(workspace.moveThread({
-        threadId: "thread:electron-native-move",
-        sourceProjectId: createdProject.id,
-        targetProjectId: moveTargetProject.id,
-        useDefaultOrder: true,
-        runtimeWorkspaceRoots: [moveTargetRoot, nodexHome],
-        projectAccessGrant: {
-          expectedTargetBindingRevision: moveTargetProject.bindingRevision,
-          missingProjectSources: [nodexHome],
-        },
-        metadata: {
-          cwd: moveTargetRoot,
-          managedWorktreePath: null,
-          projectlessOutputDirectory: null,
-          projectlessWorkspaceBrowserRoot: null,
-        },
-      })).resolves.toMatchObject({
+      await expect(
+        workspace.moveThread({
+          threadId: "thread:electron-native-move",
+          sourceProjectId: createdProject.id,
+          targetProjectId: moveTargetProject.id,
+          useDefaultOrder: true,
+          runtimeWorkspaceRoots: [moveTargetRoot, nodexHome],
+          projectAccessGrant: {
+            expectedTargetBindingRevision: moveTargetProject.bindingRevision,
+            missingProjectSources: [nodexHome],
+          },
+          metadata: {
+            cwd: moveTargetRoot,
+            managedWorktreePath: null,
+            projectlessOutputDirectory: null,
+            projectlessWorkspaceBrowserRoot: null,
+          },
+        }),
+      ).resolves.toMatchObject({
         thread: {
           threadId: "thread:electron-native-move",
           projectId: moveTargetProject.id,
@@ -1614,27 +1593,27 @@ describe("Electron native data authority", () => {
         createdAt: threadTimestamp + 3,
         updatedAt: threadTimestamp + 3,
       });
-      await workspace.setThreadPinned(
-        "thread:electron-projectless-order",
-        true,
-      );
-      await expect(workspace.setThreadPinned(
-        "thread:electron-session",
-        true,
-        "thread:electron-projectless-order",
-      )).resolves.toMatchObject({
-        threads: [expect.objectContaining({
-          threadId: "thread:electron-session",
-          pinnedOrder: 0,
-        })],
+      await workspace.setThreadPinned("thread:electron-projectless-order", true);
+      await expect(
+        workspace.setThreadPinned(
+          "thread:electron-session",
+          true,
+          "thread:electron-projectless-order",
+        ),
+      ).resolves.toMatchObject({
+        threads: [
+          expect.objectContaining({
+            threadId: "thread:electron-session",
+            pinnedOrder: 0,
+          }),
+        ],
+      });
+      await expect(workspace.getProjectSession(createdSession.id)).resolves.toMatchObject({
+        pinned: true,
       });
       await expect(
-        workspace.getProjectSession(createdSession.id),
-      ).resolves.toMatchObject({ pinned: true });
-      await expect(workspace.setThreadPinned(
-        "thread:electron-session",
-        false,
-      )).resolves.toMatchObject({
+        workspace.setThreadPinned("thread:electron-session", false),
+      ).resolves.toMatchObject({
         threads: expect.arrayContaining([
           expect.objectContaining({
             threadId: "thread:electron-session",
@@ -1642,14 +1621,12 @@ describe("Electron native data authority", () => {
           }),
         ]),
       });
+      await expect(workspace.getProjectSession(createdSession.id)).resolves.toMatchObject({
+        pinned: false,
+      });
       await expect(
-        workspace.getProjectSession(createdSession.id),
-      ).resolves.toMatchObject({ pinned: false });
-      await expect(workspace.setThreadPinned(
-        "thread:electron-session",
-        true,
-        null,
-      )).resolves.toMatchObject({
+        workspace.setThreadPinned("thread:electron-session", true, null),
+      ).resolves.toMatchObject({
         threads: expect.arrayContaining([
           expect.objectContaining({
             threadId: "thread:electron-session",
@@ -1657,60 +1634,54 @@ describe("Electron native data authority", () => {
           }),
         ]),
       });
-      await expect(workspace.reorderPinnedThreads([
-        "thread:electron-session",
-      ])).resolves.toMatchObject({
+      await expect(
+        workspace.reorderPinnedThreads(["thread:electron-session"]),
+      ).resolves.toMatchObject({
         threads: [],
       });
-      await expect(workspace.setThreadUnread(
-        "thread:electron-session",
-        true,
-      )).resolves.toMatchObject({
+      await expect(
+        workspace.setThreadUnread("thread:electron-session", true),
+      ).resolves.toMatchObject({
         threadId: "thread:electron-session",
         hasUnreadTurn: true,
       });
+      await expect(workspace.getProjectSession(createdSession.id)).resolves.toMatchObject({
+        unread: true,
+      });
       await expect(
-        workspace.getProjectSession(createdSession.id),
-      ).resolves.toMatchObject({ unread: true });
-      await expect(workspace.setThreadUnread(
-        "thread:electron-session",
-        false,
-      )).resolves.toMatchObject({
+        workspace.setThreadUnread("thread:electron-session", false),
+      ).resolves.toMatchObject({
         threadId: "thread:electron-session",
         hasUnreadTurn: false,
       });
+      await expect(workspace.getProjectSession(createdSession.id)).resolves.toMatchObject({
+        unread: false,
+      });
       await expect(
-        workspace.getProjectSession(createdSession.id),
-      ).resolves.toMatchObject({ unread: false });
-      await expect(workspace.setThreadArchived(
-        "thread:electron-projectless-order",
-        true,
-      )).resolves.toMatchObject({
+        workspace.setThreadArchived("thread:electron-projectless-order", true),
+      ).resolves.toMatchObject({
         threads: expect.not.arrayContaining([
           expect.objectContaining({
             threadId: "thread:electron-projectless-order",
           }),
         ]),
       });
-      await expect(
-        workspace.getProjectSession(projectlessSession.id),
-      ).resolves.toMatchObject({
+      await expect(workspace.getProjectSession(projectlessSession.id)).resolves.toMatchObject({
         archived: true,
         pinned: false,
         unread: false,
       });
-      await expect(workspace.setThreadArchived(
-        "thread:electron-projectless-order",
-        false,
-      )).resolves.toMatchObject({
+      await expect(
+        workspace.setThreadArchived("thread:electron-projectless-order", false),
+      ).resolves.toMatchObject({
         threads: [],
       });
+      await expect(workspace.getProjectSession(projectlessSession.id)).resolves.toMatchObject({
+        archived: false,
+      });
       await expect(
-        workspace.getProjectSession(projectlessSession.id),
-      ).resolves.toMatchObject({ archived: false });
-      await expect(workspace.deleteThread(
-        "thread:electron-projectless-order",
-      )).resolves.toMatchObject({
+        workspace.deleteThread("thread:electron-projectless-order"),
+      ).resolves.toMatchObject({
         deleted: true,
         sidebar: {
           threads: expect.not.arrayContaining([
@@ -1720,9 +1691,10 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
-      await expect(
-        workspace.getProjectSession(projectlessSession.id),
-      ).resolves.toMatchObject({ archived: true, thread: null });
+      await expect(workspace.getProjectSession(projectlessSession.id)).resolves.toMatchObject({
+        archived: true,
+        thread: null,
+      });
       const backgroundProcess = {
         id: "thread:electron-session:item:dev-server",
         threadId: "thread:electron-session",
@@ -1738,19 +1710,17 @@ describe("Electron native data authority", () => {
         startedAtMs: threadTimestamp + 1,
         updatedAtMs: threadTimestamp + 2,
       };
-      await expect(
-        workspace.upsertBackgroundProcess(backgroundProcess),
-      ).resolves.toEqual(backgroundProcess);
-      await expect(
-        workspace.listBackgroundProcesses("thread:electron-session"),
-      ).resolves.toEqual([backgroundProcess]);
+      await expect(workspace.upsertBackgroundProcess(backgroundProcess)).resolves.toEqual(
+        backgroundProcess,
+      );
+      await expect(workspace.listBackgroundProcesses("thread:electron-session")).resolves.toEqual([
+        backgroundProcess,
+      ]);
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
-      await expect(
-        workspace.detachProjectSessionThread(createdSession.id),
-      ).resolves.toBe(true);
-      await expect(
-        workspace.getProjectSession(createdSession.id),
-      ).resolves.toMatchObject({ thread: null });
+      await expect(workspace.detachProjectSessionThread(createdSession.id)).resolves.toBe(true);
+      await expect(workspace.getProjectSession(createdSession.id)).resolves.toMatchObject({
+        thread: null,
+      });
       const turnAuthority = createDesktopNodexAgentAuthorityPort({
         authority: Promise.resolve(runtime),
       });
@@ -1775,12 +1745,14 @@ describe("Electron native data authority", () => {
       if (!frozenAuthority) {
         throw new Error("Core did not freeze the Agent Turn authority");
       }
-      await expect(turnAuthority.capturePersisted({
-        threadId: "thread:electron-session",
-        turnId: "turn:electron-session",
-        rootThreadId: "thread:electron-session",
-        actorProjectId: createdProject.id,
-      })).resolves.toMatchObject({
+      await expect(
+        turnAuthority.capturePersisted({
+          threadId: "thread:electron-session",
+          turnId: "turn:electron-session",
+          rootThreadId: "thread:electron-session",
+          actorProjectId: createdProject.id,
+        }),
+      ).resolves.toMatchObject({
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         libraryId: runtime.rootClient.handshake.library_id,
       });
@@ -1790,20 +1762,24 @@ describe("Electron native data authority", () => {
       const consentPlan = await agentResources.plan({
         authority: frozenAuthority,
         callId: "call:electron-session",
-        intents: [{
-          target: { kind: "page", pageId: copiedDataSourcePageId },
-          action: "write",
-        }],
+        intents: [
+          {
+            target: { kind: "page", pageId: copiedDataSourcePageId },
+            action: "write",
+          },
+        ],
       });
       expect(consentPlan).toMatchObject({
         kind: "consent_required",
-        requirements: [{
-          grant: {
-            root: { kind: "page", pageId: copiedDataSourcePageId },
-            access: "read_write",
+        requirements: [
+          {
+            grant: {
+              root: { kind: "page", pageId: copiedDataSourcePageId },
+              access: "read_write",
+            },
+            persistable: true,
           },
-          persistable: true,
-        }],
+        ],
       });
       if (consentPlan.kind !== "consent_required") {
         throw new Error("Foreign Page did not require Project consent");
@@ -1813,14 +1789,18 @@ describe("Electron native data authority", () => {
         authority: frozenAuthority,
         grants: consentPlan.requirements.map((requirement) => requirement.grant),
       });
-      await expect(agentResources.plan({
-        authority: frozenAuthority,
-        callId: "call:electron-session-after-grant",
-        intents: [{
-          target: { kind: "page", pageId: copiedDataSourcePageId },
-          action: "write",
-        }],
-      })).resolves.toEqual({ kind: "authorized" });
+      await expect(
+        agentResources.plan({
+          authority: frozenAuthority,
+          callId: "call:electron-session-after-grant",
+          intents: [
+            {
+              target: { kind: "page", pageId: copiedDataSourcePageId },
+              action: "write",
+            },
+          ],
+        }),
+      ).resolves.toEqual({ kind: "authorized" });
       const nativeDuplicateContext = {
         threadId: frozenAuthority.threadId,
         callId: "call:electron-native-duplicate",
@@ -1836,11 +1816,12 @@ describe("Electron native data authority", () => {
         },
         resolveResourceAccess: async (
           intents: Parameters<typeof agentResources.plan>[0]["intents"],
-        ) => await agentResources.plan({
-          authority: frozenAuthority,
-          callId: "call:electron-native-duplicate",
-          intents,
-        }),
+        ) =>
+          await agentResources.plan({
+            authority: frozenAuthority,
+            callId: "call:electron-native-duplicate",
+            intents,
+          }),
         authorize: async () => "deny" as const,
       };
       const nativeCreateContext = {
@@ -1848,11 +1829,12 @@ describe("Electron native data authority", () => {
         callId: "call:electron-native-create-pages",
         resolveResourceAccess: async (
           intents: Parameters<typeof agentResources.plan>[0]["intents"],
-        ) => await agentResources.plan({
-          authority: frozenAuthority,
-          callId: "call:electron-native-create-pages",
-          intents,
-        }),
+        ) =>
+          await agentResources.plan({
+            authority: frozenAuthority,
+            callId: "call:electron-native-create-pages",
+            intents,
+          }),
       };
       const nativeCreateInput = {
         destination: {
@@ -1860,70 +1842,89 @@ describe("Electron native data authority", () => {
           pageId: copiedDataSourcePageId,
           at: { kind: "end" as const },
         },
-        pages: [{
-          title: "**Native first**",
-          markdown: "First native body",
-        }, {
-          title: "Native second",
-          markdown: "Second native body",
-        }],
+        pages: [
+          {
+            title: "**Native first**",
+            markdown: "First native body",
+          },
+          {
+            title: "Native second",
+            markdown: "Second native body",
+          },
+        ],
         return: ["block_ids" as const, "etags" as const],
       };
-      const nativeCreated = await nativeAgentService.registry.execute({
-        namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-        tool: "create_pages",
-      }, nativeCreateInput, nativeCreateContext);
+      const nativeCreated = await nativeAgentService.registry.execute(
+        {
+          namespace: NODEX_APP_TOOL_NAMESPACE,
+          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+          tool: "create_pages",
+        },
+        nativeCreateInput,
+        nativeCreateContext,
+      );
       expect(nativeCreated).toMatchObject({
         effect: "write",
         output: {
           data: {
             created: 2,
-            pages: [{
-              pageId: expect.any(String),
-              location: { kind: "page", pageId: copiedDataSourcePageId },
-              bodyBlocksCreated: 1,
-              blockIds: [expect.any(String)],
-              etags: {
-                title: expect.stringMatching(/^nxe1\./u),
-                body: expect.stringMatching(/^nxe1\./u),
+            pages: [
+              {
+                pageId: expect.any(String),
+                location: { kind: "page", pageId: copiedDataSourcePageId },
+                bodyBlocksCreated: 1,
+                blockIds: [expect.any(String)],
+                etags: {
+                  title: expect.stringMatching(/^nxe1\./u),
+                  body: expect.stringMatching(/^nxe1\./u),
+                },
               },
-            }, {
-              pageId: expect.any(String),
-              location: { kind: "page", pageId: copiedDataSourcePageId },
-              bodyBlocksCreated: 1,
-              blockIds: [expect.any(String)],
-              etags: {
-                title: expect.stringMatching(/^nxe1\./u),
-                body: expect.stringMatching(/^nxe1\./u),
+              {
+                pageId: expect.any(String),
+                location: { kind: "page", pageId: copiedDataSourcePageId },
+                bodyBlocksCreated: 1,
+                blockIds: [expect.any(String)],
+                etags: {
+                  title: expect.stringMatching(/^nxe1\./u),
+                  body: expect.stringMatching(/^nxe1\./u),
+                },
               },
-            }],
+            ],
           },
         },
       });
-      await expect(nativeAgentService.registry.execute({
-        namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-        tool: "create_pages",
-      }, nativeCreateInput, nativeCreateContext)).resolves.toEqual(nativeCreated);
+      await expect(
+        nativeAgentService.registry.execute(
+          {
+            namespace: NODEX_APP_TOOL_NAMESPACE,
+            toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+            tool: "create_pages",
+          },
+          nativeCreateInput,
+          nativeCreateContext,
+        ),
+      ).resolves.toEqual(nativeCreated);
       const nativeMoveContext = {
         ...nativeDuplicateContext,
         callId: "call:electron-native-move-pages",
         resolveResourceAccess: async (
           intents: Parameters<typeof agentResources.plan>[0]["intents"],
-        ) => await agentResources.plan({
-          authority: frozenAuthority,
-          callId: "call:electron-native-move-pages",
-          intents,
-        }),
+        ) =>
+          await agentResources.plan({
+            authority: frozenAuthority,
+            callId: "call:electron-native-move-pages",
+            intents,
+          }),
       };
       const moveTargetConsent = await agentResources.plan({
         authority: frozenAuthority,
         callId: "call:electron-native-move-target-consent",
-        intents: [{
-          target: { kind: "page", pageId: nativeContentBlockId },
-          action: "create_child",
-        }],
+        intents: [
+          {
+            target: { kind: "page", pageId: nativeContentBlockId },
+            action: "create_child",
+          },
+        ],
       });
       if (moveTargetConsent.kind === "consent_required") {
         await agentResources.persistProjectGrants({
@@ -1934,8 +1935,8 @@ describe("Electron native data authority", () => {
       } else if (moveTargetConsent.kind !== "authorized") {
         throw new Error("Native Agent Page-move target was not grantable");
       }
-      const createdPageIds = CreatePagesV6OutputSchema.parse(nativeCreated.output).data.pages
-        .map((page) => page.pageId)
+      const createdPageIds = CreatePagesV6OutputSchema.parse(nativeCreated.output)
+        .data.pages.map((page) => page.pageId)
         .reverse();
       const nativeMoveInput = {
         pageIds: createdPageIds,
@@ -1945,31 +1946,44 @@ describe("Electron native data authority", () => {
           at: { kind: "start" as const },
         },
       };
-      const nativeMoved = await nativeAgentService.registry.execute({
-        namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-        tool: "move_pages",
-      }, nativeMoveInput, nativeMoveContext);
+      const nativeMoved = await nativeAgentService.registry.execute(
+        {
+          namespace: NODEX_APP_TOOL_NAMESPACE,
+          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+          tool: "move_pages",
+        },
+        nativeMoveInput,
+        nativeMoveContext,
+      );
       expect(nativeMoved).toMatchObject({
         effect: "write",
         output: {
           data: {
             moved: 2,
-            pages: [{
-              pageId: createdPageIds[0],
-              location: { kind: "page", pageId: nativeContentBlockId },
-            }, {
-              pageId: createdPageIds[1],
-              location: { kind: "page", pageId: nativeContentBlockId },
-            }],
+            pages: [
+              {
+                pageId: createdPageIds[0],
+                location: { kind: "page", pageId: nativeContentBlockId },
+              },
+              {
+                pageId: createdPageIds[1],
+                location: { kind: "page", pageId: nativeContentBlockId },
+              },
+            ],
           },
         },
       });
-      await expect(nativeAgentService.registry.execute({
-        namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-        tool: "move_pages",
-      }, nativeMoveInput, nativeMoveContext)).resolves.toEqual(nativeMoved);
+      await expect(
+        nativeAgentService.registry.execute(
+          {
+            namespace: NODEX_APP_TOOL_NAMESPACE,
+            toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+            tool: "move_pages",
+          },
+          nativeMoveInput,
+          nativeMoveContext,
+        ),
+      ).resolves.toEqual(nativeMoved);
       const nativeDuplicateInput = {
         pageId: copiedDataSourcePageId,
         destination: {
@@ -1979,11 +1993,15 @@ describe("Electron native data authority", () => {
         },
         return: ["block_map" as const, "etags" as const],
       };
-      const nativeDuplicate = await nativeAgentService.registry.execute({
-        namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-        tool: "duplicate_page",
-      }, nativeDuplicateInput, nativeDuplicateContext);
+      const nativeDuplicate = await nativeAgentService.registry.execute(
+        {
+          namespace: NODEX_APP_TOOL_NAMESPACE,
+          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+          tool: "duplicate_page",
+        },
+        nativeDuplicateInput,
+        nativeDuplicateContext,
+      );
       expect(nativeDuplicate).toMatchObject({
         effect: "write",
         output: {
@@ -2002,11 +2020,17 @@ describe("Electron native data authority", () => {
           },
         },
       });
-      await expect(nativeAgentService.registry.execute({
-        namespace: NODEX_APP_TOOL_NAMESPACE,
-        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-        tool: "duplicate_page",
-      }, nativeDuplicateInput, nativeDuplicateContext)).resolves.toEqual(nativeDuplicate);
+      await expect(
+        nativeAgentService.registry.execute(
+          {
+            namespace: NODEX_APP_TOOL_NAMESPACE,
+            toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+            tool: "duplicate_page",
+          },
+          nativeDuplicateInput,
+          nativeDuplicateContext,
+        ),
+      ).resolves.toEqual(nativeDuplicate);
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];
@@ -2019,9 +2043,10 @@ describe("Electron native data authority", () => {
       expect(
         reorderedProjects.items
           .filter((project) => project.pinned)
-          .sort((left, right) =>
-            (left.pinnedOrder ?? Number.MAX_SAFE_INTEGER) -
-            (right.pinnedOrder ?? Number.MAX_SAFE_INTEGER),
+          .sort(
+            (left, right) =>
+              (left.pinnedOrder ?? Number.MAX_SAFE_INTEGER) -
+              (right.pinnedOrder ?? Number.MAX_SAFE_INTEGER),
           )
           .map((project) => project.id),
       ).toEqual(pinnedOrder);
@@ -2043,9 +2068,7 @@ describe("Electron native data authority", () => {
         prompt: "Exercise the native Automation boundary.",
       });
       await expect(automation.listDefinitions()).resolves.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: automationDefinition.id }),
-        ]),
+        expect.arrayContaining([expect.objectContaining({ id: automationDefinition.id })]),
       );
       await expect(
         automation.dispatchDefinitionNow(automationDefinition.id),
@@ -2053,67 +2076,69 @@ describe("Electron native data authority", () => {
         id: automationDefinition.id,
         lastRunAt: expect.any(Number),
       });
-      await expect(automation.beginRun({
-        threadId: "thread:electron-session",
-        automationId: automationDefinition.id,
-        threadTitle: "Electron Automation run",
-        sourceCwd: nodexHome,
-      })).resolves.toBe(true);
-      await expect(automation.completeRunForReview({
-        threadId: "thread:electron-session",
-        inboxTitle: "Native report ready",
-        inboxSummary: "Review the native Automation run.",
-      })).resolves.toBe(true);
-      await expect(automation.readInbox(10)).resolves.toMatchObject({
-        items: [{
-          automationId: automationDefinition.id,
+      await expect(
+        automation.beginRun({
           threadId: "thread:electron-session",
-          description: "Review the native Automation run.",
-        }],
+          automationId: automationDefinition.id,
+          threadTitle: "Electron Automation run",
+          sourceCwd: nodexHome,
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        automation.completeRunForReview({
+          threadId: "thread:electron-session",
+          inboxTitle: "Native report ready",
+          inboxSummary: "Review the native Automation run.",
+        }),
+      ).resolves.toBe(true);
+      await expect(automation.readInbox(10)).resolves.toMatchObject({
+        items: [
+          {
+            automationId: automationDefinition.id,
+            threadId: "thread:electron-session",
+            description: "Review the native Automation run.",
+          },
+        ],
         unreadRunCounts: { total: 1 },
       });
-      await expect(automation.setRunReadState({
-        threadId: "thread:electron-session",
-        readAt: Date.now(),
-      })).resolves.toMatchObject({
+      await expect(
+        automation.setRunReadState({
+          threadId: "thread:electron-session",
+          readAt: Date.now(),
+        }),
+      ).resolves.toMatchObject({
         threadId: "thread:electron-session",
         readAt: expect.any(Number),
       });
-      await expect(automation.archiveRun(
-        {
-          threadId: "thread:electron-session",
-          archivedReason: "manual",
-        },
-        {
-          archivedUserMessage: "Run the native report.",
-          archivedAssistantMessage: "Native report complete.",
-        },
-      )).resolves.toBe(true);
       await expect(
-        automation.getRun("thread:electron-session"),
-      ).resolves.toMatchObject({
+        automation.archiveRun(
+          {
+            threadId: "thread:electron-session",
+            archivedReason: "manual",
+          },
+          {
+            archivedUserMessage: "Run the native report.",
+            archivedAssistantMessage: "Native report complete.",
+          },
+        ),
+      ).resolves.toBe(true);
+      await expect(automation.getRun("thread:electron-session")).resolves.toMatchObject({
         status: "ARCHIVED",
         archivedUserMessage: "Run the native report.",
         archivedAssistantMessage: "Native report complete.",
         archivedReason: "manual",
       });
+      await expect(automation.unarchiveRun("thread:electron-session")).resolves.toBe(true);
+      await expect(automation.deleteRun("thread:electron-session")).resolves.toBe(true);
       await expect(
-        automation.unarchiveRun("thread:electron-session"),
-      ).resolves.toBe(true);
-      await expect(
-        automation.deleteRun("thread:electron-session"),
-      ).resolves.toBe(true);
-      await expect(automation.listPageOccurrences(
-        createdProject.id,
-        new Date("2026-07-19T00:00:00.000Z"),
-        new Date("2026-07-21T00:00:00.000Z"),
-      )).resolves.toEqual({ items: [], nextCursor: null });
-      await expect(
-        automation.claimDueReminders(10, 120_000),
-      ).resolves.toEqual([]);
-      await expect(
-        automation.deleteDefinition(automationDefinition.id),
-      ).resolves.toMatchObject({
+        automation.listPageOccurrences(
+          createdProject.id,
+          new Date("2026-07-19T00:00:00.000Z"),
+          new Date("2026-07-21T00:00:00.000Z"),
+        ),
+      ).resolves.toEqual({ items: [], nextCursor: null });
+      await expect(automation.claimDueReminders(10, 120_000)).resolves.toEqual([]);
+      await expect(automation.deleteDefinition(automationDefinition.id)).resolves.toMatchObject({
         success: true,
         status: "deleted",
         deletedRunCount: 0,
@@ -2132,19 +2157,19 @@ describe("Electron native data authority", () => {
         dbBytes: expect.any(Number),
       });
       await expect(administration.listBackups()).resolves.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ id: nativeBackup.id }),
-        ]),
+        expect.arrayContaining([expect.objectContaining({ id: nativeBackup.id })]),
       );
-      await expect(administration.runMaintenance({
-        tasks: [
-          "document_revision_finalize",
-          "document_compaction",
-          "history_retention",
-          "block_retention",
-        ],
-        blockRetentionCount: 0,
-      })).resolves.toBeUndefined();
+      await expect(
+        administration.runMaintenance({
+          tasks: [
+            "document_revision_finalize",
+            "document_compaction",
+            "history_retention",
+            "block_retention",
+          ],
+          blockRetentionCount: 0,
+        }),
+      ).resolves.toBeUndefined();
       await expect(administration.deleteBackup(nativeBackup.id)).resolves.toEqual({
         success: true,
         deletedBackupId: nativeBackup.id,
@@ -2181,10 +2206,7 @@ describe("Electron native data authority", () => {
         clientSessionId: "renderer:electron-canvas:second",
       } as const;
       const secondCanvasEvents: CanvasSceneRealtimeEvent[] = [];
-      const closeFirstCanvas = firstCanvas.subscribe(
-        firstCanvasRequest,
-        () => undefined,
-      );
+      const closeFirstCanvas = firstCanvas.subscribe(firstCanvasRequest, () => undefined);
       const secondCanvasSubscription = secondCanvas.subscribeWithLifecycle(
         secondCanvasRequest,
         (event) => secondCanvasEvents.push(event),
@@ -2204,8 +2226,7 @@ describe("Electron native data authority", () => {
         if (firstCanvasSync.value.kind !== "snapshot") {
           throw new Error("Initial Core Canvas sync did not return a snapshot");
         }
-        const currentGridMode = firstCanvasSync.value.scene.appState
-          .gridModeEnabled;
+        const currentGridMode = firstCanvasSync.value.scene.appState.gridModeEnabled;
         const nextGridMode = currentGridMode !== true;
         const mutationId = "electron-canvas-mutation:one";
         const canvasMutation = await firstCanvas.applyMutation({
@@ -2234,9 +2255,10 @@ describe("Electron native data authority", () => {
           );
         }
         await waitUntil(
-          () => secondCanvasEvents.some((event) =>
-            event.type === "canvas_scene_committed"
-            && event.mutationId === mutationId),
+          () =>
+            secondCanvasEvents.some(
+              (event) => event.type === "canvas_scene_committed" && event.mutationId === mutationId,
+            ),
           "Second Canvas subscriber did not receive the durable mutation",
         );
         const secondCanvasSync = await secondCanvas.sync({
@@ -2251,9 +2273,7 @@ describe("Electron native data authority", () => {
         if (secondCanvasSync.value.kind !== "snapshot") {
           throw new Error("Second Core Canvas sync did not return a snapshot");
         }
-        expect(
-          secondCanvasSync.value.scene.appState.gridModeEnabled,
-        ).toBe(nextGridMode);
+        expect(secondCanvasSync.value.scene.appState.gridModeEnabled).toBe(nextGridMode);
         const corruptCanvasSync = await secondCanvas.sync({
           ...secondCanvasRequest,
           syncRequestId: "sync:electron:wrong-hash",
@@ -2294,9 +2314,11 @@ describe("Electron native data authority", () => {
         profileId: runtime.rootClient.handshake.generation.profile_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
       });
-      await expect(library.read({
-        read: { mode: "metadata" },
-      })).resolves.toMatchObject({
+      await expect(
+        library.read({
+          read: { mode: "metadata" },
+        }),
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           libraryId: runtime.rootClient.handshake.library_id,
@@ -2329,19 +2351,21 @@ describe("Electron native data authority", () => {
           duplicate: false,
         },
       });
-      await expect(library.apply({
-        operationId: "electron-library-adapter-grant",
-        storeEpoch: runtime.rootClient.handshake.store_epoch,
-        operation: {
-          kind: "grant_project_access",
-          projectId,
-          target: {
-            kind: "page",
-            pageId: "page:electron-library-adapter",
+      await expect(
+        library.apply({
+          operationId: "electron-library-adapter-grant",
+          storeEpoch: runtime.rootClient.handshake.store_epoch,
+          operation: {
+            kind: "grant_project_access",
+            projectId,
+            target: {
+              kind: "page",
+              pageId: "page:electron-library-adapter",
+            },
+            access: "read_write",
           },
-          access: "read_write",
-        },
-      })).resolves.toMatchObject({
+        }),
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           operationKind: "grant_project_access",
@@ -2350,10 +2374,9 @@ describe("Electron native data authority", () => {
           didMutate: false,
         },
       });
-      await expect(library.readProjectPageDetail(
-        projectId,
-        "page:electron-library-adapter",
-      )).resolves.toMatchObject({
+      await expect(
+        library.readProjectPageDetail(projectId, "page:electron-library-adapter"),
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           projectId,
@@ -2365,10 +2388,12 @@ describe("Electron native data authority", () => {
           document: { readiness: "ready" },
         },
       });
-      await expect(library.resolvePageTarget({
-        accessContext: { kind: "project", projectId },
-        targetPageId: "page:electron-library-adapter",
-      })).resolves.toMatchObject({
+      await expect(
+        library.resolvePageTarget({
+          accessContext: { kind: "project", projectId },
+          targetPageId: "page:electron-library-adapter",
+        }),
+      ).resolves.toMatchObject({
         status: "available",
         targetPageId: "page:electron-library-adapter",
         page: {
@@ -2377,10 +2402,12 @@ describe("Electron native data authority", () => {
         },
         document: { readiness: "ready" },
       });
-      await expect(library.resolvePageTarget({
-        accessContext: { kind: "library" },
-        targetPageId: "page:electron-library-adapter",
-      })).resolves.toMatchObject({
+      await expect(
+        library.resolvePageTarget({
+          accessContext: { kind: "library" },
+          targetPageId: "page:electron-library-adapter",
+        }),
+      ).resolves.toMatchObject({
         status: "available",
         targetPageId: "page:electron-library-adapter",
         page: {
@@ -2389,10 +2416,12 @@ describe("Electron native data authority", () => {
         },
         document: { readiness: "ready" },
       });
-      await expect(library.resolvePageOwnershipPath({
-        accessContext: { kind: "project", projectId },
-        targetPageId: "page:electron-library-adapter",
-      })).resolves.toMatchObject({
+      await expect(
+        library.resolvePageOwnershipPath({
+          accessContext: { kind: "project", projectId },
+          targetPageId: "page:electron-library-adapter",
+        }),
+      ).resolves.toMatchObject({
         libraryId: runtime.rootClient.handshake.library_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         commitSeq: expect.any(Number),
@@ -2400,10 +2429,12 @@ describe("Electron native data authority", () => {
         targetPageId: "page:electron-library-adapter",
         ancestors: [],
       });
-      await expect(library.resolvePageOwnershipPath({
-        accessContext: { kind: "library" },
-        targetPageId: "page:electron-library-adapter",
-      })).resolves.toMatchObject({
+      await expect(
+        library.resolvePageOwnershipPath({
+          accessContext: { kind: "library" },
+          targetPageId: "page:electron-library-adapter",
+        }),
+      ).resolves.toMatchObject({
         libraryId: runtime.rootClient.handshake.library_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         commitSeq: expect.any(Number),
@@ -2411,11 +2442,13 @@ describe("Electron native data authority", () => {
         targetPageId: "page:electron-library-adapter",
         ancestors: [],
       });
-      await expect(library.listPageHistory({
-        requestingProjectId: projectId,
-        pageId: "page:electron-library-adapter",
-        pageSize: 10,
-      })).resolves.toMatchObject({
+      await expect(
+        library.listPageHistory({
+          requestingProjectId: projectId,
+          pageId: "page:electron-library-adapter",
+          pageSize: 10,
+        }),
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           libraryId: runtime.rootClient.handshake.library_id,
@@ -2454,9 +2487,7 @@ describe("Electron native data authority", () => {
           },
         },
       });
-      await expect(rootLibrary.findPageLocation(
-        "page:electron-library-adapter",
-      )).resolves.toEqual({
+      await expect(rootLibrary.findPageLocation("page:electron-library-adapter")).resolves.toEqual({
         pageId: "page:electron-library-adapter",
         projectId,
       });
@@ -2472,41 +2503,46 @@ describe("Electron native data authority", () => {
       });
       if (!libraryPageDetail.ok) throw new Error("Expected Library Page Detail");
       expect("projectId" in libraryPageDetail.value).toBe(false);
-      await expect(libraryDatabase.apply({
-        operationId: "electron-library-page-enter-database",
-        storeEpoch: runtime.rootClient.handshake.store_epoch,
-        operations: [{
-          kind: "transfer_page",
-          pageId: "page:electron-library-adapter",
-          expectedParentRevision:
-            libraryPageDetail.value.page.parentRevision,
-          expectedActiveMembershipRevision: 0,
-          target: {
-            kind: "data_source",
-            dataSourceId: primaryDataSource.dataSourceId,
-          },
-        }],
-      })).resolves.toMatchObject({
+      await expect(
+        libraryDatabase.apply({
+          operationId: "electron-library-page-enter-database",
+          storeEpoch: runtime.rootClient.handshake.store_epoch,
+          operations: [
+            {
+              kind: "transfer_page",
+              pageId: "page:electron-library-adapter",
+              expectedParentRevision: libraryPageDetail.value.page.parentRevision,
+              expectedActiveMembershipRevision: 0,
+              target: {
+                kind: "data_source",
+                dataSourceId: primaryDataSource.dataSourceId,
+              },
+            },
+          ],
+        }),
+      ).resolves.toMatchObject({
         ok: true,
         value: {
           accessContext: { kind: "library" },
           operationKinds: ["transfer_page"],
         },
       });
-      await expect(rootLibrary.searchPages({
-        projectIds: [projectId],
-        query: "Electron Library Adapter",
-        limit: 10,
-      })).resolves.toMatchObject({
-        results: [expect.objectContaining({
-          projectId,
-          pageId: "page:electron-library-adapter",
-          status: "triage",
-        })],
+      await expect(
+        rootLibrary.searchPages({
+          projectIds: [projectId],
+          query: "Electron Library Adapter",
+          limit: 10,
+        }),
+      ).resolves.toMatchObject({
+        results: [
+          expect.objectContaining({
+            projectId,
+            pageId: "page:electron-library-adapter",
+            status: "triage",
+          }),
+        ],
       });
-      const libraryDocuments = createCoreDocumentSyncAdapter(
-        runtime.rootClient,
-      );
+      const libraryDocuments = createCoreDocumentSyncAdapter(runtime.rootClient);
       const preparedLibraryDocument = await libraryDocuments.prepareOwner({
         ownerBlockId: "page:electron-library-adapter",
         operationId: "electron-library-owner-prepare",
@@ -2559,9 +2595,7 @@ describe("Electron native data authority", () => {
         });
         await firstProvider.flush();
         await secondProvider.connect();
-        expect(secondDocument.getText("title").toString()).toBe(
-          "Electron native Document sync",
-        );
+        expect(secondDocument.getText("title").toString()).toBe("Electron native Document sync");
         expect(listCurrentProcessFiles()).not.toContain(databasePath);
       } finally {
         firstProvider.destroy();

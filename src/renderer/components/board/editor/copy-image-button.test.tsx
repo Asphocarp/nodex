@@ -1,14 +1,9 @@
 import { beforeEach, describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "../../../test/dom";
-import {
-  __resetNodexToastStoreForTests,
-  NodexToastProvider,
-} from "../../ui/toast";
+import { __resetNodexToastStoreForTests, NodexToastProvider } from "../../ui/toast";
 
-let copyResult:
-  | { ok: true }
-  | { ok: false; message: string } = { ok: true };
+let copyResult: { ok: true } | { ok: false; message: string } = { ok: true };
 let focusCalls = 0;
 
 vi.mock("./copy-image-button-deps", () => ({
@@ -19,13 +14,7 @@ vi.mock("./copy-image-button-deps", () => ({
   }),
   useComponentsContext: () => ({
     FormattingToolbar: {
-      Button: ({
-        label,
-        onClick,
-      }: {
-        label: string;
-        onClick?: () => void;
-      }) => (
+      Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
         <button type="button" onClick={onClick}>
           {label}
         </button>
@@ -58,9 +47,7 @@ describe("CopyImageButton", () => {
     const { CopyImageButton } = await import("./copy-image-button");
     const view = render(
       <NodexToastProvider>
-        <CopyImageButton
-          copyImageToClipboardImpl={async () => copyResult}
-        />
+        <CopyImageButton copyImageToClipboardImpl={async () => copyResult} />
       </NodexToastProvider>,
     );
 
@@ -68,7 +55,9 @@ describe("CopyImageButton", () => {
     await settleAsyncRender();
 
     expect(focusCalls).toBe(1);
-    expect(Boolean(view.baseElement.textContent?.includes("Copied image to clipboard."))).toBe(true);
+    expect(Boolean(view.baseElement.textContent?.includes("Copied image to clipboard."))).toBe(
+      true,
+    );
   });
 
   test("shows a global danger toast when native image copy fails", async () => {
@@ -78,9 +67,7 @@ describe("CopyImageButton", () => {
     const { CopyImageButton } = await import("./copy-image-button");
     const view = render(
       <NodexToastProvider>
-        <CopyImageButton
-          copyImageToClipboardImpl={async () => copyResult}
-        />
+        <CopyImageButton copyImageToClipboardImpl={async () => copyResult} />
       </NodexToastProvider>,
     );
 
@@ -88,6 +75,8 @@ describe("CopyImageButton", () => {
     await settleAsyncRender();
 
     expect(focusCalls).toBe(0);
-    expect(Boolean(view.baseElement.textContent?.includes("Could not load the image file."))).toBe(true);
+    expect(Boolean(view.baseElement.textContent?.includes("Could not load the image file."))).toBe(
+      true,
+    );
   });
 });

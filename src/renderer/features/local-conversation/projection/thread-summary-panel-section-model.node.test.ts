@@ -5,7 +5,9 @@ import {
   type ThreadSummaryPanelSectionKind,
 } from "./thread-summary-panel-section-model";
 
-function sectionKinds(input: Parameters<typeof buildThreadSummaryPanelSectionModel>[0]): ThreadSummaryPanelSectionKind[] {
+function sectionKinds(
+  input: Parameters<typeof buildThreadSummaryPanelSectionModel>[0],
+): ThreadSummaryPanelSectionKind[] {
   return buildThreadSummaryPanelSectionModel(input).map((section) => section.kind);
 }
 
@@ -19,16 +21,16 @@ describe("buildThreadSummaryPanelSectionModel", () => {
       outputCount: 2,
       suppressOutputs: false,
       sideChatCount: 1,
-      backgroundSubagentRows: [
-        { showInlineActivity: false, status: "active" },
-      ],
+      backgroundSubagentRows: [{ showInlineActivity: false, status: "active" }],
       taskCount: 1,
       hasComputerUsePip: true,
       browserCount: 1,
       sourceCount: 3,
     });
 
-    expect(kinds.join(",")).toBe("scheduled,environment,plan,outputs,sideChats,subagents,tasks,computerUsePip,browser,sources");
+    expect(kinds.join(",")).toBe(
+      "scheduled,environment,plan,outputs,sideChats,subagents,tasks,computerUsePip,browser,sources",
+    );
   });
 
   test("suppresses outputs behind the git environment summary gate", () => {

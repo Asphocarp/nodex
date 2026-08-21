@@ -4,11 +4,13 @@ import { ManagedWorktreeRestoreBanner } from "./managed-worktree-restore-banner"
 const meta = {
   title: "Local conversation/Managed worktree restore banner",
   component: ManagedWorktreeRestoreBanner,
-  decorators: [(Story) => (
-    <div className="w-[760px] max-w-[calc(100vw-32px)] bg-token-main-surface-primary px-toolbar py-4">
-      <Story />
-    </div>
-  )],
+  decorators: [
+    (Story) => (
+      <div className="w-[760px] max-w-[calc(100vw-32px)] bg-token-main-surface-primary px-toolbar py-4">
+        <Story />
+      </div>
+    ),
+  ],
 } satisfies Meta<typeof ManagedWorktreeRestoreBanner>;
 
 export default meta;

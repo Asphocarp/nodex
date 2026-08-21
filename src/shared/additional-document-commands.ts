@@ -2,11 +2,7 @@ import {
   stableStringifyBlockPropertyJson,
   type BlockPropertyJsonValue,
 } from "./block-property-mutations";
-import type {
-  BlockTreeNode,
-  BlockTreeValue,
-} from "./block-documents/block-document-codec";
-
+import type { BlockTreeNode, BlockTreeValue } from "./block-documents/block-document-codec";
 
 export const MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH = 2_000_000;
 export const MAX_ADDITIONAL_DOCUMENT_ACTOR_LENGTH = 64 * 1024;
@@ -113,8 +109,7 @@ export interface InstantiateTemplateOperation {
    */
 }
 
-export type DeletableOwnedSourceKind =
-  "synced_block" | "reusable_template";
+export type DeletableOwnedSourceKind = "synced_block" | "reusable_template";
 
 export interface DeleteOwnedSourceOperation {
   readonly kind: "delete_owned_source";
@@ -174,14 +169,12 @@ export const ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES: Readonly<
   promote_synced_source: {
     availability: "kernel_ready",
     coordination: "hub_lease",
-    identitySemantics:
-      "move_preserving_content_ids_create_source_and_reference_ids",
+    identitySemantics: "move_preserving_content_ids_create_source_and_reference_ids",
   },
   demote_synced_source: {
     availability: "kernel_ready",
     coordination: "hub_lease",
-    identitySemantics:
-      "move_preserving_content_ids_delete_source_and_reference_ids",
+    identitySemantics: "move_preserving_content_ids_delete_source_and_reference_ids",
   },
   create_template: {
     availability: "kernel_ready",
@@ -275,14 +268,9 @@ export class AdditionalDocumentExecutionProofError extends AdditionalDocumentCom
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const readRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
-  throw new AdditionalDocumentCommandContractError(
-    `${label} must be an object`,
-  );
+  throw new AdditionalDocumentCommandContractError(`${label} must be an object`);
 };
 
 const assertExactKeys = (
@@ -294,15 +282,11 @@ const assertExactKeys = (
   const allowed = new Set([...required, ...optional]);
   for (const key of required) {
     if (Object.hasOwn(record, key)) continue;
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.${key} is required`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label}.${key} is required`);
   }
   for (const key of Object.keys(record)) {
     if (allowed.has(key)) continue;
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.${key} is not supported`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label}.${key} is not supported`);
   }
 };
 
@@ -331,8 +315,7 @@ const readOptionalId = (
   record: Readonly<Record<string, unknown>>,
   key: string,
   label: string,
-): string | undefined =>
-  record[key] === undefined ? undefined : readString(record, key, label);
+): string | undefined => (record[key] === undefined ? undefined : readString(record, key, label));
 
 const readInteger = (
   record: Readonly<Record<string, unknown>>,
@@ -341,11 +324,7 @@ const readInteger = (
   minimum: number,
 ): number => {
   const value = record[key];
-  if (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= minimum
-  ) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
   throw new AdditionalDocumentCommandContractError(
@@ -359,9 +338,7 @@ const readBoolean = (
   label: string,
 ): boolean => {
   if (typeof record[key] === "boolean") return record[key];
-  throw new AdditionalDocumentCommandContractError(
-    `${label}.${key} must be a boolean`,
-  );
+  throw new AdditionalDocumentCommandContractError(`${label}.${key} must be a boolean`);
 };
 
 const readLiteral = <T extends string>(
@@ -371,9 +348,7 @@ const readLiteral = <T extends string>(
   expected: T,
 ): T => {
   if (record[key] === expected) return expected;
-  throw new AdditionalDocumentCommandContractError(
-    `${label}.${key} must be ${expected}`,
-  );
+  throw new AdditionalDocumentCommandContractError(`${label}.${key} must be ${expected}`);
 };
 
 const canonicalJsonValue = (
@@ -397,13 +372,9 @@ const canonicalJsonValue = (
   }
 };
 
-const readActor = (
-  value: unknown,
-): Readonly<Record<string, BlockPropertyJsonValue>> => {
+const readActor = (value: unknown): Readonly<Record<string, BlockPropertyJsonValue>> => {
   if (!isRecord(value)) {
-    throw new AdditionalDocumentCommandContractError(
-      "additionalDocument.actor must be an object",
-    );
+    throw new AdditionalDocumentCommandContractError("additionalDocument.actor must be an object");
   }
   let canonical: string;
   try {
@@ -418,15 +389,10 @@ const readActor = (
       "additionalDocument.actor exceeds the audit size limit",
     );
   }
-  return JSON.parse(canonical) as Readonly<
-    Record<string, BlockPropertyJsonValue>
-  >;
+  return JSON.parse(canonical) as Readonly<Record<string, BlockPropertyJsonValue>>;
 };
 
-const parseHead = (
-  value: unknown,
-  label: string,
-): AdditionalDocumentHeadRevision => {
+const parseHead = (value: unknown, label: string): AdditionalDocumentHeadRevision => {
   const head = readRecord(value, label);
   assertExactKeys(head, label, ["documentId", "generation", "headSeq"]);
   return {
@@ -438,10 +404,7 @@ const parseHead = (
   };
 };
 
-const parseRevision = (
-  value: unknown,
-  label: string,
-): AdditionalDocumentRevision => {
+const parseRevision = (value: unknown, label: string): AdditionalDocumentRevision => {
   const revision = readRecord(value, label);
   assertExactKeys(revision, label, ["documentId", "generation"]);
   return {
@@ -450,10 +413,7 @@ const parseRevision = (
   };
 };
 
-const parseOwner = (
-  value: unknown,
-  label: string,
-): AdditionalDocumentOwnerRevision => {
+const parseOwner = (value: unknown, label: string): AdditionalDocumentOwnerRevision => {
   const owner = readRecord(value, label);
   assertExactKeys(owner, label, [
     "ownerBlockId",
@@ -471,20 +431,12 @@ const parseOwner = (
   };
 };
 
-const parseLibraryAnchor = (
-  value: unknown,
-  label: string,
-): AdditionalDocumentLibraryAnchor => {
+const parseLibraryAnchor = (value: unknown, label: string): AdditionalDocumentLibraryAnchor => {
   const anchor = readRecord(value, label);
   assertExactKeys(anchor, label, ["blockId", "expectedLocationRevision"]);
   return {
     blockId: readString(anchor, "blockId", label),
-    expectedLocationRevision: readInteger(
-      anchor,
-      "expectedLocationRevision",
-      label,
-      1,
-    ),
+    expectedLocationRevision: readInteger(anchor, "expectedLocationRevision", label, 1),
   };
 };
 
@@ -515,23 +467,14 @@ const parseBlockTreeNode = (
   state: BlockTreeReadState,
 ): BlockTreeNode => {
   if (depth > MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label} exceeds the Block nesting limit`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label} exceeds the Block nesting limit`);
   }
   state.nodes += 1;
   if (state.nodes > MAX_ADDITIONAL_DOCUMENT_BLOCKS) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label} exceeds the Block count limit`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label} exceeds the Block count limit`);
   }
   const block = readRecord(value, label);
-  assertExactKeys(
-    block,
-    label,
-    ["id", "type", "props", "children"],
-    ["content"],
-  );
+  assertExactKeys(block, label, ["id", "type", "props", "children"], ["content"]);
   const id = readString(block, "id", label);
   if (state.ids.has(id)) {
     throw new AdditionalDocumentCommandContractError(
@@ -540,15 +483,11 @@ const parseBlockTreeNode = (
   }
   state.ids.add(id);
   if (!Array.isArray(block.children)) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.children must be an array`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label}.children must be an array`);
   }
   const props = canonicalJsonValue(block.props, `${label}.props`, state);
   if (!isRecord(props)) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.props must be an object`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label}.props must be an object`);
   }
   const content =
     block.content === undefined
@@ -560,39 +499,21 @@ const parseBlockTreeNode = (
     props: props as Readonly<Record<string, BlockTreeValue>>,
     ...(content === undefined ? {} : { content }),
     children: block.children.map((child, index) =>
-      parseBlockTreeNode(
-        child,
-        `${label}.children[${index}]`,
-        depth + 1,
-        state,
-      ),
+      parseBlockTreeNode(child, `${label}.children[${index}]`, depth + 1, state),
     ),
   };
 };
 
-const parseBlockTree = (
-  value: unknown,
-  label: string,
-): readonly BlockTreeNode[] => {
+const parseBlockTree = (value: unknown, label: string): readonly BlockTreeNode[] => {
   if (!Array.isArray(value)) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label} must be an array`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label} must be an array`);
   }
   const state: BlockTreeReadState = { ids: new Set(), nodes: 0, characters: 0 };
-  return value.map((block, index) =>
-    parseBlockTreeNode(block, `${label}[${index}]`, 1, state),
-  );
+  return value.map((block, index) => parseBlockTreeNode(block, `${label}[${index}]`, 1, state));
 };
 
-const blockTreeContainsId = (
-  blocks: readonly BlockTreeNode[],
-  blockId: string,
-): boolean =>
-  blocks.some(
-    (block) =>
-      block.id === blockId || blockTreeContainsId(block.children, blockId),
-  );
+const blockTreeContainsId = (blocks: readonly BlockTreeNode[], blockId: string): boolean =>
+  blocks.some((block) => block.id === blockId || blockTreeContainsId(block.children, blockId));
 
 const assertNewOwnerDoesNotCollideWithContent = (
   ownerBlockId: string,
@@ -618,24 +539,14 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       "placement",
     ]);
     const sourceBlockId = readString(operation, "sourceBlockId", label);
-    const placement = parseLibraryPlacement(
-      operation.placement,
-      `${label}.placement`,
-    );
+    const placement = parseLibraryPlacement(operation.placement, `${label}.placement`);
     if (placement.before?.blockId === sourceBlockId) {
       throw new AdditionalDocumentCommandContractError(
         `${label}.placement cannot anchor before the identity being created`,
       );
     }
-    const initialBlocks = parseBlockTree(
-      operation.initialBlocks,
-      `${label}.initialBlocks`,
-    );
-    assertNewOwnerDoesNotCollideWithContent(
-      sourceBlockId,
-      initialBlocks,
-      label,
-    );
+    const initialBlocks = parseBlockTree(operation.initialBlocks, `${label}.initialBlocks`);
+    assertNewOwnerDoesNotCollideWithContent(sourceBlockId, initialBlocks, label);
     if (
       placement.before !== undefined &&
       blockTreeContainsId(initialBlocks, placement.before.blockId)
@@ -712,24 +623,14 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       "placement",
     ]);
     const sourceBlockId = readString(operation, "sourceBlockId", label);
-    const placement = parseLibraryPlacement(
-      operation.placement,
-      `${label}.placement`,
-    );
+    const placement = parseLibraryPlacement(operation.placement, `${label}.placement`);
     if (placement.before?.blockId === sourceBlockId) {
       throw new AdditionalDocumentCommandContractError(
         `${label}.placement cannot anchor before the identity being created`,
       );
     }
-    const initialBlocks = parseBlockTree(
-      operation.initialBlocks,
-      `${label}.initialBlocks`,
-    );
-    assertNewOwnerDoesNotCollideWithContent(
-      sourceBlockId,
-      initialBlocks,
-      label,
-    );
+    const initialBlocks = parseBlockTree(operation.initialBlocks, `${label}.initialBlocks`);
+    assertNewOwnerDoesNotCollideWithContent(sourceBlockId, initialBlocks, label);
     if (
       placement.before !== undefined &&
       blockTreeContainsId(initialBlocks, placement.before.blockId)
@@ -742,12 +643,7 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
       kind,
       sourceBlockId,
       documentId: readString(operation, "documentId", label),
-      displayName: readString(
-        operation,
-        "displayName",
-        label,
-        MAX_DISPLAY_NAME_LENGTH,
-      ),
+      displayName: readString(operation, "displayName", label, MAX_DISPLAY_NAME_LENGTH),
       initialBlocks,
       placement,
     };
@@ -783,36 +679,19 @@ const parseOperation = (value: unknown): AdditionalDocumentOperation => {
     };
   }
   if (kind === "delete_owned_source") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "ownerKind",
-      "owner",
-      "referencePolicy",
-    ]);
-    const ownerKinds = new Set<DeletableOwnedSourceKind>([
-      "synced_block",
-      "reusable_template",
-    ]);
+    assertExactKeys(operation, label, ["kind", "ownerKind", "owner", "referencePolicy"]);
+    const ownerKinds = new Set<DeletableOwnedSourceKind>(["synced_block", "reusable_template"]);
     if (!ownerKinds.has(operation.ownerKind as DeletableOwnedSourceKind)) {
-      throw new AdditionalDocumentCommandContractError(
-        `${label}.ownerKind is not supported`,
-      );
+      throw new AdditionalDocumentCommandContractError(`${label}.ownerKind is not supported`);
     }
     return {
       kind,
       ownerKind: operation.ownerKind as DeletableOwnedSourceKind,
       owner: parseOwner(operation.owner, `${label}.owner`),
-      referencePolicy: readLiteral(
-        operation,
-        "referencePolicy",
-        label,
-        "require_unreferenced",
-      ),
+      referencePolicy: readLiteral(operation, "referencePolicy", label, "require_unreferenced"),
     };
   }
-  throw new AdditionalDocumentCommandContractError(
-    `${label}.kind is not supported`,
-  );
+  throw new AdditionalDocumentCommandContractError(`${label}.kind is not supported`);
 };
 
 const requiredLeaseDocuments = (
@@ -857,28 +736,20 @@ const parseCoordination = (
   assertExactKeys(coordination, label, ["kind", "leaseId", "documents"]);
   readLiteral(coordination, "kind", label, "hub_lease");
   if (!Array.isArray(coordination.documents)) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.documents must be an array`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label}.documents must be an array`);
   }
   const documents = coordination.documents
     .map((head, index) => parseHead(head, `${label}.documents[${index}]`))
     .sort(compareHeads);
   const unique = new Set(documents.map((head) => head.documentId));
-  if (
-    documents.length !== expected.length ||
-    unique.size !== documents.length
-  ) {
+  if (documents.length !== expected.length || unique.size !== documents.length) {
     throw new AdditionalDocumentCommandContractError(
       `${label} must fence the exact unique Document set`,
     );
   }
   const matches = expected.every((head, index) => {
     const actual = documents[index];
-    return (
-      actual?.documentId === head.documentId &&
-      actual.generation === head.generation
-    );
+    return actual?.documentId === head.documentId && actual.generation === head.generation;
   });
   if (!matches) {
     throw new AdditionalDocumentCommandContractError(
@@ -896,9 +767,7 @@ const stableStringify = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
     const serialized = JSON.stringify(value);
     if (serialized !== undefined) return serialized;
-    throw new AdditionalDocumentCommandContractError(
-      "Canonical command contains a non-JSON value",
-    );
+    throw new AdditionalDocumentCommandContractError("Canonical command contains a non-JSON value");
   }
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
@@ -934,9 +803,7 @@ export const parseAdditionalDocumentCommandRequest = (
     coordination: parseCoordination(request.coordination, operation),
     operation,
   };
-  if (
-    stableStringify(parsed).length <= MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH
-  ) {
+  if (stableStringify(parsed).length <= MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH) {
     return parsed;
   }
   throw new AdditionalDocumentCommandContractError(
@@ -948,9 +815,7 @@ export const parseAdditionalDocumentCommandRequest = (
  * Canonical logical retry identity. Actor/session and the renewable Hub lease
  * are first-attempt/transport evidence and intentionally do not participate.
  */
-export const canonicalizeAdditionalDocumentCommandIntent = (
-  value: unknown,
-): string => {
+export const canonicalizeAdditionalDocumentCommandIntent = (value: unknown): string => {
   const request = parseAdditionalDocumentCommandRequest(value);
   return stableStringify({
     operationId: request.operationId,
@@ -961,9 +826,7 @@ export const canonicalizeAdditionalDocumentCommandIntent = (
 };
 
 /** Canonical bytes consumed by the synchronous writer-side SHA-256. */
-export const encodeAdditionalDocumentCommandSemanticHashInput = (
-  value: unknown,
-): Uint8Array =>
+export const encodeAdditionalDocumentCommandSemanticHashInput = (value: unknown): Uint8Array =>
   new TextEncoder().encode(canonicalizeAdditionalDocumentCommandIntent(value));
 
 /**
@@ -1037,38 +900,26 @@ export const compileAdditionalDocumentCommandExecution = (
   );
 };
 
-export const isAdditionalDocumentSemanticHash = (
-  value: unknown,
-): value is string => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+export const isAdditionalDocumentSemanticHash = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 
 export const additionalDocumentCommandCapability = (
   kind: AdditionalDocumentCommandKind,
-): AdditionalDocumentCommandCapability =>
-  ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES[kind];
+): AdditionalDocumentCommandCapability => ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES[kind];
 
 export const additionalDocumentCommandRequiredCoordination = (
   value: unknown,
 ): "fifo_only" | "hub_lease" => {
   const request = parseAdditionalDocumentCommandRequest(value);
-  return requiredLeaseDocuments(request.operation).length === 0
-    ? "fifo_only"
-    : "hub_lease";
+  return requiredLeaseDocuments(request.operation).length === 0 ? "fifo_only" : "hub_lease";
 };
 
 const COMMAND_KINDS = new Set<AdditionalDocumentCommandKind>(
-  Object.keys(
-    ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES,
-  ) as AdditionalDocumentCommandKind[],
+  Object.keys(ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES) as AdditionalDocumentCommandKind[],
 );
 
-const readCommandKind = (
-  value: unknown,
-  label: string,
-): AdditionalDocumentCommandKind => {
-  if (
-    typeof value === "string" &&
-    COMMAND_KINDS.has(value as AdditionalDocumentCommandKind)
-  ) {
+const readCommandKind = (value: unknown, label: string): AdditionalDocumentCommandKind => {
+  if (typeof value === "string" && COMMAND_KINDS.has(value as AdditionalDocumentCommandKind)) {
     return value as AdditionalDocumentCommandKind;
   }
   throw new AdditionalDocumentCommandContractError(`${label} is not supported`);
@@ -1076,9 +927,7 @@ const readCommandKind = (
 
 const readIdArray = (value: unknown, label: string): readonly string[] => {
   if (!Array.isArray(value) || value.length > MAX_RESULT_BLOCK_IDS) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label} must be a bounded identity array`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label} must be a bounded identity array`);
   }
   const ids = value.map((entry, index) =>
     readString({ value: entry }, "value", `${label}[${index}]`),
@@ -1108,18 +957,9 @@ const parseEffect = (value: unknown): AdditionalDocumentMutationEffect => {
     "deletedBlockIds",
     "documentHeads",
   ]);
-  const createdBlockIds = readIdArray(
-    effect.createdBlockIds,
-    `${label}.createdBlockIds`,
-  );
-  const preservedBlockIds = readIdArray(
-    effect.preservedBlockIds,
-    `${label}.preservedBlockIds`,
-  );
-  const deletedBlockIds = readIdArray(
-    effect.deletedBlockIds,
-    `${label}.deletedBlockIds`,
-  );
+  const createdBlockIds = readIdArray(effect.createdBlockIds, `${label}.createdBlockIds`);
+  const preservedBlockIds = readIdArray(effect.preservedBlockIds, `${label}.preservedBlockIds`);
+  const deletedBlockIds = readIdArray(effect.deletedBlockIds, `${label}.deletedBlockIds`);
   const allIds = [...createdBlockIds, ...preservedBlockIds, ...deletedBlockIds];
   if (new Set(allIds).size !== allIds.length) {
     throw new AdditionalDocumentCommandContractError(
@@ -1135,9 +975,7 @@ const parseEffect = (value: unknown): AdditionalDocumentMutationEffect => {
     );
   }
   if (!Array.isArray(effect.documentHeads)) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.documentHeads must be an array`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label}.documentHeads must be an array`);
   }
   if (effect.documentHeads.length > MAX_RESULT_BLOCK_IDS) {
     throw new AdditionalDocumentCommandContractError(
@@ -1147,10 +985,7 @@ const parseEffect = (value: unknown): AdditionalDocumentMutationEffect => {
   const documentHeads = effect.documentHeads
     .map((head, index) => parseHead(head, `${label}.documentHeads[${index}]`))
     .sort(compareHeads);
-  if (
-    new Set(documentHeads.map((head) => head.documentId)).size !==
-    documentHeads.length
-  ) {
+  if (new Set(documentHeads.map((head) => head.documentId)).size !== documentHeads.length) {
     throw new AdditionalDocumentCommandContractError(
       `${label}.documentHeads must contain unique Documents`,
     );
@@ -1190,14 +1025,8 @@ export const parseAdditionalDocumentCommandReceipt = (
     "commitSeq",
     "committedAt",
   ]);
-  const operationKind = readCommandKind(
-    receipt.operationKind,
-    `${label}.operationKind`,
-  );
-  if (
-    ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES[operationKind].availability ===
-    "capability_gap"
-  ) {
+  const operationKind = readCommandKind(receipt.operationKind, `${label}.operationKind`);
+  if (ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES[operationKind].availability === "capability_gap") {
     throw new AdditionalDocumentCommandContractError(
       `${label} cannot claim success for capability gap ${operationKind}`,
     );
@@ -1218,9 +1047,7 @@ export const parseAdditionalDocumentCommandReceipt = (
     commitSeq: readInteger(receipt, "commitSeq", label, 1),
     committedAt: readIsoTimestamp(receipt, "committedAt", label),
   };
-  if (
-    stableStringify(parsed).length <= MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH
-  ) {
+  if (stableStringify(parsed).length <= MAX_ADDITIONAL_DOCUMENT_COMMAND_LENGTH) {
     return parsed;
   }
   throw new AdditionalDocumentCommandContractError(
@@ -1250,20 +1077,12 @@ const ERROR_CODES = new Set<AdditionalDocumentCommandErrorCode>([
 const parseError = (value: unknown): AdditionalDocumentCommandError => {
   const label = "additionalDocumentResult.error";
   const error = readRecord(value, label);
-  assertExactKeys(error, label, [
-    "code",
-    "message",
-    "retryable",
-    "operationId",
-    "operationKind",
-  ]);
+  assertExactKeys(error, label, ["code", "message", "retryable", "operationId", "operationKind"]);
   if (
     typeof error.code !== "string" ||
     !ERROR_CODES.has(error.code as AdditionalDocumentCommandErrorCode)
   ) {
-    throw new AdditionalDocumentCommandContractError(
-      `${label}.code is not supported`,
-    );
+    throw new AdditionalDocumentCommandContractError(`${label}.code is not supported`);
   }
   const operationKind =
     error.operationKind === null
@@ -1280,8 +1099,7 @@ const parseError = (value: unknown): AdditionalDocumentCommandError => {
   if (
     parsed.retryable ||
     parsed.operationKind === null ||
-    ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES[parsed.operationKind]
-      .availability !== "capability_gap"
+    ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES[parsed.operationKind].availability !== "capability_gap"
   ) {
     throw new AdditionalDocumentCommandContractError(
       `${label} capability_gap must name a current non-retryable gap`,
@@ -1307,11 +1125,6 @@ export const parseAdditionalDocumentCommandResult = (
     assertExactKeys(result, label, ["ok", "error"]);
     return { ok: false, error: parseError(result.error) };
   }
-  throw new AdditionalDocumentCommandContractError(
-    `${label}.ok must be a boolean`,
-  );
+  throw new AdditionalDocumentCommandContractError(`${label}.ok must be a boolean`);
 };
-import {
-  parseLocalCommitApply,
-  type LocalCommitCommandSuccess,
-} from "./local-commit-delivery";
+import { parseLocalCommitApply, type LocalCommitCommandSuccess } from "./local-commit-delivery";

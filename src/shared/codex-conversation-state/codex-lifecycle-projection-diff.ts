@@ -1,8 +1,4 @@
-import type {
-  CodexItemStatus,
-  CodexItemView,
-  CodexTranscriptEntry,
-} from "../types";
+import type { CodexItemStatus, CodexItemView, CodexTranscriptEntry } from "../types";
 import {
   areCodexCanonicalTurnParamsEqual,
   collectCodexCanonicalUserMessageVisibilityChangedOwnerIds,
@@ -17,9 +13,7 @@ import type {
   CodexCanonicalTurnState,
 } from "./codex-conversation-state";
 
-function projectHookStatus(
-  status: CodexCanonicalHookRun["run"]["status"],
-): CodexItemStatus {
+function projectHookStatus(status: CodexCanonicalHookRun["run"]["status"]): CodexItemStatus {
   if (status === "running") return "inProgress";
   if (status === "failed") return "failed";
   if (status === "blocked") return "declined";
@@ -86,10 +80,7 @@ export function collectCodexLifecycleStatusChangedItemIds(
   const beforeStatuses = before?.sidecar.lifecycleStatusByItemId ?? {};
   const afterStatuses = after.sidecar.lifecycleStatusByItemId ?? {};
   const changed = new Set<string>();
-  const itemIds = new Set([
-    ...Object.keys(beforeStatuses),
-    ...Object.keys(afterStatuses),
-  ]);
+  const itemIds = new Set([...Object.keys(beforeStatuses), ...Object.keys(afterStatuses)]);
 
   for (const itemId of itemIds) {
     if (beforeStatuses[itemId] !== afterStatuses[itemId]) changed.add(itemId);
@@ -98,10 +89,7 @@ export function collectCodexLifecycleStatusChangedItemIds(
   return changed;
 }
 
-type ProjectionOwner = Pick<
-  CodexItemView,
-  "itemId" | "rawItem" | "rawItemId" | "rawItemType"
->;
+type ProjectionOwner = Pick<CodexItemView, "itemId" | "rawItem" | "rawItemId" | "rawItemType">;
 
 function countItemReferences(
   items: readonly CodexCanonicalItem[],
@@ -150,10 +138,7 @@ export function collectCodexLifecycleChangedRawOwnerIds(
 
   const sharedCounts = new Map<CodexCanonicalItem, number>();
   for (const item of beforeItems) {
-    const sharedCount = Math.min(
-      beforeCounts.get(item) ?? 0,
-      afterCounts.get(item) ?? 0,
-    );
+    const sharedCount = Math.min(beforeCounts.get(item) ?? 0, afterCounts.get(item) ?? 0);
     if (sharedCount > 0) sharedCounts.set(item, sharedCount);
   }
   const beforeShared = collectSharedItemReferences(beforeItems, sharedCounts);
@@ -168,17 +153,15 @@ export function collectCodexLifecycleChangedRawOwnerIds(
   return [...changed];
 }
 
-function lastNonUserWorkItem(
-  items: readonly CodexCanonicalItem[],
-): CodexCanonicalItem | null {
+function lastNonUserWorkItem(items: readonly CodexCanonicalItem[]): CodexCanonicalItem | null {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
     const type = item?.type;
     if (
-      type !== "userMessage"
-      && type !== "hookPrompt"
-      && type !== "steeringUserMessage"
-      && type !== "steered"
+      type !== "userMessage" &&
+      type !== "hookPrompt" &&
+      type !== "steeringUserMessage" &&
+      type !== "steered"
     ) {
       return item ?? null;
     }
@@ -192,11 +175,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function projectionIdentity(item: ProjectionOwner & Pick<CodexItemView, "type">): string {
-  return [
-    item.rawItemType ?? item.type,
-    item.rawItemId ?? "app-owned",
-    item.itemId,
-  ].join(":");
+  return [item.rawItemType ?? item.type, item.rawItemId ?? "app-owned", item.itemId].join(":");
 }
 
 function stabilizeProjectedView(
@@ -224,19 +203,15 @@ function stabilizeProjectedViewWithExisting(
   observedAtMs: number,
   preserveExistingUpdatedAt: boolean,
 ): CodexItemView {
-
   return {
     ...projected,
     approvalRequestId: projected.approvalRequestId ?? existing.approvalRequestId,
     approvalReason: projected.approvalReason ?? existing.approvalReason,
-    networkApprovalContext:
-      projected.networkApprovalContext ?? existing.networkApprovalContext,
+    networkApprovalContext: projected.networkApprovalContext ?? existing.networkApprovalContext,
     proposedExecpolicyAmendment:
-      projected.proposedExecpolicyAmendment
-      ?? existing.proposedExecpolicyAmendment,
+      projected.proposedExecpolicyAmendment ?? existing.proposedExecpolicyAmendment,
     proposedNetworkPolicyAmendments:
-      projected.proposedNetworkPolicyAmendments
-      ?? existing.proposedNetworkPolicyAmendments,
+      projected.proposedNetworkPolicyAmendments ?? existing.proposedNetworkPolicyAmendments,
     grantRoot: projected.grantRoot ?? existing.grantRoot,
     status: projected.status ?? existing.status,
     createdAt: existing.createdAt,
@@ -247,9 +222,7 @@ function stabilizeProjectedViewWithExisting(
 function readProjectionClientUserMessageId(item: ProjectionOwner): string | null {
   const rawItem = asRecord(item.rawItem);
   const clientId = rawItem?.clientUserMessageId ?? rawItem?.clientId;
-  return typeof clientId === "string" && clientId.trim().length > 0
-    ? clientId.trim()
-    : null;
+  return typeof clientId === "string" && clientId.trim().length > 0 ? clientId.trim() : null;
 }
 
 function isAppOwnedTurnParamsEntry(input: {
@@ -262,10 +235,7 @@ function isAppOwnedTurnParamsEntry(input: {
   if (!input.paramsClientId || input.entry.semanticKind !== "userMessage") {
     return false;
   }
-  if (
-    input.entry.rawItemId
-    && input.canonicalRawOwnerIds.has(input.entry.rawItemId)
-  ) {
+  if (input.entry.rawItemId && input.canonicalRawOwnerIds.has(input.entry.rawItemId)) {
     return false;
   }
   return readProjectionClientUserMessageId(input.entry) === input.paramsClientId;
@@ -276,10 +246,7 @@ function collectCodexProjectionAffectedOwnerIds(
   changedRawOwnerIds: readonly string[],
   visibilityChangedOwnerIds: ReadonlySet<string>,
 ): ReadonlySet<string> {
-  const affected = new Set([
-    ...changedRawOwnerIds,
-    ...visibilityChangedOwnerIds,
-  ]);
+  const affected = new Set([...changedRawOwnerIds, ...visibilityChangedOwnerIds]);
   for (const itemId of collectCodexLifecycleStatusChangedItemIds(
     input.beforeTurn,
     input.afterTurn,
@@ -290,8 +257,8 @@ function collectCodexProjectionAffectedOwnerIds(
   const beforeLastWork = lastNonUserWorkItem(beforeItems);
   const afterLastWork = lastNonUserWorkItem(input.afterTurn.items);
   if (
-    beforeLastWork !== afterLastWork
-    || input.beforeTurn?.protocol.status !== input.afterTurn.protocol.status
+    beforeLastWork !== afterLastWork ||
+    input.beforeTurn?.protocol.status !== input.afterTurn.protocol.status
   ) {
     if (beforeLastWork) affected.add(beforeLastWork.id);
     if (afterLastWork) affected.add(afterLastWork.id);
@@ -300,11 +267,13 @@ function collectCodexProjectionAffectedOwnerIds(
   const beforeTurnStatus = input.beforeTurn?.protocol.status;
   if (beforeTurnStatus && beforeTurnStatus !== input.afterTurn.protocol.status) {
     for (const item of [...beforeItems, ...input.afterTurn.items]) {
-      if (doesCodexCanonicalItemProjectionChangeWithTurnStatus(
-        item,
-        beforeTurnStatus,
-        input.afterTurn.protocol.status,
-      )) {
+      if (
+        doesCodexCanonicalItemProjectionChangeWithTurnStatus(
+          item,
+          beforeTurnStatus,
+          input.afterTurn.protocol.status,
+        )
+      ) {
         affected.add(item.id);
       }
     }
@@ -334,8 +303,9 @@ function collectCodexProjectionAffectedOwnerIds(
     }
   }
 
-  const rawTypeOrderChanged = beforeItems.length !== input.afterTurn.items.length
-    || beforeItems.some((item, index) => item.type !== input.afterTurn.items[index]?.type);
+  const rawTypeOrderChanged =
+    beforeItems.length !== input.afterTurn.items.length ||
+    beforeItems.some((item, index) => item.type !== input.afterTurn.items[index]?.type);
   const changedImageView = [...beforeItems, ...input.afterTurn.items].some(
     (item) => item.type === "imageView" && affected.has(item.id),
   );
@@ -362,27 +332,24 @@ function projectAffectedRawItems(
     params: input.afterTurn.sidecar.params,
     observedAtMs: input.observedAtMs,
     turnStatus: input.afterTurn.protocol.status,
-    lifecycleStatusByItemId:
-      input.afterTurn.sidecar.lifecycleStatusByItemId,
-    commandExecutionStartedAtMsById:
-      input.afterTurn.sidecar.commandExecutionStartedAtMsById,
-    interruptedCommandExecutionItemIds:
-      input.afterTurn.sidecar.interruptedCommandExecutionItemIds,
-    isBackgroundSubagentsEnabled:
-      input.isBackgroundSubagentsEnabled ?? true,
+    lifecycleStatusByItemId: input.afterTurn.sidecar.lifecycleStatusByItemId,
+    commandExecutionStartedAtMsById: input.afterTurn.sidecar.commandExecutionStartedAtMsById,
+    interruptedCommandExecutionItemIds: input.afterTurn.sidecar.interruptedCommandExecutionItemIds,
+    isBackgroundSubagentsEnabled: input.isBackgroundSubagentsEnabled ?? true,
   });
   for (const view of projectedViews) {
     const ownerId = view.rawItemId;
     if (!ownerId) continue;
     if (!affectedOwnerIds.has(ownerId)) continue;
-    const lifecycleView = view.status !== undefined
-      || input.lifecycleStatus === undefined
-      || !changedOwnerIds.has(ownerId)
-      ? view
-      : {
-          ...view,
-          status: input.lifecycleStatus,
-        };
+    const lifecycleView =
+      view.status !== undefined ||
+      input.lifecycleStatus === undefined ||
+      !changedOwnerIds.has(ownerId)
+        ? view
+        : {
+            ...view,
+            status: input.lifecycleStatus,
+          };
     const stabilized = stabilizeProjectedView(
       lifecycleView,
       input.currentViews,
@@ -416,9 +383,7 @@ function orderScopedEntries<T extends ProjectionOwner & { readonly turnId: strin
   let currentAnchor: string | null = null;
   for (const entry of currentEntries) {
     const ownerId = entry.rawItemId;
-    const rebound = entry.turnId === targetTurnId
-      ? entry
-      : { ...entry, turnId: targetTurnId };
+    const rebound = entry.turnId === targetTurnId ? entry : { ...entry, turnId: targetTurnId };
     if (ownerId && rawOwnerIds.has(ownerId)) {
       const ownerEntries = currentByOwnerId.get(ownerId);
       if (ownerEntries) ownerEntries.push(rebound);
@@ -445,13 +410,13 @@ function orderScopedEntries<T extends ProjectionOwner & { readonly turnId: strin
     }
 
     const beforeIndex = beforeItems.findIndex((item) => item.id === anchor);
-    const replacementAtSameSlot = beforeItems.length === afterItems.length
-      ? afterItems[beforeIndex]?.id ?? null
-      : null;
-    const precedingSurvivor = beforeItems
-      .slice(0, Math.max(0, beforeIndex))
-      .toReversed()
-      .find((item) => afterOwnerIds.has(item.id))?.id ?? null;
+    const replacementAtSameSlot =
+      beforeItems.length === afterItems.length ? (afterItems[beforeIndex]?.id ?? null) : null;
+    const precedingSurvivor =
+      beforeItems
+        .slice(0, Math.max(0, beforeIndex))
+        .toReversed()
+        .find((item) => afterOwnerIds.has(item.id))?.id ?? null;
     appendOverlays(replacementAtSameSlot ?? precedingSurvivor, overlays);
   }
 
@@ -459,11 +424,11 @@ function orderScopedEntries<T extends ProjectionOwner & { readonly turnId: strin
   const emittedOwners = new Set<string>();
   for (const item of afterItems) {
     if (emittedOwners.has(item.id)) continue;
-    ordered.push(...(
-      affectedOwnerIds.has(item.id)
-        ? projectedByOwnerId.get(item.id) ?? []
-        : currentByOwnerId.get(item.id) ?? []
-    ));
+    ordered.push(
+      ...(affectedOwnerIds.has(item.id)
+        ? (projectedByOwnerId.get(item.id) ?? [])
+        : (currentByOwnerId.get(item.id) ?? [])),
+    );
     ordered.push(...(resolvedOverlaysByAnchor.get(item.id) ?? []));
     emittedOwners.add(item.id);
   }
@@ -477,9 +442,10 @@ function projectChangedTranscriptEntries(
 ): readonly CodexTranscriptEntry[] {
   return views.map((view, index) => {
     const projected = projectCodexItemViewToTranscriptEntry(view, "live", index);
-    const existing = currentTranscript.find((entry) =>
-      entry.type === projected.type
-      && (entry.entryId ?? entry.itemId) === (projected.entryId ?? projected.itemId)
+    const existing = currentTranscript.find(
+      (entry) =>
+        entry.type === projected.type &&
+        (entry.entryId ?? entry.itemId) === (projected.entryId ?? projected.itemId),
     );
     if (!existing) return projected;
     return {
@@ -500,42 +466,41 @@ function projectCompleteCanonicalTurnViews(
     throw new Error("A null-id canonical turn requires its occurrence key");
   }
   const paramsItemId = `${turnKey}:input`;
-  const canonicalRawOwnerIds = new Set(
-    input.afterTurn.items.map((item) => item.id),
-  );
+  const canonicalRawOwnerIds = new Set(input.afterTurn.items.map((item) => item.id));
   const rawParamsClientId = input.afterTurn.sidecar.params.clientUserMessageId;
-  const paramsClientId = typeof rawParamsClientId === "string"
-    && rawParamsClientId.trim().length > 0
-    ? rawParamsClientId.trim()
-    : null;
-  const existingParamsView = input.currentViews.find((entry) => (
+  const paramsClientId =
+    typeof rawParamsClientId === "string" && rawParamsClientId.trim().length > 0
+      ? rawParamsClientId.trim()
+      : null;
+  const existingParamsView = input.currentViews.find((entry) =>
     isAppOwnedTurnParamsEntry({
       entry,
       paramsItemId,
       paramsClientId,
       canonicalRawOwnerIds,
-    })
-  ));
+    }),
+  );
   const projected = projectCodexCanonicalTurnViews({
     threadId: input.threadId,
     turn: input.afterTurn,
     turnKey,
     observedAtMs: input.observedAtMs,
-    isBackgroundSubagentsEnabled:
-      input.isBackgroundSubagentsEnabled ?? true,
-  }).map((view) => view.itemId === paramsItemId && existingParamsView
-    ? stabilizeProjectedViewWithExisting(
-        view,
-        existingParamsView,
-        input.observedAtMs,
-        input.preserveExistingUpdatedAt ?? false,
-      )
-    : stabilizeProjectedView(
-        view,
-        input.currentViews,
-        input.observedAtMs,
-        input.preserveExistingUpdatedAt ?? false,
-      ));
+    isBackgroundSubagentsEnabled: input.isBackgroundSubagentsEnabled ?? true,
+  }).map((view) =>
+    view.itemId === paramsItemId && existingParamsView
+      ? stabilizeProjectedViewWithExisting(
+          view,
+          existingParamsView,
+          input.observedAtMs,
+          input.preserveExistingUpdatedAt ?? false,
+        )
+      : stabilizeProjectedView(
+          view,
+          input.currentViews,
+          input.observedAtMs,
+          input.preserveExistingUpdatedAt ?? false,
+        ),
+  );
   const paramsView = projected.find((view) => view.itemId === paramsItemId) ?? null;
   const projectedByOwnerId = new Map<string, CodexItemView[]>();
   for (const view of projected) {
@@ -547,15 +512,15 @@ function projectCompleteCanonicalTurnViews(
     else projectedByOwnerId.set(ownerId, [view]);
   }
 
-  const currentWithoutAppOwnedRows = input.currentViews.filter((view) => (
-    !isAppOwnedTurnParamsEntry({
-      entry: view,
-      paramsItemId,
-      paramsClientId,
-      canonicalRawOwnerIds,
-    })
-    && view.semanticKind !== "hook"
-  ));
+  const currentWithoutAppOwnedRows = input.currentViews.filter(
+    (view) =>
+      !isAppOwnedTurnParamsEntry({
+        entry: view,
+        paramsItemId,
+        paramsClientId,
+        canonicalRawOwnerIds,
+      }) && view.semanticKind !== "hook",
+  );
   const orderedRawAndOverlays = orderScopedEntries(
     [],
     input.afterTurn.items,
@@ -565,9 +530,7 @@ function projectCompleteCanonicalTurnViews(
     targetTurnId,
   );
 
-  return paramsView
-    ? [paramsView, ...orderedRawAndOverlays]
-    : orderedRawAndOverlays;
+  return paramsView ? [paramsView, ...orderedRawAndOverlays] : orderedRawAndOverlays;
 }
 
 function projectCompleteCanonicalTurnTranscript(
@@ -580,21 +543,15 @@ function projectCompleteCanonicalTurnTranscript(
     throw new Error("A null-id canonical turn requires its occurrence key");
   }
   const paramsItemId = `${turnKey}:input`;
-  const canonicalRawOwnerIds = new Set(
-    input.afterTurn.items.map((item) => item.id),
-  );
+  const canonicalRawOwnerIds = new Set(input.afterTurn.items.map((item) => item.id));
   const rawParamsClientId = input.afterTurn.sidecar.params.clientUserMessageId;
-  const paramsClientId = typeof rawParamsClientId === "string"
-    && rawParamsClientId.trim().length > 0
-    ? rawParamsClientId.trim()
-    : null;
+  const paramsClientId =
+    typeof rawParamsClientId === "string" && rawParamsClientId.trim().length > 0
+      ? rawParamsClientId.trim()
+      : null;
   return views.map((view, sequence) => {
-    const projected = projectCodexItemViewToTranscriptEntry(
-      view,
-      "bootstrap",
-      sequence,
-    );
-    const existing = input.currentTranscript.find((entry) => (
+    const projected = projectCodexItemViewToTranscriptEntry(view, "bootstrap", sequence);
+    const existing = input.currentTranscript.find((entry) =>
       view.itemId === paramsItemId
         ? isAppOwnedTurnParamsEntry({
             entry,
@@ -602,9 +559,9 @@ function projectCompleteCanonicalTurnTranscript(
             paramsClientId,
             canonicalRawOwnerIds,
           })
-        : entry.type === projected.type
-          && (entry.entryId ?? entry.itemId) === (projected.entryId ?? projected.itemId)
-    ));
+        : entry.type === projected.type &&
+          (entry.entryId ?? entry.itemId) === (projected.entryId ?? projected.itemId),
+    );
     if (!existing) return projected;
     return {
       ...projected,
@@ -669,18 +626,16 @@ export function applyCodexLifecycleProjectionDiff(
     changedRawOwnerIds,
     visibilityChangedOwnerIds,
   );
-  const isTurnIdentityRebind = input.beforeTurn !== null
-    && input.beforeTurn.protocol.id !== input.afterTurn.protocol.id;
-  const didTurnParamsChange = input.beforeTurn !== null
-    && !areCodexCanonicalTurnParamsEqual(
+  const isTurnIdentityRebind =
+    input.beforeTurn !== null && input.beforeTurn.protocol.id !== input.afterTurn.protocol.id;
+  const didTurnParamsChange =
+    input.beforeTurn !== null &&
+    !areCodexCanonicalTurnParamsEqual(
       input.beforeTurn.sidecar.params,
       input.afterTurn.sidecar.params,
     );
-  const isCompleteCanonicalTurnRebuild = (
-    input.beforeTurn === null
-    || isTurnIdentityRebind
-    || didTurnParamsChange
-  );
+  const isCompleteCanonicalTurnRebuild =
+    input.beforeTurn === null || isTurnIdentityRebind || didTurnParamsChange;
   const views = isCompleteCanonicalTurnRebuild
     ? projectCompleteCanonicalTurnViews(input)
     : orderScopedEntries(
@@ -693,19 +648,10 @@ export function applyCodexLifecycleProjectionDiff(
       );
   const projectedViews = projectCanonicalHookViews(input, views);
   const transcript = isCompleteCanonicalTurnRebuild
-    ? projectCompleteCanonicalTurnTranscript(
-        input,
-        projectedViews,
-      )
+    ? projectCompleteCanonicalTurnTranscript(input, projectedViews)
     : (() => {
-        const baseTranscript = orderScopedTranscript(
-          input,
-          views,
-          affectedOwnerIds,
-        );
-        const nonHookTranscript = baseTranscript.filter(
-          (entry) => entry.semanticKind !== "hook",
-        );
+        const baseTranscript = orderScopedTranscript(input, views, affectedOwnerIds);
+        const nonHookTranscript = baseTranscript.filter((entry) => entry.semanticKind !== "hook");
         const hookTranscript = projectChangedTranscriptEntries(
           projectedViews.filter((view) => view.semanticKind === "hook"),
           input.currentTranscript,

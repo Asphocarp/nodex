@@ -1,13 +1,16 @@
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import { cn } from "@/lib/utils";
 import { NodexButton } from "../ui/button";
-import {
-  ShortcutKeycapSequence,
-} from "../ui/shortcut-keycaps";
+import { ShortcutKeycapSequence } from "../ui/shortcut-keycaps";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -80,10 +83,16 @@ function buildRows(entries: CommandKeymapEntry[]): KeybindingRow[] {
   });
 }
 
-function entryMatchesText(entry: CommandKeymapEntry, query: string, state: CommandKeymapState): boolean {
+function entryMatchesText(
+  entry: CommandKeymapEntry,
+  query: string,
+  state: CommandKeymapState,
+): boolean {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
-  const labels = entry.keybindings.map((binding) => binding.key ? formatAcceleratorLabel(binding.key, state.platform) : "");
+  const labels = entry.keybindings.map((binding) =>
+    binding.key ? formatAcceleratorLabel(binding.key, state.platform) : "",
+  );
   return [entry.id, entry.title, entry.description, ...labels]
     .join(" ")
     .toLowerCase()
@@ -122,7 +131,8 @@ export function KeyboardShortcutsSettingsPage() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const updateMutation = useMutation({
-    mutationFn: ({ commandId, update }: CommitPayload) => invoke("set-codex-command-keybinding", commandId, update),
+    mutationFn: ({ commandId, update }: CommitPayload) =>
+      invoke("set-codex-command-keybinding", commandId, update),
     onSuccess: (nextState) => {
       queryClient.setQueryData(queryKeys.settings.commandKeymap(), nextState);
     },
@@ -215,7 +225,11 @@ export function KeyboardShortcutsSettingsPage() {
       capture.mode === "append"
         ? { type: "append", keybinding }
         : capture.mode === "replace" && capture.oldKey
-          ? { type: "replace", oldKeybinding: toKeybindingRecord(capture.oldKey), newKeybinding: keybinding }
+          ? {
+              type: "replace",
+              oldKeybinding: toKeybindingRecord(capture.oldKey),
+              newKeybinding: keybinding,
+            }
           : { type: "set", keybinding };
     setCapture({ ...capture, display: label, conflict: null });
     await commitUpdate(entry.id, update);
@@ -229,7 +243,9 @@ export function KeyboardShortcutsSettingsPage() {
       setKeystrokeQuery(null);
       return;
     }
-    const accelerator = keyboardEventToAccelerator(event.nativeEvent, state.platform, { allowsBareModifiers: true });
+    const accelerator = keyboardEventToAccelerator(event.nativeEvent, state.platform, {
+      allowsBareModifiers: true,
+    });
     if (!accelerator) return;
     setKeystrokeQuery(accelerator);
   };
@@ -312,12 +328,19 @@ export function KeyboardShortcutsSettingsPage() {
                   key={`${row.entry.id}:${row.binding?.key ?? "unassigned"}:${row.bindingIndex}`}
                   row={row}
                   state={state}
-                  capture={capture?.commandId === row.entry.id && (capture.oldKey ?? null) === (row.binding?.key ?? null) ? capture : null}
+                  capture={
+                    capture?.commandId === row.entry.id &&
+                    (capture.oldKey ?? null) === (row.binding?.key ?? null)
+                      ? capture
+                      : null
+                  }
                   rowError={row.isFirst ? rowErrors[row.entry.id] : ""}
                   pending={updateMutation.isPending}
                   onBeginCapture={beginCapture}
                   onCaptureKeyDown={handleCaptureKeyDown}
-                  onRemove={(entry, binding) => void commitUpdate(entry.id, { type: "remove", keybinding: binding })}
+                  onRemove={(entry, binding) =>
+                    void commitUpdate(entry.id, { type: "remove", keybinding: binding })
+                  }
                   onReset={(entry) => void commitUpdate(entry.id, { type: "reset" })}
                 />
               ))}
@@ -351,9 +374,7 @@ export function KeyboardShortcutsSettingsPage() {
               </NodexDialogBody>
             ) : null}
             <NodexDialogFooter>
-              <NodexDialogAction onClick={() => setResetAllOpen(false)}>
-                Cancel
-              </NodexDialogAction>
+              <NodexDialogAction onClick={() => setResetAllOpen(false)}>Cancel</NodexDialogAction>
               <NodexDialogAction
                 tone="danger"
                 disabled={resetAllMutation.isPending}
@@ -385,32 +406,43 @@ function ShortcutTableRow({
   capture: CaptureState | null;
   rowError: string | undefined;
   pending: boolean;
-  onBeginCapture: (entry: CommandKeymapEntry, binding: CommandKeybindingRecord | null, event: ReactMouseEvent<HTMLButtonElement>) => void;
-  onCaptureKeyDown: (entry: CommandKeymapEntry, event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onBeginCapture: (
+    entry: CommandKeymapEntry,
+    binding: CommandKeybindingRecord | null,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => void;
+  onCaptureKeyDown: (
+    entry: CommandKeymapEntry,
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ) => void;
   onRemove: (entry: CommandKeymapEntry, binding: CommandKeybindingRecord) => void;
   onReset: (entry: CommandKeymapEntry) => void;
 }) {
   const { entry, binding, isFirst, rowCount } = row;
   const label = binding?.key && state ? formatAcceleratorLabel(binding.key, state.platform) : "";
-  const chordLabels = binding?.key && state
-    ? binding.key.split(/\s+/).map((chord) =>
-        formatAcceleratorLabel(chord, state.platform),
-      )
-    : [];
-  const keybindingPadding = isFirst && rowCount > 1
-    ? "px-4 pt-2 pb-0.5"
-    : !isFirst && rowCount > 1
-      ? "px-4 pt-0.5 pb-2"
-      : "px-4 py-2";
+  const chordLabels =
+    binding?.key && state
+      ? binding.key.split(/\s+/).map((chord) => formatAcceleratorLabel(chord, state.platform))
+      : [];
+  const keybindingPadding =
+    isFirst && rowCount > 1
+      ? "px-4 pt-2 pb-0.5"
+      : !isFirst && rowCount > 1
+        ? "px-4 pt-0.5 pb-2"
+        : "px-4 py-2";
 
   return (
     <tr className="group align-middle">
       {isFirst ? (
         <td className="px-4 py-2" rowSpan={rowCount}>
           <span className="block truncate text-token-text-primary">{entry.title}</span>
-          <span className="mt-0.5 block truncate text-xs text-token-text-secondary">{entry.description}</span>
+          <span className="mt-0.5 block truncate text-xs text-token-text-secondary">
+            {entry.description}
+          </span>
           {rowError ? (
-            <span className="mt-1 block text-xs text-token-editor-warning-foreground">{rowError}</span>
+            <span className="mt-1 block text-xs text-token-editor-warning-foreground">
+              {rowError}
+            </span>
           ) : null}
         </td>
       ) : null}
@@ -427,7 +459,9 @@ function ShortcutTableRow({
                 className="h-token-button-composer w-36 rounded-lg border border-token-border bg-token-input-background px-3 py-0 text-sm text-token-text-primary shadow-sm outline-none"
               />
               {capture.conflict ? (
-                <span className="text-xs text-token-editor-warning-foreground">{capture.conflict}</span>
+                <span className="text-xs text-token-editor-warning-foreground">
+                  {capture.conflict}
+                </span>
               ) : null}
             </div>
           ) : binding?.key ? (
@@ -439,7 +473,9 @@ function ShortcutTableRow({
               />
             </span>
           ) : (
-            <span className="flex min-h-8 items-center gap-1 text-token-text-secondary">Unassigned</span>
+            <span className="flex min-h-8 items-center gap-1 text-token-text-secondary">
+              Unassigned
+            </span>
           )}
           <span data-state="closed" className="contents">
             <button

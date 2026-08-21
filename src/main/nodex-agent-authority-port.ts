@@ -58,9 +58,7 @@ export interface NodexAgentAuthorityPort {
   capturePersisted(
     input: CaptureNodexAgentTurnAuthorityInput,
   ): Promise<FrozenNodexAgentTurnAuthority | null>;
-  hasRecordedAuthority(
-    input: CaptureNodexAgentTurnAuthorityInput,
-  ): Promise<boolean>;
+  hasRecordedAuthority(input: CaptureNodexAgentTurnAuthorityInput): Promise<boolean>;
   capture(
     input: CaptureNodexAgentTurnAuthorityInput,
   ): Promise<FrozenNodexAgentTurnAuthority | null>;

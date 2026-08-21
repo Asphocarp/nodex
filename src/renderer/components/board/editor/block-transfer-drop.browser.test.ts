@@ -97,9 +97,7 @@ describe("nested Block transfer targets in Chromium", () => {
       dragOver(innerContent);
       expect(outer.hasAttribute("data-block-transfer-drop-hover")).toBe(false);
       expect(inner.hasAttribute("data-block-transfer-drop-hover")).toBe(true);
-      expect(
-        document.querySelectorAll("[data-block-transfer-drop-indicator]"),
-      ).toHaveLength(1);
+      expect(document.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(1);
     } finally {
       endLocalBlockDragSession();
       innerCleanup();

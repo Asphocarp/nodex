@@ -1,9 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { PageCreateDialog } from "./page-create-dialog";
@@ -18,15 +15,16 @@ const property = (
   name: propertyId,
   ...testPropertySemantics(valueType, 3),
   valueType,
-  config: propertyId === "tags"
-    ? {
-        options: [
-          { id: "tag-ui", name: "UI", color: "blue" },
-          { id: "tag-product", name: "Product", color: "green" },
-          { id: "tag-polish", name: "Polish", color: "orange" },
-        ],
-      }
-    : {},
+  config:
+    propertyId === "tags"
+      ? {
+          options: [
+            { id: "tag-ui", name: "UI", color: "blue" },
+            { id: "tag-product", name: "Product", color: "green" },
+            { id: "tag-polish", name: "Polish", color: "orange" },
+          ],
+        }
+      : {},
   rankKey: propertyId,
   lifecycle: "active",
   revision: 1,
@@ -119,9 +117,11 @@ const openPropertyPicker = async (
     }
   });
   fireEvent.click(getByRole(canvasElement, "button", { name: label }));
-  await waitFor(() => getByRole(document.body, "combobox", {
-    name: `Search ${label} options`,
-  }));
+  await waitFor(() =>
+    getByRole(document.body, "combobox", {
+      name: `Search ${label} options`,
+    }),
+  );
 };
 
 export const Default: Story = {
@@ -129,7 +129,8 @@ export const Default: Story = {
     viewport: referenceViewport,
     docs: {
       description: {
-        story: "The composer presents Status, Priority, Estimate, and Tags as one compact chip strip; empty chips retain their semantic icons and property names.",
+        story:
+          "The composer presents Status, Priority, Estimate, and Tags as one compact chip strip; empty chips retain their semantic icons and property names.",
       },
     },
   },
@@ -140,7 +141,8 @@ export const StatusPickerOpen: Story = {
     viewport: referenceViewport,
     docs: {
       description: {
-        story: "The Status pill opens the compact searchable property picker with the current workflow state highlighted.",
+        story:
+          "The Status pill opens the compact searchable property picker with the current workflow state highlighted.",
       },
     },
   },
@@ -152,7 +154,8 @@ export const PriorityPickerOpen: Story = {
     viewport: referenceViewport,
     docs: {
       description: {
-        story: "Priority uses the same searchable semantic picker, including an explicit No priority action once a value is selected.",
+        story:
+          "Priority uses the same searchable semantic picker, including an explicit No priority action once a value is selected.",
       },
     },
   },
@@ -176,7 +179,8 @@ export const EstimatePickerOpen: Story = {
     viewport: referenceViewport,
     docs: {
       description: {
-        story: "Estimate shares the searchable semantic picker and presents the canonical size scale in order.",
+        story:
+          "Estimate shares the searchable semantic picker and presents the canonical size scale in order.",
       },
     },
   },
@@ -218,7 +222,8 @@ export const NarrowCompact: Story = {
     requestId: "storybook-narrow-compact-request",
     restoredSnapshot: {
       title: "Keep the compact composer usable in a narrow panel",
-      descriptionNfm: "Properties wrap below the continuous writing plane without creating nested cards.",
+      descriptionNfm:
+        "Properties wrap below the continuous writing plane without creating nested cards.",
       status: "plan",
       priority: "p2-medium",
       estimate: "s",
@@ -235,7 +240,8 @@ export const NarrowExpanded: Story = {
     requestId: "storybook-narrow-expanded-request",
     restoredSnapshot: {
       title: "Expand the writing plane without losing the draft",
-      descriptionNfm: "The description absorbs the available height while properties and actions stay anchored below it.",
+      descriptionNfm:
+        "The description absorbs the available height while properties and actions stay anchored below it.",
       status: "build",
       priority: "p1-high",
       estimate: "m",
@@ -269,7 +275,8 @@ export const WrappedProperties: Story = {
     },
     restoredSnapshot: {
       title: "Preserve density when property labels grow",
-      descriptionNfm: "Each property remains one compact chip and the strip wraps as a single group.",
+      descriptionNfm:
+        "Each property remains one compact chip and the strip wraps as a single group.",
       status: "ship",
       priority: "p0-critical",
       estimate: "xl",
@@ -297,7 +304,8 @@ export const DarkExpanded: Story = {
     requestId: "storybook-dark-expanded-request",
     restoredSnapshot: {
       title: "Review the expanded composer in dark mode",
-      descriptionNfm: "The writing plane stays flat; contrast comes from the shared modal surface and restrained focus boundary.",
+      descriptionNfm:
+        "The writing plane stays flat; contrast comes from the shared modal surface and restrained focus boundary.",
       status: "build",
       priority: "p1-high",
       estimate: "l",

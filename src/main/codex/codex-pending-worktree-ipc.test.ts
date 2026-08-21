@@ -78,7 +78,7 @@ async function invoke<Channel extends CodexPendingWorktreeIpcChannel>(
 ): Promise<IpcApi[Channel]["result"]> {
   const handler = handlers.get(channel);
   if (!handler) throw new Error(`Missing IPC handler: ${channel}`);
-  return await handler(null, ...args) as IpcApi[Channel]["result"];
+  return (await handler(null, ...args)) as IpcApi[Channel]["result"];
 }
 
 beforeEach(() => {
@@ -227,35 +227,39 @@ describe("Codex pending worktree IPC", () => {
   test("rejects stable and fork requests that omit their primary source root", async () => {
     const handler = handlers.get("codex:pending-worktree:create");
     if (!handler) throw new Error("Missing create handler");
-    expect(() => handler(null, {
-      hostId: "local",
-      label: "Invalid worktree",
-      sourceWorkspaceRoot: "/repo",
-      sourceWorkspaceRoots: ["/shared"],
-      prompt: "Create a worktree",
-      launchMode: "create-stable-worktree",
-      startConversationParamsInput: null,
-      sourceConversationId: null,
-      sourceCollaborationMode: null,
-    })).toThrow("Source workspace roots must contain the primary root");
+    expect(() =>
+      handler(null, {
+        hostId: "local",
+        label: "Invalid worktree",
+        sourceWorkspaceRoot: "/repo",
+        sourceWorkspaceRoots: ["/shared"],
+        prompt: "Create a worktree",
+        launchMode: "create-stable-worktree",
+        startConversationParamsInput: null,
+        sourceConversationId: null,
+        sourceCollaborationMode: null,
+      }),
+    ).toThrow("Source workspace roots must contain the primary root");
     expect(actions.length).toBe(0);
   });
 
   test("rejects non-portable environment selections at the IPC boundary", () => {
     const handler = handlers.get("codex:pending-worktree:create");
     if (!handler) throw new Error("Missing create handler");
-    expect(() => handler(null, {
-      hostId: "local",
-      label: "Invalid worktree",
-      sourceWorkspaceRoot: "/repo",
-      sourceWorkspaceRoots: ["/repo"],
-      localEnvironmentConfigPath: "/repo/.codex/environments/environment.toml",
-      prompt: "Create a worktree",
-      launchMode: "create-stable-worktree",
-      startConversationParamsInput: null,
-      sourceConversationId: null,
-      sourceCollaborationMode: null,
-    })).toThrow("workspace-relative .toml file inside .codex/environments");
+    expect(() =>
+      handler(null, {
+        hostId: "local",
+        label: "Invalid worktree",
+        sourceWorkspaceRoot: "/repo",
+        sourceWorkspaceRoots: ["/repo"],
+        localEnvironmentConfigPath: "/repo/.codex/environments/environment.toml",
+        prompt: "Create a worktree",
+        launchMode: "create-stable-worktree",
+        startConversationParamsInput: null,
+        sourceConversationId: null,
+        sourceCollaborationMode: null,
+      }),
+    ).toThrow("workspace-relative .toml file inside .codex/environments");
     expect(actions.length).toBe(0);
   });
 
@@ -285,13 +289,11 @@ describe("Codex pending worktree IPC", () => {
       resolveLaunch = resolve;
     });
     let settled = false;
-    const invocation = invoke(
-      "codex:pending-worktree:work-locally",
-      "local",
-      "pending-1",
-    ).finally(() => {
-      settled = true;
-    });
+    const invocation = invoke("codex:pending-worktree:work-locally", "local", "pending-1").finally(
+      () => {
+        settled = true;
+      },
+    );
 
     await Promise.resolve();
     expect(settled).toBe(false);
@@ -304,9 +306,9 @@ describe("Codex pending worktree IPC", () => {
     const succeeded = await invoke("codex:pending-worktree:resolve-thread", "client-1");
     const missing = await invoke("codex:pending-worktree:resolve-thread", "missing");
     expect(succeeded?.state).toBe("succeeded");
-    expect((succeeded as CodexPendingWorktreeThreadResolution & { threadId: string }).threadId).toBe(
-      "thread-1",
-    );
+    expect(
+      (succeeded as CodexPendingWorktreeThreadResolution & { threadId: string }).threadId,
+    ).toBe("thread-1");
     expect(missing).toBe(null);
   });
 
@@ -329,9 +331,7 @@ describe("Codex pending worktree IPC", () => {
   });
 
   test("forwards changed snapshots as isolated event arrays", () => {
-    const listener = changedListener as
-      | ((event: CodexPendingWorktreesChangedEvent) => void)
-      | null;
+    const listener = changedListener as ((event: CodexPendingWorktreesChangedEvent) => void) | null;
     if (!listener) throw new Error("Missing pending worktree change listener");
     listener(entries);
     expect(broadcastEvent === entries).toBe(false);

@@ -143,10 +143,7 @@ function orderProjectsForPagePicker(
   const currentProject = projects.find((project) => project.id === currentProjectId);
   if (!currentProject) return projects;
 
-  return [
-    currentProject,
-    ...projects.filter((project) => project.id !== currentProjectId),
-  ];
+  return [currentProject, ...projects.filter((project) => project.id !== currentProjectId)];
 }
 
 function limitPageRowsWithCurrentProjectFirst(
@@ -156,10 +153,7 @@ function limitPageRowsWithCurrentProjectFirst(
 ): PanelDestinationPageRow[] {
   const currentProjectRows = rows.filter((row) => row.projectId === currentProjectId);
   const otherProjectRows = rows.filter((row) => row.projectId !== currentProjectId);
-  return [
-    ...currentProjectRows,
-    ...otherProjectRows,
-  ].slice(0, pageLimit);
+  return [...currentProjectRows, ...otherProjectRows].slice(0, pageLimit);
 }
 
 function createPageSections(
@@ -248,12 +242,13 @@ export function buildPanelDestinationSections({
               currentProjectId,
               pageLimit,
             )
-          : resolvedSearchResult.pageHits
-              .slice(0, pageLimit)
-              .map(createPageRowFromSearchHit)),
+          : resolvedSearchResult.pageHits.slice(0, pageLimit).map(createPageRowFromSearchHit)),
       );
     } else {
-      for (const project of orderProjectsForPagePicker(projects, groupCurrentProjectPages ? currentProjectId : null)) {
+      for (const project of orderProjectsForPagePicker(
+        projects,
+        groupCurrentProjectPages ? currentProjectId : null,
+      )) {
         const board = boardMap.get(project.id);
         for (const column of board?.columns ?? []) {
           for (const page of column.cards) {
@@ -270,9 +265,7 @@ export function buildPanelDestinationSections({
   const sections: PanelDestinationSection[] = [];
   if (includeDb) sections.push({ key: "db", label: "DB", rows: dbRows });
   if (includePages) {
-    sections.push(
-      ...createPageSections(pageRows, currentProjectId, groupCurrentProjectPages),
-    );
+    sections.push(...createPageSections(pageRows, currentProjectId, groupCurrentProjectPages));
   }
   return sections;
 }
@@ -303,11 +296,9 @@ export function movePanelDestinationFocusedRowId(
 ) {
   if (rows.length === 0) return null;
 
-  const currentIndex = focusedRowId
-    ? rows.findIndex((row) => row.id === focusedRowId)
-    : -1;
+  const currentIndex = focusedRowId ? rows.findIndex((row) => row.id === focusedRowId) : -1;
   if (currentIndex < 0) {
-    return direction > 0 ? rows[0]?.id ?? null : rows[rows.length - 1]?.id ?? null;
+    return direction > 0 ? (rows[0]?.id ?? null) : (rows[rows.length - 1]?.id ?? null);
   }
 
   const nextIndex = currentIndex + direction;

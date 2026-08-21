@@ -84,10 +84,12 @@ const assistantThenExecTurn = buildStoryConversationTurn({
         subtype: "command",
         toolName: "exec_command",
         args: {
-          command: "bun test src/renderer/features/local-conversation/projection/bucketize-turn-items.test.ts",
+          command:
+            "bun test src/renderer/features/local-conversation/projection/bucketize-turn-items.test.ts",
         },
       },
-      aggregatedOutput: "bun test src/renderer/features/local-conversation/projection/bucketize-turn-items.test.ts",
+      aggregatedOutput:
+        "bun test src/renderer/features/local-conversation/projection/bucketize-turn-items.test.ts",
     }),
   ],
 });
@@ -105,7 +107,8 @@ const stoppedToolGroupBeforeActionsTurn = buildStoryConversationTurn({
       role: "assistant",
       status: "completed",
       assistantPhase: "final_answer",
-      markdownText: "I found the relevant rendering path and stopped after checking the final files.",
+      markdownText:
+        "I found the relevant rendering path and stopped after checking the final files.",
       createdAt: 2_000,
       updatedAt: 2_000,
     }),
@@ -118,7 +121,14 @@ const stoppedToolGroupBeforeActionsTurn = buildStoryConversationTurn({
       status: "completed",
       createdAt: 3_000,
       updatedAt: 3_000,
-      commandActions: [{ type: "read", command: "", name: "read", path: "src/renderer/features/local-conversation/projection/build-turn-view-model.ts" }],
+      commandActions: [
+        {
+          type: "read",
+          command: "",
+          name: "read",
+          path: "src/renderer/features/local-conversation/projection/build-turn-view-model.ts",
+        },
+      ],
       toolCall: {
         subtype: "command",
         toolName: "exec_command",
@@ -134,7 +144,14 @@ const stoppedToolGroupBeforeActionsTurn = buildStoryConversationTurn({
       status: "completed",
       createdAt: 4_000,
       updatedAt: 4_000,
-      commandActions: [{ type: "read", command: "", name: "read", path: "src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx" }],
+      commandActions: [
+        {
+          type: "read",
+          command: "",
+          name: "read",
+          path: "src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx",
+        },
+      ],
       toolCall: {
         subtype: "command",
         toolName: "exec_command",
@@ -189,11 +206,13 @@ const v2MaximalActivityUnitsTurn = buildStoryConversationTurn({
       semanticKind: "patch",
       status: "completed",
       fileChange: {
-        changes: buildCodexFileChangeMap([{
-          type: "add",
-          path: "src/renderer/features/local-conversation/projection/agent-activity-v2.ts",
-          content: "export const activityVersion = 2;",
-        }]),
+        changes: buildCodexFileChangeMap([
+          {
+            type: "add",
+            path: "src/renderer/features/local-conversation/projection/agent-activity-v2.ts",
+            content: "export const activityVersion = 2;",
+          },
+        ]),
       },
       createdAt: 3_000,
       updatedAt: 3_000,
@@ -208,8 +227,8 @@ const assistantAfterDiffTurn = buildStoryConversationTurn({
     "--- a/src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx",
     "+++ b/src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx",
     "@@ -1,3 +1,4 @@",
-    " import { ThreadTurn } from \"./local-conversation-thread-turn\";",
-    "+import { useWorkedForLabelText } from \"./shared/use-worked-for-label\";",
+    ' import { ThreadTurn } from "./local-conversation-thread-turn";',
+    '+import { useWorkedForLabelText } from "./shared/use-worked-for-label";',
   ].join("\n"),
   finalAssistantStartedAtMs: 180_000,
   items: [
@@ -264,7 +283,14 @@ const historicalWorkedForTurn = buildStoryConversationTurn({
       status: "completed",
       createdAt: 2_000,
       updatedAt: 2_000,
-      commandActions: [{ type: "read", command: "", name: "read", path: "src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx" }],
+      commandActions: [
+        {
+          type: "read",
+          command: "",
+          name: "read",
+          path: "src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx",
+        },
+      ],
       toolCall: {
         subtype: "command",
         toolName: "exec_command",
@@ -326,7 +352,8 @@ const workingTurnActiveDivider = buildStoryConversationTurn({
   ],
 });
 
-const imageDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+const imageDataUrl =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 const singleLocalImageTurn = buildStoryConversationTurn({
   turnId: "turn_story_single_image",
@@ -438,9 +465,11 @@ const longUserMessageTurn = buildStoryConversationTurn({
       kind: "userMessage",
       semanticKind: "userMessage",
       role: "user",
-      markdownText: Array.from({ length: 24 }, (_value, index) => (
-        `Review checkpoint ${index + 1}: keep the transcript bubble readable while preserving the complete prompt for copy, edit, and search.`
-      )).join("\n"),
+      markdownText: Array.from(
+        { length: 24 },
+        (_value, index) =>
+          `Review checkpoint ${index + 1}: keep the transcript bubble readable while preserving the complete prompt for copy, edit, and search.`,
+      ).join("\n"),
       createdAt: 1_000,
       updatedAt: 1_000,
     }),
@@ -510,7 +539,8 @@ const veryLargeUserMessageTurn = buildStoryConversationTurn({
       role: "user",
       markdownText: Array.from(
         { length: 1_200 },
-        (_value, index) => `Exact legacy prompt line ${index + 1}: preserve full source without mounting every line in the transcript.`,
+        (_value, index) =>
+          `Exact legacy prompt line ${index + 1}: preserve full source without mounting every line in the transcript.`,
       ).join("\n"),
       createdAt: 1_000,
       updatedAt: 1_000,
@@ -650,12 +680,14 @@ const collapsedSteeringMessagesTurn = buildStoryConversationTurn({
       kind: "commandExecution",
       semanticKind: "exec",
       status: "completed",
-      commandActions: [{
-        type: "read",
-        command: "",
-        name: "src/thread.tsx",
-        path: "src/thread.tsx",
-      }],
+      commandActions: [
+        {
+          type: "read",
+          command: "",
+          name: "src/thread.tsx",
+          path: "src/thread.tsx",
+        },
+      ],
       createdAt: 2_000,
       updatedAt: 2_000,
     }),
@@ -692,12 +724,14 @@ const collapsedSteeringMessagesTurn = buildStoryConversationTurn({
       kind: "commandExecution",
       semanticKind: "exec",
       status: "completed",
-      commandActions: [{
-        type: "read",
-        command: "",
-        name: "src/activity.ts",
-        path: "src/activity.ts",
-      }],
+      commandActions: [
+        {
+          type: "read",
+          command: "",
+          name: "src/activity.ts",
+          path: "src/activity.ts",
+        },
+      ],
       createdAt: 4_000,
       updatedAt: 4_000,
     }),
@@ -926,9 +960,7 @@ export const ActionStripParity: Story = {
   decorators: [
     (Story) => (
       <div className="thread-action-strip-story">
-        <style>
-          {".thread-action-strip-story .opacity-0{opacity:1!important}"}
-        </style>
+        <style>{".thread-action-strip-story .opacity-0{opacity:1!important}"}</style>
         <Story />
       </div>
     ),
@@ -944,9 +976,7 @@ export const AssistantAfterDiffBeforeActions: Story = {
   decorators: [
     (Story) => (
       <div className="thread-action-strip-story">
-        <style>
-          {".thread-action-strip-story .opacity-0{opacity:1!important}"}
-        </style>
+        <style>{".thread-action-strip-story .opacity-0{opacity:1!important}"}</style>
         <Story />
       </div>
     ),

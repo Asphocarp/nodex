@@ -28,8 +28,7 @@ const intrinsicField = {
 };
 
 describe("Block Property mutation v2 contract", () => {
-  test("is additive and leaves the executable v1 version unchanged", () => {
-  });
+  test("is additive and leaves the executable v1 version unchanged", () => {});
 
   test("canonicalizes intrinsic fields deterministically", () => {
     const secondField = {
@@ -61,15 +60,17 @@ describe("Block Property mutation v2 contract", () => {
     expect(() =>
       parseBlockPropertyMutationRequestV2({
         ...baseRequest,
-        fields: [{
-          scope: "data_source",
-          pageId: "page-1",
-          dataSourceId: "source-1",
-          propertyId: "status",
-          operation: "set",
-          expectedRevision: 1,
-          value: "triage",
-        }],
+        fields: [
+          {
+            scope: "data_source",
+            pageId: "page-1",
+            dataSourceId: "source-1",
+            propertyId: "status",
+            operation: "set",
+            expectedRevision: 1,
+            value: "triage",
+          },
+        ],
       }),
     ).toThrow(BlockPropertyMutationV2ContractError);
     expect(() =>

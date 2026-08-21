@@ -13,12 +13,10 @@ describe("BlockDisclosureStateStore", () => {
     const firstLifetime = new BlockDisclosureStateStore(persistence);
 
     firstLifetime.setExpanded("card-shell", true);
-    expect(new BlockDisclosureStateStore(persistence).isExpanded("card-shell"))
-      .toBe(true);
+    expect(new BlockDisclosureStateStore(persistence).isExpanded("card-shell")).toBe(true);
 
     firstLifetime.setExpanded("card-shell", false);
-    expect(new BlockDisclosureStateStore(persistence).isExpanded("card-shell"))
-      .toBe(false);
+    expect(new BlockDisclosureStateStore(persistence).isExpanded("card-shell")).toBe(false);
   });
 
   test("keeps separate reference Block occurrences independent", () => {
@@ -62,16 +60,12 @@ describe("BlockDisclosureStateStore", () => {
     const storageKey = toggledStateStorageKey(blockId);
     localStorage.removeItem(storageKey);
     try {
-      const firstLifetime = new BlockDisclosureStateStore(
-        browserBlockDisclosurePersistence,
-      );
+      const firstLifetime = new BlockDisclosureStateStore(browserBlockDisclosurePersistence);
       firstLifetime.setExpanded(blockId, true);
 
       expect(localStorage.getItem(storageKey)).toBe("true");
       expect(
-        new BlockDisclosureStateStore(
-          browserBlockDisclosurePersistence,
-        ).isExpanded(blockId),
+        new BlockDisclosureStateStore(browserBlockDisclosurePersistence).isExpanded(blockId),
       ).toBe(true);
     } finally {
       localStorage.removeItem(storageKey);

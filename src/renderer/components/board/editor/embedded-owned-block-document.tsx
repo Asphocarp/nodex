@@ -28,8 +28,7 @@ export function EmbeddedOwnedBlockDocument({
   isActive,
   hostRuntime,
 }: EmbeddedOwnedBlockDocumentProps) {
-  const contentAccessContext = hostRuntime?.contentAccessContext
-    ?? libraryContentAccess;
+  const contentAccessContext = hostRuntime?.contentAccessContext ?? libraryContentAccess;
   return (
     <RegisteredOwnedBlockDocumentBoundary
       accessContext={contentAccessContext}
@@ -38,10 +37,7 @@ export function EmbeddedOwnedBlockDocument({
       {(model, controls) => {
         if (model.status === "loading") {
           return (
-            <div
-              role="status"
-              className="py-2 text-sm text-token-description-foreground"
-            >
+            <div role="status" className="py-2 text-sm text-token-description-foreground">
               Opening collaborative content…
             </div>
           );
@@ -52,9 +48,7 @@ export function EmbeddedOwnedBlockDocument({
               role="alert"
               className="flex min-h-8 items-center gap-2 py-1 text-sm text-token-error-foreground"
             >
-              <span className="min-w-0 flex-1 truncate">
-                {model.error.message}
-              </span>
+              <span className="min-w-0 flex-1 truncate">{model.error.message}</span>
               <NodexButton
                 type="button"
                 size="xs"
@@ -73,8 +67,8 @@ export function EmbeddedOwnedBlockDocument({
               data-owned-document-scene-redirect={ownerBlockId}
               className="py-2 text-sm text-token-description-foreground"
             >
-              Canvas content opens in Canvas view, where its scene tools and
-              collaboration model remain intact.
+              Canvas content opens in Canvas view, where its scene tools and collaboration model
+              remain intact.
             </div>
           );
         }
@@ -120,9 +114,7 @@ export function EmbeddedOwnedBlockDocument({
                   <NfmEditor
                     contentAccessContext={contentAccessContext}
                     projectName={hostRuntime?.projectName}
-                    projectWorkspacePath={
-                      hostRuntime?.projectWorkspacePath ?? undefined
-                    }
+                    projectWorkspacePath={hostRuntime?.projectWorkspacePath ?? undefined}
                     documentOwnerBlockId={ownerBlockId}
                     source={{
                       kind: "collaborative-document",

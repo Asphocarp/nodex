@@ -59,21 +59,18 @@ import {
   type ComposerPromptMentionInput,
 } from "./composer-prompt-editor";
 import type { ComposerSuggestionState } from "./composer-suggestion-state";
-import {
-  ComposerSuggestionRow,
-  ComposerSuggestionSurface,
-} from "./composer-suggestion-surface";
+import { ComposerSuggestionRow, ComposerSuggestionSurface } from "./composer-suggestion-surface";
 
 type ComposerContextSelection =
   | {
-    readonly kind: "action";
-    readonly closeMenu?: boolean;
-    readonly run: () => void | Promise<void>;
-  }
+      readonly kind: "action";
+      readonly closeMenu?: boolean;
+      readonly run: () => void | Promise<void>;
+    }
   | {
-    readonly kind: "mention";
-    readonly mention: ComposerPromptMentionInput;
-  };
+      readonly kind: "mention";
+      readonly mention: ComposerPromptMentionInput;
+    };
 
 interface ComposerContextItemView {
   readonly candidate: ComposerContextSuggestionCandidate<ComposerContextSelection>;
@@ -86,9 +83,7 @@ interface ComposerContextItemView {
 }
 
 export interface ComposerAddContextMenuHandle {
-  submitHighlighted: (
-    action: "complete-query" | "insert-mention",
-  ) => boolean;
+  submitHighlighted: (action: "complete-query" | "insert-mention") => boolean;
   moveHighlight: (direction: "next" | "previous") => boolean;
 }
 
@@ -120,9 +115,7 @@ interface ComposerAddContextMenuProps {
   readonly onPickFiles: () => Promise<void>;
   readonly onActivateGoal: () => void;
   readonly onTogglePlanMode: () => void;
-  readonly onCaptureAppshot: (
-    target: CodexComposerAppshotTarget,
-  ) => Promise<void>;
+  readonly onCaptureAppshot: (target: CodexComposerAppshotTarget) => Promise<void>;
   readonly onProjectChange: (projectId: string | null) => void;
   readonly onStartNewChatWithPrompt?: (input: {
     projectId: string | null;
@@ -164,9 +157,7 @@ function ComposerCapabilityIcon({
 }) {
   const safeIconUrl = normalizeSafeIconUrl(iconUrl);
   const safeDarkIconUrl = normalizeSafeIconUrl(iconUrlDark);
-  const safeBrandColor = isSafeBrandColor(brandColor)
-    ? brandColor
-    : undefined;
+  const safeBrandColor = isSafeBrandColor(brandColor) ? brandColor : undefined;
 
   if (!safeIconUrl) {
     return (
@@ -201,9 +192,7 @@ function ComposerCapabilityIcon({
         referrerPolicy="no-referrer"
         className={cn(
           "size-4 object-contain",
-          safeDarkIconUrl && safeDarkIconUrl !== safeIconUrl
-            ? "dark:hidden"
-            : null,
+          safeDarkIconUrl && safeDarkIconUrl !== safeIconUrl ? "dark:hidden" : null,
         )}
       />
     </span>
@@ -250,11 +239,7 @@ function useComposerAppshotTarget(enabled: boolean): {
   return state;
 }
 
-function ComposerAppshotTargetIcon({
-  target,
-}: {
-  readonly target: CodexComposerAppshotTarget;
-}) {
+function ComposerAppshotTargetIcon({ target }: { readonly target: CodexComposerAppshotTarget }) {
   const iconUrl = normalizeSafeIconUrl(target.iconSmallDataUrl);
   if (!iconUrl) {
     return <ComposerAppshotIcon className="size-4 shrink-0" />;
@@ -272,12 +257,7 @@ function ComposerAppshotTargetIcon({
 
 function ComposerSitesProjectIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden="true"
-      {...props}
-    >
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
       <path
         d="M22 19.2727C22 20.779 20.779 22 19.2727 22H14.7273C13.221 22 12 20.779 12 19.2727V12H19.2727C20.779 12 22 13.221 22 14.7273V19.2727Z"
         fill="#68C4FF"
@@ -298,16 +278,9 @@ function ComposerSitesProjectIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function ComposerChatGptConversationIcon(
-  props: SVGProps<SVGSVGElement>,
-) {
+function ComposerChatGptConversationIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-      {...props}
-    >
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" {...props}>
       <path
         d="M13.4746 8.00098C13.4746 5.18918 11.0524 2.85938 8 2.85938C4.94756 2.85938 2.52539 5.18918 2.52539 8.00098C2.52548 9.13438 2.98018 9.88391 3.55176 11.0156C3.62017 11.1511 3.63938 11.3067 3.60645 11.4551L3.34277 12.6416L4.62598 12.3096L4.74023 12.29C4.81669 12.2841 4.89333 12.2922 4.9668 12.3125L5.0752 12.3525L5.44238 12.5225C6.29248 12.9002 7.09158 13.1426 8 13.1426C11.0523 13.1426 13.4744 10.8126 13.4746 8.00098ZM14.5254 8.00098C14.5252 11.4483 11.5749 14.1924 8 14.1924C6.78477 14.1924 5.75932 13.8299 4.75488 13.3604L2.9873 13.8193C2.5113 13.9426 2.07317 13.5191 2.17969 13.0391L2.5498 11.3643C2.03641 10.3607 1.4747 9.38268 1.47461 8.00098C1.47461 4.55354 4.42502 1.80859 8 1.80859C11.575 1.80859 14.5254 4.55354 14.5254 8.00098Z"
         fill="currentColor"
@@ -326,10 +299,7 @@ function getComposerSkillScopeLabel(input: {
     case "system":
       return "System";
     case "repo":
-      if (
-        workspaceRoot
-        && skillPath.startsWith(workspaceRoot.replace(/[\\/]+$/u, ""))
-      ) {
+      if (workspaceRoot && skillPath.startsWith(workspaceRoot.replace(/[\\/]+$/u, ""))) {
         return workspaceRoot.split(/[\\/]/u).filter(Boolean).at(-1) ?? "Team";
       }
       return "Team";
@@ -422,10 +392,7 @@ function resolveComposerSiteTitle(site: CodexComposerSite): string {
   return site.title.trim() || site.slug.trim() || site.id;
 }
 
-export function formatComposerSiteDetail(
-  currentLiveUrl: string | null,
-  slug: string,
-): string {
+export function formatComposerSiteDetail(currentLiveUrl: string | null, slug: string): string {
   if (!currentLiveUrl) return slug;
   try {
     const url = new URL(currentLiveUrl);
@@ -435,19 +402,14 @@ export function formatComposerSiteDetail(
   }
 }
 
-function buildComposerSiteItem(
-  site: CodexComposerSite,
-): ComposerContextItemView {
+function buildComposerSiteItem(site: CodexComposerSite): ComposerContextItemView {
   const title = resolveComposerSiteTitle(site);
   return {
     candidate: {
       id: `site:${site.id}`,
       section: "Sites",
       label: title,
-      description: formatComposerSiteDetail(
-        site.currentLiveUrl,
-        site.slug,
-      ),
+      description: formatComposerSiteDetail(site.currentLiveUrl, site.slug),
       searchTerms: [site.slug],
       value: {
         kind: "mention",
@@ -489,9 +451,7 @@ function buildComposerChatGptConversationItem(
         },
       },
     },
-    icon: (
-      <ComposerChatGptConversationIcon className="size-4 shrink-0" />
-    ),
+    icon: <ComposerChatGptConversationIcon className="size-4 shrink-0" />,
     active: false,
   };
 }
@@ -531,9 +491,7 @@ function ComposerContextRow({
         <span
           className={cn(
             "truncate",
-            item.candidate.description
-              ? "flex-shrink-0"
-              : "min-w-0 flex-1",
+            item.candidate.description ? "flex-shrink-0" : "min-w-0 flex-1",
           )}
         >
           {item.candidate.label}
@@ -571,33 +529,31 @@ function useComposerMenuNavigation(input: {
     setHighlightedId((current) =>
       current && items.some((item) => item.candidate.id === current)
         ? current
-        : items[0]?.candidate.id ?? null
+        : (items[0]?.candidate.id ?? null),
     );
   }, [items]);
 
-  useImperativeHandle(ref, () => ({
-    submitHighlighted: () => {
-      const selected = items.find((item) =>
-        item.candidate.id === highlightedId
-      ) ?? items[0];
-      if (!selected) return false;
-      onSelect(selected);
-      return true;
-    },
-    moveHighlight: (direction) => {
-      if (items.length === 0) return false;
-      const currentIndex = items.findIndex((item) =>
-        item.candidate.id === highlightedId
-      );
-      const normalizedIndex = currentIndex >= 0 ? currentIndex : 0;
-      const offset = direction === "next" ? 1 : -1;
-      const nextIndex = (
-        normalizedIndex + offset + items.length
-      ) % items.length;
-      setHighlightedId(items[nextIndex]?.candidate.id ?? null);
-      return true;
-    },
-  }), [highlightedId, items, onSelect]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      submitHighlighted: () => {
+        const selected = items.find((item) => item.candidate.id === highlightedId) ?? items[0];
+        if (!selected) return false;
+        onSelect(selected);
+        return true;
+      },
+      moveHighlight: (direction) => {
+        if (items.length === 0) return false;
+        const currentIndex = items.findIndex((item) => item.candidate.id === highlightedId);
+        const normalizedIndex = currentIndex >= 0 ? currentIndex : 0;
+        const offset = direction === "next" ? 1 : -1;
+        const nextIndex = (normalizedIndex + offset + items.length) % items.length;
+        setHighlightedId(items[nextIndex]?.candidate.id ?? null);
+        return true;
+      },
+    }),
+    [highlightedId, items, onSelect],
+  );
 
   return {
     highlightedId,
@@ -632,7 +588,7 @@ function useComposerWorkspaceFileSearch(input: {
       setBatch((current) =>
         current.query === "" && current.matches.length === 0 && !current.loading
           ? current
-          : { query: "", matches: [], loading: false }
+          : { query: "", matches: [], loading: false },
       );
       return;
     }
@@ -643,13 +599,15 @@ function useComposerWorkspaceFileSearch(input: {
       workspaceRoot,
       query,
       maxResults: 24,
-    }).then((result) => {
-      if (cancelled) return;
-      setBatch({ query, matches: result.matches, loading: false });
-    }).catch(() => {
-      if (cancelled) return;
-      setBatch({ query, matches: [], loading: false });
-    });
+    })
+      .then((result) => {
+        if (cancelled) return;
+        setBatch({ query, matches: result.matches, loading: false });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBatch({ query, matches: [], loading: false });
+      });
     return () => {
       cancelled = true;
     };
@@ -662,10 +620,13 @@ function useComposerWorkspaceFileSearch(input: {
 
 const CHATGPT_CONVERSATION_SEARCH_DEBOUNCE_MS = 100;
 const CHATGPT_CONVERSATION_SEARCH_STALE_MS = 60_000;
-const chatGptConversationSearchCache = new Map<string, {
-  readonly expiresAt: number;
-  readonly conversations: readonly CodexComposerChatGptConversation[];
-}>();
+const chatGptConversationSearchCache = new Map<
+  string,
+  {
+    readonly expiresAt: number;
+    readonly conversations: readonly CodexComposerChatGptConversation[];
+  }
+>();
 
 function useComposerChatGptConversationSearch(input: {
   readonly enabled: boolean;
@@ -688,7 +649,7 @@ function useComposerChatGptConversationSearch(input: {
       setBatch((current) =>
         current.query === "" && !current.loading
           ? current
-          : { query: "", conversations: [], loading: false }
+          : { query: "", conversations: [], loading: false },
       );
       return;
     }
@@ -713,28 +674,28 @@ function useComposerChatGptConversationSearch(input: {
     const timeout = window.setTimeout(() => {
       void invoke("codex:composer-chatgpt-conversations:list", {
         query: normalizedQuery,
-      }).then((result) => {
-        if (cancelled) return;
-        const conversations = result.available
-          ? result.conversations
-          : [];
-        chatGptConversationSearchCache.set(normalizedQuery, {
-          expiresAt: Date.now() + CHATGPT_CONVERSATION_SEARCH_STALE_MS,
-          conversations,
+      })
+        .then((result) => {
+          if (cancelled) return;
+          const conversations = result.available ? result.conversations : [];
+          chatGptConversationSearchCache.set(normalizedQuery, {
+            expiresAt: Date.now() + CHATGPT_CONVERSATION_SEARCH_STALE_MS,
+            conversations,
+          });
+          setBatch({
+            query: normalizedQuery,
+            conversations,
+            loading: false,
+          });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setBatch({
+            query: normalizedQuery,
+            conversations: [],
+            loading: false,
+          });
         });
-        setBatch({
-          query: normalizedQuery,
-          conversations,
-          loading: false,
-        });
-      }).catch(() => {
-        if (cancelled) return;
-        setBatch({
-          query: normalizedQuery,
-          conversations: [],
-          loading: false,
-        });
-      });
     }, CHATGPT_CONVERSATION_SEARCH_DEBOUNCE_MS);
 
     return () => {
@@ -778,12 +739,7 @@ const ComposerAddContextMenuContent = forwardRef<
   const [panel, setPanel] = useState<"root" | "project">("root");
 
   if (panel === "project" && props.projectSelector) {
-    return (
-      <ComposerProjectMenuContent
-        {...props}
-        ref={ref}
-      />
-    );
+    return <ComposerProjectMenuContent {...props} ref={ref} />;
   }
 
   return (
@@ -795,49 +751,51 @@ const ComposerAddContextMenuContent = forwardRef<
   );
 });
 
-interface ComposerAddContextRootMenuContentProps
-  extends ComposerAddContextMenuProps {
+interface ComposerAddContextRootMenuContentProps extends ComposerAddContextMenuProps {
   readonly onOpenProject: () => void;
 }
 
 const ComposerAddContextRootMenuContent = forwardRef<
   ComposerAddContextMenuHandle,
   ComposerAddContextRootMenuContentProps
->(function ComposerAddContextRootMenuContent({
-  suggestion,
-  isHomeMenu = false,
-  imagesOnly,
-  plugins,
-  pluginsLoading = false,
-  skills,
-  skillsLoading = false,
-  apps,
-  appsLoading = false,
-  sites = [],
-  sitesAvailable = false,
-  sitesLoading = false,
-  chatGptConversations = [],
-  chatGptConversationsAvailable = false,
-  chatGptConversationsLoading = false,
-  workspaceRoot,
-  pluginCwds,
-  projectId,
-  projectSelector,
-  goalAvailable,
-  planModeAvailable,
-  planModeActive,
-  onClose,
-  onDismiss,
-  onPickFiles,
-  onActivateGoal,
-  onTogglePlanMode,
-  onCaptureAppshot,
-  onOpenProject,
-  onStartNewChatWithPrompt,
-  onCapabilitiesChanged,
-  onPrefillPrompt,
-  onInsertMention,
-}, ref) {
+>(function ComposerAddContextRootMenuContent(
+  {
+    suggestion,
+    isHomeMenu = false,
+    imagesOnly,
+    plugins,
+    pluginsLoading = false,
+    skills,
+    skillsLoading = false,
+    apps,
+    appsLoading = false,
+    sites = [],
+    sitesAvailable = false,
+    sitesLoading = false,
+    chatGptConversations = [],
+    chatGptConversationsAvailable = false,
+    chatGptConversationsLoading = false,
+    workspaceRoot,
+    pluginCwds,
+    projectId,
+    projectSelector,
+    goalAvailable,
+    planModeAvailable,
+    planModeActive,
+    onClose,
+    onDismiss,
+    onPickFiles,
+    onActivateGoal,
+    onTogglePlanMode,
+    onCaptureAppshot,
+    onOpenProject,
+    onStartNewChatWithPrompt,
+    onCapabilitiesChanged,
+    onPrefillPrompt,
+    onInsertMention,
+  },
+  ref,
+) {
   const open = true;
   const query = suggestion.query;
   const normalizedQuery = query.trim();
@@ -873,31 +831,29 @@ const ComposerAddContextRootMenuContent = forwardRef<
     preferActiveProject: true,
     activeProjectId: projectId ?? undefined,
   });
-  const activatePlugin = useCallback(async (
-    plugin: CodexComposerPlugin,
-  ): Promise<boolean> => {
-    if (plugin.installed && plugin.enabled) return true;
-    try {
-      await invoke("codex:composer-plugins:activate", {
-        id: plugin.id,
-        cwds: [...pluginCwds],
-      });
-      await onCapabilitiesChanged?.();
-      return true;
-    } catch (error) {
-      toast.danger("Could not activate plugin", {
-        description: error instanceof Error
-          ? error.message
-          : `Failed to activate ${plugin.displayName}`,
-      });
-      return false;
-    }
-  }, [onCapabilitiesChanged, pluginCwds]);
+  const activatePlugin = useCallback(
+    async (plugin: CodexComposerPlugin): Promise<boolean> => {
+      if (plugin.installed && plugin.enabled) return true;
+      try {
+        await invoke("codex:composer-plugins:activate", {
+          id: plugin.id,
+          cwds: [...pluginCwds],
+        });
+        await onCapabilitiesChanged?.();
+        return true;
+      } catch (error) {
+        toast.danger("Could not activate plugin", {
+          description:
+            error instanceof Error ? error.message : `Failed to activate ${plugin.displayName}`,
+        });
+        return false;
+      }
+    },
+    [onCapabilitiesChanged, pluginCwds],
+  );
 
   const items = useMemo<ComposerContextItemView[]>(() => {
-    const recordSkillPlugin = plugins.find((plugin) =>
-      plugin.name === "record-and-replay"
-    ) ?? null;
+    const recordSkillPlugin = plugins.find((plugin) => plugin.name === "record-and-replay") ?? null;
     const addItems: ComposerContextItemView[] = [
       {
         candidate: {
@@ -912,193 +868,196 @@ const ComposerAddContextRootMenuContent = forwardRef<
         active: false,
       },
       ...(appshotTarget
-        ? [{
-            candidate: {
-              id: "appshot",
-              section: "Add" as const,
-              label: `Attach ${appshotTarget.appName}`,
-              description: null,
-              searchTerms: [
-                "attach current app",
-                "appshot",
-                appshotTarget.appName,
-                appshotTarget.bundleIdentifier,
-                appshotTarget.windowTitle ?? "",
-              ],
-              value: {
-                kind: "action" as const,
-                run: () => onCaptureAppshot(appshotTarget),
-              },
-            },
-            icon: <ComposerAppshotTargetIcon target={appshotTarget} />,
-            active: false,
-          }]
-        : []),
-      ...(projectSelector
-        ? [{
-            candidate: {
-              id: "project",
-              section: "Add" as const,
-              label: "Work in a project",
-              description: "Choose project for new chats",
-              searchTerms: ["project", "workspace"],
-              value: {
-                kind: "action" as const,
-                closeMenu: false,
-                run: onOpenProject,
-              },
-            },
-            icon: <SplitIcon className="size-4 shrink-0" />,
-            active: false,
-          }]
-        : []),
-      ...(goalAvailable
-        ? [{
-            candidate: {
-              id: "goal",
-              section: "Add" as const,
-              label: "Goal",
-              description: "Set a goal to keep pursuing",
-              searchTerms: ["objective", "keep pursuing"],
-              value: { kind: "action" as const, run: onActivateGoal },
-            },
-            icon: <GoalTargetIcon className="size-4 shrink-0" />,
-            active: false,
-          }]
-        : []),
-      ...(planModeAvailable
-        ? [{
-            candidate: {
-              id: "plan-mode",
-              section: "Add" as const,
-              label: "Plan mode",
-              description: planModeActive
-                ? "Turn plan mode off"
-                : "Turn plan mode on",
-              searchTerms: ["plan"],
-              value: { kind: "action" as const, run: onTogglePlanMode },
-            },
-            icon: <ComposerPlanModeIcon className="size-4 shrink-0" />,
-            active: planModeActive,
-          }]
-        : []),
-      ...(recordSkillPlugin
-        ? [{
-            candidate: {
-              id: "record-skill",
-              section: "Add" as const,
-              label: "Record a skill",
-              description: null,
-              searchTerms: ["record workflow replay skill"],
-              value: {
-                kind: "action" as const,
-                run: async () => {
-                  if (!await activatePlugin(recordSkillPlugin)) return;
-                  const promptLink =
-                    `[@${recordSkillPlugin.displayName}](${recordSkillPlugin.path})`;
-                  const prompt = recordSkillPlugin.defaultPrompt
-                    ? `${promptLink} ${recordSkillPlugin.defaultPrompt}`
-                    : `${promptLink} `;
-                  if (onStartNewChatWithPrompt) {
-                    await onStartNewChatWithPrompt({
-                      projectId,
-                      prompt,
-                    });
-                    return;
-                  }
-                  onPrefillPrompt(prompt);
+        ? [
+            {
+              candidate: {
+                id: "appshot",
+                section: "Add" as const,
+                label: `Attach ${appshotTarget.appName}`,
+                description: null,
+                searchTerms: [
+                  "attach current app",
+                  "appshot",
+                  appshotTarget.appName,
+                  appshotTarget.bundleIdentifier,
+                  appshotTarget.windowTitle ?? "",
+                ],
+                value: {
+                  kind: "action" as const,
+                  run: () => onCaptureAppshot(appshotTarget),
                 },
               },
+              icon: <ComposerAppshotTargetIcon target={appshotTarget} />,
+              active: false,
             },
-            icon: <CircleDotIcon className="size-4 shrink-0" />,
-            active: false,
-          }]
+          ]
+        : []),
+      ...(projectSelector
+        ? [
+            {
+              candidate: {
+                id: "project",
+                section: "Add" as const,
+                label: "Work in a project",
+                description: "Choose project for new chats",
+                searchTerms: ["project", "workspace"],
+                value: {
+                  kind: "action" as const,
+                  closeMenu: false,
+                  run: onOpenProject,
+                },
+              },
+              icon: <SplitIcon className="size-4 shrink-0" />,
+              active: false,
+            },
+          ]
+        : []),
+      ...(goalAvailable
+        ? [
+            {
+              candidate: {
+                id: "goal",
+                section: "Add" as const,
+                label: "Goal",
+                description: "Set a goal to keep pursuing",
+                searchTerms: ["objective", "keep pursuing"],
+                value: { kind: "action" as const, run: onActivateGoal },
+              },
+              icon: <GoalTargetIcon className="size-4 shrink-0" />,
+              active: false,
+            },
+          ]
+        : []),
+      ...(planModeAvailable
+        ? [
+            {
+              candidate: {
+                id: "plan-mode",
+                section: "Add" as const,
+                label: "Plan mode",
+                description: planModeActive ? "Turn plan mode off" : "Turn plan mode on",
+                searchTerms: ["plan"],
+                value: { kind: "action" as const, run: onTogglePlanMode },
+              },
+              icon: <ComposerPlanModeIcon className="size-4 shrink-0" />,
+              active: planModeActive,
+            },
+          ]
+        : []),
+      ...(recordSkillPlugin
+        ? [
+            {
+              candidate: {
+                id: "record-skill",
+                section: "Add" as const,
+                label: "Record a skill",
+                description: null,
+                searchTerms: ["record workflow replay skill"],
+                value: {
+                  kind: "action" as const,
+                  run: async () => {
+                    if (!(await activatePlugin(recordSkillPlugin))) return;
+                    const promptLink = `[@${recordSkillPlugin.displayName}](${recordSkillPlugin.path})`;
+                    const prompt = recordSkillPlugin.defaultPrompt
+                      ? `${promptLink} ${recordSkillPlugin.defaultPrompt}`
+                      : `${promptLink} `;
+                    if (onStartNewChatWithPrompt) {
+                      await onStartNewChatWithPrompt({
+                        projectId,
+                        prompt,
+                      });
+                      return;
+                    }
+                    onPrefillPrompt(prompt);
+                  },
+                },
+              },
+              icon: <CircleDotIcon className="size-4 shrink-0" />,
+              active: false,
+            },
+          ]
         : []),
     ];
 
     const pluginItems = plugins
       .filter((plugin) => plugin.name !== "record-and-replay")
       .map((plugin): ComposerContextItemView => ({
-      candidate: {
-        id: `plugin:${plugin.path}`,
-        section: "Plugins",
-        label: plugin.displayName,
-        description: plugin.description,
-        searchTerms: [
-          plugin.name,
-          plugin.id,
-          plugin.path,
-          plugin.description ?? "",
-        ],
-        value: {
-          kind: "mention",
-          mention: {
-            kind: "plugin",
-            name: plugin.name,
-            displayName: plugin.displayName,
-            path: plugin.path,
-            description: plugin.description,
-            iconUrl: plugin.iconUrl,
-            iconUrlDark: plugin.iconUrlDark,
-            brandColor: plugin.brandColor,
+        candidate: {
+          id: `plugin:${plugin.path}`,
+          section: "Plugins",
+          label: plugin.displayName,
+          description: plugin.description,
+          searchTerms: [plugin.name, plugin.id, plugin.path, plugin.description ?? ""],
+          value: {
+            kind: "mention",
+            mention: {
+              kind: "plugin",
+              name: plugin.name,
+              displayName: plugin.displayName,
+              path: plugin.path,
+              description: plugin.description,
+              iconUrl: plugin.iconUrl,
+              iconUrlDark: plugin.iconUrlDark,
+              brandColor: plugin.brandColor,
+            },
           },
         },
-      },
-      icon: (
-        <ComposerCapabilityIcon
-          iconUrl={plugin.iconUrl}
-          iconUrlDark={plugin.iconUrlDark}
-          brandColor={plugin.brandColor}
-          fallback={plugin.id.startsWith("browser@")
-            ? <SidePanelBrowserIcon className="size-3.5" />
-            : <ComposerPluginsIcon className="size-3.5" />}
-        />
-      ),
-      active: false,
-      plugin,
-      pluginName: plugin.displayName,
-    }));
+        icon: (
+          <ComposerCapabilityIcon
+            iconUrl={plugin.iconUrl}
+            iconUrlDark={plugin.iconUrlDark}
+            brandColor={plugin.brandColor}
+            fallback={
+              plugin.id.startsWith("browser@") ? (
+                <SidePanelBrowserIcon className="size-3.5" />
+              ) : (
+                <ComposerPluginsIcon className="size-3.5" />
+              )
+            }
+          />
+        ),
+        active: false,
+        plugin,
+        pluginName: plugin.displayName,
+      }));
     const appItems = apps
       .filter((app) => app.isAccessible && app.isEnabled)
       .map(buildComposerAppItem);
-    const siteItems = sitesAvailable
-      ? sites.map(buildComposerSiteItem)
-      : [];
+    const siteItems = sitesAvailable ? sites.map(buildComposerSiteItem) : [];
     const chatGptConversationItems = chatGptConversationsAvailable
-      ? chatGptConversationSearch.conversations
-        .map(buildComposerChatGptConversationItem)
+      ? chatGptConversationSearch.conversations.map(buildComposerChatGptConversationItem)
       : [];
     const skillItems = normalizedQuery
       ? skills.map((skill) => buildComposerSkillItem(skill, workspaceRoot))
       : [];
     const threadSuggestions = normalizedQuery
       ? selectedThreads.map((thread): ComposerContextItemView => ({
-      candidate: {
-        id: `thread:${thread.threadId}`,
-        section: "Chats",
-        label: thread.title,
-        description: thread.preview || thread.projectName || null,
-        searchTerms: [
-          thread.threadId,
-          thread.preview,
-          thread.projectName ?? "",
-          thread.cwd ?? "",
-        ],
-        sourceRanked: true,
-        value: {
-          kind: "mention",
-          mention: {
-            kind: "agent",
-            name: thread.title,
-            displayName: thread.title,
-            path: `thread://${thread.threadId}`,
-            description: thread.preview,
+          candidate: {
+            id: `thread:${thread.threadId}`,
+            section: "Chats",
+            label: thread.title,
+            description: thread.preview || thread.projectName || null,
+            searchTerms: [
+              thread.threadId,
+              thread.preview,
+              thread.projectName ?? "",
+              thread.cwd ?? "",
+            ],
+            sourceRanked: true,
+            value: {
+              kind: "mention",
+              mention: {
+                kind: "agent",
+                name: thread.title,
+                displayName: thread.title,
+                path: `thread://${thread.threadId}`,
+                description: thread.preview,
+              },
+            },
           },
-        },
-      },
-      icon: <MessageSquareIcon className="size-4 shrink-0" />,
-      active: false,
-    }))
+          icon: <MessageSquareIcon className="size-4 shrink-0" />,
+          active: false,
+        }))
       : [];
     const fileSuggestions = fileSearch.matches.map((file): ComposerContextItemView => ({
       candidate: {
@@ -1114,9 +1073,7 @@ const ComposerAddContextRootMenuContent = forwardRef<
             kind: "file",
             name: file.path.split(/[\\/]/u).at(-1) ?? file.path,
             path: file.path,
-            fsPath: workspaceRoot
-              ? joinWorkspacePath(workspaceRoot, file.path)
-              : file.path,
+            fsPath: workspaceRoot ? joinWorkspacePath(workspaceRoot, file.path) : file.path,
             description: file.path,
           },
         },
@@ -1162,71 +1119,78 @@ const ComposerAddContextRootMenuContent = forwardRef<
     skills,
     workspaceRoot,
   ]);
-  const sections = useMemo(() => buildComposerContextSuggestionSections({
-    candidates: items.map((item) => item.candidate),
-    query,
-    loadingSectionMessages: {
-      ...(sitesLoading ? { Sites: "Loading sites…" } : {}),
-      ...(chatGptConversationSearch.loading
-        ? {
-            "ChatGPT conversations":
-              "Loading ChatGPT conversations…",
-          }
-        : {}),
-    },
-  }), [
-    chatGptConversationSearch.loading,
-    items,
-    query,
-    sitesLoading,
-  ]);
+  const sections = useMemo(
+    () =>
+      buildComposerContextSuggestionSections({
+        candidates: items.map((item) => item.candidate),
+        query,
+        loadingSectionMessages: {
+          ...(sitesLoading ? { Sites: "Loading sites…" } : {}),
+          ...(chatGptConversationSearch.loading
+            ? {
+                "ChatGPT conversations": "Loading ChatGPT conversations…",
+              }
+            : {}),
+        },
+      }),
+    [chatGptConversationSearch.loading, items, query, sitesLoading],
+  );
   const itemById = useMemo(
     () => new Map(items.map((item) => [item.candidate.id, item] as const)),
     [items],
   );
-  const visibleItems = useMemo(() => sections.flatMap((section) =>
-    section.items.map((candidate) =>
-      itemById.get(candidate.id)
-    ).filter((item): item is ComposerContextItemView => Boolean(item))
-  ), [itemById, sections]);
-  const selectItem = useCallback((item: ComposerContextItemView): void => {
-    const selection = item.candidate.value;
-    if (selection.kind === "mention") {
-      if (item.plugin) {
-        void activatePlugin(item.plugin);
+  const visibleItems = useMemo(
+    () =>
+      sections.flatMap((section) =>
+        section.items
+          .map((candidate) => itemById.get(candidate.id))
+          .filter((item): item is ComposerContextItemView => Boolean(item)),
+      ),
+    [itemById, sections],
+  );
+  const selectItem = useCallback(
+    (item: ComposerContextItemView): void => {
+      const selection = item.candidate.value;
+      if (selection.kind === "mention") {
+        if (item.plugin) {
+          void activatePlugin(item.plugin);
+        }
+        onInsertMention(selection.mention);
+        return;
       }
-      onInsertMention(selection.mention);
-      return;
-    }
-    if (selection.closeMenu !== false) {
-      onClose();
-    }
-    void selection.run();
-  }, [activatePlugin, onClose, onInsertMention]);
+      if (selection.closeMenu !== false) {
+        onClose();
+      }
+      void selection.run();
+    },
+    [activatePlugin, onClose, onInsertMention],
+  );
   const { highlightedId, setHighlightedId } = useComposerMenuNavigation({
     items: visibleItems,
     onSelect: selectItem,
     ref,
   });
-  const searching = normalizedQuery.length > 0
-    && (
-      fileSearch.loading
-      || threadItems.loading
-      || threadSearch.loading
-      || pluginsLoading
-      || skillsLoading
-      || appsLoading
-      || sitesLoading
-      || chatGptConversationSearch.loading
-      || appshot.loading
-    );
+  const searching =
+    normalizedQuery.length > 0 &&
+    (fileSearch.loading ||
+      threadItems.loading ||
+      threadSearch.loading ||
+      pluginsLoading ||
+      skillsLoading ||
+      appsLoading ||
+      sitesLoading ||
+      chatGptConversationSearch.loading ||
+      appshot.loading);
 
   useEffect(() => {
-    if (!shouldDismissComposerSuggestionMenu({
-      loading: searching,
-      query,
-      resultCount: visibleItems.length,
-    })) return;
+    if (
+      !shouldDismissComposerSuggestionMenu({
+        loading: searching,
+        query,
+        resultCount: visibleItems.length,
+      })
+    )
+      return;
     onDismiss();
   }, [onDismiss, query, searching, visibleItems.length]);
 
@@ -1280,43 +1244,40 @@ const ComposerAddContextRootMenuContent = forwardRef<
 const ComposerProjectMenuContent = forwardRef<
   ComposerAddContextMenuHandle,
   ComposerAddContextMenuProps
->(function ComposerProjectMenuContent({
-  suggestion,
-  isHomeMenu = false,
-  projectSelector,
-  onClose,
-  onProjectChange,
-}, ref) {
+>(function ComposerProjectMenuContent(
+  { suggestion, isHomeMenu = false, projectSelector, onClose, onProjectChange },
+  ref,
+) {
   const query = suggestion.query.trim();
   const projects = useMemo(
-    () => filterNewChatProjectSelectorOptions(
-      projectSelector?.projects ?? [],
-      query,
-    ),
+    () => filterNewChatProjectSelectorOptions(projectSelector?.projects ?? [], query),
     [projectSelector?.projects, query],
   );
   const items = useMemo<ComposerContextItemView[]>(() => {
     if (!projectSelector) return [];
-    const noneMatches = !query
-      || "none".includes(query.toLocaleLowerCase())
-      || "don't work in a project".includes(query.toLocaleLowerCase());
+    const noneMatches =
+      !query ||
+      "none".includes(query.toLocaleLowerCase()) ||
+      "don't work in a project".includes(query.toLocaleLowerCase());
     return [
       ...(noneMatches
-        ? [{
-            candidate: {
-              id: "project:none",
-              section: "Add" as const,
-              label: "None",
-              description: "Don't work in a project",
-              searchTerms: ["projectless"],
-              value: {
-                kind: "action" as const,
-                run: () => onProjectChange(null),
+        ? [
+            {
+              candidate: {
+                id: "project:none",
+                section: "Add" as const,
+                label: "None",
+                description: "Don't work in a project",
+                searchTerms: ["projectless"],
+                value: {
+                  kind: "action" as const,
+                  run: () => onProjectChange(null),
+                },
               },
+              icon: <MessageSquareIcon className="size-4 shrink-0" />,
+              active: projectSelector.selectedProjectId === null,
             },
-            icon: <MessageSquareIcon className="size-4 shrink-0" />,
-            active: projectSelector.selectedProjectId === null,
-          }]
+          ]
         : []),
       ...projects.map((project): ComposerContextItemView => ({
         candidate: {
@@ -1330,22 +1291,20 @@ const ComposerProjectMenuContent = forwardRef<
             run: () => onProjectChange(project.id),
           },
         },
-        icon: (
-          <ProjectMarker
-            appearance={project.appearance}
-            className="size-4"
-          />
-        ),
+        icon: <ProjectMarker appearance={project.appearance} className="size-4" />,
         active: project.id === projectSelector.selectedProjectId,
       })),
     ];
   }, [onProjectChange, projectSelector, projects, query]);
-  const selectItem = useCallback((item: ComposerContextItemView): void => {
-    const selection = item.candidate.value;
-    if (selection.kind !== "action") return;
-    onClose();
-    void selection.run();
-  }, [onClose]);
+  const selectItem = useCallback(
+    (item: ComposerContextItemView): void => {
+      const selection = item.candidate.value;
+      if (selection.kind !== "action") return;
+      onClose();
+      void selection.run();
+    },
+    [onClose],
+  );
   const { highlightedId, setHighlightedId } = useComposerMenuNavigation({
     items,
     onSelect: selectItem,
@@ -1381,69 +1340,79 @@ const ComposerProjectMenuContent = forwardRef<
 const ComposerSkillMentionMenuContent = forwardRef<
   ComposerAddContextMenuHandle,
   ComposerAddContextMenuProps
->(function ComposerSkillMentionMenuContent({
-  suggestion,
-  isHomeMenu = false,
-  skills,
-  skillsLoading = false,
-  apps,
-  appsLoading = false,
-  workspaceRoot,
-  onDismiss,
-  onInsertMention,
-}, ref) {
-  const items = useMemo<ComposerContextItemView[]>(() => [
-    ...[...skills]
-      .sort((left, right) => left.path.localeCompare(right.path))
-      .map((skill) => buildComposerSkillItem(skill, workspaceRoot)),
-    ...apps
-      .filter((app) => app.isAccessible && app.isEnabled)
-      .map(buildComposerAppItem),
-  ], [apps, skills, workspaceRoot]);
+>(function ComposerSkillMentionMenuContent(
+  {
+    suggestion,
+    isHomeMenu = false,
+    skills,
+    skillsLoading = false,
+    apps,
+    appsLoading = false,
+    workspaceRoot,
+    onDismiss,
+    onInsertMention,
+  },
+  ref,
+) {
+  const items = useMemo<ComposerContextItemView[]>(
+    () => [
+      ...[...skills]
+        .sort((left, right) => left.path.localeCompare(right.path))
+        .map((skill) => buildComposerSkillItem(skill, workspaceRoot)),
+      ...apps.filter((app) => app.isAccessible && app.isEnabled).map(buildComposerAppItem),
+    ],
+    [apps, skills, workspaceRoot],
+  );
   const itemById = useMemo(
     () => new Map(items.map((item) => [item.candidate.id, item] as const)),
     [items],
   );
-  const visibleItems = useMemo(() =>
-    rankComposerContextSuggestionCandidates({
-      candidates: items.map((item) => {
-        const selection = item.candidate.value;
-        const mention = selection.kind === "mention"
-          ? selection.mention
-          : null;
-        return {
-          ...item.candidate,
-          description: null,
-          searchTerms: mention
-            ? [mention.name, mention.displayName ?? "", mention.path]
-            : item.candidate.searchTerms,
-        };
-      }),
-      query: suggestion.query,
-      useProviderPriority: false,
-      tieBreakByLabel: true,
-    }).map((candidate) => itemById.get(candidate.id))
-      .filter((item): item is ComposerContextItemView => item !== undefined),
-  [itemById, items, suggestion.query]);
-  const selectItem = useCallback((item: ComposerContextItemView) => {
-    const selection = item.candidate.value;
-    if (selection.kind !== "mention") return;
-    onInsertMention(selection.mention);
-  }, [onInsertMention]);
+  const visibleItems = useMemo(
+    () =>
+      rankComposerContextSuggestionCandidates({
+        candidates: items.map((item) => {
+          const selection = item.candidate.value;
+          const mention = selection.kind === "mention" ? selection.mention : null;
+          return {
+            ...item.candidate,
+            description: null,
+            searchTerms: mention
+              ? [mention.name, mention.displayName ?? "", mention.path]
+              : item.candidate.searchTerms,
+          };
+        }),
+        query: suggestion.query,
+        useProviderPriority: false,
+        tieBreakByLabel: true,
+      })
+        .map((candidate) => itemById.get(candidate.id))
+        .filter((item): item is ComposerContextItemView => item !== undefined),
+    [itemById, items, suggestion.query],
+  );
+  const selectItem = useCallback(
+    (item: ComposerContextItemView) => {
+      const selection = item.candidate.value;
+      if (selection.kind !== "mention") return;
+      onInsertMention(selection.mention);
+    },
+    [onInsertMention],
+  );
   const { highlightedId, setHighlightedId } = useComposerMenuNavigation({
     items: visibleItems,
     onSelect: selectItem,
     ref,
   });
-  const loading = visibleItems.length === 0
-    && (skillsLoading || appsLoading);
+  const loading = visibleItems.length === 0 && (skillsLoading || appsLoading);
 
   useEffect(() => {
-    if (!shouldDismissComposerSuggestionMenu({
-      loading,
-      query: suggestion.query,
-      resultCount: visibleItems.length,
-    })) return;
+    if (
+      !shouldDismissComposerSuggestionMenu({
+        loading,
+        query: suggestion.query,
+        resultCount: visibleItems.length,
+      })
+    )
+      return;
     onDismiss();
   }, [loading, onDismiss, suggestion.query, visibleItems.length]);
 

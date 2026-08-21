@@ -5,9 +5,7 @@ import type {
 } from "../../shared/database-module-v2";
 import { resolveDataSourcePropertyPresentationRole } from "./data-source-property-presentation-role";
 
-const usesExternalOptionRegistry = (
-  property: DataSourcePropertyRecordV2,
-): boolean => {
+const usesExternalOptionRegistry = (property: DataSourcePropertyRecordV2): boolean => {
   if (property.lifecycle !== "active") return false;
   if (property.valueType !== "select" && property.valueType !== "multi_select") return false;
   const role = resolveDataSourcePropertyPresentationRole(property);
@@ -47,9 +45,10 @@ export const collectRequiredPropertyOptionIds = (input: {
   readonly filter?: DatabaseViewFilterNode;
   readonly propertyIds?: ReadonlySet<string>;
 }): Readonly<Record<string, readonly string[]>> => {
-  const optionProperties = input.properties.filter((property) =>
-    usesExternalOptionRegistry(property)
-    && (!input.propertyIds || input.propertyIds.has(property.propertyId))
+  const optionProperties = input.properties.filter(
+    (property) =>
+      usesExternalOptionRegistry(property) &&
+      (!input.propertyIds || input.propertyIds.has(property.propertyId)),
   );
   const selectedByProperty = new Map<string, Set<string>>(
     optionProperties.map((property) => [property.propertyId, new Set()]),

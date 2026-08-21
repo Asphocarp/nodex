@@ -48,13 +48,8 @@ export interface CommandPalettePageFacetBatch {
   error: string | null;
 }
 
-export const pageSearchOptionIdentityKey = (
-  option: PageSearchOptionIdentity,
-): string => JSON.stringify([
-  option.dataSourceId,
-  option.propertyId,
-  option.optionId,
-]);
+export const pageSearchOptionIdentityKey = (option: PageSearchOptionIdentity): string =>
+  JSON.stringify([option.dataSourceId, option.propertyId, option.optionId]);
 
 export const parsePageSearchOptionIdentityKey = (
   value: string,
@@ -62,9 +57,9 @@ export const parsePageSearchOptionIdentityKey = (
   try {
     const parsed = JSON.parse(value) as unknown;
     if (
-      !Array.isArray(parsed)
-      || parsed.length !== 3
-      || parsed.some((part) => typeof part !== "string")
+      !Array.isArray(parsed) ||
+      parsed.length !== 3 ||
+      parsed.some((part) => typeof part !== "string")
     ) {
       return null;
     }
@@ -82,9 +77,7 @@ export function normalizeCommandPaletteSearchText(value: string): string {
   return normalizeSearchText(value);
 }
 
-export function buildCommandPalettePageSearchScopeKey(
-  projectIds: readonly string[],
-): string {
+export function buildCommandPalettePageSearchScopeKey(projectIds: readonly string[]): string {
   return [...new Set(projectIds)].sort((left, right) => left.localeCompare(right)).join("\n");
 }
 
@@ -105,20 +98,21 @@ export function getCommandPalettePageSearchPlan(
 export function toCorePageSearchFilters(
   filters: CommandPalettePageFilters,
 ): PageSearchFilters | undefined {
-  const statuses = filters.statuses.length === WORKFLOW_STATUS_ORDER.length
-    ? undefined
-    : [...filters.statuses];
-  const priorities = filters.priorities.length === PRIORITY_VALUES.length && filters.includeEmptyPriority
-    ? undefined
-    : [...filters.priorities];
+  const statuses =
+    filters.statuses.length === WORKFLOW_STATUS_ORDER.length ? undefined : [...filters.statuses];
+  const priorities =
+    filters.priorities.length === PRIORITY_VALUES.length && filters.includeEmptyPriority
+      ? undefined
+      : [...filters.priorities];
   const tags = filters.tags.flatMap((tag) => {
     const identity = parsePageSearchOptionIdentityKey(tag);
     return identity ? [identity] : [];
   });
-  const hasFilters = statuses !== undefined
-    || priorities !== undefined
-    || tags.length > 0
-    || filters.assignees.length > 0;
+  const hasFilters =
+    statuses !== undefined ||
+    priorities !== undefined ||
+    tags.length > 0 ||
+    filters.assignees.length > 0;
   if (!hasFilters) return undefined;
   return {
     statuses,
@@ -132,10 +126,11 @@ export function toCorePageSearchFilters(
 
 const toSegments = (
   parts: readonly PageSearchTextPart[],
-): CommandPalettePageSearchPreviewSegment[] => parts.map((part) => ({
-  text: part.text,
-  highlight: part.highlighted,
-}));
+): CommandPalettePageSearchPreviewSegment[] =>
+  parts.map((part) => ({
+    text: part.text,
+    highlight: part.highlighted,
+  }));
 
 const highlightedSegments = (
   parts: readonly PageSearchTextPart[],
@@ -166,9 +161,7 @@ const searchDecorations = (
     columnNameSegments: null,
     badges: propertyMatches.map(matchBadge),
   };
-  return decorations.pageKeySegments
-      || decorations.titleSegments
-      || decorations.badges.length > 0
+  return decorations.pageKeySegments || decorations.titleSegments || decorations.badges.length > 0
     ? decorations
     : null;
 };
@@ -206,32 +199,34 @@ export function buildCommandPalettePagesFromSearchResults({
     if (!project && !existing) return [];
     const pageKeyMatch = result.matches.find((match) => match.source === "page_key");
     const priority = result.priority && isPriority(result.priority) ? result.priority : null;
-    return [{
-      kind: "page" as const,
-      id: `${result.projectId}:${result.pageId}`,
-      projectId: result.projectId,
-      projectName: project?.name ?? existing?.projectName ?? "Untitled",
-      projectAppearance: project?.appearance ?? existing!.projectAppearance,
-      columnName: result.locationLabel || existing?.columnName || "Pages",
-      page: {
-        id: result.pageId,
-        title: result.title,
-        pageKey: result.pageKey,
-        status: result.status,
-        priority,
-        tags: result.tags.map(pageSearchOptionIdentityKey),
-        assignee: result.assignee,
+    return [
+      {
+        kind: "page" as const,
+        id: `${result.projectId}:${result.pageId}`,
+        projectId: result.projectId,
+        projectName: project?.name ?? existing?.projectName ?? "Untitled",
+        projectAppearance: project?.appearance ?? existing!.projectAppearance,
+        columnName: result.locationLabel || existing?.columnName || "Pages",
+        page: {
+          id: result.pageId,
+          title: result.title,
+          pageKey: result.pageKey,
+          status: result.status,
+          priority,
+          tags: result.tags.map(pageSearchOptionIdentityKey),
+          assignee: result.assignee,
+        },
+        tagLabels: result.tags.map((tag) => tag.label),
+        inActiveProject: result.projectId === activeProjectId,
+        recentIndex: recentIndex.get(result.pageId) ?? null,
+        boardIndex: index,
+        searchPreview: searchPreview(result),
+        searchDecorations: searchDecorations(result),
+        pageKeyMatch: pageKeyMatch
+          ? { matchedPageKey: pageKeyMatch.pageKey, isCurrent: pageKeyMatch.isCurrent }
+          : null,
       },
-      tagLabels: result.tags.map((tag) => tag.label),
-      inActiveProject: result.projectId === activeProjectId,
-      recentIndex: recentIndex.get(result.pageId) ?? null,
-      boardIndex: index,
-      searchPreview: searchPreview(result),
-      searchDecorations: searchDecorations(result),
-      pageKeyMatch: pageKeyMatch
-        ? { matchedPageKey: pageKeyMatch.pageKey, isCurrent: pageKeyMatch.isCurrent }
-        : null,
-    }];
+    ];
   });
 }
 
@@ -263,8 +258,7 @@ export async function searchCommandPalettePages({
   const requestKey = JSON.stringify(request);
   const existing = inFlightPageSearches.get(requestKey);
   if (existing) return await existing;
-  const pending = searchPages(request)
-    .then((snapshot) => snapshot.results);
+  const pending = searchPages(request).then((snapshot) => snapshot.results);
   inFlightPageSearches.set(requestKey, pending);
   try {
     return await pending;
@@ -287,11 +281,13 @@ export function isCommandPalettePageSearchPending({
   scopeKey: string;
 }): boolean {
   if (!enabled || scopeKey.length === 0) return false;
-  return !batch
-    || batch.scopeKey !== scopeKey
-    || batch.query !== normalizeCommandPaletteSearchText(query)
-    || batch.status === "idle"
-    || batch.status === "pending";
+  return (
+    !batch ||
+    batch.scopeKey !== scopeKey ||
+    batch.query !== normalizeCommandPaletteSearchText(query) ||
+    batch.status === "idle" ||
+    batch.status === "pending"
+  );
 }
 
 export function getCommandPalettePageSearchError({
@@ -305,7 +301,7 @@ export function getCommandPalettePageSearchError({
 }): string | null {
   if (!batch || batch.status !== "error") return null;
   if (batch.query !== normalizeCommandPaletteSearchText(query)) return null;
-  return batch.scopeKey === scopeKey ? batch.error ?? "Page search is unavailable" : null;
+  return batch.scopeKey === scopeKey ? (batch.error ?? "Page search is unavailable") : null;
 }
 
 export function selectCommandPalettePageResults({
@@ -328,11 +324,10 @@ export function selectCommandPalettePageResults({
   mergedPageLimit?: number;
 }): CommandPalettePage[] {
   if (
-    !pageSearchBatch
-    || (pageSearchBatch.status !== "success" && pageSearchBatch.status !== "pending")
-    || pageSearchBatch.query !== normalizeCommandPaletteSearchText(query)
-    || (pageSearchScopeKey
-      && pageSearchBatch.scopeKey !== pageSearchScopeKey)
+    !pageSearchBatch ||
+    (pageSearchBatch.status !== "success" && pageSearchBatch.status !== "pending") ||
+    pageSearchBatch.query !== normalizeCommandPaletteSearchText(query) ||
+    (pageSearchScopeKey && pageSearchBatch.scopeKey !== pageSearchScopeKey)
   ) {
     return [];
   }
@@ -362,10 +357,7 @@ export function useCommandPalettePageSearch({
   recentPageIds?: readonly string[];
   limit?: number;
 }): CommandPalettePageSearchBatch {
-  const scopeKey = useMemo(
-    () => buildCommandPalettePageSearchScopeKey(projectIds),
-    [projectIds],
-  );
+  const scopeKey = useMemo(() => buildCommandPalettePageSearchScopeKey(projectIds), [projectIds]);
   const search = useInteractivePageSearch({
     projectIds: enabled ? projectIds : [],
     query: normalizeCommandPaletteSearchText(query),
@@ -382,8 +374,12 @@ export function useCommandPalettePageSearch({
     query: normalizeCommandPaletteSearchText(query),
     scopeKey,
     results: search.rows,
-    status: search.enrichment === "loading" ? "pending"
-      : search.enrichment === "unavailable" ? "error" : "success",
+    status:
+      search.enrichment === "loading"
+        ? "pending"
+        : search.enrichment === "unavailable"
+          ? "error"
+          : "success",
     error: search.enrichment === "unavailable" ? "Full Page search is unavailable" : null,
   };
 }
@@ -395,10 +391,7 @@ export function useCommandPalettePageSearchFacets({
   enabled: boolean;
   projectIds: readonly string[];
 }): CommandPalettePageFacetBatch {
-  const scopeKey = useMemo(
-    () => buildCommandPalettePageSearchScopeKey(projectIds),
-    [projectIds],
-  );
+  const scopeKey = useMemo(() => buildCommandPalettePageSearchScopeKey(projectIds), [projectIds]);
   const [batch, setBatch] = useState<CommandPalettePageFacetBatch>({
     facets: { tags: [], assignees: [] },
     status: "idle",
@@ -433,8 +426,9 @@ export function useCommandPalettePageSearchFacets({
 
 export const pageSearchFacetOptions = (
   facets: PageSearchFacets,
-): Array<{ id: string; label: string; option: PageSearchOption }> => facets.tags.map((option) => ({
-  id: pageSearchOptionIdentityKey(option),
-  label: option.label,
-  option,
-}));
+): Array<{ id: string; label: string; option: PageSearchOption }> =>
+  facets.tags.map((option) => ({
+    id: pageSearchOptionIdentityKey(option),
+    label: option.label,
+    option,
+  }));

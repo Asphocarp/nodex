@@ -1,10 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
-import {
-  isPlausiblePageKeyPrefixDraft,
-  normalizePageKeyPrefixInput,
-} from "../../shared/page-key";
+import { isPlausiblePageKeyPrefixDraft, normalizePageKeyPrefixInput } from "../../shared/page-key";
 import type { DatabasePageKeyPrefixPreviewV2 } from "../../shared/database-module-v2";
 import { previewDatabasePageKeyPrefix } from "./database-page-key-runtime";
 import { queryKeys } from "./query-keys";
@@ -31,14 +28,12 @@ interface PageKeyPrefixPreviewOptions {
   readonly requestedPrefix?: string;
 }
 
-export type PageKeyPrefixPreviewReader = (
-  input: {
-    readonly projectId?: string;
-    readonly databaseId?: string;
-    readonly nameHint: string;
-    readonly requestedPrefix?: string;
-  },
-) => Promise<DatabasePageKeyPrefixPreviewV2>;
+export type PageKeyPrefixPreviewReader = (input: {
+  readonly projectId?: string;
+  readonly databaseId?: string;
+  readonly nameHint: string;
+  readonly requestedPrefix?: string;
+}) => Promise<DatabasePageKeyPrefixPreviewV2>;
 
 export function usePageKeyPrefixPreview({
   enabled,
@@ -48,12 +43,10 @@ export function usePageKeyPrefixPreview({
   readPreview = previewDatabasePageKeyPrefix,
   requestedPrefix,
 }: PageKeyPrefixPreviewOptions): PageKeyPrefixPreviewState {
-  const normalizedRequestedPrefix = requestedPrefix === undefined
-    ? undefined
-    : normalizePageKeyPrefixInput(requestedPrefix);
+  const normalizedRequestedPrefix =
+    requestedPrefix === undefined ? undefined : normalizePageKeyPrefixInput(requestedPrefix);
   const prefix = normalizedRequestedPrefix ?? "";
-  const valid = normalizedRequestedPrefix === undefined
-    || isPlausiblePageKeyPrefixDraft(prefix);
+  const valid = normalizedRequestedPrefix === undefined || isPlausiblePageKeyPrefixDraft(prefix);
   // Once a person supplies a valid prefix, availability and its alternative
   // are a function of that prefix, not of later Project-name edits.
   const effectiveNameHint = normalizedRequestedPrefix ?? nameHint;
@@ -72,12 +65,13 @@ export function usePageKeyPrefixPreview({
   useEffect(() => {
     if (!enabled || !valid) return;
     const timeout = window.setTimeout(
-      () => setDebouncedRequest({
-        projectId,
-        databaseId,
-        nameHint: effectiveNameHint,
-        requestedPrefix: normalizedRequestedPrefix,
-      }),
+      () =>
+        setDebouncedRequest({
+          projectId,
+          databaseId,
+          nameHint: effectiveNameHint,
+          requestedPrefix: normalizedRequestedPrefix,
+        }),
       normalizedRequestedPrefix === undefined ? 0 : MANUAL_PREVIEW_DELAY_MS,
     );
     return () => window.clearTimeout(timeout);
@@ -97,12 +91,13 @@ export function usePageKeyPrefixPreview({
       debouncedNameHint,
       debouncedRequestedPrefix,
     ),
-    queryFn: async () => await readPreviewRef.current({
-      projectId: debouncedProjectId,
-      databaseId: debouncedDatabaseId,
-      nameHint: debouncedNameHint,
-      requestedPrefix: debouncedRequestedPrefix,
-    }),
+    queryFn: async () =>
+      await readPreviewRef.current({
+        projectId: debouncedProjectId,
+        databaseId: debouncedDatabaseId,
+        nameHint: debouncedNameHint,
+        requestedPrefix: debouncedRequestedPrefix,
+      }),
     enabled: enabled && valid && liveSignature === debouncedSignature,
     staleTime: 0,
     retry: false,
@@ -116,9 +111,8 @@ export function usePageKeyPrefixPreview({
     return {
       kind: "error",
       prefix,
-      error: query.error instanceof Error
-        ? query.error
-        : new Error("Page-key prefix preview failed"),
+      error:
+        query.error instanceof Error ? query.error : new Error("Page-key prefix preview failed"),
     };
   }
   if (!query.data) return { kind: "checking", prefix };

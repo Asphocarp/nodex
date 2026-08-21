@@ -47,10 +47,7 @@ const elapsedMilliseconds = async <Value>(
 const percentile = (samples: readonly number[], ratio: number): number => {
   if (samples.length === 0) throw new Error("Cannot summarize an empty sample set");
   const ordered = [...samples].sort((left, right) => left - right);
-  const index = Math.min(
-    ordered.length - 1,
-    Math.max(0, Math.ceil(ordered.length * ratio) - 1),
-  );
+  const index = Math.min(ordered.length - 1, Math.max(0, Math.ceil(ordered.length * ratio) - 1));
   const value = ordered[index];
   if (value === undefined) throw new Error("Percentile index is out of bounds");
   return Number(value.toFixed(3));
@@ -64,10 +61,7 @@ const summary = (samples: readonly number[]) => ({
   maxMs: percentile(samples, 1),
 });
 
-const benchmarkStage = async <Value>(
-  label: string,
-  operation: Promise<Value>,
-): Promise<Value> => {
+const benchmarkStage = async <Value>(label: string, operation: Promise<Value>): Promise<Value> => {
   try {
     return await operation;
   } catch (error) {
@@ -90,10 +84,7 @@ const startCore = async (nodexHome: string): Promise<CoreLaunchResult> => {
   return runtime;
 };
 
-const stopCore = async (
-  runtime: CoreLaunchResult,
-  nodexHome: string,
-): Promise<void> => {
+const stopCore = async (runtime: CoreLaunchResult, nodexHome: string): Promise<void> => {
   const index = runningCores.findIndex((entry) => entry.runtime === runtime);
   if (index >= 0) runningCores.splice(index, 1);
   const pid = runtime.client.handshake.generation.pid;
@@ -189,10 +180,9 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
     for (let index = 0; index < 8; index += 1) {
       const home = temporaryProfile(`ndx-ge-c${index}`);
       const measurement = await elapsedMilliseconds(() => startCore(home)).catch((error) => {
-        throw new Error(
-          `Gate E cold Core ${index} failed: ${readCoreLogs(home)}`,
-          { cause: error },
-        );
+        throw new Error(`Gate E cold Core ${index} failed: ${readCoreLogs(home)}`, {
+          cause: error,
+        });
       });
       coldReadinessMs.push(measurement.elapsedMs);
       await stopCore(measurement.value, home);
@@ -249,18 +239,18 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
       const committed = await benchmarkStage(
         `fixture Page ${index + 1}`,
         projectClient.libraryApply({
-        operationId: `gate-e-fixture-page-${index}`,
-        intent: {
-          kind: "create_page_from_nfm",
-          title_markdown: `Rust Core benchmark Page ${String(index + 1).padStart(4, "0")}`,
-          nfm: `Search projection body ${index + 1}\nShared benchmark token\n`,
-          destination: {
-            kind: "data_source",
-            data_source_id: dataSourceId,
-            at: null,
+          operationId: `gate-e-fixture-page-${index}`,
+          intent: {
+            kind: "create_page_from_nfm",
+            title_markdown: `Rust Core benchmark Page ${String(index + 1).padStart(4, "0")}`,
+            nfm: `Search projection body ${index + 1}\nShared benchmark token\n`,
+            destination: {
+              kind: "data_source",
+              data_source_id: dataSourceId,
+              at: null,
+            },
           },
-        },
-      }),
+        }),
       );
       const createdPageId = committed.outcome.page_create?.page_id;
       if (!createdPageId) throw new Error("Gate E Page creation omitted its identity");
@@ -278,12 +268,14 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
 
     const warmPageReadMs: number[] = [];
     for (let index = 0; index < 100; index += 1) {
-      const measurement = await elapsedMilliseconds(() => projectClient.libraryRead({
-        kind: "page_file",
-        page_id: firstPageId,
-        file_kind: "body_nested_markdown",
-        prepare: null,
-      }));
+      const measurement = await elapsedMilliseconds(() =>
+        projectClient.libraryRead({
+          kind: "page_file",
+          page_id: firstPageId,
+          file_kind: "body_nested_markdown",
+          prepare: null,
+        }),
+      );
       if (measurement.value.value.kind !== "page_file") {
         throw new Error("Gate E Page read returned an unexpected projection");
       }
@@ -292,28 +284,33 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
 
     const semanticMutationMs: number[] = [];
     for (let index = 0; index < 40; index += 1) {
-      const measurement = await elapsedMilliseconds(() => projectClient.libraryApply({
-        operationId: `gate-e-measured-page-${index}`,
-        intent: {
-          kind: "create_page_from_nfm",
-          title_markdown: `Measured semantic mutation ${index + 1}`,
-          nfm: "Representative transaction with Document and Database projections\n",
-          destination: {
-            kind: "data_source",
-            data_source_id: dataSourceId,
-            at: null,
+      const measurement = await elapsedMilliseconds(() =>
+        projectClient.libraryApply({
+          operationId: `gate-e-measured-page-${index}`,
+          intent: {
+            kind: "create_page_from_nfm",
+            title_markdown: `Measured semantic mutation ${index + 1}`,
+            nfm: "Representative transaction with Document and Database projections\n",
+            destination: {
+              kind: "data_source",
+              data_source_id: dataSourceId,
+              at: null,
+            },
           },
-        },
-      }));
+        }),
+      );
       semanticMutationMs.push(measurement.elapsedMs);
     }
 
     const searchAssemblyMs: number[] = [];
-    const warmSearch = await benchmarkStage("initial search snapshot assembly", projectClient.libraryRead({
-      kind: "acquire_search_snapshot",
-      scope: { kind: "database", database_id: databaseId },
-      strict_materialization: true,
-    }));
+    const warmSearch = await benchmarkStage(
+      "initial search snapshot assembly",
+      projectClient.libraryRead({
+        kind: "acquire_search_snapshot",
+        scope: { kind: "database", database_id: databaseId },
+        strict_materialization: true,
+      }),
+    );
     if (warmSearch.value.kind !== "search_snapshot_lease") {
       throw new Error("Gate E search warmup returned an unexpected projection");
     }
@@ -322,11 +319,13 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
       lease_id: warmSearch.value.value.lease_id,
     });
     for (let index = 0; index < 30; index += 1) {
-      const measurement = await elapsedMilliseconds(() => projectClient.libraryRead({
-        kind: "acquire_search_snapshot",
-        scope: { kind: "database", database_id: databaseId },
-        strict_materialization: true,
-      }));
+      const measurement = await elapsedMilliseconds(() =>
+        projectClient.libraryRead({
+          kind: "acquire_search_snapshot",
+          scope: { kind: "database", database_id: databaseId },
+          strict_materialization: true,
+        }),
+      );
       if (measurement.value.value.kind !== "search_snapshot_lease") {
         throw new Error("Gate E search assembly returned an unexpected projection");
       }

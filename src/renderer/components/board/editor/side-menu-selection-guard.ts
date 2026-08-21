@@ -47,9 +47,7 @@ export function getSideMenuSelectionGuardFloatingOptions(
   return active ? SIDE_MENU_SELECTION_GUARD_FLOATING_OPTIONS : undefined;
 }
 
-export function useSideMenuSelectionGuard(
-  containerRef: RefObject<HTMLElement | null>,
-): boolean {
+export function useSideMenuSelectionGuard(containerRef: RefObject<HTMLElement | null>): boolean {
   const [active, setActive] = useState(false);
 
   useEffect(() => {

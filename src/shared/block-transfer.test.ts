@@ -42,20 +42,20 @@ describe("BlockTransfer contract", () => {
   test("excludes transport attempt identity from canonical intent", () => {
     const first = request();
     const second = { ...first, clientSessionId: "window-after-reconnect" };
-    expect(canonicalizeBlockTransferIntent(first)).toBe(
-      canonicalizeBlockTransferIntent(second),
-    );
+    expect(canonicalizeBlockTransferIntent(first)).toBe(canonicalizeBlockTransferIntent(second));
   });
 
   test("keeps freshness evidence out of the public logical intent", () => {
     const logical = blockTransferIntentFromRequest(request());
     const fencedLogical = {
       ...logical,
-      causalDependencies: [{
-        documentId: "fence-document",
-        generation: 1,
-        expectedHeadSeq: 8,
-      }],
+      causalDependencies: [
+        {
+          documentId: "fence-document",
+          generation: 1,
+          expectedHeadSeq: 8,
+        },
+      ],
     };
     expect(parseBlockTransferIntent(fencedLogical)).toEqual(fencedLogical);
     expect(logical.source).toEqual({
@@ -67,15 +67,9 @@ describe("BlockTransfer contract", () => {
       documentId: "document-b",
       beforeBlockId: "paragraph-b",
     });
-    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain(
-      "expectedHeadSeq",
-    );
-    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain(
-      "revision",
-    );
-    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain(
-      "fence-document",
-    );
+    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain("expectedHeadSeq");
+    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain("revision");
+    expect(canonicalizeBlockTransferLogicalIntent(fencedLogical)).not.toContain("fence-document");
   });
 
   test("preserves bounded sorted Property inference for a direct View placement", () => {
@@ -90,11 +84,13 @@ describe("BlockTransfer contract", () => {
           viewId: "view-b",
           presentationOverride: {
             layout: "board" as const,
-            sort: [{
-              field: { kind: "property" as const, propertyId: "priority" },
-              direction: "asc" as const,
-              nulls: "last" as const,
-            }],
+            sort: [
+              {
+                field: { kind: "property" as const, propertyId: "priority" },
+                direction: "asc" as const,
+                nulls: "last" as const,
+              },
+            ],
           },
           groupKey: "ship",
           beforePageId: "card-2",
@@ -103,19 +99,21 @@ describe("BlockTransfer contract", () => {
       },
     };
     expect(parseBlockTransferIntent(inferred)).toEqual(inferred);
-    expect(() => parseBlockTransferIntent({
-      ...inferred,
-      target: {
-        ...inferred.target,
-        placement: {
-          ...inferred.target.placement,
-          sortedPropertyValues: [
-            { propertyId: "priority", value: "p3-low" },
-            { propertyId: "priority", value: "p2-medium" },
-          ],
+    expect(() =>
+      parseBlockTransferIntent({
+        ...inferred,
+        target: {
+          ...inferred.target,
+          placement: {
+            ...inferred.target.placement,
+            sortedPropertyValues: [
+              { propertyId: "priority", value: "p3-low" },
+              { propertyId: "priority", value: "p2-medium" },
+            ],
+          },
         },
-      },
-    })).toThrow(/cannot repeat a Property/);
+      }),
+    ).toThrow(/cannot repeat a Property/);
   });
 
   test("rejects incomplete revision evidence and same-parent reorder seams", () => {

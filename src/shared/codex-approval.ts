@@ -4,9 +4,7 @@ export type CodexApprovalRequestMethod =
   | "item/commandExecution/requestApproval"
   | "item/fileChange/requestApproval";
 
-export function getCodexApprovalRequestMethod(
-  kind: CodexApprovalKind,
-): CodexApprovalRequestMethod {
+export function getCodexApprovalRequestMethod(kind: CodexApprovalKind): CodexApprovalRequestMethod {
   return kind === "command"
     ? "item/commandExecution/requestApproval"
     : "item/fileChange/requestApproval";

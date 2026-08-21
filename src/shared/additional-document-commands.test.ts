@@ -84,9 +84,7 @@ const captureError = (operation: () => unknown): unknown => {
 };
 
 const expectContractError = (operation: () => unknown): void => {
-  expect(
-    captureError(operation) instanceof AdditionalDocumentCommandContractError,
-  ).toBe(true);
+  expect(captureError(operation) instanceof AdditionalDocumentCommandContractError).toBe(true);
 };
 
 describe("additional document command contract", () => {
@@ -154,8 +152,7 @@ describe("additional document command contract", () => {
     ] as const;
 
     const kinds = cases.map(
-      (candidate) =>
-        parseAdditionalDocumentCommandRequest(candidate).operation.kind,
+      (candidate) => parseAdditionalDocumentCommandRequest(candidate).operation.kind,
     );
     expect(JSON.stringify(kinds)).toBe(
       JSON.stringify([
@@ -167,15 +164,9 @@ describe("additional document command contract", () => {
         "delete_owned_source",
       ]),
     );
-    expect(additionalDocumentCommandRequiredCoordination(cases[0])).toBe(
-      "fifo_only",
-    );
-    expect(additionalDocumentCommandRequiredCoordination(cases[1])).toBe(
-      "hub_lease",
-    );
-    expect(additionalDocumentCommandRequiredCoordination(cases[5])).toBe(
-      "hub_lease",
-    );
+    expect(additionalDocumentCommandRequiredCoordination(cases[0])).toBe("fifo_only");
+    expect(additionalDocumentCommandRequiredCoordination(cases[1])).toBe("hub_lease");
+    expect(additionalDocumentCommandRequiredCoordination(cases[5])).toBe("hub_lease");
   });
 
   test("requires exact logical Documents while allowing renewable Hub heads", () => {
@@ -192,9 +183,7 @@ describe("additional document command contract", () => {
     expect(parsed.coordination.kind).toBe("hub_lease");
     if (parsed.coordination.kind !== "hub_lease") return;
     expect(parsed.coordination.documents[0]?.documentId).toBe("document:host");
-    expect(parsed.coordination.documents[1]?.documentId).toBe(
-      "document:source",
-    );
+    expect(parsed.coordination.documents[1]?.documentId).toBe("document:source");
 
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest(
@@ -202,18 +191,14 @@ describe("additional document command contract", () => {
       ),
     );
     expectContractError(() =>
-      parseAdditionalDocumentCommandRequest(
-        request(operation, lease([hostHead])),
-      ),
+      parseAdditionalDocumentCommandRequest(request(operation, lease([hostHead]))),
     );
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest(
         request(operation, lease([hostHead, sourceHead, sourceHead])),
       ),
     );
-    expectContractError(() =>
-      parseAdditionalDocumentCommandRequest(request(operation, fifo)),
-    );
+    expectContractError(() => parseAdditionalDocumentCommandRequest(request(operation, fifo)));
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest(
         request(
@@ -239,10 +224,7 @@ describe("additional document command contract", () => {
       target: host,
       beforeBlockId: "host:before",
     } as const;
-    const first = request(
-      operation,
-      lease([hostHead, sourceHead], "lease:first"),
-    );
+    const first = request(operation, lease([hostHead, sourceHead], "lease:first"));
     const retry = {
       ...first,
       actor: { kind: "http_loopback" },
@@ -250,24 +232,18 @@ describe("additional document command contract", () => {
       coordination: lease([sourceHead, hostHead], "lease:renewed"),
     };
     const firstCanonical = canonicalizeAdditionalDocumentCommandIntent(first);
-    expect(canonicalizeAdditionalDocumentCommandIntent(retry)).toBe(
-      firstCanonical,
-    );
+    expect(canonicalizeAdditionalDocumentCommandIntent(retry)).toBe(firstCanonical);
     const receiptReplay = {
       ...retry,
       coordination: { kind: "receipt_replay" },
     } as const;
-    expect(canonicalizeAdditionalDocumentCommandIntent(receiptReplay)).toBe(
+    expect(canonicalizeAdditionalDocumentCommandIntent(receiptReplay)).toBe(firstCanonical);
+    expect(parseAdditionalDocumentCommandRequest(receiptReplay).coordination.kind).toBe(
+      "receipt_replay",
+    );
+    expect(new TextDecoder().decode(encodeAdditionalDocumentCommandSemanticHashInput(first))).toBe(
       firstCanonical,
     );
-    expect(
-      parseAdditionalDocumentCommandRequest(receiptReplay).coordination.kind,
-    ).toBe("receipt_replay");
-    expect(
-      new TextDecoder().decode(
-        encodeAdditionalDocumentCommandSemanticHashInput(first),
-      ),
-    ).toBe(firstCanonical);
 
     const changedHead = compileAdditionalDocumentCommandExecution(first, {
       leaseId: "lease:after-flush",
@@ -276,22 +252,15 @@ describe("additional document command contract", () => {
         { ...sourceHead, headSeq: sourceHead.headSeq + 2 },
       ],
     });
-    expect(canonicalizeAdditionalDocumentCommandIntent(changedHead)).toBe(
-      firstCanonical,
-    );
+    expect(canonicalizeAdditionalDocumentCommandIntent(changedHead)).toBe(firstCanonical);
     expect(changedHead.coordination.documents[0]?.headSeq).toBe(8);
     const generationChange = captureError(() =>
       compileAdditionalDocumentCommandExecution(first, {
         leaseId: "lease:generation-changed",
-        documents: [
-          { ...hostHead, generation: hostHead.generation + 1 },
-          sourceHead,
-        ],
+        documents: [{ ...hostHead, generation: hostHead.generation + 1 }, sourceHead],
       }),
     );
-    expect(
-      generationChange instanceof AdditionalDocumentExecutionProofError,
-    ).toBe(true);
+    expect(generationChange instanceof AdditionalDocumentExecutionProofError).toBe(true);
     if (generationChange instanceof AdditionalDocumentExecutionProofError) {
       expect(generationChange.code).toBe("document_generation_mismatch");
     }
@@ -299,10 +268,9 @@ describe("additional document command contract", () => {
       { ...operation, beforeBlockId: "host:other-before" },
       lease([hostHead, sourceHead], "lease:other-anchor"),
     );
-    expect(
-      canonicalizeAdditionalDocumentCommandIntent(changedAnchor) ===
-        firstCanonical,
-    ).toBe(false);
+    expect(canonicalizeAdditionalDocumentCommandIntent(changedAnchor) === firstCanonical).toBe(
+      false,
+    );
     expect(
       canonicalizeAdditionalDocumentCommandIntent({
         ...first,
@@ -326,9 +294,7 @@ describe("additional document command contract", () => {
       }),
     );
     expectContractError(() =>
-      parseAdditionalDocumentCommandRequest(
-        request({ ...validOperation, surprise: true }),
-      ),
+      parseAdditionalDocumentCommandRequest(request({ ...validOperation, surprise: true })),
     );
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest(
@@ -358,10 +324,7 @@ describe("additional document command contract", () => {
       parseAdditionalDocumentCommandRequest(
         request({
           ...validOperation,
-          initialBlocks: [
-            paragraph("block:duplicate"),
-            paragraph("block:duplicate"),
-          ],
+          initialBlocks: [paragraph("block:duplicate"), paragraph("block:duplicate")],
         }),
       ),
     );
@@ -395,9 +358,8 @@ describe("additional document command contract", () => {
   });
 
   test("bounds content by block count, depth, actor, and total shape", () => {
-    const tooMany = Array.from(
-      { length: MAX_ADDITIONAL_DOCUMENT_BLOCKS + 1 },
-      (_, index) => paragraph(`block:${index}`),
+    const tooMany = Array.from({ length: MAX_ADDITIONAL_DOCUMENT_BLOCKS + 1 }, (_, index) =>
+      paragraph(`block:${index}`),
     );
     expectContractError(() =>
       parseAdditionalDocumentCommandRequest(
@@ -413,11 +375,7 @@ describe("additional document command contract", () => {
     );
 
     let nested = paragraph(`block:${MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH + 1}`);
-    for (
-      let depth = MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH;
-      depth >= 1;
-      depth -= 1
-    ) {
+    for (let depth = MAX_ADDITIONAL_DOCUMENT_BLOCK_DEPTH; depth >= 1; depth -= 1) {
       nested = { ...paragraph(`block:${depth}`), children: [nested] };
     }
     expectContractError(() =>
@@ -447,21 +405,18 @@ describe("additional document command contract", () => {
   });
 
   test("records identity rules and exposes every owned-Document lifecycle kernel", () => {
-    expect(
-      ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.promote_synced_source
-        .identitySemantics,
-    ).toBe("move_preserving_content_ids_create_source_and_reference_ids");
-    expect(
-      ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.demote_synced_source
-        .identitySemantics,
-    ).toBe("move_preserving_content_ids_delete_source_and_reference_ids");
-    expect(
-      ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.instantiate_template
-        .identitySemantics,
-    ).toBe("copy_deriving_every_content_id_from_operation_id");
-    expect(
-      ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.delete_owned_source.availability,
-    ).toBe("kernel_ready");
+    expect(ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.promote_synced_source.identitySemantics).toBe(
+      "move_preserving_content_ids_create_source_and_reference_ids",
+    );
+    expect(ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.demote_synced_source.identitySemantics).toBe(
+      "move_preserving_content_ids_delete_source_and_reference_ids",
+    );
+    expect(ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.instantiate_template.identitySemantics).toBe(
+      "copy_deriving_every_content_id_from_operation_id",
+    );
+    expect(ADDITIONAL_DOCUMENT_COMMAND_CAPABILITIES.delete_owned_source.availability).toBe(
+      "kernel_ready",
+    );
   });
 });
 

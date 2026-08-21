@@ -9,11 +9,7 @@ import {
 } from "./block-structure";
 import { assertValidPageDocumentRoots } from "./page-document";
 import { MAX_BLOCK_ID_LENGTH, type BlockId } from "./contracts";
-import {
-  decodeXmlSubtree,
-  encodeXmlSubtree,
-  type PortableXmlSubtree,
-} from "./xml-subtree-codec";
+import { decodeXmlSubtree, encodeXmlSubtree, type PortableXmlSubtree } from "./xml-subtree-codec";
 
 export type BlockSubtreeOperationErrorCode =
   | "invalid_document"
@@ -125,16 +121,10 @@ const requireExactBlockId = (
   ) {
     return value;
   }
-  throw new BlockSubtreeOperationError(
-    code,
-    `${field} must be a non-empty exact Block identity`,
-  );
+  throw new BlockSubtreeOperationError(code, `${field} must be a non-empty exact Block identity`);
 };
 
-const comparePaths = (
-  left: readonly number[],
-  right: readonly number[],
-): number => {
+const comparePaths = (left: readonly number[], right: readonly number[]): number => {
   const sharedLength = Math.min(left.length, right.length);
   for (let index = 0; index < sharedLength; index += 1) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);
@@ -143,10 +133,7 @@ const comparePaths = (
   return left.length - right.length;
 };
 
-const resolveElementAtPath = (
-  body: Y.XmlFragment,
-  path: readonly number[],
-): Y.XmlElement => {
+const resolveElementAtPath = (body: Y.XmlFragment, path: readonly number[]): Y.XmlElement => {
   let parent: Y.XmlFragment | Y.XmlElement = body;
   for (const index of path) {
     const child: unknown = parent.toArray()[index];
@@ -165,9 +152,7 @@ const resolveElementAtPath = (
   );
 };
 
-const validateDocumentBody = (
-  body: Y.XmlFragment,
-): readonly ScannedDocumentBlock[] => {
+const validateDocumentBody = (body: Y.XmlFragment): readonly ScannedDocumentBlock[] => {
   try {
     const blocks = assertValidBlockDocument(body);
     const violation = collectChildlessBlockViolations(body)[0];
@@ -189,10 +174,7 @@ const validateDocumentBody = (
 
 const readCanonicalRootGroup = (body: Y.XmlFragment): Y.XmlElement => {
   const group = body.get(0);
-  if (
-    group instanceof Y.XmlElement &&
-    group.nodeName === BLOCK_GROUP_NODE_NAME
-  ) {
+  if (group instanceof Y.XmlElement && group.nodeName === BLOCK_GROUP_NODE_NAME) {
     return group;
   }
   throw new BlockSubtreeOperationError(
@@ -201,9 +183,7 @@ const readCanonicalRootGroup = (body: Y.XmlFragment): Y.XmlElement => {
   );
 };
 
-export const indexBlockDocumentTree = (
-  body: Y.XmlFragment,
-): BlockDocumentTreeIndex => {
+export const indexBlockDocumentTree = (body: Y.XmlFragment): BlockDocumentTreeIndex => {
   const scannedBlocks = validateDocumentBody(body);
   const mutableLocations = new Map<
     BlockId,
@@ -288,11 +268,7 @@ export const locateBlockContainer = (
   body: Y.XmlFragment,
   blockId: BlockId,
 ): LocatedBlockContainer => {
-  const exactBlockId = requireExactBlockId(
-    blockId,
-    "source_block_not_found",
-    "blockId",
-  );
+  const exactBlockId = requireExactBlockId(blockId, "source_block_not_found", "blockId");
   const location = indexBlockDocumentTree(body).blocks.get(exactBlockId);
   if (location) return location;
   throw new BlockSubtreeOperationError(
@@ -302,9 +278,7 @@ export const locateBlockContainer = (
   );
 };
 
-const assertNonOverlappingRoots = (
-  roots: readonly LocatedBlockContainer[],
-): void => {
+const assertNonOverlappingRoots = (roots: readonly LocatedBlockContainer[]): void => {
   const selectedIds = new Set(roots.map((root) => root.blockId));
   for (const root of roots) {
     if (!root.descendantBlockIds.some((blockId) => selectedIds.has(blockId))) {
@@ -355,15 +329,11 @@ export const captureBlockSubtreeForest = (
   });
   assertNonOverlappingRoots(roots);
 
-  const orderedRoots = [...roots].sort((left, right) =>
-    comparePaths(left.path, right.path),
-  );
+  const orderedRoots = [...roots].sort((left, right) => comparePaths(left.path, right.path));
   const selectedRootIds = new Set(orderedRoots.map((root) => root.blockId));
   const movedBlockIds = index.blockIdsInDocumentOrder.filter((blockId) => {
     if (selectedRootIds.has(blockId)) return true;
-    return orderedRoots.some((root) =>
-      root.descendantBlockIds.includes(blockId),
-    );
+    return orderedRoots.some((root) => root.descendantBlockIds.includes(blockId));
   });
   const capturedRoots = orderedRoots.map((root): CapturedBlockSubtree => ({
     rootBlockId: root.blockId,
@@ -437,9 +407,7 @@ const resolveInsertionTarget = (
     parentBlockId,
     beforeBlockId,
     parentContainer: parent?.container ?? null,
-    parentGroup: parent
-      ? readChildGroup(parent.container)
-      : readCanonicalRootGroup(body),
+    parentGroup: parent ? readChildGroup(parent.container) : readCanonicalRootGroup(body),
   };
 };
 
@@ -448,15 +416,12 @@ const readChildGroup = (container: Y.XmlElement): Y.XmlElement | null => {
     .toArray()
     .find(
       (child): child is Y.XmlElement =>
-        child instanceof Y.XmlElement &&
-        child.nodeName === BLOCK_GROUP_NODE_NAME,
+        child instanceof Y.XmlElement && child.nodeName === BLOCK_GROUP_NODE_NAME,
     );
   return group ?? null;
 };
 
-const createDecodedRoots = (
-  forest: CapturedBlockSubtreeForest,
-): readonly Y.XmlElement[] =>
+const createDecodedRoots = (forest: CapturedBlockSubtreeForest): readonly Y.XmlElement[] =>
   forest.roots.map((root) => {
     if (
       root.xml.kind !== "element" ||
@@ -496,9 +461,7 @@ const assertForestMatchesIndex = (
   }
   for (const root of forest.roots) {
     const current = index.blocks.get(root.rootBlockId);
-    const currentBlockIds = current
-      ? [current.blockId, ...current.descendantBlockIds]
-      : [];
+    const currentBlockIds = current ? [current.blockId, ...current.descendantBlockIds] : [];
     if (currentBlockIds.join("\u0000") === root.blockIds.join("\u0000")) {
       continue;
     }
@@ -518,9 +481,7 @@ const assertNoIdentityConflicts = (
 ): void => {
   if (sameDocument) return;
   const sourceIds = new Set(sourceIndex.blockIdsInDocumentOrder);
-  const duplicate = targetIndex.blockIdsInDocumentOrder.find((blockId) =>
-    sourceIds.has(blockId),
-  );
+  const duplicate = targetIndex.blockIdsInDocumentOrder.find((blockId) => sourceIds.has(blockId));
   if (!duplicate) return;
   const moved = forest.blockIds.includes(duplicate);
   throw new BlockSubtreeOperationError(
@@ -536,20 +497,14 @@ const assertTargetOutsideMovedSubtrees = (
   resolvedTarget: ResolvedInsertionTarget,
   forest: CapturedBlockSubtreeForest,
 ): void => {
-  if (
-    resolvedTarget.parentBlockId &&
-    forest.blockIds.includes(resolvedTarget.parentBlockId)
-  ) {
+  if (resolvedTarget.parentBlockId && forest.blockIds.includes(resolvedTarget.parentBlockId)) {
     throw new BlockSubtreeOperationError(
       "ancestor_cycle",
       `Cannot move a Block beneath its own subtree ${resolvedTarget.parentBlockId}`,
       { blockId: resolvedTarget.parentBlockId },
     );
   }
-  if (
-    resolvedTarget.beforeBlockId &&
-    forest.blockIds.includes(resolvedTarget.beforeBlockId)
-  ) {
+  if (resolvedTarget.beforeBlockId && forest.blockIds.includes(resolvedTarget.beforeBlockId)) {
     throw new BlockSubtreeOperationError(
       "target_anchor_in_moved_subtree",
       `Target anchor ${resolvedTarget.beforeBlockId} is part of the moved subtree`,
@@ -558,10 +513,7 @@ const assertTargetOutsideMovedSubtrees = (
   }
 };
 
-const deleteForestFromBody = (
-  body: Y.XmlFragment,
-  forest: CapturedBlockSubtreeForest,
-): void => {
+const deleteForestFromBody = (body: Y.XmlFragment, forest: CapturedBlockSubtreeForest): void => {
   const index = indexBlockDocumentTree(body);
   assertForestMatchesIndex(index, forest);
   const locations = forest.roots.map((root) => {
@@ -575,9 +527,7 @@ const deleteForestFromBody = (
   });
   locations
     .sort((left, right) => comparePaths(right.path, left.path))
-    .forEach((location) =>
-      location.parentGroup.delete(location.siblingIndex, 1),
-    );
+    .forEach((location) => location.parentGroup.delete(location.siblingIndex, 1));
 
   const parentGroups = new Set(
     locations
@@ -613,9 +563,7 @@ const insertForestIntoBody = (
   const index = indexBlockDocumentTree(body);
   const resolved = resolveInsertionTarget(body, index, target);
   const group = ensureInsertionGroup(body, resolved);
-  const anchor = resolved.beforeBlockId
-    ? index.blocks.get(resolved.beforeBlockId)
-    : undefined;
+  const anchor = resolved.beforeBlockId ? index.blocks.get(resolved.beforeBlockId) : undefined;
   const insertionIndex = anchor?.siblingIndex ?? group.length;
   group.insert(insertionIndex, [...decodedRoots]);
 };
@@ -625,10 +573,7 @@ const assertExactBlockSet = (
   expected: ReadonlySet<BlockId>,
   label: string,
 ): void => {
-  if (
-    actual.length === expected.size &&
-    actual.every((blockId) => expected.has(blockId))
-  ) {
+  if (actual.length === expected.size && actual.every((blockId) => expected.has(blockId))) {
     return;
   }
   throw new BlockSubtreeOperationError(
@@ -676,23 +621,15 @@ export const relocateBlockSubtrees = ({
   target,
   transactionOrigin,
 }: RelocateBlockSubtreesInput): BlockSubtreeRelocationResult => {
-  const sourceBody =
-    registeredSourceBody ?? assertValidPageDocumentRoots(sourceDocument).body;
-  const targetBody =
-    registeredTargetBody ?? assertValidPageDocumentRoots(targetDocument).body;
+  const sourceBody = registeredSourceBody ?? assertValidPageDocumentRoots(sourceDocument).body;
+  const targetBody = registeredTargetBody ?? assertValidPageDocumentRoots(targetDocument).body;
   const sameDocument = sourceDocument === targetDocument;
   const sourceIndex = indexBlockDocumentTree(sourceBody);
-  const targetIndex = sameDocument
-    ? sourceIndex
-    : indexBlockDocumentTree(targetBody);
+  const targetIndex = sameDocument ? sourceIndex : indexBlockDocumentTree(targetBody);
   const forest = captureBlockSubtreeForest(sourceBody, rootBlockIds);
   assertForestMatchesIndex(sourceIndex, forest);
   assertNoIdentityConflicts(sourceIndex, targetIndex, forest, sameDocument);
-  const resolvedTarget = resolveInsertionTarget(
-    targetBody,
-    targetIndex,
-    target,
-  );
+  const resolvedTarget = resolveInsertionTarget(targetBody, targetIndex, target);
   assertTargetOutsideMovedSubtrees(resolvedTarget, forest);
   const decodedRoots = createDecodedRoots(forest);
   const sourceBlockIdsBefore = sourceIndex.blockIdsInDocumentOrder;
@@ -713,9 +650,7 @@ export const relocateBlockSubtrees = ({
   }
 
   const sourceAfterIndex = indexBlockDocumentTree(sourceBody);
-  const targetAfterIndex = sameDocument
-    ? sourceAfterIndex
-    : indexBlockDocumentTree(targetBody);
+  const targetAfterIndex = sameDocument ? sourceAfterIndex : indexBlockDocumentTree(targetBody);
   const movedIds = new Set(forest.blockIds);
   const expectedSourceIds = new Set(
     sameDocument

@@ -80,21 +80,54 @@ function GridHarness({
   const [allDayLaneHeight, setAllDayLaneHeight] = useState(denseAllDay ? 132 : 72);
   const visibleDays = buildVisibleDays(dayCount);
   const timedEvents = [
-    buildEvent({ id: "design-review", pageKey: "LAB-13", title: "Design review", dayOffset: 0, startHour: 9, durationHours: 1 }),
-    buildEvent({ id: "implementation", pageKey: "LAB-22", title: "Implementation block", dayOffset: 1, startHour: 11, durationHours: 2 }),
-    buildEvent({ id: "release-check", pageKey: "LAB-31", title: "Release check", dayOffset: Math.min(3, dayCount - 1), startHour: 15, durationHours: 1 }),
+    buildEvent({
+      id: "design-review",
+      pageKey: "LAB-13",
+      title: "Design review",
+      dayOffset: 0,
+      startHour: 9,
+      durationHours: 1,
+    }),
+    buildEvent({
+      id: "implementation",
+      pageKey: "LAB-22",
+      title: "Implementation block",
+      dayOffset: 1,
+      startHour: 11,
+      durationHours: 2,
+    }),
+    buildEvent({
+      id: "release-check",
+      pageKey: "LAB-31",
+      title: "Release check",
+      dayOffset: Math.min(3, dayCount - 1),
+      startHour: 15,
+      durationHours: 1,
+    }),
   ];
   const allDayEvents = denseAllDay
-    ? Array.from({ length: 8 }, (_, index) => buildEvent({
-      id: `all-day-${index}`,
-      pageKey: `LAB-${100 + index}`,
-      title: `All-day focus ${index + 1}`,
-      dayOffset: index % Math.max(1, dayCount),
-      startHour: 0,
-      durationHours: 24,
-      isAllDay: true,
-    }))
-    : [buildEvent({ id: "launch-window", pageKey: "LAB-40", title: "Launch window", dayOffset: 2, startHour: 0, durationHours: 24, isAllDay: true })];
+    ? Array.from({ length: 8 }, (_, index) =>
+        buildEvent({
+          id: `all-day-${index}`,
+          pageKey: `LAB-${100 + index}`,
+          title: `All-day focus ${index + 1}`,
+          dayOffset: index % Math.max(1, dayCount),
+          startHour: 0,
+          durationHours: 24,
+          isAllDay: true,
+        }),
+      )
+    : [
+        buildEvent({
+          id: "launch-window",
+          pageKey: "LAB-40",
+          title: "Launch window",
+          dayOffset: 2,
+          startHour: 0,
+          durationHours: 24,
+          isAllDay: true,
+        }),
+      ];
 
   return (
     <div className="h-screen bg-token-main-surface-primary p-4 text-token-foreground">

@@ -1,7 +1,4 @@
-import type {
-  Project,
-  WorkbenchTabProjection,
-} from "@/lib/types";
+import type { Project, WorkbenchTabProjection } from "@/lib/types";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 
 export function normalizeOptionalPath(value: string | null | undefined): string | undefined {
@@ -13,8 +10,10 @@ export function normalizeOptionalPath(value: string | null | undefined): string 
 export function normalizeProjectPrimaryWorkspaceRoot(
   project: Project | null | undefined,
 ): string | undefined {
-  return normalizeOptionalPath(project?.primaryWorkspaceRoot)
-    ?? normalizeOptionalPath(project?.sources[0]?.root);
+  return (
+    normalizeOptionalPath(project?.primaryWorkspaceRoot) ??
+    normalizeOptionalPath(project?.sources[0]?.root)
+  );
 }
 
 export function projectWorkspaceRootOrNull(project: Project | null | undefined): string | null {
@@ -44,9 +43,10 @@ export function resolveSessionTerminalCwd(
   if (threadCwd) return threadCwd;
 
   const tabProjectId = "projectId" in tab.config ? tab.config.projectId : session.projectId;
-  return normalizeProjectPrimaryWorkspaceRoot(
-    projects.find((project) => project.id === tabProjectId),
-  ) ?? normalizeProjectPrimaryWorkspaceRoot(
-    projects.find((project) => project.id === session.projectId),
+  return (
+    normalizeProjectPrimaryWorkspaceRoot(projects.find((project) => project.id === tabProjectId)) ??
+    normalizeProjectPrimaryWorkspaceRoot(
+      projects.find((project) => project.id === session.projectId),
+    )
   );
 }

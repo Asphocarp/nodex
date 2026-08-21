@@ -32,21 +32,16 @@ export function useWorkbenchSidebarState({
   collapsibleSections,
   setCollapsibleSectionCollapsed,
 }: UseWorkbenchSidebarStateInput) {
-  const [expandedProjectIds, setExpandedProjectIds] = useState(
-    () => readInitialExpandedProjects(projects, activeProjectId),
+  const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
+    readInitialExpandedProjects(projects, activeProjectId),
   );
   const [localCollapsibleSections, setLocalCollapsibleSections] = useState(
     makeDefaultSidebarCollapsibleSectionsState,
   );
-  const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(
-    null,
-  );
-  const [archivePendingKeys, setArchivePendingKeys] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
+  const [archivePendingKeys, setArchivePendingKeys] = useState<Set<string>>(() => new Set());
   const archivePendingKeysRef = useRef<ReadonlySet<string>>(archivePendingKeys);
-  const resolvedCollapsibleSections =
-    collapsibleSections ?? localCollapsibleSections;
+  const resolvedCollapsibleSections = collapsibleSections ?? localCollapsibleSections;
 
   const toggleProjectExpanded = useCallback((projectId: string) => {
     setExpandedProjectIds((current) => {
@@ -64,27 +59,30 @@ export function useWorkbenchSidebarState({
     });
   }, []);
 
-  const setSectionCollapsed = useCallback((
-    sectionId: SidebarCollapsibleSectionId,
-    collapsed: boolean,
-  ) => {
-    if (setCollapsibleSectionCollapsed) {
-      setCollapsibleSectionCollapsed(sectionId, collapsed);
-      return;
-    }
+  const setSectionCollapsed = useCallback(
+    (sectionId: SidebarCollapsibleSectionId, collapsed: boolean) => {
+      if (setCollapsibleSectionCollapsed) {
+        setCollapsibleSectionCollapsed(sectionId, collapsed);
+        return;
+      }
 
-    setLocalCollapsibleSections((current) => {
-      if (current[sectionId] === collapsed) return current;
-      return {
-        ...current,
-        [sectionId]: collapsed,
-      };
-    });
-  }, [setCollapsibleSectionCollapsed]);
+      setLocalCollapsibleSections((current) => {
+        if (current[sectionId] === collapsed) return current;
+        return {
+          ...current,
+          [sectionId]: collapsed,
+        };
+      });
+    },
+    [setCollapsibleSectionCollapsed],
+  );
 
-  const toggleSection = useCallback((sectionId: SidebarCollapsibleSectionId) => {
-    setSectionCollapsed(sectionId, !resolvedCollapsibleSections[sectionId]);
-  }, [resolvedCollapsibleSections, setSectionCollapsed]);
+  const toggleSection = useCallback(
+    (sectionId: SidebarCollapsibleSectionId) => {
+      setSectionCollapsed(sectionId, !resolvedCollapsibleSections[sectionId]);
+    },
+    [resolvedCollapsibleSections, setSectionCollapsed],
+  );
 
   const beginContextMenu = useCallback((sessionId: string) => {
     setContextMenuSessionId(sessionId);

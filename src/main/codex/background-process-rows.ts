@@ -17,7 +17,10 @@ function readLiveOsPid(
 
 function isTerminalSessionProcessRunning(terminalSession: TerminalSessionSnapshot | null): boolean {
   if (!terminalSession) return false;
-  if (terminalSession.processMetricsSampledAtMs !== null && terminalSession.childProcessCount === 0) {
+  if (
+    terminalSession.processMetricsSampledAtMs !== null &&
+    terminalSession.childProcessCount === 0
+  ) {
     return false;
   }
   return true;

@@ -9,10 +9,8 @@ import {
   bindLibraryDatabaseModuleReadV2,
 } from "../shared/database-module-v2-transport";
 
-export const LIBRARY_DATABASE_MODULE_READ_IPC_CHANNEL =
-  "library-database-module:read" as const;
-export const LIBRARY_DATABASE_MODULE_APPLY_IPC_CHANNEL =
-  "library-database-module:apply" as const;
+export const LIBRARY_DATABASE_MODULE_READ_IPC_CHANNEL = "library-database-module:read" as const;
+export const LIBRARY_DATABASE_MODULE_APPLY_IPC_CHANNEL = "library-database-module:apply" as const;
 type LibraryDatabaseModuleIpcChannel =
   | typeof LIBRARY_DATABASE_MODULE_READ_IPC_CHANNEL
   | typeof LIBRARY_DATABASE_MODULE_APPLY_IPC_CHANNEL;
@@ -26,9 +24,7 @@ export interface LibraryDatabaseModuleIpcDependencies {
   readonly read: (
     request: LibraryDatabaseModuleReadRequestV2,
   ) => Promise<LibraryDatabaseModuleReadResultV2>;
-  readonly apply: (
-    request: LibraryDatabaseApplyV2,
-  ) => Promise<LibraryDatabaseApplyResultV2>;
+  readonly apply: (request: LibraryDatabaseApplyV2) => Promise<LibraryDatabaseApplyResultV2>;
 }
 
 const invalid = (message: string): LibraryDatabaseModuleReadResultV2 => ({
@@ -43,9 +39,7 @@ export const registerLibraryDatabaseModuleIpcHandler = (
     LIBRARY_DATABASE_MODULE_READ_IPC_CHANNEL,
     async (event, rawRequest) => {
       if (!dependencies.isTrustedEvent(event)) {
-        return invalid(
-          "Library Database reads are restricted to a trusted application window",
-        );
+        return invalid("Library Database reads are restricted to a trusted application window");
       }
       try {
         return await dependencies.read(bindLibraryDatabaseModuleReadV2(rawRequest));
@@ -58,14 +52,14 @@ export const registerLibraryDatabaseModuleIpcHandler = (
     LIBRARY_DATABASE_MODULE_APPLY_IPC_CHANNEL,
     async (event, rawRequest) => {
       if (!dependencies.isTrustedEvent(event)) {
-        return invalid(
-          "Library Database writes are restricted to a trusted application window",
-        );
+        return invalid("Library Database writes are restricted to a trusted application window");
       }
       try {
         return await dependencies.apply(bindLibraryDatabaseApplyV2(rawRequest));
       } catch (error) {
-        return invalid(error instanceof Error ? error.message : "Library Database write is invalid");
+        return invalid(
+          error instanceof Error ? error.message : "Library Database write is invalid",
+        );
       }
     },
   );

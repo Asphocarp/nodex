@@ -146,8 +146,7 @@ export interface DocumentSyncSubscribeRequest {
  * authorization context; it is deliberately not part of the durable CRDT
  * identity handled by the Document runtime.
  */
-export interface ProjectScopedDocumentSyncSubscribeRequest
-  extends DocumentSyncSubscribeRequest {
+export interface ProjectScopedDocumentSyncSubscribeRequest extends DocumentSyncSubscribeRequest {
   readonly projectId: string;
 }
 
@@ -155,13 +154,11 @@ export interface ProjectScopedDocumentSyncRequest extends DocumentSyncRequest {
   readonly projectId: string;
 }
 
-export interface ProjectScopedDocumentSyncApplyRequest
-  extends DocumentSyncApplyRequest {
+export interface ProjectScopedDocumentSyncApplyRequest extends DocumentSyncApplyRequest {
   readonly projectId: string;
 }
 
-export interface ProjectScopedDocumentAwarenessPublishRequest
-  extends DocumentAwarenessPublishRequest {
+export interface ProjectScopedDocumentAwarenessPublishRequest extends DocumentAwarenessPublishRequest {
   readonly projectId: string;
 }
 
@@ -186,8 +183,7 @@ export interface LibraryDocumentAccessRequest {
   readonly access: DocumentAccessKind;
 }
 
-export interface LibraryDocumentAccessAck
-  extends LibraryDocumentAccessRequest {
+export interface LibraryDocumentAccessAck extends LibraryDocumentAccessRequest {
   readonly authorized: true;
 }
 
@@ -259,8 +255,7 @@ export type DocumentSyncRealtimeEvent =
         | "resource-integrity-failure"
         | "identity-boundary-changed"
         | "access-revoked";
-    }
-  ;
+    };
 
 /**
  * Transport boundary consumed by renderer-side collaborative document
@@ -268,9 +263,7 @@ export type DocumentSyncRealtimeEvent =
  * but all durable and ephemeral behavior must preserve this one contract.
  */
 export interface DocumentSyncAdapter {
-  sync: (
-    request: DocumentSyncRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentSyncResponse>>;
+  sync: (request: DocumentSyncRequest) => Promise<DocumentSyncCommandResult<DocumentSyncResponse>>;
   applyUpdate: (
     request: DocumentSyncApplyRequest,
   ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;

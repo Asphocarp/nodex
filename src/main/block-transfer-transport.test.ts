@@ -79,9 +79,7 @@ const undoIntent: PublicBlockTransferUndoIntent = {
   },
 };
 
-const undone = (
-  bound: BlockTransferUndoIntent,
-): BlockTransferUndoCommandResult => ({
+const undone = (bound: BlockTransferUndoIntent): BlockTransferUndoCommandResult => ({
   ok: true,
   localCommit: {
     status: "no_op",

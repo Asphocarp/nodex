@@ -66,9 +66,8 @@ function normalizeCarriageReturns(value: string): string {
   while (/\r./.test(normalized)) {
     normalized = normalized.replace(
       /^([^\r\n]*)\r+([^\r\n]+)/gm,
-      (_match, previous: string, replacement: string) => (
-        replacement + previous.slice(replacement.length)
-      ),
+      (_match, previous: string, replacement: string) =>
+        replacement + previous.slice(replacement.length),
     );
   }
   return normalized;
@@ -120,10 +119,9 @@ function applyExtendedColor(
   const green = Number.parseInt(codes.shift() ?? "", 10);
   const blue = Number.parseInt(codes.shift() ?? "", 10);
   if (
-    [red, green, blue].some(
-      (channel) => !Number.isFinite(channel) || channel < 0 || channel > 255,
-    )
-  ) return;
+    [red, green, blue].some((channel) => !Number.isFinite(channel) || channel < 0 || channel > 255)
+  )
+    return;
 
   if (foreground) {
     state.foregroundClass = "ansi-truecolor";
@@ -174,9 +172,7 @@ function applySgrCodes(state: TerminalAnsiParserState, rawCodes: string): void {
   }
 }
 
-function decorationStyle(
-  decoration: TerminalAnsiDecoration | null,
-): CSSProperties | undefined {
+function decorationStyle(decoration: TerminalAnsiDecoration | null): CSSProperties | undefined {
   if (decoration === "bold") return { fontWeight: "bold" };
   if (decoration === "dim") return { opacity: "0.5" };
   if (decoration === "italic") return { fontStyle: "italic" };
@@ -186,10 +182,7 @@ function decorationStyle(
   return decoration === null ? undefined : {};
 }
 
-function styledSegment(
-  text: string,
-  state: TerminalAnsiParserState,
-): TerminalAnsiSegment {
+function styledSegment(text: string, state: TerminalAnsiParserState): TerminalAnsiSegment {
   let foregroundClass = state.foregroundClass;
   let backgroundClass = state.backgroundClass;
   const decoration = state.decorations.at(-1) ?? null;
@@ -242,21 +235,11 @@ export function parseTerminalAnsiSegments(value: string): TerminalAnsiSegment[] 
   return segments;
 }
 
-export function TerminalAnsiText({
-  value,
-  className,
-}: {
-  value: string;
-  className?: string;
-}) {
+export function TerminalAnsiText({ value, className }: { value: string; className?: string }) {
   return (
     <code className={className}>
       {parseTerminalAnsiSegments(value).map((segment, index) => (
-        <span
-          key={`${index}-${segment.text}`}
-          className={segment.className}
-          style={segment.style}
-        >
+        <span key={`${index}-${segment.text}`} className={segment.className} style={segment.style}>
           {segment.text}
         </span>
       ))}

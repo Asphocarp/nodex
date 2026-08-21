@@ -23,8 +23,7 @@ export interface BrowserHostRegistration extends BrowserSidebarTabIdentity {
   rendererInstanceId: string;
 }
 
-export interface BrowserAttachmentRoute
-extends BrowserSidebarHostRouteIdentity {
+export interface BrowserAttachmentRoute extends BrowserSidebarHostRouteIdentity {
   browserStorageId: string;
 }
 
@@ -53,21 +52,14 @@ export type BrowserAttachmentAuthorizationResult =
   | { ok: true; authorization: BrowserAuthorizedAttachment }
   | {
       ok: false;
-      reason:
-        | "host-missing"
-        | "host-mismatch"
-        | "pending-teardown"
-        | "renderer-session-missing";
+      reason: "host-missing" | "host-mismatch" | "pending-teardown" | "renderer-session-missing";
     };
 
 export type BrowserHostRouteMatchResult =
   | { ok: true; registration: BrowserHostRegistration }
   | {
       ok: false;
-      reason:
-        | "host-missing"
-        | "host-mismatch"
-        | "renderer-session-missing";
+      reason: "host-missing" | "host-mismatch" | "renderer-session-missing";
     };
 
 interface StoredRendererSession extends BrowserRendererSessionRegistration {
@@ -89,12 +81,14 @@ function isSameHostRoute(
   left: BrowserAttachmentRoute,
   right: BrowserSidebarHostRouteIdentity,
 ): boolean {
-  return left.browserConversationId === right.browserConversationId
-    && left.browserViewScopeId === right.browserViewScopeId
-    && left.browserTabId === right.browserTabId
-    && left.rendererInstanceId === right.rendererInstanceId
-    && left.hostGeneration === right.hostGeneration
-    && left.mountGeneration === right.mountGeneration;
+  return (
+    left.browserConversationId === right.browserConversationId &&
+    left.browserViewScopeId === right.browserViewScopeId &&
+    left.browserTabId === right.browserTabId &&
+    left.rendererInstanceId === right.rendererInstanceId &&
+    left.hostGeneration === right.hostGeneration &&
+    left.mountGeneration === right.mountGeneration
+  );
 }
 
 export class BrowserRuntimeRegistry {
@@ -102,10 +96,8 @@ export class BrowserRuntimeRegistry {
   private readonly rendererInstanceIdByOwner = new Map<number, string>();
   private readonly hosts = new Map<string, StoredHostRegistration>();
   private readonly hostKeyByStorageId = new Map<string, string>();
-  private readonly pendingAttachments =
-    new Map<string, BrowserAuthorizedAttachment>();
-  private readonly guestOwnership =
-    new Map<number, BrowserAttachedGuestOwnership>();
+  private readonly pendingAttachments = new Map<string, BrowserAuthorizedAttachment>();
+  private readonly guestOwnership = new Map<number, BrowserAttachedGuestOwnership>();
   private readonly now: () => number;
   private readonly tokenFactory: () => string;
 
@@ -119,18 +111,14 @@ export class BrowserRuntimeRegistry {
   ): BrowserRendererSessionRegistration {
     const existingById = this.rendererSessions.get(input.rendererInstanceId);
     if (
-      existingById
-      && (
-        existingById.ownerWebContentsId !== input.ownerWebContentsId
-        || existingById.browserViewScopeId !== input.browserViewScopeId
-      )
+      existingById &&
+      (existingById.ownerWebContentsId !== input.ownerWebContentsId ||
+        existingById.browserViewScopeId !== input.browserViewScopeId)
     ) {
       throw new Error("Renderer instance is already bound to another window");
     }
 
-    const previousRendererId = this.rendererInstanceIdByOwner.get(
-      input.ownerWebContentsId,
-    );
+    const previousRendererId = this.rendererInstanceIdByOwner.get(input.ownerWebContentsId);
     if (previousRendererId && previousRendererId !== input.rendererInstanceId) {
       this.releaseRendererSession(previousRendererId);
     }
@@ -138,10 +126,7 @@ export class BrowserRuntimeRegistry {
       ...input,
       registeredAt: this.now(),
     });
-    this.rendererInstanceIdByOwner.set(
-      input.ownerWebContentsId,
-      input.rendererInstanceId,
-    );
+    this.rendererInstanceIdByOwner.set(input.ownerWebContentsId, input.rendererInstanceId);
     return input;
   }
 
@@ -154,8 +139,8 @@ export class BrowserRuntimeRegistry {
       return { ok: false, reason: "renderer-session-missing" };
     }
     if (
-      rendererSession.ownerWebContentsId !== ownerWebContentsId
-      || rendererSession.browserViewScopeId !== input.browserViewScopeId
+      rendererSession.ownerWebContentsId !== ownerWebContentsId ||
+      rendererSession.browserViewScopeId !== input.browserViewScopeId
     ) {
       return { ok: false, reason: "renderer-session-mismatch" };
     }
@@ -170,13 +155,11 @@ export class BrowserRuntimeRegistry {
       return { ok: false, reason: "generation-stale" };
     }
     if (
-      current
-      && input.hostGeneration === current.hostGeneration
-      && (
-        input.rendererInstanceId !== current.rendererInstanceId
-        || input.mountGeneration < current.mountGeneration
-        || input.browserStorageId !== current.browserStorageId
-      )
+      current &&
+      input.hostGeneration === current.hostGeneration &&
+      (input.rendererInstanceId !== current.rendererInstanceId ||
+        input.mountGeneration < current.mountGeneration ||
+        input.browserStorageId !== current.browserStorageId)
     ) {
       return { ok: false, reason: "generation-stale" };
     }
@@ -197,18 +180,12 @@ export class BrowserRuntimeRegistry {
     input: BrowserSidebarHostRouteIdentity,
   ): BrowserHostRouteMatchResult {
     const rendererSession = this.rendererSessions.get(input.rendererInstanceId);
-    if (
-      !rendererSession
-      || rendererSession.ownerWebContentsId !== ownerWebContentsId
-    ) {
+    if (!rendererSession || rendererSession.ownerWebContentsId !== ownerWebContentsId) {
       return { ok: false, reason: "renderer-session-missing" };
     }
     const host = this.hosts.get(makeBrowserSidebarTabKey(input));
     if (!host) return { ok: false, reason: "host-missing" };
-    if (
-      host.ownerWebContentsId !== ownerWebContentsId
-      || !isSameHostRoute(host, input)
-    ) {
+    if (host.ownerWebContentsId !== ownerWebContentsId || !isSameHostRoute(host, input)) {
       return { ok: false, reason: "host-mismatch" };
     }
     return { ok: true, registration: host };
@@ -219,10 +196,7 @@ export class BrowserRuntimeRegistry {
     input: BrowserSidebarHostRouteIdentity,
   ): BrowserAttachmentAuthorizationResult {
     const rendererSession = this.rendererSessions.get(input.rendererInstanceId);
-    if (
-      !rendererSession
-      || rendererSession.ownerWebContentsId !== ownerWebContentsId
-    ) {
+    if (!rendererSession || rendererSession.ownerWebContentsId !== ownerWebContentsId) {
       return { ok: false, reason: "renderer-session-missing" };
     }
     const host = this.hosts.get(makeBrowserSidebarTabKey(input));
@@ -230,10 +204,7 @@ export class BrowserRuntimeRegistry {
     if (host.pendingTeardown) {
       return { ok: false, reason: "pending-teardown" };
     }
-    if (
-      host.ownerWebContentsId !== ownerWebContentsId
-      || !isSameHostRoute(host, input)
-    ) {
+    if (host.ownerWebContentsId !== ownerWebContentsId || !isSameHostRoute(host, input)) {
       return { ok: false, reason: "host-mismatch" };
     }
 
@@ -254,10 +225,7 @@ export class BrowserRuntimeRegistry {
   ): BrowserAttachedGuestOwnership | null {
     const authorization = this.pendingAttachments.get(attachToken);
     this.pendingAttachments.delete(attachToken);
-    if (
-      !authorization
-      || authorization.ownerWebContentsId !== ownerWebContentsId
-    ) {
+    if (!authorization || authorization.ownerWebContentsId !== ownerWebContentsId) {
       return null;
     }
     const ownership: BrowserAttachedGuestOwnership = {
@@ -272,16 +240,11 @@ export class BrowserRuntimeRegistry {
     this.pendingAttachments.delete(attachToken);
   }
 
-  getGuestOwnership(
-    guestWebContentsId: number,
-  ): BrowserAttachedGuestOwnership | null {
+  getGuestOwnership(guestWebContentsId: number): BrowserAttachedGuestOwnership | null {
     return this.guestOwnership.get(guestWebContentsId) ?? null;
   }
 
-  markPendingTeardown(
-    identity: BrowserSidebarTabIdentity,
-    pending: boolean,
-  ): void {
+  markPendingTeardown(identity: BrowserSidebarTabIdentity, pending: boolean): void {
     const key = makeBrowserSidebarTabKey(identity);
     const host = this.hosts.get(key);
     if (!host) return;
@@ -308,8 +271,7 @@ export class BrowserRuntimeRegistry {
   }
 
   releaseOwner(ownerWebContentsId: number): void {
-    const rendererInstanceId =
-      this.rendererInstanceIdByOwner.get(ownerWebContentsId);
+    const rendererInstanceId = this.rendererInstanceIdByOwner.get(ownerWebContentsId);
     if (rendererInstanceId) this.releaseRendererSession(rendererInstanceId);
     for (const [guestId, ownership] of this.guestOwnership) {
       if (ownership.ownerWebContentsId === ownerWebContentsId) {
@@ -336,10 +298,7 @@ export class BrowserRuntimeRegistry {
     const renderer = this.rendererSessions.get(rendererInstanceId);
     if (!renderer) return;
     this.rendererSessions.delete(rendererInstanceId);
-    if (
-      this.rendererInstanceIdByOwner.get(renderer.ownerWebContentsId)
-      === rendererInstanceId
-    ) {
+    if (this.rendererInstanceIdByOwner.get(renderer.ownerWebContentsId) === rendererInstanceId) {
       this.rendererInstanceIdByOwner.delete(renderer.ownerWebContentsId);
     }
     for (const host of [...this.hosts.values()]) {

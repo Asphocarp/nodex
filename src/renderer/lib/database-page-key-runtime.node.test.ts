@@ -20,28 +20,29 @@ const dependencies = (
       storeEpoch: "epoch:test",
       commitSeq: 7,
       authorization: null,
-      value: request.read.mode === "page_key_namespace"
-        ? {
-            kind: "page_key_namespace",
-            value: {
-              databaseId: parseDatabaseId("database:test"),
-              currentPrefix: "LAB",
-              nextNumber: 14,
-              assignedPageCount: 13,
-              revision: 3,
-              retiredPrefixes: [{ prefix: "OLD", lastNumber: 9 }],
+      value:
+        request.read.mode === "page_key_namespace"
+          ? {
+              kind: "page_key_namespace",
+              value: {
+                databaseId: parseDatabaseId("database:test"),
+                currentPrefix: "LAB",
+                nextNumber: 14,
+                assignedPageCount: 13,
+                revision: 3,
+                retiredPrefixes: [{ prefix: "OLD", lastNumber: 9 }],
+              },
+            }
+          : {
+              kind: "page_key_prefix_preview",
+              value: {
+                prefix: "LAB",
+                availability: "current",
+                alternativePrefix: null,
+                nextNumber: 14,
+                exampleKeys: ["LAB-14", "LAB-15"],
+              },
             },
-          }
-        : {
-            kind: "page_key_prefix_preview",
-            value: {
-              prefix: "LAB",
-              availability: "current",
-              alternativePrefix: null,
-              nextNumber: 14,
-              exampleKeys: ["LAB-14", "LAB-15"],
-            },
-          },
     },
   }),
   readLibrary: async (request) => {
@@ -69,26 +70,34 @@ const dependencies = (
       },
     };
   },
-  applyProject: applyProject ?? (async () => ({
-    ok: false,
-    error: {
-      code: "revision_conflict",
-      message: "Namespace changed",
-      retryable: false,
-    },
-  })),
+  applyProject:
+    applyProject ??
+    (async () => ({
+      ok: false,
+      error: {
+        code: "revision_conflict",
+        message: "Namespace changed",
+        retryable: false,
+      },
+    })),
 });
 
 describe("Database Page-key runtime", () => {
   test("uses Library preview for create and Project-scoped Database reads for edit", async () => {
     const runtime = dependencies();
-    const preview = await previewDatabasePageKeyPrefix({
-      nameHint: "Lab",
-    }, runtime);
-    const authority = await readDatabasePageKeyNamespace({
-      projectId: "project:test",
-      databaseId: "database:test",
-    }, runtime);
+    const preview = await previewDatabasePageKeyPrefix(
+      {
+        nameHint: "Lab",
+      },
+      runtime,
+    );
+    const authority = await readDatabasePageKeyNamespace(
+      {
+        projectId: "project:test",
+        databaseId: "database:test",
+      },
+      runtime,
+    );
 
     expect(preview.exampleKeys).toEqual(["LAB-1", "LAB-2"]);
     expect(authority).toMatchObject({
@@ -111,14 +120,19 @@ describe("Database Page-key runtime", () => {
       };
     });
 
-    await expect(renameDatabasePageKeyPrefix({
-      projectId: "project:test",
-      databaseId: "database:test",
-      storeEpoch: "epoch:test",
-      expectedRevision: 3,
-      prefix: "RND",
-      operationId: "operation:test",
-    }, runtime)).rejects.toMatchObject({
+    await expect(
+      renameDatabasePageKeyPrefix(
+        {
+          projectId: "project:test",
+          databaseId: "database:test",
+          storeEpoch: "epoch:test",
+          expectedRevision: 3,
+          prefix: "RND",
+          operationId: "operation:test",
+        },
+        runtime,
+      ),
+    ).rejects.toMatchObject({
       name: "DatabasePageKeyRuntimeError",
       code: "revision_conflict",
     } satisfies Partial<DatabasePageKeyRuntimeError>);

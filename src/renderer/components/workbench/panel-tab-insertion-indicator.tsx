@@ -2,11 +2,7 @@ import type { PanelTabDropIntent } from "./panel-tab-dnd";
 
 type PanelTabRowDropIntent = Extract<PanelTabDropIntent, { kind: "tab-row" }>;
 
-export function PanelTabInsertionIndicator({
-  intent,
-}: {
-  intent: PanelTabRowDropIntent;
-}) {
+export function PanelTabInsertionIndicator({ intent }: { intent: PanelTabRowDropIntent }) {
   return (
     <div
       aria-hidden="true"

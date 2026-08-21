@@ -62,27 +62,33 @@ export function resolveComposerImageAttachmentSize(
 export function isValidComposerImageSource(source: string): boolean {
   const normalized = source.trim();
   if (!normalized) return false;
-  return normalized.startsWith("data:image/")
-    || normalized.startsWith("http://")
-    || normalized.startsWith("https://")
-    || isManagedComposerImageSource(normalized)
-    || normalized.startsWith("file-service://")
-    || normalized.startsWith("sediment://")
-    || isAbsoluteComposerImagePath(normalized);
+  return (
+    normalized.startsWith("data:image/") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://") ||
+    isManagedComposerImageSource(normalized) ||
+    normalized.startsWith("file-service://") ||
+    normalized.startsWith("sediment://") ||
+    isAbsoluteComposerImagePath(normalized)
+  );
 }
 
 export function isPortableComposerImagePromptSource(source: string): boolean {
   const normalized = source.trim();
-  return normalized.startsWith("data:image/")
-    || normalized.startsWith("http://")
-    || normalized.startsWith("https://");
+  return (
+    normalized.startsWith("data:image/") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://")
+  );
 }
 
 export function isAbsoluteComposerImagePath(source: string): boolean {
   const normalized = source.trim();
-  return normalized.startsWith("/")
-    || /^[a-zA-Z]:[\\/]/u.test(normalized)
-    || /^\\\\[^\\]+\\[^\\]+/u.test(normalized);
+  return (
+    normalized.startsWith("/") ||
+    /^[a-zA-Z]:[\\/]/u.test(normalized) ||
+    /^\\\\[^\\]+\\[^\\]+/u.test(normalized)
+  );
 }
 
 export function isManagedComposerImageSource(source: string): boolean {
@@ -94,11 +100,7 @@ export function selectComposerImagePromptSource(
   executionHostId: string | null,
 ): string | null {
   const materialization = attachment.materialization;
-  if (
-    materialization
-    && executionHostId !== null
-    && materialization.hostId === executionHostId
-  ) {
+  if (materialization && executionHostId !== null && materialization.hostId === executionHostId) {
     const localPath = materialization.localPath?.trim() ?? "";
     if (isAbsoluteComposerImagePath(localPath)) return localPath;
     const managedSource = materialization.managedSource?.trim() ?? "";
@@ -129,9 +131,7 @@ export function createResolvedComposerImageAttachment(input: {
   const src = input.value.src.trim();
   if (!isValidComposerImageSource(src)) return null;
   const rawLocalPath = input.value.localPath?.trim() ?? "";
-  const localPath = isAbsoluteComposerImagePath(rawLocalPath)
-    ? rawLocalPath
-    : null;
+  const localPath = isAbsoluteComposerImagePath(rawLocalPath) ? rawLocalPath : null;
   const hostId = input.value.hostId?.trim() ?? "";
   const candidateManagedSource = input.value.managedSource?.trim() || rawLocalPath;
   const managedSource = isManagedComposerImageSource(candidateManagedSource)

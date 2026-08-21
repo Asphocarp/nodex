@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  applyCodexThemeVariant,
-  getCodexThemeVariantStyle,
-} from "./codex-theme-variant";
+import { applyCodexThemeVariant, getCodexThemeVariantStyle } from "./codex-theme-variant";
 
 function makeStyleTarget() {
   const declarations: Record<string, string> = {};

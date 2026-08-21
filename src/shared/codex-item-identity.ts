@@ -4,10 +4,7 @@ function normalizeUserMessageText(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
-type CodexItemPrimaryIdentityInput = Pick<
-  CodexItemView,
-  "turnId" | "itemId"
->;
+type CodexItemPrimaryIdentityInput = Pick<CodexItemView, "turnId" | "itemId">;
 
 type CodexItemTextIdentityInput = Pick<
   CodexItemView,
@@ -16,10 +13,7 @@ type CodexItemTextIdentityInput = Pick<
 
 function isTextIdentityKind(kind: string | undefined): boolean {
   return (
-    kind === "userMessage" ||
-    kind === "assistantMessage" ||
-    kind === "plan" ||
-    kind === "reasoning"
+    kind === "userMessage" || kind === "assistantMessage" || kind === "plan" || kind === "reasoning"
   );
 }
 
@@ -49,10 +43,12 @@ export function canMergeSyntheticTextDuplicate(
   existing: CodexItemTextIdentityInput,
   incoming: CodexItemTextIdentityInput,
 ): boolean {
-  const samePrimary = resolveCodexItemPrimaryIdentityKey(existing) === resolveCodexItemPrimaryIdentityKey(incoming);
+  const samePrimary =
+    resolveCodexItemPrimaryIdentityKey(existing) === resolveCodexItemPrimaryIdentityKey(incoming);
   if (samePrimary) return true;
 
-  const oneSynthetic = isSyntheticCodexItemId(existing.itemId) !== isSyntheticCodexItemId(incoming.itemId);
+  const oneSynthetic =
+    isSyntheticCodexItemId(existing.itemId) !== isSyntheticCodexItemId(incoming.itemId);
   if (!oneSynthetic) return false;
 
   const existingTextKey = resolveCodexItemTextIdentityKey(existing);
@@ -61,7 +57,10 @@ export function canMergeSyntheticTextDuplicate(
   return existingTextKey === incomingTextKey;
 }
 
-export function mergeCodexItemView(existing: CodexItemView, incoming: CodexItemView): CodexItemView {
+export function mergeCodexItemView(
+  existing: CodexItemView,
+  incoming: CodexItemView,
+): CodexItemView {
   return {
     ...existing,
     ...incoming,
@@ -77,12 +76,18 @@ export function mergeCodexItemView(existing: CodexItemView, incoming: CodexItemV
     command: incoming.command !== undefined ? incoming.command : existing.command,
     cwd: incoming.cwd !== undefined ? incoming.cwd : existing.cwd,
     processId: incoming.processId !== undefined ? incoming.processId : existing.processId,
-    commandActions: incoming.commandActions !== undefined ? incoming.commandActions : existing.commandActions,
-    aggregatedOutput: incoming.aggregatedOutput !== undefined ? incoming.aggregatedOutput : existing.aggregatedOutput,
+    commandActions:
+      incoming.commandActions !== undefined ? incoming.commandActions : existing.commandActions,
+    aggregatedOutput:
+      incoming.aggregatedOutput !== undefined
+        ? incoming.aggregatedOutput
+        : existing.aggregatedOutput,
     exitCode: incoming.exitCode !== undefined ? incoming.exitCode : existing.exitCode,
     durationMs: incoming.durationMs !== undefined ? incoming.durationMs : existing.durationMs,
     approvalRequestId:
-      incoming.approvalRequestId !== undefined ? incoming.approvalRequestId : existing.approvalRequestId,
+      incoming.approvalRequestId !== undefined
+        ? incoming.approvalRequestId
+        : existing.approvalRequestId,
     networkApprovalContext:
       incoming.networkApprovalContext !== undefined
         ? incoming.networkApprovalContext

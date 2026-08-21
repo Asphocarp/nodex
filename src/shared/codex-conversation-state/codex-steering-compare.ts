@@ -28,9 +28,7 @@ interface SerializedCommentLabelCounts {
 }
 
 function asRecord(value: unknown): UnknownRecord | null {
-  return value !== null && typeof value === "object"
-    ? value as UnknownRecord
-    : null;
+  return value !== null && typeof value === "object" ? (value as UnknownRecord) : null;
 }
 
 function readString(record: UnknownRecord | null, key: string): string | null {
@@ -79,10 +77,7 @@ function readBrowserTarget(attachment: UnknownRecord): string | null {
   return path?.startsWith("browser:") ? path.slice(8) : null;
 }
 
-function buildBrowserElementLabel(
-  commentNumber: number,
-  attachment: UnknownRecord,
-): string {
+function buildBrowserElementLabel(commentNumber: number, attachment: UnknownRecord): string {
   const target = readBrowserTarget(attachment);
   const suffix = target
     ? `The element "${target}" that the user selected is outlined in blue and marked by comment marker ${commentNumber}.`
@@ -94,35 +89,23 @@ function buildBrowserScreenshotLabel(
   attachment: UnknownRecord,
   commentNumber: number,
 ): string | null {
-  const kind = readString(
-    readRecord(attachment, "localBrowserCommentMetadata"),
-    "kind",
-  );
+  const kind = readString(readRecord(attachment, "localBrowserCommentMetadata"), "kind");
   if (kind === null || kind === "region") {
     return buildBrowserRegionLabel(commentNumber);
   }
   if (kind === "text") {
     return buildBrowserTextLabel(commentNumber);
   }
-  return kind === "element"
-    ? buildBrowserElementLabel(commentNumber, attachment)
-    : null;
+  return kind === "element" ? buildBrowserElementLabel(commentNumber, attachment) : null;
 }
 
-function buildPdfScreenshotLabel(
-  attachment: UnknownRecord,
-  commentNumber: number,
-): string {
+function buildPdfScreenshotLabel(attachment: UnknownRecord, commentNumber: number): string {
   const screenshot = readRecord(attachment, "localPdfScreenshot");
-  const pageNumber = readNumber(
-    readRecord(attachment, "localPdfContext"),
-    "pageNumber",
-  ) ?? readNumber(screenshot, "pageNumber");
+  const pageNumber =
+    readNumber(readRecord(attachment, "localPdfContext"), "pageNumber") ??
+    readNumber(screenshot, "pageNumber");
   const page = pageNumber === null ? "the PDF page" : `PDF page ${pageNumber}`;
-  const kind = readString(
-    readRecord(attachment, "localPdfCommentMetadata"),
-    "kind",
-  );
+  const kind = readString(readRecord(attachment, "localPdfCommentMetadata"), "kind");
   return kind === "point"
     ? `The next image shows ${page} at the time of Comment ${commentNumber}. The selected point is marked in blue by comment marker ${commentNumber}.`
     : `The next image shows ${page} at the time of Comment ${commentNumber}. The selected region is outlined in blue and marked by comment marker ${commentNumber}.`;
@@ -160,10 +143,10 @@ function matchesLiveCommentAttachment(
     const browserDataUrl = readString(browserScreenshot, "dataUrl");
     const browserLabel = buildBrowserScreenshotLabel(attachment, commentNumber);
     if (
-      browserDataUrl !== null
-      && browserLabel !== null
-      && label === browserLabel
-      && imageMatches(image, browserDataUrl)
+      browserDataUrl !== null &&
+      browserLabel !== null &&
+      label === browserLabel &&
+      imageMatches(image, browserDataUrl)
     ) {
       return true;
     }
@@ -171,9 +154,9 @@ function matchesLiveCommentAttachment(
     const pdfScreenshot = readRecord(attachment, "localPdfScreenshot");
     const pdfDataUrl = readString(pdfScreenshot, "dataUrl");
     if (
-      pdfDataUrl !== null
-      && label === buildPdfScreenshotLabel(attachment, commentNumber)
-      && imageMatches(image, pdfDataUrl)
+      pdfDataUrl !== null &&
+      label === buildPdfScreenshotLabel(attachment, commentNumber) &&
+      imageMatches(image, pdfDataUrl)
     ) {
       return true;
     }
@@ -181,9 +164,9 @@ function matchesLiveCommentAttachment(
     for (const attachedImage of readRecordArray(attachment, "localBrowserAttachedImages")) {
       const dataUrl = readString(attachedImage, "dataUrl");
       if (
-        dataUrl !== null
-        && label === buildAdditionalImageLabel(commentNumber)
-        && imageMatches(image, dataUrl, readString(attachedImage, "localPath"))
+        dataUrl !== null &&
+        label === buildAdditionalImageLabel(commentNumber) &&
+        imageMatches(image, dataUrl, readString(attachedImage, "localPath"))
       ) {
         return true;
       }
@@ -250,16 +233,19 @@ function buildSerializedPdfLabel(
   commentNumber: number,
   labelNumber: number,
 ): string | null {
-  if (!lines.includes(
-    `Annotated PDF screenshot: attached as a labeled image for Comment ${commentNumber}`,
-  )) {
+  if (
+    !lines.includes(
+      `Annotated PDF screenshot: attached as a labeled image for Comment ${commentNumber}`,
+    )
+  ) {
     return null;
   }
   const rawPage = readPrefixedLine(lines, "PDF page:")?.split("/")[0]?.trim();
   const pageNumber = rawPage ? Number(rawPage) : undefined;
-  const page = pageNumber !== undefined && Number.isSafeInteger(pageNumber)
-    ? `PDF page ${pageNumber}`
-    : "the PDF page";
+  const page =
+    pageNumber !== undefined && Number.isSafeInteger(pageNumber)
+      ? `PDF page ${pageNumber}`
+      : "the PDF page";
   const isPoint = readPrefixedLine(lines, "PDF annotation:")?.startsWith("point ") === true;
   return isPoint
     ? `The next image shows ${page} at the time of Comment ${labelNumber}. The selected point is marked in blue by comment marker ${labelNumber}.`
@@ -272,18 +258,22 @@ function buildSerializedBrowserLabel(
   labelNumber: number,
   file: string,
 ): string | null {
-  if (lines.includes(
-    `Saved marker screenshot: attached as a labeled image for Comment ${commentNumber}`,
-  )) {
+  if (
+    lines.includes(
+      `Saved marker screenshot: attached as a labeled image for Comment ${commentNumber}`,
+    )
+  ) {
     const target = readPrefixedLine(lines, "Target:") ?? file.slice(8);
     const suffix = target
       ? `The element "${target}" that the user selected is outlined in blue and marked by comment marker ${labelNumber}.`
       : `The element the user selected is outlined in blue and marked by comment marker ${labelNumber}.`;
     return `${buildBrowserEvidencePrefix(labelNumber)} ${suffix}`;
   }
-  if (!lines.includes(
-    `Annotated screenshot: attached as a labeled image for Comment ${commentNumber}`,
-  )) {
+  if (
+    !lines.includes(
+      `Annotated screenshot: attached as a labeled image for Comment ${commentNumber}`,
+    )
+  ) {
     return null;
   }
   return lines.includes("Browser annotation: text")
@@ -315,37 +305,22 @@ function readAttachedImageCount(line: string, commentNumber: number): number | n
   return Number.isSafeInteger(count) && count > 0 ? count : null;
 }
 
-function incrementLabelCount(
-  counts: Map<string, number>,
-  label: string,
-  amount = 1,
-): void {
+function incrementLabelCount(counts: Map<string, number>, label: string, amount = 1): void {
   counts.set(label, (counts.get(label) ?? 0) + amount);
 }
 
-function collectSerializedChunkLabels(
-  counts: Map<string, number>,
-  chunk: readonly string[],
-): void {
+function collectSerializedChunkLabels(counts: Map<string, number>, chunk: readonly string[]): void {
   const commentBodyIndex = chunk.findIndex((line) => line === "Comment:");
-  const metadataLines = commentBodyIndex < 0
-    ? chunk
-    : chunk.slice(0, commentBodyIndex);
+  const metadataLines = commentBodyIndex < 0 ? chunk : chunk.slice(0, commentBodyIndex);
   const file = readPrefixedLine(metadataLines, "File:");
   const header = metadataLines[0]?.match(/^## (?:Comment|Requested annotation) (\d+)$/);
   if (!file || !header) return;
   const commentNumber = Number(header[1]);
   if (!Number.isSafeInteger(commentNumber) || commentNumber <= 0) return;
   const parsedLine = Number(readPrefixedLine(metadataLines, "Lines:"));
-  const labelNumber = Number.isSafeInteger(parsedLine) && parsedLine > 0
-    ? parsedLine
-    : commentNumber;
-  const primaryLabel = buildSerializedPrimaryLabel(
-    metadataLines,
-    commentNumber,
-    labelNumber,
-    file,
-  );
+  const labelNumber =
+    Number.isSafeInteger(parsedLine) && parsedLine > 0 ? parsedLine : commentNumber;
+  const primaryLabel = buildSerializedPrimaryLabel(metadataLines, commentNumber, labelNumber, file);
   if (primaryLabel) incrementLabelCount(counts, primaryLabel);
 
   for (const line of metadataLines) {
@@ -356,16 +331,12 @@ function collectSerializedChunkLabels(
   }
 }
 
-function collectSerializedSectionLabels(
-  counts: Map<string, number>,
-  section: string,
-): void {
+function collectSerializedSectionLabels(counts: Map<string, number>, section: string): void {
   const lines = section.split("\n");
   let chunkStart: number | null = null;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
-    const startsChunk = line.startsWith("## Comment")
-      || line.startsWith("## Requested annotation");
+    const startsChunk = line.startsWith("## Comment") || line.startsWith("## Requested annotation");
     if (!startsChunk) continue;
     if (chunkStart !== null) {
       collectSerializedChunkLabels(counts, lines.slice(chunkStart, index));
@@ -384,10 +355,11 @@ function countSerializedCommentLabels(text: string): Map<string, number> {
     const headingIndex = context.indexOf(heading);
     if (headingIndex < 0) return [];
     const afterHeading = context.slice(headingIndex + heading.length);
-    const nextHeadingIndex = COMMENT_SECTION_HEADINGS
-      .map((candidate) => afterHeading.indexOf(`\n${candidate}`))
+    const nextHeadingIndex = COMMENT_SECTION_HEADINGS.map((candidate) =>
+      afterHeading.indexOf(`\n${candidate}`),
+    )
       .filter((index) => index >= 0)
-      .reduce((minimum, index) => minimum < 0 ? index : Math.min(minimum, index), -1);
+      .reduce((minimum, index) => (minimum < 0 ? index : Math.min(minimum, index)), -1);
     return [nextHeadingIndex < 0 ? afterHeading : afterHeading.slice(0, nextHeadingIndex)];
   });
   const counts = new Map<string, number>();
@@ -425,10 +397,11 @@ function findCommentAttachmentInputIndices(
       commentAttachments,
     );
     const serializedCount = serialized.counts.get(entry.text) ?? 0;
-    const matchesSerialized = candidate.hasImagePlaceholder
-      && serialized.promptTextInputIndex !== null
-      && index > serialized.promptTextInputIndex
-      && serializedCount > 0;
+    const matchesSerialized =
+      candidate.hasImagePlaceholder &&
+      serialized.promptTextInputIndex !== null &&
+      index > serialized.promptTextInputIndex &&
+      serializedCount > 0;
     if (!matchesLive && !matchesSerialized) continue;
     if (!matchesLive && matchesSerialized) {
       serialized.counts.set(entry.text, serializedCount - 1);
@@ -448,12 +421,13 @@ export function buildCodexSteeringCompareKey(
 ): CodexCanonicalSteeringCompareKey {
   const excluded = findCommentAttachmentInputIndices(input, commentAttachments);
   return {
-    rawText: input.flatMap((entry, index) => (
-      entry.type === "text" && !excluded.has(index) ? [entry.text] : []
-    )).join("\n"),
-    imageCount: input.filter(
-      (entry) => entry.type === "image" || entry.type === "localImage",
-    ).length,
+    rawText: input
+      .flatMap((entry, index) =>
+        entry.type === "text" && !excluded.has(index) ? [entry.text] : [],
+      )
+      .join("\n"),
+    imageCount: input.filter((entry) => entry.type === "image" || entry.type === "localImage")
+      .length,
   };
 }
 

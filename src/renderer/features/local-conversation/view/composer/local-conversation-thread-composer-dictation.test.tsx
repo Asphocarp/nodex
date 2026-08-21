@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
+import {
+  installAsyncRequestAnimationFrame,
+  installWindowApi,
+} from "../../../../test/browser-globals";
 import { render } from "../../../../test/dom";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
@@ -165,7 +168,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onEditQueuedFollowUp: async () => {},
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
-    onUnarchiveThread: async () => { },
+    onUnarchiveThread: async () => {},
     onOpenTurnDiffReview: () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
@@ -325,9 +328,10 @@ describe("ThreadComposer dictation", () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: {
-        getUserMedia: () => new Promise<MediaStream>((resolve) => {
-          resolveStream = resolve;
-        }),
+        getUserMedia: () =>
+          new Promise<MediaStream>((resolve) => {
+            resolveStream = resolve;
+          }),
       },
     });
 
@@ -341,11 +345,13 @@ describe("ThreadComposer dictation", () => {
 
     await act(async () => {
       resolveStream?.({
-        getTracks: () => [{
-          stop: () => {
-            stoppedTrackCount += 1;
+        getTracks: () => [
+          {
+            stop: () => {
+              stoppedTrackCount += 1;
+            },
           },
-        }],
+        ],
       } as unknown as MediaStream);
       await Promise.resolve();
     });

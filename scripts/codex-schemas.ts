@@ -175,7 +175,9 @@ function resolveJsonPointer(document: JsonObject, reference: string): JsonValue 
 }
 
 function flatDefinitionName(reference: string): string {
-  return parseLocalJsonPointer(reference).map((segment) => encodeURIComponent(segment)).join("__");
+  return parseLocalJsonPointer(reference)
+    .map((segment) => encodeURIComponent(segment))
+    .join("__");
 }
 
 function rewriteSchemaNode(
@@ -197,9 +199,13 @@ function rewriteSchemaNode(
     let definitionName = referenceNames.get(reference);
     if (!definitionName) {
       definitionName = flatDefinitionName(reference);
-      const previousReference = [...referenceNames.entries()].find(([, name]) => name === definitionName)?.[0];
+      const previousReference = [...referenceNames.entries()].find(
+        ([, name]) => name === definitionName,
+      )?.[0];
       if (previousReference && previousReference !== reference) {
-        throw new Error(`Codex schema references ${previousReference} and ${reference} with the same flattened name ${definitionName}.`);
+        throw new Error(
+          `Codex schema references ${previousReference} and ${reference} with the same flattened name ${definitionName}.`,
+        );
       }
       referenceNames.set(reference, definitionName);
       definitions.set(definitionName, {});
@@ -256,7 +262,9 @@ export function extractJsonSchemaRoot(bundle: JsonObject, rootName: string): Jso
     $schema: schemaDeclaration,
     title: rootName,
     ...rewrittenRoot,
-    definitions: Object.fromEntries([...definitions.entries()].sort(([left], [right]) => left.localeCompare(right))),
+    definitions: Object.fromEntries(
+      [...definitions.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    ),
   };
 }
 
@@ -295,7 +303,10 @@ function resolveAgentRuntimeLauncherPath(): string {
   }).binaryPath;
 }
 
-function runCodexSchemaGenerator(kind: "generate-json-schema" | "generate-ts", outputPath: string): void {
+function runCodexSchemaGenerator(
+  kind: "generate-json-schema" | "generate-ts",
+  outputPath: string,
+): void {
   execFileSync(
     resolveAgentRuntimeLauncherPath(),
     ["app-server", kind, "--experimental", "--out", outputPath],
@@ -345,7 +356,10 @@ type DirectoryReplacement = {
   targetPath: string;
 };
 
-function replaceGeneratedDirectories(replacements: readonly DirectoryReplacement[], stagingPath: string): void {
+function replaceGeneratedDirectories(
+  replacements: readonly DirectoryReplacement[],
+  stagingPath: string,
+): void {
   const backups: Array<{ backupPath: string; targetPath: string }> = [];
   const installed: DirectoryReplacement[] = [];
 
@@ -430,10 +444,14 @@ function verifyDirectory(expectedPath: string, actualPath: string): void {
   for (const [relativePath, expectedContent] of expected.entries()) {
     const actualContent = actual.get(relativePath);
     if (actualContent === undefined) {
-      throw new Error(`Committed ${relative(projectRoot, expectedPath)} is missing ${relativePath}. Run pnpm run codex:schemas:generate.`);
+      throw new Error(
+        `Committed ${relative(projectRoot, expectedPath)} is missing ${relativePath}. Run pnpm run codex:schemas:generate.`,
+      );
     }
     if (actualContent !== expectedContent) {
-      throw new Error(`Committed Codex schema output differs at ${relative(projectRoot, join(expectedPath, relativePath))}. Run pnpm run codex:schemas:generate.`);
+      throw new Error(
+        `Committed Codex schema output differs at ${relative(projectRoot, join(expectedPath, relativePath))}. Run pnpm run codex:schemas:generate.`,
+      );
     }
   }
 }

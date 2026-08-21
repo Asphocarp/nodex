@@ -19,9 +19,12 @@ import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resourc
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 import { createCoreDatabaseModuleAdapter } from "./database-module-adapter";
 
-type QueryRequest = Extract<NodexAgentV3ReadRequest, {
-  readonly tool: "query_database_view" | "query_data_source";
-}>;
+type QueryRequest = Extract<
+  NodexAgentV3ReadRequest,
+  {
+    readonly tool: "query_database_view" | "query_data_source";
+  }
+>;
 
 export async function readNativeDatabaseQuery(
   request: QueryRequest,
@@ -74,8 +77,8 @@ export async function readNativeDatabaseQuery(
           },
     );
     if (
-      snapshot.value.kind !== "agent_view_query"
-      && snapshot.value.kind !== "agent_data_source_query"
+      snapshot.value.kind !== "agent_view_query" &&
+      snapshot.value.kind !== "agent_data_source_query"
     ) {
       throw new Error("Core returned the wrong Agent Database query variant");
     }
@@ -194,9 +197,7 @@ export async function readNativeDatabaseQuery(
         data: projectNodexAgentQueryV3Data(query, request.input.select),
         page: {
           hasMore: window.rows.next_cursor !== null,
-          ...(window.rows.next_cursor
-            ? { nextCursor: window.rows.next_cursor }
-            : {}),
+          ...(window.rows.next_cursor ? { nextCursor: window.rows.next_cursor } : {}),
         },
       }),
     };

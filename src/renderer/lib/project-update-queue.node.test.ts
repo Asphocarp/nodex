@@ -46,19 +46,10 @@ describe("runSerializedProjectUpdate", () => {
 
   it("continues after a failed write without blocking another Project", async () => {
     const failed = deferred<string>();
-    const sameProject = runSerializedProjectUpdate(
-      "project-failure",
-      () => failed.promise,
-    );
+    const sameProject = runSerializedProjectUpdate("project-failure", () => failed.promise);
     const sameProjectOutcome = sameProject.catch((error: unknown) => error);
-    const queued = runSerializedProjectUpdate(
-      "project-failure",
-      async () => "recovered",
-    );
-    const independent = runSerializedProjectUpdate(
-      "project-2",
-      async () => "independent",
-    );
+    const queued = runSerializedProjectUpdate("project-failure", async () => "recovered");
+    const independent = runSerializedProjectUpdate("project-2", async () => "independent");
 
     await expect(independent).resolves.toBe("independent");
     failed.reject(new Error("conflict"));
@@ -67,11 +58,7 @@ describe("runSerializedProjectUpdate", () => {
   });
 });
 
-function project(
-  id: string,
-  bindingRevision: number,
-  pinned = false,
-): Project {
+function project(id: string, bindingRevision: number, pinned = false): Project {
   return {
     id,
     libraryId: "library:test",
@@ -99,15 +86,9 @@ describe("waitForProjectCatalogUpdates", () => {
     const first = deferred<Project | null>();
     const second = deferred<Project | null>();
     const fallback = project("project-drain", 1);
-    const firstWrite = runSerializedProjectCatalogUpdate(
-      fallback.id,
-      () => first.promise,
-    );
+    const firstWrite = runSerializedProjectCatalogUpdate(fallback.id, () => first.promise);
     const waiting = waitForProjectCatalogUpdates(fallback);
-    const secondWrite = runSerializedProjectCatalogUpdate(
-      fallback.id,
-      () => second.promise,
-    );
+    const secondWrite = runSerializedProjectCatalogUpdate(fallback.id, () => second.promise);
 
     first.resolve(project(fallback.id, 2));
     await firstWrite;
@@ -126,14 +107,9 @@ describe("waitForProjectCatalogUpdates", () => {
 
   it("prefers a newer fallback snapshot when the cached revision is equal", async () => {
     const id = "project-equal-revision";
-    await runSerializedProjectCatalogUpdate(
-      id,
-      async () => project(id, 4, false),
-    );
+    await runSerializedProjectCatalogUpdate(id, async () => project(id, 4, false));
 
     const newerPinSnapshot = project(id, 4, true);
-    await expect(
-      waitForProjectCatalogUpdates(newerPinSnapshot),
-    ).resolves.toEqual(newerPinSnapshot);
+    await expect(waitForProjectCatalogUpdates(newerPinSnapshot)).resolves.toEqual(newerPinSnapshot);
   });
 });

@@ -20,9 +20,7 @@ describe("createCanvasElementChangeTracker", () => {
     const initial = [canvasElement("element-1")];
     const tracker = createCanvasElementChangeTracker(initial);
 
-    const delta = tracker.observeLocal([
-      canvasElement("element-1", 2, { isDeleted: true }),
-    ]);
+    const delta = tracker.observeLocal([canvasElement("element-1", 2, { isDeleted: true })]);
 
     expect(delta.elementCandidates).toEqual([
       expect.objectContaining({

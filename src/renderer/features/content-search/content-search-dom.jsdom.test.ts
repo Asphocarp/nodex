@@ -23,7 +23,9 @@ describe("content search DOM marks", () => {
     expect(result.totalMatches).toBe(2);
     expect(root.querySelectorAll("mark.codex-thread-find-match").length).toBe(2);
     expect(Boolean(root.querySelector(`mark.${CONTENT_SEARCH_ACTIVE_MARK_CLASS}`))).toBe(true);
-    expect(root.querySelectorAll("mark")[1]?.getAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE)).toBe("test:1");
+    expect(root.querySelectorAll("mark")[1]?.getAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE)).toBe(
+      "test:1",
+    );
 
     clearContentSearchMarks(root);
 
@@ -36,7 +38,7 @@ describe("content search DOM marks", () => {
     root.innerHTML = [
       "<p>visible needle</p>",
       '<p data-thread-find-skip="true">hidden needle</p>',
-      '<textarea>editable needle</textarea>',
+      "<textarea>editable needle</textarea>",
       '<div contenteditable="true">editable needle</div>',
     ].join("");
 
@@ -84,13 +86,9 @@ describe("content search DOM marks", () => {
     });
 
     const mark = shadowRoot.querySelector("mark.codex-thread-find-match");
-    expect(result.matches.map((match) => match.id)).toEqual([
-      "diff:src/app.ts:0:4",
-    ]);
+    expect(result.matches.map((match) => match.id)).toEqual(["diff:src/app.ts:0:4"]);
     expect(mark?.textContent).toBe("needle");
-    expect(
-      mark?.getAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE),
-    ).toBe("diff:src/app.ts:0:4");
+    expect(mark?.getAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE)).toBe("diff:src/app.ts:0:4");
     expect(shadowRoot.getElementById(CONTENT_SEARCH_SHADOW_STYLE_ID)).not.toBeNull();
 
     clearContentSearchMarks(root, { includeShadowRoots: true });
@@ -138,9 +136,7 @@ describe("content search DOM marks", () => {
     expect(root.querySelector("mark")).toBeNull();
     expect(secondLine.querySelector("mark")?.textContent).toBe("needle");
     expect(
-      secondLine
-        .querySelector("mark")
-        ?.classList.contains(CONTENT_SEARCH_ACTIVE_MARK_CLASS),
+      secondLine.querySelector("mark")?.classList.contains(CONTENT_SEARCH_ACTIVE_MARK_CLASS),
     ).toBe(true);
   });
 });

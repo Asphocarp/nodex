@@ -35,10 +35,7 @@ import {
   parseDatabaseViewId,
   parseDataSourceId,
 } from "../../shared/database-identities";
-import {
-  stableStringifyDatabaseJson,
-  type DatabaseJsonValue,
-} from "../../shared/database-kernel";
+import { stableStringifyDatabaseJson, type DatabaseJsonValue } from "../../shared/database-kernel";
 import {
   LIBRARY_NAVIGATION_EVENT_VERSION,
   type LibraryNavigationChangedEvent,
@@ -47,11 +44,7 @@ import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
 } from "./desktop-data-authority";
-import type {
-  CoreAuthorizedDeliveryAtom,
-  CoreEventEnvelope,
-  DatabaseRead,
-} from "./types";
+import type { CoreAuthorizedDeliveryAtom, CoreEventEnvelope, DatabaseRead } from "./types";
 import {
   createCoreDatabaseModuleAdapter,
   type CoreDatabaseModuleAdapter,
@@ -75,9 +68,7 @@ export interface DesktopDatabaseModuleBridgeInput {
 }
 
 export interface DesktopDatabaseModuleBridge {
-  read(
-    request: DatabaseModuleReadRequestV2,
-  ): Promise<DatabaseModuleReadResultV2>;
+  read(request: DatabaseModuleReadRequestV2): Promise<DatabaseModuleReadResultV2>;
   apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
   readLibrary(
     request: LibraryDatabaseModuleReadRequestV2,
@@ -103,22 +94,16 @@ export interface DesktopDatabaseModuleBridge {
     input: DatabaseViewGroupsInput,
   ): Promise<DatabaseViewGroupsSnapshot>;
   getLibraryDatabaseViewWindow(
-    input: DatabaseViewWindowInput & (
-      | { readonly databaseViewId: string }
-      | { readonly databaseId: string }
-    ),
+    input: DatabaseViewWindowInput &
+      ({ readonly databaseViewId: string } | { readonly databaseId: string }),
   ): Promise<LibraryDatabaseViewWindowSnapshot>;
   getLibraryDatabaseListWindow(
-    input: DatabaseListWindowInput & (
-      | { readonly databaseViewId: string }
-      | { readonly databaseId: string }
-    ),
+    input: DatabaseListWindowInput &
+      ({ readonly databaseViewId: string } | { readonly databaseId: string }),
   ): Promise<LibraryDatabaseListWindowSnapshot>;
   getLibraryDatabaseViewGroups(
-    input: DatabaseViewGroupsInput & (
-      | { readonly databaseViewId: string }
-      | { readonly databaseId: string }
-    ),
+    input: DatabaseViewGroupsInput &
+      ({ readonly databaseViewId: string } | { readonly databaseId: string }),
   ): Promise<LibraryDatabaseViewGroupsSnapshot>;
   getDatabaseRowPage(
     projectId: string,
@@ -131,9 +116,7 @@ export interface DesktopDatabaseModuleBridge {
   ): Promise<DatabaseViewReadModel | null>;
 }
 
-type DescriptorReadResult =
-  | DatabaseModuleReadResultV2
-  | LibraryDatabaseModuleReadResultV2;
+type DescriptorReadResult = DatabaseModuleReadResultV2 | LibraryDatabaseModuleReadResultV2;
 
 const minimumCommitSeqForEpoch = (
   input: DatabaseViewWindowInput | DatabaseViewGroupsInput | DatabaseListWindowInput,
@@ -155,9 +138,7 @@ const coreViewTarget = (
     return {
       kind: "presented_view",
       view_id: input.databaseViewId,
-      presentation_override: toCoreDatabaseViewPresentationOverride(
-        input.presentationOverride,
-      ),
+      presentation_override: toCoreDatabaseViewPresentationOverride(input.presentationOverride),
     };
   }
   if (input.databaseViewId) {
@@ -169,39 +150,35 @@ const coreViewTarget = (
   return { kind: "project_default" };
 };
 
-const readBoundedDatabaseViewWindow = async <
-  ProjectScope extends string | null,
->(input: {
+const readBoundedDatabaseViewWindow = async <ProjectScope extends string | null>(input: {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
   readonly currentStoreEpoch: string;
   readonly windowInput: DatabaseViewWindowInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
-  readonly readDescriptor: (
-    read: DatabaseReadV2,
-  ) => Promise<DescriptorReadResult>;
+  readonly readDescriptor: (read: DatabaseReadV2) => Promise<DescriptorReadResult>;
 }): Promise<DatabaseViewWindowSnapshot<ProjectScope>> => {
-  const minimumCommitSeq = minimumCommitSeqForEpoch(
-    input.windowInput,
-    input.currentStoreEpoch,
-  );
-  const snapshot = await input.readCore({
-    kind: "view_window",
-    target: coreViewTarget(input.windowInput),
-    window: {
-      after: input.windowInput.after ?? null,
-      first: input.windowInput.first ?? 50,
+  const minimumCommitSeq = minimumCommitSeqForEpoch(input.windowInput, input.currentStoreEpoch);
+  const snapshot = await input.readCore(
+    {
+      kind: "view_window",
+      target: coreViewTarget(input.windowInput),
+      window: {
+        after: input.windowInput.after ?? null,
+        first: input.windowInput.first ?? 50,
+      },
+      ...(input.windowInput.groupScope
+        ? {
+            group_scope: {
+              kind: "path" as const,
+              group_key: input.windowInput.groupScope.groupKey,
+              subgroup_key: input.windowInput.groupScope.subgroupKey,
+            },
+          }
+        : {}),
     },
-    ...(input.windowInput.groupScope
-      ? {
-          group_scope: {
-            kind: "path" as const,
-            group_key: input.windowInput.groupScope.groupKey,
-            subgroup_key: input.windowInput.groupScope.subgroupKey,
-          },
-        }
-      : {}),
-  }, minimumCommitSeq);
+    minimumCommitSeq,
+  );
   if (snapshot.value.kind !== "view_window") {
     throw new Error("Database Core returned a non-window View snapshot");
   }
@@ -251,9 +228,9 @@ const readBoundedDatabaseViewWindow = async <
     );
   }
   if (
-    viewResult.value.value.kind !== "view"
-    || databaseResult.value.value.kind !== "database"
-    || sourceResult.value.value.kind !== "data_source"
+    viewResult.value.value.kind !== "view" ||
+    databaseResult.value.value.kind !== "database" ||
+    sourceResult.value.value.kind !== "data_source"
   ) {
     throw new Error("Database Core returned a non-View descriptor");
   }
@@ -265,9 +242,7 @@ const readBoundedDatabaseViewWindow = async <
     page,
     groupKey: value.rows.items[index]?.effective_group_key ?? null,
     subgroupKey: value.rows.items[index]?.effective_subgroup_key ?? null,
-    rankKey:
-      value.rows.items[index]?.rank_key
-      ?? "ffffffffffffffffffffffffffffffff",
+    rankKey: value.rows.items[index]?.rank_key ?? "ffffffffffffffffffffffffffffffff",
   }));
   const query = projectCoreDatabaseViewQuery(
     value,
@@ -302,9 +277,9 @@ const readBoundedDatabaseViewWindow = async <
       projectId: input.projectId,
       name: descriptor.name,
       defaultLayout: descriptor.defaultLayout,
-      config: JSON.parse(
-        stableStringifyDatabaseJson(descriptor.config),
-      ) as Readonly<Record<string, DatabaseJsonValue>>,
+      config: JSON.parse(stableStringifyDatabaseJson(descriptor.config)) as Readonly<
+        Record<string, DatabaseJsonValue>
+      >,
       isPrimary: descriptor.isDefault,
       createdAt: descriptor.createdAt,
       updatedAt: descriptor.updatedAt,
@@ -312,30 +287,26 @@ const readBoundedDatabaseViewWindow = async <
   };
 };
 
-const readBoundedDatabaseListWindow = async <
-  ProjectScope extends string | null,
->(input: {
+const readBoundedDatabaseListWindow = async <ProjectScope extends string | null>(input: {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
   readonly currentStoreEpoch: string;
   readonly windowInput: DatabaseListWindowInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
-  readonly readDescriptor: (
-    read: DatabaseReadV2,
-  ) => Promise<DescriptorReadResult>;
+  readonly readDescriptor: (read: DatabaseReadV2) => Promise<DescriptorReadResult>;
 }): Promise<DatabaseListWindowSnapshot<ProjectScope>> => {
-  const minimumCommitSeq = minimumCommitSeqForEpoch(
-    input.windowInput,
-    input.currentStoreEpoch,
-  );
-  const snapshot = await input.readCore({
-    kind: "list_window",
-    target: coreViewTarget(input.windowInput),
-    window: {
-      after: input.windowInput.after ?? null,
-      first: input.windowInput.first ?? 200,
+  const minimumCommitSeq = minimumCommitSeqForEpoch(input.windowInput, input.currentStoreEpoch);
+  const snapshot = await input.readCore(
+    {
+      kind: "list_window",
+      target: coreViewTarget(input.windowInput),
+      window: {
+        after: input.windowInput.after ?? null,
+        first: input.windowInput.first ?? 200,
+      },
     },
-  }, minimumCommitSeq);
+    minimumCommitSeq,
+  );
   if (snapshot.value.kind !== "list_window") {
     throw new Error("Database Core returned a non-List View snapshot");
   }
@@ -429,23 +400,21 @@ const readBoundedDatabaseListWindow = async <
   };
 };
 
-const readBoundedDatabaseViewGroups = async <
-  ProjectScope extends string | null,
->(input: {
+const readBoundedDatabaseViewGroups = async <ProjectScope extends string | null>(input: {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
   readonly currentStoreEpoch: string;
   readonly groupsInput: DatabaseViewGroupsInput;
   readonly readCore: CoreDatabaseModuleAdapter["readCore"];
 }): Promise<DatabaseViewGroupsSnapshot<ProjectScope>> => {
-  const minimumCommitSeq = minimumCommitSeqForEpoch(
-    input.groupsInput,
-    input.currentStoreEpoch,
+  const minimumCommitSeq = minimumCommitSeqForEpoch(input.groupsInput, input.currentStoreEpoch);
+  const snapshot = await input.readCore(
+    {
+      kind: "view_groups",
+      target: coreViewTarget(input.groupsInput),
+    },
+    minimumCommitSeq,
   );
-  const snapshot = await input.readCore({
-    kind: "view_groups",
-    target: coreViewTarget(input.groupsInput),
-  }, minimumCommitSeq);
   if (snapshot.value.kind !== "view_groups") {
     throw new Error("Database Core returned a non-groups View snapshot");
   }
@@ -550,10 +519,11 @@ export const createDesktopDatabaseModuleBridge = (
         currentStoreEpoch: runtime.identity.storeEpoch,
         windowInput,
         readCore: adapter.readCore,
-        readDescriptor: async (read) => await adapter.read({
-          projectId,
-          read,
-        }),
+        readDescriptor: async (read) =>
+          await adapter.read({
+            projectId,
+            read,
+          }),
       });
     },
     getDatabaseListWindow: async (projectId, windowInput) => {
@@ -565,10 +535,11 @@ export const createDesktopDatabaseModuleBridge = (
         currentStoreEpoch: runtime.identity.storeEpoch,
         windowInput,
         readCore: adapter.readCore,
-        readDescriptor: async (read) => await adapter.read({
-          projectId,
-          read,
-        }),
+        readDescriptor: async (read) =>
+          await adapter.read({
+            projectId,
+            read,
+          }),
       });
     },
     getDatabaseViewGroups: async (projectId, groupsInput) => {
@@ -591,9 +562,10 @@ export const createDesktopDatabaseModuleBridge = (
         currentStoreEpoch: runtime.identity.storeEpoch,
         windowInput,
         readCore: adapter.readCore,
-        readDescriptor: async (read) => await adapter.read({
-          read: read as LibraryDatabaseReadV2,
-        }),
+        readDescriptor: async (read) =>
+          await adapter.read({
+            read: read as LibraryDatabaseReadV2,
+          }),
       });
     },
     getLibraryDatabaseListWindow: async (windowInput) => {
@@ -605,9 +577,10 @@ export const createDesktopDatabaseModuleBridge = (
         currentStoreEpoch: runtime.identity.storeEpoch,
         windowInput,
         readCore: adapter.readCore,
-        readDescriptor: async (read) => await adapter.read({
-          read: read as LibraryDatabaseReadV2,
-        }),
+        readDescriptor: async (read) =>
+          await adapter.read({
+            read: read as LibraryDatabaseReadV2,
+          }),
       });
     },
     getLibraryDatabaseViewGroups: async (groupsInput) => {
@@ -623,15 +596,18 @@ export const createDesktopDatabaseModuleBridge = (
     },
     getDatabaseRowPage: async (projectId, pageId, status, minimumCommitCursor) => {
       const runtime = await input.authority;
-      const minimumCommitSeq = minimumCommitCursor
-        && minimumCommitCursor.storeEpoch === runtime.identity.storeEpoch
-        ? minimumCommitCursor.commitSeq
-        : 0;
+      const minimumCommitSeq =
+        minimumCommitCursor && minimumCommitCursor.storeEpoch === runtime.identity.storeEpoch
+          ? minimumCommitCursor.commitSeq
+          : 0;
       try {
-        const snapshot = await coreAdapterFor(runtime, projectId).readCore({
-          kind: "row_detail",
-          page_id: pageId,
-        }, minimumCommitSeq);
+        const snapshot = await coreAdapterFor(runtime, projectId).readCore(
+          {
+            kind: "row_detail",
+            page_id: pageId,
+          },
+          minimumCommitSeq,
+        );
         if (snapshot.value.kind !== "row_detail") {
           throw new Error("Database Core returned a non-detail Page snapshot");
         }
@@ -640,12 +616,10 @@ export const createDesktopDatabaseModuleBridge = (
         return page;
       } catch (error) {
         if (
-          error instanceof Error
-          && (
-            error.message.includes("authorization")
-            || error.message.includes("not found")
-            || error.message.includes("unavailable")
-          )
+          error instanceof Error &&
+          (error.message.includes("authorization") ||
+            error.message.includes("not found") ||
+            error.message.includes("unavailable"))
         ) {
           return null;
         }
@@ -660,15 +634,16 @@ export const createDesktopDatabaseModuleBridge = (
         return null;
       }
       try {
-        const window = referenceInput.accessContext.kind === "library"
-          ? await bridge.getLibraryDatabaseViewWindow({
-              databaseViewId: viewId,
-              first: 50,
-            })
-          : await bridge.getDatabaseViewWindow(
-              referenceInput.accessContext.projectId,
-              { databaseViewId: viewId, first: 50 },
-            );
+        const window =
+          referenceInput.accessContext.kind === "library"
+            ? await bridge.getLibraryDatabaseViewWindow({
+                databaseViewId: viewId,
+                first: 50,
+              })
+            : await bridge.getDatabaseViewWindow(referenceInput.accessContext.projectId, {
+                databaseViewId: viewId,
+                first: 50,
+              });
         const model: DatabaseViewReadModel = {
           libraryId: window.libraryId,
           storeEpoch: window.storeEpoch,
@@ -679,19 +654,15 @@ export const createDesktopDatabaseModuleBridge = (
           rows: window.rows,
         };
         const rows = evaluateDatabaseViewRows(model, {
-          ...(referenceInput.hostBlockId
-            ? { hostBlockId: referenceInput.hostBlockId }
-            : {}),
+          ...(referenceInput.hostBlockId ? { hostBlockId: referenceInput.hostBlockId } : {}),
         });
         return rows === model.rows ? model : { ...model, rows };
       } catch (error) {
         if (
-          error instanceof Error
-          && (
-            error.message.includes("authorization")
-            || error.message.includes("not found")
-            || error.message.includes("unavailable")
-          )
+          error instanceof Error &&
+          (error.message.includes("authorization") ||
+            error.message.includes("not found") ||
+            error.message.includes("unavailable"))
         ) {
           return null;
         }
@@ -741,7 +712,7 @@ export const mapCoreDatabaseEvent = (
               occurrenceKey: change.target.occurrence_key,
             },
             collapsed: change.collapsed,
-          }
+          },
     ),
     commitSeq: envelope.packet.manifest.identity.commit_seq,
   };
@@ -755,11 +726,12 @@ export const mapCoreLibraryDatabaseEvent = (
   const payload = effect.payload;
   if (payload.module !== "database" || payload.event.project_id) return null;
   if (
-    payload.event.database_ids.length === 0
-    && payload.event.data_source_ids.length === 0
-    && payload.event.page_ids.length === 0
-    && payload.event.view_ids.length === 0
-  ) return null;
+    payload.event.database_ids.length === 0 &&
+    payload.event.data_source_ids.length === 0 &&
+    payload.event.page_ids.length === 0 &&
+    payload.event.view_ids.length === 0
+  )
+    return null;
   return {
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,

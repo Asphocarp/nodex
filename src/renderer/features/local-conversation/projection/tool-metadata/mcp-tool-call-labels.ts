@@ -1,7 +1,4 @@
-import type {
-  CodexMcpToolCallView,
-  ProtocolAppInfo,
-} from "../../../../lib/types";
+import type { CodexMcpToolCallView, ProtocolAppInfo } from "../../../../lib/types";
 import { resolveCodexMcpAppInfo } from "../../../../../shared/codex-mcp-tool-call";
 import { asRecord, humanizeIdentifier } from "./tool-call-utils";
 
@@ -54,14 +51,7 @@ const MCP_ACTIVITY_VERBS: Readonly<Record<string, McpActivityVerb>> = {
   upload: { active: "Uploading", completed: "Uploaded" },
 };
 
-const MCP_CONTEXT_ARGUMENT_KEYS = [
-  "query",
-  "title",
-  "name",
-  "target",
-  "project",
-  "url",
-] as const;
+const MCP_CONTEXT_ARGUMENT_KEYS = ["query", "title", "name", "target", "project", "url"] as const;
 
 export function formatMcpServerName(server: string): string {
   const humanized = humanizeIdentifier(server);
@@ -104,10 +94,7 @@ function tokenSequencesEqual(left: readonly string[], right: readonly string[]):
   return left.length === right.length && left.every((part, index) => part === right[index]);
 }
 
-function mergeTokenSuffix(
-  tokens: readonly string[],
-  suffix: readonly string[],
-): string[] {
+function mergeTokenSuffix(tokens: readonly string[], suffix: readonly string[]): string[] {
   const overlapLimit = Math.min(tokens.length, suffix.length);
   for (let overlap = overlapLimit; overlap > 0; overlap -= 1) {
     const tail = tokens.slice(tokens.length - overlap);
@@ -132,26 +119,24 @@ function collectMcpAppAliases(app: ProtocolAppInfo): string[][] {
     mergeTokenSuffix(tokens, ["mcp", "server"]),
   ]);
   return aliases
-    .filter((tokens, index) => aliases.findIndex((candidate) => (
-      tokenSequencesEqual(candidate, tokens)
-    )) === index)
+    .filter(
+      (tokens, index) =>
+        aliases.findIndex((candidate) => tokenSequencesEqual(candidate, tokens)) === index,
+    )
     .sort((left, right) => right.length - left.length);
 }
 
-function stripMcpAppPrefix(
-  toolName: string,
-  app: ProtocolAppInfo | null,
-): string[] {
+function stripMcpAppPrefix(toolName: string, app: ProtocolAppInfo | null): string[] {
   const toolParts = splitMcpIdentifierParts(toolName);
   if (!app) return toolParts;
 
   const aliases = collectMcpAppAliases(app);
   let stripped = toolParts;
   while (stripped.length > 0) {
-    const matchingAlias = aliases.find((alias) => (
-      stripped.length >= alias.length
-      && alias.every((part, index) => stripped[index] === part)
-    ));
+    const matchingAlias = aliases.find(
+      (alias) =>
+        stripped.length >= alias.length && alias.every((part, index) => stripped[index] === part),
+    );
     if (!matchingAlias) break;
     stripped = stripped.slice(matchingAlias.length);
   }
@@ -204,9 +189,8 @@ export function resolveMcpToolActivityLabel(input: {
   const [operation, ...subjectParts] = toolParts;
   const verb = operation ? MCP_ACTIVITY_VERBS[operation] : undefined;
   if (app && verb) {
-    const subject = subjectParts.length > 0
-      ? sentenceCaseMcpToolParts(subjectParts).toLowerCase()
-      : app.name;
+    const subject =
+      subjectParts.length > 0 ? sentenceCaseMcpToolParts(subjectParts).toLowerCase() : app.name;
     const context = resolveReadableMcpArgument(payload.invocation.arguments);
     return `${completed ? verb.completed : verb.active} ${subject}${context ? ` "${context}"` : ""}`;
   }

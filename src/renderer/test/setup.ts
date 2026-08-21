@@ -54,12 +54,22 @@ if (typeof globalThis.IntersectionObserver !== "function") {
       observe() {}
       unobserve() {}
       disconnect() {}
-      takeRecords() { return []; }
+      takeRecords() {
+        return [];
+      }
     },
   });
 }
-Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value: () => undefined });
-Object.defineProperty(window, "scrollBy", { configurable: true, writable: true, value: () => undefined });
+Object.defineProperty(window, "scrollTo", {
+  configurable: true,
+  writable: true,
+  value: () => undefined,
+});
+Object.defineProperty(window, "scrollBy", {
+  configurable: true,
+  writable: true,
+  value: () => undefined,
+});
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
   configurable: true,
   writable: true,
@@ -183,7 +193,10 @@ const browserRequestAnimationFrame = globalThis.requestAnimationFrame;
 const browserCancelAnimationFrame = globalThis.cancelAnimationFrame;
 const browserResizeObserver = globalThis.ResizeObserver;
 const browserGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
-const browserScrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+const browserScrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "scrollHeight",
+);
 
 function ensureHtmlDoctype() {
   if (document.doctype?.name.toLowerCase() === "html") return;
@@ -306,7 +319,10 @@ function restoreBrowserGlobals() {
     value: browserMouseEvent,
   });
   if (typeof browserPointerEvent === "undefined") {
-    Reflect.deleteProperty(globalThis as typeof globalThis & { PointerEvent?: typeof PointerEvent }, "PointerEvent");
+    Reflect.deleteProperty(
+      globalThis as typeof globalThis & { PointerEvent?: typeof PointerEvent },
+      "PointerEvent",
+    );
   } else {
     Object.defineProperty(globalThis, "PointerEvent", {
       configurable: true,
@@ -325,7 +341,10 @@ function restoreBrowserGlobals() {
     value: browserCancelAnimationFrame,
   });
   if (typeof browserResizeObserver === "undefined") {
-    Reflect.deleteProperty(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserver }, "ResizeObserver");
+    Reflect.deleteProperty(
+      globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserver },
+      "ResizeObserver",
+    );
   } else {
     Object.defineProperty(globalThis, "ResizeObserver", {
       configurable: true,
@@ -341,7 +360,10 @@ function restoreBrowserGlobals() {
   if (browserScrollHeightDescriptor) {
     Object.defineProperty(HTMLElement.prototype, "scrollHeight", browserScrollHeightDescriptor);
   } else {
-    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { scrollHeight?: number }, "scrollHeight");
+    Reflect.deleteProperty(
+      HTMLElement.prototype as HTMLElement & { scrollHeight?: number },
+      "scrollHeight",
+    );
   }
 }
 

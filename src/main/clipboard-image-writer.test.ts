@@ -52,10 +52,11 @@ describe("clipboard image writer", () => {
   test("fetches remote images and writes the decoded native image", async () => {
     const writeCalls: FakeImage[] = [];
     const result = await writeImageToClipboard("https://example.com/hero.png", {
-      fetchImpl: async () => ({
-        ok: true,
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-      }) as Response,
+      fetchImpl: async () =>
+        ({
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        }) as Response,
       nativeImageApi: {
         createFromBuffer: () => new FakeImage(false),
         createFromDataURL: () => new FakeImage(false),
@@ -76,10 +77,11 @@ describe("clipboard image writer", () => {
   test("returns a decode error when the image format cannot be converted", async () => {
     const writeCalls: FakeImage[] = [];
     const result = await writeImageToClipboard("https://example.com/file.bin", {
-      fetchImpl: async () => ({
-        ok: true,
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-      }) as Response,
+      fetchImpl: async () =>
+        ({
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        }) as Response,
       nativeImageApi: {
         createFromBuffer: () => new FakeImage(true),
         createFromDataURL: () => new FakeImage(true),
@@ -94,7 +96,9 @@ describe("clipboard image writer", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect("message" in result ? result.message : "").toBe("Could not decode this image format for clipboard copy.");
+    expect("message" in result ? result.message : "").toBe(
+      "Could not decode this image format for clipboard copy.",
+    );
     expect(writeCalls.length).toBe(0);
   });
 
@@ -108,10 +112,11 @@ describe("clipboard image writer", () => {
       clipboardTarget: {
         writeImage: () => undefined,
       },
-      fetchImpl: async () => ({
-        ok: true,
-        arrayBuffer: async () => new Uint8Array([1]).buffer,
-      }) as Response,
+      fetchImpl: async () =>
+        ({
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1]).buffer,
+        }) as Response,
       resolveAssetPath: (fileName) => fileName,
     });
 

@@ -1,9 +1,4 @@
-import {
-  startTransition,
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 import { AppUpdateSettingsControl } from "./app-update-settings-control";
 import { AgentImportSettingsPage } from "./agent-import-settings-page";
 import { ComputerUseSettingsPage } from "./computer-use-settings-page";
@@ -11,9 +6,7 @@ import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-pag
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
 import { ManagedWorktreesSettingControl } from "./managed-worktrees-settings-control";
 import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
-import {
-  BrowserSettingsPage,
-} from "@/features/browser-sidebar/browser-settings-pages";
+import { BrowserSettingsPage } from "@/features/browser-sidebar/browser-settings-pages";
 import {
   FULL_ACCESS_PERMISSION_DESCRIPTION,
   PermissionModeDropdown,
@@ -21,10 +14,7 @@ import {
 import { NodexButton } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { isCodexGitSettings } from "../../../shared/codex-git-settings";
-import type {
-  CodexGitSettings,
-  CodexPermissionState,
-} from "../../lib/types";
+import type { CodexGitSettings, CodexPermissionState } from "../../lib/types";
 import { invoke } from "./workbench-settings-overlay-deps";
 import {
   BackupSettingsControl,
@@ -67,10 +57,7 @@ import {
   NodexSettingsSection as SectionBlock,
 } from "../ui/settings";
 
-function usePermissionSettings(
-  activeProjectId: string | null,
-  open: boolean,
-) {
+function usePermissionSettings(activeProjectId: string | null, open: boolean) {
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,42 +78,46 @@ function usePermissionSettings(
     });
   }, [activeProjectId, loadPermissionState, open]);
 
-  const writeConfigValue = useCallback(async (keyPath: string, value: unknown) => {
-    setBusyKey(keyPath);
-    setError(null);
-    try {
-      const nextState = (await invoke(
-        "codex:permission:config-value:set",
-        activeProjectId,
-        keyPath,
-        value,
-      )) as CodexPermissionState;
-      setPermissionState(nextState);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save config setting.");
-    } finally {
-      setBusyKey(null);
-    }
-  }, [activeProjectId]);
+  const writeConfigValue = useCallback(
+    async (keyPath: string, value: unknown) => {
+      setBusyKey(keyPath);
+      setError(null);
+      try {
+        const nextState = (await invoke(
+          "codex:permission:config-value:set",
+          activeProjectId,
+          keyPath,
+          value,
+        )) as CodexPermissionState;
+        setPermissionState(nextState);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not save config setting.");
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [activeProjectId],
+  );
 
-  const handlePermissionModeChange = useCallback(async (
-    mode: "auto" | "guardian-approvals" | "full-access" | "custom",
-  ) => {
-    setBusyKey("permission-mode");
-    setError(null);
-    try {
-      const nextState = (await invoke(
-        "codex:permission:mode:set",
-        activeProjectId,
-        mode,
-      )) as CodexPermissionState;
-      setPermissionState(nextState);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save permission mode.");
-    } finally {
-      setBusyKey(null);
-    }
-  }, [activeProjectId]);
+  const handlePermissionModeChange = useCallback(
+    async (mode: "auto" | "guardian-approvals" | "full-access" | "custom") => {
+      setBusyKey("permission-mode");
+      setError(null);
+      try {
+        const nextState = (await invoke(
+          "codex:permission:mode:set",
+          activeProjectId,
+          mode,
+        )) as CodexPermissionState;
+        setPermissionState(nextState);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not save permission mode.");
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [activeProjectId],
+  );
 
   return {
     busyKey,
@@ -154,16 +145,15 @@ export function GeneralSettingsPage({
   } = usePermissionSettings(activeProjectId, open);
 
   return (
-    <SettingsPageSurface
-      title="General"
-      subtitle="App-wide shell behavior and notifications."
-    >
+    <SettingsPageSurface title="General" subtitle="App-wide shell behavior and notifications.">
       <SectionBlock id="permissions" title="Permissions">
         <SettingRow
           label="Default permissions mode"
-          description={permissionState?.mode === "full-access"
-            ? FULL_ACCESS_PERMISSION_DESCRIPTION
-            : "Choose the preset used for new local tasks."}
+          description={
+            permissionState?.mode === "full-access"
+              ? FULL_ACCESS_PERMISSION_DESCRIPTION
+              : "Choose the preset used for new local tasks."
+          }
         >
           <PermissionModeDropdown
             selectedMode={permissionState?.mode ?? "custom"}
@@ -234,7 +224,10 @@ export function GeneralSettingsPage({
         >
           <ThreadDetailLevelSettingControl />
         </SettingRow>
-        <SettingRow label="Spellcheck" description="Inline text correction for editable writing surfaces.">
+        <SettingRow
+          label="Spellcheck"
+          description="Inline text correction for editable writing surfaces."
+        >
           <SpellcheckSettingControl />
         </SettingRow>
         <SettingRow
@@ -340,16 +333,11 @@ export function AppearanceSettingsPage() {
   );
 }
 
-export function AgentSettingsPage({
-  activeProjectId,
-  open,
-}: SettingsSectionPageProps) {
-  const {
-    busyKey,
-    error,
-    permissionState,
-    writeConfigValue,
-  } = usePermissionSettings(activeProjectId, open);
+export function AgentSettingsPage({ activeProjectId, open }: SettingsSectionPageProps) {
+  const { busyKey, error, permissionState, writeConfigValue } = usePermissionSettings(
+    activeProjectId,
+    open,
+  );
 
   const openConfigToml = useCallback(async () => {
     const configPath = permissionState?.configTarget.filePath?.trim();
@@ -362,17 +350,18 @@ export function AgentSettingsPage({
 
   const approvalPolicyValue = formatApprovalPolicyLabel(permissionState?.approvalPolicy ?? null);
   const sandboxModeValue = formatSandboxModeLabel(permissionState?.sandboxMode ?? null);
-  const networkAccessValue = permissionState?.sandbox?.type === "workspaceWrite"
-    ? permissionState.sandbox.networkAccess
-    : false;
+  const networkAccessValue =
+    permissionState?.sandbox?.type === "workspaceWrite"
+      ? permissionState.sandbox.networkAccess
+      : false;
 
   return (
-    <SettingsPageSurface
-      title="Agent"
-      subtitle="Configuration and raw config.toml settings."
-    >
+    <SettingsPageSurface title="Agent" subtitle="Configuration and raw config.toml settings.">
       <SectionBlock title="Configuration">
-        <SettingRow label="Approval policy" description="Raw `approval_policy` value for this config target.">
+        <SettingRow
+          label="Approval policy"
+          description="Raw `approval_policy` value for this config target."
+        >
           <ConfigValueDropdown
             value={approvalPolicyValue}
             disabled={busyKey !== null}
@@ -386,7 +375,10 @@ export function AgentSettingsPage({
             ]}
           />
         </SettingRow>
-        <SettingRow label="Sandbox settings" description="Raw `sandbox_mode` value for this config target.">
+        <SettingRow
+          label="Sandbox settings"
+          description="Raw `sandbox_mode` value for this config target."
+        >
           <ConfigValueDropdown
             value={sandboxModeValue}
             disabled={busyKey !== null}
@@ -400,7 +392,10 @@ export function AgentSettingsPage({
             ]}
           />
         </SettingRow>
-        <SettingRow label="Allow network access" description="Controls `sandbox_workspace_write.network_access`.">
+        <SettingRow
+          label="Allow network access"
+          description="Controls `sandbox_workspace_write.network_access`."
+        >
           <TogglePill
             ariaLabel="Allow network access"
             value={networkAccessValue}
@@ -410,7 +405,10 @@ export function AgentSettingsPage({
             }}
           />
         </SettingRow>
-        <SettingRow label="config.toml" description={permissionState?.configTarget.filePath ?? "No writable config target"}>
+        <SettingRow
+          label="config.toml"
+          description={permissionState?.configTarget.filePath ?? "No writable config target"}
+        >
           <NodexButton
             type="button"
             variant="secondary"
@@ -425,9 +423,7 @@ export function AgentSettingsPage({
         </SettingRow>
       </SectionBlock>
 
-      {error ? (
-        <div className="text-sm text-[var(--red-text)]">{error}</div>
-      ) : null}
+      {error ? <div className="text-sm text-[var(--red-text)]">{error}</div> : null}
     </SettingsPageSurface>
   );
 }
@@ -437,10 +433,7 @@ export function PageSettingsPage({
   taskShorthandPagePromotionEnabled,
 }: SettingsSectionPageProps) {
   return (
-    <SettingsPageSurface
-      title="Pages"
-      subtitle="Board card and page-stage presentation."
-    >
+    <SettingsPageSurface title="Pages" subtitle="Board card and page-stage presentation.">
       <SectionBlock id="cards-and-page-stage" title="Cards & Page Stage">
         <SettingRow
           label="Board card properties"
@@ -470,16 +463,10 @@ export function PageSettingsPage({
   );
 }
 
-export function WorktreesSettingsPage({
-  open,
-  onOpenThread,
-}: SettingsSectionPageProps) {
+export function WorktreesSettingsPage({ open, onOpenThread }: SettingsSectionPageProps) {
   return (
     <SettingsPageSurface title="Worktrees">
-      <ManagedWorktreesSettingControl
-        open={open}
-        onOpenThread={onOpenThread}
-      />
+      <ManagedWorktreesSettingControl open={open} onOpenThread={onOpenThread} />
     </SettingsPageSurface>
   );
 }
@@ -563,11 +550,11 @@ export function GitSettingsPage({
         if (disposed) return;
         if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
         setSettings((current) =>
-          current.branchPrefix === next.branchPrefix
-            && current.commitInstructions === next.commitInstructions
-            && current.pullRequestInstructions === next.pullRequestInstructions
+          current.branchPrefix === next.branchPrefix &&
+          current.commitInstructions === next.commitInstructions &&
+          current.pullRequestInstructions === next.pullRequestInstructions
             ? current
-            : next
+            : next,
         );
       })
       .catch(() => {
@@ -578,36 +565,44 @@ export function GitSettingsPage({
     };
   }, [open]);
 
-  const saveBranchPrefix = useCallback(async (branchPrefix: string) => {
-    if (branchSaving) return;
-    setBranchSaving(true);
-    try {
-      const next = await invoke("settings:git:update", { branchPrefix });
-      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
-      setSettings(next);
-      onWorktreeAutoBranchPrefixChange(next.branchPrefix);
-      toast.success("Saved branch prefix");
-    } catch {
-      toast.danger("Failed to save branch prefix");
-    } finally {
-      setBranchSaving(false);
-    }
-  }, [branchSaving, onWorktreeAutoBranchPrefixChange]);
+  const saveBranchPrefix = useCallback(
+    async (branchPrefix: string) => {
+      if (branchSaving) return;
+      setBranchSaving(true);
+      try {
+        const next = await invoke("settings:git:update", { branchPrefix });
+        if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+        setSettings(next);
+        onWorktreeAutoBranchPrefixChange(next.branchPrefix);
+        toast.success("Saved branch prefix");
+      } catch {
+        toast.danger("Failed to save branch prefix");
+      } finally {
+        setBranchSaving(false);
+      }
+    },
+    [branchSaving, onWorktreeAutoBranchPrefixChange],
+  );
 
-  const saveInstructions = useCallback(async (
-    patch: Pick<CodexGitSettings, "commitInstructions"> | Pick<CodexGitSettings, "pullRequestInstructions">,
-    successMessage: string,
-    errorMessage: string,
-  ) => {
-    try {
-      const next = await invoke("settings:git:update", patch);
-      if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
-      setSettings(next);
-      toast.success(successMessage);
-    } catch {
-      toast.danger(errorMessage);
-    }
-  }, []);
+  const saveInstructions = useCallback(
+    async (
+      patch:
+        | Pick<CodexGitSettings, "commitInstructions">
+        | Pick<CodexGitSettings, "pullRequestInstructions">,
+      successMessage: string,
+      errorMessage: string,
+    ) => {
+      try {
+        const next = await invoke("settings:git:update", patch);
+        if (!isCodexGitSettings(next)) throw new Error("Git settings are unavailable");
+        setSettings(next);
+        toast.success(successMessage);
+      } catch {
+        toast.danger(errorMessage);
+      }
+    },
+    [],
+  );
 
   return (
     <SettingsPageSurface
@@ -630,11 +625,13 @@ export function GitSettingsPage({
         ariaLabel="Commit instructions"
         description="Added to commit message generation prompts."
         label="Commit instructions"
-        onSave={(commitInstructions) => saveInstructions(
-          { commitInstructions },
-          "Saved commit instructions",
-          "Failed to save commit instructions",
-        )}
+        onSave={(commitInstructions) =>
+          saveInstructions(
+            { commitInstructions },
+            "Saved commit instructions",
+            "Failed to save commit instructions",
+          )
+        }
         placeholder="Add commit message guidance…"
         value={settings.commitInstructions}
       />
@@ -642,11 +639,13 @@ export function GitSettingsPage({
         ariaLabel="Pull request instructions"
         description="Added to PR title and description generation prompts."
         label="Pull request instructions"
-        onSave={(pullRequestInstructions) => saveInstructions(
-          { pullRequestInstructions },
-          "Saved pull request instructions",
-          "Failed to save pull request instructions",
-        )}
+        onSave={(pullRequestInstructions) =>
+          saveInstructions(
+            { pullRequestInstructions },
+            "Saved pull request instructions",
+            "Failed to save pull request instructions",
+          )
+        }
         placeholder="Add pull request guidance…"
         value={settings.pullRequestInstructions}
       />
@@ -672,12 +671,7 @@ export function LocalEnvironmentsSettingsSectionPage({
       initialConfigPath={initialLocalEnvironmentConfigPath}
       onAddProject={onRequestProjectPickerOpen}
       renderShell={({ title, subtitle, backSlot, action, children }) => (
-        <SettingsPageSurface
-          title={title}
-          subtitle={subtitle}
-          backSlot={backSlot}
-          action={action}
-        >
+        <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot} action={action}>
           {children}
         </SettingsPageSurface>
       )}

@@ -57,14 +57,17 @@ export function useClippedFocusSafety(
       element.setAttribute("aria-hidden", "true");
     };
 
-    const intersectionObserver = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        setClipped(entry.target as HTMLElement, entry.intersectionRatio < 1);
-      }
-    }, {
-      root: clippedContainer,
-      threshold: 1,
-    });
+    const intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          setClipped(entry.target as HTMLElement, entry.intersectionRatio < 1);
+        }
+      },
+      {
+        root: clippedContainer,
+        threshold: 1,
+      },
+    );
     const observeDescendants = (root: HTMLElement) => {
       if (root.matches(FOCUSABLE_SELECTOR)) intersectionObserver.observe(root);
       for (const element of listFocusableDescendants(root)) {
@@ -75,15 +78,16 @@ export function useClippedFocusSafety(
     for (const element of listFocusableDescendants(clippedContainer)) {
       intersectionObserver.observe(element);
     }
-    const mutationObserver = typeof MutationObserver === "undefined"
-      ? null
-      : new MutationObserver((records) => {
-          for (const record of records) {
-            for (const addedNode of record.addedNodes) {
-              if (addedNode instanceof HTMLElement) observeDescendants(addedNode);
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver((records) => {
+            for (const record of records) {
+              for (const addedNode of record.addedNodes) {
+                if (addedNode instanceof HTMLElement) observeDescendants(addedNode);
+              }
             }
-          }
-        });
+          });
     mutationObserver?.observe(clippedContainer, { childList: true, subtree: true });
 
     return () => {

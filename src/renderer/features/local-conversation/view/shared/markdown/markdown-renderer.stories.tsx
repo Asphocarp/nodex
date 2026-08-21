@@ -7,14 +7,14 @@ const TYPESCRIPT_CODE_BLOCK = [
   "type CodeBlockState = { language: string; copied: boolean };",
   "",
   "export function describeState(state: CodeBlockState) {",
-  "  return `${state.language}:${state.copied ? \"copied\" : \"idle\"}`;",
+  '  return `${state.language}:${state.copied ? "copied" : "idle"}`;',
   "}",
   "```",
 ].join("\n");
 
 const LONG_LINE_CODE_BLOCK = [
   "```ts",
-  "const command = \"bun run typecheck && bun run lint && bun test src/renderer/features/local-conversation/view/shared/markdown/markdown-renderer.test.tsx src/renderer/components/board/nfm-renderer.test.tsx\";",
+  'const command = "bun run typecheck && bun run lint && bun test src/renderer/features/local-conversation/view/shared/markdown/markdown-renderer.test.tsx src/renderer/components/board/nfm-renderer.test.tsx";',
   "console.log(command);",
   "```",
 ].join("\n");
@@ -79,7 +79,8 @@ export const HeadingInlineCode: Story = {
 
 export const ListAndPunctuation: Story = {
   args: {
-    content: "- Check `README.md`.\n- Then run `bun test`, `bun run lint`, and `bun run typecheck`.",
+    content:
+      "- Check `README.md`.\n- Then run `bun test`, `bun run lint`, and `bun run typecheck`.",
   },
 };
 

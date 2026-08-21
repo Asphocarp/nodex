@@ -26,7 +26,10 @@ import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/
 
 interface CodexPermissionRequestCardProps {
   request: CodexPermissionRequest;
-  onRespond: (requestId: CodexProtocolRequestId, response: CodexPermissionRequestResponse) => Promise<void>;
+  onRespond: (
+    requestId: CodexProtocolRequestId,
+    response: CodexPermissionRequestResponse,
+  ) => Promise<void>;
   onSubmitLocalFollowup?: (prompt: string) => Promise<void>;
 }
 
@@ -47,7 +50,9 @@ function buildAllowedResponse(request: CodexPermissionRequest): CodexPermissionR
   };
 }
 
-function buildAllowedForSessionResponse(request: CodexPermissionRequest): CodexPermissionRequestResponse {
+function buildAllowedForSessionResponse(
+  request: CodexPermissionRequest,
+): CodexPermissionRequestResponse {
   return {
     permissions: buildCodexGrantedPermissionProfile(request.permissions),
     scope: "session",
@@ -71,24 +76,28 @@ function buildPermissionComposerRequest(
       description: "",
     },
     ...(shouldShowAllowForSessionOption(threadDetailLevel)
-      ? [{
-          label: ALLOW_FOR_SESSION_LABEL,
-          description: "",
-        }]
+      ? [
+          {
+            label: ALLOW_FOR_SESSION_LABEL,
+            description: "",
+          },
+        ]
       : []),
   ];
 
   return {
     requestId: request.requestId,
-    questions: [{
-      id: questionId,
-      header: title,
-      question: title,
-      isOther: true,
-      isSecret: false,
-      otherPlaceholder: "No, and tell Nodex what to do differently",
-      options,
-    }],
+    questions: [
+      {
+        id: questionId,
+        header: title,
+        question: title,
+        isOther: true,
+        isSecret: false,
+        otherPlaceholder: "No, and tell Nodex what to do differently",
+        options,
+      },
+    ],
   };
 }
 
@@ -106,7 +115,10 @@ function PermissionTitle({ titleModel }: { titleModel: CodexPermissionRequestTit
   if (titleModel.kind === "additional") return "Allow additional access?";
 
   const path = (
-    <span className="font-mono wrap-anywhere text-token-description-foreground" title={titleModel.path}>
+    <span
+      className="font-mono wrap-anywhere text-token-description-foreground"
+      title={titleModel.path}
+    >
       {titleModel.path}
     </span>
   );
@@ -116,13 +128,7 @@ function PermissionTitle({ titleModel }: { titleModel: CodexPermissionRequestTit
   return <>Allow read and write access to {path}?</>;
 }
 
-function LabeledPermissionDetail({
-  label,
-  children,
-}: {
-  label: ReactNode;
-  children: ReactNode;
-}) {
+function LabeledPermissionDetail({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <div className="grid min-w-0 grid-cols-[minmax(6rem,auto)_1fr] gap-3">
       <div className="text-token-description-foreground">{label}</div>
@@ -135,7 +141,10 @@ function PermissionPathList({ paths }: { paths: string[] }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       {paths.map((path) => (
-        <div key={path} className="text-size-code font-mono leading-5 text-token-description-foreground">
+        <div
+          key={path}
+          className="text-size-code font-mono leading-5 text-token-description-foreground"
+        >
           {path}
         </div>
       ))}
@@ -159,11 +168,7 @@ function FileSystemPermissionDetail({
 
 function PermissionDetail({ detail }: { detail: CodexPermissionRequestDetail }) {
   if (detail.kind === "network") {
-    return (
-      <LabeledPermissionDetail label="Network">
-        Internet access
-      </LabeledPermissionDetail>
-    );
+    return <LabeledPermissionDetail label="Network">Internet access</LabeledPermissionDetail>;
   }
 
   return <FileSystemPermissionDetail access={detail.access} paths={detail.paths} />;
@@ -182,9 +187,7 @@ function PermissionBody({
   return (
     <div className="flex flex-col gap-1 px-4 pb-1 text-sm">
       {normalizedReason ? (
-        <LabeledPermissionDetail label="Reason">
-          {normalizedReason}
-        </LabeledPermissionDetail>
+        <LabeledPermissionDetail label="Reason">{normalizedReason}</LabeledPermissionDetail>
       ) : null}
       {details.map((detail) => (
         <PermissionDetail key={JSON.stringify(detail)} detail={detail} />
@@ -217,11 +220,7 @@ export function CodexPermissionRequestCard({
           await onRespond(request.requestId, buildDeniedResponse());
           return;
         }
-        const answer = getRequestQuestionnaireAnswer(
-          nextRequest,
-          state,
-          questionId,
-        );
+        const answer = getRequestQuestionnaireAnswer(nextRequest, state, questionId);
         const selected = answer?.selectedOptionId;
         const freeform = answer?.freeformText?.trim() ?? "";
 

@@ -7,6 +7,7 @@ This document is the source of truth for the public Nodex landing site and its G
 The landing site lives in `packages/landing`. It is a small Vite-built static site that intentionally stays separate from the Electron renderer and its design-token stack.
 
 Why it is separate:
+
 - the site is published to `https://nodex.jyu.app`
 - it should stay fast and low-risk
 - it should not inherit desktop-app-only code, CSS, or runtime assumptions
@@ -26,6 +27,7 @@ pnpm run preview:landing
 ## Package Layout
 
 `packages/landing` contains:
+
 - `index.html` for the homepage
 - `changelog/index.html` for the generated changelog page
 - `privacy/index.html`
@@ -45,6 +47,7 @@ The changelog page at `/changelog/` is also build-time data: it reads the root `
 Builds happen in this repository. Deployment publishes the generated `packages/landing/dist/` output into the root of `NodexApp/NodexApp.github.io`.
 
 Repository roles:
+
 - `junyudev/nodex`: source code, build logic, CI, and documentation
 - `NodexApp/NodexApp.github.io`: published static artifact only
 
@@ -104,6 +107,7 @@ production custom-domain contract and must remain in the generated Pages tree;
 ## Content Notes
 
 The v1 site is intentionally narrow:
+
 - a single-screen homepage
 - a generated changelog page at `/changelog/`
 - a primary release CTA
@@ -111,6 +115,7 @@ The v1 site is intentionally narrow:
 - minimal privacy and terms pages
 
 Release CTA contract:
+
 - default CTA target: `https://github.com/junyudev/nodex/releases/latest/download/Nodex-latest-arm64.dmg`
 - x64 CTA target: `https://github.com/junyudev/nodex/releases/latest/download/Nodex-latest-x64.dmg`
 - browser-side detection is conservative; ambiguous clients stay on arm64 and only explicit Intel evidence switches to x64

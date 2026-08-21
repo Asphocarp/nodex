@@ -22,23 +22,29 @@ function installFakeGhEnvironment(cwd: string, scriptBody: string): string {
   const binDir = path.join(cwd, "bin");
   const logPath = path.join(cwd, "commands.log");
   mkdirSync(binDir, { recursive: true });
-  writeFileSync(path.join(binDir, "git"), [
-    "#!/usr/bin/env node",
-    "const args = process.argv.slice(2);",
-    "if (args[0] === 'remote' && args[1] === '-v') {",
-    "  console.log('origin\\thttps://github.com/acme/project.git (fetch)');",
-    "  process.exit(0);",
-    "}",
-    "process.exit(0);",
-  ].join("\n"));
-  writeFileSync(path.join(binDir, "gh"), [
-    "#!/usr/bin/env node",
-    "const fs = require('node:fs');",
-    `const logPath = ${JSON.stringify(logPath)};`,
-    "const args = process.argv.slice(2);",
-    "fs.appendFileSync(logPath, args.join('\\u0000') + '\\n');",
-    scriptBody,
-  ].join("\n"));
+  writeFileSync(
+    path.join(binDir, "git"),
+    [
+      "#!/usr/bin/env node",
+      "const args = process.argv.slice(2);",
+      "if (args[0] === 'remote' && args[1] === '-v') {",
+      "  console.log('origin\\thttps://github.com/acme/project.git (fetch)');",
+      "  process.exit(0);",
+      "}",
+      "process.exit(0);",
+    ].join("\n"),
+  );
+  writeFileSync(
+    path.join(binDir, "gh"),
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      `const logPath = ${JSON.stringify(logPath)};`,
+      "const args = process.argv.slice(2);",
+      "fs.appendFileSync(logPath, args.join('\\u0000') + '\\n');",
+      scriptBody,
+    ].join("\n"),
+  );
   chmodSync(path.join(binDir, "git"), 0o755);
   chmodSync(path.join(binDir, "gh"), 0o755);
   process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
@@ -63,7 +69,9 @@ describe("github PR service", () => {
     const prStatus = await readGhPrStatus({ cwd });
 
     expect(status.available).toBe(false);
-    expect(["missing-gh", "missing-remote", "not-authenticated"].includes(status.status)).toBe(true);
+    expect(["missing-gh", "missing-remote", "not-authenticated"].includes(status.status)).toBe(
+      true,
+    );
     expect(prStatus.available).toBe(false);
     expect(prStatus.status).toBe("disabled");
     expect(prStatus.disabledReason).toBe(status.status);
@@ -71,15 +79,18 @@ describe("github PR service", () => {
 
   test("reads pull request review comments from the inline comments API", async () => {
     const cwd = createTempDir("nodex-gh-pr-comments-");
-    installFakeGhEnvironment(cwd, [
-      "if (args[0] === '--version') process.exit(0);",
-      "if (args[0] === 'auth' && args[1] === 'status') process.exit(0);",
-      "if (args[0] === 'api') {",
-      "  console.log(JSON.stringify([{ id: 12, path: 'src/example.ts', line: 8, side: 'RIGHT', start_line: 6, start_side: 'RIGHT', body: 'Tighten this', user: { login: 'octo' }, html_url: 'https://github.test/c/12', in_reply_to_id: 9, outdated: false }]));",
-      "  process.exit(0);",
-      "}",
-      "process.exit(1);",
-    ].join("\n"));
+    installFakeGhEnvironment(
+      cwd,
+      [
+        "if (args[0] === '--version') process.exit(0);",
+        "if (args[0] === 'auth' && args[1] === 'status') process.exit(0);",
+        "if (args[0] === 'api') {",
+        "  console.log(JSON.stringify([{ id: 12, path: 'src/example.ts', line: 8, side: 'RIGHT', start_line: 6, start_side: 'RIGHT', body: 'Tighten this', user: { login: 'octo' }, html_url: 'https://github.test/c/12', in_reply_to_id: 9, outdated: false }]));",
+        "  process.exit(0);",
+        "}",
+        "process.exit(1);",
+      ].join("\n"),
+    );
 
     const result = await readGhPrComments({ cwd, prNumber: 7 });
 
@@ -97,19 +108,22 @@ describe("github PR service", () => {
 
   test("posts inline review comments through gh api with commit and range fields", async () => {
     const cwd = createTempDir("nodex-gh-pr-inline-");
-    const logPath = installFakeGhEnvironment(cwd, [
-      "if (args[0] === '--version') process.exit(0);",
-      "if (args[0] === 'auth' && args[1] === 'status') process.exit(0);",
-      "if (args[0] === 'pr' && args[1] === 'view') {",
-      "  console.log(JSON.stringify({ headRefOid: 'abc123' }));",
-      "  process.exit(0);",
-      "}",
-      "if (args[0] === 'api') {",
-      "  console.log(JSON.stringify({ html_url: 'https://github.test/c/99' }));",
-      "  process.exit(0);",
-      "}",
-      "process.exit(1);",
-    ].join("\n"));
+    const logPath = installFakeGhEnvironment(
+      cwd,
+      [
+        "if (args[0] === '--version') process.exit(0);",
+        "if (args[0] === 'auth' && args[1] === 'status') process.exit(0);",
+        "if (args[0] === 'pr' && args[1] === 'view') {",
+        "  console.log(JSON.stringify({ headRefOid: 'abc123' }));",
+        "  process.exit(0);",
+        "}",
+        "if (args[0] === 'api') {",
+        "  console.log(JSON.stringify({ html_url: 'https://github.test/c/99' }));",
+        "  process.exit(0);",
+        "}",
+        "process.exit(1);",
+      ].join("\n"),
+    );
 
     const result = await createGhPrComment({
       type: "inline",
@@ -136,11 +150,14 @@ describe("github PR service", () => {
 
   test("rejects empty pull request comment bodies before posting", async () => {
     const cwd = createTempDir("nodex-gh-pr-empty-");
-    installFakeGhEnvironment(cwd, [
-      "if (args[0] === '--version') process.exit(0);",
-      "if (args[0] === 'auth' && args[1] === 'status') process.exit(0);",
-      "process.exit(0);",
-    ].join("\n"));
+    installFakeGhEnvironment(
+      cwd,
+      [
+        "if (args[0] === '--version') process.exit(0);",
+        "if (args[0] === 'auth' && args[1] === 'status') process.exit(0);",
+        "process.exit(0);",
+      ].join("\n"),
+    );
 
     const result = await createGhPrComment({
       cwd,

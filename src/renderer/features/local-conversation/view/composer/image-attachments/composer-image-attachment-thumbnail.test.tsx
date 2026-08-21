@@ -57,8 +57,7 @@ describe("ComposerImageAttachmentThumbnail", () => {
 
     expect(onRemove).toHaveBeenCalledWith("image-1");
     expect(onOpen).not.toHaveBeenCalled();
-    expect(remove.parentElement?.getAttribute("data-composer-image-attachment-size"))
-      .toBe("54");
+    expect(remove.parentElement?.getAttribute("data-composer-image-attachment-size")).toBe("54");
   });
 
   test("exposes upload progress only for real uploading state", () => {
@@ -77,8 +76,11 @@ describe("ComposerImageAttachmentThumbnail", () => {
     );
 
     expect(view.queryByRole("button", { name: "diagram.png" })).toBeNull();
-    expect(view.getByRole("progressbar", { name: "Uploading diagram.png" })
-      .getAttribute("aria-valuenow")).toBe("42");
+    expect(
+      view
+        .getByRole("progressbar", { name: "Uploading diagram.png" })
+        .getAttribute("aria-valuenow"),
+    ).toBe("42");
   });
 
   test("renders a restored local source through the trusted file display URL", () => {
@@ -102,7 +104,8 @@ describe("ComposerImageAttachmentThumbnail", () => {
       />,
     );
 
-    expect(view.getByAltText("User attachment").getAttribute("src"))
-      .toBe("file:///managed/diagram.png");
+    expect(view.getByAltText("User attachment").getAttribute("src")).toBe(
+      "file:///managed/diagram.png",
+    );
   });
 });

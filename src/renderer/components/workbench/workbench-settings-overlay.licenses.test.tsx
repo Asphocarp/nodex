@@ -7,10 +7,7 @@ import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-s
 import { installWindowApi } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";
 import { SettingsRouteShell } from "./workbench-settings-route-shell";
-import {
-  buildSettingsPath,
-  OPEN_SOURCE_LICENSES_SETTINGS_PATH,
-} from "./workbench-settings-routes";
+import { buildSettingsPath, OPEN_SOURCE_LICENSES_SETTINGS_PATH } from "./workbench-settings-routes";
 
 const PROJECTS = [
   {
@@ -118,11 +115,7 @@ beforeEach(() => {
 
 describe("SettingsRouteShell open source licenses", () => {
   test("opens the bundled notices from General and returns to the row", async () => {
-    installSettingsWindowApi([
-      "NODEX THIRD-PARTY NOTICES",
-      "",
-      "react@19.2.7 — MIT",
-    ].join("\n"));
+    installSettingsWindowApi(["NODEX THIRD-PARTY NOTICES", "", "react@19.2.7 — MIT"].join("\n"));
 
     const view = render(
       <SettingsLicensesHarness initialPath={buildSettingsPath("general-settings")} />,
@@ -137,9 +130,7 @@ describe("SettingsRouteShell open source licenses", () => {
 
     view.getByText("Open source licenses");
     const notices = await view.findByRole("document");
-    expect(notices.getAttribute("aria-label")).toContain(
-      "react@19.2.7 — MIT",
-    );
+    expect(notices.getAttribute("aria-label")).toContain("react@19.2.7 — MIT");
     expect(invokedChannels).toContain("settings:third-party-notices:get");
 
     await act(async () => {

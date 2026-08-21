@@ -13,13 +13,12 @@ describe("formatDatabasePropertyDisplayValue", () => {
     expect(formatDatabasePropertyDisplayValue({ valueType: "select", config }, "p1")).toBe(
       "High priority",
     );
-    expect(formatDatabasePropertyDisplayValue(
-      { valueType: "multi_select", config },
-      ["p2", "p1"],
-    )).toBe("Later High priority");
-    expect(formatDatabasePropertyDisplayValue({ valueType: "date", config: {} }, "2026-07-16")).toBe(
-      "2026-07-16",
-    );
+    expect(
+      formatDatabasePropertyDisplayValue({ valueType: "multi_select", config }, ["p2", "p1"]),
+    ).toBe("Later High priority");
+    expect(
+      formatDatabasePropertyDisplayValue({ valueType: "date", config: {} }, "2026-07-16"),
+    ).toBe("2026-07-16");
     expect(formatDatabasePropertyDisplayValue({ valueType: "number", config: {} }, 12.5)).toBe(
       "12.5",
     );

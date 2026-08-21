@@ -32,10 +32,7 @@ function readServerSection(
   }
 }
 
-function findProjectConfig(
-  cwd: string,
-  exists: (filePath: string) => boolean,
-): string | null {
+function findProjectConfig(cwd: string, exists: (filePath: string) => boolean): string | null {
   let dir = cwd;
   for (;;) {
     const candidate = path.join(dir, ".nodex", "config.toml");

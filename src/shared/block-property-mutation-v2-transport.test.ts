@@ -5,9 +5,7 @@ import {
   blockPropertyMutationHttpStatusV2,
   blockPropertyMutationTransportFailureV2,
 } from "./block-property-mutation-v2-transport";
-import {
-  parseLibraryBlockPropertyMutationCommandResultV2,
-} from "./block-property-mutations-v2";
+import { parseLibraryBlockPropertyMutationCommandResultV2 } from "./block-property-mutations-v2";
 const request = {
   mutationId: "mutation-v2-1",
   projectId: "project-1",
@@ -60,13 +58,13 @@ describe("Block property mutation v2 transport binding", () => {
     });
     if (!exposed.ok) throw new Error(exposed.error.message);
     expect("projectId" in exposed.value).toBe(false);
-    expect(parseLibraryBlockPropertyMutationCommandResultV2(exposed)).toEqual(
-      exposed,
-    );
-    expect(() => parseLibraryBlockPropertyMutationCommandResultV2({
-      ...exposed,
-      value: { ...exposed.value, projectId: "forged" },
-    })).toThrow("projectId");
+    expect(parseLibraryBlockPropertyMutationCommandResultV2(exposed)).toEqual(exposed);
+    expect(() =>
+      parseLibraryBlockPropertyMutationCommandResultV2({
+        ...exposed,
+        value: { ...exposed.value, projectId: "forged" },
+      }),
+    ).toThrow("projectId");
   });
 
   test("binds Library mutations without accepting Project scope or attribution", () => {
@@ -131,11 +129,9 @@ describe("Block property mutation v2 transport binding", () => {
   });
 
   test("rejects malformed, cross-Project, and invalid host identity inputs", () => {
-    const wrongProject = bindTrustedBlockPropertyMutationV2(
-      request,
-      "project-2",
-      { actor: { kind: "http_loopback" } },
-    );
+    const wrongProject = bindTrustedBlockPropertyMutationV2(request, "project-2", {
+      actor: { kind: "http_loopback" },
+    });
     expect(wrongProject).toMatchObject({
       ok: false,
       error: {
@@ -157,14 +153,10 @@ describe("Block property mutation v2 transport binding", () => {
       },
     });
 
-    const invalidHost = bindTrustedBlockPropertyMutationV2(
-      request,
-      "project-1",
-      {
-        actor: { kind: undefined } as never,
-        clientSessionId: "renderer-7",
-      },
-    );
+    const invalidHost = bindTrustedBlockPropertyMutationV2(request, "project-1", {
+      actor: { kind: undefined } as never,
+      clientSessionId: "renderer-7",
+    });
     expect(invalidHost).toMatchObject({
       ok: false,
       error: {
@@ -202,10 +194,7 @@ describe("Block property mutation v2 transport binding", () => {
     });
     if (!bound.ok) throw new Error(bound.error.message);
     expect(
-      blockPropertyMutationTransportFailureV2(
-        bound.value,
-        new Error("writer unavailable"),
-      ),
+      blockPropertyMutationTransportFailureV2(bound.value, new Error("writer unavailable")),
     ).toEqual({
       ok: false,
       error: {

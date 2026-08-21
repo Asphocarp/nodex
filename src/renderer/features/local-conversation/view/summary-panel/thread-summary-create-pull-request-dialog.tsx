@@ -1,4 +1,9 @@
-import { ExternalLink, GitBranch, GitPullRequest, PencilLine } from "@/components/shared/icons/generic-icons";
+import {
+  ExternalLink,
+  GitBranch,
+  GitPullRequest,
+  PencilLine,
+} from "@/components/shared/icons/generic-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { NodexButton } from "@/components/ui/button";
@@ -58,9 +63,14 @@ function getCommitMessageResultError(result: GitCommitMessageGenerateResult): st
   return result.errorMessage ?? (result.stderr.trim() || "Could not generate a commit message.");
 }
 
-function getPullRequestMessageResultError(result: GitPullRequestMessageGenerateResult): string | null {
+function getPullRequestMessageResultError(
+  result: GitPullRequestMessageGenerateResult,
+): string | null {
   if (result.status === "success" && result.title && result.body) return null;
-  return result.errorMessage ?? (result.stderr.trim() || "Could not generate pull request title and body.");
+  return (
+    result.errorMessage ??
+    (result.stderr.trim() || "Could not generate pull request title and body.")
+  );
 }
 
 function getPullRequestMutationError(result: GhPrMutationResult): string | null {
@@ -87,7 +97,11 @@ function getCreatePullRequestStatusMessage({
   if (!status.currentBranch) return "Branch information unavailable.";
   if (!status.defaultBranch) return "Default branch information unavailable.";
   if (pullRequest?.available === false) {
-    return getGhAvailabilityMessage(pullRequest.disabledReason) ?? (pullRequest.message ?? "GitHub CLI unavailable.");
+    return (
+      getGhAvailabilityMessage(pullRequest.disabledReason) ??
+      pullRequest.message ??
+      "GitHub CLI unavailable."
+    );
   }
   if (pullRequest?.status === "ready") return "A pull request already exists for this branch.";
   if (status.hasUncommittedChanges) return "Commit and push local changes before creating a PR.";
@@ -145,13 +159,14 @@ export function ThreadSummaryCreatePullRequestDialog({
     setReadState((current) => ({ ...current, loading: true }));
     setInlineError(null);
 
-    void getGitWorkerClient().request({ method: "action-status", params: { cwd } })
+    void getGitWorkerClient()
+      .request({ method: "action-status", params: { cwd } })
       .then(async (result) => {
         if (cancelled) return;
         const status = result as GitActionStatusResult;
         let pullRequest: GhPrStatusResult | null = null;
         if (status.isGitRepository && status.currentBranch) {
-          pullRequest = await invoke("gh-pr-status", { cwd }) as GhPrStatusResult;
+          pullRequest = (await invoke("gh-pr-status", { cwd })) as GhPrStatusResult;
         }
         if (!cancelled) setReadState({ loading: false, status, pullRequest });
       })
@@ -167,21 +182,22 @@ export function ThreadSummaryCreatePullRequestDialog({
   }, [cwd, onWorkflowChange, open]);
 
   const statusMessage = getCreatePullRequestStatusMessage(readState);
-  const existingPullRequestUrl = readState.pullRequest?.status === "ready"
-    ? readState.pullRequest.url
-    : null;
+  const existingPullRequestUrl =
+    readState.pullRequest?.status === "ready" ? readState.pullRequest.url : null;
   const ghBlocked = Boolean(readState.pullRequest?.available === false);
   const canCreate = Boolean(
-    cwd
-    && readState.status?.isGitRepository
-    && readState.status.currentBranch
-    && readState.status.defaultBranch
-    && !readState.loading
-    && !busy
-    && !existingPullRequestUrl
-    && !ghBlocked,
+    cwd &&
+    readState.status?.isGitRepository &&
+    readState.status.currentBranch &&
+    readState.status.defaultBranch &&
+    !readState.loading &&
+    !busy &&
+    !existingPullRequestUrl &&
+    !ghBlocked,
   );
-  const effectiveIncludeLocalChanges = Boolean(includeLocalChanges && readState.status?.hasUncommittedChanges);
+  const effectiveIncludeLocalChanges = Boolean(
+    includeLocalChanges && readState.status?.hasUncommittedChanges,
+  );
 
   const branchLabel = useMemo(() => {
     const head = readState.status?.currentBranch ?? "-";
@@ -200,185 +216,195 @@ export function ThreadSummaryCreatePullRequestDialog({
   const cancelActiveOperation = useCallback(() => {
     if (!activeOperationId) return;
     const operationId = activeOperationId;
-    void invoke("git:action:cancel", { operationId })
-      .finally(() => {
-        setActiveOperationId((current) => current === operationId ? null : current);
-        onWorkflowChange?.(null);
-        onOpenChange(false);
-      });
+    void invoke("git:action:cancel", { operationId }).finally(() => {
+      setActiveOperationId((current) => (current === operationId ? null : current));
+      onWorkflowChange?.(null);
+      onOpenChange(false);
+    });
   }, [activeOperationId, onOpenChange, onWorkflowChange]);
 
-  const finishWithError = useCallback((message: string) => {
-    setInlineError(message);
-    onErrorMessage(message);
-  }, [onErrorMessage]);
+  const finishWithError = useCallback(
+    (message: string) => {
+      setInlineError(message);
+      onErrorMessage(message);
+    },
+    [onErrorMessage],
+  );
 
-  const runCreatePullRequest = useCallback(async ({
-    draft,
-    openInBrowser,
-  }: {
-    draft: boolean;
-    openInBrowser: boolean;
-  }) => {
-    const initialStatus = readState.status;
-    if (!cwd || busy || !canCreate || !initialStatus?.currentBranch || !initialStatus.defaultBranch) return;
+  const runCreatePullRequest = useCallback(
+    async ({ draft, openInBrowser }: { draft: boolean; openInBrowser: boolean }) => {
+      const initialStatus = readState.status;
+      if (
+        !cwd ||
+        busy ||
+        !canCreate ||
+        !initialStatus?.currentBranch ||
+        !initialStatus.defaultBranch
+      )
+        return;
 
-    const operationId = createGitActionOperationId();
-    setBusy(true);
-    setActiveOperationId(operationId);
-    setInlineError(null);
-    onErrorMessage(null);
+      const operationId = createGitActionOperationId();
+      setBusy(true);
+      setActiveOperationId(operationId);
+      setInlineError(null);
+      onErrorMessage(null);
 
-    try {
-      let latestStatus = initialStatus;
-      let nextTitle = title.trim();
-      let nextBody = body.trim();
+      try {
+        let latestStatus = initialStatus;
+        let nextTitle = title.trim();
+        let nextBody = body.trim();
 
-      if (effectiveIncludeLocalChanges) {
-        onWorkflowChange?.({
-          workflow: "create-pull-request",
-          phase: "generating-commit-message",
-          operationId,
-        });
-        const generatedCommit = await invoke("git:action:commit-message:generate", {
-          cwd,
-          hostId,
-          draftMessage: "",
-          includeUnstaged: true,
-          operationId,
-        }) as GitCommitMessageGenerateResult;
-        const commitMessageError = getCommitMessageResultError(generatedCommit);
-        if (commitMessageError) {
-          finishWithError(commitMessageError);
-          return;
+        if (effectiveIncludeLocalChanges) {
+          onWorkflowChange?.({
+            workflow: "create-pull-request",
+            phase: "generating-commit-message",
+            operationId,
+          });
+          const generatedCommit = (await invoke("git:action:commit-message:generate", {
+            cwd,
+            hostId,
+            draftMessage: "",
+            includeUnstaged: true,
+            operationId,
+          })) as GitCommitMessageGenerateResult;
+          const commitMessageError = getCommitMessageResultError(generatedCommit);
+          if (commitMessageError) {
+            finishWithError(commitMessageError);
+            return;
+          }
+
+          onWorkflowChange?.({
+            workflow: "create-pull-request",
+            phase: "committing",
+            operationId,
+          });
+          const commitResult = (await invoke("git:action:commit", {
+            cwd,
+            hostId,
+            message: generatedCommit.message ?? "",
+            includeUnstaged: false,
+            nextStep: "commit",
+            operationId,
+          })) as GitActionMutationResult;
+          const commitError = getGitActionResultError(commitResult);
+          if (commitError) {
+            finishWithError(commitError);
+            return;
+          }
+
+          latestStatus = await getGitWorkerClient().request({
+            method: "action-status",
+            params: { cwd },
+          });
+        }
+
+        if (shouldPushBeforePullRequest(latestStatus)) {
+          onWorkflowChange?.({
+            workflow: "create-pull-request",
+            phase: "pushing",
+            operationId,
+          });
+          const pushResult = (await invoke("git:action:push", {
+            cwd,
+            operationId,
+          })) as GitActionMutationResult;
+          const pushError = getGitActionResultError(pushResult);
+          if (pushError) {
+            finishWithError(pushError);
+            return;
+          }
+
+          latestStatus = await getGitWorkerClient().request({
+            method: "action-status",
+            params: { cwd },
+          });
+        }
+
+        if (!nextTitle || !nextBody) {
+          onWorkflowChange?.({
+            workflow: "create-pull-request",
+            phase: "generating-pr-message",
+            operationId,
+          });
+          const generatedPullRequest = (await invoke("git:action:pull-request-message:generate", {
+            cwd,
+            hostId,
+            title: nextTitle,
+            body: nextBody,
+            headBranch: latestStatus.currentBranch,
+            baseBranch: latestStatus.defaultBranch,
+            operationId,
+          })) as GitPullRequestMessageGenerateResult;
+          const pullRequestMessageError = getPullRequestMessageResultError(generatedPullRequest);
+          if (pullRequestMessageError) {
+            finishWithError(pullRequestMessageError);
+            return;
+          }
+
+          nextTitle = generatedPullRequest.title ?? "";
+          nextBody = generatedPullRequest.body ?? "";
+          setTitle(nextTitle);
+          setBody(nextBody);
         }
 
         onWorkflowChange?.({
           workflow: "create-pull-request",
-          phase: "committing",
+          phase: "creating-pr",
           operationId,
         });
-        const commitResult = await invoke("git:action:commit", {
+        const result = (await invoke("gh-pr-create", {
           cwd,
-          hostId,
-          message: generatedCommit.message ?? "",
-          includeUnstaged: false,
-          nextStep: "commit",
-          operationId,
-        }) as GitActionMutationResult;
-        const commitError = getGitActionResultError(commitResult);
-        if (commitError) {
-          finishWithError(commitError);
-          return;
-        }
-
-        latestStatus = await getGitWorkerClient().request({
-          method: "action-status",
-          params: { cwd },
-        });
-      }
-
-      if (shouldPushBeforePullRequest(latestStatus)) {
-        onWorkflowChange?.({
-          workflow: "create-pull-request",
-          phase: "pushing",
-          operationId,
-        });
-        const pushResult = await invoke("git:action:push", { cwd, operationId }) as GitActionMutationResult;
-        const pushError = getGitActionResultError(pushResult);
-        if (pushError) {
-          finishWithError(pushError);
-          return;
-        }
-
-        latestStatus = await getGitWorkerClient().request({
-          method: "action-status",
-          params: { cwd },
-        });
-      }
-
-      if (!nextTitle || !nextBody) {
-        onWorkflowChange?.({
-          workflow: "create-pull-request",
-          phase: "generating-pr-message",
-          operationId,
-        });
-        const generatedPullRequest = await invoke("git:action:pull-request-message:generate", {
-          cwd,
-          hostId,
           title: nextTitle,
           body: nextBody,
-          headBranch: latestStatus.currentBranch,
-          baseBranch: latestStatus.defaultBranch,
-          operationId,
-        }) as GitPullRequestMessageGenerateResult;
-        const pullRequestMessageError = getPullRequestMessageResultError(generatedPullRequest);
-        if (pullRequestMessageError) {
-          finishWithError(pullRequestMessageError);
+          base: latestStatus.defaultBranch,
+          head: latestStatus.currentBranch,
+          draft,
+        })) as GhPrMutationResult;
+        const createError = getPullRequestMutationError(result);
+        if (createError) {
+          finishWithError(createError);
           return;
         }
 
-        nextTitle = generatedPullRequest.title ?? "";
-        nextBody = generatedPullRequest.body ?? "";
-        setTitle(nextTitle);
-        setBody(nextBody);
+        if (openInBrowser) openPullRequestUrl(result.url);
+        onCompleted?.();
+        onOpenChange(false);
+      } catch (error) {
+        finishWithError(error instanceof Error ? error.message : "Could not create pull request.");
+      } finally {
+        setBusy(false);
+        setActiveOperationId((current) => (current === operationId ? null : current));
+        onWorkflowChange?.(null);
       }
-
-      onWorkflowChange?.({
-        workflow: "create-pull-request",
-        phase: "creating-pr",
-        operationId,
-      });
-      const result = await invoke("gh-pr-create", {
-        cwd,
-        title: nextTitle,
-        body: nextBody,
-        base: latestStatus.defaultBranch,
-        head: latestStatus.currentBranch,
-        draft,
-      }) as GhPrMutationResult;
-      const createError = getPullRequestMutationError(result);
-      if (createError) {
-        finishWithError(createError);
-        return;
-      }
-
-      if (openInBrowser) openPullRequestUrl(result.url);
-      onCompleted?.();
-      onOpenChange(false);
-    } catch (error) {
-      finishWithError(error instanceof Error ? error.message : "Could not create pull request.");
-    } finally {
-      setBusy(false);
-      setActiveOperationId((current) => current === operationId ? null : current);
-      onWorkflowChange?.(null);
-    }
-  }, [
-    body,
-    busy,
-    canCreate,
-    cwd,
-    effectiveIncludeLocalChanges,
-    finishWithError,
-    hostId,
-    onCompleted,
-    onErrorMessage,
-    onOpenChange,
-    onWorkflowChange,
-    readState.status,
-    title,
-  ]);
+    },
+    [
+      body,
+      busy,
+      canCreate,
+      cwd,
+      effectiveIncludeLocalChanges,
+      finishWithError,
+      hostId,
+      onCompleted,
+      onErrorMessage,
+      onOpenChange,
+      onWorkflowChange,
+      readState.status,
+      title,
+    ],
+  );
 
   return (
-    <NodexDialog open={open} onOpenChange={(nextOpen) => {
-      if (!nextOpen && busy) return;
-      onOpenChange(nextOpen);
-    }}>
+    <NodexDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && busy) return;
+        onOpenChange(nextOpen);
+      }}
+    >
       <NodexDialogContent size="compact" showCloseButton={false}>
         <NodexDialogTitle className="sr-only">Create PR</NodexDialogTitle>
-        <NodexDialogDescription className="sr-only">
-          {statusMessage}
-        </NodexDialogDescription>
+        <NodexDialogDescription className="sr-only">{statusMessage}</NodexDialogDescription>
         <div className="flex h-9 items-center justify-between gap-3 px-3 text-sm text-token-description-foreground">
           <span className="flex min-w-0 items-center gap-2">
             <GitBranch className="icon-xs shrink-0" />
@@ -419,10 +445,13 @@ export function ThreadSummaryCreatePullRequestDialog({
               }}
               className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 pb-2 text-token-input-foreground outline-none placeholder:text-token-description-foreground disabled:opacity-60"
             />
-            <label className={cn(
-              "relative flex items-center gap-2 px-3 pt-2 pb-3 text-token-foreground",
-              (busy || readState.loading || !readState.status?.hasUncommittedChanges) && "opacity-60",
-            )}>
+            <label
+              className={cn(
+                "relative flex items-center gap-2 px-3 pt-2 pb-3 text-token-foreground",
+                (busy || readState.loading || !readState.status?.hasUncommittedChanges) &&
+                  "opacity-60",
+              )}
+            >
               <Input
                 type="checkbox"
                 checked={includeLocalChanges}

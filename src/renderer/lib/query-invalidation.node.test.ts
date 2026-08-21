@@ -1,13 +1,10 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, test, vi } from "vitest";
 
-import {
-  invalidateExactQuery,
-  queryFamilyProjectionCursor,
-} from "./query-invalidation";
+import { invalidateExactQuery, queryFamilyProjectionCursor } from "./query-invalidation";
 import { queryKeys } from "./query-keys";
 
-const deferred = <T,>() => {
+const deferred = <T>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
@@ -48,9 +45,7 @@ describe("exact query invalidation", () => {
       second.resolve("fresh committed projection");
       await refresh;
 
-      expect(queryClient.getQueryData(queryKey)).toBe(
-        "fresh committed projection",
-      );
+      expect(queryClient.getQueryData(queryKey)).toBe("fresh committed projection");
       expect(readCount).toBe(2);
     } finally {
       unsubscribe();

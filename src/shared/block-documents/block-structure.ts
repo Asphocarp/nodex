@@ -1,9 +1,5 @@
 import * as Y from "yjs";
-import {
-  MAX_BLOCK_ID_LENGTH,
-  MAX_PAGE_DOCUMENT_XML_PATH_DEPTH,
-  type BlockId,
-} from "./contracts";
+import { MAX_BLOCK_ID_LENGTH, MAX_PAGE_DOCUMENT_XML_PATH_DEPTH, type BlockId } from "./contracts";
 import { assertPortableXmlAttributes } from "./xml-subtree-codec";
 
 export const BLOCK_CONTAINER_NODE_NAME = "blockContainer";
@@ -94,21 +90,17 @@ const readBlockType = (container: Y.XmlElement): string => {
     .toArray()
     .find(
       (child): child is Y.XmlElement =>
-        child instanceof Y.XmlElement &&
-        child.nodeName !== BLOCK_GROUP_NODE_NAME,
+        child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
     );
   return content?.nodeName ?? "unknown";
 };
 
-const readContentElement = (
-  container: Y.XmlElement,
-): Y.XmlElement | undefined =>
+const readContentElement = (container: Y.XmlElement): Y.XmlElement | undefined =>
   container
     .toArray()
     .find(
       (child): child is Y.XmlElement =>
-        child instanceof Y.XmlElement &&
-        child.nodeName !== BLOCK_GROUP_NODE_NAME,
+        child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
     );
 
 const isCanonicalChildlessBlockContent = (
@@ -132,10 +124,7 @@ const isCanonicalChildlessBlockContent = (
   ) {
     return true;
   }
-  if (
-    content.nodeName === "syncedBlockRef" ||
-    content.nodeName === "templateRef"
-  ) {
+  if (content.nodeName === "syncedBlockRef" || content.nodeName === "templateRef") {
     const sourceBlockId = content.getAttribute("sourceBlockId");
     return typeof sourceBlockId === "string" && sourceBlockId.trim().length > 0;
   }
@@ -144,9 +133,7 @@ const isCanonicalChildlessBlockContent = (
   return typeof targetBlockId === "string" && targetBlockId.trim().length > 0;
 };
 
-export const isChildlessBlockContainer = (
-  container: Y.XmlElement,
-): boolean =>
+export const isChildlessBlockContainer = (container: Y.XmlElement): boolean =>
   isCanonicalChildlessBlockContent(readContentElement(container));
 
 export const collectChildlessBlockViolations = (
@@ -166,13 +153,9 @@ export const collectChildlessBlockViolations = (
         .toArray()
         .find(
           (candidate): candidate is Y.XmlElement =>
-            candidate instanceof Y.XmlElement &&
-            candidate.nodeName === BLOCK_GROUP_NODE_NAME,
+            candidate instanceof Y.XmlElement && candidate.nodeName === BLOCK_GROUP_NODE_NAME,
         );
-      if (
-        isCanonicalChildlessBlockContent(content) &&
-        (childGroup?.length ?? 0) > 0
-      ) {
+      if (isCanonicalChildlessBlockContent(content) && (childGroup?.length ?? 0) > 0) {
         const blockId = child.getAttribute(BLOCK_ID_ATTRIBUTE);
         violations.push({
           blockId: typeof blockId === "string" ? blockId : null,
@@ -190,16 +173,14 @@ export const collectChildlessBlockViolations = (
 /** Compatibility aliases while callers migrate to the generic shell term. */
 export type ChildlessReferenceBlockViolation = ChildlessBlockViolation;
 export const isChildlessReferenceBlockContainer = isChildlessBlockContainer;
-export const collectChildlessReferenceBlockViolations =
-  collectChildlessBlockViolations;
+export const collectChildlessReferenceBlockViolations = collectChildlessBlockViolations;
 
 const readPlainText = (container: Y.XmlElement): string => {
   const content = container
     .toArray()
     .find(
       (child): child is Y.XmlElement =>
-        child instanceof Y.XmlElement &&
-        child.nodeName !== BLOCK_GROUP_NODE_NAME,
+        child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
     );
   if (!content) {
     return "";
@@ -208,9 +189,7 @@ const readPlainText = (container: Y.XmlElement): string => {
   for (const node of content.createTreeWalker(() => true)) {
     if (node instanceof Y.XmlText) {
       const text = (node.toDelta() as readonly { readonly insert: unknown }[])
-        .flatMap((operation) =>
-          typeof operation.insert === "string" ? [operation.insert] : [],
-        )
+        .flatMap((operation) => (typeof operation.insert === "string" ? [operation.insert] : []))
         .join("");
       parts.push(text);
     }
@@ -248,8 +227,7 @@ export const scanBlockDocument = (body: Y.XmlFragment): BlockStructureScan => {
         if (context !== "content") {
           issues.push({
             code: "unexpected_xml_node",
-            expected:
-              context === "block_group" ? BLOCK_CONTAINER_NODE_NAME : "element",
+            expected: context === "block_group" ? BLOCK_CONTAINER_NODE_NAME : "element",
             actual: "XmlText",
             path,
           });
@@ -288,8 +266,7 @@ export const scanBlockDocument = (body: Y.XmlFragment): BlockStructureScan => {
       }
 
       let descendantParentId = parentBlockId;
-      let childContext: "block_group" | "block_container" | "content" =
-        "content";
+      let childContext: "block_group" | "block_container" | "content" = "content";
       if (context === "body") {
         if (child.nodeName !== BLOCK_GROUP_NODE_NAME) {
           issues.push({
@@ -299,8 +276,7 @@ export const scanBlockDocument = (body: Y.XmlFragment): BlockStructureScan => {
             path,
           });
         }
-        childContext =
-          child.nodeName === BLOCK_GROUP_NODE_NAME ? "block_group" : "content";
+        childContext = child.nodeName === BLOCK_GROUP_NODE_NAME ? "block_group" : "content";
       } else if (context === "block_group") {
         if (child.nodeName !== BLOCK_CONTAINER_NODE_NAME) {
           issues.push({
@@ -310,10 +286,7 @@ export const scanBlockDocument = (body: Y.XmlFragment): BlockStructureScan => {
             path,
           });
         }
-        childContext =
-          child.nodeName === BLOCK_CONTAINER_NODE_NAME
-            ? "block_container"
-            : "content";
+        childContext = child.nodeName === BLOCK_CONTAINER_NODE_NAME ? "block_container" : "content";
       } else if (child.nodeName === BLOCK_GROUP_NODE_NAME) {
         if (context !== "block_container") {
           issues.push({
@@ -402,9 +375,7 @@ export const scanBlockDocument = (body: Y.XmlFragment): BlockStructureScan => {
   return { blocks, issues };
 };
 
-export const assertValidBlockDocument = (
-  body: Y.XmlFragment,
-): readonly ScannedDocumentBlock[] => {
+export const assertValidBlockDocument = (body: Y.XmlFragment): readonly ScannedDocumentBlock[] => {
   const scan = scanBlockDocument(body);
   if (scan.issues.length > 0) {
     throw new BlockDocumentValidationError(scan.issues);

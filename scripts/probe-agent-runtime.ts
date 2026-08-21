@@ -135,20 +135,22 @@ export function fingerprintGeneratedSchemas(rootPath: string): string {
 function generateSchemaFingerprint(binaryPath: string): string {
   const schemaRoot = mkdtempSync(path.join(os.tmpdir(), "nodex-agent-runtime-schema-"));
   try {
-    execFileSync(binaryPath, [
-      "app-server",
-      "generate-ts",
-      "--experimental",
-      "--out",
-      path.join(schemaRoot, "ts"),
-    ], { stdio: "pipe" });
-    execFileSync(binaryPath, [
-      "app-server",
-      "generate-json-schema",
-      "--experimental",
-      "--out",
-      path.join(schemaRoot, "json"),
-    ], { stdio: "pipe" });
+    execFileSync(
+      binaryPath,
+      ["app-server", "generate-ts", "--experimental", "--out", path.join(schemaRoot, "ts")],
+      { stdio: "pipe" },
+    );
+    execFileSync(
+      binaryPath,
+      [
+        "app-server",
+        "generate-json-schema",
+        "--experimental",
+        "--out",
+        path.join(schemaRoot, "json"),
+      ],
+      { stdio: "pipe" },
+    );
     return fingerprintGeneratedSchemas(schemaRoot);
   } finally {
     rmSync(schemaRoot, { recursive: true, force: true });
@@ -185,7 +187,10 @@ function readSearchCount(value: unknown): number {
   return data.length;
 }
 
-async function createProbeClient(binaryPath: string, stateHome: string): Promise<CodexAppServerClient> {
+async function createProbeClient(
+  binaryPath: string,
+  stateHome: string,
+): Promise<CodexAppServerClient> {
   const client = new CodexAppServerClient({
     binaryPath,
     logStderr: false,
@@ -213,7 +218,9 @@ export async function probeAgentRuntime(input: {
   const expectedStateHome = realpathSync(requestedStateHome);
   const versionOutput = execFileSync(input.binaryPath, ["--version"], { encoding: "utf8" }).trim();
   if (!versionOutput.includes(lock.runtimeVersion)) {
-    throw new Error(`Agent runtime version ${versionOutput} does not match release lock ${lock.runtimeVersion}`);
+    throw new Error(
+      `Agent runtime version ${versionOutput} does not match release lock ${lock.runtimeVersion}`,
+    );
   }
   const protocolSchemaSha256 = generateSchemaFingerprint(input.binaryPath);
   if (protocolSchemaSha256 !== lock.protocolSchemaSha256) {
@@ -251,33 +258,41 @@ export async function probeAgentRuntime(input: {
       const provider = requireObject(entry, `provider[${index}]`);
       return requiredProviderIds.has(requireString(provider.id, `provider[${index}].id`));
     });
-    providers = await Promise.all(supportedProviderEntries.map(async (entry, index): Promise<ProviderSummary> => {
-      const provider = requireObject(entry, `provider[${index}]`);
-      const id = requireString(provider.id, `provider[${index}].id`);
-      const name = requireString(provider.name, `provider[${index}].name`);
-      const modelIds = summarizeModelIds(await client.request<unknown>("interpreter/model/list", {
-        modelProvider: id,
-        includeHidden: false,
-      }));
-      const harnesses = summarizeHarnesses(await client.request<unknown>("interpreter/harness/list", {
-        providerId: id,
-        model: modelIds[0] ?? null,
-      }));
-      return {
-        configuredClaim: typeof provider.configured === "boolean" ? provider.configured : null,
-        envKey: typeof provider.envKey === "string" ? provider.envKey : null,
-        harnesses,
-        id,
-        modelCount: modelIds.length,
-        modelIds: modelIds.slice(0, 20),
-        name,
-        wireApi: typeof provider.wireApi === "string" ? provider.wireApi : null,
-      };
-    }));
+    providers = await Promise.all(
+      supportedProviderEntries.map(async (entry, index): Promise<ProviderSummary> => {
+        const provider = requireObject(entry, `provider[${index}]`);
+        const id = requireString(provider.id, `provider[${index}].id`);
+        const name = requireString(provider.name, `provider[${index}].name`);
+        const modelIds = summarizeModelIds(
+          await client.request<unknown>("interpreter/model/list", {
+            modelProvider: id,
+            includeHidden: false,
+          }),
+        );
+        const harnesses = summarizeHarnesses(
+          await client.request<unknown>("interpreter/harness/list", {
+            providerId: id,
+            model: modelIds[0] ?? null,
+          }),
+        );
+        return {
+          configuredClaim: typeof provider.configured === "boolean" ? provider.configured : null,
+          envKey: typeof provider.envKey === "string" ? provider.envKey : null,
+          harnesses,
+          id,
+          modelCount: modelIds.length,
+          modelIds: modelIds.slice(0, 20),
+          name,
+          wireApi: typeof provider.wireApi === "string" ? provider.wireApi : null,
+        };
+      }),
+    );
 
     for (const requiredProviderId of requiredProviderIds) {
       if (!providers.some((provider) => provider.id === requiredProviderId)) {
-        throw new Error(`Agent runtime provider catalog omits required provider ${requiredProviderId}`);
+        throw new Error(
+          `Agent runtime provider catalog omits required provider ${requiredProviderId}`,
+        );
       }
     }
 
@@ -285,27 +300,37 @@ export async function probeAgentRuntime(input: {
       { providerId: "anthropic", modelId: "claude-fable-5", recommendedHarnessId: "claude-code" },
       { providerId: "kimi-for-coding", modelId: "k3", recommendedHarnessId: "kimi-code" },
       { providerId: "moonshotai", modelId: "kimi-k3", recommendedHarnessId: "kimi-code" },
-      { providerId: "openrouter", modelId: "moonshotai/kimi-k2.7-code", recommendedHarnessId: "kimi-code" },
+      {
+        providerId: "openrouter",
+        modelId: "moonshotai/kimi-k2.7-code",
+        recommendedHarnessId: "kimi-code",
+      },
     ] as const;
-    modelHarnesses = await Promise.all(requiredModelHarnesses.map(async (expected) => {
-      const harnesses = summarizeHarnesses(await client.request<unknown>(
-        "interpreter/harness/list",
-        { providerId: expected.providerId, model: expected.modelId },
-      ));
-      const recommended = harnesses.find((harness) => harness.recommended);
-      if (recommended?.id !== expected.recommendedHarnessId) {
-        throw new Error(
-          `Agent runtime recommended harness ${recommended?.id ?? "<none>"} for ${expected.providerId}/${expected.modelId}; expected ${expected.recommendedHarnessId}`,
+    modelHarnesses = await Promise.all(
+      requiredModelHarnesses.map(async (expected) => {
+        const harnesses = summarizeHarnesses(
+          await client.request<unknown>("interpreter/harness/list", {
+            providerId: expected.providerId,
+            model: expected.modelId,
+          }),
         );
-      }
-      return { ...expected };
-    }));
+        const recommended = harnesses.find((harness) => harness.recommended);
+        if (recommended?.id !== expected.recommendedHarnessId) {
+          throw new Error(
+            `Agent runtime recommended harness ${recommended?.id ?? "<none>"} for ${expected.providerId}/${expected.modelId}; expected ${expected.recommendedHarnessId}`,
+          );
+        }
+        return { ...expected };
+      }),
+    );
 
-    firstResultCount = readSearchCount(await client.request<unknown>("thread/search", {
-      searchTerm: "nodex-conformance-no-match",
-      limit: 2,
-      archived: false,
-    }));
+    firstResultCount = readSearchCount(
+      await client.request<unknown>("thread/search", {
+        searchTerm: "nodex-conformance-no-match",
+        limit: 2,
+        archived: false,
+      }),
+    );
     try {
       await client.request("nodex/conformance/invalid-method", {});
       throw new Error("Agent runtime accepted the conformance invalid method");
@@ -319,11 +344,13 @@ export async function probeAgentRuntime(input: {
   const restartedClient = await createProbeClient(input.binaryPath, expectedStateHome);
   let restartedResultCount = 0;
   try {
-    restartedResultCount = readSearchCount(await restartedClient.request<unknown>("thread/search", {
-      searchTerm: "nodex-conformance-no-match",
-      limit: 2,
-      archived: false,
-    }));
+    restartedResultCount = readSearchCount(
+      await restartedClient.request<unknown>("thread/search", {
+        searchTerm: "nodex-conformance-no-match",
+        limit: 2,
+        archived: false,
+      }),
+    );
   } finally {
     await restartedClient.stop();
   }
@@ -375,16 +402,20 @@ async function main(): Promise<void> {
     : mkdtempSync(path.join(os.tmpdir(), "nodex-agent-runtime-conformance-"));
   const stateHome = path.resolve(explicitStateHome ?? path.join(temporaryRoot!, "home"));
   const outputPath = path.resolve(
-    readOption(argv, "--out")
-      ?? path.join(projectRoot, ".generated", "agent-runtime-conformance", "latest.json"),
+    readOption(argv, "--out") ??
+      path.join(projectRoot, ".generated", "agent-runtime-conformance", "latest.json"),
   );
 
   try {
     const report = await probeAgentRuntime({ binaryPath, stateHome });
     mkdirSync(path.dirname(outputPath), { recursive: true });
-    writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     const stats = statSync(outputPath);
-    if ((stats.mode & 0o077) !== 0) throw new Error(`Conformance report permissions are too broad: ${outputPath}`);
+    if ((stats.mode & 0o077) !== 0)
+      throw new Error(`Conformance report permissions are too broad: ${outputPath}`);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } finally {
     if (temporaryRoot) rmSync(temporaryRoot, { recursive: true, force: true });
@@ -393,7 +424,7 @@ async function main(): Promise<void> {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });

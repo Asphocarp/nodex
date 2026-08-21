@@ -7,8 +7,32 @@ import { MotionGlobalConfig } from "motion";
 import { LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY } from "./local-environment-selection";
 import { type CodexSidebarThreadItem } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
-import { makeAttachedSession, makePanelLayout, makeProject, makeSession } from "./workbench-testkit/workbench-shell-fixtures";
-import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getMountedSessionIds, getMountedSessionRoot, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, installMotionEnabledMatchMediaForTest, installReducedMotionMatchMediaForTest, invokeCalls, mockInvokeImpl, renderWorkbench, requestThreadStreamSnapshotCalls, selectSidebarSession, setInvokeCalls, setMockInvokeImpl, setRequestThreadStreamSnapshotImpl } from "./workbench-testkit/workbench-shell-harness";
+import {
+  makeAttachedSession,
+  makePanelLayout,
+  makeProject,
+  makeSession,
+} from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  getConnectedThreadStagePropsByThreadId,
+  getLastThreadStageActions,
+  getMountedSessionIds,
+  getMountedSessionRoot,
+  getSidebarProjectGroup,
+  getSidebarSection,
+  getThreadRow,
+  getThreadRowTitles,
+  installMotionEnabledMatchMediaForTest,
+  installReducedMotionMatchMediaForTest,
+  invokeCalls,
+  mockInvokeImpl,
+  renderWorkbench,
+  requestThreadStreamSnapshotCalls,
+  selectSidebarSession,
+  setInvokeCalls,
+  setMockInvokeImpl,
+  setRequestThreadStreamSnapshotImpl,
+} from "./workbench-testkit/workbench-shell-harness";
 import type { ProjectSession } from "./workbench-testkit/workbench-shell-fixtures";
 
 describe("workbench session shell / sidebar-core", () => {
@@ -26,9 +50,17 @@ describe("workbench session shell / sidebar-core", () => {
     expect(text.includes("Alpha")).toBe(true);
     expect(text.includes("Database View")).toBe(true);
     expect(text.includes("DB:alpha:board")).toBe(true);
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBe(false);
-    expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha")).toBe(true);
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view")).toBe(true);
+    expect(
+      invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha"),
+    ).toBe(false);
+    expect(
+      invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha"),
+    ).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:get" && call[1] === "session:alpha:database-view",
+      ),
+    ).toBe(true);
   });
 
   test("shows the Chats loading state on the first render instead of flashing the empty state", async () => {
@@ -69,18 +101,20 @@ describe("workbench session shell / sidebar-core", () => {
     expect(screen.getByText("No projectless chats") !== null).toBe(true);
 
     await act(async () => {
-      screen.replaceProjects(initialProjects.map((project) => ({
-        ...project,
-        created: new Date(project.created),
-        updated: new Date(project.updated),
-      })));
+      screen.replaceProjects(
+        initialProjects.map((project) => ({
+          ...project,
+          created: new Date(project.created),
+          updated: new Date(project.updated),
+        })),
+      );
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.filter(
-      (call) => call[0] === "workspace:tasks:list",
-    ).length).toBe(initialSummaryCallCount);
+    expect(invokeCalls.filter((call) => call[0] === "workspace:tasks:list").length).toBe(
+      initialSummaryCallCount,
+    );
     expect(screen.getByText("No projectless chats") !== null).toBe(true);
     expect(screen.queryByText("Loading chats...")).toBe(null);
   });
@@ -102,9 +136,9 @@ describe("workbench session shell / sidebar-core", () => {
 
     expect(screen.getByText("Projectless only chat") !== null).toBe(true);
     expect(screen.queryByText("No projects found.")).toBe(null);
-    expect(invokeCalls.some((call) =>
-      call[0] === "workspace:tasks:list" && call[1] === null
-    )).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === null)).toBe(
+      true,
+    );
   });
 
   test("enters an explicit projectless composition after the final Project disappears", async () => {
@@ -138,8 +172,7 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
 
     await selectSidebarSession(screen.container, "Database View");
-    expect(textContent(screen.container).includes("DB:alpha:board"))
-      .toBe(true);
+    expect(textContent(screen.container).includes("DB:alpha:board")).toBe(true);
     const backButton = screen.getByRole("button", { name: "Back" });
     const forwardButton = screen.getByRole("button", { name: "Forward" });
     expect(backButton.hasAttribute("disabled")).toBe(false);
@@ -149,9 +182,7 @@ describe("workbench session shell / sidebar-core", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(
-      screen.getByRole("button", { name: "Start a projectless chat" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start a projectless chat" })).toBeTruthy();
     expect(forwardButton.hasAttribute("disabled")).toBe(false);
 
     await act(async () => {
@@ -159,8 +190,7 @@ describe("workbench session shell / sidebar-core", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(textContent(screen.container).includes("DB:alpha:board"))
-      .toBe(true);
+    expect(textContent(screen.container).includes("DB:alpha:board")).toBe(true);
   });
 
   test("consumes a staged fork side-panel snapshot only after a real target session enters", async () => {
@@ -176,16 +206,18 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const consumeCalls = invokeCalls.filter((call) =>
-      call[0] === "codex:fork-side-panel-transfer:consume"
+    const consumeCalls = invokeCalls.filter(
+      (call) => call[0] === "codex:fork-side-panel-transfer:consume",
     );
     expect(consumeCalls.length).toBe(1);
-    expect(JSON.stringify(consumeCalls[0]?.[1])).toBe(JSON.stringify({
-      routeKind: "local-thread",
-      targetConversationId: "thread-fork-target",
-      targetProjectSessionId: "session:alpha:fork-target",
-      targetBrowserViewScopeId: "window-session:test",
-    }));
+    expect(JSON.stringify(consumeCalls[0]?.[1])).toBe(
+      JSON.stringify({
+        routeKind: "local-thread",
+        targetConversationId: "thread-fork-target",
+        targetProjectSessionId: "session:alpha:fork-target",
+        targetBrowserViewScopeId: "window-session:test",
+      }),
+    );
   });
 
   test("switches cached DB sessions with one mounted page and restores explicit scroll state", async () => {
@@ -235,31 +267,25 @@ describe("workbench session shell / sidebar-core", () => {
     });
     await waitFor(() => {
       expect(
-        getBoardProjectStore(
-          "alpha",
-          "database-view:alpha:primary-board",
-        ).getSnapshot().loading,
+        getBoardProjectStore("alpha", "database-view:alpha:primary-board").getSnapshot().loading,
       ).toBe(false);
     });
     expect(
-      getBoardProjectStore(
-        "alpha",
-        "database-view:alpha:primary-board",
-      ).getSnapshot().error,
+      getBoardProjectStore("alpha", "database-view:alpha:primary-board").getSnapshot().error,
     ).toBe(null);
     await waitFor(() => {
       expect(
-        getBoardProjectStore(
-          "alpha",
-          "database-view:alpha:primary-board",
-        ).getSnapshot().databaseView?.databaseViewId,
+        getBoardProjectStore("alpha", "database-view:alpha:primary-board").getSnapshot()
+          .databaseView?.databaseViewId,
       ).toBe("view:alpha");
     });
 
-    const alphaSearch = within(getMountedSessionRoot(screen.container))
-      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
-    const alphaScroll = within(getMountedSessionRoot(screen.container))
-      .getByTestId("mock-db-scroll-alpha");
+    const alphaSearch = within(getMountedSessionRoot(screen.container)).getByLabelText(
+      "Mock DB search alpha",
+    ) as HTMLInputElement;
+    const alphaScroll = within(getMountedSessionRoot(screen.container)).getByTestId(
+      "mock-db-scroll-alpha",
+    );
     await act(async () => {
       fireEvent.input(alphaSearch, { target: { value: "status:hot" } });
       alphaScroll.scrollTop = 136;
@@ -290,19 +316,20 @@ describe("workbench session shell / sidebar-core", () => {
     const detailGets = invokeCalls
       .filter((call) => call[0] === "project-sessions:get")
       .map((call) => String(call[1]));
-    expect(JSON.stringify(detailGets)).toBe(JSON.stringify([
-      "session:alpha:work",
-      "session:beta:work",
-    ]));
+    expect(JSON.stringify(detailGets)).toBe(
+      JSON.stringify(["session:alpha:work", "session:beta:work"]),
+    );
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list")).toBe(false);
-    expect(invokeCalls.some((call) =>
-      call[0] === "database:view-window:get" && call[1] === "alpha"
-    )).toBe(false);
+    expect(
+      invokeCalls.some((call) => call[0] === "database:view-window:get" && call[1] === "alpha"),
+    ).toBe(false);
 
-    const restoredAlphaSearch = within(getMountedSessionRoot(screen.container))
-      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
-    const restoredAlphaScroll = within(getMountedSessionRoot(screen.container))
-      .getByTestId("mock-db-scroll-alpha");
+    const restoredAlphaSearch = within(getMountedSessionRoot(screen.container)).getByLabelText(
+      "Mock DB search alpha",
+    ) as HTMLInputElement;
+    const restoredAlphaScroll = within(getMountedSessionRoot(screen.container)).getByTestId(
+      "mock-db-scroll-alpha",
+    );
     expect(restoredAlphaSearch.value).toBe("");
     expect(restoredAlphaScroll.scrollTop).toBe(136);
     expect(restoredAlphaScroll.scrollLeft).toBe(28);
@@ -315,7 +342,7 @@ describe("workbench session shell / sidebar-core", () => {
         title: `Session ${index}`,
         order: index - 1,
         rightFullWidth: true,
-      })
+      }),
     );
     const screen = renderWorkbench({
       sessionsByProject: { alpha: sessions },
@@ -325,8 +352,9 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const firstSearch = within(getMountedSessionRoot(screen.container))
-      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
+    const firstSearch = within(getMountedSessionRoot(screen.container)).getByLabelText(
+      "Mock DB search alpha",
+    ) as HTMLInputElement;
     await act(async () => {
       fireEvent.input(firstSearch, { target: { value: "evict me" } });
       await Promise.resolve();
@@ -341,8 +369,9 @@ describe("workbench session shell / sidebar-core", () => {
     expect(getMountedSessionIds(screen.container)).toEqual(["session:alpha:single-5"]);
 
     await selectSidebarSession(screen.container, "Session 1");
-    const remountedSearch = within(getMountedSessionRoot(screen.container))
-      .getByLabelText("Mock DB search alpha") as HTMLInputElement;
+    const remountedSearch = within(getMountedSessionRoot(screen.container)).getByLabelText(
+      "Mock DB search alpha",
+    ) as HTMLInputElement;
     expect(remountedSearch.value).toBe("");
   });
 
@@ -450,8 +479,9 @@ describe("workbench session shell / sidebar-core", () => {
     expect(within(routeActions).getByRole("button", { name: "Scheduled" }) !== null).toBe(true);
     expect(within(routeActions).getByRole("button", { name: "Plugins" }) !== null).toBe(true);
     expect(scrollArea.getAttribute("data-content-below")).toBe("false");
-    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset"))
-      .toBe("calc(var(--spacing) * 10)");
+    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset")).toBe(
+      "calc(var(--spacing) * 10)",
+    );
 
     const routeActionsText = textContent(routeActions);
     expect(routeActionsText.indexOf("Scheduled") < routeActionsText.indexOf("Plugins")).toBe(true);
@@ -467,8 +497,7 @@ describe("workbench session shell / sidebar-core", () => {
       await Promise.resolve();
     });
     expect(scrollArea.getAttribute("data-content-below")).toBe("true");
-    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset"))
-      .toBe("0px");
+    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset")).toBe("0px");
 
     await act(async () => {
       scrollArea.scrollTop = 120;
@@ -477,8 +506,9 @@ describe("workbench session shell / sidebar-core", () => {
     });
     expect(fixedHeader.getAttribute("data-scrolled-content-under-header")).toBe("true");
     expect(scrollArea.getAttribute("data-content-below")).toBe("false");
-    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset"))
-      .toBe("calc(var(--spacing) * 10)");
+    expect(scrollChrome.style.getPropertyValue("--sidebar-scroll-footer-edge-offset")).toBe(
+      "calc(var(--spacing) * 10)",
+    );
   });
 
   test("renders the Codex sidebar navigation landmark", async () => {
@@ -555,11 +585,14 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "codex:threads:pinned:set"
-      && call[1] === "thread-pin-target"
-      && (call[2] as { pinned?: boolean } | undefined)?.pinned === true
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "codex:threads:pinned:set" &&
+          call[1] === "thread-pin-target" &&
+          (call[2] as { pinned?: boolean } | undefined)?.pinned === true,
+      ),
+    ).toBe(true);
     const updatedRow = getThreadRow(screen.container, "Pin target");
     expect(updatedRow.getAttribute("data-app-action-sidebar-thread-pinned")).toBe("true");
     const updatedButton = updatedRow.querySelector("[data-app-action-sidebar-thread-pin-session]");
@@ -627,22 +660,29 @@ describe("workbench session shell / sidebar-core", () => {
         expect(invokeCalls.some((call) => call[0] === "project-sessions:fork")).toBe(true);
       });
 
-      expect(invokeCalls.some((call) =>
-        call[0] === "worktrees:environments:configs:list-for-workspace"
-        && call[1] === "local"
-        && call[2] === sourceCwd
-      )).toBe(true);
-      expect(invokeCalls.some((call) => {
-        if (call[0] !== "project-sessions:fork" || call[1] !== projectlessSession.id) {
-          return false;
-        }
-        const input = call[2] as {
-          target?: string;
-          localEnvironmentConfigPath?: string | null;
-        };
-        return input.target === "newWorktree"
-          && input.localEnvironmentConfigPath === selectedConfigPath;
-      })).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "worktrees:environments:configs:list-for-workspace" &&
+            call[1] === "local" &&
+            call[2] === sourceCwd,
+        ),
+      ).toBe(true);
+      expect(
+        invokeCalls.some((call) => {
+          if (call[0] !== "project-sessions:fork" || call[1] !== projectlessSession.id) {
+            return false;
+          }
+          const input = call[2] as {
+            target?: string;
+            localEnvironmentConfigPath?: string | null;
+          };
+          return (
+            input.target === "newWorktree" &&
+            input.localEnvironmentConfigPath === selectedConfigPath
+          );
+        }),
+      ).toBe(true);
     } finally {
       if (originalElectronBridge === undefined) {
         Reflect.deleteProperty(window, "electronBridge");
@@ -700,21 +740,20 @@ describe("workbench session shell / sidebar-core", () => {
     });
 
     const actions = getLastThreadStageActions();
-    const forkFromTurn = actions.onForkFromTurn as ((input: {
-      threadId: string;
-      turnId: string;
-      message: string;
-    }) => Promise<void>) | undefined;
+    const forkFromTurn = actions.onForkFromTurn as
+      | ((input: { threadId: string; turnId: string; message: string }) => Promise<void>)
+      | undefined;
     expect(typeof forkFromTurn).toBe("function");
 
     let forkActionResolved = false;
-    const forkAction = forkFromTurn?.({
-      threadId: "thread-fork-source",
-      turnId: "turn-fork-source",
-      message: "Fork from here",
-    }).then(() => {
-      forkActionResolved = true;
-    }) ?? Promise.resolve();
+    const forkAction =
+      forkFromTurn?.({
+        threadId: "thread-fork-source",
+        turnId: "turn-fork-source",
+        message: "Fork from here",
+      }).then(() => {
+        forkActionResolved = true;
+      }) ?? Promise.resolve();
 
     try {
       await waitFor(() => {
@@ -760,12 +799,18 @@ describe("workbench session shell / sidebar-core", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive target"]')).toBe(null);
-    expect(getMountedSessionIds(screen.container).includes("session:alpha:archive-target")).toBe(false);
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:archive"
-      && call[1] === "session:alpha:archive-target"
-    )).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive target"]'),
+    ).toBe(null);
+    expect(getMountedSessionIds(screen.container).includes("session:alpha:archive-target")).toBe(
+      false,
+    );
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "project-sessions:archive" && call[1] === "session:alpha:archive-target",
+      ),
+    ).toBe(true);
   });
 
   test("sidebar archive hover action uses codex thread archive for snapshot-only chats", async () => {
@@ -807,11 +852,14 @@ describe("workbench session shell / sidebar-core", () => {
       await Promise.resolve();
     });
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Snapshot only"]')).toBe(null);
-    expect(invokeCalls.some((call) =>
-      call[0] === "codex:thread:archive"
-      && call[1] === "thread-snapshot-only"
-    )).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Snapshot only"]'),
+    ).toBe(null);
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "codex:thread:archive" && call[1] === "thread-snapshot-only",
+      ),
+    ).toBe(true);
   });
 
   test("sidebar archive pending state is released when snapshot-only archive fails", async () => {
@@ -861,7 +909,9 @@ describe("workbench session shell / sidebar-core", () => {
       fireEvent.click(within(row).getByRole("button", { name: "Archive chat" }));
       await Promise.resolve();
     });
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive failure"]')).toBe(null);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive failure"]'),
+    ).toBe(null);
 
     await act(async () => {
       rejectArchive(new Error("archive failed"));
@@ -870,9 +920,11 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
 
     expect(getThreadRow(screen.container, "Archive failure")).not.toBeNull();
-    expect(__getNodexToastSnapshotForTests().some((toastItem) => (
-      toastItem.kind === "plain" && toastItem.title === "Failed to archive chat"
-    ))).toBe(true);
+    expect(
+      __getNodexToastSnapshotForTests().some(
+        (toastItem) => toastItem.kind === "plain" && toastItem.title === "Failed to archive chat",
+      ),
+    ).toBe(true);
   });
 
   test("sidebar pin button promotes pinned sessions above unpinned siblings", async () => {
@@ -898,8 +950,9 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pinButton = getThreadRow(screen.container, "Second target")
-      .querySelector("[data-app-action-sidebar-thread-pin-session]");
+    const pinButton = getThreadRow(screen.container, "Second target").querySelector(
+      "[data-app-action-sidebar-thread-pin-session]",
+    );
     if (!(pinButton instanceof HTMLButtonElement)) {
       throw new Error("Expected Second target pin button");
     }
@@ -933,8 +986,9 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const unpinButton = getThreadRow(screen.container, "Pinned target")
-      .querySelector("[data-app-action-sidebar-thread-pin-session]");
+    const unpinButton = getThreadRow(screen.container, "Pinned target").querySelector(
+      "[data-app-action-sidebar-thread-pin-session]",
+    );
     if (!(unpinButton instanceof HTMLButtonElement)) {
       throw new Error("Expected Pinned target unpin button");
     }
@@ -948,11 +1002,14 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "codex:threads:pinned:set"
-      && call[1] === "thread-pinned-target"
-      && (call[2] as { pinned?: boolean } | undefined)?.pinned === false
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "codex:threads:pinned:set" &&
+          call[1] === "thread-pinned-target" &&
+          (call[2] as { pinned?: boolean } | undefined)?.pinned === false,
+      ),
+    ).toBe(true);
     const row = getThreadRow(screen.container, "Pinned target");
     expect(row.getAttribute("data-app-action-sidebar-thread-pinned")).toBe("false");
     const pinButton = row.querySelector("[data-app-action-sidebar-thread-pin-session]");
@@ -983,19 +1040,38 @@ describe("workbench session shell / sidebar-core", () => {
     await settleAsyncRender();
 
     const databaseViewRow = getThreadRow(screen.container, "Database View");
-    expect(databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBe(true);
-    expect(databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-session]") !== null).toBe(true);
-    expect(databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-session]")?.getAttribute("aria-label")).toBe("Unpin chat");
+    expect(
+      databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null,
+    ).toBe(true);
+    expect(
+      databaseViewRow.querySelector("[data-app-action-sidebar-thread-pin-session]") !== null,
+    ).toBe(true);
+    expect(
+      databaseViewRow
+        .querySelector("[data-app-action-sidebar-thread-pin-session]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Unpin chat");
 
     const unreadRow = getThreadRow(screen.container, "Unread target");
-    expect(unreadRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBe(true);
-    expect(unreadRow.querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBe(true);
+    expect(unreadRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBe(
+      true,
+    );
+    expect(unreadRow.querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBe(
+      true,
+    );
 
-    const longRow = getThreadRow(screen.container, "Very long session title that should truncate before colliding with row actions");
+    const longRow = getThreadRow(
+      screen.container,
+      "Very long session title that should truncate before colliding with row actions",
+    );
     expect(longRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBe(true);
-    expect(longRow.querySelector("[data-app-action-sidebar-thread-actions-menu]") === null).toBe(true);
+    expect(longRow.querySelector("[data-app-action-sidebar-thread-actions-menu]") === null).toBe(
+      true,
+    );
     expect(longRow.querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBe(true);
-    expect(longRow.querySelector("[data-thread-title]")?.textContent).toBe("Very long session title that should truncate before colliding with row actions");
+    expect(longRow.querySelector("[data-thread-title]")?.textContent).toBe(
+      "Very long session title that should truncate before colliding with row actions",
+    );
   });
 
   test("sidebar title double-click ignores inactive rows and non-title targets", async () => {
@@ -1062,7 +1138,9 @@ describe("workbench session shell / sidebar-core", () => {
     });
     await settleAsyncRender();
 
-    const title = getThreadRow(screen.container, "Rename target").querySelector("[data-thread-title]");
+    const title = getThreadRow(screen.container, "Rename target").querySelector(
+      "[data-thread-title]",
+    );
     if (!(title instanceof HTMLElement)) {
       throw new Error("Expected Rename target title");
     }
@@ -1091,7 +1169,11 @@ describe("workbench session shell / sidebar-core", () => {
     const renameCall = invokeCalls.find((call) => call[0] === "project-sessions:rename");
     expect(renameCall?.[1]).toBe("session:alpha:rename-target");
     expect((renameCall?.[2] as { title?: string } | undefined)?.title).toBe("  hello   world  ");
-    expect(getThreadRow(screen.container, "hello world").getAttribute("data-app-action-sidebar-thread-title")).toBe("hello world");
+    expect(
+      getThreadRow(screen.container, "hello world").getAttribute(
+        "data-app-action-sidebar-thread-title",
+      ),
+    ).toBe("hello world");
   });
 
   test("clicking the Projects section header collapses and expands project rows", async () => {
@@ -1101,7 +1183,9 @@ describe("workbench session shell / sidebar-core", () => {
       await settleAsyncRender();
       await settleAsyncRender();
 
-      const section = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
+      const section = screen.container.querySelector(
+        '[data-app-action-sidebar-section-heading="Projects"]',
+      );
       if (!(section instanceof HTMLElement)) {
         throw new Error("Expected Projects section");
       }
@@ -1113,7 +1197,9 @@ describe("workbench session shell / sidebar-core", () => {
 
       expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
       expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
-      expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
+      expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(
+        true,
+      );
 
       await act(async () => {
         fireEvent.click(toggle);
@@ -1121,10 +1207,18 @@ describe("workbench session shell / sidebar-core", () => {
       });
 
       expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
-      const exitingSectionBody = section.querySelector("[data-app-action-sidebar-section-body-motion]");
+      const exitingSectionBody = section.querySelector(
+        "[data-app-action-sidebar-section-body-motion]",
+      );
       expect(Boolean(exitingSectionBody)).toBe(true);
       expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
-      expect(Boolean(section.querySelector("[data-app-action-sidebar-project-row]")?.closest("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
+      expect(
+        Boolean(
+          section
+            .querySelector("[data-app-action-sidebar-project-row]")
+            ?.closest("[data-app-action-sidebar-section-body-motion]"),
+        ),
+      ).toBe(true);
 
       await act(async () => {
         fireEvent.click(toggle);
@@ -1132,7 +1226,9 @@ describe("workbench session shell / sidebar-core", () => {
       });
 
       expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
-      expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(true);
+      expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBe(
+        true,
+      );
       expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
     } finally {
       restoreMatchMedia();
@@ -1156,7 +1252,9 @@ describe("workbench session shell / sidebar-core", () => {
 
       const projectsSection = getSidebarSection(screen.container, "Projects");
       const chatsSection = getSidebarSection(screen.container, "Chats");
-      const projectsToggle = projectsSection.querySelector("[data-app-action-sidebar-section-toggle]");
+      const projectsToggle = projectsSection.querySelector(
+        "[data-app-action-sidebar-section-toggle]",
+      );
       const chatsToggle = chatsSection.querySelector("[data-app-action-sidebar-section-toggle]");
       if (!(projectsToggle instanceof HTMLElement) || !(chatsToggle instanceof HTMLElement)) {
         throw new Error("Expected sidebar section toggles");
@@ -1169,7 +1267,9 @@ describe("workbench session shell / sidebar-core", () => {
       });
       await settleAsyncRender();
 
-      expect(projectsSection.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+      expect(projectsSection.getAttribute("data-app-action-sidebar-section-collapsed")).toBe(
+        "true",
+      );
       expect(chatsSection.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
 
       await act(async () => {
@@ -1188,12 +1288,18 @@ describe("workbench session shell / sidebar-core", () => {
       });
       await settleAsyncRender();
 
-      expect(getSidebarSection(screen.container, "Projects").getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
-      expect(getSidebarSection(screen.container, "Chats").getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+      expect(
+        getSidebarSection(screen.container, "Projects").getAttribute(
+          "data-app-action-sidebar-section-collapsed",
+        ),
+      ).toBe("true");
+      expect(
+        getSidebarSection(screen.container, "Chats").getAttribute(
+          "data-app-action-sidebar-section-collapsed",
+        ),
+      ).toBe("true");
     } finally {
       restoreMatchMedia();
     }
   });
-
-
 });

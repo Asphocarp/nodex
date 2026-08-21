@@ -3,10 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DatabaseViewConfigV4 } from "../../../shared/database-kernel";
 import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { DatabaseViewConfigEditor } from "./database-view-config-editor";
 
@@ -18,7 +15,12 @@ const properties: readonly DataSourcePropertyRecordV2[] = [
     name: "Status",
     ...testPropertySemantics("select", 2),
     valueType: "select",
-    config: { options: [{ id: "todo", name: "Todo" }, { id: "doing", name: "Doing" }] },
+    config: {
+      options: [
+        { id: "todo", name: "Todo" },
+        { id: "doing", name: "Doing" },
+      ],
+    },
     rankKey: "a",
     lifecycle: "active",
     revision: 1,
@@ -46,12 +48,14 @@ const initialConfig: DatabaseViewConfigV4 = upgradeDatabaseViewConfigV2({
   filter: {
     kind: "group",
     operator: "and",
-    children: [{
-      kind: "clause",
-      propertyId: "status",
-      operator: "not_equals",
-      value: "todo",
-    }],
+    children: [
+      {
+        kind: "clause",
+        propertyId: "status",
+        operator: "not_equals",
+        value: "todo",
+      },
+    ],
   },
   sort: [
     { field: { kind: "property", propertyId: "status" }, direction: "asc", nulls: "last" },

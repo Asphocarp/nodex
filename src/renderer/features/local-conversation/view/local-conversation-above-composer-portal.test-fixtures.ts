@@ -53,11 +53,9 @@ export function buildAboveComposerTodoListBlock(): ThreadTranscriptBlockModel {
     kind: "plan",
     semanticKind: "todoList",
     status: "inProgress",
-    markdownText: [
-      "1. Inspect the portal",
-      "2. Patch the fixed shell",
-      "3. Verify tests",
-    ].join("\n"),
+    markdownText: ["1. Inspect the portal", "2. Patch the fixed shell", "3. Verify tests"].join(
+      "\n",
+    ),
     rawItem: {
       plan: [
         { step: "Inspect the portal", status: "completed" },

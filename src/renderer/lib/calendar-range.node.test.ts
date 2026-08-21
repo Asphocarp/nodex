@@ -41,10 +41,18 @@ describe("calendar range", () => {
   });
 
   test("resolves visible day count", () => {
-    expect(resolveCalendarVisibleDayCount({ mode: "day", multiDayCount: 4, multiWeekCount: 2 })).toBe(1);
-    expect(resolveCalendarVisibleDayCount({ mode: "week", multiDayCount: 4, multiWeekCount: 2 })).toBe(7);
-    expect(resolveCalendarVisibleDayCount({ mode: "multi-day", multiDayCount: 6, multiWeekCount: 2 })).toBe(6);
-    expect(resolveCalendarVisibleDayCount({ mode: "multi-week", multiDayCount: 4, multiWeekCount: 3 })).toBe(21);
+    expect(
+      resolveCalendarVisibleDayCount({ mode: "day", multiDayCount: 4, multiWeekCount: 2 }),
+    ).toBe(1);
+    expect(
+      resolveCalendarVisibleDayCount({ mode: "week", multiDayCount: 4, multiWeekCount: 2 }),
+    ).toBe(7);
+    expect(
+      resolveCalendarVisibleDayCount({ mode: "multi-day", multiDayCount: 6, multiWeekCount: 2 }),
+    ).toBe(6);
+    expect(
+      resolveCalendarVisibleDayCount({ mode: "multi-week", multiDayCount: 4, multiWeekCount: 3 }),
+    ).toBe(21);
   });
 
   test("formats trigger and row labels", () => {
@@ -55,7 +63,11 @@ describe("calendar range", () => {
   });
 
   test("preserves the old four-day centered offset", () => {
-    expect(resolveCalendarRangeAnchorOffset({ mode: "multi-day", multiDayCount: 4, multiWeekCount: 2 })).toBe(-1);
-    expect(resolveCalendarRangeAnchorOffset({ mode: "week", multiDayCount: 4, multiWeekCount: 2 })).toBe(0);
+    expect(
+      resolveCalendarRangeAnchorOffset({ mode: "multi-day", multiDayCount: 4, multiWeekCount: 2 }),
+    ).toBe(-1);
+    expect(
+      resolveCalendarRangeAnchorOffset({ mode: "week", multiDayCount: 4, multiWeekCount: 2 }),
+    ).toBe(0);
   });
 });

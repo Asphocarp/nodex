@@ -94,9 +94,7 @@ export function resolveBoardImportPreviewLabel(
     const sourceTags = new Set(sourceCards[index]?.tags ?? []);
     return (card.tags ?? []).filter((tag) => !sourceTags.has(tag));
   });
-  const sharedAddedTag = addedTags[0]?.find(
-    (tag) => addedTags.every((tags) => tags.includes(tag)),
-  );
+  const sharedAddedTag = addedTags[0]?.find((tag) => addedTags.every((tags) => tags.includes(tag)));
   return sharedAddedTag ? `Add #${sharedAddedTag}` : undefined;
 }
 
@@ -104,7 +102,10 @@ function dedupeTags(tags: readonly string[]): string[] {
   return Array.from(new Set(tags.filter((tag) => tag.length > 0)));
 }
 
-function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: WorkflowStatus): DbViewCardRecord {
+function buildVisibleCardRecord(
+  card: CardInputWithDefaults,
+  targetColumnId: WorkflowStatus,
+): DbViewCardRecord {
   return {
     id: `import:${crypto.randomUUID()}`,
     pageKey: null,
@@ -115,8 +116,8 @@ function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: Wor
     title: card.title,
     richTitle: plainTextToPortableRichText(card.title),
     ...summarizePageDescription(card.description ?? ""),
-    priority: hasOwn(card, "priority") ? card.priority ?? undefined : undefined,
-    estimate: hasOwn(card, "estimate") ? card.estimate ?? undefined : undefined,
+    priority: hasOwn(card, "priority") ? (card.priority ?? undefined) : undefined,
+    estimate: hasOwn(card, "estimate") ? (card.estimate ?? undefined) : undefined,
     tags: card.tags,
     dueDate: card.dueDate ?? undefined,
     scheduledStart: card.scheduledStart ?? undefined,
@@ -218,10 +219,10 @@ function applyFilterGroupPatch(
     };
   }
 
-  const visible = filterDbViewCards(
-    [buildVisibleCardRecord(next, targetColumnId)],
-    { filter: { any: [group] }, sort: [] },
-  );
+  const visible = filterDbViewCards([buildVisibleCardRecord(next, targetColumnId)], {
+    filter: { any: [group] },
+    sort: [],
+  });
   return visible.length > 0 ? next : null;
 }
 
@@ -244,8 +245,9 @@ function pickSafestFilterPatch(
       const candidate = applyFilterGroupPatch(normalized, targetColumnId, group);
       if (!candidate) continue;
 
-      const cost = Number(hasOwn(candidate, "priority") !== hasOwn(normalized, "priority"))
-        + Math.abs(candidate.tags.length - normalized.tags.length);
+      const cost =
+        Number(hasOwn(candidate, "priority") !== hasOwn(normalized, "priority")) +
+        Math.abs(candidate.tags.length - normalized.tags.length);
       if (cost < bestCost) {
         bestPatch = candidate;
         bestCost = cost;
@@ -268,9 +270,9 @@ function resolveSortValue(
 ): Priority | Estimate | null | undefined {
   if (!card) return undefined;
   if (field === "priority") {
-    return hasOwn(card, "priority") ? card.priority ?? null : undefined;
+    return hasOwn(card, "priority") ? (card.priority ?? null) : undefined;
   }
-  return hasOwn(card, "estimate") ? card.estimate ?? null : undefined;
+  return hasOwn(card, "estimate") ? (card.estimate ?? null) : undefined;
 }
 
 function applySortFieldPatch(
@@ -304,14 +306,22 @@ function applySortFieldPatch(
   return patchedCards;
 }
 
-function findCardOrderIndex(board: BoardSummary, targetColumnId: WorkflowStatus, pageId: string): number | null {
+function findCardOrderIndex(
+  board: BoardSummary,
+  targetColumnId: WorkflowStatus,
+  pageId: string,
+): number | null {
   const targetColumn = board.columns.find((column) => column.id === targetColumnId);
   if (!targetColumn) return null;
   const index = targetColumn.cards.findIndex((card) => card.id === pageId);
   return index >= 0 ? index : null;
 }
 
-function resolveAnchorInsertIndex(board: BoardSummary, targetColumnId: WorkflowStatus, anchor: SortAnchor): number {
+function resolveAnchorInsertIndex(
+  board: BoardSummary,
+  targetColumnId: WorkflowStatus,
+  anchor: SortAnchor,
+): number {
   if (anchor.afterPageId) {
     const index = findCardOrderIndex(board, targetColumnId, anchor.afterPageId);
     if (index !== null) return index;
@@ -334,7 +344,9 @@ function resolveSortedSlot(args: {
   rules: DbViewRules;
   cards: PageInput[];
 }): BoardImportInferenceResult {
-  const targetColumn = args.visibleBoard.columns.find((column) => column.id === args.targetColumnId);
+  const targetColumn = args.visibleBoard.columns.find(
+    (column) => column.id === args.targetColumnId,
+  );
   const visibleCards = targetColumn?.cards ?? [];
   const visibleIndex = Math.max(0, Math.min(args.targetVisibleIndex, visibleCards.length));
   const beforeCard = visibleIndex > 0 ? visibleCards[visibleIndex - 1] : undefined;
@@ -418,11 +430,7 @@ export function resolveBoardImportInference(
     return { mode: "blocked" };
   }
 
-  const filterPatched = pickSafestFilterPatch(
-    input.cards,
-    input.targetColumnId,
-    input.rules,
-  );
+  const filterPatched = pickSafestFilterPatch(input.cards, input.targetColumnId, input.rules);
   if (!filterPatched) {
     return { mode: "blocked" };
   }

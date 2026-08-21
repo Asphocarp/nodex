@@ -21,8 +21,6 @@ describe("formatElapsedSince", () => {
     expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt)).toBe(60_000);
     expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt + 59_999)).toBe(1);
     expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt + 61_000)).toBe(59_000);
-    expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt + 29 * 86_400_000)).toBe(
-      86_400_000,
-    );
+    expect(getNextElapsedTimeUpdateDelay(updatedAt, updatedAt + 29 * 86_400_000)).toBe(86_400_000);
   });
 });

@@ -10,11 +10,7 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import {
-  CloseIcon,
-  FolderIcon,
-  FolderPlusIcon,
-} from "@/components/shared/icons";
+import { CloseIcon, FolderIcon, FolderPlusIcon } from "@/components/shared/icons";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import {
   DEFAULT_PROJECT_APPEARANCE,
@@ -31,10 +27,7 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import {
-  CoreApiError,
-  invoke,
-} from "@/lib/api";
+import { CoreApiError, invoke } from "@/lib/api";
 import {
   dedupeSourceRoots,
   makeSourceRootPrimary,
@@ -44,10 +37,7 @@ import {
   isPlausiblePageKeyPrefixDraft,
   normalizePageKeyPrefixInput,
 } from "../../../shared/page-key";
-import type {
-  Project,
-  ProjectLifecycleMutationResult,
-} from "@/lib/types";
+import type { Project, ProjectLifecycleMutationResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   projectPageKeyEditorModel,
@@ -68,7 +58,8 @@ import {
 import { ProjectMarkerPicker } from "./project-marker-picker";
 import { ProjectRemoveDialog } from "./project-remove-dialog";
 
-const PRIMARY_SOURCE_TOOLTIP = "Nodex will run in this folder and look inside it for AGENTS.md and skills";
+const PRIMARY_SOURCE_TOOLTIP =
+  "Nodex will run in this folder and look inside it for AGENTS.md and skills";
 
 export interface ProjectDialogSubmitInput {
   appearance: ProjectAppearance;
@@ -123,17 +114,13 @@ function ProjectSourceRow({
   return (
     <motion.div
       layout="position"
-      transition={animateReorder
-        ? { duration: 0.15, ease: [0.19, 1, 0.22, 1] }
-        : { duration: 0 }}
+      transition={animateReorder ? { duration: 0.15, ease: [0.19, 1, 0.22, 1] } : { duration: 0 }}
       className="group flex h-12 min-w-0 items-center gap-2 px-3 text-left"
     >
       <NodexTooltip tooltipContent={root}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <FolderIcon className="icon-sm shrink-0 text-token-description-foreground" />
-          <span className="min-w-0 truncate text-sm text-token-text-primary">
-            {displayName}
-          </span>
+          <span className="min-w-0 truncate text-sm text-token-text-primary">{displayName}</span>
         </div>
       </NodexTooltip>
       {isPrimary ? (
@@ -245,7 +232,9 @@ export function ProjectSourcesEditor({
           type="button"
           className={cn(
             "flex w-full cursor-interaction items-center text-sm text-token-text-primary hover:bg-token-list-hover-background focus-visible:bg-token-list-hover-background focus-visible:outline-none",
-            empty ? "h-24 flex-col justify-center gap-1 p-3 text-center" : "h-12 gap-2 px-3 text-left",
+            empty
+              ? "h-24 flex-col justify-center gap-1 p-3 text-center"
+              : "h-12 gap-2 px-3 text-left",
           )}
           aria-label={empty ? "Choose source folders" : undefined}
           onClick={() => void addFolder()}
@@ -312,10 +301,8 @@ function ProjectEditorForm({
       }
       return await readNamespaceRef.current(projectId, databaseId);
     },
-    enabled: mode === "edit"
-      && pageKeyExpanded
-      && projectId !== undefined
-      && databaseId !== undefined,
+    enabled:
+      mode === "edit" && pageKeyExpanded && projectId !== undefined && databaseId !== undefined,
     staleTime: 0,
     retry: false,
   });
@@ -327,33 +314,32 @@ function ProjectEditorForm({
     databaseId,
     nameHint: name,
     readPreview: pageKeyAuthority.previewPrefix,
-    requestedPrefix: pageKeyPrefixIsManual
-      ? pageKeyPrefix
-      : authorityCurrentPrefix,
+    requestedPrefix: pageKeyPrefixIsManual ? pageKeyPrefix : authorityCurrentPrefix,
   });
   const effectiveDraftPrefix = pageKeyPrefixIsManual
     ? pageKeyPrefix
     : "prefix" in preview && preview.prefix
       ? preview.prefix
-      : authorityCurrentPrefix ?? "";
+      : (authorityCurrentPrefix ?? "");
   const settingsStatus = !pageKeyExpanded
     ? "idle"
     : settingsQuery.isPending
-    ? "loading"
-    : settingsQuery.error
-    ? "error"
-    : "ready";
-  const pageKeyModel = mode === "edit"
-    ? projectPageKeyEditorModel({
-        expanded: pageKeyExpanded,
-        draftPrefix: effectiveDraftPrefix,
-        currentPrefix: authorityCurrentPrefix,
-        preview,
-        settings,
-        settingsStatus,
-        saveFailure,
-      })
-    : null;
+      ? "loading"
+      : settingsQuery.error
+        ? "error"
+        : "ready";
+  const pageKeyModel =
+    mode === "edit"
+      ? projectPageKeyEditorModel({
+          expanded: pageKeyExpanded,
+          draftPrefix: effectiveDraftPrefix,
+          currentPrefix: authorityCurrentPrefix,
+          preview,
+          settings,
+          settingsStatus,
+          saveFailure,
+        })
+      : null;
   const canSubmit = pageKeyModel?.canSubmit ?? true;
   const formError = pageKeyModel?.formError ?? saveFailure?.message ?? null;
 
@@ -373,9 +359,8 @@ function ProjectEditorForm({
         detailsWereCommitted = true;
         setMetadataCommitted(true);
       }
-      const shouldRename = pageKeyModel !== null
-        && pageKeyExpanded
-        && pageKeyModel.prefix !== authorityCurrentPrefix;
+      const shouldRename =
+        pageKeyModel !== null && pageKeyExpanded && pageKeyModel.prefix !== authorityCurrentPrefix;
       if (shouldRename) {
         if (!projectId || !databaseId || !settingsQuery.data) {
           throw new Error("Page-key namespace authority is not ready");
@@ -391,25 +376,24 @@ function ProjectEditorForm({
       onClose();
     } catch (error) {
       setSaving(false);
-      const failure = error instanceof CoreApiError
-        || error instanceof DatabasePageKeyRuntimeError
-        ? {
-            code: error.code,
-            message: error.message,
-            retryable: error.retryable,
-            detailsSaved: detailsWereCommitted,
-          }
-        : {
-            code: "core_unavailable",
-            message: error instanceof Error ? error.message : saveErrorMessage,
-            retryable: true,
-            detailsSaved: detailsWereCommitted,
-          };
+      const failure =
+        error instanceof CoreApiError || error instanceof DatabasePageKeyRuntimeError
+          ? {
+              code: error.code,
+              message: error.message,
+              retryable: error.retryable,
+              detailsSaved: detailsWereCommitted,
+            }
+          : {
+              code: "core_unavailable",
+              message: error instanceof Error ? error.message : saveErrorMessage,
+              retryable: true,
+              detailsSaved: detailsWereCommitted,
+            };
       setSaveFailure(failure);
       if (
-        mode === "edit"
-        && (failure.code === "identity_conflict"
-          || failure.code === "revision_conflict")
+        mode === "edit" &&
+        (failure.code === "identity_conflict" || failure.code === "revision_conflict")
       ) {
         await queryClient.invalidateQueries({
           queryKey: queryKeys.pageKeys.namespace(databaseId ?? "create"),
@@ -494,9 +478,9 @@ function ProjectEditorForm({
                   maxLength={8}
                   spellCheck={false}
                   aria-invalid={
-                    !isPlausiblePageKeyPrefixDraft(effectiveDraftPrefix)
-                    || preview.kind === "reserved"
-                    || pageKeyModel.prefixError !== null
+                    !isPlausiblePageKeyPrefixDraft(effectiveDraftPrefix) ||
+                    preview.kind === "reserved" ||
+                    pageKeyModel.prefixError !== null
                   }
                   onChange={(event) => {
                     setPageKeyPrefixIsManual(true);
@@ -587,18 +571,10 @@ function ProjectEditorForm({
             ) : null}
           </div>
           <div className="flex w-auto items-center justify-end gap-3">
-            <NodexDialogAction
-              type="button"
-              disabled={saving}
-              onClick={onClose}
-            >
+            <NodexDialogAction type="button" disabled={saving} onClick={onClose}>
               Cancel
             </NodexDialogAction>
-            <NodexDialogAction
-              tone="primary"
-              type="submit"
-              disabled={saving || !canSubmit}
-            >
+            <NodexDialogAction tone="primary" type="submit" disabled={saving || !canSubmit}>
               {submitLabel}
             </NodexDialogAction>
           </div>
@@ -608,13 +584,7 @@ function ProjectEditorForm({
   );
 }
 
-function ProjectDialogShell({
-  onClose,
-  children,
-}: {
-  onClose: () => void;
-  children: ReactNode;
-}) {
+function ProjectDialogShell({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   return (
     <NodexDialog
       open
@@ -637,9 +607,7 @@ interface ProjectEditDialogProps {
   readonly onClose: () => void;
   readonly onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>;
   readonly pageKeyAuthority?: DatabasePageKeyAuthority;
-  readonly onArchiveProject?: (
-    projectId: string,
-  ) => Promise<ProjectLifecycleMutationResult>;
+  readonly onArchiveProject?: (projectId: string) => Promise<ProjectLifecycleMutationResult>;
 }
 
 function ProjectEditDialogContent({

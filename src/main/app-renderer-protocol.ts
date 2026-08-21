@@ -51,10 +51,9 @@ const response = (
 
 function isPathInside(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
-  return relative === "" || (
-    !relative.startsWith(`..${path.sep}`)
-    && relative !== ".."
-    && !path.isAbsolute(relative)
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
   );
 }
 
@@ -76,11 +75,11 @@ export function createAppRendererProtocolHandler(input: {
       return response(400);
     }
     if (
-      url.protocol !== `${APP_RENDERER_PROTOCOL_SCHEME}:`
-      || url.hostname !== APP_RENDERER_HOST
-      || url.username
-      || url.password
-      || url.port
+      url.protocol !== `${APP_RENDERER_PROTOCOL_SCHEME}:` ||
+      url.hostname !== APP_RENDERER_HOST ||
+      url.username ||
+      url.password ||
+      url.port
     ) {
       return response(400);
     }
@@ -92,15 +91,13 @@ export function createAppRendererProtocolHandler(input: {
       return response(400);
     }
     if (
-      decodedPath.includes("\0")
-      || decodedPath.includes("\\")
-      || decodedPath.split("/").includes("..")
+      decodedPath.includes("\0") ||
+      decodedPath.includes("\\") ||
+      decodedPath.split("/").includes("..")
     ) {
       return response(400);
     }
-    const relativePath = decodedPath === "/"
-      ? "index.html"
-      : decodedPath.replace(/^\/+/, "");
+    const relativePath = decodedPath === "/" ? "index.html" : decodedPath.replace(/^\/+/, "");
     if (!relativePath || path.isAbsolute(relativePath)) return response(400);
 
     const candidate = path.resolve(rendererRoot, relativePath);
@@ -113,9 +110,8 @@ export function createAppRendererProtocolHandler(input: {
       const contentType = MIME_TYPES[path.extname(realPath).toLowerCase()];
       if (!contentType) return response(404);
       const headers = {
-        "Cache-Control": relativePath === "index.html"
-          ? "no-cache"
-          : "public, max-age=31536000, immutable",
+        "Cache-Control":
+          relativePath === "index.html" ? "no-cache" : "public, max-age=31536000, immutable",
         "Content-Length": String(stats.size),
         "Content-Type": contentType,
       };

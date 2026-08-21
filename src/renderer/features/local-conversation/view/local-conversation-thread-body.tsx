@@ -124,30 +124,32 @@ function LocalConversationThreadBodyLayout({
   );
 }
 
-function AttachedLocalConversationThreadBody(
-  {
-    conversationId,
-    ...props
-  }: LocalConversationThreadBodyProps & { readonly conversationId: string },
-) {
+function AttachedLocalConversationThreadBody({
+  conversationId,
+  ...props
+}: LocalConversationThreadBodyProps & { readonly conversationId: string }) {
   const appHandle = useScopeHandle(appScope);
   const { addScrollListener } = useLocalConversationThreadScrollController();
   const restoreAtom = localConversationThreadRestoreSnapshotFamily(conversationId);
   const initialRestoreSnapshotRef = useRef(appHandle.get(restoreAtom));
 
-  const updateRestoreSnapshot = useCallback((update: RestoreSnapshotUpdate) => {
-    updateLocalConversationThreadRestoreSnapshot(appHandle, conversationId, update);
-  }, [appHandle, conversationId]);
+  const updateRestoreSnapshot = useCallback(
+    (update: RestoreSnapshotUpdate) => {
+      updateLocalConversationThreadRestoreSnapshot(appHandle, conversationId, update);
+    },
+    [appHandle, conversationId],
+  );
 
   useLayoutEffect(
-    () => addScrollListener((distanceFromBottomPx) => {
-      updateRestoreSnapshot((current) => ({
-        ...current,
-        distanceFromBottomPx: Number.isFinite(distanceFromBottomPx)
-          ? Math.max(0, distanceFromBottomPx)
-          : 0,
-      }));
-    }),
+    () =>
+      addScrollListener((distanceFromBottomPx) => {
+        updateRestoreSnapshot((current) => ({
+          ...current,
+          distanceFromBottomPx: Number.isFinite(distanceFromBottomPx)
+            ? Math.max(0, distanceFromBottomPx)
+            : 0,
+        }));
+      }),
     [addScrollListener, updateRestoreSnapshot],
   );
 
@@ -212,36 +214,36 @@ function LocalConversationThreadBodyComponent(props: LocalConversationThreadBody
 export const LocalConversationThreadBody = memo(
   LocalConversationThreadBodyComponent,
   (left, right) =>
-    left.actions === right.actions
-    && left.isWorktreeThread === right.isWorktreeThread
-    && left.onForkFromTurnIntoWorktree === right.onForkFromTurnIntoWorktree
-    && left.planSidePanelState === right.planSidePanelState
-    && left.onErrorMessage === right.onErrorMessage
-    && left.contentShiftX === right.contentShiftX
-    && left.footer === right.footer
-    && left.leadingContent === right.leadingContent
-    && left.initialUiState === right.initialUiState
-    && left.transcriptVisible === right.transcriptVisible
-    && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
-    && left.model.searchOpenTick === right.model.searchOpenTick
-    && left.model.projectWorkspacePath === right.model.projectWorkspacePath
-    && left.model.projectlessOutputDirectory === right.model.projectlessOutputDirectory
-    && left.model.childMemberships === right.model.childMemberships
-    && left.model.backgroundAgentRows === right.model.backgroundAgentRows
-    && left.model.threadStartProgress === right.model.threadStartProgress
-    && left.model.body === right.model.body
-    && left.model.projectId === right.model.projectId
-    && left.model.hostId === right.model.hostId
-    && left.model.sessionId === right.model.sessionId
-    && left.model.threadId === right.model.threadId
-    && left.model.isSideChat === right.model.isSideChat
-    && left.model.cwd === right.model.cwd
-    && left.model.resumeState === right.model.resumeState
-    && left.model.statusType === right.model.statusType
-    && left.model.parentTurns === right.model.parentTurns
-    && left.model.turns === right.model.turns
-    && left.model.turnPagination === right.model.turnPagination
-    && left.model.requests === right.model.requests
-    && left.model.canonicalRequests === right.model.canonicalRequests
-    && left.model.capabilityFlags === right.model.capabilityFlags,
+    left.actions === right.actions &&
+    left.isWorktreeThread === right.isWorktreeThread &&
+    left.onForkFromTurnIntoWorktree === right.onForkFromTurnIntoWorktree &&
+    left.planSidePanelState === right.planSidePanelState &&
+    left.onErrorMessage === right.onErrorMessage &&
+    left.contentShiftX === right.contentShiftX &&
+    left.footer === right.footer &&
+    left.leadingContent === right.leadingContent &&
+    left.initialUiState === right.initialUiState &&
+    left.transcriptVisible === right.transcriptVisible &&
+    left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled &&
+    left.model.searchOpenTick === right.model.searchOpenTick &&
+    left.model.projectWorkspacePath === right.model.projectWorkspacePath &&
+    left.model.projectlessOutputDirectory === right.model.projectlessOutputDirectory &&
+    left.model.childMemberships === right.model.childMemberships &&
+    left.model.backgroundAgentRows === right.model.backgroundAgentRows &&
+    left.model.threadStartProgress === right.model.threadStartProgress &&
+    left.model.body === right.model.body &&
+    left.model.projectId === right.model.projectId &&
+    left.model.hostId === right.model.hostId &&
+    left.model.sessionId === right.model.sessionId &&
+    left.model.threadId === right.model.threadId &&
+    left.model.isSideChat === right.model.isSideChat &&
+    left.model.cwd === right.model.cwd &&
+    left.model.resumeState === right.model.resumeState &&
+    left.model.statusType === right.model.statusType &&
+    left.model.parentTurns === right.model.parentTurns &&
+    left.model.turns === right.model.turns &&
+    left.model.turnPagination === right.model.turnPagination &&
+    left.model.requests === right.model.requests &&
+    left.model.canonicalRequests === right.model.canonicalRequests &&
+    left.model.capabilityFlags === right.model.capabilityFlags,
 );

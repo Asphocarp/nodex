@@ -13,7 +13,10 @@ import { FileLinkAnchor } from "../../../../../components/shared/file-link-ancho
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CodexShimmerText } from "../codex-shimmer-text";
-import { AutomaticApprovalReviewRows, AutomaticApprovalReviewShield } from "../automatic-approval-review-surface";
+import {
+  AutomaticApprovalReviewRows,
+  AutomaticApprovalReviewShield,
+} from "../automatic-approval-review-surface";
 import {
   extractCommandActions,
   isExplorationAction,
@@ -73,7 +76,10 @@ function normalizePath(path: string | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function shouldShowCwdSubtitle(commandCwd: string | undefined, threadCwd: string | undefined): boolean {
+function shouldShowCwdSubtitle(
+  commandCwd: string | undefined,
+  threadCwd: string | undefined,
+): boolean {
   const normalizedCommandCwd = normalizePath(commandCwd);
   const normalizedThreadCwd = normalizePath(threadCwd);
   if (!normalizedCommandCwd || !normalizedThreadCwd) return false;
@@ -141,9 +147,9 @@ function useElapsedLabel(input: {
   isInProgress: boolean;
   startedAtMs: number | null;
 }): string | null {
-  const [fallbackStartedAtMs] = useState(() => (
-    input.startedAtMs ?? (input.isInProgress ? Date.now() : null)
-  ));
+  const [fallbackStartedAtMs] = useState(
+    () => input.startedAtMs ?? (input.isInProgress ? Date.now() : null),
+  );
   const [nowMs, setNowMs] = useState(Date.now);
   const startedAtMs = input.startedAtMs ?? fallbackStartedAtMs;
 
@@ -153,9 +159,10 @@ function useElapsedLabel(input: {
     return () => window.clearInterval(intervalId);
   }, [input.isBackgroundTerminalRunning, input.isInProgress, startedAtMs]);
 
-  const elapsedMs = input.isInProgress && startedAtMs !== null
-    ? Math.max(nowMs - startedAtMs, 0)
-    : Math.max(input.durationMs ?? 0, 0);
+  const elapsedMs =
+    input.isInProgress && startedAtMs !== null
+      ? Math.max(nowMs - startedAtMs, 0)
+      : Math.max(input.durationMs ?? 0, 0);
   return formatElapsedDuration(elapsedMs);
 }
 
@@ -165,16 +172,18 @@ function resolveCommandBasename(value: string | undefined): string | null {
 }
 
 function isAllowedDateArgument(value: string): boolean {
-  return value.startsWith("+")
-    || value === "-u"
-    || value === "--utc"
-    || value === "--universal"
-    || value === "-R"
-    || value === "--rfc-email"
-    || value === "-I"
-    || value.startsWith("-I=")
-    || value.startsWith("--iso-8601")
-    || value.startsWith("--rfc-3339");
+  return (
+    value.startsWith("+") ||
+    value === "-u" ||
+    value === "--utc" ||
+    value === "--universal" ||
+    value === "-R" ||
+    value === "--rfc-email" ||
+    value === "-I" ||
+    value.startsWith("-I=") ||
+    value.startsWith("--iso-8601") ||
+    value.startsWith("--rfc-3339")
+  );
 }
 
 export function isDateCommand(command: string): boolean {
@@ -199,7 +208,10 @@ function resolveSkillScriptSummary(command: string): SkillScriptSummary | null {
   const normalizedScriptPath = normalizePath(scriptPath);
   if (!normalizedScriptPath) return null;
 
-  const segments = normalizedScriptPath.replace(/^\/+/, "").split("/").filter((segment) => segment.length > 0);
+  const segments = normalizedScriptPath
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter((segment) => segment.length > 0);
   let remainingSegmentsAfterSkill: string[] | null = null;
   for (let index = 0; index < segments.length; index += 1) {
     const current = segments[index]?.toLowerCase();
@@ -208,14 +220,16 @@ function resolveSkillScriptSummary(command: string): SkillScriptSummary | null {
 
     const candidate = segments[index + 2] ?? null;
     const candidateLower = candidate?.toLowerCase();
-    const skillNameIndex = candidateLower === "_import" || candidateLower === ".system" ? index + 3 : index + 2;
+    const skillNameIndex =
+      candidateLower === "_import" || candidateLower === ".system" ? index + 3 : index + 2;
     if (!segments[skillNameIndex]) continue;
 
     remainingSegmentsAfterSkill = segments.slice(skillNameIndex + 1);
     break;
   }
 
-  if (!remainingSegmentsAfterSkill || remainingSegmentsAfterSkill[0]?.toLowerCase() !== "scripts") return null;
+  if (!remainingSegmentsAfterSkill || remainingSegmentsAfterSkill[0]?.toLowerCase() !== "scripts")
+    return null;
 
   const fileName = segments.at(-1) ?? null;
   if (!fileName || fileName.toLowerCase() === "scripts") return null;
@@ -251,10 +265,16 @@ export function resolveCommandSummaryLabel({
   }
 
   const isBackgroundTerminalRunning = isInProgress && !isTurnInProgress;
-  const isFinishedBackgroundTerminal = !isInProgress && !isTurnInProgress && processId !== null && processId !== undefined;
-  const shouldUseSkillScriptSummary = isBackgroundTerminalRunning || isFinishedBackgroundTerminal || !isExpanded;
-  const skillScriptSummary = shouldUseSkillScriptSummary ? resolveSkillScriptSummary(commandText) : null;
-  const commandSummary = skillScriptSummary ? formatSkillScriptSummary(skillScriptSummary) : commandText;
+  const isFinishedBackgroundTerminal =
+    !isInProgress && !isTurnInProgress && processId !== null && processId !== undefined;
+  const shouldUseSkillScriptSummary =
+    isBackgroundTerminalRunning || isFinishedBackgroundTerminal || !isExpanded;
+  const skillScriptSummary = shouldUseSkillScriptSummary
+    ? resolveSkillScriptSummary(commandText)
+    : null;
+  const commandSummary = skillScriptSummary
+    ? formatSkillScriptSummary(skillScriptSummary)
+    : commandText;
 
   if (isInProgress) {
     if (isBackgroundTerminalRunning) {
@@ -285,7 +305,10 @@ export function resolveCommandSummaryLabel({
   return wasInterrupted ? "Stopped command" : "Ran command";
 }
 
-function formatExplorationSummary(actions: CodexCommandAction[], effectiveStatus: string | undefined): string {
+function formatExplorationSummary(
+  actions: CodexCommandAction[],
+  effectiveStatus: string | undefined,
+): string {
   const verb = effectiveStatus === "inProgress" ? "Exploring" : "Explored";
   if (actions.length === 0) return verb;
   return `${verb} ${actions.length} ${actions.length === 1 ? "step" : "steps"}`;
@@ -336,7 +359,9 @@ function formatReadActionLabel(
   const skillPathInfo = resolveExplorationSkillPathInfo(action.path);
   if (skillPathInfo?.isSkillDefinitionFile === true) {
     if (effectiveStatus === "inProgress") {
-      return threadDetailLevel === "STEPS_PROSE" ? `Reading ${skillPathInfo.skillName} skill` : null;
+      return threadDetailLevel === "STEPS_PROSE"
+        ? `Reading ${skillPathInfo.skillName} skill`
+        : null;
     }
     return `Read ${skillPathInfo.skillName} skill`;
   }
@@ -368,7 +393,8 @@ function formatSingleExplorationActionLabel(
   effectiveStatus: string | undefined,
   threadDetailLevel: string,
 ): string | null {
-  if (action.type === "read") return formatReadActionLabel(action, effectiveStatus, threadDetailLevel);
+  if (action.type === "read")
+    return formatReadActionLabel(action, effectiveStatus, threadDetailLevel);
   if (action.type === "search") return formatSearchActionLabel(action, effectiveStatus);
   if (action.type === "listFiles") return formatListFilesActionLabel(action, effectiveStatus);
   return null;
@@ -379,9 +405,13 @@ function isSkillDefinitionReadAction(action: CodexCommandAction | null): boolean
   return resolveExplorationSkillPathInfo(action.path)?.isSkillDefinitionFile === true;
 }
 
-function resolveCommandHeaderIcon(actions: CodexCommandAction[], isExploration: boolean): ToolActivityIconDescriptor {
+function resolveCommandHeaderIcon(
+  actions: CodexCommandAction[],
+  isExploration: boolean,
+): ToolActivityIconDescriptor {
   if (!isExploration) return semanticToolIcon("run-command");
-  if (actions.some((action) => resolveExplorationActionIcon(action) === "skill")) return semanticToolIcon("skill");
+  if (actions.some((action) => resolveExplorationActionIcon(action) === "skill"))
+    return semanticToolIcon("skill");
   if (actions.some((action) => action.type === "search")) return semanticToolIcon("code-searching");
   if (actions.some((action) => action.type === "listFiles")) return semanticToolIcon("list-files");
   return semanticToolIcon("read-files");
@@ -406,7 +436,8 @@ function SummaryText({
 }) {
   const metaParts: string[] = [];
   if (elapsedLabel) metaParts.push(`for ${elapsedLabel}`);
-  if (shouldShowCwdSubtitle(commandCwd, threadCwd) && commandCwd) metaParts.push(`in ${commandCwd}`);
+  if (shouldShowCwdSubtitle(commandCwd, threadCwd) && commandCwd)
+    metaParts.push(`in ${commandCwd}`);
   const activeLeadingLabel = resolveActiveCommandSummaryLeadingLabel(summaryLabel, isInProgress);
 
   return (
@@ -414,9 +445,7 @@ function SummaryText({
       {activeLeadingLabel ? (
         <span className="font-sans text-token-description-foreground group-hover:text-token-foreground">
           <CodexShimmerText>{activeLeadingLabel.leading}</CodexShimmerText>
-          {activeLeadingLabel.trailing ? (
-            <span>{activeLeadingLabel.trailing}</span>
-          ) : null}
+          {activeLeadingLabel.trailing ? <span>{activeLeadingLabel.trailing}</span> : null}
         </span>
       ) : (
         <span className="font-sans text-token-description-foreground group-hover:text-token-foreground">
@@ -424,9 +453,7 @@ function SummaryText({
         </span>
       )}
       {metaParts.length > 0 ? (
-        <span className="ml-1 text-token-foreground/30">
-          {metaParts.join(" · ")}
-        </span>
+        <span className="ml-1 text-token-foreground/30">{metaParts.join(" · ")}</span>
       ) : null}
       {!isExpanded ? null : <span className="sr-only">{command}</span>}
     </span>
@@ -438,7 +465,12 @@ function resolveActiveCommandSummaryLeadingLabel(
   isInProgress: boolean,
 ): { leading: string; trailing: string | null } | null {
   if (!isInProgress) return null;
-  const activePrefixes = ["Checking the current date and time", "Running command", "Running", "Exploring"];
+  const activePrefixes = [
+    "Checking the current date and time",
+    "Running command",
+    "Running",
+    "Exploring",
+  ];
   for (const prefix of activePrefixes) {
     if (summaryLabel === prefix) return { leading: prefix, trailing: null };
     if (summaryLabel.startsWith(`${prefix} `)) {
@@ -464,22 +496,26 @@ function SingleExplorationActionRow({
   threadDetailLevel: string;
 }) {
   const plainLabel = formatSingleExplorationActionLabel(action, effectiveStatus, threadDetailLevel);
-  const readPath = action.type === "read" && effectiveStatus !== "inProgress"
-    ? resolveExplorationPath(action.path || action.name, cwd)
-    : null;
-  const label = readPath && action.type === "read" && !isSkillDefinitionReadAction(action) ? (
-    <>
-      <span>Read </span>
-      <FileLinkAnchor
-        href={readPath}
-        projectWorkspacePath={cwd}
-        showLocalFileTooltip
-        className="pointer-events-auto max-w-full truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
-      >
-        {(action.name || action.path).replace(/^\.\//, "")}
-      </FileLinkAnchor>
-    </>
-  ) : plainLabel;
+  const readPath =
+    action.type === "read" && effectiveStatus !== "inProgress"
+      ? resolveExplorationPath(action.path || action.name, cwd)
+      : null;
+  const label =
+    readPath && action.type === "read" && !isSkillDefinitionReadAction(action) ? (
+      <>
+        <span>Read </span>
+        <FileLinkAnchor
+          href={readPath}
+          projectWorkspacePath={cwd}
+          showLocalFileTooltip
+          className="pointer-events-auto max-w-full truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
+        >
+          {(action.name || action.path).replace(/^\.\//, "")}
+        </FileLinkAnchor>
+      </>
+    ) : (
+      plainLabel
+    );
   if (!label) return null;
 
   return (
@@ -487,21 +523,18 @@ function SingleExplorationActionRow({
       canExpand={automaticApprovalReviews.length > 0}
       status={semanticActivityStatusFromLifecycle(effectiveStatus, "completed")}
       icon={summaryIcon}
-      summary={(
+      summary={
         <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground [&_*]:text-token-foreground/30 group-hover/activity-header:[&_*]:text-token-foreground">
-          <CodexShimmerText
-            active={effectiveStatus === "inProgress"}
-            className="min-w-0 truncate"
-          >
+          <CodexShimmerText active={effectiveStatus === "inProgress"} className="min-w-0 truncate">
             {label}
           </CodexShimmerText>
           {automaticApprovalReviews.length > 0 ? <AutomaticApprovalReviewShield /> : null}
         </span>
-      )}
+      }
     >
-      {automaticApprovalReviews.length > 0
-        ? <AutomaticApprovalReviewRows items={automaticApprovalReviews} />
-        : null}
+      {automaticApprovalReviews.length > 0 ? (
+        <AutomaticApprovalReviewRows items={automaticApprovalReviews} />
+      ) : null}
     </ThreadActivityDisclosure>
   );
 }
@@ -529,8 +562,18 @@ function CommandFooter({
   return (
     <div className="text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground">
       <span className="ml-auto flex items-center gap-1">
-        <svg width="17" height="17" viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg" className="icon-xxs">
-          <path d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z" fill="currentColor" />
+        <svg
+          width="17"
+          height="17"
+          viewBox="0 0 17 17"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="icon-xxs"
+        >
+          <path
+            d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z"
+            fill="currentColor"
+          />
         </svg>
         {label}
       </span>
@@ -547,9 +590,8 @@ export function CommandToolCall({
   const { settings } = useCodexThreadSettings();
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
 
-  const rawCommand = typeof item.command === "string" && item.command.trim().length > 0
-    ? item.command
-    : "";
+  const rawCommand =
+    typeof item.command === "string" && item.command.trim().length > 0 ? item.command : "";
   const displayCommand = getDisplayCommand(rawCommand);
   const command = displayCommand || "command";
   const output = item.aggregatedOutput ?? "";
@@ -568,18 +610,23 @@ export function CommandToolCall({
   });
   const commandActions = extractCommandActions(item);
   const parsedExplorationAction = resolveParsedExplorationAction(item);
-  const isExploration = parsedExplorationAction !== null
-    || (commandActions.length > 0 && commandActions.every(isExplorationAction));
-  const singleExplorationAction = parsedExplorationAction ?? resolveSingleExplorationAction(commandActions);
+  const isExploration =
+    parsedExplorationAction !== null ||
+    (commandActions.length > 0 && commandActions.every(isExplorationAction));
+  const singleExplorationAction =
+    parsedExplorationAction ?? resolveSingleExplorationAction(commandActions);
   const explorationStatus = item.parsedCmd
-    ? item.parsedCmd.isFinished ? "completed" : "inProgress"
+    ? item.parsedCmd.isFinished
+      ? "completed"
+      : "inProgress"
     : effectiveStatus;
   const isSingleSkillDefinitionRead = isSkillDefinitionReadAction(singleExplorationAction);
   const shouldHideForProse = threadDetailLevel === "STEPS_PROSE" && !isSingleSkillDefinitionRead;
-  const shouldHideUnfinishedParsedAction = singleExplorationAction !== null
-    && explorationStatus === "inProgress"
-    && !isSingleSkillDefinitionRead
-    && automaticApprovalReviews.length === 0;
+  const shouldHideUnfinishedParsedAction =
+    singleExplorationAction !== null &&
+    explorationStatus === "inProgress" &&
+    !isSingleSkillDefinitionRead &&
+    automaticApprovalReviews.length === 0;
   const [viewState, setViewState] = useState<CommandViewState>("collapsed");
   const { elementHeightPx: bodyHeightPx, elementRef: bodyRef } = useMeasuredElementHeight();
 
@@ -592,7 +639,11 @@ export function CommandToolCall({
         automaticApprovalReviews={automaticApprovalReviews}
         cwd={item.cwd ?? threadCwd ?? undefined}
         effectiveStatus={explorationStatus}
-        summaryIcon={<ToolActivityIcon descriptor={resolveCommandHeaderIcon([singleExplorationAction], true)} />}
+        summaryIcon={
+          <ToolActivityIcon
+            descriptor={resolveCommandHeaderIcon([singleExplorationAction], true)}
+          />
+        }
         threadDetailLevel={threadDetailLevel}
       />
     );
@@ -601,12 +652,12 @@ export function CommandToolCall({
   const summaryLabel = isExploration
     ? formatExplorationSummary(commandActions, effectiveStatus)
     : resolveCommandSummaryLabel({
-      command: displayCommand,
-      effectiveStatus,
-      isExpanded,
-      isTurnInProgress: isStreamingTurn,
-      processId: item.processId,
-    });
+        command: displayCommand,
+        effectiveStatus,
+        isExpanded,
+        isTurnInProgress: isStreamingTurn,
+        processId: item.processId,
+      });
 
   const handleToggle = () => {
     setViewState((currentState) => (currentState === "expanded" ? "collapsed" : "expanded"));
@@ -617,8 +668,10 @@ export function CommandToolCall({
       status={semanticActivityStatusFromLifecycle(effectiveStatus, "completed")}
       accessory={hasApprovalReviews ? <AutomaticApprovalReviewShield /> : null}
       disclosure={{ expanded: isExpanded, onToggle: handleToggle }}
-      icon={<ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />}
-      summary={(
+      icon={
+        <ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />
+      }
+      summary={
         <SummaryText
           command={command}
           summaryLabel={summaryLabel}
@@ -628,7 +681,7 @@ export function CommandToolCall({
           isExpanded={isExpanded}
           isInProgress={isInProgress}
         />
-      )}
+      }
       testId="command-tool-summary-toggle"
     />
   );
@@ -637,11 +690,16 @@ export function CommandToolCall({
     <div className="pt-2">
       <div className="flex flex-col gap-1.5 text-size-chat-sm text-token-description-foreground">
         {commandActions.map((action, index) => (
-          <div key={`${action.type}:${index}`} className="flex min-w-0 items-start font-vscode-editor whitespace-pre-wrap break-words">
+          <div
+            key={`${action.type}:${index}`}
+            className="flex min-w-0 items-start font-vscode-editor whitespace-pre-wrap break-words"
+          >
             <span className="min-w-0 flex-1">{renderExplorationLine(action)}</span>
           </div>
         ))}
-        {item.toolCall?.error ? <ToolErrorDetail error={item.toolCall.error} className="pt-1" /> : null}
+        {item.toolCall?.error ? (
+          <ToolErrorDetail error={item.toolCall.error} className="pt-1" />
+        ) : null}
       </div>
     </div>
   ) : (
@@ -653,13 +711,13 @@ export function CommandToolCall({
         output={output}
         cwd={item.cwd ?? undefined}
         isInProgress={isInProgress}
-        footer={(
+        footer={
           <CommandFooter
             isInProgress={isInProgress}
             exitCode={exitCode}
             effectiveStatus={effectiveStatus}
           />
-        )}
+        }
       />
     </div>
   );
@@ -668,7 +726,7 @@ export function CommandToolCall({
 
   return (
     <ThreadActivityShell
-      body={(
+      body={
         <motion.div
           className={cn(isMeasuredOpen ? "overflow-visible" : "overflow-hidden")}
           data-testid="exec-shell-body"
@@ -686,7 +744,7 @@ export function CommandToolCall({
         >
           {isMeasuredOpen ? <div ref={bodyRef}>{body}</div> : null}
         </motion.div>
-      )}
+      }
       className="relative overflow-clip"
       header={header}
     />

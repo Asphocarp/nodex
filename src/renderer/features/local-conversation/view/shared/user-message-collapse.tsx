@@ -5,10 +5,7 @@ import { cn } from "../../../../lib/utils";
 import { MarkdownRenderer } from "./markdown/markdown-renderer";
 import { useClippedFocusSafety } from "./use-clipped-focus-safety";
 import { useContentOverflow } from "./use-content-overflow";
-import {
-  LazySourceViewer,
-  preloadSourceViewer,
-} from "@/components/ui/lazy-source-viewer";
+import { LazySourceViewer, preloadSourceViewer } from "@/components/ui/lazy-source-viewer";
 import {
   NodexDialog,
   NodexDialogBody,
@@ -90,24 +87,22 @@ function CollapsibleUserMessageText({
   collapsedLineCount,
   cwd,
   projectWorkspacePath,
-}: Required<Pick<UserMessageTextProps, "text" | "collapsedLineCount">>
-  & Pick<UserMessageTextProps, "cwd" | "projectWorkspacePath">) {
+}: Required<Pick<UserMessageTextProps, "text" | "collapsedLineCount">> &
+  Pick<UserMessageTextProps, "cwd" | "projectWorkspacePath">) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [expandedText, setExpandedText] = useState<string | null>(null);
-  const { collapsedHeightPx, isOverflowing } = useContentOverflow(
-    contentRef,
-    collapsedLineCount,
-  );
+  const { collapsedHeightPx, isOverflowing } = useContentOverflow(contentRef, collapsedLineCount);
 
   const expanded = expandedText === text;
   const collapsed = isOverflowing && !expanded;
   useClippedFocusSafety(contentRef, collapsed);
-  const collapsedStyle = collapsed && collapsedHeightPx !== null
-    ? {
-        ...USER_MESSAGE_COLLAPSED_STYLE,
-        maxHeight: collapsedHeightPx,
-      }
-    : undefined;
+  const collapsedStyle =
+    collapsed && collapsedHeightPx !== null
+      ? {
+          ...USER_MESSAGE_COLLAPSED_STYLE,
+          maxHeight: collapsedHeightPx,
+        }
+      : undefined;
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -129,14 +124,11 @@ function CollapsibleUserMessageText({
           type="button"
           aria-expanded={expanded}
           className="text-size-chat mt-1.5 inline-flex cursor-interaction items-center gap-1 self-start text-token-description-foreground hover:text-token-foreground"
-          onClick={() => setExpandedText((current) => current === text ? null : text)}
+          onClick={() => setExpandedText((current) => (current === text ? null : text))}
         >
           <span>{expanded ? "Show less" : "Show more"}</span>
           <ChevronDownIcon
-            className={cn(
-              "icon-2xs transition-transform duration-150",
-              expanded && "rotate-180",
-            )}
+            className={cn("icon-2xs transition-transform duration-150", expanded && "rotate-180")}
           />
         </button>
       )}
@@ -151,9 +143,7 @@ export function UserMessageText({
   projectWorkspacePath,
 }: UserMessageTextProps) {
   if (text.length > INLINE_TEXT_PREVIEW_MAX_CHARS) {
-    return (
-      <LargeUserMessageText text={text} collapsedLineCount={collapsedLineCount} />
-    );
+    return <LargeUserMessageText text={text} collapsedLineCount={collapsedLineCount} />;
   }
 
   return (

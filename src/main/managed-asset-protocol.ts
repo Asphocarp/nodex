@@ -38,10 +38,12 @@ function response(
   });
 }
 
-function parseManagedAssetRequest(request: Request): {
-  readonly fileName: string;
-  readonly method: "GET" | "HEAD";
-} | Response {
+function parseManagedAssetRequest(request: Request):
+  | {
+      readonly fileName: string;
+      readonly method: "GET" | "HEAD";
+    }
+  | Response {
   const method = request.method.toUpperCase();
   if (method !== "GET" && method !== "HEAD") {
     return response(405, null, { Allow: "GET, HEAD" });
@@ -54,17 +56,15 @@ function parseManagedAssetRequest(request: Request): {
     return response(400);
   }
   if (
-    url.protocol !== `${MANAGED_ASSET_PROTOCOL_SCHEME}:`
-    || url.hostname !== MANAGED_ASSET_DISPLAY_HOST
-    || url.search.length > 0
-    || url.hash.length > 0
+    url.protocol !== `${MANAGED_ASSET_PROTOCOL_SCHEME}:` ||
+    url.hostname !== MANAGED_ASSET_DISPLAY_HOST ||
+    url.search.length > 0 ||
+    url.hash.length > 0
   ) {
     return response(400);
   }
 
-  const encodedPath = url.pathname.startsWith("/")
-    ? url.pathname.slice(1)
-    : url.pathname;
+  const encodedPath = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
   if (encodedPath.length === 0 || encodedPath.includes("/")) {
     return response(400);
   }
@@ -89,10 +89,7 @@ export function createManagedAssetProtocolHandler(
     if (!mimeType) return response(404);
 
     try {
-      const absolutePath = resolveAssetPathInRoot(
-        options.assetsRootPath,
-        parsed.fileName,
-      );
+      const absolutePath = resolveAssetPathInRoot(options.assetsRootPath, parsed.fileName);
       if (!fs.existsSync(absolutePath)) return response(404);
 
       const stats = fs.lstatSync(absolutePath);

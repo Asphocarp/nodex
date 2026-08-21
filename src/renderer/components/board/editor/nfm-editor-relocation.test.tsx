@@ -71,11 +71,7 @@ describe("NfmEditor mutation preparation", () => {
     });
 
     try {
-      const fence = await prepareNfmEditorStructuralMutation(
-        editor,
-        container,
-        { flushAndFence },
-      );
+      const fence = await prepareNfmEditorStructuralMutation(editor, container, { flushAndFence });
 
       expect(editor.prosemirrorView.dragging).toBeNull();
       expect(order).toEqual(["drag-end", "blur", "flush"]);

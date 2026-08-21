@@ -3,11 +3,6 @@ export interface BrowserPermissionRequestFacts {
   readonly isMainFrame: boolean;
 }
 
-export function shouldGrantBrowserPermission(
-  facts: BrowserPermissionRequestFacts,
-): boolean {
-  return (
-    facts.isMainFrame
-    && facts.permission === "clipboard-sanitized-write"
-  );
+export function shouldGrantBrowserPermission(facts: BrowserPermissionRequestFacts): boolean {
+  return facts.isMainFrame && facts.permission === "clipboard-sanitized-write";
 }

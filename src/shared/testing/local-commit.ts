@@ -1,7 +1,4 @@
-import type {
-  AuthorizedDeliveryPacket,
-  LocalCommitApply,
-} from "../local-commit-delivery";
+import type { AuthorizedDeliveryPacket, LocalCommitApply } from "../local-commit-delivery";
 
 export const committedLocalCommit = (
   storeEpoch: string,
@@ -18,10 +15,7 @@ export const committedLocalCommit = (
   delivery,
 });
 
-export const noOpLocalCommit = (
-  storeEpoch: string,
-  commitHead = 0,
-): LocalCommitApply => ({
+export const noOpLocalCommit = (storeEpoch: string, commitHead = 0): LocalCommitApply => ({
   status: "no_op",
   observed: {
     store_epoch: storeEpoch,

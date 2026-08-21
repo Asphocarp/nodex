@@ -23,21 +23,16 @@ interface PropertyOptionRegistryEntry {
 
 const EMPTY_REQUIRED_OPTION_IDS: Readonly<Record<string, readonly string[]>> = {};
 
-const isOptionProperty = (
-  property: DataSourcePropertyRecordV2,
-): boolean => property.lifecycle === "active"
-  && (property.valueType === "select" || property.valueType === "multi_select");
+const isOptionProperty = (property: DataSourcePropertyRecordV2): boolean =>
+  property.lifecycle === "active" &&
+  (property.valueType === "select" || property.valueType === "multi_select");
 
-const isCompactSemanticRegistry = (
-  property: DataSourcePropertyRecordV2,
-): boolean => {
+const isCompactSemanticRegistry = (property: DataSourcePropertyRecordV2): boolean => {
   const role = matchBuiltInDataSourceProperty(property);
   return role === "status" || role === "priority" || role === "estimate";
 };
 
-const initialEntry = (
-  property: DataSourcePropertyRecordV2,
-): PropertyOptionRegistryEntry => {
+const initialEntry = (property: DataSourcePropertyRecordV2): PropertyOptionRegistryEntry => {
   const options = readDatabasePropertyOptions(property);
   return {
     options,
@@ -60,10 +55,7 @@ export function usePropertyOptionRegistries({
   /** Selected identities whose labels are visible before a picker opens. */
   readonly requiredOptionIds?: Readonly<Record<string, readonly string[]>>;
 }) {
-  const [entries, setEntries] = useState<Readonly<Record<
-    string,
-    PropertyOptionRegistryEntry
-  >>>({});
+  const [entries, setEntries] = useState<Readonly<Record<string, PropertyOptionRegistryEntry>>>({});
   const entriesRef = useRef(entries);
   entriesRef.current = entries;
   const propertiesRef = useRef(properties);
@@ -71,9 +63,7 @@ export function usePropertyOptionRegistries({
   const generationRef = useRef(0);
   const loadsRef = useRef(new Map<string, Promise<void>>());
   const propertyAuthorityKey = JSON.stringify([
-    accessContext.kind === "project"
-      ? ["project", accessContext.projectId]
-      : ["library"],
+    accessContext.kind === "project" ? ["project", accessContext.projectId] : ["library"],
     properties.map((property) => [
       property.dataSourceId,
       property.propertyId,
@@ -86,101 +76,101 @@ export function usePropertyOptionRegistries({
   useLayoutEffect(() => {
     generationRef.current += 1;
     loadsRef.current.clear();
-    setEntries(Object.fromEntries(
-      propertiesRef.current
-        .filter(isOptionProperty)
-        .map((property) => [property.propertyId, initialEntry(property)]),
-    ));
+    setEntries(
+      Object.fromEntries(
+        propertiesRef.current
+          .filter(isOptionProperty)
+          .map((property) => [property.propertyId, initialEntry(property)]),
+      ),
+    );
   }, [propertyAuthorityKey]);
 
-  const load = useCallback((property: DataSourcePropertyRecordV2, continuation: boolean) => {
-    if (!isOptionProperty(property)) return;
-    const propertyId = property.propertyId;
-    const current = entriesRef.current[propertyId] ?? initialEntry(property);
-    if (loadsRef.current.has(propertyId)) return;
-    if (continuation && (!current.nextCursor || current.state !== "ready")) return;
-    if (!continuation && current.state === "ready") return;
-    const after = continuation ? current.nextCursor : null;
-    const generation = generationRef.current;
-    setEntries((all) => ({
-      ...all,
-      [propertyId]: {
-        ...(all[propertyId] ?? current),
-        state: continuation ? "ready" : "loading",
-        loadingMore: continuation,
-      },
-    }));
-
-    const read = async () => {
-      let replace = after === null;
-      let page;
-      try {
-        page = await readPropertyOptionWindow(accessContext, property, after);
-      } catch (cause) {
-        if (after === null) throw cause;
-        page = await readPropertyOptionWindow(accessContext, property, null);
-        replace = true;
-      }
-      const latest = entriesRef.current[propertyId] ?? current;
-      if (
-        after !== null
-        && !propertyOptionWindowMatchesProjection(
-          latest.projectionRevision,
-          page.projectionRevision,
-        )
-      ) {
-        page = await readPropertyOptionWindow(accessContext, property, null);
-        replace = true;
-      }
-      const seenCursors = replace ? [] : latest.seenCursors;
-      if (page.nextCursor && seenCursors.includes(page.nextCursor)) {
-        throw new Error("Property option registry returned a repeated cursor");
-      }
-      const options = replace
-        ? page.options
-        : mergePropertyOptionPages(latest.options, page.options);
-      // optionCount belongs to the descriptor snapshot; this window may be newer.
-      if (
-        property.optionCount > MAX_DATA_SOURCE_PROPERTY_OPTIONS
-        || options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS
-      ) {
-        throw new Error("Property option registry exceeded its declared bound");
-      }
-      if (generationRef.current !== generation) return;
+  const load = useCallback(
+    (property: DataSourcePropertyRecordV2, continuation: boolean) => {
+      if (!isOptionProperty(property)) return;
+      const propertyId = property.propertyId;
+      const current = entriesRef.current[propertyId] ?? initialEntry(property);
+      if (loadsRef.current.has(propertyId)) return;
+      if (continuation && (!current.nextCursor || current.state !== "ready")) return;
+      if (!continuation && current.state === "ready") return;
+      const after = continuation ? current.nextCursor : null;
+      const generation = generationRef.current;
       setEntries((all) => ({
         ...all,
         [propertyId]: {
-          options,
-          state: "ready",
-          nextCursor: page.nextCursor,
-          projectionRevision: page.projectionRevision,
-          seenCursors: page.nextCursor
-            ? [...seenCursors, page.nextCursor]
-            : seenCursors,
-          loadingMore: false,
+          ...(all[propertyId] ?? current),
+          state: continuation ? "ready" : "loading",
+          loadingMore: continuation,
         },
       }));
-    };
-    const request = read()
-      .catch((cause: unknown) => {
+
+      const read = async () => {
+        let replace = after === null;
+        let page;
+        try {
+          page = await readPropertyOptionWindow(accessContext, property, after);
+        } catch (cause) {
+          if (after === null) throw cause;
+          page = await readPropertyOptionWindow(accessContext, property, null);
+          replace = true;
+        }
+        const latest = entriesRef.current[propertyId] ?? current;
+        if (
+          after !== null &&
+          !propertyOptionWindowMatchesProjection(latest.projectionRevision, page.projectionRevision)
+        ) {
+          page = await readPropertyOptionWindow(accessContext, property, null);
+          replace = true;
+        }
+        const seenCursors = replace ? [] : latest.seenCursors;
+        if (page.nextCursor && seenCursors.includes(page.nextCursor)) {
+          throw new Error("Property option registry returned a repeated cursor");
+        }
+        const options = replace
+          ? page.options
+          : mergePropertyOptionPages(latest.options, page.options);
+        // optionCount belongs to the descriptor snapshot; this window may be newer.
+        if (
+          property.optionCount > MAX_DATA_SOURCE_PROPERTY_OPTIONS ||
+          options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS
+        ) {
+          throw new Error("Property option registry exceeded its declared bound");
+        }
         if (generationRef.current !== generation) return;
-        console.error("Failed to load property options", cause);
         setEntries((all) => ({
           ...all,
           [propertyId]: {
-            ...(all[propertyId] ?? current),
-            state: "error",
+            options,
+            state: "ready",
+            nextCursor: page.nextCursor,
+            projectionRevision: page.projectionRevision,
+            seenCursors: page.nextCursor ? [...seenCursors, page.nextCursor] : seenCursors,
             loadingMore: false,
           },
         }));
-      })
-      .finally(() => {
-        if (loadsRef.current.get(propertyId) === request) {
-          loadsRef.current.delete(propertyId);
-        }
-      });
-    loadsRef.current.set(propertyId, request);
-  }, [accessContext]);
+      };
+      const request = read()
+        .catch((cause: unknown) => {
+          if (generationRef.current !== generation) return;
+          console.error("Failed to load property options", cause);
+          setEntries((all) => ({
+            ...all,
+            [propertyId]: {
+              ...(all[propertyId] ?? current),
+              state: "error",
+              loadingMore: false,
+            },
+          }));
+        })
+        .finally(() => {
+          if (loadsRef.current.get(propertyId) === request) {
+            loadsRef.current.delete(propertyId);
+          }
+        });
+      loadsRef.current.set(propertyId, request);
+    },
+    [accessContext],
+  );
 
   const requestOptions = useCallback(
     (property: DataSourcePropertyRecordV2) => load(property, false),
@@ -191,10 +181,10 @@ export function usePropertyOptionRegistries({
     [load],
   );
   const requiredOptionEntries = useMemo(
-    () => Object.entries(requiredOptionIds).map(([propertyId, optionIds]) => [
-      propertyId,
-      [...new Set(optionIds)],
-    ] as const),
+    () =>
+      Object.entries(requiredOptionIds).map(
+        ([propertyId, optionIds]) => [propertyId, [...new Set(optionIds)]] as const,
+      ),
     [requiredOptionIds],
   );
 
@@ -227,23 +217,26 @@ export function usePropertyOptionRegistries({
     }
   }, [entries, load]);
 
-  return useMemo(() => ({
-    options: Object.fromEntries(
-      Object.entries(entries).map(([propertyId, entry]) => [propertyId, entry.options]),
-    ) as Readonly<Record<string, readonly DatabasePropertyOption[]>>,
-    states: Object.fromEntries(
-      Object.entries(entries).map(([propertyId, entry]) => [propertyId, entry.state]),
-    ) as Readonly<Record<string, DataSourcePropertyOptionRegistryState>>,
-    hasMore: Object.fromEntries(
-      Object.entries(entries).map(([propertyId, entry]) => [
-        propertyId,
-        entry.nextCursor !== null,
-      ]),
-    ) as Readonly<Record<string, boolean>>,
-    loadingMore: Object.fromEntries(
-      Object.entries(entries).map(([propertyId, entry]) => [propertyId, entry.loadingMore]),
-    ) as Readonly<Record<string, boolean>>,
-    requestOptions,
-    requestMoreOptions,
-  }), [entries, requestMoreOptions, requestOptions]);
+  return useMemo(
+    () => ({
+      options: Object.fromEntries(
+        Object.entries(entries).map(([propertyId, entry]) => [propertyId, entry.options]),
+      ) as Readonly<Record<string, readonly DatabasePropertyOption[]>>,
+      states: Object.fromEntries(
+        Object.entries(entries).map(([propertyId, entry]) => [propertyId, entry.state]),
+      ) as Readonly<Record<string, DataSourcePropertyOptionRegistryState>>,
+      hasMore: Object.fromEntries(
+        Object.entries(entries).map(([propertyId, entry]) => [
+          propertyId,
+          entry.nextCursor !== null,
+        ]),
+      ) as Readonly<Record<string, boolean>>,
+      loadingMore: Object.fromEntries(
+        Object.entries(entries).map(([propertyId, entry]) => [propertyId, entry.loadingMore]),
+      ) as Readonly<Record<string, boolean>>,
+      requestOptions,
+      requestMoreOptions,
+    }),
+    [entries, requestMoreOptions, requestOptions],
+  );
 }

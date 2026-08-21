@@ -64,11 +64,7 @@ describe("Document live stream supervisor", () => {
     openings[0]?.repair(repair);
     await vi.waitFor(() => expect(openings).toHaveLength(2));
 
-    expect(observations.slice(0, 3)).toEqual([
-      "connected",
-      "disconnected",
-      "repair",
-    ]);
+    expect(observations.slice(0, 3)).toEqual(["connected", "disconnected", "repair"]);
     await vi.waitFor(() => {
       expect(observations.at(-1)).toBe("connected");
     });

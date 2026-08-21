@@ -4,12 +4,7 @@ import {
   readDatabaseViewWindow,
   subscribeBoardChanges,
 } from "./api";
-import type {
-  BoardSummary,
-  DatabasePage,
-  PageInput,
-  DatabasePageSummary,
-} from "./types";
+import type { BoardSummary, DatabasePage, PageInput, DatabasePageSummary } from "./types";
 import type {
   DatabaseViewGroupScopeInput,
   DatabaseViewGroupsInput,
@@ -51,10 +46,7 @@ import {
   type ProjectionCoordinate,
   type ProjectionEffect,
 } from "../../shared/projection-stream";
-import {
-  CausalProjectionRuntime,
-  type ProjectionRepairRequest,
-} from "./causal-projection-runtime";
+import { CausalProjectionRuntime, type ProjectionRepairRequest } from "./causal-projection-runtime";
 import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
 import {
   fenceDatabaseRowDetailsForProject,
@@ -70,17 +62,17 @@ const CONSISTENT_WINDOW_READ_ATTEMPTS = 4;
 const MAX_RETAINED_BOARD_STORES = 32;
 const GROUP_WINDOW_READ_CONCURRENCY = 8;
 
-const changesProjectionCoordinate = (
-  override: DatabaseViewPresentationOverride | null,
-): boolean => Boolean(override && (
-  override.layout !== undefined
-  || override.sort !== undefined
-  || Object.prototype.hasOwnProperty.call(override, "group")
-  || Object.prototype.hasOwnProperty.call(override, "subgroup")
-  || override.groupDirection !== undefined
-  || override.completion !== undefined
-  || override.hierarchy !== undefined
-));
+const changesProjectionCoordinate = (override: DatabaseViewPresentationOverride | null): boolean =>
+  Boolean(
+    override &&
+    (override.layout !== undefined ||
+      override.sort !== undefined ||
+      Object.prototype.hasOwnProperty.call(override, "group") ||
+      Object.prototype.hasOwnProperty.call(override, "subgroup") ||
+      override.groupDirection !== undefined ||
+      override.completion !== undefined ||
+      override.hierarchy !== undefined),
+  );
 
 export interface IndexedPage extends DatabasePageSummary {
   columnId: string;
@@ -147,7 +139,10 @@ type ReadViewGroupsFn = (
   projectId: string,
   input: DatabaseViewGroupsInput,
 ) => Promise<DatabaseViewGroupsSnapshot>;
-type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
+type SubscribeBoardChangesFn = (
+  projectId: string,
+  callback: (event: BoardChangeEvent) => void,
+) => () => void;
 type NowFn = () => number;
 
 export interface BoardStoreDependencies {
@@ -170,9 +165,7 @@ export interface LocalOverlayOptions {
 }
 
 /** A pure optimistic transform replayed over each fresh Database View read. */
-export type DatabaseViewTransform = (
-  model: DatabaseViewRenderModel,
-) => DatabaseViewRenderModel;
+export type DatabaseViewTransform = (model: DatabaseViewRenderModel) => DatabaseViewRenderModel;
 
 export interface RunOptimisticMutationOptions<T> {
   kind: string;
@@ -189,9 +182,7 @@ export interface RunOptimisticMutationOptions<T> {
    * is insufficient because the affected row can sit outside the loaded span.
    */
   isCommitMaterialized?: (canonicalBoard: BoardSummary) => boolean;
-  isDatabaseViewCommitMaterialized?: (
-    canonicalModel: DatabaseViewRenderModel,
-  ) => boolean;
+  isDatabaseViewCommitMaterialized?: (canonicalModel: DatabaseViewRenderModel) => boolean;
   refreshOnSuccess?: boolean;
   refreshOnFailure?: boolean;
   suppressErrorWhenSuperseded?: boolean;
@@ -205,9 +196,7 @@ export interface RunOptimisticDatabaseViewMutationOptions<T> {
   /** Serializes commands whose Core intent is compiled from shared authority. */
   remoteLane?: string;
   getCommitCursor?: (result: T) => LocalProjectionCursor | null | undefined;
-  isCommitMaterialized?: (
-    canonicalModel: DatabaseViewRenderModel,
-  ) => boolean;
+  isCommitMaterialized?: (canonicalModel: DatabaseViewRenderModel) => boolean;
   refreshOnSuccess?: boolean;
   refreshOnFailure?: boolean;
   suppressErrorWhenSuperseded?: boolean;
@@ -229,9 +218,7 @@ interface OptimisticEntry {
   phase: "pending" | "acknowledged" | "local";
   commitCursor: LocalProjectionCursor | null;
   isCommitMaterialized: ((canonicalBoard: BoardSummary) => boolean) | null;
-  isDatabaseViewCommitMaterialized: ((
-    canonicalModel: DatabaseViewRenderModel,
-  ) => boolean) | null;
+  isDatabaseViewCommitMaterialized: ((canonicalModel: DatabaseViewRenderModel) => boolean) | null;
   minimumMaterializationGeneration: number | null;
   superseded: boolean;
 }
@@ -286,20 +273,14 @@ interface GroupWindowState {
   readonly inlineError: string | null;
 }
 
-type ProjectionSnapshot = Pick<
-  DatabaseViewWindowSnapshot,
-  "storeEpoch" | "projection"
->;
+type ProjectionSnapshot = Pick<DatabaseViewWindowSnapshot, "storeEpoch" | "projection">;
 
-const hasSameProjectionAuthority = (
-  left: ProjectionSnapshot,
-  right: ProjectionSnapshot,
-): boolean =>
-  left.storeEpoch === right.storeEpoch
-  && left.projection.scopeKey === right.projection.scopeKey
-  && left.projection.schemaVersion === right.projection.schemaVersion
-  && left.projection.revision === right.projection.revision
-  && left.projection.effectHash === right.projection.effectHash;
+const hasSameProjectionAuthority = (left: ProjectionSnapshot, right: ProjectionSnapshot): boolean =>
+  left.storeEpoch === right.storeEpoch &&
+  left.projection.scopeKey === right.projection.scopeKey &&
+  left.projection.schemaVersion === right.projection.schemaVersion &&
+  left.projection.revision === right.projection.revision &&
+  left.projection.effectHash === right.projection.effectHash;
 
 const scopeContainsGroup = (
   scope: DatabaseViewGroupScopeInput | null,
@@ -310,9 +291,7 @@ const scopeContainsGroup = (
   return scope.groupKey === groupKey && scope.subgroupKey === subgroupKey;
 };
 
-const scopesFromGroups = (
-  groups: DatabaseViewGroupsSnapshot,
-): GroupWindowScope[] => {
+const scopesFromGroups = (groups: DatabaseViewGroupsSnapshot): GroupWindowScope[] => {
   if (groups.truncated) {
     return [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
   }
@@ -337,12 +316,14 @@ const mergeBoards = (boards: readonly BoardSummary[]): BoardSummary => {
     columns: first.columns.map((column) => ({
       ...column,
       cards: boards.flatMap((board) =>
-        (board.columns.find((candidate) => candidate.id === column.id)?.cards ?? [])
-          .filter((card) => {
+        (board.columns.find((candidate) => candidate.id === column.id)?.cards ?? []).filter(
+          (card) => {
             if (seenCards.has(card.id)) return false;
             seenCards.add(card.id);
             return true;
-          })),
+          },
+        ),
+      ),
     })),
   };
 };
@@ -359,13 +340,16 @@ const mergeGroupWindows = (
   const first = windows[0];
   if (!first) return null;
   const projection = first.projection;
-  if (windows.some((window) =>
-    window.storeEpoch !== first.storeEpoch
-    || window.projection.scopeKey !== projection.scopeKey
-    || window.projection.schemaVersion !== projection.schemaVersion
-    || window.projection.revision !== projection.revision
-    || window.projection.effectHash !== projection.effectHash
-  )) {
+  if (
+    windows.some(
+      (window) =>
+        window.storeEpoch !== first.storeEpoch ||
+        window.projection.scopeKey !== projection.scopeKey ||
+        window.projection.schemaVersion !== projection.schemaVersion ||
+        window.projection.revision !== projection.revision ||
+        window.projection.effectHash !== projection.effectHash,
+    )
+  ) {
     throw new Error("Database View windows crossed a projection revision");
   }
   const seenRows = new Set<string>();
@@ -374,22 +358,22 @@ const mergeGroupWindows = (
       if (seenRows.has(row.page.id)) return false;
       seenRows.add(row.page.id);
       return true;
-    }));
+    }),
+  );
   const seenQueryRows = new Set<string>();
   const queryRows = windows.flatMap((window) =>
     window.query.rows.filter((row) => {
       if (seenQueryRows.has(row.page.pageId)) return false;
       seenQueryRows.add(row.page.pageId);
       return true;
-    }));
+    }),
+  );
   return {
     ...first,
     commitSeq: Math.min(...windows.map((window) => window.commitSeq)),
     projection: {
       ...projection,
-      coveredCommitSeq: Math.min(
-        ...windows.map((window) => window.projection.coveredCommitSeq),
-      ),
+      coveredCommitSeq: Math.min(...windows.map((window) => window.projection.coveredCommitSeq)),
     },
     nextCursor: null,
     rows,
@@ -407,12 +391,12 @@ const groupPaginationEquals = (
   for (const [scopeKey, state] of left) {
     const other = right.get(scopeKey);
     if (
-      !other
-      || other.loadedRows !== state.loadedRows
-      || other.totalRows !== state.totalRows
-      || other.hasMore !== state.hasMore
-      || other.loadingMore !== state.loadingMore
-      || other.error !== state.error
+      !other ||
+      other.loadedRows !== state.loadedRows ||
+      other.totalRows !== state.totalRows ||
+      other.hasMore !== state.hasMore ||
+      other.loadingMore !== state.loadingMore ||
+      other.error !== state.error
     ) {
       return false;
     }
@@ -424,19 +408,13 @@ const appendWindow = (
   current: DatabaseViewWindowSnapshot,
   next: DatabaseViewWindowSnapshot,
 ): DatabaseViewWindowSnapshot => {
-  if (
-    !hasSameProjectionAuthority(current, next)
-    || current.viewId !== next.viewId
-  ) {
+  if (!hasSameProjectionAuthority(current, next) || current.viewId !== next.viewId) {
     throw new Error("Database View continuation crossed a projection revision");
   }
   const existingIds = new Set(current.rows.map((row) => row.page.id));
   return {
     ...next,
-    rows: [
-      ...current.rows,
-      ...next.rows.filter((row) => !existingIds.has(row.page.id)),
-    ],
+    rows: [...current.rows, ...next.rows.filter((row) => !existingIds.has(row.page.id))],
     board: mergeBoards([current.board, next.board]),
     query: {
       ...next.query,
@@ -530,13 +508,8 @@ class BoardProjectStore {
     private readonly onInactive: () => void,
   ) {}
 
-  setPresentationOverride(
-    presentationOverride: DatabaseViewPresentationOverride | null,
-  ): void {
-    if (
-      JSON.stringify(this.presentationOverride)
-      === JSON.stringify(presentationOverride)
-    ) return;
+  setPresentationOverride(presentationOverride: DatabaseViewPresentationOverride | null): void {
+    if (JSON.stringify(this.presentationOverride) === JSON.stringify(presentationOverride)) return;
     this.presentationOverride = presentationOverride;
     this.presentationGeneration += 1;
     this.revocationGeneration += 1;
@@ -582,11 +555,8 @@ class BoardProjectStore {
   }
 
   disposeIfInactive(): boolean {
-    if (
-      this.listeners.size > 0
-      || this.optimisticEntries.length > 0
-      || this.remoteLanes.size > 0
-    ) return false;
+    if (this.listeners.size > 0 || this.optimisticEntries.length > 0 || this.remoteLanes.size > 0)
+      return false;
     this.teardownRealtimeSubscription();
     this.clearInactiveAuthority();
     return true;
@@ -648,25 +618,20 @@ class BoardProjectStore {
     fenceDatabaseRowDetailsForProject(this.projectId);
   }
 
-  private requireMinimumCursor(
-    minimum: number | LocalProjectionCursor,
-  ): void {
-    const cursor = typeof minimum === "number"
-      ? minimum > 0
-        ? {
-            storeEpoch: this.requiredMinimumStoreEpoch
-              ?? this.baseBoardAuthority?.storeEpoch
-              ?? null,
-            commitSeq: minimum,
-          }
-        : null
-      : minimum;
+  private requireMinimumCursor(minimum: number | LocalProjectionCursor): void {
+    const cursor =
+      typeof minimum === "number"
+        ? minimum > 0
+          ? {
+              storeEpoch:
+                this.requiredMinimumStoreEpoch ?? this.baseBoardAuthority?.storeEpoch ?? null,
+              commitSeq: minimum,
+            }
+          : null
+        : minimum;
     if (!cursor) return;
     if (cursor.storeEpoch === null) {
-      this.requiredMinimumCommitSeq = Math.max(
-        this.requiredMinimumCommitSeq,
-        cursor.commitSeq,
-      );
+      this.requiredMinimumCommitSeq = Math.max(this.requiredMinimumCommitSeq, cursor.commitSeq);
       return;
     }
     if (this.requiredMinimumStoreEpoch !== cursor.storeEpoch) {
@@ -674,30 +639,28 @@ class BoardProjectStore {
       this.requiredMinimumCommitSeq = cursor.commitSeq;
       return;
     }
-    this.requiredMinimumCommitSeq = Math.max(
-      this.requiredMinimumCommitSeq,
-      cursor.commitSeq,
-    );
+    this.requiredMinimumCommitSeq = Math.max(this.requiredMinimumCommitSeq, cursor.commitSeq);
   }
 
   private windowInputBase(
     minimumCommitSeq = 0,
     minimumStoreEpoch: string | null = null,
   ): DatabaseViewWindowInput {
-    const minimum = minimumStoreEpoch && minimumCommitSeq > 0
-      ? {
-          minimumCommitCursor: {
-            storeEpoch: minimumStoreEpoch,
-            commitSeq: minimumCommitSeq,
-          },
-        }
-      : minimumCommitSeq > 0 ? { minimumCommitSeq } : {};
+    const minimum =
+      minimumStoreEpoch && minimumCommitSeq > 0
+        ? {
+            minimumCommitCursor: {
+              storeEpoch: minimumStoreEpoch,
+              commitSeq: minimumCommitSeq,
+            },
+          }
+        : minimumCommitSeq > 0
+          ? { minimumCommitSeq }
+          : {};
     return this.databaseViewId
       ? {
           databaseViewId: this.databaseViewId,
-          ...(this.presentationOverride
-            ? { presentationOverride: this.presentationOverride }
-            : {}),
+          ...(this.presentationOverride ? { presentationOverride: this.presentationOverride } : {}),
           ...minimum,
         }
       : minimum;
@@ -707,20 +670,21 @@ class BoardProjectStore {
     minimumCommitSeq = 0,
     minimumStoreEpoch: string | null = null,
   ): DatabaseViewGroupsInput {
-    const minimum = minimumStoreEpoch && minimumCommitSeq > 0
-      ? {
-          minimumCommitCursor: {
-            storeEpoch: minimumStoreEpoch,
-            commitSeq: minimumCommitSeq,
-          },
-        }
-      : minimumCommitSeq > 0 ? { minimumCommitSeq } : {};
+    const minimum =
+      minimumStoreEpoch && minimumCommitSeq > 0
+        ? {
+            minimumCommitCursor: {
+              storeEpoch: minimumStoreEpoch,
+              commitSeq: minimumCommitSeq,
+            },
+          }
+        : minimumCommitSeq > 0
+          ? { minimumCommitSeq }
+          : {};
     return this.databaseViewId
       ? {
           databaseViewId: this.databaseViewId,
-          ...(this.presentationOverride
-            ? { presentationOverride: this.presentationOverride }
-            : {}),
+          ...(this.presentationOverride ? { presentationOverride: this.presentationOverride } : {}),
           ...minimum,
         }
       : minimum;
@@ -729,10 +693,7 @@ class BoardProjectStore {
   /** Span-preserving first-window size: a refresh re-reads what was loaded. */
   private firstForScope(scopeKey: GroupWindowScopeKey): number {
     const loaded = this.groupWindows.get(scopeKey)?.snapshot.rows.length ?? 0;
-    return Math.min(
-      Math.max(GROUP_WINDOW_FIRST, loaded),
-      GROUP_WINDOW_MAX_FIRST,
-    );
+    return Math.min(Math.max(GROUP_WINDOW_FIRST, loaded), GROUP_WINDOW_MAX_FIRST);
   }
 
   private async readScopedWindow(
@@ -768,9 +729,8 @@ class BoardProjectStore {
       );
       const scopes = scopesFromGroups(groups);
       // An empty grouped View still needs one window for its descriptor.
-      const fetchScopes: GroupWindowScope[] = scopes.length > 0
-        ? scopes
-        : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
+      const fetchScopes: GroupWindowScope[] =
+        scopes.length > 0 ? scopes : [{ scopeKey: UNGROUPED_SCOPE_KEY, scope: null }];
       const windows = await mapWithConcurrency(
         fetchScopes,
         GROUP_WINDOW_READ_CONCURRENCY,
@@ -785,9 +745,7 @@ class BoardProjectStore {
           ),
         }),
       );
-      if (windows.every(({ snapshot }) =>
-        hasSameProjectionAuthority(groups, snapshot)
-      )) {
+      if (windows.every(({ snapshot }) => hasSameProjectionAuthority(groups, snapshot))) {
         return { groups, windows };
       }
       floor = Math.max(
@@ -800,9 +758,7 @@ class BoardProjectStore {
         ]),
       );
     }
-    throw new Error(
-      "Database View changed faster than a consistent window snapshot could be read",
-    );
+    throw new Error("Database View changed faster than a consistent window snapshot could be read");
   }
 
   private rebuildFromGroups(): void {
@@ -811,9 +767,7 @@ class BoardProjectStore {
     );
     this.baseBoardAuthority = merged;
     this.baseBoard = merged?.board ?? null;
-    this.baseDatabaseView = merged
-      ? buildDatabaseViewWindowRenderModel(merged)
-      : null;
+    this.baseDatabaseView = merged ? buildDatabaseViewWindowRenderModel(merged) : null;
   }
 
   private fetchBoardOnce = async (
@@ -845,20 +799,18 @@ class BoardProjectStore {
         return true;
       }
       const retainedAuthority = this.baseBoardAuthority;
-      const currentAuthority = this.basePresentationGeneration
-          === presentationGeneration
-        ? retainedAuthority
-        : null;
+      const currentAuthority =
+        this.basePresentationGeneration === presentationGeneration ? retainedAuthority : null;
       const incomingAuthority = windows[0]?.snapshot;
       const storeEpochChanged = Boolean(
-        retainedAuthority
-        && incomingAuthority
-        && incomingAuthority.storeEpoch !== retainedAuthority.storeEpoch,
+        retainedAuthority &&
+        incomingAuthority &&
+        incomingAuthority.storeEpoch !== retainedAuthority.storeEpoch,
       );
       const crossedRequestedEpoch = Boolean(
-        minimumStoreEpoch
-        && incomingAuthority
-        && incomingAuthority.storeEpoch !== minimumStoreEpoch,
+        minimumStoreEpoch &&
+        incomingAuthority &&
+        incomingAuthority.storeEpoch !== minimumStoreEpoch,
       );
       if (storeEpochChanged || crossedRequestedEpoch) {
         // Epochs have independent commit coordinates. Replace every derived
@@ -866,30 +818,19 @@ class BoardProjectStore {
         // freshly opened Store.
         this.fenceStoreEpochReplacement();
       }
-      const incomingSeq = Math.min(
-        ...windows.map((window) => window.snapshot.commitSeq),
-      );
+      const incomingSeq = Math.min(...windows.map((window) => window.snapshot.commitSeq));
       if (!storeEpochChanged && !crossedRequestedEpoch && incomingSeq < minimumCommitSeq) {
-        throw new Error(
-          `Database View read did not reach local commit ${minimumCommitSeq}`,
-        );
+        throw new Error(`Database View read did not reach local commit ${minimumCommitSeq}`);
       }
       if (
-        currentAuthority
-        && incomingAuthority
-        && incomingAuthority.storeEpoch === currentAuthority.storeEpoch
-        && incomingAuthority.projection.scopeKey
-          === currentAuthority.projection.scopeKey
-        && (
-          incomingAuthority.projection.revision
-            < currentAuthority.projection.revision
-          || (
-            incomingAuthority.projection.revision
-              === currentAuthority.projection.revision
-            && incomingAuthority.projection.coveredCommitSeq
-              < currentAuthority.projection.coveredCommitSeq
-          )
-        )
+        currentAuthority &&
+        incomingAuthority &&
+        incomingAuthority.storeEpoch === currentAuthority.storeEpoch &&
+        incomingAuthority.projection.scopeKey === currentAuthority.projection.scopeKey &&
+        (incomingAuthority.projection.revision < currentAuthority.projection.revision ||
+          (incomingAuthority.projection.revision === currentAuthority.projection.revision &&
+            incomingAuthority.projection.coveredCommitSeq <
+              currentAuthority.projection.coveredCommitSeq))
       ) {
         // Every fetched window predates what is already on screen; keep the
         // newer state and only refresh bookkeeping.
@@ -901,30 +842,29 @@ class BoardProjectStore {
         return true;
       }
       if (
-        currentAuthority
-        && incomingAuthority
-        && incomingAuthority.storeEpoch === currentAuthority.storeEpoch
-        && incomingAuthority.projection.scopeKey
-          === currentAuthority.projection.scopeKey
-        && incomingAuthority.projection.revision
-          === currentAuthority.projection.revision
-        && currentAuthority.projection.effectHash !== null
-        && incomingAuthority.projection.effectHash !== null
-        && incomingAuthority.projection.effectHash
-          !== currentAuthority.projection.effectHash
+        currentAuthority &&
+        incomingAuthority &&
+        incomingAuthority.storeEpoch === currentAuthority.storeEpoch &&
+        incomingAuthority.projection.scopeKey === currentAuthority.projection.scopeKey &&
+        incomingAuthority.projection.revision === currentAuthority.projection.revision &&
+        currentAuthority.projection.effectHash !== null &&
+        incomingAuthority.projection.effectHash !== null &&
+        incomingAuthority.projection.effectHash !== currentAuthority.projection.effectHash
       ) {
         throw new Error("Database View canonical read conflicts with its projection revision");
       }
       this.groupsSnapshot = groups;
-      this.groupWindows = new Map(windows.map(({ scope, snapshot }) => [
-        scope.scopeKey,
-        {
-          scope: scope.scope,
-          snapshot,
-          loadingMore: false,
-          inlineError: null,
-        },
-      ]));
+      this.groupWindows = new Map(
+        windows.map(({ scope, snapshot }) => [
+          scope.scopeKey,
+          {
+            scope: scope.scope,
+            snapshot,
+            loadingMore: false,
+            inlineError: null,
+          },
+        ]),
+      );
       this.rebuildFromGroups();
       this.basePresentationGeneration = presentationGeneration;
       this.canonicalReadGeneration += 1;
@@ -954,9 +894,7 @@ class BoardProjectStore {
     }
   };
 
-  fetchBoard = async (
-    minimum: number | LocalProjectionCursor = 0,
-  ): Promise<boolean> => {
+  fetchBoard = async (minimum: number | LocalProjectionCursor = 0): Promise<boolean> => {
     this.requireMinimumCursor(minimum);
     while (true) {
       const requestedMinimumCommitSeq = this.requiredMinimumCommitSeq;
@@ -980,10 +918,11 @@ class BoardProjectStore {
       }
       if (!succeeded) return false;
       if (
-        this.requiredMinimumStoreEpoch === requestedMinimumStoreEpoch
-        && this.requiredMinimumCommitSeq <= requestedMinimumCommitSeq
-        && this.completedRefreshGeneration >= requestedRefreshGeneration
-      ) return true;
+        this.requiredMinimumStoreEpoch === requestedMinimumStoreEpoch &&
+        this.requiredMinimumCommitSeq <= requestedMinimumCommitSeq &&
+        this.completedRefreshGeneration >= requestedRefreshGeneration
+      )
+        return true;
     }
   };
 
@@ -992,9 +931,7 @@ class BoardProjectStore {
    * span. This is the consumer half of the cursor contract: a rejected
    * continuation is disposable read state, never a user-facing failure.
    */
-  private refetchGroup = async (
-    scopeKey: GroupWindowScopeKey,
-  ): Promise<void> => {
+  private refetchGroup = async (scopeKey: GroupWindowScopeKey): Promise<void> => {
     const group = this.groupWindows.get(scopeKey);
     if (!group) return;
     try {
@@ -1007,9 +944,7 @@ class BoardProjectStore {
       );
       const current = this.groupWindows.get(scopeKey);
       if (!current) return;
-      if (
-        !hasSameProjectionAuthority(snapshot, current.snapshot)
-      ) {
+      if (!hasSameProjectionAuthority(snapshot, current.snapshot)) {
         this.stale = true;
         await this.fetchBoard({
           storeEpoch: snapshot.storeEpoch,
@@ -1062,8 +997,8 @@ class BoardProjectStore {
       const current = this.groupWindows.get(scopeKey);
       if (!current || current.snapshot.nextCursor !== after) return;
       if (
-        !hasSameProjectionAuthority(next, current.snapshot)
-        || next.viewId !== current.snapshot.viewId
+        !hasSameProjectionAuthority(next, current.snapshot) ||
+        next.viewId !== current.snapshot.viewId
       ) {
         // Continuations are valid only inside one exact projection revision.
         // Dispose the cursor and converge the whole Board from first windows.
@@ -1082,8 +1017,7 @@ class BoardProjectStore {
       this.rebuildFromGroups();
       this.recomputeSnapshot({ error: null });
     } catch (error) {
-      if (error instanceof CoreApiError
-        && error.isCursorRejection({ requestHadCursor: true })) {
+      if (error instanceof CoreApiError && error.isCursorRejection({ requestHadCursor: true })) {
         const current = this.groupWindows.get(scopeKey);
         if (current) {
           this.groupWindows = new Map(this.groupWindows).set(scopeKey, {
@@ -1105,11 +1039,7 @@ class BoardProjectStore {
     const scopeKeys = [...this.groupWindows.entries()]
       .filter(([, group]) => group.snapshot.nextCursor !== null)
       .map(([scopeKey]) => scopeKey);
-    await mapWithConcurrency(
-      scopeKeys,
-      GROUP_WINDOW_READ_CONCURRENCY,
-      this.loadMoreGroup,
-    );
+    await mapWithConcurrency(scopeKeys, GROUP_WINDOW_READ_CONCURRENCY, this.loadMoreGroup);
   };
 
   loadMore = async (): Promise<void> => {
@@ -1121,17 +1051,14 @@ class BoardProjectStore {
     const hasReadableBase = this.databaseViewId
       ? this.baseDatabaseView !== null
       : this.baseBoard !== null;
-    const boardIsFresh = hasReadableBase
-      && !this.stale
-      && this.dependencies.now() - this.lastFetchedAt <= maxAgeMs;
+    const boardIsFresh =
+      hasReadableBase && !this.stale && this.dependencies.now() - this.lastFetchedAt <= maxAgeMs;
     if (!options.force && boardIsFresh) return;
 
     await this.fetchBoard();
   };
 
-  refreshBoardAtLeast = async (
-    minimum: number | LocalProjectionCursor = 0,
-  ): Promise<boolean> => {
+  refreshBoardAtLeast = async (minimum: number | LocalProjectionCursor = 0): Promise<boolean> => {
     this.stale = true;
     this.requiredRefreshGeneration += 1;
     return await this.fetchBoard(minimum);
@@ -1160,27 +1087,18 @@ class BoardProjectStore {
     });
   };
 
-  applyRemoteCard = (
-    card: DatabasePage,
-    cursor?: LocalProjectionCursor,
-  ): void => {
+  applyRemoteCard = (card: DatabasePage, cursor?: LocalProjectionCursor): void => {
     this.applyRemoteCardSummary(toDatabasePageSummary(card), cursor);
   };
 
-  applyRemoteCardSummary = (
-    card: DatabasePageSummary,
-    cursor?: LocalProjectionCursor,
-  ): void => {
+  applyRemoteCardSummary = (card: DatabasePageSummary, cursor?: LocalProjectionCursor): void => {
     if (!this.baseBoard) return;
 
     const authority = this.baseBoardAuthority;
     if (
-      cursor
-      && authority
-      && (
-        authority.storeEpoch !== cursor.storeEpoch
-        || cursor.commitSeq < authority.commitSeq
-      )
+      cursor &&
+      authority &&
+      (authority.storeEpoch !== cursor.storeEpoch || cursor.commitSeq < authority.commitSeq)
     ) {
       // A delayed row read or tailer replay must never move an already newer
       // local projection backwards. The subsequent floor refresh can still
@@ -1198,25 +1116,19 @@ class BoardProjectStore {
       // invent a new query row. Keep the query surface honest until the
       // cursor-fenced canonical read supplies that row.
       const hasWindowRow = authority.rows.some((row) => row.page.id === card.id);
-      const hasQueryRow = authority.query.rows.some(
-        (row) => row.page.pageId === card.id,
-      );
+      const hasQueryRow = authority.query.rows.some((row) => row.page.pageId === card.id);
       const nextAuthority: DatabaseViewWindowSnapshot = {
         ...authority,
         board: nextBoard,
         commitSeq: Math.max(authority.commitSeq, cursor.commitSeq),
         rows: hasWindowRow
-          ? authority.rows.map((row) =>
-              row.page.id === card.id ? { ...row, page: card } : row
-            )
+          ? authority.rows.map((row) => (row.page.id === card.id ? { ...row, page: card } : row))
           : authority.rows,
         query: {
           ...authority.query,
           rows: hasQueryRow
             ? authority.query.rows.map((row) =>
-                row.page.pageId === card.id
-                  ? { ...row, page: { ...row.page, ...card } }
-                  : row
+                row.page.pageId === card.id ? { ...row, page: { ...row.page, ...card } } : row,
               )
             : authority.query.rows,
         },
@@ -1232,9 +1144,7 @@ class BoardProjectStore {
 
   private projectionCoordinate = (): ProjectionCoordinate | null => {
     const authority = this.baseBoardAuthority;
-    return authority
-      ? projectionCoordinateFromSnapshot(authority)
-      : null;
+    return authority ? projectionCoordinateFromSnapshot(authority) : null;
   };
 
   private ensureCausalProjectionRuntime(): CausalProjectionRuntime | null {
@@ -1261,37 +1171,28 @@ class BoardProjectStore {
     if (!authority || !board || !patch) {
       throw new Error("Database View projection has no patchable base");
     }
-    if (
-      patch.kind !== "database_row_upsert"
-      && patch.kind !== "database_row_remove"
-    ) {
+    if (patch.kind !== "database_row_upsert" && patch.kind !== "database_row_remove") {
       throw new Error("Database View received a patch for another projection module");
     }
     if (
-      patch.projectId !== this.projectId
-      || patch.databaseId !== authority.databaseId
-      || patch.dataSourceId !== authority.dataSourceId
-      || patch.viewId !== authority.viewId
+      patch.projectId !== this.projectId ||
+      patch.databaseId !== authority.databaseId ||
+      patch.dataSourceId !== authority.dataSourceId ||
+      patch.viewId !== authority.viewId
     ) {
       throw new Error("Database View projection patch targets another scope");
     }
 
-    const pageId = patch.kind === "database_row_upsert"
-      ? patch.row.id
-      : patch.pageId;
-    const groupKey = patch.kind === "database_row_upsert"
-      ? patch.effectiveGroupKey
-      : patch.groupKey;
+    const pageId = patch.kind === "database_row_upsert" ? patch.row.id : patch.pageId;
+    const groupKey =
+      patch.kind === "database_row_upsert" ? patch.effectiveGroupKey : patch.groupKey;
     const advanceWindow = (
       snapshot: DatabaseViewWindowSnapshot,
       groupScope: DatabaseViewGroupScopeInput | null,
     ): DatabaseViewWindowSnapshot => {
-      const includesUpsert = patch.kind === "database_row_upsert"
-        && scopeContainsGroup(
-          groupScope,
-          patch.effectiveGroupKey,
-          patch.effectiveSubgroupKey,
-        );
+      const includesUpsert =
+        patch.kind === "database_row_upsert" &&
+        scopeContainsGroup(groupScope, patch.effectiveGroupKey, patch.effectiveSubgroupKey);
       const existingRow = snapshot.rows.find((row) => row.page.id === pageId);
       const alreadyLoaded = existingRow !== undefined;
       // A singleton patch carries fractional rank, not its index in an
@@ -1301,66 +1202,62 @@ class BoardProjectStore {
       // patch's durable group coordinates non-authoritative for this window.
       const manualDirection = changesProjectionCoordinate(this.presentationOverride)
         ? null
-        : databaseViewPrimaryManualOrderDirection(
-            snapshot.query.view.config.presentation.sort,
-          );
-      const admitsUpsert = includesUpsert && (
-        alreadyLoaded
-        || manualDirection !== null && (
-          snapshot.nextCursor === null
-          || patch.row.order < snapshot.rows.length
-        )
-      );
-      const upsertedRow = patch.kind === "database_row_upsert"
-        ? {
-            page: patch.row,
-            groupKey: manualDirection === null && existingRow
-              ? existingRow.groupKey
-              : patch.effectiveGroupKey,
-            subgroupKey: manualDirection === null && existingRow
-              ? existingRow.subgroupKey
-              : patch.effectiveSubgroupKey,
-            rankKey:
-              manualDirection === null && existingRow
-                ? existingRow.rankKey
-                : patch.rankKey ?? "ffffffffffffffffffffffffffffffff",
-          }
-        : null;
-      const nextRows = manualDirection === null
-        ? snapshot.rows.flatMap((row) => {
-            if (row.page.id !== pageId) return [row];
-            return admitsUpsert && upsertedRow ? [upsertedRow] : [];
-          })
-        : [
-            ...snapshot.rows.filter((row) => row.page.id !== pageId),
-            ...(admitsUpsert && upsertedRow ? [upsertedRow] : []),
-          ].sort((left, right) => {
-            const order = left.rankKey.localeCompare(right.rankKey)
-              || left.page.id.localeCompare(right.page.id);
-            return manualDirection === "asc" ? order : -order;
-          }).slice(
-            0,
-            snapshot.nextCursor !== null && !alreadyLoaded
-              ? snapshot.rows.length
-              : undefined,
-          );
+        : databaseViewPrimaryManualOrderDirection(snapshot.query.view.config.presentation.sort);
+      const admitsUpsert =
+        includesUpsert &&
+        (alreadyLoaded ||
+          (manualDirection !== null &&
+            (snapshot.nextCursor === null || patch.row.order < snapshot.rows.length)));
+      const upsertedRow =
+        patch.kind === "database_row_upsert"
+          ? {
+              page: patch.row,
+              groupKey:
+                manualDirection === null && existingRow
+                  ? existingRow.groupKey
+                  : patch.effectiveGroupKey,
+              subgroupKey:
+                manualDirection === null && existingRow
+                  ? existingRow.subgroupKey
+                  : patch.effectiveSubgroupKey,
+              rankKey:
+                manualDirection === null && existingRow
+                  ? existingRow.rankKey
+                  : (patch.rankKey ?? "ffffffffffffffffffffffffffffffff"),
+            }
+          : null;
+      const nextRows =
+        manualDirection === null
+          ? snapshot.rows.flatMap((row) => {
+              if (row.page.id !== pageId) return [row];
+              return admitsUpsert && upsertedRow ? [upsertedRow] : [];
+            })
+          : [
+              ...snapshot.rows.filter((row) => row.page.id !== pageId),
+              ...(admitsUpsert && upsertedRow ? [upsertedRow] : []),
+            ]
+              .sort((left, right) => {
+                const order =
+                  left.rankKey.localeCompare(right.rankKey) ||
+                  left.page.id.localeCompare(right.page.id);
+                return manualDirection === "asc" ? order : -order;
+              })
+              .slice(
+                0,
+                snapshot.nextCursor !== null && !alreadyLoaded ? snapshot.rows.length : undefined,
+              );
       const queryRowsByPageId = new Map(
         snapshot.query.rows
           .filter((row) => row.page.pageId !== pageId)
           .map((row) => [row.page.pageId, row] as const),
       );
       if (admitsUpsert) {
-        const projectedQueryRow = projectCoreDatabaseQueryRow(
-          patch.sourceRow,
-          {
-            libraryId: snapshot.libraryId,
-            dataSourceId: snapshot.query.dataSource.dataSourceId,
-            properties: snapshot.query.properties,
-          },
-        );
-        const existingQueryRow = snapshot.query.rows.find((row) =>
-          row.page.pageId === pageId
-        );
+        const projectedQueryRow = projectCoreDatabaseQueryRow(patch.sourceRow, {
+          libraryId: snapshot.libraryId,
+          dataSourceId: snapshot.query.dataSource.dataSourceId,
+          properties: snapshot.query.properties,
+        });
+        const existingQueryRow = snapshot.query.rows.find((row) => row.page.pageId === pageId);
         queryRowsByPageId.set(
           pageId,
           manualDirection === null && existingQueryRow
@@ -1398,10 +1295,13 @@ class BoardProjectStore {
     };
 
     this.groupWindows = new Map(
-      [...this.groupWindows].map(([scopeKey, state]) => [scopeKey, {
-        ...state,
-        snapshot: advanceWindow(state.snapshot, state.scope),
-      }]),
+      [...this.groupWindows].map(([scopeKey, state]) => [
+        scopeKey,
+        {
+          ...state,
+          snapshot: advanceWindow(state.snapshot, state.scope),
+        },
+      ]),
     );
     if (this.groupWindows.size > 0) {
       this.rebuildFromGroups();
@@ -1418,42 +1318,39 @@ class BoardProjectStore {
     if (this.groupsSnapshot) {
       const nextGroups = this.groupsSnapshot.groups
         .map((group) =>
-          group.groupKey === groupKey
-          && group.subgroupKey === (
-            patch.kind === "database_row_upsert"
+          group.groupKey === groupKey &&
+          group.subgroupKey ===
+            (patch.kind === "database_row_upsert"
               ? patch.effectiveSubgroupKey
-              : patch.subgroupKey
-          )
-          && patch.groupTotal !== null
-          ? { ...group, totalRows: patch.groupTotal }
-          : group)
+              : patch.subgroupKey) &&
+          patch.groupTotal !== null
+            ? { ...group, totalRows: patch.groupTotal }
+            : group,
+        )
         .filter((group) => group.totalRows > 0);
       if (
-        this.groupsSnapshot.grouped
-        && patch.groupTotal !== null
-        && patch.groupTotal > 0
-        && !nextGroups.some((group) =>
-          group.groupKey === groupKey
-          && group.subgroupKey === (
-            patch.kind === "database_row_upsert"
-              ? patch.effectiveSubgroupKey
-              : patch.subgroupKey
-          ))
+        this.groupsSnapshot.grouped &&
+        patch.groupTotal !== null &&
+        patch.groupTotal > 0 &&
+        !nextGroups.some(
+          (group) =>
+            group.groupKey === groupKey &&
+            group.subgroupKey ===
+              (patch.kind === "database_row_upsert"
+                ? patch.effectiveSubgroupKey
+                : patch.subgroupKey),
+        )
       ) {
         nextGroups.push({
           groupKey,
-          subgroupKey: patch.kind === "database_row_upsert"
-            ? patch.effectiveSubgroupKey
-            : patch.subgroupKey,
+          subgroupKey:
+            patch.kind === "database_row_upsert" ? patch.effectiveSubgroupKey : patch.subgroupKey,
           totalRows: patch.groupTotal,
         });
       }
       this.groupsSnapshot = {
         ...this.groupsSnapshot,
-        commitSeq: Math.max(
-          this.groupsSnapshot.commitSeq,
-          effect.coveredCommitSeq,
-        ),
+        commitSeq: Math.max(this.groupsSnapshot.commitSeq, effect.coveredCommitSeq),
         projection: nextAuthority.projection,
         totalRows: patch.totalRows,
         groups: nextGroups,
@@ -1468,9 +1365,7 @@ class BoardProjectStore {
     this.recomputeSnapshot({ error: null });
   };
 
-  private repairProjection = async (
-    request: ProjectionRepairRequest,
-  ): Promise<void> => {
+  private repairProjection = async (request: ProjectionRepairRequest): Promise<void> => {
     const current = this.projectionCoordinate();
     if (current && current.scopeKey !== request.scopeKey) {
       throw new Error("Projection repair targets another Database View scope");
@@ -1480,9 +1375,7 @@ class BoardProjectStore {
       commitSeq: request.minimumCommitSeq,
     });
     if (!repaired) {
-      throw new Error(
-        this.snapshot.error ?? "Database View projection repair failed",
-      );
+      throw new Error(this.snapshot.error ?? "Database View projection repair failed");
     }
   };
 
@@ -1496,7 +1389,9 @@ class BoardProjectStore {
     this.optimisticEntries.push(entry);
     const after = this.baseBoard ? this.composeBoard(this.baseBoard) : null;
     if (this.baseBoard && after === before) {
-      this.optimisticEntries = this.optimisticEntries.filter((candidate) => candidate.opId !== entry.opId);
+      this.optimisticEntries = this.optimisticEntries.filter(
+        (candidate) => candidate.opId !== entry.opId,
+      );
       return false;
     }
 
@@ -1504,11 +1399,7 @@ class BoardProjectStore {
     return true;
   };
 
-  applyLocalPatch = (
-    columnId: string,
-    pageId: string,
-    updates: Partial<PageInput>,
-  ): boolean => {
+  applyLocalPatch = (columnId: string, pageId: string, updates: Partial<PageInput>): boolean => {
     return this.enqueueLocalOverlay({
       kind: "page:patch-local",
       conflictKeys: conflictKeysForPatch(pageId, updates),
@@ -1516,7 +1407,7 @@ class BoardProjectStore {
     });
   };
 
-  runOptimisticPatch = async <T,>({
+  runOptimisticPatch = async <T>({
     columnId,
     pageId,
     updates,
@@ -1535,7 +1426,9 @@ class BoardProjectStore {
     throw outcome.error ?? new Error("Mutation failed");
   };
 
-  runOptimisticMutation = async <T,>(options: RunOptimisticMutationOptions<T>): Promise<OptimisticMutationResult<T>> => {
+  runOptimisticMutation = async <T>(
+    options: RunOptimisticMutationOptions<T>,
+  ): Promise<OptimisticMutationResult<T>> => {
     const authorityGeneration = this.authorityGeneration;
     this.supersedeConflicts(options.conflictKeys);
     const entry = this.createEntry({
@@ -1562,18 +1455,12 @@ class BoardProjectStore {
         this.recomputeSnapshot();
         let readyForNextPlacement = true;
         if (options.refreshOnSuccess !== false) {
-          readyForNextPlacement = await this.refreshBoardAtLeast(
-            entry.commitCursor ?? 0,
-          );
+          readyForNextPlacement = await this.refreshBoardAtLeast(entry.commitCursor ?? 0);
         }
         return { result, readyForNextPlacement };
       };
       const execution = options.remoteLane
-        ? await this.runRemoteInLane(
-            options.remoteLane,
-            authorityGeneration,
-            execute,
-          )
+        ? await this.runRemoteInLane(options.remoteLane, authorityGeneration, execute)
         : await execute();
       return {
         ok: true,
@@ -1611,15 +1498,10 @@ class BoardProjectStore {
    * lane as the classic Board projection, so refreshes cannot expose a stale
    * frame and queued commands compile from the latest canonical read.
    */
-  runOptimisticDatabaseViewMutation = async <T,>(
+  runOptimisticDatabaseViewMutation = async <T>(
     options: RunOptimisticDatabaseViewMutationOptions<T>,
   ): Promise<OptimisticMutationResult<T>> => {
-    const {
-      apply,
-      runRemote,
-      isCommitMaterialized,
-      ...sharedOptions
-    } = options;
+    const { apply, runRemote, isCommitMaterialized, ...sharedOptions } = options;
     return await this.runOptimisticMutation({
       ...sharedOptions,
       apply: (board) => board,
@@ -1656,14 +1538,10 @@ class BoardProjectStore {
     try {
       const previousSucceeded = await previous;
       if (!previousSucceeded) {
-        throw new Error(
-          "A preceding Board placement did not reach canonical authority",
-        );
+        throw new Error("A preceding Board placement did not reach canonical authority");
       }
       if (authorityGeneration !== this.authorityGeneration) {
-        throw new Error(
-          "Board authority changed before the queued mutation could execute",
-        );
+        throw new Error("Board authority changed before the queued mutation could execute");
       }
       const result = await task();
       succeeded = result.readyForNextPlacement;
@@ -1687,9 +1565,7 @@ class BoardProjectStore {
     return next;
   }
 
-  private composeDatabaseView(
-    baseModel: DatabaseViewRenderModel,
-  ): DatabaseViewRenderModel {
+  private composeDatabaseView(baseModel: DatabaseViewRenderModel): DatabaseViewRenderModel {
     let next = baseModel;
     for (const entry of this.optimisticEntries) {
       if (entry.superseded || !entry.applyDatabaseView) continue;
@@ -1699,21 +1575,14 @@ class BoardProjectStore {
   }
 
   private activePendingCount(): number {
-    return this.optimisticEntries.filter(
-      (entry) => entry.phase === "pending" && !entry.superseded,
-    ).length;
+    return this.optimisticEntries.filter((entry) => entry.phase === "pending" && !entry.superseded)
+      .length;
   }
 
-  private buildGroupPagination(): ReadonlyMap<
-    GroupWindowScopeKey,
-    ColumnPaginationState
-  > {
+  private buildGroupPagination(): ReadonlyMap<GroupWindowScopeKey, ColumnPaginationState> {
     const totals = new Map<GroupWindowScopeKey, number>();
     for (const group of this.groupsSnapshot?.groups ?? []) {
-      totals.set(
-        groupScopeKeyForPath(group.groupKey, group.subgroupKey),
-        group.totalRows,
-      );
+      totals.set(groupScopeKeyForPath(group.groupKey, group.subgroupKey), group.totalRows);
     }
     if (this.groupsSnapshot && !this.groupsSnapshot.grouped) {
       totals.set(UNGROUPED_SCOPE_KEY, this.groupsSnapshot.totalRows);
@@ -1734,10 +1603,7 @@ class BoardProjectStore {
 
   private recomputeSnapshot(
     overrides: Partial<
-      Pick<
-        BoardStoreSnapshot,
-        "loading" | "loadingMore" | "error" | "lastMutationError"
-      >
+      Pick<BoardStoreSnapshot, "loading" | "loadingMore" | "error" | "lastMutationError">
     > = {},
   ): void {
     this.pruneConvergedEntries();
@@ -1750,31 +1616,25 @@ class BoardProjectStore {
       : composedBoard;
     const hasLoading = Object.prototype.hasOwnProperty.call(overrides, "loading");
     const hasError = Object.prototype.hasOwnProperty.call(overrides, "error");
-    const hasLoadingMore = Object.prototype.hasOwnProperty.call(
+    const hasLoadingMore = Object.prototype.hasOwnProperty.call(overrides, "loadingMore");
+    const hasLastMutationError = Object.prototype.hasOwnProperty.call(
       overrides,
-      "loadingMore",
+      "lastMutationError",
     );
-    const hasLastMutationError = Object.prototype.hasOwnProperty.call(overrides, "lastMutationError");
     const groupPagination = this.buildGroupPagination();
-    const anyLoadingMore = [...groupPagination.values()]
-      .some((state) => state.loadingMore);
-    const anyHasMore = [...groupPagination.values()]
-      .some((state) => state.hasMore);
+    const anyLoadingMore = [...groupPagination.values()].some((state) => state.loadingMore);
+    const anyHasMore = [...groupPagination.values()].some((state) => state.hasMore);
     const next: BoardStoreSnapshot = {
       ...this.snapshot,
       board,
       databaseView: composedDatabaseView,
-      pageIndex: board === this.snapshot.board
-        ? this.snapshot.pageIndex
-        : buildPageIndex(board),
+      pageIndex: board === this.snapshot.board ? this.snapshot.pageIndex : buildPageIndex(board),
       pendingMutationCount: this.activePendingCount(),
       hasMore: anyHasMore,
       groupPagination,
       totalRows: this.groupsSnapshot?.totalRows ?? null,
       loading: hasLoading ? (overrides.loading as boolean) : this.snapshot.loading,
-      loadingMore: hasLoadingMore
-        ? (overrides.loadingMore as boolean)
-        : anyLoadingMore,
+      loadingMore: hasLoadingMore ? (overrides.loadingMore as boolean) : anyLoadingMore,
       error: hasError ? (overrides.error as string | null) : this.snapshot.error,
       lastMutationError: hasLastMutationError
         ? (overrides.lastMutationError as string | null)
@@ -1799,9 +1659,10 @@ class BoardProjectStore {
       }
 
       const after = working ? entry.apply(working) : working;
-      const afterDatabaseView = workingDatabaseView && entry.applyDatabaseView
-        ? entry.applyDatabaseView(workingDatabaseView)
-        : workingDatabaseView;
+      const afterDatabaseView =
+        workingDatabaseView && entry.applyDatabaseView
+          ? entry.applyDatabaseView(workingDatabaseView)
+          : workingDatabaseView;
 
       if (entry.phase === "pending") {
         nextEntries.push(entry);
@@ -1823,13 +1684,10 @@ class BoardProjectStore {
       }
 
       if (
-        entry.commitCursor !== null
-        && (
-          !this.baseBoardAuthority
-          || this.baseBoardAuthority.storeEpoch !== entry.commitCursor.storeEpoch
-          || this.baseBoardAuthority.projection.coveredCommitSeq
-            < entry.commitCursor.commitSeq
-        )
+        entry.commitCursor !== null &&
+        (!this.baseBoardAuthority ||
+          this.baseBoardAuthority.storeEpoch !== entry.commitCursor.storeEpoch ||
+          this.baseBoardAuthority.projection.coveredCommitSeq < entry.commitCursor.commitSeq)
       ) {
         nextEntries.push(entry);
         working = after;
@@ -1839,9 +1697,8 @@ class BoardProjectStore {
 
       if (entry.commitCursor !== null) {
         if (
-          entry.minimumMaterializationGeneration !== null
-          && this.canonicalReadGeneration
-            < entry.minimumMaterializationGeneration
+          entry.minimumMaterializationGeneration !== null &&
+          this.canonicalReadGeneration < entry.minimumMaterializationGeneration
         ) {
           nextEntries.push(entry);
           working = after;
@@ -1852,8 +1709,8 @@ class BoardProjectStore {
           ? this.baseBoard !== null && entry.isCommitMaterialized(this.baseBoard)
           : after === working;
         const databaseViewMaterialized = entry.isDatabaseViewCommitMaterialized
-          ? this.baseDatabaseView !== null
-            && entry.isDatabaseViewCommitMaterialized(this.baseDatabaseView)
+          ? this.baseDatabaseView !== null &&
+            entry.isDatabaseViewCommitMaterialized(this.baseDatabaseView)
           : afterDatabaseView === workingDatabaseView;
         const materialized = boardMaterialized && databaseViewMaterialized;
         if (materialized) {
@@ -1897,9 +1754,7 @@ class BoardProjectStore {
     applyDatabaseView?: DatabaseViewTransform;
     phase: OptimisticEntry["phase"];
     isCommitMaterialized?: (canonicalBoard: BoardSummary) => boolean;
-    isDatabaseViewCommitMaterialized?: (
-      canonicalModel: DatabaseViewRenderModel,
-    ) => boolean;
+    isDatabaseViewCommitMaterialized?: (canonicalModel: DatabaseViewRenderModel) => boolean;
   }): OptimisticEntry {
     return {
       opId: this.nextOpId++,
@@ -1910,8 +1765,7 @@ class BoardProjectStore {
       phase,
       commitCursor: null,
       isCommitMaterialized: isCommitMaterialized ?? null,
-      isDatabaseViewCommitMaterialized:
-        isDatabaseViewCommitMaterialized ?? null,
+      isDatabaseViewCommitMaterialized: isDatabaseViewCommitMaterialized ?? null,
       minimumMaterializationGeneration: null,
       superseded: false,
     };
@@ -1931,23 +1785,17 @@ class BoardProjectStore {
   }
 
   private pruneSupersededEntries(): void {
-    this.optimisticEntries = this.optimisticEntries.filter(
-      (entry) => !entry.superseded,
-    );
+    this.optimisticEntries = this.optimisticEntries.filter((entry) => !entry.superseded);
   }
 
   private removeEntry(opId: number): void {
-    this.optimisticEntries = this.optimisticEntries.filter(
-      (entry) => entry.opId !== opId,
-    );
+    this.optimisticEntries = this.optimisticEntries.filter((entry) => entry.opId !== opId);
   }
 
   private removeEntriesForPage(pageId: string): boolean {
     const conflictPrefix = `card:${pageId}:`;
     const nextEntries = this.optimisticEntries.filter((entry) => {
-      const removesEntry = entry.conflictKeys.some(
-        (key) => key.startsWith(conflictPrefix),
-      );
+      const removesEntry = entry.conflictKeys.some((key) => key.startsWith(conflictPrefix));
       if (removesEntry) entry.superseded = true;
       return !removesEntry;
     });
@@ -1959,17 +1807,17 @@ class BoardProjectStore {
   private setSnapshot(next: BoardStoreSnapshot): void {
     const previous = this.snapshot;
     if (
-      previous.board === next.board
-      && previous.databaseView === next.databaseView
-      && previous.pageIndex === next.pageIndex
-      && previous.loading === next.loading
-      && previous.loadingMore === next.loadingMore
-      && previous.hasMore === next.hasMore
-      && previous.error === next.error
-      && previous.pendingMutationCount === next.pendingMutationCount
-      && previous.lastMutationError === next.lastMutationError
-      && previous.totalRows === next.totalRows
-      && groupPaginationEquals(previous.groupPagination, next.groupPagination)
+      previous.board === next.board &&
+      previous.databaseView === next.databaseView &&
+      previous.pageIndex === next.pageIndex &&
+      previous.loading === next.loading &&
+      previous.loadingMore === next.loadingMore &&
+      previous.hasMore === next.hasMore &&
+      previous.error === next.error &&
+      previous.pendingMutationCount === next.pendingMutationCount &&
+      previous.lastMutationError === next.lastMutationError &&
+      previous.totalRows === next.totalRows &&
+      groupPaginationEquals(previous.groupPagination, next.groupPagination)
     ) {
       return;
     }
@@ -1980,9 +1828,7 @@ class BoardProjectStore {
     }
   }
 
-  private requestRealtimeRefresh(
-    minimum: number | LocalProjectionCursor = 0,
-  ): void {
+  private requestRealtimeRefresh(minimum: number | LocalProjectionCursor = 0): void {
     this.stale = true;
     void this.fetchBoard(minimum);
   }
@@ -1991,20 +1837,16 @@ class BoardProjectStore {
     revokeDatabaseRowDetail(this.projectId, pageId);
     const removedOptimisticEntry = this.removeEntriesForPage(pageId);
     const currentAuthority = this.baseBoardAuthority;
-    const authorityRow = currentAuthority?.rows.find(
-      (row) => row.page.id === pageId,
-    );
-    const baseContainsPage = this.baseBoard?.columns.some((column) =>
-      column.cards.some((card) => card.id === pageId)
-    ) ?? false;
+    const authorityRow = currentAuthority?.rows.find((row) => row.page.id === pageId);
+    const baseContainsPage =
+      this.baseBoard?.columns.some((column) => column.cards.some((card) => card.id === pageId)) ??
+      false;
     if (!currentAuthority || (!authorityRow && !baseContainsPage)) {
       if (removedOptimisticEntry) this.recomputeSnapshot({ error: null });
       return;
     }
     const groupKey = authorityRow?.groupKey ?? null;
-    const evictFromWindow = (
-      snapshot: DatabaseViewWindowSnapshot,
-    ): DatabaseViewWindowSnapshot => ({
+    const evictFromWindow = (snapshot: DatabaseViewWindowSnapshot): DatabaseViewWindowSnapshot => ({
       ...snapshot,
       commitSeq: Math.max(snapshot.commitSeq, commitSeq),
       board: removePageSummaryFromBoard(snapshot.board, pageId),
@@ -2019,10 +1861,13 @@ class BoardProjectStore {
     this.baseBoard = nextAuthority.board;
     this.baseDatabaseView = buildDatabaseViewWindowRenderModel(nextAuthority);
     this.groupWindows = new Map(
-      [...this.groupWindows].map(([scopeKey, state]) => [scopeKey, {
-        ...state,
-        snapshot: evictFromWindow(state.snapshot),
-      }]),
+      [...this.groupWindows].map(([scopeKey, state]) => [
+        scopeKey,
+        {
+          ...state,
+          snapshot: evictFromWindow(state.snapshot),
+        },
+      ]),
     );
     if (this.groupsSnapshot && authorityRow) {
       this.groupsSnapshot = {
@@ -2030,9 +1875,11 @@ class BoardProjectStore {
         commitSeq: Math.max(this.groupsSnapshot.commitSeq, commitSeq),
         totalRows: Math.max(0, this.groupsSnapshot.totalRows - 1),
         groups: this.groupsSnapshot.groups
-          .map((group) => group.groupKey === groupKey
-            ? { ...group, totalRows: Math.max(0, group.totalRows - 1) }
-            : group)
+          .map((group) =>
+            group.groupKey === groupKey
+              ? { ...group, totalRows: Math.max(0, group.totalRows - 1) }
+              : group,
+          )
           .filter((group) => group.totalRows > 0),
       };
     }
@@ -2055,27 +1902,25 @@ class BoardProjectStore {
     });
   }
 
-  private revokeFromProjection = (
-    cause: ProjectionRevocationMessage,
-  ): void => {
+  private revokeFromProjection = (cause: ProjectionRevocationMessage): void => {
     this.stale = true;
     this.revocationGeneration += 1;
     this.requiredRefreshGeneration += 1;
     this.requireMinimumCursor(cause.stream);
     if (cause.delivery.revocation.resource_kind === "page") {
-      this.evictRevokedPage(
-        cause.delivery.revocation.resource_id,
-        cause.stream.commitSeq,
-      );
+      this.evictRevokedPage(cause.delivery.revocation.resource_id, cause.stream.commitSeq);
       return;
     }
     this.clearRevokedAggregate();
   };
 
   private fenceProjectionAuthority = (
-    cause: Extract<ProjectionInvalidationCause, {
-      readonly kind: "checkpoint" | "reset";
-    }>,
+    cause: Extract<
+      ProjectionInvalidationCause,
+      {
+        readonly kind: "checkpoint" | "reset";
+      }
+    >,
   ): void => {
     this.stale = true;
     this.revocationGeneration += 1;
@@ -2100,9 +1945,7 @@ class BoardProjectStore {
     this.recomputeSnapshot({ loading: true, error: null });
   };
 
-  private refreshFromProjection = async (
-    cause: ProjectionInvalidationCause,
-  ): Promise<void> => {
+  private refreshFromProjection = async (cause: ProjectionInvalidationCause): Promise<void> => {
     this.stale = true;
     if (this.listeners.size === 0) return;
     const refreshed = await this.fetchBoard(cause.stream);
@@ -2129,29 +1972,26 @@ class BoardProjectStore {
             this.requestRealtimeRefresh(
               event.storeEpoch && event.commitSeq !== undefined
                 ? { storeEpoch: event.storeEpoch, commitSeq: event.commitSeq }
-                : event.commitSeq ?? 0,
+                : (event.commitSeq ?? 0),
             );
             return;
           }
           const authority = this.baseBoardAuthority;
           if (
-            !authority
-            || !event.storeEpoch
-            || event.commitSeq === undefined
-            || event.storeEpoch !== authority.storeEpoch
-            || event.commitSeq < authority.commitSeq
+            !authority ||
+            !event.storeEpoch ||
+            event.commitSeq === undefined ||
+            event.storeEpoch !== authority.storeEpoch ||
+            event.commitSeq < authority.commitSeq
           ) {
             this.requestRealtimeRefresh(
               event.storeEpoch && event.commitSeq !== undefined
                 ? { storeEpoch: event.storeEpoch, commitSeq: event.commitSeq }
-                : event.commitSeq ?? 0,
+                : (event.commitSeq ?? 0),
             );
             return;
           }
-          const nextBoard = applyBoardChangeEventToBoard(
-            this.baseBoard ?? undefined,
-            event,
-          );
+          const nextBoard = applyBoardChangeEventToBoard(this.baseBoard ?? undefined, event);
           if (nextBoard) {
             if (nextBoard !== this.baseBoard) {
               this.baseBoard = nextBoard;
@@ -2176,37 +2016,29 @@ class BoardProjectStore {
     this.ensureProjectionSubscription("active");
   }
 
-  private ensureProjectionSubscription(
-    mode: "active" | "retained" = "active",
-  ): void {
+  private ensureProjectionSubscription(mode: "active" | "retained" = "active"): void {
     if (
       mode === "active"
         ? this.releaseActiveProjectionInvalidation
         : this.releaseRetainedProjectionInvalidation
-    ) return;
+    )
+      return;
     const authority = this.baseBoardAuthority;
     const registry = this.dependencies.getProjectionInvalidationRegistry();
     if (!authority || !registry) return;
-    const causalRuntime = mode === "active"
-      ? this.ensureCausalProjectionRuntime()
-      : null;
+    const causalRuntime = mode === "active" ? this.ensureCausalProjectionRuntime() : null;
     // Releasing a registration cannot cancel a callback that the registry has
     // already selected for delivery. Fence every callback to the presentation
     // coordinate that created it so a late predecessor cannot clear its successor.
     const presentationGeneration = this.presentationGeneration;
-    const isCurrentPresentation = () =>
-      presentationGeneration === this.presentationGeneration;
+    const isCurrentPresentation = () => presentationGeneration === this.presentationGeneration;
     const release = registry.register({
       scope: {
         kind: "project",
         libraryId: authority.libraryId,
         projectId: this.projectId,
       },
-      consumerKey: JSON.stringify([
-        "board",
-        this.projectId,
-        this.databaseViewId,
-      ]),
+      consumerKey: JSON.stringify(["board", this.projectId, this.databaseViewId]),
       ...(causalRuntime ? { causalRuntime } : {}),
       projectionEffects: causalRuntime ? "ignore" : "match",
       getDependencies: () => {
@@ -2272,19 +2104,19 @@ class BoardProjectStore {
 }
 
 class BoardStoreRegistry {
-  private readonly stores = new Map<string, {
-    readonly store: BoardProjectStore;
-    lastAccess: number;
-  }>();
+  private readonly stores = new Map<
+    string,
+    {
+      readonly store: BoardProjectStore;
+      lastAccess: number;
+    }
+  >();
 
   private accessSequence = 0;
 
   constructor(private readonly dependencies: BoardStoreDependencies) {}
 
-  getStore(
-    projectId: string,
-    databaseViewId: string | null = null,
-  ): BoardProjectStore {
+  getStore(projectId: string, databaseViewId: string | null = null): BoardProjectStore {
     const key = JSON.stringify([projectId, databaseViewId]);
     const existing = this.stores.get(key);
     if (existing) {
@@ -2349,7 +2181,5 @@ export function ensureFreshDatabaseViewBoard(
   databaseViewId: string,
   options?: EnsureFreshBoardOptions,
 ): Promise<void> {
-  return getBoardProjectStore(projectId, databaseViewId).ensureFreshBoard(
-    options,
-  );
+  return getBoardProjectStore(projectId, databaseViewId).ensureFreshBoard(options);
 }

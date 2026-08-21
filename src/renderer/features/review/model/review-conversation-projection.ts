@@ -2,10 +2,7 @@ import {
   extractReviewCodeCommentsFromConversation,
   type ReviewCodeComment,
 } from "@/lib/review-code-comments";
-import type {
-  CodexConversationSnapshot,
-  CodexTurnDiffPatchBatch,
-} from "@/lib/types";
+import type { CodexConversationSnapshot, CodexTurnDiffPatchBatch } from "@/lib/types";
 import {
   filterTurnDiffPayload,
   normalizeTurnDiffPatchBatches,
@@ -26,10 +23,7 @@ function extractLastTurnPatch(
   conversation: CodexConversationSnapshot | null,
 ): Pick<
   ReviewConversationProjection,
-  | "lastTurnId"
-  | "lastTurnEntryId"
-  | "lastTurnPatch"
-  | "lastTurnPatchBatches"
+  "lastTurnId" | "lastTurnEntryId" | "lastTurnPatch" | "lastTurnPatchBatches"
 > {
   const turns = conversation?.turns ?? [];
   const scope = {
@@ -47,14 +41,18 @@ function extractLastTurnPatch(
       const unifiedDiff = (rawItem as { unifiedDiff?: unknown }).unifiedDiff;
       const patchBatches = (rawItem as { patchBatches?: unknown }).patchBatches;
       if (typeof unifiedDiff !== "string" && !Array.isArray(patchBatches)) continue;
-      const payload = filterTurnDiffPayload({
-        unifiedDiff: typeof unifiedDiff === "string" ? unifiedDiff : "",
-        cwd: typeof (rawItem as { cwd?: unknown }).cwd === "string"
-          ? (rawItem as { cwd: string }).cwd
-          : conversation?.cwd ?? undefined,
-        showRevertButton: (rawItem as { showRevertButton?: unknown }).showRevertButton === true,
-        patchBatches: normalizeTurnDiffPatchBatches(patchBatches),
-      }, scope);
+      const payload = filterTurnDiffPayload(
+        {
+          unifiedDiff: typeof unifiedDiff === "string" ? unifiedDiff : "",
+          cwd:
+            typeof (rawItem as { cwd?: unknown }).cwd === "string"
+              ? (rawItem as { cwd: string }).cwd
+              : (conversation?.cwd ?? undefined),
+          showRevertButton: (rawItem as { showRevertButton?: unknown }).showRevertButton === true,
+          patchBatches: normalizeTurnDiffPatchBatches(patchBatches),
+        },
+        scope,
+      );
       if (!payload) continue;
 
       return {
@@ -66,11 +64,14 @@ function extractLastTurnPatch(
     }
 
     if (typeof turn.diff === "string" && turn.diff.trim().length > 0) {
-      const payload = filterTurnDiffPayload({
-        unifiedDiff: turn.diff,
-        cwd: conversation?.cwd ?? undefined,
-        patchBatches: [],
-      }, scope);
+      const payload = filterTurnDiffPayload(
+        {
+          unifiedDiff: turn.diff,
+          cwd: conversation?.cwd ?? undefined,
+          patchBatches: [],
+        },
+        scope,
+      );
       if (!payload) continue;
       return {
         lastTurnId: turn.turnId,
@@ -144,8 +145,7 @@ function itemMayAffectReviewProjection(item: unknown): boolean {
   return (
     typeof rawItem.unifiedDiff === "string" ||
     Array.isArray(rawItem.patchBatches) ||
-    (typeof rawItem.text === "string" &&
-      rawItem.text.includes("::code-comment"))
+    (typeof rawItem.text === "string" && rawItem.text.includes("::code-comment"))
   );
 }
 
@@ -157,9 +157,9 @@ function canReuseReviewProjection(input: {
   const current = input.conversation;
   if (!previous || !current) return previous === current;
   if (
-    previous.threadId !== current.threadId
-    || previous.cwd !== current.cwd
-    || previous.projectlessOutputDirectory !== current.projectlessOutputDirectory
+    previous.threadId !== current.threadId ||
+    previous.cwd !== current.cwd ||
+    previous.projectlessOutputDirectory !== current.projectlessOutputDirectory
   ) {
     return false;
   }
@@ -167,11 +167,13 @@ function canReuseReviewProjection(input: {
   if (
     current.turns.length >= previous.turns.length &&
     previous.turns.every((turn, index) => current.turns[index] === turn) &&
-    current.turns.slice(previous.turns.length).every(
-      (turn) =>
-        (!turn.diff || turn.diff.trim().length === 0) &&
-        !turn.items.some(itemMayAffectReviewProjection),
-    )
+    current.turns
+      .slice(previous.turns.length)
+      .every(
+        (turn) =>
+          (!turn.diff || turn.diff.trim().length === 0) &&
+          !turn.items.some(itemMayAffectReviewProjection),
+      )
   ) {
     return true;
   }
@@ -179,10 +181,7 @@ function canReuseReviewProjection(input: {
   const previousTurn = previous.turns.at(-1) ?? null;
   const currentTurn = current.turns.at(-1) ?? null;
   if (!previousTurn || !currentTurn) return previousTurn === currentTurn;
-  if (
-    previousTurn.turnId !== currentTurn.turnId ||
-    previousTurn.diff !== currentTurn.diff
-  ) {
+  if (previousTurn.turnId !== currentTurn.turnId || previousTurn.diff !== currentTurn.diff) {
     return false;
   }
   if (previousTurn.items === currentTurn.items) return true;
@@ -194,10 +193,7 @@ function canReuseReviewProjection(input: {
     const previousItem = previousItems[index];
     const currentItem = currentItems[index];
     if (previousItem === currentItem) continue;
-    if (
-      itemMayAffectReviewProjection(previousItem) ||
-      itemMayAffectReviewProjection(currentItem)
-    ) {
+    if (itemMayAffectReviewProjection(previousItem) || itemMayAffectReviewProjection(currentItem)) {
       return false;
     }
   }

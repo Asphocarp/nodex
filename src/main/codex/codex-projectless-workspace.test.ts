@@ -25,38 +25,35 @@ describe("Codex projectless workspace", () => {
   test("keeps the broad Documents/Nodex authority even when Default is a Project source", () => {
     const homeDirectory = path.join(path.sep, "Users", "test");
     const workspaceRoot = resolveCodexProjectlessWorkspaceRoot(homeDirectory);
-    const defaultProjectSource = path.join(
-      homeDirectory,
-      "Documents",
-      "Nodex",
-      "Default",
-    );
+    const defaultProjectSource = path.join(homeDirectory, "Documents", "Nodex", "Default");
 
-    expect(workspaceRoot).toBe(
-      path.join(homeDirectory, "Documents", "Nodex"),
-    );
+    expect(workspaceRoot).toBe(path.join(homeDirectory, "Documents", "Nodex"));
     expect(path.relative(workspaceRoot, defaultProjectSource)).toBe("Default");
   });
 
   test("uses local calendar dates and the exact prompt/directory-name slug boundaries", () => {
-    expect(formatCodexProjectlessLocalDate(new Date(2026, 0, 2, 23, 59, 59))).toBe(
-      "2026-01-02",
+    expect(formatCodexProjectlessLocalDate(new Date(2026, 0, 2, 23, 59, 59))).toBe("2026-01-02");
+    expect(slugCodexProjectlessDirectoryName("One two three four five six seven eight")).toBe(
+      "one-two-three-four-five-six",
     );
-    expect(slugCodexProjectlessDirectoryName(
-      "One two three four five six seven eight",
-    )).toBe("one-two-three-four-five-six");
-    expect(slugCodexProjectlessDirectoryName({
-      directoryName: "One two three four five six seven eight",
-      prompt: "ignored prompt",
-    })).toBe("one-two-three-four-five-six-seven-eight");
-    expect(slugCodexProjectlessDirectoryName({
-      directoryName: "",
-      prompt: "must not become fallback",
-    })).toBe("new-chat");
+    expect(
+      slugCodexProjectlessDirectoryName({
+        directoryName: "One two three four five six seven eight",
+        prompt: "ignored prompt",
+      }),
+    ).toBe("one-two-three-four-five-six-seven-eight");
+    expect(
+      slugCodexProjectlessDirectoryName({
+        directoryName: "",
+        prompt: "must not become fallback",
+      }),
+    ).toBe("new-chat");
     expect(slugCodexProjectlessDirectoryName("你好，世界")).toBe("new-chat");
-    expect(slugCodexProjectlessDirectoryName({
-      directoryName: "a".repeat(100),
-    }).length).toBe(80);
+    expect(
+      slugCodexProjectlessDirectoryName({
+        directoryName: "a".repeat(100),
+      }).length,
+    ).toBe(80);
   });
 
   test("creates a split workspace under Documents/Nodex with cwd at the thread root", async () => {
@@ -87,11 +84,13 @@ describe("Codex projectless workspace", () => {
   });
 
   test("validates the renderer host request without changing nullable values", () => {
-    expect(parseCodexProjectlessThreadCwdInput({
-      prompt: null,
-      directoryName: "Explicit directory",
-      createSplitDirectories: false,
-    })).toStrictEqual({
+    expect(
+      parseCodexProjectlessThreadCwdInput({
+        prompt: null,
+        directoryName: "Explicit directory",
+        createSplitDirectories: false,
+      }),
+    ).toStrictEqual({
       prompt: null,
       directoryName: "Explicit directory",
       createSplitDirectories: false,
@@ -106,26 +105,32 @@ describe("Codex projectless workspace", () => {
     expect(() => parseCodexProjectlessThreadCwdInput({ prompt: 1 })).toThrow(
       "prompt must be a string, null, or omitted",
     );
-    expect(() => parseCodexProjectlessThreadCwdInput({
-      createSplitDirectories: "yes",
-    })).toThrow("createSplitDirectories must be a boolean or omitted");
+    expect(() =>
+      parseCodexProjectlessThreadCwdInput({
+        createSplitDirectories: "yes",
+      }),
+    ).toThrow("createSplitDirectories must be a boolean or omitted");
   });
 
   test("validates a renderer-returned workspace descriptor", () => {
-    expect(parseCodexProjectlessWorkspace({
-      cwd: "/tmp/Nodex/thread",
-      outputDirectory: "/tmp/Nodex/thread/outputs",
-      workspaceRoot: "/tmp/Nodex",
-    })).toStrictEqual({
+    expect(
+      parseCodexProjectlessWorkspace({
+        cwd: "/tmp/Nodex/thread",
+        outputDirectory: "/tmp/Nodex/thread/outputs",
+        workspaceRoot: "/tmp/Nodex",
+      }),
+    ).toStrictEqual({
       cwd: "/tmp/Nodex/thread",
       outputDirectory: "/tmp/Nodex/thread/outputs",
       workspaceRoot: "/tmp/Nodex",
     });
-    expect(() => parseCodexProjectlessWorkspace({
-      cwd: "",
-      outputDirectory: "/tmp/Nodex/thread/outputs",
-      workspaceRoot: "/tmp/Nodex",
-    })).toThrow("Projectless workspace cwd must be a non-empty string");
+    expect(() =>
+      parseCodexProjectlessWorkspace({
+        cwd: "",
+        outputDirectory: "/tmp/Nodex/thread/outputs",
+        workspaceRoot: "/tmp/Nodex",
+      }),
+    ).toThrow("Projectless workspace cwd must be a non-empty string");
   });
 
   test("tries 100 numeric names followed by at most five unique names", async () => {
@@ -148,7 +153,7 @@ describe("Codex projectless workspace", () => {
         date: new Date(2026, 6, 11, 12),
         directoryName: "collision",
         homeDirectory,
-        uniqueDirectoryNameSuffix: () => `uuid-${suffixAttempt += 1}`,
+        uniqueDirectoryNameSuffix: () => `uuid-${(suffixAttempt += 1)}`,
       });
 
       const expectedDirectory = path.join(dateDirectory, "collision-uuid-5");
@@ -171,23 +176,31 @@ describe("Codex projectless workspace", () => {
       await mkdir(targetDirectory);
       await symlink(targetDirectory, workspaceRoot, "dir");
 
-      expect(await captureErrorMessage(() => createCodexProjectlessWorkspace({
-        createSplitDirectories: false,
-        date: new Date(2026, 6, 11, 12),
-        homeDirectory,
-        prompt: "workspace symlink",
-      }))).toBe("Projectless thread directory must be a real directory");
+      expect(
+        await captureErrorMessage(() =>
+          createCodexProjectlessWorkspace({
+            createSplitDirectories: false,
+            date: new Date(2026, 6, 11, 12),
+            homeDirectory,
+            prompt: "workspace symlink",
+          }),
+        ),
+      ).toBe("Projectless thread directory must be a real directory");
 
       await rm(workspaceRoot, { force: true });
       await mkdir(workspaceRoot);
       await symlink(targetDirectory, path.join(workspaceRoot, "2026-07-11"), "dir");
 
-      expect(await captureErrorMessage(() => createCodexProjectlessWorkspace({
-        createSplitDirectories: false,
-        date: new Date(2026, 6, 11, 12),
-        homeDirectory,
-        prompt: "date symlink",
-      }))).toBe("Projectless thread directory must be a real directory");
+      expect(
+        await captureErrorMessage(() =>
+          createCodexProjectlessWorkspace({
+            createSplitDirectories: false,
+            date: new Date(2026, 6, 11, 12),
+            homeDirectory,
+            prompt: "date symlink",
+          }),
+        ),
+      ).toBe("Projectless thread directory must be a real directory");
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });
     }

@@ -14,11 +14,7 @@ export interface KeyboardActionPolicy {
   readonly allowRepeat: boolean;
 }
 
-export type KeyboardActionSurfaceScope =
-  | "global"
-  | "editable"
-  | "local"
-  | "terminal";
+export type KeyboardActionSurfaceScope = "global" | "editable" | "local" | "terminal";
 
 export type KeyboardActionContext = "composer";
 
@@ -29,13 +25,7 @@ interface KeyboardActionElementLike extends EventTarget {
   getAttribute?: (name: string) => string | null;
 }
 
-const NON_TEXT_INPUT_TYPES = new Set([
-  "button",
-  "checkbox",
-  "radio",
-  "reset",
-  "submit",
-]);
+const NON_TEXT_INPUT_TYPES = new Set(["button", "checkbox", "radio", "reset", "submit"]);
 
 const EDITABLE_ROLES = new Set(["combobox", "searchbox", "textbox"]);
 
@@ -52,9 +42,7 @@ function asElement(target: EventTarget): KeyboardActionElementLike | null {
   return null;
 }
 
-function keyboardScopeAttribute(
-  element: KeyboardActionElementLike,
-): "local" | "terminal" | null {
+function keyboardScopeAttribute(element: KeyboardActionElementLike): "local" | "terminal" | null {
   const value = element.getAttribute?.("data-nodex-keyboard-scope");
   return value === "local" || value === "terminal" ? value : null;
 }

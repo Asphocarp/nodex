@@ -11,15 +11,13 @@ import {
 } from "./thread-summary-panel-section";
 
 function clearSectionStorage(sectionKey: string) {
-  window.localStorage.removeItem(`${THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX}${sectionKey}`);
+  window.localStorage.removeItem(
+    `${THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX}${sectionKey}`,
+  );
 }
 
 function renderReducedMotion(ui: ReactElement) {
-  return render(
-    <MotionConfig reducedMotion="always">
-      {ui}
-    </MotionConfig>,
-  );
+  return render(<MotionConfig reducedMotion="always">{ui}</MotionConfig>);
 }
 
 describe("ThreadSummaryPanelSection", () => {
@@ -72,7 +70,11 @@ describe("ThreadSummaryPanelSection", () => {
     fireEvent.click(button);
 
     expect(button.getAttribute("aria-expanded")).toBe("false");
-    expect(window.localStorage.getItem(`${THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX}${sectionKey}`)).toBe("false");
+    expect(
+      window.localStorage.getItem(
+        `${THREAD_SUMMARY_PANEL_SECTION_EXPANDED_STORAGE_PREFIX}${sectionKey}`,
+      ),
+    ).toBe("false");
     expect(textContent(view.container).includes("Changes")).toBe(false);
 
     view.unmount();

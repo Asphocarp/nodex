@@ -1,9 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, test } from "vitest";
-import type {
-  ProjectSession,
-  ProjectSessionSummaryWindow,
-} from "./types";
+import type { ProjectSession, ProjectSessionSummaryWindow } from "./types";
 import { queryKeys } from "./query-keys";
 import {
   getCachedProjectSessionDetail,
@@ -70,7 +67,11 @@ describe("project session query cache", () => {
   test("seeding detail updates cached summary-visible fields", () => {
     const queryClient = createQueryClient();
     const initial = createSession({ displayTitle: "Old title", unread: true });
-    const updated = createSession({ displayTitle: "New title", unread: false, updatedAt: "2026-01-02T00:00:00.000Z" });
+    const updated = createSession({
+      displayTitle: "New title",
+      unread: false,
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
     setProjectSessionSummaries(queryClient, "project-1", [projectSessionToSummary(initial)]);
 
     seedProjectSessionDetail(queryClient, updated);
@@ -103,10 +104,7 @@ describe("project session query cache", () => {
     const window = queryClient.getQueryData<ProjectSessionSummaryWindow>(
       queryKeys.projectSessions.summaries("project-1"),
     );
-    expect(window?.items.map((item) => item.id)).toEqual([
-      "session-first",
-      "session-second",
-    ]);
+    expect(window?.items.map((item) => item.id)).toEqual(["session-first", "session-second"]);
     queryClient.clear();
   });
 
@@ -123,14 +121,18 @@ describe("project session query cache", () => {
       },
     );
 
-    setProjectSessionSummaries(queryClient, "project-1", [{
-      ...summary,
-      unread: true,
-    }]);
+    setProjectSessionSummaries(queryClient, "project-1", [
+      {
+        ...summary,
+        unread: true,
+      },
+    ]);
 
-    expect(queryClient.getQueryData<ProjectSessionSummaryWindow>(
-      queryKeys.projectSessions.summaries("project-1"),
-    )).toEqual({
+    expect(
+      queryClient.getQueryData<ProjectSessionSummaryWindow>(
+        queryKeys.projectSessions.summaries("project-1"),
+      ),
+    ).toEqual({
       items: [{ ...summary, unread: true }],
       nextCursor: "cursor:one",
       hasMore: true,
@@ -140,9 +142,9 @@ describe("project session query cache", () => {
   });
 
   test("reads through the committed projection revision and preserves the loaded window", async () => {
-    const canonical = Array.from({ length: 51 }, (_, index) => (
-      projectSessionToSummary(createSession({ id: `session-${index}` }))
-    ));
+    const canonical = Array.from({ length: 51 }, (_, index) =>
+      projectSessionToSummary(createSession({ id: `session-${index}` })),
+    );
     const reads: Array<{ after: string | null; first: number }> = [];
     let firstPageReads = 0;
 
@@ -182,9 +184,7 @@ describe("project session query cache", () => {
       { after: null, first: 50 },
       { after: "cursor:50", first: 1 },
     ]);
-    expect(window.items.map((item) => item.id)).toEqual(
-      canonical.map((item) => item.id),
-    );
+    expect(window.items.map((item) => item.id)).toEqual(canonical.map((item) => item.id));
     expect(window.projectionRevision).toBe(10);
   });
 
@@ -221,9 +221,7 @@ describe("project session query cache", () => {
       projectionRevision: 11,
     } satisfies ProjectSessionSummaryWindow;
 
-    expect(
-      preferNewestProjectSessionSummaryWindow(loaded, lateFirstPage),
-    ).toBe(loaded);
+    expect(preferNewestProjectSessionSummaryWindow(loaded, lateFirstPage)).toBe(loaded);
 
     const terminalRefresh = {
       items: [first],
@@ -231,20 +229,20 @@ describe("project session query cache", () => {
       hasMore: false,
       projectionRevision: 11,
     } satisfies ProjectSessionSummaryWindow;
-    expect(
-      preferNewestProjectSessionSummaryWindow(loaded, terminalRefresh),
-    ).toBe(terminalRefresh);
+    expect(preferNewestProjectSessionSummaryWindow(loaded, terminalRefresh)).toBe(terminalRefresh);
   });
 
   test("summary refresh replaces the identical domain detail shape", () => {
     const queryClient = createQueryClient();
     const detail = createSession({ displayTitle: "Stale title", order: 7 });
     seedProjectSessionDetail(queryClient, detail);
-    const summary = projectSessionToSummary(createSession({
-      displayTitle: "Current title",
-      order: 2,
-      updatedAt: "2026-01-02T00:00:00.000Z",
-    }));
+    const summary = projectSessionToSummary(
+      createSession({
+        displayTitle: "Current title",
+        order: 2,
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      }),
+    );
 
     setProjectSessionSummaries(queryClient, "project-1", [summary]);
 
@@ -290,12 +288,12 @@ describe("project session query cache", () => {
       changeType: "update",
     });
 
-    expect(queryClient.getQueryState(
-      queryKeys.projectSessions.detail("session-1"),
-    )?.isInvalidated).toBe(true);
-    expect(queryClient.getQueryState(
-      queryKeys.projectSessions.detail("session-2"),
-    )?.isInvalidated).toBe(true);
+    expect(
+      queryClient.getQueryState(queryKeys.projectSessions.detail("session-1"))?.isInvalidated,
+    ).toBe(true);
+    expect(
+      queryClient.getQueryState(queryKeys.projectSessions.detail("session-2"))?.isInvalidated,
+    ).toBe(true);
     queryClient.clear();
   });
 

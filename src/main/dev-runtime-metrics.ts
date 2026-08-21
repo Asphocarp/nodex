@@ -29,10 +29,7 @@ export function approximateJsonPayloadBytes(value: unknown): number | null {
   }
 }
 
-export function logDevRuntimeMetric(
-  metric: string,
-  fields: DevRuntimeMetricFields = {},
-): void {
+export function logDevRuntimeMetric(metric: string, fields: DevRuntimeMetricFields = {}): void {
   if (!isDevRuntimeMetricsEnabled()) return;
   devRuntimeMetricLogger.info("dev runtime metric", {
     metric,
@@ -107,10 +104,7 @@ export function recordDevRuntimeMetricCounter(
       firstFields: bucket.firstFields,
       lastFields: bucket.lastFields,
     });
-    if (
-      typeof options.burstThreshold === "number"
-      && bucket.count >= options.burstThreshold
-    ) {
+    if (typeof options.burstThreshold === "number" && bucket.count >= options.burstThreshold) {
       logDevRuntimeMetric(options.burstMetric ?? `${metric}.burst`, {
         ...bucket.groupedFields,
         count: bucket.count,
@@ -124,10 +118,10 @@ export function recordDevRuntimeMetricCounter(
     }
   }, windowMs);
   if (
-    typeof timer === "object"
-    && timer !== null
-    && "unref" in timer
-    && typeof timer.unref === "function"
+    typeof timer === "object" &&
+    timer !== null &&
+    "unref" in timer &&
+    typeof timer.unref === "function"
   ) {
     timer.unref();
   }

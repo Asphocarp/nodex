@@ -37,12 +37,14 @@ function makeEnvironment(name: string): WorktreeEnvironmentDefinition {
     name,
     setup: { script: "bun install", platformScripts: { linux: "pnpm install" } },
     cleanup: { script: null, platformScripts: {} },
-    actions: [{
-      name: "Test",
-      icon: "test",
-      command: "bun test",
-      platform: null,
-    }],
+    actions: [
+      {
+        name: "Test",
+        icon: "test",
+        command: "bun test",
+        platform: null,
+      },
+    ],
   };
 }
 
@@ -63,25 +65,28 @@ function revisionFor(raw: string): string {
 describe("worktree-environment-service", () => {
   test("lists strict configs and options with local-environment metadata", async () => {
     const workspacePath = createWorkspace();
-    writeEnvironmentFile(workspacePath, "environment.toml", [
-      "version = 1",
-      'name = "Studio"',
-      "[setup]",
-      'script = "bun install"',
-      "[cleanup]",
-      'script = "git clean -fd"',
-      "[[actions]]",
-      'name = "Run tests"',
-      'icon = "test"',
-      'command = "bun test"',
-      "",
-    ].join("\n"));
-    writeEnvironmentFile(workspacePath, "environment-2.toml", [
-      'name = "Plain"',
-      "[setup]",
-      'script = ""',
-      "",
-    ].join("\n"));
+    writeEnvironmentFile(
+      workspacePath,
+      "environment.toml",
+      [
+        "version = 1",
+        'name = "Studio"',
+        "[setup]",
+        'script = "bun install"',
+        "[cleanup]",
+        'script = "git clean -fd"',
+        "[[actions]]",
+        'name = "Run tests"',
+        'icon = "test"',
+        'command = "bun test"',
+        "",
+      ].join("\n"),
+    );
+    writeEnvironmentFile(
+      workspacePath,
+      "environment-2.toml",
+      ['name = "Plain"', "[setup]", 'script = ""', ""].join("\n"),
+    );
     writeEnvironmentFile(workspacePath, "broken.toml", "name = ");
 
     try {
@@ -155,10 +160,12 @@ describe("worktree-environment-service", () => {
     try {
       await expect(saveWorktreeEnvironmentConfigFile(input)).resolves.toEqual({ type: "success" });
       await expect(saveWorktreeEnvironmentConfigFile(input)).resolves.toEqual({ type: "success" });
-      await expect(saveWorktreeEnvironmentConfigFile({
-        ...input,
-        environment: makeEnvironment("Different"),
-      })).resolves.toEqual({ type: "conflict" });
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          ...input,
+          environment: makeEnvironment("Different"),
+        }),
+      ).resolves.toEqual({ type: "conflict" });
     } finally {
       removeWorkspace(workspacePath);
     }
@@ -175,31 +182,39 @@ describe("worktree-environment-service", () => {
         workspacePath,
       });
       const updated = makeEnvironment("Updated");
-      await expect(saveWorktreeEnvironmentConfigFile({
-        projectId: "project",
-        workspacePath,
-        configPath: initial.configPath,
-        expectedRevision: initial.revision,
-        environment: updated,
-      })).resolves.toEqual({ type: "success" });
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          projectId: "project",
+          workspacePath,
+          configPath: initial.configPath,
+          expectedRevision: initial.revision,
+          environment: updated,
+        }),
+      ).resolves.toEqual({ type: "success" });
 
-      await expect(saveWorktreeEnvironmentConfigFile({
-        projectId: "project",
-        workspacePath,
-        configPath: initial.configPath,
-        expectedRevision: initial.revision,
-        environment: updated,
-      })).resolves.toEqual({ type: "success" });
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          projectId: "project",
+          workspacePath,
+          configPath: initial.configPath,
+          expectedRevision: initial.revision,
+          environment: updated,
+        }),
+      ).resolves.toEqual({ type: "success" });
 
       fs.writeFileSync(environmentPath(workspacePath), referenceRaw("External"), "utf8");
-      await expect(saveWorktreeEnvironmentConfigFile({
-        projectId: "project",
-        workspacePath,
-        configPath: initial.configPath,
-        expectedRevision: initial.revision,
-        environment: makeEnvironment("Stale"),
-      })).resolves.toEqual({ type: "conflict" });
-      expect(fs.readFileSync(environmentPath(workspacePath), "utf8")).toBe(referenceRaw("External"));
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          projectId: "project",
+          workspacePath,
+          configPath: initial.configPath,
+          expectedRevision: initial.revision,
+          environment: makeEnvironment("Stale"),
+        }),
+      ).resolves.toEqual({ type: "conflict" });
+      expect(fs.readFileSync(environmentPath(workspacePath), "utf8")).toBe(
+        referenceRaw("External"),
+      );
     } finally {
       removeWorkspace(workspacePath);
     }
@@ -247,13 +262,15 @@ describe("worktree-environment-service", () => {
         workspacePath,
         configPath: ".codex/environments/broken.toml",
       });
-      await expect(saveWorktreeEnvironmentConfigFile({
-        projectId: "project",
-        workspacePath,
-        configPath: snapshot.configPath,
-        expectedRevision: snapshot.revision,
-        environment: makeEnvironment("Repaired"),
-      })).resolves.toEqual({ type: "success" });
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          projectId: "project",
+          workspacePath,
+          configPath: snapshot.configPath,
+          expectedRevision: snapshot.revision,
+          environment: makeEnvironment("Repaired"),
+        }),
+      ).resolves.toEqual({ type: "success" });
     } finally {
       removeWorkspace(workspacePath);
     }
@@ -261,7 +278,11 @@ describe("worktree-environment-service", () => {
 
   test("keeps oversized files non-overwritable without a revision", async () => {
     const workspacePath = createWorkspace();
-    writeEnvironmentFile(workspacePath, "huge.toml", "x".repeat(WORKTREE_ENVIRONMENT_MAX_BYTES + 1));
+    writeEnvironmentFile(
+      workspacePath,
+      "huge.toml",
+      "x".repeat(WORKTREE_ENVIRONMENT_MAX_BYTES + 1),
+    );
 
     try {
       const snapshot = await readWorktreeEnvironmentSettingsSnapshot({
@@ -271,13 +292,15 @@ describe("worktree-environment-service", () => {
         configPath: ".codex/environments/huge.toml",
       });
       expect(snapshot.revision).toBeNull();
-      await expect(saveWorktreeEnvironmentConfigFile({
-        projectId: "project",
-        workspacePath,
-        configPath: snapshot.configPath,
-        expectedRevision: snapshot.revision,
-        environment: makeEnvironment("Unsafe"),
-      })).resolves.toEqual({ type: "conflict" });
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          projectId: "project",
+          workspacePath,
+          configPath: snapshot.configPath,
+          expectedRevision: snapshot.revision,
+          environment: makeEnvironment("Unsafe"),
+        }),
+      ).resolves.toEqual({ type: "conflict" });
     } finally {
       removeWorkspace(workspacePath);
     }
@@ -290,17 +313,21 @@ describe("worktree-environment-service", () => {
     fs.symlinkSync(outsidePath, path.join(workspacePath, ".codex", "environments"));
 
     try {
-      await expect(readWorktreeEnvironmentDefinition({
-        workspacePath,
-        environmentPath: "../outside.toml",
-      })).rejects.toThrow("inside .codex/environments");
-      await expect(saveWorktreeEnvironmentConfigFile({
-        projectId: "project",
-        workspacePath,
-        configPath: ".codex/environments/environment.toml",
-        expectedRevision: null,
-        environment: makeEnvironment("Escape"),
-      })).rejects.toThrow("inside the workspace");
+      await expect(
+        readWorktreeEnvironmentDefinition({
+          workspacePath,
+          environmentPath: "../outside.toml",
+        }),
+      ).rejects.toThrow("inside .codex/environments");
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          projectId: "project",
+          workspacePath,
+          configPath: ".codex/environments/environment.toml",
+          expectedRevision: null,
+          environment: makeEnvironment("Escape"),
+        }),
+      ).rejects.toThrow("inside the workspace");
       expect(fs.existsSync(path.join(outsidePath, "environment.toml"))).toBe(false);
     } finally {
       removeWorkspace(workspacePath);
@@ -316,13 +343,15 @@ describe("worktree-environment-service", () => {
     fs.symlinkSync(outsidePath, environmentPath(workspacePath));
 
     try {
-      await expect(saveWorktreeEnvironmentConfigFile({
-        projectId: "project",
-        workspacePath,
-        configPath: ".codex/environments/environment.toml",
-        expectedRevision: null,
-        environment: makeEnvironment("Escape"),
-      })).rejects.toThrow("inside .codex/environments");
+      await expect(
+        saveWorktreeEnvironmentConfigFile({
+          projectId: "project",
+          workspacePath,
+          configPath: ".codex/environments/environment.toml",
+          expectedRevision: null,
+          environment: makeEnvironment("Escape"),
+        }),
+      ).rejects.toThrow("inside .codex/environments");
       expect(fs.readFileSync(outsidePath, "utf8")).toBe(referenceRaw("Outside"));
     } finally {
       removeWorkspace(workspacePath);
@@ -332,31 +361,36 @@ describe("worktree-environment-service", () => {
 
   test("resolves the current platform setup script with default fallback", async () => {
     const workspacePath = createWorkspace();
-    writeEnvironmentFile(workspacePath, "environment.toml", [
-      'name = "Platform setup"',
-      "[setup]",
-      'script = "generic setup"',
-      "[setup.darwin]",
-      'script = "darwin setup"',
-      "[setup.linux]",
-      'script = "linux setup"',
-      "[setup.win32]",
-      'script = "windows setup"',
-      "",
-    ].join("\n"));
+    writeEnvironmentFile(
+      workspacePath,
+      "environment.toml",
+      [
+        'name = "Platform setup"',
+        "[setup]",
+        'script = "generic setup"',
+        "[setup.darwin]",
+        'script = "darwin setup"',
+        "[setup.linux]",
+        'script = "linux setup"',
+        "[setup.win32]",
+        'script = "windows setup"',
+        "",
+      ].join("\n"),
+    );
 
     try {
       const definition = await readWorktreeEnvironmentDefinition({
         workspacePath,
         environmentPath: ".codex/environments/environment.toml",
       });
-      const expected = process.platform === "darwin"
-        ? "darwin setup"
-        : process.platform === "linux"
-          ? "linux setup"
-          : process.platform === "win32"
-            ? "windows setup"
-            : "generic setup";
+      const expected =
+        process.platform === "darwin"
+          ? "darwin setup"
+          : process.platform === "linux"
+            ? "linux setup"
+            : process.platform === "win32"
+              ? "windows setup"
+              : "generic setup";
       expect(definition.setupScript).toBe(expected);
     } finally {
       removeWorkspace(workspacePath);

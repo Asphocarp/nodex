@@ -47,10 +47,10 @@ function parseTitleInlineItems(markdown: string): NfmInlineContent[] {
   const blocks = parseNfm(markdown);
   const block = blocks[0];
   if (
-    blocks.length !== 1
-    || block?.type !== "paragraph"
-    || block.children.length > 0
-    || block.color !== undefined
+    blocks.length !== 1 ||
+    block?.type !== "paragraph" ||
+    block.children.length > 0 ||
+    block.color !== undefined
   ) {
     throw new InlineMarkdownTitleError(
       "Page title Markdown accepts inline content, not Block syntax",
@@ -63,26 +63,18 @@ function toPortableItem(item: NfmInlineContent): PortableRichTextItem {
   if (item.type === "text" || item.type === "link") {
     return { ...item, styles: portableStyles(item.styles) };
   }
-  if (
-    item.type === "threadMention"
-    || item.type === "pageMention"
-    || item.type === "dateMention"
-  ) {
+  if (item.type === "threadMention" || item.type === "pageMention" || item.type === "dateMention") {
     return item;
   }
   if (item.type === "linebreak") {
     throw new InlineMarkdownTitleError("Page title Markdown cannot contain line breaks");
   }
-  throw new InlineMarkdownTitleError(
-    `Page title Markdown does not support inline ${item.type}`,
-  );
+  throw new InlineMarkdownTitleError(`Page title Markdown does not support inline ${item.type}`);
 }
 
 export function parseInlineMarkdownTitle(markdown: string): PortableRichText {
   try {
-    return canonicalizePortableRichText(
-      parseTitleInlineItems(markdown).map(toPortableItem),
-    );
+    return canonicalizePortableRichText(parseTitleInlineItems(markdown).map(toPortableItem));
   } catch (error) {
     if (error instanceof InlineMarkdownTitleError) throw error;
     throw new InlineMarkdownTitleError(

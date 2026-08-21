@@ -22,8 +22,10 @@ let designPreview: {
 } | null = null;
 
 function makeAnnotationId(): string {
-  return globalThis.crypto?.randomUUID?.()
-    ?? `annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 }
 
 function ensureOverlay(): HTMLDivElement {
@@ -57,9 +59,7 @@ function elementSelector(element: Element): string {
     const siblings = [...parentElement.children].filter(
       (candidate) => candidate.tagName === current?.tagName,
     );
-    const suffix = siblings.length > 1
-      ? `:nth-of-type(${siblings.indexOf(current) + 1})`
-      : "";
+    const suffix = siblings.length > 1 ? `:nth-of-type(${siblings.indexOf(current) + 1})` : "";
     parts.unshift(`${tagName}${suffix}`);
     current = parentElement;
   }
@@ -89,12 +89,12 @@ function anchorFromElement(
 ): BrowserAnnotationAnchor {
   const selection = window.getSelection();
   const selectedText = selection?.toString().replace(/\s+/g, " ").trim();
-  const rangeRect = selectedText && selection?.rangeCount
-    ? selection.getRangeAt(0).getBoundingClientRect()
-    : null;
-  const rect = rangeRect && rangeRect.width > 0 && rangeRect.height > 0
-    ? rangeRect
-    : element.getBoundingClientRect();
+  const rangeRect =
+    selectedText && selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+  const rect =
+    rangeRect && rangeRect.width > 0 && rangeRect.height > 0
+      ? rangeRect
+      : element.getBoundingClientRect();
   return {
     id: stableId,
     kind: rangeRect ? "text" : "element",
@@ -124,10 +124,7 @@ function rememberSelectedElement(anchor: BrowserAnnotationAnchor, element: Eleme
   selectedElementsByAnchorId.set(anchor.id, element);
 }
 
-function sendElementSelection(
-  element: Element,
-  multiSelect: boolean,
-): void {
+function sendElementSelection(element: Element, multiSelect: boolean): void {
   if (!annotationSessionId) return;
   const anchor = anchorFromElement(element);
   rememberSelectedElement(anchor, element);
@@ -174,20 +171,18 @@ function updateOverlay(element: Element | null): void {
 }
 
 function onAnnotationPointerMove(event: PointerEvent): void {
-  const target = event.composedPath().find((candidate) =>
-    candidate instanceof Element
-    && !candidate.hasAttribute(ANNOTATION_OVERLAY_ATTRIBUTE)
-  );
+  const target = event
+    .composedPath()
+    .find(
+      (candidate) =>
+        candidate instanceof Element && !candidate.hasAttribute(ANNOTATION_OVERLAY_ATTRIBUTE),
+    );
   hoveredElement = target instanceof Element ? target : null;
   updateOverlay(hoveredElement);
 }
 
 function onAnnotationClick(event: MouseEvent): void {
-  if (
-    !annotationSessionId
-    || annotationSelectionMode !== "inspect"
-    || !hoveredElement
-  ) {
+  if (!annotationSessionId || annotationSelectionMode !== "inspect" || !hoveredElement) {
     return;
   }
   event.preventDefault();
@@ -232,11 +227,7 @@ function onAnnotationPointerDrag(event: PointerEvent): void {
 
 function onAnnotationPointerUp(event: PointerEvent): void {
   const start = regionStart;
-  if (
-    !annotationSessionId
-    || !start
-    || event.pointerId !== start.pointerId
-  ) {
+  if (!annotationSessionId || !start || event.pointerId !== start.pointerId) {
     return;
   }
   event.preventDefault();
@@ -300,10 +291,7 @@ function disableAnnotationMode(): void {
   window.removeEventListener("resize", scheduleAnchorUpdates, true);
 }
 
-function enableAnnotationMode(
-  sessionId: string,
-  selectionMode: "inspect" | "region",
-): void {
+function enableAnnotationMode(sessionId: string, selectionMode: "inspect" | "region"): void {
   disableAnnotationMode();
   annotationSessionId = sessionId;
   annotationSelectionMode = selectionMode;
@@ -337,10 +325,10 @@ ipcRenderer.on(
     },
   ) => {
     if (
-      payload?.enabled === true
-      && typeof payload.sessionId === "string"
-      && payload.sessionId.length > 0
-      && payload.sessionId.length <= 512
+      payload?.enabled === true &&
+      typeof payload.sessionId === "string" &&
+      payload.sessionId.length > 0 &&
+      payload.sessionId.length <= 512
     ) {
       enableAnnotationMode(
         payload.sessionId,
@@ -363,13 +351,13 @@ ipcRenderer.on(
     },
   ) => {
     if (
-      typeof payload?.sessionId !== "string"
-      || payload.sessionId !== annotationSessionId
-      || annotationSelectionMode !== "inspect"
-      || typeof payload.x !== "number"
-      || !Number.isFinite(payload.x)
-      || typeof payload.y !== "number"
-      || !Number.isFinite(payload.y)
+      typeof payload?.sessionId !== "string" ||
+      payload.sessionId !== annotationSessionId ||
+      annotationSelectionMode !== "inspect" ||
+      typeof payload.x !== "number" ||
+      !Number.isFinite(payload.x) ||
+      typeof payload.y !== "number" ||
+      !Number.isFinite(payload.y)
     ) {
       return;
     }
@@ -402,10 +390,10 @@ function isSafeDesignValue(
   value: string,
 ): boolean {
   if (
-    value.length === 0
-    || value.length > 512
-    || /[\u0000-\u001f]/u.test(value)
-    || /(?:url|expression)\s*\(/iu.test(value)
+    value.length === 0 ||
+    value.length > 512 ||
+    /[\u0000-\u001f]/u.test(value) ||
+    /(?:url|expression)\s*\(/iu.test(value)
   ) {
     return false;
   }
@@ -428,11 +416,11 @@ ipcRenderer.on(
   ) => {
     restoreDesignPreview();
     if (
-      payload?.sessionId !== annotationSessionId
-      || typeof payload.anchorId !== "string"
-      || typeof payload.after !== "string"
-      || typeof payload.property !== "string"
-      || !Object.hasOwn(DESIGN_PROPERTY_TO_CSS_NAME, payload.property)
+      payload?.sessionId !== annotationSessionId ||
+      typeof payload.anchorId !== "string" ||
+      typeof payload.after !== "string" ||
+      typeof payload.property !== "string" ||
+      !Object.hasOwn(DESIGN_PROPERTY_TO_CSS_NAME, payload.property)
     ) {
       return;
     }
@@ -453,17 +441,17 @@ ipcRenderer.on(
   },
 );
 
-window.addEventListener("mouseup", (event) => {
-  const direction = event.button === 3
-    ? "back"
-    : event.button === 4
-      ? "forward"
-      : null;
-  if (!direction) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  ipcRenderer.send("browser-navigation-button", direction);
-}, true);
+window.addEventListener(
+  "mouseup",
+  (event) => {
+    const direction = event.button === 3 ? "back" : event.button === 4 ? "forward" : null;
+    if (!direction) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    ipcRenderer.send("browser-navigation-button", direction);
+  },
+  true,
+);
 
 let browserImageDragActive = false;
 
@@ -474,20 +462,28 @@ function findDraggedImage(event: DragEvent): HTMLImageElement | null {
   return event.target instanceof HTMLImageElement ? event.target : null;
 }
 
-window.addEventListener("dragstart", (event) => {
-  if (!event.isTrusted) return;
-  const image = findDraggedImage(event);
-  const sourceUrl = image?.currentSrc || image?.src || "";
-  if (!sourceUrl || sourceUrl.length > 16_384) return;
-  browserImageDragActive = true;
-  ipcRenderer.send("browser-image-drag-started", { sourceUrl });
-}, true);
+window.addEventListener(
+  "dragstart",
+  (event) => {
+    if (!event.isTrusted) return;
+    const image = findDraggedImage(event);
+    const sourceUrl = image?.currentSrc || image?.src || "";
+    if (!sourceUrl || sourceUrl.length > 16_384) return;
+    browserImageDragActive = true;
+    ipcRenderer.send("browser-image-drag-started", { sourceUrl });
+  },
+  true,
+);
 
-window.addEventListener("dragend", (event) => {
-  if (!event.isTrusted || !browserImageDragActive) return;
-  browserImageDragActive = false;
-  ipcRenderer.send("browser-image-drag-ended");
-}, true);
+window.addEventListener(
+  "dragend",
+  (event) => {
+    if (!event.isTrusted || !browserImageDragActive) return;
+    browserImageDragActive = false;
+    ipcRenderer.send("browser-image-drag-ended");
+  },
+  true,
+);
 
 interface BrowserCredentialFillPayload {
   origin: string;
@@ -511,42 +507,37 @@ interface BrowserContactInfoFillPayload {
   };
 }
 
-function isUsableFormInput(
-  input: HTMLInputElement,
-): boolean {
-  return !input.disabled
-    && !input.readOnly
-    && input.type !== "hidden"
-    && input.isConnected;
+function isUsableFormInput(input: HTMLInputElement): boolean {
+  return !input.disabled && !input.readOnly && input.type !== "hidden" && input.isConnected;
 }
 
 function readCredentialForm(target: EventTarget | null): {
   username: string;
   password: string;
 } | null {
-  const form = target instanceof HTMLFormElement
-    ? target
-    : target instanceof Element
-      ? target.closest("form")
-      : null;
+  const form =
+    target instanceof HTMLFormElement
+      ? target
+      : target instanceof Element
+        ? target.closest("form")
+        : null;
   if (!form) return null;
-  const inputs = [...form.querySelectorAll("input")]
-    .filter((input): input is HTMLInputElement =>
-      input instanceof HTMLInputElement && isUsableFormInput(input)
-    );
+  const inputs = [...form.querySelectorAll("input")].filter(
+    (input): input is HTMLInputElement =>
+      input instanceof HTMLInputElement && isUsableFormInput(input),
+  );
   const passwordInput = inputs.find((input) => input.type === "password");
   if (!passwordInput?.value || passwordInput.value.length > 1024 * 1024) {
     return null;
   }
-  const usernameInput = inputs.find((input) =>
-    input.autocomplete === "username"
-    || input.autocomplete === "email"
-  ) ?? inputs.find((input) =>
-    input.type === "email"
-  ) ?? inputs.find((input) =>
-    input.type === "text" && input.compareDocumentPosition(passwordInput)
-      & Node.DOCUMENT_POSITION_FOLLOWING
-  );
+  const usernameInput =
+    inputs.find((input) => input.autocomplete === "username" || input.autocomplete === "email") ??
+    inputs.find((input) => input.type === "email") ??
+    inputs.find(
+      (input) =>
+        input.type === "text" &&
+        input.compareDocumentPosition(passwordInput) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   const username = usernameInput?.value ?? "";
   if (username.length > 8_192) return null;
   return {
@@ -562,21 +553,22 @@ function onCredentialFormSubmit(event: SubmitEvent): void {
 }
 
 function setFormInputValue(input: HTMLInputElement, value: string): void {
-  const descriptor = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  );
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
   descriptor?.set?.call(input, value);
-  input.dispatchEvent(new InputEvent("input", {
-    bubbles: true,
-    composed: true,
-    inputType: "insertReplacementText",
-    data: value,
-  }));
-  input.dispatchEvent(new Event("change", {
-    bubbles: true,
-    composed: true,
-  }));
+  input.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      composed: true,
+      inputType: "insertReplacementText",
+      data: value,
+    }),
+  );
+  input.dispatchEvent(
+    new Event("change", {
+      bubbles: true,
+      composed: true,
+    }),
+  );
 }
 
 function fillCredential(payload: BrowserCredentialFillPayload): void {
@@ -587,37 +579,31 @@ function fillCredential(payload: BrowserCredentialFillPayload): void {
     return;
   }
   if (
-    payload.origin !== currentOrigin
-    || typeof payload.username !== "string"
-    || typeof payload.password !== "string"
-    || !payload.password
-    || payload.password.length > 1024 * 1024
-    || (payload.kind !== "saved" && payload.kind !== "generated")
+    payload.origin !== currentOrigin ||
+    typeof payload.username !== "string" ||
+    typeof payload.password !== "string" ||
+    !payload.password ||
+    payload.password.length > 1024 * 1024 ||
+    (payload.kind !== "saved" && payload.kind !== "generated")
   ) {
     return;
   }
-  const inputs = [...document.querySelectorAll("input")]
-    .filter((input): input is HTMLInputElement =>
-      input instanceof HTMLInputElement && isUsableFormInput(input)
-    );
+  const inputs = [...document.querySelectorAll("input")].filter(
+    (input): input is HTMLInputElement =>
+      input instanceof HTMLInputElement && isUsableFormInput(input),
+  );
   const passwordInputs = inputs.filter((input) => input.type === "password");
-  const targetPasswords = payload.kind === "generated"
-    ? passwordInputs.filter((input) =>
-        input.autocomplete === "new-password"
-      )
-    : passwordInputs.filter((input) =>
-        input.autocomplete !== "new-password"
-      );
-  const passwords = targetPasswords.length > 0
-    ? targetPasswords
-    : passwordInputs.slice(0, 1);
+  const targetPasswords =
+    payload.kind === "generated"
+      ? passwordInputs.filter((input) => input.autocomplete === "new-password")
+      : passwordInputs.filter((input) => input.autocomplete !== "new-password");
+  const passwords = targetPasswords.length > 0 ? targetPasswords : passwordInputs.slice(0, 1);
   if (passwords.length === 0) return;
 
   if (payload.kind === "saved" && payload.username) {
-    const usernameInput = inputs.find((input) =>
-      input.autocomplete === "username"
-      || input.autocomplete === "email"
-    ) ?? inputs.find((input) => input.type === "email");
+    const usernameInput =
+      inputs.find((input) => input.autocomplete === "username" || input.autocomplete === "email") ??
+      inputs.find((input) => input.type === "email");
     if (usernameInput) setFormInputValue(usernameInput, payload.username);
   }
   for (const passwordInput of passwords) {
@@ -638,10 +624,9 @@ function fillContactInfo(payload: BrowserContactInfoFillPayload): void {
     name: payload.contactInfo.fullName,
     email: payload.contactInfo.email,
     tel: payload.contactInfo.phone,
-    "street-address": [
-      payload.contactInfo.addressLine1,
-      payload.contactInfo.addressLine2,
-    ].filter(Boolean).join("\n"),
+    "street-address": [payload.contactInfo.addressLine1, payload.contactInfo.addressLine2]
+      .filter(Boolean)
+      .join("\n"),
     "address-line1": payload.contactInfo.addressLine1,
     "address-line2": payload.contactInfo.addressLine2,
     "address-level2": payload.contactInfo.city,
@@ -653,18 +638,10 @@ function fillContactInfo(payload: BrowserContactInfoFillPayload): void {
   let firstFilled: HTMLInputElement | null = null;
   for (const input of document.querySelectorAll("input")) {
     if (!(input instanceof HTMLInputElement) || !isUsableFormInput(input)) continue;
-    const autocompleteToken = input.autocomplete
-      .trim()
-      .split(/\s+/u)
-      .at(-1) ?? "";
-    const fallbackToken = input.type === "email"
-      ? "email"
-      : input.type === "tel"
-        ? "tel"
-        : "";
-    const value = valuesByAutocomplete[autocompleteToken]
-      ?? valuesByAutocomplete[fallbackToken]
-      ?? "";
+    const autocompleteToken = input.autocomplete.trim().split(/\s+/u).at(-1) ?? "";
+    const fallbackToken = input.type === "email" ? "email" : input.type === "tel" ? "tel" : "";
+    const value =
+      valuesByAutocomplete[autocompleteToken] ?? valuesByAutocomplete[fallbackToken] ?? "";
     if (!value) continue;
     setFormInputValue(input, value);
     firstFilled ??= input;
@@ -674,56 +651,40 @@ function fillContactInfo(payload: BrowserContactInfoFillPayload): void {
 
 window.addEventListener("submit", onCredentialFormSubmit, true);
 
-ipcRenderer.on(
-  "browser-credential-fill",
-  (_event, rawPayload: unknown) => {
-    if (
-      typeof rawPayload !== "object"
-      || rawPayload === null
-      || Array.isArray(rawPayload)
-    ) {
-      return;
-    }
-    const payload = rawPayload as Partial<BrowserCredentialFillPayload>;
-    if (
-      typeof payload.origin !== "string"
-      || typeof payload.username !== "string"
-      || typeof payload.password !== "string"
-      || (payload.kind !== "saved" && payload.kind !== "generated")
-    ) {
-      return;
-    }
-    fillCredential(payload as BrowserCredentialFillPayload);
-  },
-);
+ipcRenderer.on("browser-credential-fill", (_event, rawPayload: unknown) => {
+  if (typeof rawPayload !== "object" || rawPayload === null || Array.isArray(rawPayload)) {
+    return;
+  }
+  const payload = rawPayload as Partial<BrowserCredentialFillPayload>;
+  if (
+    typeof payload.origin !== "string" ||
+    typeof payload.username !== "string" ||
+    typeof payload.password !== "string" ||
+    (payload.kind !== "saved" && payload.kind !== "generated")
+  ) {
+    return;
+  }
+  fillCredential(payload as BrowserCredentialFillPayload);
+});
 
-ipcRenderer.on(
-  "browser-contact-info-fill",
-  (_event, rawPayload: unknown) => {
-    if (
-      typeof rawPayload !== "object"
-      || rawPayload === null
-      || Array.isArray(rawPayload)
-    ) {
-      return;
-    }
-    const payload = rawPayload as Partial<BrowserContactInfoFillPayload>;
-    if (
-      typeof payload.origin !== "string"
-      || typeof payload.contactInfo !== "object"
-      || payload.contactInfo === null
-    ) {
-      return;
-    }
-    const values = Object.values(payload.contactInfo);
-    if (
-      values.length !== 9
-      || values.some((value) =>
-        typeof value !== "string" || value.length > 4_096
-      )
-    ) {
-      return;
-    }
-    fillContactInfo(payload as BrowserContactInfoFillPayload);
-  },
-);
+ipcRenderer.on("browser-contact-info-fill", (_event, rawPayload: unknown) => {
+  if (typeof rawPayload !== "object" || rawPayload === null || Array.isArray(rawPayload)) {
+    return;
+  }
+  const payload = rawPayload as Partial<BrowserContactInfoFillPayload>;
+  if (
+    typeof payload.origin !== "string" ||
+    typeof payload.contactInfo !== "object" ||
+    payload.contactInfo === null
+  ) {
+    return;
+  }
+  const values = Object.values(payload.contactInfo);
+  if (
+    values.length !== 9 ||
+    values.some((value) => typeof value !== "string" || value.length > 4_096)
+  ) {
+    return;
+  }
+  fillContactInfo(payload as BrowserContactInfoFillPayload);
+});

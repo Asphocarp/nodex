@@ -72,11 +72,13 @@ const availableTarget = (
     documentGeneration: 1,
     documentHeadSeq: 3,
     title: "Keep projection updates bounded",
-    richTitle: [{
-      type: "text",
-      text: "Keep projection updates bounded",
-      styles: {},
-    }],
+    richTitle: [
+      {
+        type: "text",
+        text: "Keep projection updates bounded",
+        styles: {},
+      },
+    ],
     preview: "Preserve   causal coverage\ninside the affected window.",
     plainText: "Preserve causal coverage inside the affected window.",
     createdAt: "2026-08-01T00:00:00.000Z",
@@ -128,11 +130,9 @@ describe("Page mention inline content", () => {
     });
     expect(unavailable.tooltipDetail).toBe("This Page is unavailable here.");
     expect(JSON.stringify(unavailable)).not.toContain("sensitive transport detail");
-    expect([
-      unavailable.tooltipTitle,
-      unavailable.tooltipDetail,
-      unavailable.tooltipPreview,
-    ].join(" ")).not.toContain("page-private");
+    expect(
+      [unavailable.tooltipTitle, unavailable.tooltipDetail, unavailable.tooltipPreview].join(" "),
+    ).not.toContain("page-private");
 
     const longPreview = resolvePageMentionPresentation({
       targetPageId: "page-1",
@@ -167,9 +167,7 @@ describe("Page mention inline content", () => {
             },
           }}
         >
-          <PageMentionInlineContentView
-            inlineContent={{ props: { targetPageId: "page-1" } }}
-          />
+          <PageMentionInlineContentView inlineContent={{ props: { targetPageId: "page-1" } }} />
         </BlockReferenceRuntimeProvider>
       </NodexTooltipProvider>,
     );
@@ -181,22 +179,19 @@ describe("Page mention inline content", () => {
     expect(mention.getAttribute("href")).toBe("nodex://pages/page-1");
     expect(mention.getAttribute("tabindex")).toBe("0");
     expect(mention.getAttribute("contenteditable")).toBe("false");
-    expect(view.container.querySelector('[data-mention-inline-guard="start"]'))
-      .not.toBeNull();
-    expect(view.container.querySelector('[data-mention-inline-guard="end"]'))
-      .not.toBeNull();
+    expect(view.container.querySelector('[data-mention-inline-guard="start"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-mention-inline-guard="end"]')).not.toBeNull();
     expect(mention.getAttribute("title")).toBe(null);
-    expect(mention.querySelector("svg")?.getAttribute("style"))
-      .toContain("status-build-dot");
+    expect(mention.querySelector("svg")?.getAttribute("style")).toContain("status-build-dot");
 
     fireEvent.pointerMove(mention, { pointerType: "mouse" });
     await settleAsyncRender();
     await waitFor(() => {
       const tooltip = document.body.querySelector('[role="tooltip"]');
       if (
-        !tooltip
-        || !textContent(tooltip).includes("Preserve causal coverage")
-        || textContent(tooltip).includes("Database Page")
+        !tooltip ||
+        !textContent(tooltip).includes("Preserve causal coverage") ||
+        textContent(tooltip).includes("Database Page")
       ) {
         throw new Error("Page mention tooltip not open");
       }

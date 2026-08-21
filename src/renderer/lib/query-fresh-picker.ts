@@ -91,7 +91,9 @@ function findRowById<TRow>({
   isRowAcceptable?: (row: TRow) => boolean;
 }): TRow | null {
   if (!rowId || !getRowId) return null;
-  return rows.find((row) => getRowId(row) === rowId && isAcceptableRow(row, isRowAcceptable)) ?? null;
+  return (
+    rows.find((row) => getRowId(row) === rowId && isAcceptableRow(row, isRowAcceptable)) ?? null
+  );
 }
 
 export function resolveQueryFreshAccept<TRow>({
@@ -128,9 +130,7 @@ export function resolveQueryFreshAccept<TRow>({
   const row = matchingFreshRow ?? fallbackFreshRow;
   if (row) return { status: "accepted", query, row };
 
-  return canWaitForFreshRows
-    ? { status: "pending", query }
-    : { status: "ignored", query };
+  return canWaitForFreshRows ? { status: "pending", query } : { status: "ignored", query };
 }
 
 export function resolvePendingQueryFreshAccept<TRow>({

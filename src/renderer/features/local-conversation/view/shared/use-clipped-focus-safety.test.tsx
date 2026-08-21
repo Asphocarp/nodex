@@ -16,18 +16,25 @@ class IntersectionObserverMock {
 
   disconnect() {}
   unobserve() {}
-  takeRecords(): IntersectionObserverEntry[] { return []; }
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
 
   observe(element: Element) {
     this.observed.push(element);
   }
 
   publish(element: Element, intersectionRatio: number) {
-    this.callback([{
-      intersectionRatio,
-      isIntersecting: intersectionRatio > 0,
-      target: element,
-    } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    this.callback(
+      [
+        {
+          intersectionRatio,
+          isIntersecting: intersectionRatio > 0,
+          target: element,
+        } as IntersectionObserverEntry,
+      ],
+      this as unknown as IntersectionObserver,
+    );
   }
 }
 
@@ -50,7 +57,8 @@ describe("useClippedFocusSafety", () => {
   });
 
   test("makes clipped controls inert and restores their prior accessibility state", () => {
-    globalThis.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver;
+    globalThis.IntersectionObserver =
+      IntersectionObserverMock as unknown as typeof IntersectionObserver;
     const view = render(<FocusSafetyHarness clipped />);
     const link = view.getByRole("link");
     const observer = IntersectionObserverMock.instances[0];

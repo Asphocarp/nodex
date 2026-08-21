@@ -1,9 +1,6 @@
 import type { CanvasSceneFile } from "../../shared/block-documents/canvas-scene";
 import type { ManagedCanvasImageMaterializationResult } from "../../shared/managed-assets";
-import {
-  materializeCanvasImageAsset,
-  readManagedImageDataUrl,
-} from "./assets";
+import { materializeCanvasImageAsset, readManagedImageDataUrl } from "./assets";
 
 export interface CanvasBinaryFileData {
   readonly id: string;
@@ -16,9 +13,7 @@ export interface CanvasBinaryFileData {
 export type CanvasBinaryFiles = Readonly<Record<string, CanvasBinaryFileData>>;
 
 export interface CanvasAssetBridgeDependencies {
-  readonly materializeImage?: (
-    file: File,
-  ) => Promise<ManagedCanvasImageMaterializationResult>;
+  readonly materializeImage?: (file: File) => Promise<ManagedCanvasImageMaterializationResult>;
   readonly readAssetDataUrl?: (source: string) => Promise<string>;
   readonly now?: () => number;
 }
@@ -53,11 +48,9 @@ const dataUrlToFile = async (file: CanvasBinaryFileData): Promise<File> => {
   const response = await fetch(file.dataURL);
   if (!response.ok) throw new Error(`Canvas file ${file.id} is unreadable`);
   const blob = await response.blob();
-  return new File(
-    [blob],
-    `${file.id}${extensionForMimeType(file.mimeType)}`,
-    { type: file.mimeType },
-  );
+  return new File([blob], `${file.id}${extensionForMimeType(file.mimeType)}`, {
+    type: file.mimeType,
+  });
 };
 
 /** Upload-first conversion; no scene mutation is enqueued until every file exists. */
@@ -67,12 +60,9 @@ export const materializeDurableCanvasFiles = async (input: {
   readonly current: Readonly<Record<string, CanvasSceneFile>>;
   readonly dependencies?: CanvasAssetBridgeDependencies;
 }): Promise<Readonly<Record<string, CanvasSceneFile>>> => {
-  const materialize =
-    input.dependencies?.materializeImage ?? materializeCanvasImageAsset;
+  const materialize = input.dependencies?.materializeImage ?? materializeCanvasImageAsset;
   const durable: Record<string, CanvasSceneFile> = {};
-  for (const fileId of collectCanvasReferencedFileIds(
-    input.elementsIncludingDeleted,
-  )) {
+  for (const fileId of collectCanvasReferencedFileIds(input.elementsIncludingDeleted)) {
     const current = input.current[fileId];
     if (current) {
       durable[fileId] = current;
@@ -166,8 +156,7 @@ export class CanvasBinaryFileResolver {
   ): CanvasBinaryFileCacheEntry {
     const current = this.cache.get(fileId);
     if (current?.identity === identity) return current;
-    const readAssetDataUrl = this.dependencies.readAssetDataUrl
-      ?? readManagedImageDataUrl;
+    const readAssetDataUrl = this.dependencies.readAssetDataUrl ?? readManagedImageDataUrl;
     const entry: CanvasBinaryFileCacheEntry = {
       identity,
       dataUrl: readAssetDataUrl(file.source),

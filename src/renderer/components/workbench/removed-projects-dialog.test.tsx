@@ -76,13 +76,15 @@ describe("RemovedProjectsDialog", () => {
     );
     expect(await view.findByText("Removed Alpha")).toBeTruthy();
     expect(view.getByText("/repo/removed-alpha")).toBeTruthy();
-    expect(listCalls).toEqual([[
-      {
-        includeArchived: true,
-        after: null,
-        first: 100,
-      },
-    ]]);
+    expect(listCalls).toEqual([
+      [
+        {
+          includeArchived: true,
+          after: null,
+          first: 100,
+        },
+      ],
+    ]);
 
     fireEvent.click(view.getByRole("button", { name: "Restore" }));
     await waitFor(() => {

@@ -54,9 +54,8 @@ export function useComposerIntelligenceController(
   authoritativeRef.current = authoritativeSelection;
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
-  const [optimisticSelection, setOptimisticSelection] = useState<
-    ComposerIntelligenceSelection | null
-  >(null);
+  const [optimisticSelection, setOptimisticSelection] =
+    useState<ComposerIntelligenceSelection | null>(null);
   const [isOpen, setOpen] = useState(false);
   const [isPending, setPending] = useState(false);
   const desiredRef = useRef<ComposerIntelligenceSelection | null>(null);
@@ -113,16 +112,19 @@ export function useComposerIntelligenceController(
     return operation;
   }, [setServiceTier]);
 
-  const select = useCallback((selection: ComposerIntelligenceSelection) => {
-    const current = desiredRef.current ?? optimisticSelection ?? authoritativeRef.current;
-    if (areComposerIntelligenceSelectionsEqual(current, selection)) return;
+  const select = useCallback(
+    (selection: ComposerIntelligenceSelection) => {
+      const current = desiredRef.current ?? optimisticSelection ?? authoritativeRef.current;
+      if (areComposerIntelligenceSelectionsEqual(current, selection)) return;
 
-    lastFailureRef.current = null;
-    desiredRef.current = selection;
-    displayedSelectionRef.current = selection;
-    setOptimisticSelection(selection);
-    void drain();
-  }, [drain, optimisticSelection]);
+      lastFailureRef.current = null;
+      desiredRef.current = selection;
+      displayedSelectionRef.current = selection;
+      setOptimisticSelection(selection);
+      void drain();
+    },
+    [drain, optimisticSelection],
+  );
 
   const flush = useCallback(async (): Promise<void> => {
     if (desiredRef.current) await drain();
@@ -135,10 +137,8 @@ export function useComposerIntelligenceController(
   displayedSelectionRef.current = selection;
   useEffect(() => {
     if (!optimisticSelection || isPending) return;
-    if (!areComposerIntelligenceSelectionsEqual(
-      optimisticSelection,
-      authoritativeSelection,
-    )) return;
+    if (!areComposerIntelligenceSelectionsEqual(optimisticSelection, authoritativeSelection))
+      return;
     setOptimisticSelection(null);
   }, [authoritativeSelection, isPending, optimisticSelection]);
   const open = () => {

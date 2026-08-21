@@ -27,33 +27,29 @@ export interface BoardDenseScenarioFacts extends ScenarioFacts {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export const requireBoardDenseScenarioFacts = (
-  value: unknown,
-): BoardDenseScenarioFacts => {
+export const requireBoardDenseScenarioFacts = (value: unknown): BoardDenseScenarioFacts => {
   const envelope = parseScenarioFacts(value);
   const candidate = value as Record<string, unknown>;
   const primary = candidate.primaryBuildPage;
   const groups = candidate.groups;
   if (
-    typeof candidate.totalRows !== "number"
-    || candidate.totalRows < 0
-    || !isRecord(groups)
-    || !["triage", "plan", "build", "review", "ship"].every(
+    typeof candidate.totalRows !== "number" ||
+    candidate.totalRows < 0 ||
+    !isRecord(groups) ||
+    !["triage", "plan", "build", "review", "ship"].every(
       (status) => typeof groups[status] === "number" && groups[status] >= 0,
-    )
-    || !isRecord(primary)
-    || typeof primary.pageId !== "string"
-    || typeof primary.title !== "string"
-    || typeof primary.descriptionPreview !== "string"
-    || !["pending_genesis", "ready", "failed"].includes(
-      String(primary.documentReadiness),
-    )
+    ) ||
+    !isRecord(primary) ||
+    typeof primary.pageId !== "string" ||
+    typeof primary.title !== "string" ||
+    typeof primary.descriptionPreview !== "string" ||
+    !["pending_genesis", "ready", "failed"].includes(String(primary.documentReadiness))
   ) {
     throw new Error("board/dense facts are invalid");
   }
   if (
-    envelope.scenarioId !== BOARD_DENSE_SCENARIO_ID
-    || envelope.scenarioRevision !== BOARD_DENSE_SCENARIO_REVISION
+    envelope.scenarioId !== BOARD_DENSE_SCENARIO_ID ||
+    envelope.scenarioRevision !== BOARD_DENSE_SCENARIO_REVISION
   ) {
     throw new Error("board/dense facts identity is invalid");
   }
@@ -68,9 +64,7 @@ interface BoardDensePageDefinition {
   readonly replaceAfterCreate?: string;
 }
 
-const retryIdempotentOperation = async <Value>(
-  operation: () => Promise<Value>,
-): Promise<Value> => {
+const retryIdempotentOperation = async <Value>(operation: () => Promise<Value>): Promise<Value> => {
   try {
     return await operation();
   } catch {
@@ -109,7 +103,8 @@ export const BOARD_DENSE_PAGES: readonly BoardDensePageDefinition[] = [
     status: "build",
     title: "Unify Database View rendering",
     nfm: "",
-    replaceAfterCreate: "# Rendering contract\n\n- Use the authoritative Database projection\n- Preserve canonical Page identity\n\nKeep Board and Page views convergent.",
+    replaceAfterCreate:
+      "# Rendering contract\n\n- Use the authoritative Database projection\n- Preserve canonical Page identity\n\nKeep Board and Page views convergent.",
   },
   {
     key: "boundedProjection",
@@ -183,8 +178,8 @@ const materializeBoardDense = async (
       `<page-ref url="nodex://pages/${referenceTargetPageId}" />`,
     ].join("\n"),
   } as const;
-  const replacement = await retryIdempotentOperation(
-    () => port.replaceOwnedDocument(replacementIntent),
+  const replacement = await retryIdempotentOperation(() =>
+    port.replaceOwnedDocument(replacementIntent),
   );
   if (!project.defaultDatabaseViewId) {
     throw new Error("board/dense Project has no default Database View");
@@ -212,11 +207,7 @@ const inspectBoardDense = async (
     manifest.databaseViewId,
     manifest.minimumCommitSeq,
   );
-  const primary = await port.readPage(
-    manifest.projectId,
-    primaryPageId,
-    manifest.minimumCommitSeq,
-  );
+  const primary = await port.readPage(manifest.projectId, primaryPageId, manifest.minimumCommitSeq);
   const facts: BoardDenseScenarioFacts = {
     scenarioId: manifest.scenarioId,
     scenarioRevision: manifest.scenarioRevision,
@@ -230,14 +221,14 @@ const inspectBoardDense = async (
     },
   };
   if (
-    facts.totalRows !== BOARD_DENSE_PAGES.length
-    || facts.groups.triage !== 3
-    || facts.groups.plan !== 2
-    || facts.groups.build !== 3
-    || facts.groups.review !== 1
-    || facts.groups.ship !== 1
-    || facts.primaryBuildPage.title !== "Unify Database View rendering"
-    || facts.primaryBuildPage.documentReadiness !== "ready"
+    facts.totalRows !== BOARD_DENSE_PAGES.length ||
+    facts.groups.triage !== 3 ||
+    facts.groups.plan !== 2 ||
+    facts.groups.build !== 3 ||
+    facts.groups.review !== 1 ||
+    facts.groups.ship !== 1 ||
+    facts.primaryBuildPage.title !== "Unify Database View rendering" ||
+    facts.primaryBuildPage.documentReadiness !== "ready"
   ) {
     throw new Error("board/dense materialized facts do not match revision 1");
   }

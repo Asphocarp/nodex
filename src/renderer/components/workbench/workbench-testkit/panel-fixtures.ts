@@ -1,8 +1,4 @@
-import type {
-  PanelId,
-  ProjectSessionThreadLink,
-  WorkbenchTabProjection,
-} from "@/lib/types";
+import type { PanelId, ProjectSessionThreadLink, WorkbenchTabProjection } from "@/lib/types";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import {
   insertWorkbenchPanelLeaf,
@@ -42,9 +38,7 @@ export function makeTestWorkbenchTab(
   sessionId = "session-1",
 ): WorkbenchTabProjection {
   const projectId =
-    "projectId" in input && input.projectId !== undefined
-      ? input.projectId
-      : "project-1";
+    "projectId" in input && input.projectId !== undefined ? input.projectId : "project-1";
   const base = {
     id: input.id,
     sessionId,
@@ -96,35 +90,36 @@ export function makeTestWorkbenchTab(
         kind: input.kind,
         browserTabId: null,
         config: {
-          terminalSessionId:
-            input.terminalSessionId ?? `terminal:${input.id}`,
+          terminalSessionId: input.terminalSessionId ?? `terminal:${input.id}`,
         },
       };
   }
 }
 
-export function makeTestWorkbenchSession(input: {
-  id?: string;
-  projectId?: string | null;
-  tabs?: WorkbenchTabProjection[];
-  rightTabIds?: string[];
-  rightActiveTabId?: string | null;
-  rightCollapsed?: boolean;
-  rightFullWidth?: boolean;
-  rightSecondLeafTabIds?: string[];
-  rightSecondLeafActiveTabId?: string | null;
-  rightMaximizedLeafId?: string | null;
-  bottomTabIds?: string[];
-  bottomActiveTabId?: string | null;
-  bottomCollapsed?: boolean;
-  thread?: ProjectSessionThreadLink | null;
-} = {}): WorkbenchSessionRenderProjection {
+export function makeTestWorkbenchSession(
+  input: {
+    id?: string;
+    projectId?: string | null;
+    tabs?: WorkbenchTabProjection[];
+    rightTabIds?: string[];
+    rightActiveTabId?: string | null;
+    rightCollapsed?: boolean;
+    rightFullWidth?: boolean;
+    rightSecondLeafTabIds?: string[];
+    rightSecondLeafActiveTabId?: string | null;
+    rightMaximizedLeafId?: string | null;
+    bottomTabIds?: string[];
+    bottomActiveTabId?: string | null;
+    bottomCollapsed?: boolean;
+    thread?: ProjectSessionThreadLink | null;
+  } = {},
+): WorkbenchSessionRenderProjection {
   const id = input.id ?? "session-1";
   const tabs = input.tabs ?? [];
-  const rightTabIds = input.rightTabIds
-    ?? tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
-  const bottomTabIds = input.bottomTabIds
-    ?? tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
+  const rightTabIds =
+    input.rightTabIds ?? tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+  const bottomTabIds =
+    input.bottomTabIds ?? tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
   let rightLayout = makeWorkbenchPanelLayout(
     rightTabIds,
     input.rightActiveTabId ?? rightTabIds[0] ?? null,
@@ -139,29 +134,27 @@ export function makeTestWorkbenchSession(input: {
     });
     rightLayout = {
       ...rightLayout,
-      root: rightLayout.root.type === "split"
-        ? {
-            ...rightLayout.root,
-            second: {
-              type: "leaf",
-              id: "right-leaf-2",
-              tabIds: input.rightSecondLeafTabIds,
-              activeTabId: input.rightSecondLeafActiveTabId
-                ?? input.rightSecondLeafTabIds[0]
-                ?? null,
-              mruTabIds: input.rightSecondLeafTabIds,
-            },
-          }
-        : rightLayout.root,
+      root:
+        rightLayout.root.type === "split"
+          ? {
+              ...rightLayout.root,
+              second: {
+                type: "leaf",
+                id: "right-leaf-2",
+                tabIds: input.rightSecondLeafTabIds,
+                activeTabId:
+                  input.rightSecondLeafActiveTabId ?? input.rightSecondLeafTabIds[0] ?? null,
+                mruTabIds: input.rightSecondLeafTabIds,
+              },
+            }
+          : rightLayout.root,
       maximizedLeafId: input.rightMaximizedLeafId ?? null,
     };
   }
 
   return {
     id,
-    projectId: input.projectId === undefined
-      ? "project-1"
-      : input.projectId,
+    projectId: input.projectId === undefined ? "project-1" : input.projectId,
     noThreadFallbackTitle: "Test Session",
     displayTitle: "Test Session",
     order: 0,

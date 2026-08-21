@@ -11,9 +11,8 @@ export function resolveImageEditComposerTarget(input: {
   readonly threadScopePath: string;
 }): ImageEditComposerTarget {
   const sideIdentity = input.composerScopeIdentity?.trim();
-  const placement = input.isSideChat || sideIdentity?.startsWith("side-chat:") === true
-    ? "side"
-    : "root";
+  const placement =
+    input.isSideChat || sideIdentity?.startsWith("side-chat:") === true ? "side" : "root";
 
   return {
     channelId: `${input.threadScopePath}::${

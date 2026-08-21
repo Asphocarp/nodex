@@ -83,10 +83,14 @@ function normalizePageBodyObject(body: Record<string, unknown>): Record<string, 
 
 const UnknownRecordSchema = z.record(z.string(), z.unknown());
 
-const ProjectScopedReferenceIdSchema = z.string().min(1).max(512).refine(
-  (value) => value === value.trim(),
-  "Reference identifiers must not contain surrounding whitespace",
-);
+const ProjectScopedReferenceIdSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine(
+    (value) => value === value.trim(),
+    "Reference identifiers must not contain surrounding whitespace",
+  );
 
 export const HttpPageTargetParamsSchema = z.object({
   projectId: ProjectScopedReferenceIdSchema,
@@ -95,17 +99,23 @@ export const HttpPageTargetParamsSchema = z.object({
 
 export const HttpDatabaseViewReferenceParamsSchema = z.object({
   projectId: ProjectScopedReferenceIdSchema,
-  databaseViewId: z.string().min(1).max(1024).refine(
-    (value) => value === value.trim(),
-    "Reference identifiers must not contain surrounding whitespace",
-  ),
+  databaseViewId: z
+    .string()
+    .min(1)
+    .max(1024)
+    .refine(
+      (value) => value === value.trim(),
+      "Reference identifiers must not contain surrounding whitespace",
+    ),
 });
 
 export const HttpDatabaseViewReferenceQuerySchema = z.object({
   hostBlockId: ProjectScopedReferenceIdSchema.optional(),
 });
 
-export const HttpPageBodySchema = UnknownRecordSchema.transform((body) => normalizePageBodyObject(body));
+export const HttpPageBodySchema = UnknownRecordSchema.transform((body) =>
+  normalizePageBodyObject(body),
+);
 
 export function parseOptionalWorkflowStatus(value: unknown): WorkflowStatus | undefined {
   if (value === undefined || value === null || value === "") return undefined;

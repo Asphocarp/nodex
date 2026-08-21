@@ -23,8 +23,7 @@ export interface CanvasInlineFramePreference {
   readonly heightPx: number;
 }
 
-interface StoredCanvasInlineFramePreference
-  extends CanvasInlineFramePreference {
+interface StoredCanvasInlineFramePreference extends CanvasInlineFramePreference {
   readonly version: 1;
 }
 
@@ -35,12 +34,9 @@ interface CanvasPreferenceStorage {
   readonly key?: (index: number) => string | null;
 }
 
-export const canvasViewportPreferenceStoragePrefix =
-  "nodex-canvas-viewport-v3:";
-const legacyCanvasViewportPreferenceStoragePrefix =
-  "nodex-canvas-viewport-v2:";
-export const canvasInlineFramePreferenceStoragePrefix =
-  "nodex-canvas-inline-frame-v1:";
+export const canvasViewportPreferenceStoragePrefix = "nodex-canvas-viewport-v3:";
+const legacyCanvasViewportPreferenceStoragePrefix = "nodex-canvas-viewport-v2:";
+export const canvasInlineFramePreferenceStoragePrefix = "nodex-canvas-inline-frame-v1:";
 
 const MAX_IDENTITY_LENGTH = 512;
 const MAX_SCROLL_MAGNITUDE = 1_000_000_000;
@@ -56,36 +52,29 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isCanonicalIdentityPart = (value: unknown): value is string =>
-  typeof value === "string"
-  && value.length > 0
-  && value.length <= MAX_IDENTITY_LENGTH
-  && value === value.trim()
-  && !/[\u0000-\u001f\u007f]/u.test(value);
+  typeof value === "string" &&
+  value.length > 0 &&
+  value.length <= MAX_IDENTITY_LENGTH &&
+  value === value.trim() &&
+  !/[\u0000-\u001f\u007f]/u.test(value);
 
-const normalizeIdentity = (
-  value: unknown,
-): CanvasViewportIdentity | null => {
+const normalizeIdentity = (value: unknown): CanvasViewportIdentity | null => {
   if (!isRecord(value)) return null;
   const { storeEpoch, documentId, preferenceScope } = value;
   if (
-    !isCanonicalIdentityPart(storeEpoch)
-    || !isCanonicalIdentityPart(documentId)
-    || !isCanonicalIdentityPart(preferenceScope)
+    !isCanonicalIdentityPart(storeEpoch) ||
+    !isCanonicalIdentityPart(documentId) ||
+    !isCanonicalIdentityPart(preferenceScope)
   ) {
     return null;
   }
   return { storeEpoch, documentId, preferenceScope };
 };
 
-const normalizeInlineFrameIdentity = (
-  value: unknown,
-): CanvasInlineFrameIdentity | null => {
+const normalizeInlineFrameIdentity = (value: unknown): CanvasInlineFrameIdentity | null => {
   if (!isRecord(value)) return null;
   const { storeEpoch, canvasBlockId } = value;
-  if (
-    !isCanonicalIdentityPart(storeEpoch)
-    || !isCanonicalIdentityPart(canvasBlockId)
-  ) {
+  if (!isCanonicalIdentityPart(storeEpoch) || !isCanonicalIdentityPart(canvasBlockId)) {
     return null;
   }
   return { storeEpoch, canvasBlockId };
@@ -97,16 +86,16 @@ export const normalizeCanvasViewportPreference = (
   if (!isRecord(value)) return null;
   const { scrollX, scrollY, zoom } = value;
   if (
-    typeof scrollX !== "number"
-    || !Number.isFinite(scrollX)
-    || Math.abs(scrollX) > MAX_SCROLL_MAGNITUDE
-    || typeof scrollY !== "number"
-    || !Number.isFinite(scrollY)
-    || Math.abs(scrollY) > MAX_SCROLL_MAGNITUDE
-    || typeof zoom !== "number"
-    || !Number.isFinite(zoom)
-    || zoom < MIN_ZOOM
-    || zoom > MAX_ZOOM
+    typeof scrollX !== "number" ||
+    !Number.isFinite(scrollX) ||
+    Math.abs(scrollX) > MAX_SCROLL_MAGNITUDE ||
+    typeof scrollY !== "number" ||
+    !Number.isFinite(scrollY) ||
+    Math.abs(scrollY) > MAX_SCROLL_MAGNITUDE ||
+    typeof zoom !== "number" ||
+    !Number.isFinite(zoom) ||
+    zoom < MIN_ZOOM ||
+    zoom > MAX_ZOOM
   ) {
     return null;
   }
@@ -124,10 +113,7 @@ export const normalizeCanvasInlineFramePreference = (
   return {
     heightPx: Math.min(
       MAX_CANVAS_INLINE_FRAME_HEIGHT_PX,
-      Math.max(
-        MIN_CANVAS_INLINE_FRAME_HEIGHT_PX,
-        Math.round(heightPx),
-      ),
+      Math.max(MIN_CANVAS_INLINE_FRAME_HEIGHT_PX, Math.round(heightPx)),
     ),
   };
 };
@@ -145,11 +131,11 @@ export const getCanvasViewportPreferenceStorageKey = (
 ): string | null => {
   const normalized = normalizeIdentity(identity);
   if (!normalized) return null;
-  return `${canvasViewportPreferenceStoragePrefix}${
-    encodeURIComponent(normalized.storeEpoch)
-  }:${encodeURIComponent(normalized.documentId)}:${
-    encodeURIComponent(normalized.preferenceScope)
-  }`;
+  return `${canvasViewportPreferenceStoragePrefix}${encodeURIComponent(
+    normalized.storeEpoch,
+  )}:${encodeURIComponent(normalized.documentId)}:${encodeURIComponent(
+    normalized.preferenceScope,
+  )}`;
 };
 
 export const getCanvasInlineFramePreferenceStorageKey = (
@@ -157,23 +143,17 @@ export const getCanvasInlineFramePreferenceStorageKey = (
 ): string | null => {
   const normalized = normalizeInlineFrameIdentity(identity);
   if (!normalized) return null;
-  return `${canvasInlineFramePreferenceStoragePrefix}${
-    encodeURIComponent(normalized.storeEpoch)
-  }:${encodeURIComponent(normalized.canvasBlockId)}`;
+  return `${canvasInlineFramePreferenceStoragePrefix}${encodeURIComponent(
+    normalized.storeEpoch,
+  )}:${encodeURIComponent(normalized.canvasBlockId)}`;
 };
 
-const parseStoredViewport = (
-  value: string | null,
-): StoredCanvasViewportPreference | null => {
+const parseStoredViewport = (value: string | null): StoredCanvasViewportPreference | null => {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
     const viewport = normalizeCanvasViewportPreference(parsed);
-    if (
-      !viewport
-      || !isRecord(parsed)
-      || parsed.version !== 1
-    ) {
+    if (!viewport || !isRecord(parsed) || parsed.version !== 1) {
       return null;
     }
     return {
@@ -190,17 +170,15 @@ interface StableStagePreferenceScope {
   readonly projectSessionId: string;
 }
 
-const parseStableStagePreferenceScope = (
-  value: string,
-): StableStagePreferenceScope | null => {
+const parseStableStagePreferenceScope = (value: string): StableStagePreferenceScope | null => {
   try {
     const parsed = JSON.parse(value) as unknown;
     if (
-      !Array.isArray(parsed)
-      || parsed.length !== 3
-      || parsed[0] !== "stage"
-      || !isCanonicalIdentityPart(parsed[1])
-      || !isCanonicalIdentityPart(parsed[2])
+      !Array.isArray(parsed) ||
+      parsed.length !== 3 ||
+      parsed[0] !== "stage" ||
+      !isCanonicalIdentityPart(parsed[1]) ||
+      !isCanonicalIdentityPart(parsed[2])
     ) {
       return null;
     }
@@ -222,16 +200,20 @@ const legacyStageScopeMatches = (
     const parsed = JSON.parse(value) as unknown;
     if (!Array.isArray(parsed)) return false;
     if (format === "v3") {
-      return parsed.length === 4
-        && parsed[0] === "stage"
-        && parsed[1] === stable.windowSessionId
-        && parsed[2] === stable.projectSessionId
-        && isCanonicalIdentityPart(parsed[3]);
+      return (
+        parsed.length === 4 &&
+        parsed[0] === "stage" &&
+        parsed[1] === stable.windowSessionId &&
+        parsed[2] === stable.projectSessionId &&
+        isCanonicalIdentityPart(parsed[3])
+      );
     }
-    return parsed.length === 3
-      && parsed[0] === stable.windowSessionId
-      && parsed[1] === stable.projectSessionId
-      && isCanonicalIdentityPart(parsed[2]);
+    return (
+      parsed.length === 3 &&
+      parsed[0] === stable.windowSessionId &&
+      parsed[1] === stable.projectSessionId &&
+      isCanonicalIdentityPart(parsed[2])
+    );
   } catch {
     return false;
   }
@@ -241,39 +223,32 @@ const readLegacyStageViewportPreference = (
   identity: CanvasViewportIdentity,
   storage: CanvasPreferenceStorage,
 ): CanvasViewportPreference | null => {
-  const stableScope = parseStableStagePreferenceScope(
-    identity.preferenceScope,
-  );
+  const stableScope = parseStableStagePreferenceScope(identity.preferenceScope);
   const storageLength = storage.length;
   if (
-    !stableScope
-    || !storage.key
-    || storageLength === undefined
-    || !Number.isInteger(storageLength)
-    || storageLength <= 0
+    !stableScope ||
+    !storage.key ||
+    storageLength === undefined ||
+    !Number.isInteger(storageLength) ||
+    storageLength <= 0
   ) {
     return null;
   }
-  const encodedDocumentCoordinate = `${
-    encodeURIComponent(identity.storeEpoch)
-  }:${encodeURIComponent(identity.documentId)}:`;
+  const encodedDocumentCoordinate = `${encodeURIComponent(
+    identity.storeEpoch,
+  )}:${encodeURIComponent(identity.documentId)}:`;
   const formats = [
     {
       format: "v3",
-      documentPrefix:
-        `${canvasViewportPreferenceStoragePrefix}${encodedDocumentCoordinate}`,
+      documentPrefix: `${canvasViewportPreferenceStoragePrefix}${encodedDocumentCoordinate}`,
     },
     {
       format: "v2",
-      documentPrefix:
-        `${legacyCanvasViewportPreferenceStoragePrefix}${encodedDocumentCoordinate}`,
+      documentPrefix: `${legacyCanvasViewportPreferenceStoragePrefix}${encodedDocumentCoordinate}`,
     },
   ] as const;
   const firstIndex = storageLength - 1;
-  const finalIndex = Math.max(
-    -1,
-    storageLength - MAX_LEGACY_VIEWPORT_KEYS_TO_SCAN - 1,
-  );
+  const finalIndex = Math.max(-1, storageLength - MAX_LEGACY_VIEWPORT_KEYS_TO_SCAN - 1);
 
   for (let index = firstIndex; index > finalIndex; index -= 1) {
     const key = storage.key(index);
@@ -300,9 +275,7 @@ const readLegacyStageViewportPreference = (
   return null;
 };
 
-const parseStoredInlineFrame = (
-  value: string | null,
-): StoredCanvasInlineFramePreference | null => {
+const parseStoredInlineFrame = (value: string | null): StoredCanvasInlineFramePreference | null => {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -347,10 +320,13 @@ export const writeCanvasViewportPreference = (
   const normalizedViewport = normalizeCanvasViewportPreference(value);
   if (!storage || !key || !normalizedViewport) return;
   try {
-    storage.setItem(key, JSON.stringify({
-      version: 1,
-      ...normalizedViewport,
-    } satisfies StoredCanvasViewportPreference));
+    storage.setItem(
+      key,
+      JSON.stringify({
+        version: 1,
+        ...normalizedViewport,
+      } satisfies StoredCanvasViewportPreference),
+    );
   } catch {
     // Renderer-local presentation preferences degrade silently.
   }
@@ -379,10 +355,13 @@ export const writeCanvasInlineFramePreference = (
   const normalized = normalizeCanvasInlineFramePreference(value);
   if (!storage || !key || !normalized) return;
   try {
-    storage.setItem(key, JSON.stringify({
-      version: 1,
-      ...normalized,
-    } satisfies StoredCanvasInlineFramePreference));
+    storage.setItem(
+      key,
+      JSON.stringify({
+        version: 1,
+        ...normalized,
+      } satisfies StoredCanvasInlineFramePreference),
+    );
   } catch {
     // Renderer-local presentation preferences degrade silently.
   }
@@ -447,14 +426,11 @@ export const createCanvasViewportPersistence = (
     readonly storage?: CanvasPreferenceStorage | null;
   } = {},
 ): CanvasViewportPersistence => {
-  const storage = options.storage === undefined
-    ? resolveStorage()
-    : options.storage;
+  const storage = options.storage === undefined ? resolveStorage() : options.storage;
   return createDebouncedPreferencePersistence({
     delayMs: options.delayMs ?? DEFAULT_PERSIST_DELAY_MS,
     normalize: normalizeCanvasViewportPreference,
-    write: (value) =>
-      writeCanvasViewportPreference(identity, value, storage),
+    write: (value) => writeCanvasViewportPreference(identity, value, storage),
   });
 };
 
@@ -465,14 +441,11 @@ export const createCanvasInlineFramePersistence = (
     readonly storage?: CanvasPreferenceStorage | null;
   } = {},
 ): CanvasInlineFramePersistence => {
-  const storage = options.storage === undefined
-    ? resolveStorage()
-    : options.storage;
+  const storage = options.storage === undefined ? resolveStorage() : options.storage;
   return createDebouncedPreferencePersistence({
     delayMs: options.delayMs ?? DEFAULT_PERSIST_DELAY_MS,
     normalize: normalizeCanvasInlineFramePreference,
-    write: (value) =>
-      writeCanvasInlineFramePreference(identity, value, storage),
+    write: (value) => writeCanvasInlineFramePreference(identity, value, storage),
   });
 };
 

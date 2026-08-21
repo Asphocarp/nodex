@@ -3,10 +3,7 @@ import type {
   ProjectionDelivery,
   ProjectionEffect,
 } from "../../shared/projection-stream";
-import {
-  BoundedBurstScheduler,
-  type BoundedBurstTiming,
-} from "./bounded-burst-scheduler";
+import { BoundedBurstScheduler, type BoundedBurstTiming } from "./bounded-burst-scheduler";
 
 export type ProjectionRepairReason =
   | "initial_subscription_gap"
@@ -46,10 +43,7 @@ const maxRepair = (
   return {
     ...right,
     minimumRevision: Math.max(left.minimumRevision, right.minimumRevision),
-    minimumCommitSeq: Math.max(
-      left.minimumCommitSeq,
-      right.minimumCommitSeq,
-    ),
+    minimumCommitSeq: Math.max(left.minimumCommitSeq, right.minimumCommitSeq),
   };
 };
 
@@ -87,8 +81,7 @@ export class CausalProjectionRuntime {
 
   constructor(input: CausalProjectionRuntimeInput) {
     this.#input = input;
-    const repairBurst = input.repairBurst
-      ?? INTERACTIVE_PROJECTION_REPAIR_BURST;
+    const repairBurst = input.repairBurst ?? INTERACTIVE_PROJECTION_REPAIR_BURST;
     this.#repairScheduler = new BoundedBurstScheduler({
       ...repairBurst,
       onReady: () => this.#beginRepair(),
@@ -99,8 +92,8 @@ export class CausalProjectionRuntime {
     if (this.#disposed) return;
     const effect = delivery.effect;
     if (
-      effect.scope.canonical_key !== this.#input.scopeKey
-      || effect.scope.schema_version !== this.#input.schemaVersion
+      effect.scope.canonical_key !== this.#input.scopeKey ||
+      effect.scope.schema_version !== this.#input.schemaVersion
     ) {
       return;
     }
@@ -116,8 +109,8 @@ export class CausalProjectionRuntime {
     this.#initialCheckpointObserved = true;
     const current = this.#input.getCoordinate();
     if (
-      current?.storeEpoch === input.storeEpoch
-      && current.coveredCommitSeq >= input.scannedThroughCommitSeq
+      current?.storeEpoch === input.storeEpoch &&
+      current.coveredCommitSeq >= input.scannedThroughCommitSeq
     ) {
       return;
     }
@@ -130,10 +123,7 @@ export class CausalProjectionRuntime {
     });
   }
 
-  reset(input: {
-    readonly storeEpoch: string;
-    readonly commitSeq: number;
-  }): void {
+  reset(input: { readonly storeEpoch: string; readonly commitSeq: number }): void {
     if (this.#disposed) return;
     this.#buffer.clear();
     this.#initialCheckpointObserved = true;
@@ -176,10 +166,10 @@ export class CausalProjectionRuntime {
     const effect = delivery.effect;
     const current = this.#input.getCoordinate();
     if (
-      !current
-      || current.storeEpoch !== delivery.storeEpoch
-      || current.scopeKey !== effect.scope.canonical_key
-      || current.schemaVersion !== effect.scope.schema_version
+      !current ||
+      current.storeEpoch !== delivery.storeEpoch ||
+      current.scopeKey !== effect.scope.canonical_key ||
+      current.schemaVersion !== effect.scope.schema_version
     ) {
       this.#bufferEffect(delivery);
       this.#requestRepairFor(delivery, "effect_gap");
@@ -195,10 +185,9 @@ export class CausalProjectionRuntime {
       return;
     }
     if (current.revision < effect.baseRevision) {
-      const predecessor = this.#buffer.get(JSON.stringify([
-        delivery.storeEpoch,
-        effect.baseRevision - 1,
-      ]));
+      const predecessor = this.#buffer.get(
+        JSON.stringify([delivery.storeEpoch, effect.baseRevision - 1]),
+      );
       this.#bufferEffect(delivery);
       this.#requestRepairFor(
         delivery,
@@ -228,10 +217,10 @@ export class CausalProjectionRuntime {
     }
     const applied = this.#input.getCoordinate();
     if (
-      !applied
-      || applied.storeEpoch !== delivery.storeEpoch
-      || applied.revision !== effect.resultRevision
-      || applied.effectHash !== effect.effectHash
+      !applied ||
+      applied.storeEpoch !== delivery.storeEpoch ||
+      applied.revision !== effect.resultRevision ||
+      applied.effectHash !== effect.effectHash
     ) {
       this.#failIntegrity("Projection reducer did not adopt the exact effect coordinate", delivery);
       return;
@@ -277,10 +266,7 @@ export class CausalProjectionRuntime {
     }
   }
 
-  #requestRepairFor(
-    delivery: ProjectionDelivery,
-    reason: ProjectionRepairReason,
-  ): void {
+  #requestRepairFor(delivery: ProjectionDelivery, reason: ProjectionRepairReason): void {
     this.#requestRepair({
       storeEpoch: delivery.storeEpoch,
       scopeKey: delivery.effect.scope.canonical_key,
@@ -304,9 +290,7 @@ export class CausalProjectionRuntime {
       clearTimeout(this.#retryTimer);
       this.#retryTimer = null;
     }
-    this.#repairScheduler.request(
-      this.#repairUrgent ? "immediate" : "deferred",
-    );
+    this.#repairScheduler.request(this.#repairUrgent ? "immediate" : "deferred");
   }
 
   #beginRepair(): void {
@@ -328,11 +312,11 @@ export class CausalProjectionRuntime {
       await this.#input.readAtLeast(request);
       const current = this.#input.getCoordinate();
       if (
-        !current
-        || current.storeEpoch !== request.storeEpoch
-        || current.scopeKey !== request.scopeKey
-        || current.revision < request.minimumRevision
-        || current.coveredCommitSeq < request.minimumCommitSeq
+        !current ||
+        current.storeEpoch !== request.storeEpoch ||
+        current.scopeKey !== request.scopeKey ||
+        current.revision < request.minimumRevision ||
+        current.coveredCommitSeq < request.minimumCommitSeq
       ) {
         this.#requiredRepair = maxRepair(this.#requiredRepair, request);
         this.#repairUrgent = true;
@@ -355,7 +339,7 @@ export class CausalProjectionRuntime {
       // Exponential backoff keeps a missing Core/read boundary from becoming
       // persistent IPC pressure while retaining a finite convergence retry.
       const retryDelayMs = Math.min(
-        REPAIR_RETRY_INITIAL_MS * (2 ** this.#repairRetryAttempt),
+        REPAIR_RETRY_INITIAL_MS * 2 ** this.#repairRetryAttempt,
         REPAIR_RETRY_MAX_MS,
       );
       this.#repairRetryAttempt += 1;
@@ -366,9 +350,7 @@ export class CausalProjectionRuntime {
       }, retryDelayMs);
       return;
     }
-    this.#repairScheduler.request(
-      this.#repairUrgent ? "immediate" : "deferred",
-    );
+    this.#repairScheduler.request(this.#repairUrgent ? "immediate" : "deferred");
   }
 
   #dropCoveredBuffer(current: ProjectionCoordinate): void {
@@ -379,10 +361,7 @@ export class CausalProjectionRuntime {
         continue;
       }
       if (effect.resultRevision > current.revision) continue;
-      if (
-        effect.resultRevision === current.revision
-        && current.effectHash !== effect.effectHash
-      ) {
+      if (effect.resultRevision === current.revision && current.effectHash !== effect.effectHash) {
         this.#failIntegrity(
           `Canonical projection revision ${current.revision} conflicts with a buffered effect`,
           buffered.delivery,

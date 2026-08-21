@@ -7,11 +7,13 @@ export interface FlushableRuntimeWindow {
 export async function closeWindowsBeforeRuntimeShutdown(
   windows: readonly FlushableRuntimeWindow[],
 ): Promise<void> {
-  await Promise.all(windows.map(async (window) => {
-    if (window.isDestroyed()) return;
-    await new Promise<void>((resolve) => {
-      window.once("closed", resolve);
-      window.close();
-    });
-  }));
+  await Promise.all(
+    windows.map(async (window) => {
+      if (window.isDestroyed()) return;
+      await new Promise<void>((resolve) => {
+        window.once("closed", resolve);
+        window.close();
+      });
+    }),
+  );
 }

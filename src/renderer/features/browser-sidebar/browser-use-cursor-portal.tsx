@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type {
   BrowserSidebarTabIdentity,
@@ -66,16 +60,13 @@ export function BrowserUseCursorPortal({
   );
 }
 
-function useCursorPresentationSize(
-  overlayHost: HTMLElement | null,
-): CursorSurfaceSize | null {
+function useCursorPresentationSize(overlayHost: HTMLElement | null): CursorSurfaceSize | null {
   const [observed, setObserved] = useState<{
     host: HTMLElement;
     size: CursorSurfaceSize | null;
   } | null>(null);
-  const size = observed?.host === overlayHost
-    ? observed.size
-    : readCursorPresentationSize(overlayHost);
+  const size =
+    observed?.host === overlayHost ? observed.size : readCursorPresentationSize(overlayHost);
 
   useLayoutEffect(() => {
     if (!overlayHost) {
@@ -86,9 +77,9 @@ function useCursorPresentationSize(
       const next = readCursorPresentationSize(overlayHost);
       setObserved((current) => {
         if (
-          current?.host === overlayHost
-          && current.size?.height === next?.height
-          && current.size?.width === next?.width
+          current?.host === overlayHost &&
+          current.size?.height === next?.height &&
+          current.size?.width === next?.width
         ) {
           return current;
         }
@@ -96,9 +87,7 @@ function useCursorPresentationSize(
       });
     };
     update();
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(update);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     observer?.observe(overlayHost);
     window.addEventListener("resize", update);
     return () => {
@@ -131,12 +120,10 @@ export function readCursorPresentationSize(
   return { width, height };
 }
 
-function firstPositiveFinite(
-  ...values: Array<number | undefined>
-): number | null {
-  return values.find((value) =>
-    typeof value === "number" && Number.isFinite(value) && value > 1
-  ) ?? null;
+function firstPositiveFinite(...values: Array<number | undefined>): number | null {
+  return (
+    values.find((value) => typeof value === "number" && Number.isFinite(value) && value > 1) ?? null
+  );
 }
 
 function readPixelSize(value: string | undefined): number | undefined {

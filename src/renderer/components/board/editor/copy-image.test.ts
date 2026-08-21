@@ -14,9 +14,9 @@ describe("copy image helper", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([
-      ["clipboard:write-image", { source: "nodex://assets/diagram.png" }],
-    ]));
+    expect(JSON.stringify(invokeCalls)).toBe(
+      JSON.stringify([["clipboard:write-image", { source: "nodex://assets/diagram.png" }]]),
+    );
   });
 
   test("returns the structured failure result from the native clipboard path", async () => {
@@ -30,12 +30,9 @@ describe("copy image helper", () => {
   });
 
   test("normalizes unexpected invoke failures to a user-facing copy error", async () => {
-    const result = await copyImageToClipboardWithInvoke(
-      "nodex://assets/diagram.png",
-      async () => {
-        throw new Error("boom");
-      },
-    );
+    const result = await copyImageToClipboardWithInvoke("nodex://assets/diagram.png", async () => {
+      throw new Error("boom");
+    });
 
     expect(result.ok).toBe(false);
     expect("message" in result ? result.message : "").toBe("boom");

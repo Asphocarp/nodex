@@ -1,8 +1,5 @@
 import { PRIORITY_VALUES, type Priority } from "../../shared/priority";
-import {
-  TOGGLE_LIST_STATUS_LABELS,
-  TOGGLE_LIST_STATUS_ORDER,
-} from "./toggle-list/types";
+import { TOGGLE_LIST_STATUS_LABELS, TOGGLE_LIST_STATUS_ORDER } from "./toggle-list/types";
 import {
   getPriorityClassName,
   getPriorityLabel,
@@ -32,12 +29,14 @@ export type BoardPriorityOption = {
   className: string;
 };
 
-export type BoardPrioritySelectOption = BoardPriorityOption | {
-  value: typeof EMPTY_PRIORITY_OPTION_VALUE;
-  label: string;
-  shortLabel: string;
-  className: string;
-};
+export type BoardPrioritySelectOption =
+  | BoardPriorityOption
+  | {
+      value: typeof EMPTY_PRIORITY_OPTION_VALUE;
+      label: string;
+      shortLabel: string;
+      className: string;
+    };
 
 export const BOARD_PRIORITY_OPTIONS: BoardPriorityOption[] = PRIORITY_VALUES.map((value) => ({
   value,
@@ -58,7 +57,9 @@ export const BOARD_PRIORITY_SELECT_OPTIONS: BoardPrioritySelectOption[] = [
   ...BOARD_PRIORITY_OPTIONS,
 ];
 
-export const BOARD_PRIORITY_OPTIONS_BY_VALUE = BOARD_PRIORITY_OPTIONS.reduce<Record<Priority, BoardPriorityOption>>(
+export const BOARD_PRIORITY_OPTIONS_BY_VALUE = BOARD_PRIORITY_OPTIONS.reduce<
+  Record<Priority, BoardPriorityOption>
+>(
   (result, option) => {
     result[option.value] = option;
     return result;
@@ -66,7 +67,9 @@ export const BOARD_PRIORITY_OPTIONS_BY_VALUE = BOARD_PRIORITY_OPTIONS.reduce<Rec
   {} as Record<Priority, BoardPriorityOption>,
 );
 
-export function resolveBoardPriorityOption(priority: Priority | null | undefined): BoardPriorityOption | null {
+export function resolveBoardPriorityOption(
+  priority: Priority | null | undefined,
+): BoardPriorityOption | null {
   if (!priority) return null;
   return BOARD_PRIORITY_OPTIONS_BY_VALUE[priority] ?? null;
 }

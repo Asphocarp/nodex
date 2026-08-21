@@ -23,20 +23,14 @@ describe("inline Card reference ancestry", () => {
 describe("inline owned Document ancestry", () => {
   test("tracks mixed Card and body-only owners without duplicating a path", () => {
     const cardPath = appendInlineDocumentOwnerAncestor([], "card-a");
-    const syncedPath = appendInlineDocumentOwnerAncestor(
-      cardPath,
-      "synced-source-a",
-    );
+    const syncedPath = appendInlineDocumentOwnerAncestor(cardPath, "synced-source-a");
 
     expect(syncedPath.join(",")).toBe("card-a,synced-source-a");
     expect(isInlineDocumentOwnerCycle(syncedPath, "card-a")).toBe(true);
-    expect(isInlineDocumentOwnerCycle(syncedPath, "synced-source-a")).toBe(
+    expect(isInlineDocumentOwnerCycle(syncedPath, "synced-source-a")).toBe(true);
+    expect(isInlineDocumentOwnerCycle(syncedPath, "template-b")).toBe(false);
+    expect(appendInlineDocumentOwnerAncestor(syncedPath, "synced-source-a") === syncedPath).toBe(
       true,
     );
-    expect(isInlineDocumentOwnerCycle(syncedPath, "template-b")).toBe(false);
-    expect(
-      appendInlineDocumentOwnerAncestor(syncedPath, "synced-source-a") ===
-        syncedPath,
-    ).toBe(true);
   });
 });

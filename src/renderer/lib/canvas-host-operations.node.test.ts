@@ -12,10 +12,7 @@ import {
   type ContentAccessContext,
 } from "../../shared/content-access-context";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
-import {
-  applyLibraryModule,
-  readLibraryModule,
-} from "./api";
+import { applyLibraryModule, readLibraryModule } from "./api";
 import {
   applyLibraryRequestWithExactRetry,
   createCanvasInHostPage,
@@ -36,24 +33,26 @@ vi.mock("./api", () => ({
   readLibraryModule: vi.fn(),
 }));
 
-const uuidV7 = (sequence: number): string =>
-  createUuidV7FromTimestamp(1_785_491_085_000, sequence);
+const uuidV7 = (sequence: number): string => createUuidV7FromTimestamp(1_785_491_085_000, sequence);
 const accessContext = projectContentAccess("project-1");
 
-function makeRuntime(input: {
-  readonly storeEpoch?: string;
-  readonly generation?: number;
-  readonly headSeq?: number;
-  readonly documentId?: string;
-  readonly ownerBlockId?: string;
-} = {}): CanvasHostDocumentRuntime {
+function makeRuntime(
+  input: {
+    readonly storeEpoch?: string;
+    readonly generation?: number;
+    readonly headSeq?: number;
+    readonly documentId?: string;
+    readonly ownerBlockId?: string;
+  } = {},
+): CanvasHostDocumentRuntime {
   const storeEpoch = input.storeEpoch ?? "epoch-1";
   const documentId = input.documentId ?? "document-1";
   const ownerBlockId = input.ownerBlockId ?? uuidV7(1);
   const generation = input.generation ?? 2;
   const headSeq = input.headSeq ?? 7;
   let flushed = false;
-  const getStatus = () => ({
+  const getStatus = () =>
+    ({
       phase: "ready",
       ready: true,
       reloadRequired: false,
@@ -140,10 +139,7 @@ const receiptFor = (
 describe("Canvas host operations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(readLibraryModule).mockImplementation(async (
-      receivedAccessContext,
-      request,
-    ) => {
+    vi.mocked(readLibraryModule).mockImplementation(async (receivedAccessContext, request) => {
       expect(receivedAccessContext).toEqual(accessContext);
       return {
         ok: true,
@@ -158,19 +154,14 @@ describe("Canvas host operations", () => {
             value: {
               status: "available",
               summary: canvasSummary(
-                request.read.mode === "canvas_target"
-                  ? request.read.canvasId
-                  : uuidV7(90),
+                request.read.mode === "canvas_target" ? request.read.canvasId : uuidV7(90),
               ),
             },
           },
         },
       };
     });
-    vi.mocked(applyLibraryModule).mockImplementation(async (
-      receivedAccessContext,
-      request,
-    ) => {
+    vi.mocked(applyLibraryModule).mockImplementation(async (receivedAccessContext, request) => {
       expect(receivedAccessContext).toEqual(accessContext);
       bindLibraryModuleApply(request);
       return receiptFor(request);
@@ -190,17 +181,19 @@ describe("Canvas host operations", () => {
   });
 
   test("builds a Page destination from only the Document revision", () => {
-    expect(createCanvasPageDestination({
-      pageId: uuidV7(1),
-      documentRevision: {
-        expectedDocumentGeneration: 2,
-        expectedDocumentHeadSeq: 8,
-      },
-      insertion: {
-        kind: "before",
-        anchorBlockId: uuidV7(2),
-      },
-    })).toEqual({
+    expect(
+      createCanvasPageDestination({
+        pageId: uuidV7(1),
+        documentRevision: {
+          expectedDocumentGeneration: 2,
+          expectedDocumentHeadSeq: 8,
+        },
+        insertion: {
+          kind: "before",
+          anchorBlockId: uuidV7(2),
+        },
+      }),
+    ).toEqual({
       kind: "page",
       pageId: uuidV7(1),
       expectedDocumentGeneration: 2,
@@ -258,15 +251,13 @@ describe("Canvas host operations", () => {
     });
 
     expect(applyLibraryModule).toHaveBeenCalledTimes(3);
-    for (const [receivedAccessContext, request] of vi.mocked(
-      applyLibraryModule,
-    ).mock.calls) {
+    for (const [receivedAccessContext, request] of vi.mocked(applyLibraryModule).mock.calls) {
       expect(receivedAccessContext).toEqual(accessContext);
       const operation = request.operation;
       if (
-        operation.kind !== "create_canvas"
-        && operation.kind !== "duplicate_canvas"
-        && operation.kind !== "move_canvas"
+        operation.kind !== "create_canvas" &&
+        operation.kind !== "duplicate_canvas" &&
+        operation.kind !== "move_canvas"
       ) {
         throw new Error(`Unexpected operation ${operation.kind}`);
       }
@@ -337,15 +328,17 @@ describe("Canvas host operations", () => {
       },
     });
 
-    await expect(moveCanvasOwnerBetweenHostPages({
-      accessContext,
-      canvasBlockId: canvasId,
-      targetPageId: uuidV7(2),
-      insertion: { kind: "append" },
-      sourceRuntime: makeRuntime(),
-      targetRuntime: makeRuntime({ ownerBlockId: uuidV7(2) }),
-      operationId: uuidV7(3),
-    })).rejects.toThrow("Store changed while preparing Canvas");
+    await expect(
+      moveCanvasOwnerBetweenHostPages({
+        accessContext,
+        canvasBlockId: canvasId,
+        targetPageId: uuidV7(2),
+        insertion: { kind: "append" },
+        sourceRuntime: makeRuntime(),
+        targetRuntime: makeRuntime({ ownerBlockId: uuidV7(2) }),
+        operationId: uuidV7(3),
+      }),
+    ).rejects.toThrow("Store changed while preparing Canvas");
     expect(applyLibraryModule).not.toHaveBeenCalled();
   });
 
@@ -370,7 +363,8 @@ describe("Canvas host operations", () => {
         },
       },
     } satisfies LibraryModuleApplyRequest;
-    const apply = vi.fn()
+    const apply = vi
+      .fn()
       .mockRejectedValueOnce(new Error("connection lost"))
       .mockResolvedValueOnce({
         ok: true,
@@ -401,69 +395,74 @@ describe("Canvas host operations", () => {
   });
 
   test("deletes a nested Canvas with the mounted host Document barrier", async () => {
-    const apply = vi.fn(async (
-      receivedAccessContext: ContentAccessContext,
-      request: LibraryModuleApplyRequest,
-    ): Promise<LibraryModuleApplyResult> => {
-      expect(receivedAccessContext).toEqual(accessContext);
-      return {
-        ok: true,
-        localCommit: noOpLocalCommit(request.storeEpoch),
-        value: {
-          operationId: request.operationId,
-          storeEpoch: request.storeEpoch,
-          libraryId: "library-1",
-          operationKind: "delete_canvas",
-          duplicate: false,
-          didMutate: true,
-          createdTarget: null,
-          canvasMutation: null,
-          affectedParentKeys: ["page:page-1"],
-          affectedPageIds: ["page-1"],
-          affectedDatabaseIds: [],
-          affectedViewIds: [],
-          committedRevisions: {},
-          commitSeq: 10,
-          committedAt: "2026-07-30T00:00:00.000Z",
-        },
-      };
-    });
+    const apply = vi.fn(
+      async (
+        receivedAccessContext: ContentAccessContext,
+        request: LibraryModuleApplyRequest,
+      ): Promise<LibraryModuleApplyResult> => {
+        expect(receivedAccessContext).toEqual(accessContext);
+        return {
+          ok: true,
+          localCommit: noOpLocalCommit(request.storeEpoch),
+          value: {
+            operationId: request.operationId,
+            storeEpoch: request.storeEpoch,
+            libraryId: "library-1",
+            operationKind: "delete_canvas",
+            duplicate: false,
+            didMutate: true,
+            createdTarget: null,
+            canvasMutation: null,
+            affectedParentKeys: ["page:page-1"],
+            affectedPageIds: ["page-1"],
+            affectedDatabaseIds: [],
+            affectedViewIds: [],
+            committedRevisions: {},
+            commitSeq: 10,
+            committedAt: "2026-07-30T00:00:00.000Z",
+          },
+        };
+      },
+    );
     const retireOwner = vi.fn(async () => {
       throw new Error("Canvas scene provider is already closed");
     });
 
-    await deleteCanvasOwner({
-      accessContext,
-      canvasBlockId: "canvas-1",
-      runtime: makeRuntime({ ownerBlockId: "page-1" }),
-      operationId: "delete-1",
-    }, {
-      readTarget: async (receivedAccessContext) => {
-        expect(receivedAccessContext).toEqual(accessContext);
-        return {
-          libraryId: "library-1",
-          storeEpoch: "epoch-1",
-          summary: {
-            canvasId: "canvas-1",
-            title: "Canvas",
-            lifecycle: "active",
-            isPrimary: false,
-            location: {
-              kind: "page",
-              pageId: "page-1",
-              documentId: "document-1",
-            },
-            locationRevision: 3,
-            metadataRevision: 5,
-            documentGeneration: 9,
-            documentHeadSeq: 99,
-            updatedAt: "2026-07-30T00:00:00.000Z",
-          },
-        } as const;
+    await deleteCanvasOwner(
+      {
+        accessContext,
+        canvasBlockId: "canvas-1",
+        runtime: makeRuntime({ ownerBlockId: "page-1" }),
+        operationId: "delete-1",
       },
-      apply,
-      retireOwner,
-    });
+      {
+        readTarget: async (receivedAccessContext) => {
+          expect(receivedAccessContext).toEqual(accessContext);
+          return {
+            libraryId: "library-1",
+            storeEpoch: "epoch-1",
+            summary: {
+              canvasId: "canvas-1",
+              title: "Canvas",
+              lifecycle: "active",
+              isPrimary: false,
+              location: {
+                kind: "page",
+                pageId: "page-1",
+                documentId: "document-1",
+              },
+              locationRevision: 3,
+              metadataRevision: 5,
+              documentGeneration: 9,
+              documentHeadSeq: 99,
+              updatedAt: "2026-07-30T00:00:00.000Z",
+            },
+          } as const;
+        },
+        apply,
+        retireOwner,
+      },
+    );
 
     expect(apply).toHaveBeenCalledWith(accessContext, {
       operationId: "delete-1",
@@ -480,42 +479,53 @@ describe("Canvas host operations", () => {
         },
       },
     });
-    expect(retireOwner).toHaveBeenCalledWith({
-      libraryId: "library-1",
-      accessContext,
-    }, "canvas-1");
+    expect(retireOwner).toHaveBeenCalledWith(
+      {
+        libraryId: "library-1",
+        accessContext,
+      },
+      "canvas-1",
+    );
   });
 
   test("resolves after-position as before-next or append at the same nesting level", () => {
-    expect(resolveCanvasInsertionAfterBlock({
-      blockId: "canvas-1",
-      siblingBlockIds: ["canvas-1", "paragraph-2"],
-    })).toEqual({
+    expect(
+      resolveCanvasInsertionAfterBlock({
+        blockId: "canvas-1",
+        siblingBlockIds: ["canvas-1", "paragraph-2"],
+      }),
+    ).toEqual({
       kind: "before",
       anchorBlockId: "paragraph-2",
     });
-    expect(resolveCanvasInsertionAfterBlock({
-      blockId: "canvas-1",
-      parentBlockId: "toggle-1",
-      siblingBlockIds: ["paragraph-1", "canvas-1"],
-    })).toEqual({
+    expect(
+      resolveCanvasInsertionAfterBlock({
+        blockId: "canvas-1",
+        parentBlockId: "toggle-1",
+        siblingBlockIds: ["paragraph-1", "canvas-1"],
+      }),
+    ).toEqual({
       kind: "append",
       parentBlockId: "toggle-1",
     });
   });
 
   test("resolves drop coordinates to a typed Page insertion", () => {
-    expect(resolveCanvasDropInsertion({
-      parentBlockId: "toggle-1",
-      beforeBlockId: "paragraph-2",
-    })).toEqual({
+    expect(
+      resolveCanvasDropInsertion({
+        parentBlockId: "toggle-1",
+        beforeBlockId: "paragraph-2",
+      }),
+    ).toEqual({
       kind: "before",
       parentBlockId: "toggle-1",
       anchorBlockId: "paragraph-2",
     });
-    expect(resolveCanvasDropInsertion({
-      parentBlockId: "toggle-1",
-    })).toEqual({
+    expect(
+      resolveCanvasDropInsertion({
+        parentBlockId: "toggle-1",
+      }),
+    ).toEqual({
       kind: "append",
       parentBlockId: "toggle-1",
     });

@@ -8,10 +8,10 @@ import type { Plugin } from "vite";
 const EXCALIDRAW_FONT_REQUEST_PREFIX = "/excalidraw-assets/fonts/";
 const EXCALIDRAW_FONT_OUTPUT_PREFIX = "excalidraw-assets/fonts";
 const EXCALIDRAW_DISTRIBUTION_PATH = "/@excalidraw/excalidraw/dist/";
-const EXCALIDRAW_DISTRIBUTION_FILE_PATTERN =
-  /[/\\]@excalidraw[/\\]excalidraw[/\\]dist[/\\].*\.js$/;
+const EXCALIDRAW_DISTRIBUTION_FILE_PATTERN = /[/\\]@excalidraw[/\\]excalidraw[/\\]dist[/\\].*\.js$/;
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const REMOTE_FONT_FALLBACK_APPEND_PATTERN = /([A-Za-z_$][\w$]*)\.push\(new URL\([A-Za-z_$][\w$]*,\s*[A-Za-z_$][\w$]*\.ASSETS_FALLBACK_URL\)\)/g;
+const REMOTE_FONT_FALLBACK_APPEND_PATTERN =
+  /([A-Za-z_$][\w$]*)\.push\(new URL\([A-Za-z_$][\w$]*,\s*[A-Za-z_$][\w$]*\.ASSETS_FALLBACK_URL\)\)/g;
 
 function removeConfiguredRemoteFontFallback(source: string): {
   code: string;
@@ -29,10 +29,7 @@ function removeConfiguredRemoteFontFallback(source: string): {
   return { code, replacementCount };
 }
 
-function transformExcalidrawFontModule(
-  source: string,
-  id: string,
-): string | null {
+function transformExcalidrawFontModule(source: string, id: string): string | null {
   const normalizedId = id.replaceAll("\\", "/");
   if (!normalizedId.includes(EXCALIDRAW_DISTRIBUTION_PATH)) return null;
   if (!source.includes("ASSETS_FALLBACK_URL")) return null;
@@ -41,8 +38,8 @@ function transformExcalidrawFontModule(
   const transformed = removeConfiguredRemoteFontFallback(source);
   if (transformed.replacementCount !== 1) {
     throw new Error(
-      "Expected exactly one Excalidraw remote font fallback append; "
-      + `found ${transformed.replacementCount}.`,
+      "Expected exactly one Excalidraw remote font fallback append; " +
+        `found ${transformed.replacementCount}.`,
     );
   }
   return transformed.code;
@@ -57,15 +54,12 @@ export function createExcalidrawDependencyOptimizerPlugin(): EsbuildPlugin {
   return {
     name: "nodex:excalidraw-font-assets:optimizer",
     setup(build) {
-      build.onLoad(
-        { filter: EXCALIDRAW_DISTRIBUTION_FILE_PATTERN },
-        async (args) => {
-          const source = await readFileAsync(args.path, "utf8");
-          const code = transformExcalidrawFontModule(source, args.path);
-          if (code === null) return undefined;
-          return { contents: code, loader: "js" };
-        },
-      );
+      build.onLoad({ filter: EXCALIDRAW_DISTRIBUTION_FILE_PATTERN }, async (args) => {
+        const source = await readFileAsync(args.path, "utf8");
+        const code = transformExcalidrawFontModule(source, args.path);
+        if (code === null) return undefined;
+        return { contents: code, loader: "js" };
+      });
     },
   };
 }
@@ -86,10 +80,7 @@ type FontRequest =
   | { kind: "invalid" }
   | { kind: "file"; absolutePath: string };
 
-function resolveFontRequest(
-  fontRoot: string,
-  requestUrl: string | undefined,
-): FontRequest {
+function resolveFontRequest(fontRoot: string, requestUrl: string | undefined): FontRequest {
   if (!requestUrl) return { kind: "unhandled" };
 
   const pathname = new URL(requestUrl, "http://nodex.local").pathname;
@@ -99,9 +90,7 @@ function resolveFontRequest(
 
   let relativePath: string;
   try {
-    relativePath = decodeURIComponent(
-      pathname.slice(EXCALIDRAW_FONT_REQUEST_PREFIX.length),
-    );
+    relativePath = decodeURIComponent(pathname.slice(EXCALIDRAW_FONT_REQUEST_PREFIX.length));
   } catch {
     return { kind: "invalid" };
   }
@@ -122,10 +111,7 @@ function resolveFontRequest(
  * hosts that did not explicitly configure an asset root.
  */
 export function createExcalidrawFontAssetPlugins(): Plugin[] {
-  const fontRoot = resolve(
-    REPOSITORY_ROOT,
-    "node_modules/@excalidraw/excalidraw/dist/prod/fonts",
-  );
+  const fontRoot = resolve(REPOSITORY_ROOT, "node_modules/@excalidraw/excalidraw/dist/prod/fonts");
 
   const transformPlugin: Plugin = {
     name: "nodex:excalidraw-font-assets:transform",

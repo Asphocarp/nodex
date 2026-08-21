@@ -26,7 +26,10 @@ export interface ThreadSummaryPanelHeaderActionProps {
   onPinnedOpenToggle?: () => void;
   popoverOpen?: boolean;
   scheduledAutomation?: ThreadSummaryPanelScheduledAutomationRow | null;
-  actions?: Pick<ThreadStageActions, "onOpenSummaryOutputInSidePanel" | "onOpenSummaryScheduledAutomation">;
+  actions?: Pick<
+    ThreadStageActions,
+    "onOpenSummaryOutputInSidePanel" | "onOpenSummaryScheduledAutomation"
+  >;
 }
 
 export function ThreadSummaryPanelHeaderAction({
@@ -50,7 +53,8 @@ export function ThreadSummaryPanelHeaderAction({
     () => ({
       activeThreadId,
       activeThreadTitle: summaryFields.threadName || summaryFields.threadPreview || null,
-      activeThreadIsManagedWorktree: Boolean(summaryFields.managedWorktreePath) || activeThreadIsManagedWorktree,
+      activeThreadIsManagedWorktree:
+        Boolean(summaryFields.managedWorktreePath) || activeThreadIsManagedWorktree,
       activeThreadProjectless,
       cwd,
       projectlessOutputDirectory: summaryFields.projectlessOutputDirectory,

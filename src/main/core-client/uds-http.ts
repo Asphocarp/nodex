@@ -2,10 +2,7 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { CORE_TRANSPORT_BUDGETS } from "@nodex/core-protocol";
 
-import {
-  decodeBoundedJson,
-  encodeBoundedJson,
-} from "./codec";
+import { decodeBoundedJson, encodeBoundedJson } from "./codec";
 import { SseParser } from "./sse-parser";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
@@ -29,14 +26,10 @@ import type {
   ProjectionLiveRepair,
 } from "./types";
 
-const MAX_JSON_REQUEST_BYTES =
-  CORE_TRANSPORT_BUDGETS.ordinary_json_request_bytes;
-const MAX_JSON_RESPONSE_BYTES =
-  CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes;
-const MAX_DOCUMENT_JSON_REQUEST_BYTES =
-  CORE_TRANSPORT_BUDGETS.document_json_request_bytes;
-const MAX_DOCUMENT_RESPONSE_BYTES =
-  CORE_TRANSPORT_BUDGETS.document_response_bytes;
+const MAX_JSON_REQUEST_BYTES = CORE_TRANSPORT_BUDGETS.ordinary_json_request_bytes;
+const MAX_JSON_RESPONSE_BYTES = CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes;
+const MAX_DOCUMENT_JSON_REQUEST_BYTES = CORE_TRANSPORT_BUDGETS.document_json_request_bytes;
+const MAX_DOCUMENT_RESPONSE_BYTES = CORE_TRANSPORT_BUDGETS.document_response_bytes;
 const MAX_EVENT_FRAME_BYTES = CORE_TRANSPORT_BUDGETS.event_frame_bytes;
 const TRANSPORT_LIVENESS_TIMEOUT_MS = 5_000;
 const MAX_CONFIGURED_REQUEST_TIMEOUT_MS = 120_000;
@@ -64,10 +57,7 @@ const requestExecution = (
   requestPath: string,
   options: CoreRequestOptions,
 ): RequestExecutionHeaders | null => {
-  if (
-    !requestPath.startsWith(MODULE_ROUTE_PREFIX)
-    && requestPath !== LOCAL_MUTATION_ROUTE
-  ) {
+  if (!requestPath.startsWith(MODULE_ROUTE_PREFIX) && requestPath !== LOCAL_MUTATION_ROUTE) {
     return null;
   }
   const requestClass = options.class ?? "interactive";
@@ -148,13 +138,10 @@ export class CoreTransportError extends Error {
 }
 
 export const isDefinitiveCoreGenerationLoss = (error: unknown): boolean =>
-  error instanceof CoreTransportError
-  && (error.kind === "connection_lost" || error.kind === "unreachable");
+  error instanceof CoreTransportError &&
+  (error.kind === "connection_lost" || error.kind === "unreachable");
 
-const coreTransportMessage = (
-  kind: CoreTransportErrorKind,
-  code: string | null,
-): string => {
+const coreTransportMessage = (kind: CoreTransportErrorKind, code: string | null): string => {
   const suffix = code ? ` (${code})` : "";
   switch (kind) {
     case "aborted":
@@ -177,16 +164,13 @@ const transportCode = (error: unknown): string | null => {
   return typeof error.code === "string" ? error.code : null;
 };
 
-const normalizeTransportError = (
-  error: unknown,
-  phase: CoreTransportPhase,
-): unknown => {
+const normalizeTransportError = (error: unknown, phase: CoreTransportPhase): unknown => {
   if (
-    error instanceof CoreTransportError
-    || error instanceof CoreHttpError
-    || error instanceof CoreResponseTooLargeError
-    || error instanceof CoreEventCompatibilityError
-    || error instanceof CoreEventReplayError
+    error instanceof CoreTransportError ||
+    error instanceof CoreHttpError ||
+    error instanceof CoreResponseTooLargeError ||
+    error instanceof CoreEventCompatibilityError ||
+    error instanceof CoreEventReplayError
   ) {
     return error;
   }
@@ -277,9 +261,8 @@ export class UdsHttpTransport {
     const maximumResponseBytes = documentRoute
       ? MAX_DOCUMENT_RESPONSE_BYTES
       : this.#maximumJsonResponseBytes;
-    const encodedBody = body === undefined
-      ? undefined
-      : encodeBoundedJson(body, maximumRequestBytes, "Core request");
+    const encodedBody =
+      body === undefined ? undefined : encodeBoundedJson(body, maximumRequestBytes, "Core request");
     const execution = requestExecution(requestPath, options);
     const transportTimeoutMs = execution
       ? execution.deadlineMs + this.#transportLivenessTimeoutMs
@@ -339,7 +322,7 @@ export class UdsHttpTransport {
               settle(() => reject(new CoreHttpError(status, errorMessage(value))));
             })
             .catch((error: unknown) =>
-              settle(() => reject(normalizeTransportError(error, "response")))
+              settle(() => reject(normalizeTransportError(error, "response"))),
             );
         },
       );
@@ -353,7 +336,7 @@ export class UdsHttpTransport {
         request.destroy(new CoreTransportError("timeout", "response", "ETIMEDOUT", null));
       });
       request.on("error", (error) =>
-        settle(() => reject(normalizeTransportError(error, "connect")))
+        settle(() => reject(normalizeTransportError(error, "connect"))),
       );
       if (encodedBody) request.write(encodedBody);
       request.end();
@@ -421,7 +404,9 @@ export class UdsHttpTransport {
                 return;
               }
               if (contentType !== "application/json") {
-                settle(() => reject(new Error("Core Document response has an invalid Content-Type")));
+                settle(() =>
+                  reject(new Error("Core Document response has an invalid Content-Type")),
+                );
                 return;
               }
               const value = decodeBoundedJson<Response>(
@@ -432,7 +417,7 @@ export class UdsHttpTransport {
               settle(() => resolve({ kind: "json", value }));
             })
             .catch((error: unknown) =>
-              settle(() => reject(normalizeTransportError(error, "response")))
+              settle(() => reject(normalizeTransportError(error, "response"))),
             );
         },
       );
@@ -446,7 +431,7 @@ export class UdsHttpTransport {
         request.destroy(new CoreTransportError("timeout", "response", "ETIMEDOUT", null));
       });
       request.on("error", (error) =>
-        settle(() => reject(normalizeTransportError(error, "connect")))
+        settle(() => reject(normalizeTransportError(error, "connect"))),
       );
       request.write(body);
       request.end();
@@ -500,9 +485,7 @@ export class UdsHttpTransport {
       const request = httpRequest(
         {
           socketPath: this.socketPath,
-          path: documentLive?.path
-            ?? projectionLive?.path
-            ?? `/core/v1/events?after=${after}`,
+          path: documentLive?.path ?? projectionLive?.path ?? `/core/v1/events?after=${after}`,
           method: "GET",
           agent: false,
           signal,
@@ -642,15 +625,19 @@ export class UdsHttpTransport {
             try {
               for (const frame of parser.finish()) processFrame(frame);
               if (documentLive && !documentBarrier) {
-                fail(new CoreEventCompatibilityError(
-                  "Core Document live stream ended before its barrier",
-                ));
+                fail(
+                  new CoreEventCompatibilityError(
+                    "Core Document live stream ended before its barrier",
+                  ),
+                );
                 return;
               }
               if (projectionLive && !projectionBarrier) {
-                fail(new CoreEventCompatibilityError(
-                  "Core Projection live stream ended before its barrier",
-                ));
+                fail(
+                  new CoreEventCompatibilityError(
+                    "Core Projection live stream ended before its barrier",
+                  ),
+                );
                 return;
               }
               if (!closed) resolveDone?.();
@@ -709,9 +696,11 @@ export class UdsHttpTransport {
     onRepair: (repair: ProjectionLiveRepair) => void,
     signal?: AbortSignal,
   ): Promise<CoreProjectionEventSubscription> {
-    const requested = scopes.map((scope) => scope.kind === "library"
-      ? { kind: "library" as const }
-      : { kind: "project" as const, project_id: scope.projectId });
+    const requested = scopes.map((scope) =>
+      scope.kind === "library"
+        ? { kind: "library" as const }
+        : { kind: "project" as const, project_id: scope.projectId },
+    );
     const path = `/core/v1/projections/live?scopes=${encodeURIComponent(JSON.stringify(requested))}`;
     return this.openEventStream(
       0,
@@ -727,21 +716,14 @@ export class UdsHttpTransport {
   }
 }
 
-const boundedPositiveInteger = (
-  value: number,
-  maximum: number,
-  label: string,
-): number => {
+const boundedPositiveInteger = (value: number, maximum: number, label: string): number => {
   if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
     throw new Error(`${label} must be a positive integer no greater than ${maximum}`);
   }
   return value;
 };
 
-const collectResponse = (
-  response: IncomingMessage,
-  maximumBytes: number,
-): Promise<Uint8Array> =>
+const collectResponse = (response: IncomingMessage, maximumBytes: number): Promise<Uint8Array> =>
   new Promise((resolve, reject) => {
     const declaredLength = parseContentLength(response);
     if (declaredLength !== undefined && declaredLength > maximumBytes) {
@@ -794,10 +776,7 @@ const errorMessage = (value: unknown): string => {
   return "Core request failed";
 };
 
-const parseEventEnvelope = (
-  json: string,
-  contract: CoreEventContract,
-): CoreEventEnvelope => {
+const parseEventEnvelope = (json: string, contract: CoreEventContract): CoreEventEnvelope => {
   const value = decodeBoundedJson<unknown>(
     Buffer.from(json, "utf8"),
     MAX_EVENT_FRAME_BYTES,
@@ -817,10 +796,7 @@ const parseEventEnvelope = (
   return value as CoreEventEnvelope;
 };
 
-const assertAuthorizedDeliveryPacket = (
-  packet: unknown,
-  contract: CoreEventContract,
-): void => {
+const assertAuthorizedDeliveryPacket = (packet: unknown, contract: CoreEventContract): void => {
   try {
     parseAuthorizedDeliveryPacket(packet, {
       eventVersion: contract.eventVersion,
@@ -832,46 +808,40 @@ const assertAuthorizedDeliveryPacket = (
   }
 };
 
-const parseStreamCheckpoint = (
-  json: string,
-  contract: CoreEventContract,
-): CoreStreamCheckpoint => {
+const parseStreamCheckpoint = (json: string, contract: CoreEventContract): CoreStreamCheckpoint => {
   const value = decodeBoundedJson<unknown>(
     Buffer.from(json, "utf8"),
     MAX_EVENT_FRAME_BYTES,
     "Core stream checkpoint",
   );
   if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, [
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, [
       "generation",
       "oldest_available_seq",
       "resync_token",
       "scanned_through_seq",
       "store_epoch",
-    ])
-    || !("store_epoch" in value)
-    || value.store_epoch !== contract.storeEpoch
-    || !("generation" in value)
-    || !isIdentity(value.generation)
-    || !("scanned_through_seq" in value)
-    || !isNonNegativeSafeInteger(value.scanned_through_seq)
-    || !("oldest_available_seq" in value)
-    || !isNonNegativeSafeInteger(value.oldest_available_seq)
-    || value.oldest_available_seq > value.scanned_through_seq
-    || !("resync_token" in value)
-    || (value.resync_token !== null && !isIdentity(value.resync_token))
+    ]) ||
+    !("store_epoch" in value) ||
+    value.store_epoch !== contract.storeEpoch ||
+    !("generation" in value) ||
+    !isIdentity(value.generation) ||
+    !("scanned_through_seq" in value) ||
+    !isNonNegativeSafeInteger(value.scanned_through_seq) ||
+    !("oldest_available_seq" in value) ||
+    !isNonNegativeSafeInteger(value.oldest_available_seq) ||
+    value.oldest_available_seq > value.scanned_through_seq ||
+    !("resync_token" in value) ||
+    (value.resync_token !== null && !isIdentity(value.resync_token))
   ) {
     throw new CoreEventCompatibilityError("Core stream checkpoint is invalid");
   }
   return value as CoreStreamCheckpoint;
 };
 
-const hasExactKeys = (
-  value: Readonly<object>,
-  expected: readonly string[],
-): boolean => {
+const hasExactKeys = (value: Readonly<object>, expected: readonly string[]): boolean => {
   const actual = Object.keys(value).sort();
   if (actual.length !== expected.length) return false;
   const canonicalExpected = [...expected].sort();
@@ -879,46 +849,41 @@ const hasExactKeys = (
 };
 
 const isIdentity = (value: unknown): value is string =>
-  typeof value === "string" &&
-  value.length > 0 &&
-  value.length <= 512 &&
-  value === value.trim();
+  typeof value === "string" && value.length > 0 && value.length <= 512 && value === value.trim();
 
 const isNonNegativeSafeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
-const isDeliveryAuthorizationScope = (
-  value: unknown,
-  expectedLibraryId: string,
-): boolean => {
+const isDeliveryAuthorizationScope = (value: unknown, expectedLibraryId: string): boolean => {
   if (typeof value !== "object" || value === null || !("kind" in value)) {
     return false;
   }
   if (value.kind === "library") {
-    return hasExactKeys(value, ["kind", "library_id"])
-      && "library_id" in value
-      && value.library_id === expectedLibraryId;
+    return (
+      hasExactKeys(value, ["kind", "library_id"]) &&
+      "library_id" in value &&
+      value.library_id === expectedLibraryId
+    );
   }
   if (value.kind === "project") {
-    return hasExactKeys(value, ["kind", "library_id", "project_id"])
-      && "library_id" in value
-      && value.library_id === expectedLibraryId
-      && "project_id" in value
-      && isIdentity(value.project_id);
+    return (
+      hasExactKeys(value, ["kind", "library_id", "project_id"]) &&
+      "library_id" in value &&
+      value.library_id === expectedLibraryId &&
+      "project_id" in value &&
+      isIdentity(value.project_id)
+    );
   }
   if (value.kind === "document") {
-    return hasExactKeys(value, [
-      "document_id",
-      "kind",
-      "library_id",
-      "project_id",
-    ])
-      && "library_id" in value
-      && value.library_id === expectedLibraryId
-      && "document_id" in value
-      && isIdentity(value.document_id)
-      && "project_id" in value
-      && (value.project_id === null || isIdentity(value.project_id));
+    return (
+      hasExactKeys(value, ["document_id", "kind", "library_id", "project_id"]) &&
+      "library_id" in value &&
+      value.library_id === expectedLibraryId &&
+      "document_id" in value &&
+      isIdentity(value.document_id) &&
+      "project_id" in value &&
+      (value.project_id === null || isIdentity(value.project_id))
+    );
   }
   return false;
 };
@@ -934,65 +899,52 @@ const parseProjectionLiveBarrier = (
     "Core Projection live barrier",
   );
   if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, [
-      "commit_head",
-      "core_generation",
-      "recipient_leases",
-      "store_epoch",
-    ])
-    || !("store_epoch" in value)
-    || value.store_epoch !== contract.storeEpoch
-    || !("core_generation" in value)
-    || value.core_generation !== contract.coreGeneration
-    || !("commit_head" in value)
-    || !isNonNegativeSafeInteger(value.commit_head)
-    || !("recipient_leases" in value)
-    || !Array.isArray(value.recipient_leases)
-    || value.recipient_leases.length < 1
-    || value.recipient_leases.length > 200
-    || !value.recipient_leases.every((lease) =>
-      typeof lease === "object"
-      && lease !== null
-      && hasExactKeys(lease, [
-        "authorization_scope",
-        "delivery_address",
-        "lease_id",
-      ])
-      && "lease_id" in lease
-      && typeof lease.lease_id === "string"
-      && /^[a-f0-9]{64}$/u.test(lease.lease_id)
-      && "authorization_scope" in lease
-      && isDeliveryAuthorizationScope(
-        lease.authorization_scope,
-        contract.libraryId,
-      )
-      && lease.authorization_scope.kind !== "document"
-      && "delivery_address" in lease
-      && isDeliveryAuthorizationScope(lease.delivery_address, contract.libraryId)
-      && JSON.stringify(lease.delivery_address)
-        === JSON.stringify(lease.authorization_scope)
-    )
-    || new Set(value.recipient_leases.map((lease) =>
-      JSON.stringify(lease.delivery_address)
-    )).size !== value.recipient_leases.length
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, ["commit_head", "core_generation", "recipient_leases", "store_epoch"]) ||
+    !("store_epoch" in value) ||
+    value.store_epoch !== contract.storeEpoch ||
+    !("core_generation" in value) ||
+    value.core_generation !== contract.coreGeneration ||
+    !("commit_head" in value) ||
+    !isNonNegativeSafeInteger(value.commit_head) ||
+    !("recipient_leases" in value) ||
+    !Array.isArray(value.recipient_leases) ||
+    value.recipient_leases.length < 1 ||
+    value.recipient_leases.length > 200 ||
+    !value.recipient_leases.every(
+      (lease) =>
+        typeof lease === "object" &&
+        lease !== null &&
+        hasExactKeys(lease, ["authorization_scope", "delivery_address", "lease_id"]) &&
+        "lease_id" in lease &&
+        typeof lease.lease_id === "string" &&
+        /^[a-f0-9]{64}$/u.test(lease.lease_id) &&
+        "authorization_scope" in lease &&
+        isDeliveryAuthorizationScope(lease.authorization_scope, contract.libraryId) &&
+        lease.authorization_scope.kind !== "document" &&
+        "delivery_address" in lease &&
+        isDeliveryAuthorizationScope(lease.delivery_address, contract.libraryId) &&
+        JSON.stringify(lease.delivery_address) === JSON.stringify(lease.authorization_scope),
+    ) ||
+    new Set(value.recipient_leases.map((lease) => JSON.stringify(lease.delivery_address))).size !==
+      value.recipient_leases.length
   ) {
     throw new CoreEventCompatibilityError("Core Projection live barrier is invalid");
   }
   const deliveredScopeKeys = value.recipient_leases
-    .map((lease) => lease.delivery_address.kind === "library"
-      ? "library"
-      : `project:${lease.delivery_address.project_id}`)
+    .map((lease) =>
+      lease.delivery_address.kind === "library"
+        ? "library"
+        : `project:${lease.delivery_address.project_id}`,
+    )
     .sort();
   const requestedScopeKeys = requestedScopes
-    .map((scope) => scope.kind === "library"
-      ? "library"
-      : `project:${scope.projectId}`)
+    .map((scope) => (scope.kind === "library" ? "library" : `project:${scope.projectId}`))
     .sort();
   if (
-    deliveredScopeKeys.length !== requestedScopeKeys.length
-    || deliveredScopeKeys.some((key, index) => key !== requestedScopeKeys[index])
+    deliveredScopeKeys.length !== requestedScopeKeys.length ||
+    deliveredScopeKeys.some((key, index) => key !== requestedScopeKeys[index])
   ) {
     throw new CoreEventCompatibilityError(
       "Core Projection live barrier diverges from its requested scopes",
@@ -1011,17 +963,18 @@ const parseProjectionLiveRepair = (
     "Core Projection live repair",
   );
   if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, ["commit_head", "reason", "store_epoch"])
-    || !("store_epoch" in value)
-    || !isIdentity(value.store_epoch)
-    || !("commit_head" in value)
-    || !isNonNegativeSafeInteger(value.commit_head)
-    || !("reason" in value)
-    || !["receiver_lagged", "payload_unavailable", "identity_changed"]
-      .includes(String(value.reason))
-    || (value.reason !== "identity_changed" && value.store_epoch !== contract.storeEpoch)
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, ["commit_head", "reason", "store_epoch"]) ||
+    !("store_epoch" in value) ||
+    !isIdentity(value.store_epoch) ||
+    !("commit_head" in value) ||
+    !isNonNegativeSafeInteger(value.commit_head) ||
+    !("reason" in value) ||
+    !["receiver_lagged", "payload_unavailable", "identity_changed"].includes(
+      String(value.reason),
+    ) ||
+    (value.reason !== "identity_changed" && value.store_epoch !== contract.storeEpoch)
   ) {
     throw new CoreEventCompatibilityError("Core Projection live repair is invalid");
   }
@@ -1038,9 +991,9 @@ const parseDocumentLiveBarrier = (
     "Core Document live barrier",
   );
   if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, [
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, [
       "commit_head",
       "core_generation",
       "document_generation",
@@ -1048,28 +1001,28 @@ const parseDocumentLiveBarrier = (
       "engine",
       "head_seq",
       "store_epoch",
-    ])
-    || !("store_epoch" in value)
-    || !isIdentity(value.store_epoch)
-    || !("core_generation" in value)
-    || !isIdentity(value.core_generation)
-    || !("document_id" in value)
-    || !isIdentity(value.document_id)
-    || !("document_generation" in value)
-    || !isNonNegativeSafeInteger(value.document_generation)
-    || Number(value.document_generation) < 1
-    || !("head_seq" in value)
-    || !isNonNegativeSafeInteger(value.head_seq)
-    || !("commit_head" in value)
-    || !isNonNegativeSafeInteger(value.commit_head)
-    || !("engine" in value)
-    || (value.engine !== "yjs" && value.engine !== "canvas_scene")
+    ]) ||
+    !("store_epoch" in value) ||
+    !isIdentity(value.store_epoch) ||
+    !("core_generation" in value) ||
+    !isIdentity(value.core_generation) ||
+    !("document_id" in value) ||
+    !isIdentity(value.document_id) ||
+    !("document_generation" in value) ||
+    !isNonNegativeSafeInteger(value.document_generation) ||
+    Number(value.document_generation) < 1 ||
+    !("head_seq" in value) ||
+    !isNonNegativeSafeInteger(value.head_seq) ||
+    !("commit_head" in value) ||
+    !isNonNegativeSafeInteger(value.commit_head) ||
+    !("engine" in value) ||
+    (value.engine !== "yjs" && value.engine !== "canvas_scene")
   ) {
     throw new CoreEventCompatibilityError("Core Document live barrier is invalid");
   }
   if (
-    value.store_epoch !== contract.storeEpoch
-    || value.core_generation !== contract.coreGeneration
+    value.store_epoch !== contract.storeEpoch ||
+    value.core_generation !== contract.coreGeneration
   ) {
     throw new CoreEventCompatibilityError(
       "Core Document live barrier crossed the connected identity",
@@ -1078,10 +1031,7 @@ const parseDocumentLiveBarrier = (
   return value as DocumentLiveBarrier;
 };
 
-const parseDocumentLiveRepair = (
-  json: string,
-  contract: CoreEventContract,
-): DocumentLiveRepair => {
+const parseDocumentLiveRepair = (json: string, contract: CoreEventContract): DocumentLiveRepair => {
   const value = decodeBoundedJson<unknown>(
     Buffer.from(json, "utf8"),
     MAX_EVENT_FRAME_BYTES,
@@ -1095,37 +1045,34 @@ const parseDocumentLiveRepair = (
     "event_gap",
   ]);
   if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, [
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, [
       "commit_head",
       "document_generation",
       "document_id",
       "head_seq",
       "reason",
       "store_epoch",
-    ])
-    || !("store_epoch" in value)
-    || !isIdentity(value.store_epoch)
-    || !("document_id" in value)
-    || !isIdentity(value.document_id)
-    || !("document_generation" in value)
-    || !isNonNegativeSafeInteger(value.document_generation)
-    || Number(value.document_generation) < 1
-    || !("head_seq" in value)
-    || !isNonNegativeSafeInteger(value.head_seq)
-    || !("commit_head" in value)
-    || !isNonNegativeSafeInteger(value.commit_head)
-    || !("reason" in value)
-    || typeof value.reason !== "string"
-    || !reasons.has(value.reason as DocumentLiveRepair["reason"])
+    ]) ||
+    !("store_epoch" in value) ||
+    !isIdentity(value.store_epoch) ||
+    !("document_id" in value) ||
+    !isIdentity(value.document_id) ||
+    !("document_generation" in value) ||
+    !isNonNegativeSafeInteger(value.document_generation) ||
+    Number(value.document_generation) < 1 ||
+    !("head_seq" in value) ||
+    !isNonNegativeSafeInteger(value.head_seq) ||
+    !("commit_head" in value) ||
+    !isNonNegativeSafeInteger(value.commit_head) ||
+    !("reason" in value) ||
+    typeof value.reason !== "string" ||
+    !reasons.has(value.reason as DocumentLiveRepair["reason"])
   ) {
     throw new CoreEventCompatibilityError("Core Document live repair is invalid");
   }
-  if (
-    value.store_epoch !== contract.storeEpoch
-    && value.reason !== "identity_changed"
-  ) {
+  if (value.store_epoch !== contract.storeEpoch && value.reason !== "identity_changed") {
     throw new CoreEventCompatibilityError(
       "Core Document live repair crossed the connected Store epoch",
     );
@@ -1140,25 +1087,25 @@ const parseCoreResync = (json: string): CoreEventReplayRequired => {
     "Core resync event",
   );
   if (
-    typeof value !== "object"
-    || value === null
-    || !hasExactKeys(value, [
+    typeof value !== "object" ||
+    value === null ||
+    !hasExactKeys(value, [
       "commit_head",
       "generation",
       "oldest_available",
       "requested_after",
       "resync_token",
-    ])
-    || !("requested_after" in value)
-    || !isNonNegativeSafeInteger(value.requested_after)
-    || !("oldest_available" in value)
-    || !isNonNegativeSafeInteger(value.oldest_available)
-    || !("commit_head" in value)
-    || !isNonNegativeSafeInteger(value.commit_head)
-    || !("generation" in value)
-    || !isIdentity(value.generation)
-    || !("resync_token" in value)
-    || !isIdentity(value.resync_token)
+    ]) ||
+    !("requested_after" in value) ||
+    !isNonNegativeSafeInteger(value.requested_after) ||
+    !("oldest_available" in value) ||
+    !isNonNegativeSafeInteger(value.oldest_available) ||
+    !("commit_head" in value) ||
+    !isNonNegativeSafeInteger(value.commit_head) ||
+    !("generation" in value) ||
+    !isIdentity(value.generation) ||
+    !("resync_token" in value) ||
+    !isIdentity(value.resync_token)
   ) {
     throw new Error("Core resync event is invalid");
   }

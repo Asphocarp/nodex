@@ -42,6 +42,7 @@ export function getPriorityClassName(priority: Priority): string {
 }
 
 export function priorityFromShortLabel(label: string): Priority | undefined {
-  return (Object.entries(PRIORITY_PRESENTATION) as [Priority, PriorityPresentation][])
-    .find(([, presentation]) => presentation.shortLabel === label)?.[0];
+  return (Object.entries(PRIORITY_PRESENTATION) as [Priority, PriorityPresentation][]).find(
+    ([, presentation]) => presentation.shortLabel === label,
+  )?.[0];
 }

@@ -43,7 +43,9 @@ const PROCESS_MANAGER_MIN_ROWS = 5;
 
 export interface WorkbenchProcessManagerControl {
   listBackgroundProcesses: (threadId: string) => Promise<CodexBackgroundProcessRow[]>;
-  runBackgroundProcess: (input: CodexBackgroundProcessRunActionInput) => Promise<CodexBackgroundProcessRow[]>;
+  runBackgroundProcess: (
+    input: CodexBackgroundProcessRunActionInput,
+  ) => Promise<CodexBackgroundProcessRow[]>;
   stopBackgroundProcess: (input: {
     threadId: string;
     processId: string | null;
@@ -65,7 +67,9 @@ export interface WorkbenchProcessManagerDialogProps {
 type ProcessActionState = "starting" | "stopping";
 
 function makeBackgroundProcessTerminalSessionId(row: CodexBackgroundTerminalProcessRow): string {
-  const randomId = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `process:${row.threadId}:${row.itemId}:${randomId}`;
 }
 
@@ -110,10 +114,7 @@ async function fetchProcessRows(
     }),
   );
 
-  return buildCodexBackgroundTerminalProcessRows(
-    threads,
-    new Map(processEntries),
-  );
+  return buildCodexBackgroundTerminalProcessRows(threads, new Map(processEntries));
 }
 
 function ProcessStatusDot({
@@ -163,26 +164,29 @@ function ProcessManagerActionMenu({
   onStop: (row: CodexBackgroundTerminalProcessRow) => void;
   onOpenChange: (open: boolean) => void;
 }) {
-  const canStop = !busy
-    && row.status === "running"
-    && (row.processId !== null || row.terminalSessionId !== null);
+  const canStop =
+    !busy && row.status === "running" && (row.processId !== null || row.terminalSessionId !== null);
   const canRun = !busy && row.command.trim().length > 0 && Boolean(row.cwd?.trim());
   const resumeLabel = row.status === "not-found" ? "Start" : "Restart";
-  const resumeIcon = busy
-    ? <ActivitySpinnerIcon className="size-3.5" />
-    : row.status === "not-found"
-    ? <Play className="size-3.5" />
-    : <RotateCw className="size-3.5" />;
-  const resumeTooltip = row.command.trim().length === 0
-    ? "This process does not have a command to run."
-    : !row.cwd?.trim()
-      ? "This process does not have a working directory."
-      : undefined;
-  const stopTooltip = row.status === "not-found"
-    ? "This registered process is not currently running."
-    : row.processId === null && row.terminalSessionId === null
-      ? "This process does not expose a stoppable process or terminal session."
-      : undefined;
+  const resumeIcon = busy ? (
+    <ActivitySpinnerIcon className="size-3.5" />
+  ) : row.status === "not-found" ? (
+    <Play className="size-3.5" />
+  ) : (
+    <RotateCw className="size-3.5" />
+  );
+  const resumeTooltip =
+    row.command.trim().length === 0
+      ? "This process does not have a command to run."
+      : !row.cwd?.trim()
+        ? "This process does not have a working directory."
+        : undefined;
+  const stopTooltip =
+    row.status === "not-found"
+      ? "This registered process is not currently running."
+      : row.processId === null && row.terminalSessionId === null
+        ? "This process does not expose a stoppable process or terminal session."
+        : undefined;
 
   return (
     <NodexDropdownMenu
@@ -190,7 +194,7 @@ function ProcessManagerActionMenu({
       align="end"
       side="bottom"
       contentWidth="sm"
-      triggerButton={(
+      triggerButton={
         <NodexIconButton
           icon={ProjectActionsIcon}
           ariaLabel="Process actions"
@@ -198,7 +202,7 @@ function ProcessManagerActionMenu({
           className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
           onClick={(event) => event.stopPropagation()}
         />
-      )}
+      }
     >
       <NodexDropdownItem
         leftSlot={<ExternalLink className="size-3.5" />}
@@ -208,7 +212,9 @@ function ProcessManagerActionMenu({
       </NodexDropdownItem>
       <NodexDropdownSeparator />
       <NodexDropdownItem
-        leftSlot={busy ? <ActivitySpinnerIcon className="size-3.5" /> : <StopCircle className="size-3.5" />}
+        leftSlot={
+          busy ? <ActivitySpinnerIcon className="size-3.5" /> : <StopCircle className="size-3.5" />
+        }
         disabled={!canStop}
         tooltipText={stopTooltip}
         onSelect={() => onStop(row)}
@@ -286,9 +292,7 @@ function ProcessManagerRow({
       <td className="px-2 text-right font-mono text-xs text-token-description-foreground">
         {formatBackgroundTerminalMemoryKb(readBackgroundTerminalMemoryKb(row))}
       </td>
-      <td className="px-2 text-right font-mono text-xs text-token-description-foreground">
-        n/a
-      </td>
+      <td className="px-2 text-right font-mono text-xs text-token-description-foreground">n/a</td>
       <td className="w-11 px-2 text-right" onClick={(event) => event.stopPropagation()}>
         <ProcessManagerActionMenu
           row={row}
@@ -329,11 +333,15 @@ export function WorkbenchProcessManagerDialog({
   const [actionStates, setActionStates] = useState<Record<string, ProcessActionState>>({});
   const [frozenRows, setFrozenRows] = useState<CodexBackgroundTerminalProcessRow[] | null>(null);
   const normalizedThreads = useMemo(() => normalizeProcessManagerThreads(threads), [threads]);
-  const queryKey = useMemo(() => queryKeys.codexBackgroundTerminals.processManager(normalizedThreads), [normalizedThreads]);
+  const queryKey = useMemo(
+    () => queryKeys.codexBackgroundTerminals.processManager(normalizedThreads),
+    [normalizedThreads],
+  );
 
   const query = useQuery({
     queryKey,
-    queryFn: ({ meta }) => fetchProcessRows(normalizedThreads, readProcessManagerControlFromQueryMeta(meta)),
+    queryFn: ({ meta }) =>
+      fetchProcessRows(normalizedThreads, readProcessManagerControlFromQueryMeta(meta)),
     enabled: open && normalizedThreads.length > 0,
     refetchInterval: frozenRows ? false : 1000,
     staleTime: 0,
@@ -350,82 +358,94 @@ export function WorkbenchProcessManagerDialog({
     }
   }, [open]);
 
-  const handleMenuOpenChange = useCallback((nextOpen: boolean) => {
-    setFrozenRows(nextOpen ? rows : null);
-  }, [rows]);
+  const handleMenuOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setFrozenRows(nextOpen ? rows : null);
+    },
+    [rows],
+  );
 
-  const handleOpenOutput = useCallback((row: CodexBackgroundTerminalProcessRow) => {
-    onOpenChange(false);
-    void (onOpenOutput ? onOpenOutput(row) : onOpenThread(row.threadId));
-  }, [onOpenChange, onOpenOutput, onOpenThread]);
+  const handleOpenOutput = useCallback(
+    (row: CodexBackgroundTerminalProcessRow) => {
+      onOpenChange(false);
+      void (onOpenOutput ? onOpenOutput(row) : onOpenThread(row.threadId));
+    },
+    [onOpenChange, onOpenOutput, onOpenThread],
+  );
 
-  const handleRun = useCallback(async (row: CodexBackgroundTerminalProcessRow) => {
-    const command = row.command.trim();
-    const cwd = row.cwd?.trim() ?? "";
-    if (!command || !cwd) {
-      return;
-    }
+  const handleRun = useCallback(
+    async (row: CodexBackgroundTerminalProcessRow) => {
+      const command = row.command.trim();
+      const cwd = row.cwd?.trim() ?? "";
+      if (!command || !cwd) {
+        return;
+      }
 
-    setActionStates((current) => ({ ...current, [row.id]: "starting" }));
-    try {
-      if (row.status === "running" && row.processId !== null) {
-        await control.stopBackgroundProcess({
+      setActionStates((current) => ({ ...current, [row.id]: "starting" }));
+      try {
+        if (row.status === "running" && row.processId !== null) {
+          await control.stopBackgroundProcess({
+            threadId: row.threadId,
+            processId: row.processId,
+            terminalSessionId: null,
+          });
+        }
+
+        await control.runBackgroundProcess({
           threadId: row.threadId,
-          processId: row.processId,
-          terminalSessionId: null,
+          threadTitle: row.threadTitle,
+          itemId: row.itemId,
+          turnId: row.turnId,
+          command,
+          cwd,
+          terminalSessionId: row.terminalSessionId ?? makeBackgroundProcessTerminalSessionId(row),
+        });
+        toast.success(row.status === "not-found" ? "Process started" : "Process restarted");
+        await queryClient.invalidateQueries({ queryKey });
+      } catch (error) {
+        toast.danger(error instanceof Error ? error.message : "Failed to start process");
+      } finally {
+        setActionStates((current) => {
+          const next = { ...current };
+          delete next[row.id];
+          return next;
         });
       }
+    },
+    [control, queryClient, queryKey],
+  );
 
-      await control.runBackgroundProcess({
-        threadId: row.threadId,
-        threadTitle: row.threadTitle,
-        itemId: row.itemId,
-        turnId: row.turnId,
-        command,
-        cwd,
-        terminalSessionId: row.terminalSessionId ?? makeBackgroundProcessTerminalSessionId(row),
-      });
-      toast.success(row.status === "not-found" ? "Process started" : "Process restarted");
-      await queryClient.invalidateQueries({ queryKey });
-    } catch (error) {
-      toast.danger(error instanceof Error ? error.message : "Failed to start process");
-    } finally {
-      setActionStates((current) => {
-        const next = { ...current };
-        delete next[row.id];
-        return next;
-      });
-    }
-  }, [control, queryClient, queryKey]);
-
-  const handleStop = useCallback(async (row: CodexBackgroundTerminalProcessRow) => {
-    if (row.status !== "running" || (row.processId === null && row.terminalSessionId === null)) {
-      return;
-    }
-
-    setActionStates((current) => ({ ...current, [row.id]: "stopping" }));
-    try {
-      const stopped = await control.stopBackgroundProcess({
-        threadId: row.threadId,
-        processId: row.processId,
-        terminalSessionId: row.terminalSessionId,
-      });
-      if (stopped) {
-        toast.success("Process stopped");
-      } else {
-        toast.warning("Process was already stopped");
+  const handleStop = useCallback(
+    async (row: CodexBackgroundTerminalProcessRow) => {
+      if (row.status !== "running" || (row.processId === null && row.terminalSessionId === null)) {
+        return;
       }
-      await queryClient.invalidateQueries({ queryKey });
-    } catch (error) {
-      toast.danger(error instanceof Error ? error.message : "Failed to stop process");
-    } finally {
-      setActionStates((current) => {
-        const next = { ...current };
-        delete next[row.id];
-        return next;
-      });
-    }
-  }, [control, queryClient, queryKey]);
+
+      setActionStates((current) => ({ ...current, [row.id]: "stopping" }));
+      try {
+        const stopped = await control.stopBackgroundProcess({
+          threadId: row.threadId,
+          processId: row.processId,
+          terminalSessionId: row.terminalSessionId,
+        });
+        if (stopped) {
+          toast.success("Process stopped");
+        } else {
+          toast.warning("Process was already stopped");
+        }
+        await queryClient.invalidateQueries({ queryKey });
+      } catch (error) {
+        toast.danger(error instanceof Error ? error.message : "Failed to stop process");
+      } finally {
+        setActionStates((current) => {
+          const next = { ...current };
+          delete next[row.id];
+          return next;
+        });
+      }
+    },
+    [control, queryClient, queryKey],
+  );
 
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
@@ -496,11 +516,15 @@ export function WorkbenchProcessManagerDialog({
               {visibleRows.length === 0 ? (
                 <tr className="h-10 border-b border-token-border/45">
                   <td colSpan={8} className="px-3 text-sm text-token-description-foreground">
-                    {query.isPending && normalizedThreads.length > 0 ? "Loading processes..." : "No running chat-started processes"}
+                    {query.isPending && normalizedThreads.length > 0
+                      ? "Loading processes..."
+                      : "No running chat-started processes"}
                   </td>
                 </tr>
               ) : null}
-              <ProcessManagerEmptyRows visibleCount={Math.max(visibleRows.length, visibleRows.length === 0 ? 1 : 0)} />
+              <ProcessManagerEmptyRows
+                visibleCount={Math.max(visibleRows.length, visibleRows.length === 0 ? 1 : 0)}
+              />
             </tbody>
           </table>
         </div>

@@ -57,19 +57,15 @@ const richTitleDraftNodeValue = (node: Node): string => {
   return node.textContent ?? "";
 };
 
-const richTitleDraftNodeLength = (node: Node): number =>
-  richTitleDraftNodeValue(node).length;
+const richTitleDraftNodeLength = (node: Node): number => richTitleDraftNodeValue(node).length;
 
-const closestDraftChild = (
-  root: HTMLElement,
-  node: Node,
-): ChildNode | null => {
+const closestDraftChild = (root: HTMLElement, node: Node): ChildNode | null => {
   if (!root.contains(node)) return null;
   let child: Node = node;
   while (child.parentNode && child.parentNode !== root) {
     child = child.parentNode;
   }
-  return child.parentNode === root ? child as ChildNode : null;
+  return child.parentNode === root ? (child as ChildNode) : null;
 };
 
 const richTitleDraftDomPointToIndex = (
@@ -93,10 +89,7 @@ const richTitleDraftDomPointToIndex = (
     .slice(0, childIndex)
     .reduce((length, child) => length + richTitleDraftNodeLength(child), 0);
   if (!(draftChild instanceof HTMLElement)) {
-    return childStart + Math.min(
-      Math.max(offset, 0),
-      richTitleDraftNodeLength(draftChild),
-    );
+    return childStart + Math.min(Math.max(offset, 0), richTitleDraftNodeLength(draftChild));
   }
   if (
     draftChild.dataset.richTitleKind === "atom" ||
@@ -112,32 +105,17 @@ const richTitleDraftDomPointToIndex = (
   } catch {
     return null;
   }
-  return childStart + Math.min(
-    range.toString().length,
-    richTitleDraftNodeLength(draftChild),
-  );
+  return childStart + Math.min(range.toString().length, richTitleDraftNodeLength(draftChild));
 };
 
 const readRichTitleSelection = (
   root: HTMLElement,
-  pointToIndex: (
-    root: HTMLElement,
-    node: Node,
-    offset: number,
-  ) => number | null,
+  pointToIndex: (root: HTMLElement, node: Node, offset: number) => number | null,
 ): RichTitleDomSelection | null => {
   const selection = root.ownerDocument.getSelection();
   if (!selection || !selection.anchorNode || !selection.focusNode) return null;
-  const anchor = pointToIndex(
-    root,
-    selection.anchorNode,
-    selection.anchorOffset,
-  );
-  const focus = pointToIndex(
-    root,
-    selection.focusNode,
-    selection.focusOffset,
-  );
+  const anchor = pointToIndex(root, selection.anchorNode, selection.anchorOffset);
+  const focus = pointToIndex(root, selection.focusNode, selection.focusOffset);
   if (anchor === null || focus === null) return null;
   return {
     anchor,
@@ -177,9 +155,7 @@ export const richTitleDomPointToIndex = (
   return start + Math.min(range.toString().length, length);
 };
 
-export const readRichTitleDomSelection = (
-  root: HTMLElement,
-): RichTitleDomSelection | null =>
+export const readRichTitleDomSelection = (root: HTMLElement): RichTitleDomSelection | null =>
   readRichTitleSelection(root, richTitleDomPointToIndex);
 
 /**
@@ -187,9 +163,7 @@ export const readRichTitleDomSelection = (
  * still describes the last committed Y.Text projection at this point, so draft
  * coordinates must be derived from the live DOM instead.
  */
-export const readRichTitleDomDraftSelection = (
-  root: HTMLElement,
-): RichTitleDomSelection | null =>
+export const readRichTitleDomDraftSelection = (root: HTMLElement): RichTitleDomSelection | null =>
   readRichTitleSelection(root, richTitleDraftDomPointToIndex);
 
 export const richTitleIndexToDomPoint = (
@@ -230,12 +204,7 @@ export const restoreRichTitleDomSelection = (
   const focus = richTitleIndexToDomPoint(root, focusIndex);
   selection.removeAllRanges();
   if (typeof selection.setBaseAndExtent === "function") {
-    selection.setBaseAndExtent(
-      anchor.node,
-      anchor.offset,
-      focus.node,
-      focus.offset,
-    );
+    selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
     return;
   }
   const range = root.ownerDocument.createRange();
@@ -301,10 +270,7 @@ export function isRichTitleDomSelectionAtVerticalBoundary(
     : richSelection.end === richTitleDomLength(root);
 }
 
-export function focusRichTitleDomBoundary(
-  root: HTMLElement,
-  placement: "start" | "end",
-): void {
+export function focusRichTitleDomBoundary(root: HTMLElement, placement: "start" | "end"): void {
   root.focus();
   const index = placement === "start" ? 0 : richTitleDomLength(root);
   restoreRichTitleDomSelection(root, index, index);
@@ -326,7 +292,7 @@ export function focusRichTitleDomAtPoint(
   const position = documentWithCaret.caretPositionFromPoint?.(clientX, clientY);
   const range = position
     ? null
-    : documentWithCaret.caretRangeFromPoint?.(clientX, clientY) ?? null;
+    : (documentWithCaret.caretRangeFromPoint?.(clientX, clientY) ?? null);
   const node = position?.offsetNode ?? range?.startContainer ?? null;
   const offset = position?.offset ?? range?.startOffset ?? 0;
   const index = node ? richTitleDomPointToIndex(root, node, offset) : null;

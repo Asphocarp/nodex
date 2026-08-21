@@ -50,35 +50,33 @@ export function useImageZoomGestures(args: {
     return { clientX: center.x, clientY: center.y };
   }, []);
 
-  const setZoomAtPoint = useCallback((
-    zoomPercent: number,
-    point: ViewportPoint,
-  ) => {
-    const scroller = scrollContainerRef.current;
-    const target = zoomTargetRef.current;
-    if (!scroller || !target) {
-      onZoomPercentChange(zoomPercent);
-      return;
-    }
-    const before = target.getBoundingClientRect();
-    const anchorX = before.width > 0
-      ? clampUnitInterval((point.clientX - before.left) / before.width)
-      : 0.5;
-    const anchorY = before.height > 0
-      ? clampUnitInterval((point.clientY - before.top) / before.height)
-      : 0.5;
-    flushSync(() => onZoomPercentChange(zoomPercent));
-    if (!scroller.isConnected || !target.isConnected) return;
-    const after = target.getBoundingClientRect();
-    const correction = computeZoomAnchorCorrection({
-      anchorClientPoint: { x: point.clientX, y: point.clientY },
-      anchorRatio: { x: anchorX, y: anchorY },
-      nextTargetRect: after,
-      windowZoom: readImageEditorWindowZoom(target),
-    });
-    scroller.scrollLeft += correction.x;
-    scroller.scrollTop += correction.y;
-  }, [onZoomPercentChange]);
+  const setZoomAtPoint = useCallback(
+    (zoomPercent: number, point: ViewportPoint) => {
+      const scroller = scrollContainerRef.current;
+      const target = zoomTargetRef.current;
+      if (!scroller || !target) {
+        onZoomPercentChange(zoomPercent);
+        return;
+      }
+      const before = target.getBoundingClientRect();
+      const anchorX =
+        before.width > 0 ? clampUnitInterval((point.clientX - before.left) / before.width) : 0.5;
+      const anchorY =
+        before.height > 0 ? clampUnitInterval((point.clientY - before.top) / before.height) : 0.5;
+      flushSync(() => onZoomPercentChange(zoomPercent));
+      if (!scroller.isConnected || !target.isConnected) return;
+      const after = target.getBoundingClientRect();
+      const correction = computeZoomAnchorCorrection({
+        anchorClientPoint: { x: point.clientX, y: point.clientY },
+        anchorRatio: { x: anchorX, y: anchorY },
+        nextTargetRect: after,
+        windowZoom: readImageEditorWindowZoom(target),
+      });
+      scroller.scrollLeft += correction.x;
+      scroller.scrollTop += correction.y;
+    },
+    [onZoomPercentChange],
+  );
 
   useEffect(() => {
     if (!scrollContainer) return undefined;
@@ -89,9 +87,10 @@ export function useImageZoomGestures(args: {
       event.stopPropagation();
       const next = computeWheelZoomPercent(zoomPercent, event.deltaY);
       if (next === zoomPercent) return;
-      const point = event.clientX === 0 && event.clientY === 0
-        ? lastPointerRef.current ?? viewportCenter(scrollContainer)
-        : { clientX: event.clientX, clientY: event.clientY };
+      const point =
+        event.clientX === 0 && event.clientY === 0
+          ? (lastPointerRef.current ?? viewportCenter(scrollContainer))
+          : { clientX: event.clientX, clientY: event.clientY };
       setZoomAtPoint(next, point);
     };
 
@@ -173,9 +172,8 @@ export function useImageZoomGestures(args: {
     },
     handleClickCapture(event: ReactMouseEvent<HTMLDivElement>) {
       if (
-        lastPinchEndAtRef.current !== 0
-        && event.timeStamp - lastPinchEndAtRef.current
-          < IMAGE_PINCH_CLICK_SUPPRESSION_MS
+        lastPinchEndAtRef.current !== 0 &&
+        event.timeStamp - lastPinchEndAtRef.current < IMAGE_PINCH_CLICK_SUPPRESSION_MS
       ) {
         event.preventDefault();
         event.stopPropagation();

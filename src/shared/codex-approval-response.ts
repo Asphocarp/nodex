@@ -14,12 +14,10 @@ export type CodexApprovalResponse =
   | { readonly kind: "command"; readonly decision: CodexCommandApprovalDecision }
   | { readonly kind: "file"; readonly decision: CodexFileApprovalDecision };
 
-const CommandDecisionSchema = createGeneratedCodexSchema<CodexCommandApprovalDecision>(
-  commandDecisionJsonSchema,
-);
-const FileDecisionSchema = createGeneratedCodexSchema<CodexFileApprovalDecision>(
-  fileDecisionJsonSchema,
-);
+const CommandDecisionSchema =
+  createGeneratedCodexSchema<CodexCommandApprovalDecision>(commandDecisionJsonSchema);
+const FileDecisionSchema =
+  createGeneratedCodexSchema<CodexFileApprovalDecision>(fileDecisionJsonSchema);
 
 export const CodexApprovalResponseSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("command"), decision: CommandDecisionSchema }),

@@ -33,9 +33,7 @@ describe("Data Source Property option presentation", () => {
 
   test("maps only known colors and falls back to neutral tokens", () => {
     expect(propertyOptionColorClassName("green")).toContain("--green-bg");
-    expect(propertyOptionColorClassName("arbitrary-tailwind")).toBe(
-      propertyOptionColorClassName(),
-    );
+    expect(propertyOptionColorClassName("arbitrary-tailwind")).toBe(propertyOptionColorClassName());
   });
 
   test("chooses a stable allowlisted color for atomic option creation", () => {

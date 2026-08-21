@@ -1,18 +1,8 @@
 import { Check } from "@/components/shared/icons/generic-icons";
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { ActivitySpinnerIcon, PlusIcon, SearchIcon } from "@/components/shared/icons";
 import { NodexDropdownButtonTrigger } from "@/components/ui/dropdown";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import {
   type ProjectAgentDockChatIndicator,
   type ProjectAgentDockModel,
@@ -37,9 +27,7 @@ function indicatorLabel(indicator: ProjectAgentDockChatIndicator): string | null
 }
 
 function targetRowAccessibleLabel(row: ProjectAgentDockTargetRow): string {
-  const status = row.kind === "session"
-    ? indicatorLabel(row.indicator)
-    : null;
+  const status = row.kind === "session" ? indicatorLabel(row.indicator) : null;
   return [status, row.label, row.preview]
     .filter((value): value is string => Boolean(value))
     .join(", ");
@@ -60,10 +48,7 @@ function ProjectAgentDockChatIndicatorView({
       aria-hidden={label ? undefined : true}
     >
       {indicator === "running" ? (
-        <ActivitySpinnerIcon
-          className="icon-2xs shrink-0"
-          animationDurationMs={2_000}
-        />
+        <ActivitySpinnerIcon className="icon-2xs shrink-0" animationDurationMs={2_000} />
       ) : (
         <span
           className={cn(
@@ -93,12 +78,9 @@ export function ProjectAgentDockTargetSelector({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listboxId = useId();
   const activeRow = model.rows[activeIndex] ?? model.rows[0] ?? null;
-  const activeDescendantId = activeRow
-    ? `${listboxId}-option-${activeIndex}`
-    : undefined;
-  const triggerIndicatorLabel = model.trigger.kind === "session"
-    ? indicatorLabel(model.trigger.indicator)
-    : null;
+  const activeDescendantId = activeRow ? `${listboxId}-option-${activeIndex}` : undefined;
+  const triggerIndicatorLabel =
+    model.trigger.kind === "session" ? indicatorLabel(model.trigger.indicator) : null;
 
   useEffect(() => {
     if (!open) return;
@@ -176,13 +158,9 @@ export function ProjectAgentDockTargetSelector({
               className="size-3.5 shrink-0 text-token-description-foreground"
             />
           ) : (
-            <ProjectAgentDockChatIndicatorView
-              indicator={model.trigger.indicator}
-            />
+            <ProjectAgentDockChatIndicatorView indicator={model.trigger.indicator} />
           )}
-          <span className="min-w-0 truncate font-normal">
-            {model.trigger.label}
-          </span>
+          <span className="min-w-0 truncate font-normal">{model.trigger.label}</span>
         </NodexDropdownButtonTrigger>
       </NodexPopoverTrigger>
       <NodexPopoverContent
@@ -194,7 +172,10 @@ export function ProjectAgentDockTargetSelector({
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         <div className="flex h-8 items-center gap-1.5 px-1.5">
-          <SearchIcon className="size-3.5 shrink-0 text-token-description-foreground" aria-hidden="true" />
+          <SearchIcon
+            className="size-3.5 shrink-0 text-token-description-foreground"
+            aria-hidden="true"
+          />
           <input
             ref={inputRef}
             role="combobox"
@@ -235,11 +216,12 @@ export function ProjectAgentDockTargetSelector({
               onClick={() => accept(row)}
             >
               {row.kind === "new" ? (
-                <PlusIcon className="size-3.5 shrink-0 text-token-description-foreground" aria-hidden="true" />
-              ) : (
-                <ProjectAgentDockChatIndicatorView
-                  indicator={row.indicator}
+                <PlusIcon
+                  className="size-3.5 shrink-0 text-token-description-foreground"
+                  aria-hidden="true"
                 />
+              ) : (
+                <ProjectAgentDockChatIndicatorView indicator={row.indicator} />
               )}
               <span className="min-w-0 flex-1">
                 <span className="flex min-w-0 items-center">
@@ -255,10 +237,7 @@ export function ProjectAgentDockTargetSelector({
               </span>
               <Check
                 aria-hidden="true"
-                className={cn(
-                  "size-3.5 shrink-0",
-                  row.selected ? "opacity-100" : "opacity-0",
-                )}
+                className={cn("size-3.5 shrink-0", row.selected ? "opacity-100" : "opacity-0")}
               />
             </button>
           ))}

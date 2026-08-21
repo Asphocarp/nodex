@@ -43,10 +43,12 @@ const withoutProperty = (source: PageDetail, propertyId: string): PageDetail => 
 describe("Page Stage properties", () => {
   test("reads workflow Status for compact Page presentation", () => {
     expect(readPageDetailWorkflowStatus(detail())).toBe("build");
-    expect(readPageDetailWorkflowStatus({
-      ...detail(),
-      dataSourceContext: { kind: "standalone" },
-    })).toBeNull();
+    expect(
+      readPageDetailWorkflowStatus({
+        ...detail(),
+        dataSourceContext: { kind: "standalone" },
+      }),
+    ).toBeNull();
     expect(readPageDetailWorkflowStatus(null)).toBeNull();
   });
 
@@ -54,20 +56,17 @@ describe("Page Stage properties", () => {
     "keeps the remaining Property rows when %s is removed",
     (removedPropertyId) => {
       const source = detail();
-      const originalPropertyCount = source.dataSourceContext.kind === "member"
-        ? source.dataSourceContext.properties.length
-        : 0;
-      const model = projectPageDetailToStageModel(
-        withoutProperty(source, removedPropertyId),
-      );
+      const originalPropertyCount =
+        source.dataSourceContext.kind === "member" ? source.dataSourceContext.properties.length : 0;
+      const model = projectPageDetailToStageModel(withoutProperty(source, removedPropertyId));
       expect(model.databaseContext.kind).toBe("member");
       if (model.databaseContext.kind !== "member") return;
-      expect(model.databaseContext.properties).toHaveLength(
-        originalPropertyCount - 1,
-      );
-      expect(model.databaseContext.properties.some(
-        (item) => item.property.propertyId === removedPropertyId,
-      )).toBe(false);
+      expect(model.databaseContext.properties).toHaveLength(originalPropertyCount - 1);
+      expect(
+        model.databaseContext.properties.some(
+          (item) => item.property.propertyId === removedPropertyId,
+        ),
+      ).toBe(false);
       expect(model.databaseContext.semanticProperties.status?.value).toBe("build");
     },
   );
@@ -117,17 +116,15 @@ describe("Page Stage properties", () => {
   });
 
   test("degrades a partial schedule pair to ordinary independent rows", () => {
-    const model = projectPageDetailToStageModel(
-      withoutProperty(detail(), "scheduled_end"),
-    );
+    const model = projectPageDetailToStageModel(withoutProperty(detail(), "scheduled_end"));
     if (model.databaseContext.kind !== "member") return;
-    expect(hasPageStageScheduleCapability(
-      model.databaseContext.semanticProperties,
-    )).toBe(false);
-    expect(pageStageSectionProperties(
-      model.databaseContext.properties,
-      model.databaseContext.semanticProperties,
-    ).map((item) => item.property.propertyId)).toContain("scheduled_start");
+    expect(hasPageStageScheduleCapability(model.databaseContext.semanticProperties)).toBe(false);
+    expect(
+      pageStageSectionProperties(
+        model.databaseContext.properties,
+        model.databaseContext.semanticProperties,
+      ).map((item) => item.property.propertyId),
+    ).toContain("scheduled_start");
   });
 
   test("degrades a corrupt schedule pair so the local error remains visible", () => {
@@ -149,16 +146,13 @@ describe("Page Stage properties", () => {
       },
     });
     if (model.databaseContext.kind !== "member") return;
-    expect(hasPageStageScheduleCapability(
-      model.databaseContext.semanticProperties,
-    )).toBe(false);
-    expect(pageStageSectionProperties(
-      model.databaseContext.properties,
-      model.databaseContext.semanticProperties,
-    ).map((item) => item.property.propertyId)).toEqual(expect.arrayContaining([
-      "scheduled_start",
-      "scheduled_end",
-    ]));
+    expect(hasPageStageScheduleCapability(model.databaseContext.semanticProperties)).toBe(false);
+    expect(
+      pageStageSectionProperties(
+        model.databaseContext.properties,
+        model.databaseContext.semanticProperties,
+      ).map((item) => item.property.propertyId),
+    ).toEqual(expect.arrayContaining(["scheduled_start", "scheduled_end"]));
   });
 
   test("isolates a corrupt value to its Property item", () => {
@@ -180,9 +174,10 @@ describe("Page Stage properties", () => {
       },
     });
     if (model.databaseContext.kind !== "member") return;
-    expect(model.databaseContext.properties.find(
-      (item) => item.property.propertyId === "due_date",
-    )?.error).toBe("Expected an ISO date");
+    expect(
+      model.databaseContext.properties.find((item) => item.property.propertyId === "due_date")
+        ?.error,
+    ).toBe("Expected an ISO date");
     expect(model.databaseContext.semanticProperties.dueDate?.value).toBeNull();
     expect(model.databaseContext.semanticProperties.status?.value).toBe("build");
   });
@@ -201,7 +196,7 @@ describe("Page Stage properties", () => {
                 ...testPropertySemantics("text"),
                 valueType: "text" as const,
               }
-            : property
+            : property,
         ),
         values: {
           ...source.dataSourceContext.values,

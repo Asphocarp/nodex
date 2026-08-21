@@ -20,10 +20,9 @@ import type { PresentedDataSourcePropertyOption } from "@/lib/data-source-proper
 import type { DataSourcePropertyOptionRegistryState } from "./data-source-property-editor-binding";
 import type { DatabasePropertyValuePresentation } from "./property-value-chip";
 
-const SEMANTIC_OPTION_ORDERS: Readonly<Record<
-  "status" | "priority" | "estimate",
-  readonly string[]
->> = {
+const SEMANTIC_OPTION_ORDERS: Readonly<
+  Record<"status" | "priority" | "estimate", readonly string[]>
+> = {
   status: WORKFLOW_STATUS_ORDER,
   priority: BOARD_PRIORITY_OPTIONS.map((option) => option.value),
   estimate: ["xs", "s", "m", "l", "xl"],
@@ -33,15 +32,13 @@ export const orderSemanticPropertyOptions = (
   kind: "status" | "priority" | "estimate",
   options: readonly DatabasePropertyOption[],
 ): readonly DatabasePropertyOption[] => {
-  const rank = new Map(
-    SEMANTIC_OPTION_ORDERS[kind].map((optionId, index) => [optionId, index]),
-  );
+  const rank = new Map(SEMANTIC_OPTION_ORDERS[kind].map((optionId, index) => [optionId, index]));
   return options
     .map((option, index) => ({ option, index }))
-    .sort((left, right) =>
-      (rank.get(left.option.id) ?? Number.POSITIVE_INFINITY)
-      - (rank.get(right.option.id) ?? Number.POSITIVE_INFINITY)
-      || left.index - right.index
+    .sort(
+      (left, right) =>
+        (rank.get(left.option.id) ?? Number.POSITIVE_INFINITY) -
+          (rank.get(right.option.id) ?? Number.POSITIVE_INFINITY) || left.index - right.index,
     )
     .map(({ option }) => option);
 };
@@ -70,12 +67,9 @@ export const presentSemanticPropertyOptions = (
   selectedId: string | null,
   registryState: DataSourcePropertyOptionRegistryState,
 ): readonly DatabasePropertyOption[] => {
-  const canonicalOptions = kind === "priority"
-    ? options.filter((option) => isPriority(option.id))
-    : options;
-  const canonicalSelectedId = kind === "priority" && !isPriority(selectedId)
-    ? null
-    : selectedId;
+  const canonicalOptions =
+    kind === "priority" ? options.filter((option) => isPriority(option.id)) : options;
+  const canonicalSelectedId = kind === "priority" && !isPriority(selectedId) ? null : selectedId;
   if (registryState === "ready" || !canonicalSelectedId) {
     return orderSemanticPropertyOptions(kind, canonicalOptions);
   }
@@ -172,9 +166,7 @@ export function SemanticSelectPropertyEditor({
   readonly onRequestMoreOptions?: () => void;
   readonly onChange: (value: string | null) => void;
 }) {
-  const canonicalSelectedId = kind === "priority" && !isPriority(selectedId)
-    ? null
-    : selectedId;
+  const canonicalSelectedId = kind === "priority" && !isPriority(selectedId) ? null : selectedId;
   const presentedOptions = presentSemanticPropertyOptions(
     kind,
     options,
@@ -182,34 +174,33 @@ export function SemanticSelectPropertyEditor({
     registryState,
   );
   const selectedOption = presentedOptions.find((option) => option.id === canonicalSelectedId);
-  const boardPriority = presentation === "board"
-    && kind === "priority"
-    && isPriority(canonicalSelectedId);
-  const boardStatus = presentation === "board"
-    && kind === "status"
-    && isWorkflowStatus(canonicalSelectedId);
-  const closedTriggerPrefix = boardPriority
-    ? (
-        <PriorityValueIcon
-          priority={canonicalSelectedId}
-          className="size-3.5 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]"
-        />
-      )
-    : boardStatus
-      ? (
-          <StatusIcon
-            statusId={canonicalSelectedId}
-            className="size-3.5 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]"
-          />
-        )
-      : triggerPrefix;
+  const boardPriority =
+    presentation === "board" && kind === "priority" && isPriority(canonicalSelectedId);
+  const boardStatus =
+    presentation === "board" && kind === "status" && isWorkflowStatus(canonicalSelectedId);
+  const closedTriggerPrefix = boardPriority ? (
+    <PriorityValueIcon
+      priority={canonicalSelectedId}
+      className="size-3.5 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]"
+    />
+  ) : boardStatus ? (
+    <StatusIcon
+      statusId={canonicalSelectedId}
+      className="size-3.5 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]"
+    />
+  ) : (
+    triggerPrefix
+  );
   return (
     <PropertyOptionPicker
       host={host}
       label={label}
-      triggerAriaLabel={triggerAriaLabel ?? (boardPriority
-        ? `Edit ${label}: ${selectedOption?.name ?? canonicalSelectedId}`
-        : undefined)}
+      triggerAriaLabel={
+        triggerAriaLabel ??
+        (boardPriority
+          ? `Edit ${label}: ${selectedOption?.name ?? canonicalSelectedId}`
+          : undefined)
+      }
       mode="single"
       options={presentedOptions}
       selectedIds={canonicalSelectedId ? [canonicalSelectedId] : []}

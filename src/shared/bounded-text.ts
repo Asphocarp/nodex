@@ -27,9 +27,7 @@ export function appendTextTail(input: {
   }
 
   const currentBudget = maxChars - delta.length;
-  const boundedCurrent = current.length > currentBudget
-    ? current.slice(-currentBudget)
-    : current;
+  const boundedCurrent = current.length > currentBudget ? current.slice(-currentBudget) : current;
 
   return {
     text: boundedCurrent + delta,

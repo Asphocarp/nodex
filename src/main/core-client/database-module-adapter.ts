@@ -61,13 +61,8 @@ export interface CoreDatabaseModuleAdapterInput {
 }
 
 export interface CoreDatabaseModuleAdapter {
-  read(
-    request: DatabaseModuleReadRequestV2,
-  ): Promise<DatabaseModuleReadResultV2>;
-  readCore(
-    read: DatabaseRead,
-    minimumCommitSeq?: number,
-  ): Promise<DatabaseReadSnapshot>;
+  read(request: DatabaseModuleReadRequestV2): Promise<DatabaseModuleReadResultV2>;
+  readCore(read: DatabaseRead, minimumCommitSeq?: number): Promise<DatabaseReadSnapshot>;
   apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
 }
 
@@ -78,13 +73,8 @@ export interface CoreLibraryDatabaseModuleAdapterInput {
 }
 
 export interface CoreLibraryDatabaseModuleAdapter {
-  readCore(
-    read: DatabaseRead,
-    minimumCommitSeq?: number,
-  ): Promise<DatabaseReadSnapshot>;
-  read(
-    request: LibraryDatabaseModuleReadRequestV2,
-  ): Promise<LibraryDatabaseModuleReadResultV2>;
+  readCore(read: DatabaseRead, minimumCommitSeq?: number): Promise<DatabaseReadSnapshot>;
+  read(request: LibraryDatabaseModuleReadRequestV2): Promise<LibraryDatabaseModuleReadResultV2>;
   apply(request: LibraryDatabaseApplyV2): Promise<LibraryDatabaseApplyResultV2>;
 }
 
@@ -102,9 +92,10 @@ const toCoreRead = (read: DatabaseReadV2): DatabaseRead => {
     case "database":
       return {
         kind: "database",
-        target: read.target.kind === "project_default"
-          ? { kind: "project_default" }
-          : { kind: "database", database_id: read.target.databaseId },
+        target:
+          read.target.kind === "project_default"
+            ? { kind: "project_default" }
+            : { kind: "database", database_id: read.target.databaseId },
       };
     case "page_key_prefix_preview":
       return {
@@ -181,9 +172,7 @@ const readDatabaseSnapshotAtLeast = async (
       setTimeout(resolve, MINIMUM_COMMIT_READ_DELAY_MS);
     });
   }
-  throw new Error(
-    `Core Database read did not reach local commit ${minimumCommitSeq}`,
-  );
+  throw new Error(`Core Database read did not reach local commit ${minimumCommitSeq}`);
 };
 
 export const mapCoreDatabaseModuleError = (
@@ -228,9 +217,7 @@ export const mapCoreDatabaseModuleError = (
   };
 };
 
-const failure = (
-  error: unknown,
-): Extract<DatabaseModuleReadResultV2, { readonly ok: false }> => {
+const failure = (error: unknown): Extract<DatabaseModuleReadResultV2, { readonly ok: false }> => {
   if (error instanceof CoreModuleResponseError) {
     return { ok: false, error: mapCoreDatabaseModuleError(error.coreError) };
   }
@@ -268,10 +255,7 @@ const applyFailure = (
 type CoreDatabaseIntent = DatabaseIntent[number];
 
 const toCoreTransferTarget = (
-  target: Extract<
-    DatabaseApplyOperationV2,
-    { readonly kind: "transfer_page" }
-  >["target"],
+  target: Extract<DatabaseApplyOperationV2, { readonly kind: "transfer_page" }>["target"],
 ): Extract<CoreDatabaseIntent, { readonly kind: "transfer_page" }>["target"] => {
   if (target.kind === "library") {
     return { kind: target.kind, library_id: target.libraryId };
@@ -284,7 +268,10 @@ const toCoreTransferTarget = (
 
 const toCorePropertyValueInput = (
   value: DatabasePropertyValueInputV2,
-): Extract<CoreDatabaseIntent, { readonly kind: "edit_property_values" }>["edits"][number]["edit"] extends infer Edit
+): Extract<
+  CoreDatabaseIntent,
+  { readonly kind: "edit_property_values" }
+>["edits"][number]["edit"] extends infer Edit
   ? Edit extends { readonly kind: "replace"; readonly value: infer Input }
     ? Input
     : never
@@ -322,9 +309,7 @@ const toCoreDatabaseListMoveUndoRecipe = (
   })),
 });
 
-export const toCoreDatabaseIntent = (
-  operation: DatabaseApplyOperationV2,
-): CoreDatabaseIntent => {
+export const toCoreDatabaseIntent = (operation: DatabaseApplyOperationV2): CoreDatabaseIntent => {
   switch (operation.kind) {
     case "rename_page_key_prefix":
       return {
@@ -341,13 +326,14 @@ export const toCoreDatabaseIntent = (
         expected_data_source_revision: operation.expectedDataSourceRevision,
         expected_property_revision: operation.expectedPropertyRevision,
         name: operation.name,
-        schema: operation.schema.kind === "relation"
-          ? {
-              kind: "relation",
-              target_data_source_id: operation.schema.targetDataSourceId,
-              cardinality: operation.schema.cardinality,
-            }
-          : operation.schema,
+        schema:
+          operation.schema.kind === "relation"
+            ? {
+                kind: "relation",
+                target_data_source_id: operation.schema.targetDataSourceId,
+                cardinality: operation.schema.cardinality,
+              }
+            : operation.schema,
         before_property_id: operation.beforePropertyId ?? null,
       };
     case "delete_property":
@@ -385,46 +371,48 @@ export const toCoreDatabaseIntent = (
             data_source_id: mutation.dataSourceId,
             property_id: mutation.propertyId,
           },
-          edit: mutation.edit.kind === "replace"
-            ? {
-                kind: "replace" as const,
-                expected_value_revision: mutation.edit.expectedValueRevision,
-                value: (() => {
-                  const value = mutation.edit.value;
-                  if (value.kind === "select") {
-                    return { kind: value.kind, option_id: value.optionId };
-                  }
-                  if (value.kind === "multi_select") {
-                    return { kind: value.kind, option_ids: value.optionIds };
-                  }
-                  return value;
-                })(),
-              }
-            : mutation.edit.kind === "replace_one_relation"
+          edit:
+            mutation.edit.kind === "replace"
               ? {
-                  kind: "replace_one_relation" as const,
+                  kind: "replace" as const,
                   expected_value_revision: mutation.edit.expectedValueRevision,
-                  target_page_id: mutation.edit.targetPageId ?? null,
+                  value: (() => {
+                    const value = mutation.edit.value;
+                    if (value.kind === "select") {
+                      return { kind: value.kind, option_id: value.optionId };
+                    }
+                    if (value.kind === "multi_select") {
+                      return { kind: value.kind, option_ids: value.optionIds };
+                    }
+                    return value;
+                  })(),
                 }
-            : mutation.edit.kind === "clear_many_relation"
-              ? {
-                  kind: "clear_many_relation" as const,
-                  expected_value_revision: mutation.edit.expectedValueRevision,
-                }
-            : {
-                kind: "patch_set" as const,
-                delta: mutation.edit.delta.kind === "multi_select"
+              : mutation.edit.kind === "replace_one_relation"
+                ? {
+                    kind: "replace_one_relation" as const,
+                    expected_value_revision: mutation.edit.expectedValueRevision,
+                    target_page_id: mutation.edit.targetPageId ?? null,
+                  }
+                : mutation.edit.kind === "clear_many_relation"
                   ? {
-                      kind: "multi_select" as const,
-                      add_option_ids: mutation.edit.delta.addOptionIds,
-                      remove_option_ids: mutation.edit.delta.removeOptionIds,
+                      kind: "clear_many_relation" as const,
+                      expected_value_revision: mutation.edit.expectedValueRevision,
                     }
                   : {
-                      kind: "relation" as const,
-                      add_page_ids: mutation.edit.delta.addPageIds,
-                      remove_edge_ids: mutation.edit.delta.removeEdgeIds,
+                      kind: "patch_set" as const,
+                      delta:
+                        mutation.edit.delta.kind === "multi_select"
+                          ? {
+                              kind: "multi_select" as const,
+                              add_option_ids: mutation.edit.delta.addOptionIds,
+                              remove_option_ids: mutation.edit.delta.removeOptionIds,
+                            }
+                          : {
+                              kind: "relation" as const,
+                              add_page_ids: mutation.edit.delta.addPageIds,
+                              remove_edge_ids: mutation.edit.delta.removeEdgeIds,
+                            },
                     },
-              },
         })),
       };
     case "transfer_page":
@@ -432,8 +420,7 @@ export const toCoreDatabaseIntent = (
         kind: operation.kind,
         page_id: operation.pageId,
         expected_parent_revision: operation.expectedParentRevision,
-        expected_active_membership_revision:
-          operation.expectedActiveMembershipRevision,
+        expected_active_membership_revision: operation.expectedActiveMembershipRevision,
         target: toCoreTransferTarget(operation.target),
       };
     case "put_view":
@@ -503,27 +490,29 @@ export const toCoreDatabaseIntent = (
           effect_hash: operation.expectedProjection.effectHash,
         },
         initiator_occurrence_key: operation.initiatorOccurrenceKey,
-        selection: operation.selection.kind === "explicit"
-          ? {
-              kind: operation.selection.kind,
-              occurrence_keys: operation.selection.occurrenceKeys,
-            }
-          : {
-              kind: operation.selection.kind,
-              excluded_occurrence_keys: operation.selection.excludedOccurrenceKeys,
-            },
-        target: operation.target.kind === "page"
-          ? {
-              kind: operation.target.kind,
-              occurrence_key: operation.target.occurrenceKey,
-              edge: operation.target.edge,
-            }
-          : operation.target.kind === "group"
+        selection:
+          operation.selection.kind === "explicit"
+            ? {
+                kind: operation.selection.kind,
+                occurrence_keys: operation.selection.occurrenceKeys,
+              }
+            : {
+                kind: operation.selection.kind,
+                excluded_occurrence_keys: operation.selection.excludedOccurrenceKeys,
+              },
+        target:
+          operation.target.kind === "page"
             ? {
                 kind: operation.target.kind,
                 occurrence_key: operation.target.occurrenceKey,
+                edge: operation.target.edge,
               }
-            : { kind: operation.target.kind },
+            : operation.target.kind === "group"
+              ? {
+                  kind: operation.target.kind,
+                  occurrence_key: operation.target.occurrenceKey,
+                }
+              : { kind: operation.target.kind },
       };
     case "undo_list_occurrence_move":
       return {
@@ -563,14 +552,11 @@ const validateCoreCommit = (
   const semanticCommitSeq = applyResultCursor(committed);
   const delivery = applyResultDelivery(committed);
   if (
-    committed.outcome.operation_count !== request.operations.length
-    || committed.receipt.commit_seq !== semanticCommitSeq
-    || (delivery !== undefined
-      && delivery.manifest.identity.commit_seq !== semanticCommitSeq)
-    || committed.receipt.operation_kinds.length !== operationKinds.length
-    || committed.receipt.operation_kinds.some((kind, index) =>
-      kind !== operationKinds[index]
-    )
+    committed.outcome.operation_count !== request.operations.length ||
+    committed.receipt.commit_seq !== semanticCommitSeq ||
+    (delivery !== undefined && delivery.manifest.identity.commit_seq !== semanticCommitSeq) ||
+    committed.receipt.operation_kinds.length !== operationKinds.length ||
+    committed.receipt.operation_kinds.some((kind, index) => kind !== operationKinds[index])
   ) {
     throw new Error("Core Database receipt evidence is inconsistent");
   }
@@ -602,7 +588,7 @@ const fromCorePropertyValueInput = (
     return {
       kind: value.kind,
       optionIds: value.option_ids.map((optionId) =>
-        parseDataSourceOptionId({ propertyId, value: optionId })
+        parseDataSourceOptionId({ propertyId, value: optionId }),
       ),
     };
   }
@@ -709,34 +695,21 @@ const readAllCoreWindow = async <Item>(
   return items;
 };
 
-const requireRecord = (
-  value: unknown,
-  label: string,
-): Record<string, unknown> => {
+const requireRecord = (value: unknown, label: string): Record<string, unknown> => {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
   throw new Error(`${label} is not an object`);
 };
 
-const requireString = (
-  value: Record<string, unknown>,
-  key: string,
-  label: string,
-): string => {
+const requireString = (value: Record<string, unknown>, key: string, label: string): string => {
   const result = value[key];
   if (typeof result === "string" && result.length > 0) return result;
   throw new Error(`${label} has no ${key}`);
 };
 
-const requireRelationCardinality = (
-  value: Readonly<Record<string, unknown>>,
-): "one" | "many" => {
-  const cardinality = requireString(
-    value,
-    "cardinality",
-    "Core Relation schema",
-  );
+const requireRelationCardinality = (value: Readonly<Record<string, unknown>>): "one" | "many" => {
+  const cardinality = requireString(value, "cardinality", "Core Relation schema");
   if (cardinality === "one" || cardinality === "many") return cardinality;
   throw new Error("Core Relation schema has invalid cardinality");
 };
@@ -752,19 +725,11 @@ type CoreDataSourceDescriptor = Extract<
   { readonly kind: "data_source" }
 >["value"];
 type CoreDataSourceRecord = CoreDataSourceDescriptor["data_source"];
-type CoreViewRecord = Extract<
-  CoreDatabaseReadValue,
-  { readonly kind: "view" }
->["value"];
+type CoreViewRecord = Extract<CoreDatabaseReadValue, { readonly kind: "view" }>["value"];
 
-const databaseLifecycle = (
-  lifecycle: string,
-): "active" | "archived" | "deleted" => {
-  if (
-    lifecycle === "active"
-    || lifecycle === "archived"
-    || lifecycle === "deleted"
-  ) return lifecycle;
+const databaseLifecycle = (lifecycle: string): "active" | "archived" | "deleted" => {
+  if (lifecycle === "active" || lifecycle === "archived" || lifecycle === "deleted")
+    return lifecycle;
   throw new Error(`Core Database lifecycle is invalid: ${lifecycle}`);
 };
 
@@ -780,9 +745,8 @@ const mapCoreDatabaseRecord = (
   libraryId: record.library_id,
   name: record.name,
   lifecycle: databaseLifecycle(record.lifecycle),
-  defaultViewId: record.default_view_id == null
-    ? null
-    : parseDatabaseViewId(record.default_view_id),
+  defaultViewId:
+    record.default_view_id == null ? null : parseDatabaseViewId(record.default_view_id),
   accessRevision: record.access_revision,
   metadataRevision: record.metadata_revision,
   createdAt: record.created_at,
@@ -826,46 +790,46 @@ const mapCoreViewRecord = (
   updatedAt: record.updated_at,
 });
 
-export const mapCorePropertyDescriptor = (
-  input: unknown,
-): DataSourcePropertyRecordV2 => {
+export const mapCorePropertyDescriptor = (input: unknown): DataSourcePropertyRecordV2 => {
   const property = requireRecord(input, "Core Property descriptor");
   const schema = requireRecord(property.schema, "Core Property schema");
   const schemaKind = requireString(schema, "kind", "Core Property schema");
-  if (![
-    "text",
-    "number",
-    "checkbox",
-    "select",
-    "multi_select",
-    "date",
-    "datetime",
-    "relation",
-  ].includes(schemaKind)) {
+  if (
+    ![
+      "text",
+      "number",
+      "checkbox",
+      "select",
+      "multi_select",
+      "date",
+      "datetime",
+      "relation",
+    ].includes(schemaKind)
+  ) {
     throw new Error("Core Property schema is unsupported");
   }
-  const capabilities = requireRecord(
-    property.capabilities,
-    "Core Property capabilities",
-  );
+  const capabilities = requireRecord(property.capabilities, "Core Property capabilities");
   return parseDataSourcePropertyRecordV2({
     propertyId: requireString(property, "property_id", "Core Property"),
     dataSourceId: requireString(property, "data_source_id", "Core Property"),
     name: requireString(property, "name", "Core Property"),
-    schema: schemaKind === "relation"
-      ? {
-          kind: "relation",
-          targetDataSourceId: requireString(
-            schema,
-            "target_data_source_id",
-            "Core Relation schema",
-          ),
-          cardinality: requireRelationCardinality(schema),
-        }
-      : { kind: schemaKind },
+    schema:
+      schemaKind === "relation"
+        ? {
+            kind: "relation",
+            targetDataSourceId: requireString(
+              schema,
+              "target_data_source_id",
+              "Core Relation schema",
+            ),
+            cardinality: requireRelationCardinality(schema),
+          }
+        : { kind: schemaKind },
     capabilities: {
       filterOperators: Array.isArray(capabilities.filter_operators)
-        ? capabilities.filter_operators as NonNullable<DataSourcePropertyRecordV2["capabilities"]>["filterOperators"]
+        ? (capabilities.filter_operators as NonNullable<
+            DataSourcePropertyRecordV2["capabilities"]
+          >["filterOperators"])
         : [],
       sortable: capabilities.sortable === true,
       groupable: capabilities.groupable === true,
@@ -874,7 +838,11 @@ export const mapCorePropertyDescriptor = (
     config: {},
     optionCount: Number(property.option_count),
     rankKey: requireString(property, "rank_key", "Core Property"),
-    lifecycle: requireString(property, "lifecycle", "Core Property") as DataSourcePropertyRecordV2["lifecycle"],
+    lifecycle: requireString(
+      property,
+      "lifecycle",
+      "Core Property",
+    ) as DataSourcePropertyRecordV2["lifecycle"],
     revision: Number(property.revision),
     createdAt: requireString(property, "created_at", "Core Property"),
     updatedAt: requireString(property, "updated_at", "Core Property"),
@@ -1054,16 +1022,18 @@ const hydrateCoreReadValue = async (
       value: {
         valueRevision: value.value.value_revision,
         totalCount: value.value.total_count,
-        targets: value.value.targets.items.map((target) => target.kind === "restricted"
-          ? { kind: "restricted" as const, edgeId: target.edge_id }
-          : {
-              kind: "visible" as const,
-              edgeId: target.edge_id,
-              pageId: target.page_id,
-              title: target.title,
-              lifecycle: target.lifecycle,
-              membershipState: target.membership_state,
-            }),
+        targets: value.value.targets.items.map((target) =>
+          target.kind === "restricted"
+            ? { kind: "restricted" as const, edgeId: target.edge_id }
+            : {
+                kind: "visible" as const,
+                edgeId: target.edge_id,
+                pageId: target.page_id,
+                title: target.title,
+                lifecycle: target.lifecycle,
+                membershipState: target.membership_state,
+              },
+        ),
         nextCursor: value.value.targets.next_cursor ?? null,
         projectionRevision: value.value.targets.authority.projection_revision,
       },
@@ -1140,19 +1110,12 @@ export const createCoreDatabaseModuleAdapter = (
   };
 
   return {
-    readCore: (read, minimumCommitSeq) => readDatabaseSnapshotAtLeast(
-      input.client,
-      read,
-      input.storeEpoch,
-      minimumCommitSeq,
-    ),
+    readCore: (read, minimumCommitSeq) =>
+      readDatabaseSnapshotAtLeast(input.client, read, input.storeEpoch, minimumCommitSeq),
     read: async (request) => {
       const projectError = assertBoundProject(request.projectId);
       if (projectError) return { ok: false, error: projectError };
-      return await readCore(
-        toCoreRead(request.read),
-        request.read.minimumCommitSeq,
-      );
+      return await readCore(toCoreRead(request.read), request.read.minimumCommitSeq);
     },
     apply: async (request) => {
       const projectError = assertBoundProject(request.projectId);
@@ -1203,12 +1166,8 @@ export const createCoreDatabaseModuleAdapter = (
 export const createCoreLibraryDatabaseModuleAdapter = (
   input: CoreLibraryDatabaseModuleAdapterInput,
 ): CoreLibraryDatabaseModuleAdapter => ({
-  readCore: (read, minimumCommitSeq) => readDatabaseSnapshotAtLeast(
-    input.client,
-    read,
-    input.storeEpoch,
-    minimumCommitSeq,
-  ),
+  readCore: (read, minimumCommitSeq) =>
+    readDatabaseSnapshotAtLeast(input.client, read, input.storeEpoch, minimumCommitSeq),
   read: async (request) => {
     try {
       const snapshot = await readDatabaseSnapshotAtLeast(

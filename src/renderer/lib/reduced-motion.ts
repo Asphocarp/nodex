@@ -18,9 +18,7 @@ export function readReducedMotionPreference(): ReducedMotionPreference {
   if (typeof localStorage === "undefined") return "system";
 
   try {
-    return normalizeReducedMotionPreference(
-      localStorage.getItem(REDUCED_MOTION_STORAGE_KEY),
-    );
+    return normalizeReducedMotionPreference(localStorage.getItem(REDUCED_MOTION_STORAGE_KEY));
   } catch {
     return "system";
   }

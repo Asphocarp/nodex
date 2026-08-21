@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type {
-  CodexProjectlessThreadCwdInput,
-  CodexProjectlessWorkspace,
-} from "../../shared/types";
+import type { CodexProjectlessThreadCwdInput, CodexProjectlessWorkspace } from "../../shared/types";
 
 export type { CodexProjectlessWorkspace } from "../../shared/types";
 
@@ -46,9 +43,7 @@ const nodeProjectlessWorkspaceFileSystem: CodexProjectlessWorkspaceFileSystem = 
   },
 };
 
-export function resolveCodexProjectlessWorkspaceRoot(
-  homeDirectory: string = homedir(),
-): string {
+export function resolveCodexProjectlessWorkspaceRoot(homeDirectory: string = homedir()): string {
   return path.join(homeDirectory, "Documents", "Nodex");
 }
 
@@ -70,10 +65,7 @@ export function parseCodexProjectlessThreadCwdInput(
 
   const candidate = input as Record<string, unknown>;
   const createSplitDirectories = candidate.createSplitDirectories;
-  if (
-    createSplitDirectories !== undefined
-    && typeof createSplitDirectories !== "boolean"
-  ) {
+  if (createSplitDirectories !== undefined && typeof createSplitDirectories !== "boolean") {
     throw new Error("createSplitDirectories must be a boolean or omitted");
   }
 
@@ -84,9 +76,7 @@ export function parseCodexProjectlessThreadCwdInput(
   };
 }
 
-export function parseCodexProjectlessWorkspace(
-  input: unknown,
-): CodexProjectlessWorkspace {
+export function parseCodexProjectlessWorkspace(input: unknown): CodexProjectlessWorkspace {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new Error("Projectless workspace must be an object");
   }
@@ -112,10 +102,13 @@ export function formatCodexProjectlessLocalDate(date: Date = new Date()): string
 }
 
 export function slugCodexProjectlessDirectoryName(
-  input: string | {
-    readonly directoryName?: string | null;
-    readonly prompt?: string | null;
-  } | null,
+  input:
+    | string
+    | {
+        readonly directoryName?: string | null;
+        readonly prompt?: string | null;
+      }
+    | null,
 ): string {
   const isOptions = typeof input === "object" && input !== null;
   const directoryName = isOptions ? input.directoryName : null;
@@ -123,9 +116,8 @@ export function slugCodexProjectlessDirectoryName(
   const words = (directoryName ?? prompt)?.toLowerCase().match(/[a-z0-9]+/g);
 
   if (!words || words.length === 0) return "new-chat";
-  const selectedWords = directoryName === null || directoryName === undefined
-    ? words.slice(0, 6)
-    : words;
+  const selectedWords =
+    directoryName === null || directoryName === undefined ? words.slice(0, 6) : words;
   return selectedWords.join("-").slice(0, 80);
 }
 
@@ -168,7 +160,7 @@ async function createCodexProjectlessThreadDirectory(input: {
       recursive: false,
     });
   } catch (error) {
-    if (!await isExistingRealDirectory(input.fileSystem, threadDirectory)) throw error;
+    if (!(await isExistingRealDirectory(input.fileSystem, threadDirectory))) throw error;
     return null;
   }
 
@@ -205,10 +197,7 @@ export async function createCodexProjectlessWorkspace(
 ): Promise<CodexProjectlessWorkspace> {
   const fileSystem = input.fileSystem ?? nodeProjectlessWorkspaceFileSystem;
   const workspaceRoot = resolveCodexProjectlessWorkspaceRoot(input.homeDirectory);
-  const dateDirectory = path.join(
-    workspaceRoot,
-    formatCodexProjectlessLocalDate(input.date),
-  );
+  const dateDirectory = path.join(workspaceRoot, formatCodexProjectlessLocalDate(input.date));
   const directoryName = slugCodexProjectlessDirectoryName({
     directoryName: input.directoryName,
     prompt: input.prompt,
@@ -220,9 +209,7 @@ export async function createCodexProjectlessWorkspace(
   await assertRealDirectory(fileSystem, dateDirectory);
 
   for (let index = 0; index < CODEX_PROJECTLESS_NUMERIC_ATTEMPTS; index += 1) {
-    const threadDirectoryName = index === 0
-      ? directoryName
-      : `${directoryName}-${index + 1}`;
+    const threadDirectoryName = index === 0 ? directoryName : `${directoryName}-${index + 1}`;
     const workspace = await createCodexProjectlessThreadDirectory({
       createSplitDirectories: input.createSplitDirectories,
       dateDirectory,

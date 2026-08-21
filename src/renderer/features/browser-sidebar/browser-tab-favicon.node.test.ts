@@ -33,9 +33,7 @@ describe("Browser tab favicon state", () => {
       reduceMotion: false,
     });
 
-    expect(finished.pinnedCompletionFaviconUrl).toBe(
-      "https://example.com/old.ico",
-    );
+    expect(finished.pinnedCompletionFaviconUrl).toBe("https://example.com/old.ico");
     expect(finished.skipCompletionTransition).toBe(false);
   });
 

@@ -14,6 +14,7 @@ This feature exists to stop repeated edits to large NFM descriptions from explod
 Before the current revision-based schema, `history.previous_values`, `history.new_values`, and `history.card_snapshot` could each inline full `description` strings. Repeated edits to one large card could therefore duplicate large text blobs many times and push the SQLite file to grow rapidly.
 
 The current schema replaces that model with:
+
 - `cards.description` as the latest fully materialized description
 - `cards.description_revision_id` as the authoritative pointer to the latest revision
 - `description_revisions` as the revision log
@@ -24,6 +25,7 @@ The current schema replaces that model with:
 ## Scope
 
 Included:
+
 - SQLite schema for description revisions
 - revision encoding and reconstruction model
 - history write behavior for create/update/delete/revert/restore/undo/redo
@@ -31,6 +33,7 @@ Included:
 - shared NFM parser/serializer extraction needed by the storage layer
 
 Not included:
+
 - BlockNote editor UX details
 - general history panel UX unrelated to description hydration
 - backup UX
@@ -69,6 +72,7 @@ CREATE TABLE description_blocks (
 ```
 
 Rules:
+
 - Each top-level NFM block is serialized with `serializeNfm([block])`.
 - The serialized string is hashed with SHA-256.
 - Identical top-level blocks across cards or revisions share the same blob row.
@@ -92,6 +96,7 @@ CREATE TABLE description_revisions (
 ```
 
 Revision kinds:
+
 - `snapshot`: stores the full ordered top-level block hash list in `block_hashes_json`
 - `delta`: stores ordered splice ops in `ops_json`
 
@@ -106,6 +111,7 @@ The `history` table no longer stores description text inline. Instead it stores 
 - `snapshot_description_revision_id`
 
 The JSON payload columns remain, but `description` must be omitted from:
+
 - `previous_values`
 - `new_values`
 - `card_snapshot`
@@ -130,6 +136,7 @@ CREATE TABLE card_history_snapshots (
 ```
 
 Rules:
+
 - checkpoint JSON uses the same `card_snapshot` convention as `history`: full card metadata, no raw `description`
 - `description_revision_id` points at the description state for the checkpointed card version
 - create and delete history rows are natural anchors because they already carry full card snapshots
@@ -143,11 +150,13 @@ Rules:
 The diff unit is the top-level `NfmBlock[]` sequence.
 
 Why:
+
 - Nodex descriptions are block-structured, not plain text blobs.
 - Reordering/inserting/removing top-level blocks is common.
 - This keeps the model simpler than full CRDTs while still saving substantial space.
 
 Limitation:
+
 - Editing a nested child rewrites the containing top-level block blob.
 - v1 does not perform nested block-level structural diffing.
 
@@ -164,6 +173,7 @@ type DescriptionDeltaOp = {
 ```
 
 Interpretation:
+
 - start at `startOrdinal`
 - delete `deleteCount` existing top-level block hashes
 - insert `insertedHashes` at that position
@@ -175,6 +185,7 @@ The current implementation computes these ops from the previous and next block-h
 Not every revision is a delta.
 
 Nodex writes a snapshot revision when either of these is true:
+
 - the chain since the previous snapshot reaches the checkpoint interval (`SNAPSHOT_INTERVAL = 20`)
 - the serialized delta payload is not smaller than the serialized snapshot payload
 
@@ -197,6 +208,7 @@ If a revision id is `NULL`, the hydrated description is the empty string.
 ### Card Create
 
 On card creation:
+
 - create an initial snapshot revision from the new description
 - write `cards.description`
 - write `cards.description_revision_id`
@@ -209,11 +221,13 @@ On card creation:
 ### Card Update
 
 On updates that do not change description:
+
 - `cards.description_revision_id` is unchanged
 - history stores normal non-description field deltas
 - description revision pointers in that history row remain `NULL`
 
 On updates that change description:
+
 - compute the next revision from the current `cards.description_revision_id`
 - update `cards.description`
 - update `cards.description_revision_id`
@@ -226,6 +240,7 @@ On updates that change description:
 ### Card Delete
 
 On delete:
+
 - the card row is removed
 - the `delete` history row stores:
   - `previous_values` without `description`
@@ -238,6 +253,7 @@ On delete:
 These flows all operate through revision ids internally.
 
 Rules:
+
 - if the target state changes description text, a new revision may be created
 - if the operation is replaying or restoring an existing historical state, the relevant stored revision id is reused
 - generic history consumers can still hydrate full descriptions when needed
@@ -253,6 +269,7 @@ There are now two read shapes:
 2. `history:card` returns a panel-specific display model for the card history overlay.
 
 The panel model includes:
+
 - metadata for the history row (`id`, `operation`, timestamps, undo state)
 - non-description field changes as explicit `fieldChanges`
 - description updates as block-level delta entries with `added` / `removed` / `replaced` operations
@@ -260,6 +277,7 @@ The panel model includes:
 - create/delete description snapshots as ordered top-level block cards
 
 For the panel model:
+
 - `previous_description_revision_id` and `new_description_revision_id` are interpreted into top-level block change cards
 - `snapshot_description_revision_id` is interpreted into ordered snapshot block cards
 - full description strings are not reconstructed by default for UI display
@@ -276,6 +294,7 @@ Because the revision layer needs to parse and serialize NFM in the main process,
 Renderer NFM modules under `src/renderer/lib/nfm/*` re-export this shared core and keep renderer-only logic, such as the BlockNote adapter, separate.
 
 This ensures:
+
 - one canonical parser/serializer behavior
 - identical block hashing across main and renderer
 - fewer parser drift bugs
@@ -297,6 +316,7 @@ Users can configure it in Settings -> Backups as `History retention`.
 The value counts visible per-project rows in `history`. Internal `card_history_snapshots` rows do not count against it.
 
 When history pruning removes old rows:
+
 - Nodex first attempts to checkpoint the earliest retained visible history row for each affected card
 - old visible history rows are then deleted
 - reachable description revisions are recomputed from:
@@ -333,11 +353,13 @@ when switching into that mode during migration or fresh schema bootstrap.
 ### Why `INCREMENTAL` Instead Of `FULL`
 
 `FULL` auto-vacuum would try to reclaim free pages on every commit, which is a worse tradeoff for a write-heavy local SQLite app:
+
 - more page movement
 - more commit overhead
 - greater chance of fragmentation side effects
 
 `INCREMENTAL` is the intended compromise:
+
 - free pages are tracked automatically
 - reclamation happens deliberately after prune/GC work
 - normal writes stay cheaper than `FULL`
@@ -353,6 +375,7 @@ PRAGMA incremental_vacuum;
 This reclaims free pages gradually instead of requiring frequent full-file rewrites.
 
 Important consequence:
+
 - disk space may shrink over time rather than immediately after every delete
 
 ## Invariants
@@ -377,6 +400,7 @@ These invariants should always hold:
 ## Testing Requirements
 
 Coverage for this feature should include:
+
 - stable canonical NFM serialization for hashing
 - deduplication of identical block blobs
 - snapshot-vs-delta selection

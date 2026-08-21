@@ -1,10 +1,7 @@
 import type { BlockDocumentSurfaceRuntime } from "./block-document-surface-runtime";
 import { canvasDocumentSessionRegistry } from "./canvas-document-session";
 import { canvasSceneSurfaceRegistry } from "./canvas-scene-surface-runtime";
-import {
-  applyLibraryModule,
-  readLibraryModule,
-} from "./api";
+import { applyLibraryModule, readLibraryModule } from "./api";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import type {
   ContentAccessContext,
@@ -24,10 +21,7 @@ export type CanvasHostDocumentRuntime = Pick<
   "getStatus" | "flushAndFence"
 >;
 
-const canvasHostRuntimesBySurfaceId = new Map<
-  string,
-  Map<number, CanvasHostDocumentRuntime>
->();
+const canvasHostRuntimesBySurfaceId = new Map<string, Map<number, CanvasHostDocumentRuntime>>();
 let nextCanvasHostRegistrationId = 1;
 
 export function registerCanvasHostDocumentRuntime(
@@ -36,8 +30,7 @@ export function registerCanvasHostDocumentRuntime(
 ): () => void {
   const registrationId = nextCanvasHostRegistrationId;
   nextCanvasHostRegistrationId += 1;
-  const registrations =
-    canvasHostRuntimesBySurfaceId.get(surfaceId) ?? new Map();
+  const registrations = canvasHostRuntimesBySurfaceId.get(surfaceId) ?? new Map();
   registrations.set(registrationId, runtime);
   canvasHostRuntimesBySurfaceId.set(surfaceId, registrations);
   return () => {
@@ -57,10 +50,7 @@ export function resolveCanvasHostDocumentRuntime(
   return [...registrations.values()].at(-1) ?? null;
 }
 
-type LibraryCanvasPageDestination = Extract<
-  LibraryCanvasDestination,
-  { readonly kind: "page" }
->;
+type LibraryCanvasPageDestination = Extract<LibraryCanvasDestination, { readonly kind: "page" }>;
 
 export type CanvasHostDocumentRevision = Pick<
   LibraryCanvasPageDestination,
@@ -74,13 +64,10 @@ export interface PreparedCanvasHost {
   readonly documentRevision: CanvasHostDocumentRevision;
 }
 
-export function isCanvasHostDocumentRuntime(
-  value: unknown,
-): value is CanvasHostDocumentRuntime {
+export function isCanvasHostDocumentRuntime(value: unknown): value is CanvasHostDocumentRuntime {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<CanvasHostDocumentRuntime>;
-  return typeof candidate.getStatus === "function"
-    && typeof candidate.flushAndFence === "function";
+  return typeof candidate.getStatus === "function" && typeof candidate.flushAndFence === "function";
 }
 
 export async function prepareCanvasHost(
@@ -102,18 +89,18 @@ export async function prepareCanvasHost(
   const generation = fence.generation;
   const headSeq = fence.expectedHeadSeq;
   if (
-    !storeEpoch
-    || storeEpoch !== storeEpoch.trim()
-    || !documentId
-    || documentId !== status.provider.documentId
-    || documentId !== fence.documentId
-    || storeEpoch !== fence.storeEpoch
-    || !ownerBlockId
-    || !Number.isSafeInteger(generation)
-    || generation === undefined
-    || generation < 1
-    || !Number.isSafeInteger(headSeq)
-    || headSeq < 0
+    !storeEpoch ||
+    storeEpoch !== storeEpoch.trim() ||
+    !documentId ||
+    documentId !== status.provider.documentId ||
+    documentId !== fence.documentId ||
+    storeEpoch !== fence.storeEpoch ||
+    !ownerBlockId ||
+    !Number.isSafeInteger(generation) ||
+    generation === undefined ||
+    generation < 1 ||
+    !Number.isSafeInteger(headSeq) ||
+    headSeq < 0
   ) {
     throw new Error("The Page Document revision is unavailable.");
   }
@@ -136,8 +123,7 @@ export function createCanvasPageDestination(input: {
   return {
     kind: "page",
     pageId: input.pageId,
-    expectedDocumentGeneration:
-      input.documentRevision.expectedDocumentGeneration,
+    expectedDocumentGeneration: input.documentRevision.expectedDocumentGeneration,
     expectedDocumentHeadSeq: input.documentRevision.expectedDocumentHeadSeq,
     insertion: input.insertion,
   };
@@ -151,22 +137,14 @@ function requireCanvasHostStoreEpoch(
   throw new Error("The Store changed while preparing Canvas.");
 }
 
-function requireCanvasHostOwner(
-  host: PreparedCanvasHost,
-  pageId: string,
-): void {
+function requireCanvasHostOwner(host: PreparedCanvasHost, pageId: string): void {
   if (host.ownerBlockId === pageId) return;
   throw new Error("The mounted Page surface is not the requested Canvas host.");
 }
 
-function requireCanvasHostDocument(
-  host: PreparedCanvasHost,
-  documentId: string,
-): void {
+function requireCanvasHostDocument(host: PreparedCanvasHost, documentId: string): void {
   if (host.documentId === documentId) return;
-  throw new Error(
-    "The mounted Page surface is not the requested Canvas host Document.",
-  );
+  throw new Error("The mounted Page surface is not the requested Canvas host Document.");
 }
 
 export async function applyLibraryRequestWithExactRetry(
@@ -188,9 +166,7 @@ export async function applyLibraryRequestWithExactRetry(
     if (attempt === 0 && result.error.retryable) continue;
     throw new Error(result.error.message);
   }
-  throw thrown instanceof Error
-    ? thrown
-    : new Error("Canvas change failed.");
+  throw thrown instanceof Error ? thrown : new Error("Canvas change failed.");
 }
 
 async function readAvailableCanvas(
@@ -266,10 +242,7 @@ export async function createCanvasInHostPage(input: {
 
   return {
     canvasBlockId: identities.canvasId,
-    receipt: await applyLibraryRequestWithExactRetry(
-      input.accessContext,
-      request,
-    ),
+    receipt: await applyLibraryRequestWithExactRetry(input.accessContext, request),
   };
 }
 
@@ -279,10 +252,7 @@ export async function renameCanvasOwner(input: {
   readonly displayName: string;
   readonly operationId?: string;
 }): Promise<LibraryModuleApplyReceipt> {
-  const target = await readAvailableCanvas(
-    input.accessContext,
-    input.canvasBlockId,
-  );
+  const target = await readAvailableCanvas(input.accessContext, input.canvasBlockId);
   return applyLibraryRequestWithExactRetry(input.accessContext, {
     operationId: input.operationId ?? createUuidV7(),
     storeEpoch: target.storeEpoch,
@@ -295,28 +265,27 @@ export async function renameCanvasOwner(input: {
   });
 }
 
-export async function deleteCanvasOwner(input: {
-  readonly accessContext: ContentAccessContext;
-  readonly canvasBlockId: string;
-  readonly runtime?: CanvasHostDocumentRuntime;
-  readonly operationId?: string;
-}, dependencies: {
-  readonly readTarget?: typeof readAvailableCanvas;
-  readonly apply?: typeof applyLibraryModule;
-  readonly retireOwner?: (
-    identity: ContentAccessIdentity,
-    ownerBlockId: string,
-  ) => Promise<void>;
-} = {}): Promise<LibraryModuleApplyReceipt> {
-  const target = await (
-    dependencies.readTarget ?? readAvailableCanvas
-  )(input.accessContext, input.canvasBlockId);
+export async function deleteCanvasOwner(
+  input: {
+    readonly accessContext: ContentAccessContext;
+    readonly canvasBlockId: string;
+    readonly runtime?: CanvasHostDocumentRuntime;
+    readonly operationId?: string;
+  },
+  dependencies: {
+    readonly readTarget?: typeof readAvailableCanvas;
+    readonly apply?: typeof applyLibraryModule;
+    readonly retireOwner?: (identity: ContentAccessIdentity, ownerBlockId: string) => Promise<void>;
+  } = {},
+): Promise<LibraryModuleApplyReceipt> {
+  const target = await (dependencies.readTarget ?? readAvailableCanvas)(
+    input.accessContext,
+    input.canvasBlockId,
+  );
   let containingDocumentHead: LibraryDocumentHead | undefined;
   if (target.summary.location.kind === "page") {
     if (!input.runtime) {
-      throw new Error(
-        "Deleting a nested Canvas requires its host Page Document runtime.",
-      );
+      throw new Error("Deleting a nested Canvas requires its host Page Document runtime.");
     }
     const host = await prepareCanvasHost(input.runtime);
     requireCanvasHostStoreEpoch(target.storeEpoch, host);
@@ -328,23 +297,28 @@ export async function deleteCanvasOwner(input: {
       expectedHeadSeq: host.documentRevision.expectedDocumentHeadSeq,
     };
   }
-  const receipt = await applyLibraryRequestWithExactRetry(input.accessContext, {
-    operationId: input.operationId ?? createUuidV7(),
-    storeEpoch: target.storeEpoch,
-    operation: {
-      kind: "delete_canvas",
-      canvasId: input.canvasBlockId,
-      expectedLocationRevision: target.summary.locationRevision,
-      expectedMetadataRevision: target.summary.metadataRevision,
-      ...(containingDocumentHead ? { containingDocumentHead } : {}),
+  const receipt = await applyLibraryRequestWithExactRetry(
+    input.accessContext,
+    {
+      operationId: input.operationId ?? createUuidV7(),
+      storeEpoch: target.storeEpoch,
+      operation: {
+        kind: "delete_canvas",
+        canvasId: input.canvasBlockId,
+        expectedLocationRevision: target.summary.locationRevision,
+        expectedMetadataRevision: target.summary.metadataRevision,
+        ...(containingDocumentHead ? { containingDocumentHead } : {}),
+      },
     },
-  }, dependencies.apply);
-  await (
-    dependencies.retireOwner ?? canvasDocumentSessionRegistry.retireOwner
-  )({
-    libraryId: target.libraryId,
-    accessContext: input.accessContext,
-  }, input.canvasBlockId).catch(() => undefined);
+    dependencies.apply,
+  );
+  await (dependencies.retireOwner ?? canvasDocumentSessionRegistry.retireOwner)(
+    {
+      libraryId: target.libraryId,
+      accessContext: input.accessContext,
+    },
+    input.canvasBlockId,
+  ).catch(() => undefined);
   return receipt;
 }
 
@@ -366,13 +340,8 @@ export async function duplicateCanvasInHostPage(input: {
 }> {
   const host = await prepareCanvasHost(input.runtime);
   requireCanvasHostOwner(host, input.hostPageId);
-  await canvasSceneSurfaceRegistry.flushOwnerCommitted(
-    input.sourceCanvasBlockId,
-  );
-  const target = await readAvailableCanvas(
-    input.accessContext,
-    input.sourceCanvasBlockId,
-  );
+  await canvasSceneSurfaceRegistry.flushOwnerCommitted(input.sourceCanvasBlockId);
+  const target = await readAvailableCanvas(input.accessContext, input.sourceCanvasBlockId);
   requireCanvasHostStoreEpoch(target.storeEpoch, host);
   const identities = input.identities ?? {
     operationId: createUuidV7(),
@@ -387,9 +356,7 @@ export async function duplicateCanvasInHostPage(input: {
       sourceCanvasId: input.sourceCanvasBlockId,
       canvasId: identities.canvasId,
       documentId: identities.documentId,
-      ...(input.displayName?.trim()
-        ? { displayName: input.displayName.trim() }
-        : {}),
+      ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}),
       expectedDocumentGeneration: target.summary.documentGeneration,
       expectedDocumentHeadSeq: target.summary.documentHeadSeq,
       destination: createCanvasPageDestination({
@@ -413,10 +380,7 @@ export async function moveCanvasOwnerToPage(input: {
   readonly operationId?: string;
 }): Promise<LibraryModuleApplyReceipt> {
   const sourceHost = await prepareCanvasHost(input.sourceRuntime);
-  const target = await readAvailableCanvas(
-    input.accessContext,
-    input.canvasBlockId,
-  );
+  const target = await readAvailableCanvas(input.accessContext, input.canvasBlockId);
   if (target.summary.location.kind !== "page") {
     throw new Error("The Canvas is no longer inside a Page.");
   }
@@ -451,16 +415,12 @@ export async function moveCanvasOwnerBetweenHostPages(input: {
   readonly targetRuntime: CanvasHostDocumentRuntime;
   readonly operationId?: string;
 }): Promise<LibraryModuleApplyReceipt> {
-  const sourceHost = await prepareCanvasHost(
-    input.sourceRuntime,
-  );
-  const targetHost = input.sourceRuntime === input.targetRuntime
-    ? sourceHost
-    : await prepareCanvasHost(input.targetRuntime);
-  const target = await readAvailableCanvas(
-    input.accessContext,
-    input.canvasBlockId,
-  );
+  const sourceHost = await prepareCanvasHost(input.sourceRuntime);
+  const targetHost =
+    input.sourceRuntime === input.targetRuntime
+      ? sourceHost
+      : await prepareCanvasHost(input.targetRuntime);
+  const target = await readAvailableCanvas(input.accessContext, input.canvasBlockId);
   if (target.summary.location.kind !== "page") {
     throw new Error("The Canvas is no longer inside a Page.");
   }
@@ -491,17 +451,13 @@ export function resolveCanvasDropInsertion(input: {
   if (input.beforeBlockId) {
     return {
       kind: "before",
-      ...(input.parentBlockId
-        ? { parentBlockId: input.parentBlockId }
-        : {}),
+      ...(input.parentBlockId ? { parentBlockId: input.parentBlockId } : {}),
       anchorBlockId: input.beforeBlockId,
     };
   }
   return {
     kind: "append",
-    ...(input.parentBlockId
-      ? { parentBlockId: input.parentBlockId }
-      : {}),
+    ...(input.parentBlockId ? { parentBlockId: input.parentBlockId } : {}),
   };
 }
 
@@ -518,16 +474,12 @@ export function resolveCanvasInsertionAfterBlock(input: {
   if (nextBlockId) {
     return {
       kind: "before",
-      ...(input.parentBlockId
-        ? { parentBlockId: input.parentBlockId }
-        : {}),
+      ...(input.parentBlockId ? { parentBlockId: input.parentBlockId } : {}),
       anchorBlockId: nextBlockId,
     };
   }
   return {
     kind: "append",
-    ...(input.parentBlockId
-      ? { parentBlockId: input.parentBlockId }
-      : {}),
+    ...(input.parentBlockId ? { parentBlockId: input.parentBlockId } : {}),
   };
 }

@@ -33,7 +33,7 @@ function makeCard(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
 describe("card search", () => {
   test("tokenizeSearchQuery splits on whitespace and normalizes case", () => {
     expect(JSON.stringify(tokenizeSearchQuery("  NFM   Search   "))).toBe(
-      JSON.stringify(["nfm", "search"])
+      JSON.stringify(["nfm", "search"]),
     );
   });
 
@@ -66,19 +66,12 @@ describe("card search", () => {
     { query: "##LAB-13", pageKey: "LAB-13", title: "Hash", expected: false },
     { query: "LAB-13 polish", pageKey: "RND-9", title: "LAB-13 polish", expected: true },
     { query: "#LAB-13 polish", pageKey: "LAB-13", title: "Polish", expected: false },
-  ])("applies one Page-key query policy to '$query'", ({
-    query,
-    pageKey,
-    title,
-    expected,
-  }) => {
+  ])("applies one Page-key query policy to '$query'", ({ query, pageKey, title, expected }) => {
     const card = makeCard({ pageKey, title });
     const compiled = compilePageCollectionSearchQuery(query);
 
-    expect(matchesPageCollectionSearchQuery(
-      card.pageKey,
-      buildPageSearchText(card),
-      compiled,
-    )).toBe(expected);
+    expect(
+      matchesPageCollectionSearchQuery(card.pageKey, buildPageSearchText(card), compiled),
+    ).toBe(expected);
   });
 });

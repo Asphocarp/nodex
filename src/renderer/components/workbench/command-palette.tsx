@@ -72,14 +72,18 @@ export function CommandPalette({
     [recentPageSessions],
   );
   useEffect(() => {
-    return configureInteractivePageSearch(projects.map((project) => project.id), "replace");
+    return configureInteractivePageSearch(
+      projects.map((project) => project.id),
+      "replace",
+    );
   }, [projects]);
   const commands = useMemo(
-    () => buildCommandPaletteCommands({
-      ...commandContext,
-      isMac,
-      showMockCommands: import.meta.env.DEV,
-    }),
+    () =>
+      buildCommandPaletteCommands({
+        ...commandContext,
+        isMac,
+        showMockCommands: import.meta.env.DEV,
+      }),
     [commandContext, isMac],
   );
 

@@ -8,12 +8,12 @@ import {
   RotateCcw,
   X,
 } from "@/components/shared/icons/generic-icons";
-import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "@/components/ui/dropdown";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
 import { NodexSwitch } from "@/components/ui/button";
-import { formatRulesV2AsJsonLogic, parseRulesV2FromJsonLogic } from "@/lib/toggle-list/rules-v2-jsonlogic";
+import {
+  formatRulesV2AsJsonLogic,
+  parseRulesV2FromJsonLogic,
+} from "@/lib/toggle-list/rules-v2-jsonlogic";
 import { priorityClauseIncludesEmpty } from "@/lib/toggle-list/priority-clause";
 import {
   deriveToggleListFilterRule,
@@ -133,11 +133,12 @@ export function ToggleListSummaryBadges({
             "border-(--border) bg-(--background-secondary) text-(--foreground-secondary)",
           )}
         >
-          {filter.tags.length} {filter.tags.length === 1 ? "tag" : "tags"}:{" "}
-          {filter.tagMode}
+          {filter.tags.length} {filter.tags.length === 1 ? "tag" : "tags"}: {filter.tagMode}
         </span>
       )}
-      <span className={cn(BADGE_BASE, "border-transparent bg-transparent text-(--foreground-tertiary)")}>
+      <span
+        className={cn(BADGE_BASE, "border-transparent bg-transparent text-(--foreground-tertiary)")}
+      >
         {TOGGLE_LIST_RANK_FIELD_LABELS[primaryField]}{" "}
         {primaryDirection === "asc" ? "\u2191" : "\u2193"}
       </span>
@@ -174,10 +175,12 @@ export function ToggleListRulesBody({
   }, [settings.rulesV2]);
 
   const updateRulesV2 = (fn: (rules: ToggleListRulesV2) => ToggleListRulesV2) => {
-    updateSettings((prev) => setToggleListRulesV2(prev, {
-      ...fn(prev.rulesV2),
-      mode: "advanced",
-    }));
+    updateSettings((prev) =>
+      setToggleListRulesV2(prev, {
+        ...fn(prev.rulesV2),
+        mode: "advanced",
+      }),
+    );
   };
 
   const applyDslText = () => {
@@ -451,56 +454,73 @@ function SortSection({
           <div key={`${entry.field}:${index}`} className="flex items-center gap-1.5">
             <NodexOptionPicker
               value={entry.field}
-              onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
-                field: value as ToggleListRankField,
-                direction: entry.direction,
-                emptyPlacement: entry.emptyPlacement,
-              }))}
+              onValueChange={(value) =>
+                updateSort(
+                  index,
+                  buildSortKeyWithEmptyPlacement({
+                    field: value as ToggleListRankField,
+                    direction: entry.direction,
+                    emptyPlacement: entry.emptyPlacement,
+                  }),
+                )
+              }
               options={TOGGLE_LIST_RANK_FIELDS.map((field) => ({
                 value: field,
                 label: TOGGLE_LIST_RANK_FIELD_LABELS[field],
               }))}
-              triggerButton={(
+              triggerButton={
                 <NodexDropdownButtonTrigger size="xs" className="max-w-32.5 min-w-25">
                   {TOGGLE_LIST_RANK_FIELD_LABELS[entry.field]}
                 </NodexDropdownButtonTrigger>
-              )}
+              }
             />
 
             <NodexOptionPicker
               value={entry.direction}
-              onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
-                field: entry.field,
-                direction: value as ToggleListRankDirection,
-                emptyPlacement: entry.emptyPlacement,
-              }))}
+              onValueChange={(value) =>
+                updateSort(
+                  index,
+                  buildSortKeyWithEmptyPlacement({
+                    field: entry.field,
+                    direction: value as ToggleListRankDirection,
+                    emptyPlacement: entry.emptyPlacement,
+                  }),
+                )
+              }
               options={[
                 { value: "asc", label: "Ascending" },
                 { value: "desc", label: "Descending" },
               ]}
-              triggerButton={(
+              triggerButton={
                 <NodexDropdownButtonTrigger size="xs" className="w-16">
                   {entry.direction === "asc" ? "Asc" : "Desc"}
                 </NodexDropdownButtonTrigger>
-              )}
+              }
             />
             {supportsSortEmptyPlacementField(entry.field) ? (
               <NodexOptionPicker
                 value={resolveSortEmptyPlacement(entry.field, entry.emptyPlacement)}
-                onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
-                  field: entry.field,
-                  direction: entry.direction,
-                  emptyPlacement: value,
-                }))}
+                onValueChange={(value) =>
+                  updateSort(
+                    index,
+                    buildSortKeyWithEmptyPlacement({
+                      field: entry.field,
+                      direction: entry.direction,
+                      emptyPlacement: value,
+                    }),
+                  )
+                }
                 options={[
                   { value: "first", label: "Empty first" },
                   { value: "last", label: "Empty last" },
                 ]}
-                triggerButton={(
+                triggerButton={
                   <NodexDropdownButtonTrigger size="xs" className="w-23">
-                    {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first" ? "Empty first" : "Empty last"}
+                    {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first"
+                      ? "Empty first"
+                      : "Empty last"}
                   </NodexDropdownButtonTrigger>
-                )}
+                }
               />
             ) : null}
 
@@ -567,22 +587,33 @@ function PropertiesSection({
           {settings.propertyOrder.map((property, index) => {
             const hidden = settings.hiddenProperties.includes(property);
             const showEmpty =
-              property === "estimate" ? settings.showEmptyEstimate
-                : property === "priority" ? settings.showEmptyPriority
+              property === "estimate"
+                ? settings.showEmptyEstimate
+                : property === "priority"
+                  ? settings.showEmptyPriority
                   : null;
             const onToggleShowEmpty =
-              property === "estimate" ? () => updateSettings((prev) => toggleShowEmptyEstimate(prev))
-                : property === "priority" ? () => updateSettings((prev) => toggleShowEmptyPriority(prev))
+              property === "estimate"
+                ? () => updateSettings((prev) => toggleShowEmptyEstimate(prev))
+                : property === "priority"
+                  ? () => updateSettings((prev) => toggleShowEmptyPriority(prev))
                   : null;
             return (
               <div key={property} className="group flex h-6 items-center gap-1">
-                <span className={cn("w-18 shrink-0 truncate text-xs font-medium", hidden ? "text-(--foreground-tertiary)" : "text-(--foreground-secondary)")}>
+                <span
+                  className={cn(
+                    "w-18 shrink-0 truncate text-xs font-medium",
+                    hidden ? "text-(--foreground-tertiary)" : "text-(--foreground-secondary)",
+                  )}
+                >
                   {formatPropertyName(property)}
                 </span>
                 <button
                   type="button"
                   className={cn(ICON_BTN, hidden && "text-(--foreground-tertiary)/40")}
-                  onClick={() => updateSettings((prev) => toggleToggleListHiddenProperty(prev, property))}
+                  onClick={() =>
+                    updateSettings((prev) => toggleToggleListHiddenProperty(prev, property))
+                  }
                   title={hidden ? "Show" : "Hide"}
                 >
                   {hidden ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
@@ -590,7 +621,9 @@ function PropertiesSection({
                 <button
                   type="button"
                   className={cn(ICON_BTN, "opacity-0 group-hover:opacity-100")}
-                  onClick={() => updateSettings((prev) => moveToggleListProperty(prev, property, -1))}
+                  onClick={() =>
+                    updateSettings((prev) => moveToggleListProperty(prev, property, -1))
+                  }
                   disabled={index === 0}
                   title="Move up"
                 >
@@ -599,7 +632,9 @@ function PropertiesSection({
                 <button
                   type="button"
                   className={cn(ICON_BTN, "opacity-0 group-hover:opacity-100")}
-                  onClick={() => updateSettings((prev) => moveToggleListProperty(prev, property, 1))}
+                  onClick={() =>
+                    updateSettings((prev) => moveToggleListProperty(prev, property, 1))
+                  }
                   disabled={index === settings.propertyOrder.length - 1}
                   title="Move down"
                 >
@@ -615,7 +650,9 @@ function PropertiesSection({
                         : "text-(--foreground-tertiary) hover:bg-(--foreground-secondary)/5 hover:text-(--foreground-secondary)",
                     )}
                     onClick={onToggleShowEmpty}
-                    title={showEmpty ? "Hide placeholder when empty" : "Show placeholder when empty"}
+                    title={
+                      showEmpty ? "Hide placeholder when empty" : "Show placeholder when empty"
+                    }
                   >
                     [-]
                   </button>
@@ -686,33 +723,35 @@ function GroupEditor({
     onChange(upsertClause(group, { field: "status", op: "in", values: next }));
   };
 
-  const togglePriority = (priority: typeof TOGGLE_LIST_PRIORITY_ORDER[number]) => {
+  const togglePriority = (priority: (typeof TOGGLE_LIST_PRIORITY_ORDER)[number]) => {
     const exists = priorityValues.includes(priority);
     const next = exists
       ? priorityValues.filter((item) => item !== priority)
       : [...priorityValues, priority];
-    onChange(upsertClause(group, {
-      field: "priority",
-      op: "in",
-      values: next,
-      includeEmpty: priorityIncludesEmpty,
-    }));
+    onChange(
+      upsertClause(group, {
+        field: "priority",
+        op: "in",
+        values: next,
+        includeEmpty: priorityIncludesEmpty,
+      }),
+    );
   };
 
   const toggleEmptyPriority = () => {
-    onChange(upsertClause(group, {
-      field: "priority",
-      op: "in",
-      values: priorityValues,
-      includeEmpty: !priorityIncludesEmpty,
-    }));
+    onChange(
+      upsertClause(group, {
+        field: "priority",
+        op: "in",
+        values: priorityValues,
+        includeEmpty: !priorityIncludesEmpty,
+      }),
+    );
   };
 
   const toggleTag = (tag: string) => {
     const exists = tagValues.includes(tag);
-    const next = exists
-      ? tagValues.filter((item) => item !== tag)
-      : [...tagValues, tag];
+    const next = exists ? tagValues.filter((item) => item !== tag) : [...tagValues, tag];
     if (next.length === 0) {
       onChange(removeClause(group, "tags"));
       return;
@@ -800,11 +839,11 @@ function GroupEditor({
               value: mode,
               label: TOGGLE_LIST_TAG_FILTER_MODE_LABELS[mode],
             }))}
-            triggerButton={(
+            triggerButton={
               <NodexDropdownButtonTrigger size="xs" className="w-auto max-w-18 min-w-14 shrink-0">
                 {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[tagMode]}
               </NodexDropdownButtonTrigger>
-            )}
+            }
           />
 
           {availableTags.length === 0 && (
@@ -842,22 +881,27 @@ function createDefaultGroup(): ToggleListFilterGroup {
 }
 
 function getStatusValues(group: ToggleListFilterGroup): ToggleListStatusId[] {
-  const clause = group.all.find((candidate): candidate is Extract<ToggleListClause, { field: "status" }> =>
-    candidate.field === "status",
+  const clause = group.all.find(
+    (candidate): candidate is Extract<ToggleListClause, { field: "status" }> =>
+      candidate.field === "status",
   );
   return clause ? clause.values : [...TOGGLE_LIST_STATUS_ORDER];
 }
 
-function getPriorityValues(group: ToggleListFilterGroup): typeof TOGGLE_LIST_PRIORITY_ORDER[number][] {
-  const clause = group.all.find((candidate): candidate is Extract<ToggleListClause, { field: "priority" }> =>
-    candidate.field === "priority",
+function getPriorityValues(
+  group: ToggleListFilterGroup,
+): (typeof TOGGLE_LIST_PRIORITY_ORDER)[number][] {
+  const clause = group.all.find(
+    (candidate): candidate is Extract<ToggleListClause, { field: "priority" }> =>
+      candidate.field === "priority",
   );
   return clause ? clause.values : [...TOGGLE_LIST_PRIORITY_ORDER];
 }
 
 function getPriorityIncludesEmpty(group: ToggleListFilterGroup): boolean {
-  const clause = group.all.find((candidate): candidate is Extract<ToggleListClause, { field: "priority" }> =>
-    candidate.field === "priority",
+  const clause = group.all.find(
+    (candidate): candidate is Extract<ToggleListClause, { field: "priority" }> =>
+      candidate.field === "priority",
   );
   if (!clause) return true;
   return priorityClauseIncludesEmpty(clause);
@@ -866,8 +910,9 @@ function getPriorityIncludesEmpty(group: ToggleListFilterGroup): boolean {
 function getTagClause(
   group: ToggleListFilterGroup,
 ): Extract<ToggleListClause, { field: "tags" }> | null {
-  const clause = group.all.find((candidate): candidate is Extract<ToggleListClause, { field: "tags" }> =>
-    candidate.field === "tags",
+  const clause = group.all.find(
+    (candidate): candidate is Extract<ToggleListClause, { field: "tags" }> =>
+      candidate.field === "tags",
   );
   return clause ?? null;
 }

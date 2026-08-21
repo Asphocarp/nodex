@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../shared/database-identities";
 import type {
   DataSourcePageValueV2,
   DataSourcePropertyRecordV2,
@@ -48,94 +45,118 @@ const value = (
 describe("Data Source Property value operations", () => {
   test("compiles a scalar replacement with value-level CAS", () => {
     const definition = property("p_0123abcd", "number");
-    expect(buildDataSourcePropertyValueOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      current: value(definition, 3, 7),
-      value: 5,
-    })).toEqual([{
-      kind: "edit_property_values",
-      edits: [{
+    expect(
+      buildDataSourcePropertyValueOperations({
         pageId: "page-1",
         dataSourceId,
-        propertyId: definition.propertyId,
-        edit: {
-          kind: "replace",
-          expectedValueRevision: 7,
-          value: { kind: "number", value: 5 },
-        },
-      }],
-    }]);
+        property: definition,
+        current: value(definition, 3, 7),
+        value: 5,
+      }),
+    ).toEqual([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            pageId: "page-1",
+            dataSourceId,
+            propertyId: definition.propertyId,
+            edit: {
+              kind: "replace",
+              expectedValueRevision: 7,
+              value: { kind: "number", value: 5 },
+            },
+          },
+        ],
+      },
+    ]);
   });
 
   test("preserves set intent for multi-select values", () => {
     const definition = property("p_0123abcd", "multi_select");
-    expect(buildDataSourcePropertyValueOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      current: value(definition, ["o_AAAAAAAA", "o_BBBBBBBB"]),
-      value: ["o_BBBBBBBB", "o_CCCCCCCC"],
-    })).toMatchObject([{
-      kind: "edit_property_values",
-      edits: [{
-        edit: {
-          kind: "patch_set",
-          delta: {
-            kind: "multi_select",
-            addOptionIds: ["o_CCCCCCCC"],
-            removeOptionIds: ["o_AAAAAAAA"],
+    expect(
+      buildDataSourcePropertyValueOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: definition,
+        current: value(definition, ["o_AAAAAAAA", "o_BBBBBBBB"]),
+        value: ["o_BBBBBBBB", "o_CCCCCCCC"],
+      }),
+    ).toMatchObject([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            edit: {
+              kind: "patch_set",
+              delta: {
+                kind: "multi_select",
+                addOptionIds: ["o_CCCCCCCC"],
+                removeOptionIds: ["o_AAAAAAAA"],
+              },
+            },
           },
-        },
-      }],
-    }]);
+        ],
+      },
+    ]);
   });
 
   test("compiles an explicit multi-select delta without removing unseen options", () => {
     const definition = property("p_0123abcd", "multi_select");
-    expect(buildDataSourceMultiSelectPatchOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      addOptionIds: ["o_CCCCCCCC"],
-      removeOptionIds: [],
-    })).toMatchObject([{
-      kind: "edit_property_values",
-      edits: [{
-        edit: {
-          kind: "patch_set",
-          delta: {
-            kind: "multi_select",
-            addOptionIds: ["o_CCCCCCCC"],
-            removeOptionIds: [],
+    expect(
+      buildDataSourceMultiSelectPatchOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: definition,
+        addOptionIds: ["o_CCCCCCCC"],
+        removeOptionIds: [],
+      }),
+    ).toMatchObject([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            edit: {
+              kind: "patch_set",
+              delta: {
+                kind: "multi_select",
+                addOptionIds: ["o_CCCCCCCC"],
+                removeOptionIds: [],
+              },
+            },
           },
-        },
-      }],
-    }]);
+        ],
+      },
+    ]);
   });
 
   test("compiles Relation add/remove intent independently", () => {
     const definition = property("p_0123abcd", "relation");
-    expect(buildDataSourceRelationPatchOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      addPageIds: ["page-2"],
-      removeEdgeIds: ["a".repeat(64)],
-    })).toMatchObject([{
-      kind: "edit_property_values",
-      edits: [{
-        edit: {
-          kind: "patch_set",
-          delta: {
-            kind: "relation",
-            addPageIds: ["page-2"],
-            removeEdgeIds: ["a".repeat(64)],
+    expect(
+      buildDataSourceRelationPatchOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: definition,
+        addPageIds: ["page-2"],
+        removeEdgeIds: ["a".repeat(64)],
+      }),
+    ).toMatchObject([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            edit: {
+              kind: "patch_set",
+              delta: {
+                kind: "relation",
+                addPageIds: ["page-2"],
+                removeEdgeIds: ["a".repeat(64)],
+              },
+            },
           },
-        },
-      }],
-    }]);
+        ],
+      },
+    ]);
   });
 
   test("selects exactly one cardinality-one Relation target", () => {
@@ -144,75 +165,97 @@ describe("Data Source Property value operations", () => {
       ...base,
       schema: { ...base.schema, cardinality: "one" },
     } as DataSourcePropertyRecordV2;
-    expect(buildDataSourceRelationReplacementOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      expectedValueRevision: 4,
-      targetPageId: "page-2",
-    })).toMatchObject([{
-      kind: "edit_property_values",
-      edits: [{
-        edit: {
-          kind: "replace_one_relation",
-          expectedValueRevision: 4,
-          targetPageId: "page-2",
-        },
-      }],
-    }]);
-    expect(() => buildDataSourceRelationPatchOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      addPageIds: ["page-3"],
-      removeEdgeIds: [],
-    })).toThrow(/incompatible/u);
-    expect(() => buildDataSourceRelationReplacementOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: base,
-      expectedValueRevision: 4,
-      targetPageId: "page-2",
-    })).toThrow(/incompatible/u);
+    expect(
+      buildDataSourceRelationReplacementOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: definition,
+        expectedValueRevision: 4,
+        targetPageId: "page-2",
+      }),
+    ).toMatchObject([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            edit: {
+              kind: "replace_one_relation",
+              expectedValueRevision: 4,
+              targetPageId: "page-2",
+            },
+          },
+        ],
+      },
+    ]);
+    expect(() =>
+      buildDataSourceRelationPatchOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: definition,
+        addPageIds: ["page-3"],
+        removeEdgeIds: [],
+      }),
+    ).toThrow(/incompatible/u);
+    expect(() =>
+      buildDataSourceRelationReplacementOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: base,
+        expectedValueRevision: 4,
+        targetPageId: "page-2",
+      }),
+    ).toThrow(/incompatible/u);
   });
 
   test("clears every visible and restricted Relation edge behind a revision fence", () => {
     const definition = property("p_0123abcd", "relation");
-    expect(buildDataSourcePropertyValueOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      current: value(definition, {
-        kind: "relation",
-        value: {
-          value_revision: 7,
-          total_count: 4,
-          targets: [],
-          restricted_count: 4,
-          has_more: true,
-        },
-      }, 7),
-      value: [],
-    })).toEqual([{
-      kind: "edit_property_values",
-      edits: [{
+    expect(
+      buildDataSourcePropertyValueOperations({
         pageId: "page-1",
         dataSourceId,
-        propertyId: definition.propertyId,
-        edit: { kind: "clear_many_relation", expectedValueRevision: 7 },
-      }],
-    }]);
+        property: definition,
+        current: value(
+          definition,
+          {
+            kind: "relation",
+            value: {
+              value_revision: 7,
+              total_count: 4,
+              targets: [],
+              restricted_count: 4,
+              has_more: true,
+            },
+          },
+          7,
+        ),
+        value: [],
+      }),
+    ).toEqual([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            pageId: "page-1",
+            dataSourceId,
+            propertyId: definition.propertyId,
+            edit: { kind: "clear_many_relation", expectedValueRevision: 7 },
+          },
+        ],
+      },
+    ]);
   });
 
   test("creates an option and selects it in one ordered apply batch", () => {
     const definition = property("p_0123abcd", "multi_select");
-    expect(buildDataSourceCreateOptionAndSelectOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      current: value(definition, [], 4),
-      option: { id: "o_AAAAAAAA", name: "New option", color: "blue" },
-    })).toMatchObject([
+    expect(
+      buildDataSourceCreateOptionAndSelectOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: definition,
+        current: value(definition, [], 4),
+        option: { id: "o_AAAAAAAA", name: "New option", color: "blue" },
+      }),
+    ).toMatchObject([
       {
         kind: "put_option",
         optionId: "o_AAAAAAAA",
@@ -220,25 +263,29 @@ describe("Data Source Property value operations", () => {
       },
       {
         kind: "edit_property_values",
-        edits: [{
-          edit: {
-            kind: "patch_set",
-            delta: { addOptionIds: ["o_AAAAAAAA"], removeOptionIds: [] },
+        edits: [
+          {
+            edit: {
+              kind: "patch_set",
+              delta: { addOptionIds: ["o_AAAAAAAA"], removeOptionIds: [] },
+            },
           },
-        }],
+        ],
       },
     ]);
   });
 
   test("keeps fixed semantic registries out of inline option creation", () => {
     const definition = property("status", "select");
-    expect(() => buildDataSourceCreateOptionAndSelectOperations({
-      pageId: "page-1",
-      dataSourceId,
-      property: definition,
-      current: value(definition, "build", 4),
-      option: { id: "custom-status", name: "Custom" },
-    })).toThrow(/incompatible/u);
+    expect(() =>
+      buildDataSourceCreateOptionAndSelectOperations({
+        pageId: "page-1",
+        dataSourceId,
+        property: definition,
+        current: value(definition, "build", 4),
+        option: { id: "custom-status", name: "Custom" },
+      }),
+    ).toThrow(/incompatible/u);
   });
 
   test("canonicalizes decomposed Unicode before creating a Tags option", () => {

@@ -1,20 +1,8 @@
 import { PlusIcon } from "@/components/shared/icons";
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Trash2,
-} from "@/components/shared/icons/generic-icons";
+import { ArrowDown, ArrowUp, ArrowUpDown, Trash2 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  createDatabaseViewSort,
-  moveDatabaseViewSort,
-} from "@/lib/database-view-authoring";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
+import { createDatabaseViewSort, moveDatabaseViewSort } from "@/lib/database-view-authoring";
 import {
   databaseViewSortFieldLabel,
   hasCustomDatabaseViewSort,
@@ -36,14 +24,9 @@ interface DatabaseViewSortProps {
 }
 
 const sortFieldValue = (sort: DatabaseViewSort): string =>
-  sort.field.kind === "property"
-    ? `property:${sort.field.propertyId}`
-    : sort.field.kind;
+  sort.field.kind === "property" ? `property:${sort.field.propertyId}` : sort.field.kind;
 
-const sortWithField = (
-  sort: DatabaseViewSort,
-  encoded: string,
-): DatabaseViewSort => ({
+const sortWithField = (sort: DatabaseViewSort, encoded: string): DatabaseViewSort => ({
   ...sort,
   field: encoded.startsWith("property:")
     ? { kind: "property", propertyId: encoded.slice("property:".length) }
@@ -66,18 +49,16 @@ export function DatabaseViewSort({
     (property) => property.lifecycle === "active" && property.capabilities.sortable,
   );
   const sorts = effective.presentation.sort;
-  const setSorts = (nextSorts: readonly DatabaseViewSort[]) => onChange({
-    ...effective,
-    presentation: {
-      ...effective.presentation,
-      sort: nextSorts,
-    },
-  });
-  const updateSort = (
-    index: number,
-    update: (sort: DatabaseViewSort) => DatabaseViewSort,
-  ) => setSorts(sorts.map((sort, candidateIndex) =>
-    candidateIndex === index ? update(sort) : sort));
+  const setSorts = (nextSorts: readonly DatabaseViewSort[]) =>
+    onChange({
+      ...effective,
+      presentation: {
+        ...effective.presentation,
+        sort: nextSorts,
+      },
+    });
+  const updateSort = (index: number, update: (sort: DatabaseViewSort) => DatabaseViewSort) =>
+    setSorts(sorts.map((sort, candidateIndex) => (candidateIndex === index ? update(sort) : sort)));
 
   return (
     <NodexPopover open={open} onOpenChange={onOpenChange}>
@@ -112,91 +93,96 @@ export function DatabaseViewSort({
             <div className="flex h-9 items-center px-1 text-xs text-token-description-foreground">
               No sorting rules
             </div>
-          ) : sorts.map((sort, index) => (
-            <div
-              key={`${sortFieldValue(sort)}:${index}`}
-              className="flex min-h-8 items-center gap-1"
-            >
-              <DatabaseViewSelect
-                ariaLabel={`Sort field ${index + 1}`}
-                search="filter"
-                searchPlaceholder="Search sort fields…"
-                value={sortFieldValue(sort)}
-                valueLabel={databaseViewSortFieldLabel(sort, sortableProperties)}
-                disabled={busy}
-                onValueChange={(value) => updateSort(
-                  index,
-                  (candidate) => sortWithField(candidate, value),
-                )}
-                options={[
-                  { value: "manual", label: "Manual order" },
-                  { value: "title", label: "Title" },
-                  { value: "created", label: "Created" },
-                  ...sortableProperties.map((property) => ({
-                    value: `property:${property.propertyId}`,
-                    label: property.name,
-                  })),
-                ]}
-                className="w-36"
-              />
-              <DatabaseViewSelect
-                ariaLabel={`Sort direction ${index + 1}`}
-                value={sort.direction}
-                valueLabel={sort.direction === "asc" ? "Ascending" : "Descending"}
-                disabled={busy}
-                onValueChange={(value) => updateSort(index, (candidate) => ({
-                  ...candidate,
-                  direction: value as "asc" | "desc",
-                }))}
-                options={[
-                  { value: "asc", label: "Ascending" },
-                  { value: "desc", label: "Descending" },
-                ]}
-                className="w-24"
-              />
-              <DatabaseViewSelect
-                ariaLabel={`Sort empty values ${index + 1}`}
-                value={sort.nulls}
-                valueLabel={sort.nulls === "first" ? "Empty first" : "Empty last"}
-                disabled={busy}
-                onValueChange={(value) => updateSort(index, (candidate) => ({
-                  ...candidate,
-                  nulls: value as "first" | "last",
-                }))}
-                options={[
-                  { value: "first", label: "Empty first" },
-                  { value: "last", label: "Empty last" },
-                ]}
-                className="w-24"
-              />
-              <div className="ml-auto flex items-center">
-                <NodexIconButton
-                  icon={ArrowUp}
-                  size="xs"
-                  ariaLabel={`Move sort ${index + 1} up`}
-                  disabled={busy || index === 0}
-                  onClick={() => setSorts(moveDatabaseViewSort(sorts, index, "up"))}
-                />
-                <NodexIconButton
-                  icon={ArrowDown}
-                  size="xs"
-                  ariaLabel={`Move sort ${index + 1} down`}
-                  disabled={busy || index === sorts.length - 1}
-                  onClick={() => setSorts(moveDatabaseViewSort(sorts, index, "down"))}
-                />
-                <NodexIconButton
-                  icon={Trash2}
-                  size="xs"
-                  tone="danger"
-                  ariaLabel={`Remove sort ${index + 1}`}
+          ) : (
+            sorts.map((sort, index) => (
+              <div
+                key={`${sortFieldValue(sort)}:${index}`}
+                className="flex min-h-8 items-center gap-1"
+              >
+                <DatabaseViewSelect
+                  ariaLabel={`Sort field ${index + 1}`}
+                  search="filter"
+                  searchPlaceholder="Search sort fields…"
+                  value={sortFieldValue(sort)}
+                  valueLabel={databaseViewSortFieldLabel(sort, sortableProperties)}
                   disabled={busy}
-                  onClick={() => setSorts(
-                    sorts.filter((_, candidateIndex) => candidateIndex !== index),
-                  )}
+                  onValueChange={(value) =>
+                    updateSort(index, (candidate) => sortWithField(candidate, value))
+                  }
+                  options={[
+                    { value: "manual", label: "Manual order" },
+                    { value: "title", label: "Title" },
+                    { value: "created", label: "Created" },
+                    ...sortableProperties.map((property) => ({
+                      value: `property:${property.propertyId}`,
+                      label: property.name,
+                    })),
+                  ]}
+                  className="w-36"
                 />
+                <DatabaseViewSelect
+                  ariaLabel={`Sort direction ${index + 1}`}
+                  value={sort.direction}
+                  valueLabel={sort.direction === "asc" ? "Ascending" : "Descending"}
+                  disabled={busy}
+                  onValueChange={(value) =>
+                    updateSort(index, (candidate) => ({
+                      ...candidate,
+                      direction: value as "asc" | "desc",
+                    }))
+                  }
+                  options={[
+                    { value: "asc", label: "Ascending" },
+                    { value: "desc", label: "Descending" },
+                  ]}
+                  className="w-24"
+                />
+                <DatabaseViewSelect
+                  ariaLabel={`Sort empty values ${index + 1}`}
+                  value={sort.nulls}
+                  valueLabel={sort.nulls === "first" ? "Empty first" : "Empty last"}
+                  disabled={busy}
+                  onValueChange={(value) =>
+                    updateSort(index, (candidate) => ({
+                      ...candidate,
+                      nulls: value as "first" | "last",
+                    }))
+                  }
+                  options={[
+                    { value: "first", label: "Empty first" },
+                    { value: "last", label: "Empty last" },
+                  ]}
+                  className="w-24"
+                />
+                <div className="ml-auto flex items-center">
+                  <NodexIconButton
+                    icon={ArrowUp}
+                    size="xs"
+                    ariaLabel={`Move sort ${index + 1} up`}
+                    disabled={busy || index === 0}
+                    onClick={() => setSorts(moveDatabaseViewSort(sorts, index, "up"))}
+                  />
+                  <NodexIconButton
+                    icon={ArrowDown}
+                    size="xs"
+                    ariaLabel={`Move sort ${index + 1} down`}
+                    disabled={busy || index === sorts.length - 1}
+                    onClick={() => setSorts(moveDatabaseViewSort(sorts, index, "down"))}
+                  />
+                  <NodexIconButton
+                    icon={Trash2}
+                    size="xs"
+                    tone="danger"
+                    ariaLabel={`Remove sort ${index + 1}`}
+                    disabled={busy}
+                    onClick={() =>
+                      setSorts(sorts.filter((_, candidateIndex) => candidateIndex !== index))
+                    }
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </NodexPopoverContent>
     </NodexPopover>

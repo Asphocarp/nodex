@@ -2,7 +2,11 @@ import "./workbench-testkit/workbench-shell-harness";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { settleAsyncRender } from "../../test/dom";
-import { makeAttachedSession, makeBlankSession, makeProject } from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  makeAttachedSession,
+  makeBlankSession,
+  makeProject,
+} from "./workbench-testkit/workbench-shell-fixtures";
 import {
   invokeCalls,
   renderWorkbench,
@@ -23,7 +27,8 @@ function pendingWorktree(
     sourceWorkspaceRoot: "/tmp/project",
     localEnvironmentConfigPath: "/tmp/project/.nodex/environment.json",
     prompt: "Start in a worktree",
-    startConversationParamsInput: {} as ProjectAgentDockPendingWorktreeEntry["startConversationParamsInput"],
+    startConversationParamsInput:
+      {} as ProjectAgentDockPendingWorktreeEntry["startConversationParamsInput"],
     sourceConversationId: null,
     sourceCollaborationMode: null,
     createdAt: 1,
@@ -55,10 +60,9 @@ describe("workbench session shell / Project Agent Dock", () => {
     expect(screen.queryByRole("button", { name: "Ask agent" })).toBeNull();
 
     await act(async () => {
-      fireEvent.pointerDown(
-        screen.getByRole("button", { name: "Open side panel tab" }),
-        { button: 0 },
-      );
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
+        button: 0,
+      });
       await Promise.resolve();
     });
     const menu = await screen.findByRole("menu");
@@ -84,10 +88,9 @@ describe("workbench session shell / Project Agent Dock", () => {
 
     expect(screen.getByLabelText("Connected chat: New chat") !== null).toBe(true);
     expect(screen.getByLabelText("Project Agent Dock prompt") !== null).toBe(true);
-    expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:ensure-default-draft"
-    )))
-      .toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:ensure-default-draft")).toBe(
+      false,
+    );
   });
 
   test("selects a real chat without leaving the Project and only navigates on Open chat", async () => {
@@ -144,10 +147,9 @@ describe("workbench session shell / Project Agent Dock", () => {
     });
 
     await waitFor(() => {
-      expect(invokeCalls.filter((call) => (
-        call[0] === "project-sessions:ensure-default-draft"
-      )))
-        .toHaveLength(1);
+      expect(
+        invokeCalls.filter((call) => call[0] === "project-sessions:ensure-default-draft"),
+      ).toHaveLength(1);
       expect(startThreadForSessionCalls).toHaveLength(1);
     });
     expect(startThreadForSessionCalls[0]).toMatchObject({
@@ -198,15 +200,18 @@ describe("workbench session shell / Project Agent Dock", () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByRole("button", {
-      name: "Running setup… View setup details",
-    })).not.toBeNull();
+    expect(
+      await screen.findByRole("button", {
+        name: "Running setup… View setup details",
+      }),
+    ).not.toBeNull();
     await waitFor(() => {
-      const props = (globalThis as {
-        __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
-      }).__lastConnectedThreadComposerDockProps;
-      expect(props?.newThreadStartBlockedReason)
-        .toBe("Worktree setup is already in progress");
+      const props = (
+        globalThis as {
+          __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
+        }
+      ).__lastConnectedThreadComposerDockProps;
+      expect(props?.newThreadStartBlockedReason).toBe("Worktree setup is already in progress");
     });
   });
 });

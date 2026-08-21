@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import {
-  createPageDocumentGenesis,
-  materializePageDocument,
-} from "./block-document-codec";
+import { createPageDocumentGenesis, materializePageDocument } from "./block-document-codec";
 import { isLegacyForeignBodyReference } from "./derived-records";
 import {
   ForeignReferenceMigrationError,
@@ -35,9 +32,7 @@ describe("foreign reference Document migration", () => {
     const pageReferenceId = before.blockTree[0]?.id ?? "";
     const cardToggleId = before.blockTree[1]?.id ?? "";
     const queryId = before.blockTree[2]?.id ?? "";
-    const removedToggleChildIds = before.blockTree[1]?.children.map(
-      (block) => block.id,
-    ) ?? [];
+    const removedToggleChildIds = before.blockTree[1]?.children.map((block) => block.id) ?? [];
 
     const migration = migrateForeignReferences(source.document, [
       {
@@ -55,28 +50,24 @@ describe("foreign reference Document migration", () => {
 
     expect(materializePageDocument(source.document).nfm).toBe(before.nfm);
     expect(migration.materialization.references.some(isLegacyForeignBodyReference)).toBe(false);
-    expect(migration.migratedBlockIds.join(",")).toBe(
-      [cardToggleId, queryId].join(","),
-    );
-    expect(migration.removedDescendantBlockIds.join(",")).toBe(
-      removedToggleChildIds.join(","),
-    );
+    expect(migration.migratedBlockIds.join(",")).toBe([cardToggleId, queryId].join(","));
+    expect(migration.removedDescendantBlockIds.join(",")).toBe(removedToggleChildIds.join(","));
     expect(migration.materialization.blockTree[0]?.id).toBe(pageReferenceId);
     expect(migration.materialization.blockTree[1]?.id).toBe(cardToggleId);
     expect(migration.materialization.blockTree[1]?.children.length).toBe(0);
     expect(migration.materialization.blockTree[2]?.id).toBe(queryId);
-    expect(migration.materialization.nfm).toBe([
-      '<page-ref url="nodex://pages/card-a" />',
-      '<page-ref url="nodex://pages/recovered-card" />',
-      `<database-view-ref database-view="database-view:inline:${queryId}" display-hint="Project B" />`,
-    ].join("\n"));
+    expect(migration.materialization.nfm).toBe(
+      [
+        '<page-ref url="nodex://pages/card-a" />',
+        '<page-ref url="nodex://pages/recovered-card" />',
+        `<database-view-ref database-view="database-view:inline:${queryId}" display-hint="Project B" />`,
+      ].join("\n"),
+    );
 
     const replay = new Y.Doc({ guid: source.document.guid });
     Y.applyUpdate(replay, Y.encodeStateAsUpdate(source.document));
     Y.applyUpdate(replay, migration.update);
-    expect(materializePageDocument(replay).nfm).toBe(
-      migration.materialization.nfm,
-    );
+    expect(materializePageDocument(replay).nfm).toBe(migration.materialization.nfm);
     replay.destroy();
     source.document.destroy();
   });
@@ -89,16 +80,20 @@ describe("foreign reference Document migration", () => {
     );
     let error: unknown;
     try {
-      migrateForeignReferences(source.document, [{
-        kind: "database_view",
-        sourceBlockId: references[0]?.sourceBlockId ?? "",
-        databaseViewId: "database-view:wrong-kind",
-      }]);
+      migrateForeignReferences(source.document, [
+        {
+          kind: "database_view",
+          sourceBlockId: references[0]?.sourceBlockId ?? "",
+          databaseViewId: "database-view:wrong-kind",
+        },
+      ]);
     } catch (caught) {
       error = caught;
     }
     expect(error instanceof ForeignReferenceMigrationError).toBe(true);
-    expect(Buffer.from(Y.encodeStateAsUpdate(source.document)).equals(Buffer.from(before))).toBe(true);
+    expect(Buffer.from(Y.encodeStateAsUpdate(source.document)).equals(Buffer.from(before))).toBe(
+      true,
+    );
     source.document.destroy();
   });
 });

@@ -1,11 +1,7 @@
 import * as Y from "yjs";
 import { BLOCK_ID_ATTRIBUTE } from "./block-structure";
 
-const PAGE_SHELL_NODE_NAMES = new Set([
-  "page",
-  "pageRef",
-  "cardRef",
-]);
+const PAGE_SHELL_NODE_NAMES = new Set(["page", "pageRef", "cardRef"]);
 
 export interface NormalizedPageReferences {
   readonly removedHints: number;
@@ -14,32 +10,24 @@ export interface NormalizedPageReferences {
 }
 
 /** Normalize historical Page references inside one current Block tree. */
-export const normalizePageReferences = (
-  body: Y.XmlFragment,
-): NormalizedPageReferences => {
+export const normalizePageReferences = (body: Y.XmlFragment): NormalizedPageReferences => {
   const blockIds = new Set<string>();
   let removedHints = 0;
   let renamedNodes = 0;
 
-  const visit = (
-    parent: Y.XmlFragment | Y.XmlElement,
-    containingBlockId: string | null,
-  ): void => {
+  const visit = (parent: Y.XmlFragment | Y.XmlElement, containingBlockId: string | null): void => {
     for (const [index, child] of parent.toArray().entries()) {
       if (!(child instanceof Y.XmlElement)) continue;
 
       const rawBlockId = child.getAttribute(BLOCK_ID_ATTRIBUTE);
-      const nextBlockId = child.nodeName === "blockContainer"
-        && typeof rawBlockId === "string"
-        ? rawBlockId
-        : containingBlockId;
+      const nextBlockId =
+        child.nodeName === "blockContainer" && typeof rawBlockId === "string"
+          ? rawBlockId
+          : containingBlockId;
 
       if (
-        PAGE_SHELL_NODE_NAMES.has(child.nodeName)
-        && Object.prototype.hasOwnProperty.call(
-          child.getAttributes(),
-          "displayHint",
-        )
+        PAGE_SHELL_NODE_NAMES.has(child.nodeName) &&
+        Object.prototype.hasOwnProperty.call(child.getAttributes(), "displayHint")
       ) {
         child.removeAttribute("displayHint");
         removedHints += 1;

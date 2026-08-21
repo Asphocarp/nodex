@@ -4,12 +4,7 @@ import {
   computeBrowserViewportLayout,
 } from "./browser-viewport-layout";
 
-function layout(
-  width: number,
-  height: number,
-  viewportWidth: number,
-  viewportHeight: number,
-) {
+function layout(width: number, height: number, viewportWidth: number, viewportHeight: number) {
   return computeBrowserViewportLayout({
     containerWidth: width,
     containerHeight: height,

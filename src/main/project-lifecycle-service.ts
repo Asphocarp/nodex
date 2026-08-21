@@ -18,18 +18,14 @@ import {
 export interface ProjectLifecycleServiceDependencies {
   readonly projectWorkspace: Pick<
     DesktopProjectWorkspacePort,
-    | "getProject"
-    | "listProjectSessionSummaryWindow"
-    | "setProjectLifecycle"
+    "getProject" | "listProjectSessionSummaryWindow" | "setProjectLifecycle"
   >;
   readonly coordinator?: ProjectRuntimeLifecycleCoordinator;
   readonly browserRuntime: Pick<
     ProjectSessionBrowserRuntime,
     "closeBrowserConversation" | "closeBrowserProject"
   >;
-  readonly listCodexBlockers: (
-    threadIds: readonly string[],
-  ) => readonly ProjectArchiveBlocker[];
+  readonly listCodexBlockers: (threadIds: readonly string[]) => readonly ProjectArchiveBlocker[];
   readonly listBackgroundProcessRows: (
     threadId: string,
   ) => Promise<readonly CodexBackgroundProcessRow[]>;
@@ -63,12 +59,8 @@ export async function assertTerminalProjectIsActive(
   input: TerminalProjectOwnershipInput,
 ): Promise<string | null> {
   const [session, thread] = await Promise.all([
-    input.projectSessionId
-      ? projectWorkspace.getProjectSession(input.projectSessionId)
-      : null,
-    input.conversationId
-      ? projectWorkspace.getThread(input.conversationId)
-      : null,
+    input.projectSessionId ? projectWorkspace.getProjectSession(input.projectSessionId) : null,
+    input.conversationId ? projectWorkspace.getThread(input.conversationId) : null,
   ]);
   if (input.projectSessionId && !session) {
     throw new Error(`Unknown Project Session: ${input.projectSessionId}`);
@@ -114,16 +106,15 @@ interface ProjectOwnershipSnapshot {
 
 const logger = getLogger({ subsystem: "project-lifecycle" });
 
-function deduplicateBlockers(
-  blockers: readonly ProjectArchiveBlocker[],
-): ProjectArchiveBlocker[] {
+function deduplicateBlockers(blockers: readonly ProjectArchiveBlocker[]): ProjectArchiveBlocker[] {
   const seen = new Set<string>();
   return blockers.filter((blocker) => {
-    const key = blocker.kind === "terminal"
-      ? `${blocker.kind}:${blocker.terminalSessionId}`
-      : blocker.kind === "background-process"
-        ? `${blocker.kind}:${blocker.threadId}:${blocker.processId ?? blocker.label ?? "unknown"}`
-        : `${blocker.kind}:${blocker.threadId}`;
+    const key =
+      blocker.kind === "terminal"
+        ? `${blocker.kind}:${blocker.terminalSessionId}`
+        : blocker.kind === "background-process"
+          ? `${blocker.kind}:${blocker.threadId}:${blocker.processId ?? blocker.label ?? "unknown"}`
+          : `${blocker.kind}:${blocker.threadId}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -137,16 +128,17 @@ async function readOwnershipSnapshot(
   const sessions: ProjectSessionSummary[] = [];
   let after: string | null = null;
   do {
-    const window = await dependencies.projectWorkspace.listProjectSessionSummaryWindow(
-      project.id,
-      { includeArchived: true, after, first: 200 },
-    );
+    const window = await dependencies.projectWorkspace.listProjectSessionSummaryWindow(project.id, {
+      includeArchived: true,
+      after,
+      first: 200,
+    });
     sessions.push(...window.items);
     after = window.nextCursor;
   } while (after !== null);
-  const threadIds = [...new Set(
-    sessions.flatMap((session) => session.thread ? [session.thread.threadId] : []),
-  )];
+  const threadIds = [
+    ...new Set(sessions.flatMap((session) => (session.thread ? [session.thread.threadId] : []))),
+  ];
   return {
     project,
     sessions,
@@ -161,25 +153,31 @@ async function readArchiveBlockers(
   ownership: ProjectOwnershipSnapshot,
 ): Promise<ProjectArchiveBlocker[]> {
   const codexBlockers = dependencies.listCodexBlockers(ownership.threadIds);
-  const terminalBlockers = dependencies.listLiveTerminalSessions({
-    conversationIds: ownership.threadIdSet,
-    projectSessionIds: ownership.sessionIds,
-  }).map<ProjectArchiveBlocker>((session) => ({
-    kind: "terminal",
-    terminalSessionId: session.sessionId,
-    projectSessionId: session.projectSessionId,
-  }));
+  const terminalBlockers = dependencies
+    .listLiveTerminalSessions({
+      conversationIds: ownership.threadIdSet,
+      projectSessionIds: ownership.sessionIds,
+    })
+    .map<ProjectArchiveBlocker>((session) => ({
+      kind: "terminal",
+      terminalSessionId: session.sessionId,
+      projectSessionId: session.projectSessionId,
+    }));
   const backgroundProcessGroups = await Promise.all(
     ownership.threadIds.map(async (threadId) => {
       const rows = await dependencies.listBackgroundProcessRows(threadId);
-      return rows.flatMap<ProjectArchiveBlocker>((row) => row.status === "running"
-        ? [{
-          kind: "background-process",
-          threadId,
-          processId: row.processId,
-          label: row.command.trim() || row.threadTitle?.trim() || null,
-        }]
-        : []);
+      return rows.flatMap<ProjectArchiveBlocker>((row) =>
+        row.status === "running"
+          ? [
+              {
+                kind: "background-process",
+                threadId,
+                processId: row.processId,
+                label: row.command.trim() || row.threadTitle?.trim() || null,
+              },
+            ]
+          : [],
+      );
     }),
   );
   return deduplicateBlockers([
@@ -200,16 +198,16 @@ async function cleanupProjectRuntimeOwnership(
     })),
     {
       label: `browser-project:${ownership.project.id}`,
-      run: async () => await dependencies.browserRuntime.closeBrowserProject?.(
-        ownership.project.id,
-      ),
+      run: async () =>
+        await dependencies.browserRuntime.closeBrowserProject?.(ownership.project.id),
     },
     {
       label: `exited-terminals:${ownership.project.id}`,
-      run: async () => dependencies.discardExitedTerminalSessions({
-        conversationIds: ownership.threadIdSet,
-        projectSessionIds: ownership.sessionIds,
-      }),
+      run: async () =>
+        dependencies.discardExitedTerminalSessions({
+          conversationIds: ownership.threadIdSet,
+          projectSessionIds: ownership.sessionIds,
+        }),
     },
   ];
   const cleanupResults = await Promise.allSettled(
@@ -217,13 +215,13 @@ async function cleanupProjectRuntimeOwnership(
   );
   const failures = cleanupResults.flatMap((result, index) =>
     result.status === "rejected"
-      ? [{
-          label: cleanupTasks[index]?.label ?? "unknown",
-          error: result.reason instanceof Error
-            ? result.reason.message
-            : String(result.reason),
-        }]
-      : []
+      ? [
+          {
+            label: cleanupTasks[index]?.label ?? "unknown",
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          },
+        ]
+      : [],
   );
   if (failures.length === 0) return;
 
@@ -237,9 +235,7 @@ export function createProjectLifecycleService(
   dependencies: ProjectLifecycleServiceDependencies,
 ): ProjectLifecycleService {
   const coordinator = dependencies.coordinator ?? projectRuntimeLifecycleCoordinator;
-  const archiveProject = async (
-    project: Project,
-  ): Promise<ProjectLifecycleMutationResult> => {
+  const archiveProject = async (project: Project): Promise<ProjectLifecycleMutationResult> => {
     const ownership = await readOwnershipSnapshot(dependencies, project);
     if (project.lifecycle === "archived") {
       await cleanupProjectRuntimeOwnership(dependencies, ownership);
@@ -257,10 +253,7 @@ export function createProjectLifecycleService(
       return { kind: "blocked", project, blockers: commitBlockers };
     }
 
-    const updated = await dependencies.projectWorkspace.setProjectLifecycle(
-      project.id,
-      "archived",
-    );
+    const updated = await dependencies.projectWorkspace.setProjectLifecycle(project.id, "archived");
     if (!updated) return { kind: "not-found" };
 
     await cleanupProjectRuntimeOwnership(dependencies, commitOwnership);

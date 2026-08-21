@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  normalizeTerminalControlText,
-  parseTerminalAnsiSegments,
-} from "./terminal-ansi-text";
+import { normalizeTerminalControlText, parseTerminalAnsiSegments } from "./terminal-ansi-text";
 
 describe("terminal ANSI text", () => {
   test("applies carriage-return overwrites and destructive backspaces", () => {
@@ -17,8 +14,7 @@ describe("terminal ANSI text", () => {
       "plain \u001b[31;1mred\u001b[0m \u001b[38;5;46mgreen\u001b[48;2;1;2;3m bg",
     );
 
-    expect(segments.map((segment) => segment.text).join("|"))
-      .toBe("plain |red| |green| bg");
+    expect(segments.map((segment) => segment.text).join("|")).toBe("plain |red| |green| bg");
     expect(segments[1]?.className).toBe("ansi-red-fg");
     expect(segments[1]?.style?.fontWeight).toBe("bold");
     expect(segments[3]?.className).toBe("ansi-palette-46-fg");
@@ -27,9 +23,7 @@ describe("terminal ANSI text", () => {
   });
 
   test("uses only the final active decoration and resolves reverse into color classes", () => {
-    const segments = parseTerminalAnsiSegments(
-      "\u001b[1;4munderlined\u001b[0;7mreversed",
-    );
+    const segments = parseTerminalAnsiSegments("\u001b[1;4munderlined\u001b[0;7mreversed");
 
     expect(segments[0]?.style?.textDecorationLine).toBe("underline");
     expect(segments[0]?.style?.fontWeight).toBe(undefined);

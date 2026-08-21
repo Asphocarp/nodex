@@ -12,11 +12,7 @@ import {
   NodexContextMenuTrigger,
 } from "./context-menu";
 
-function TestMenu({
-  onResolve,
-}: {
-  readonly onResolve: (id: string) => void;
-}) {
+function TestMenu({ onResolve }: { readonly onResolve: (id: string) => void }) {
   const submenu = (id: string) => (
     <NodexContextMenuSubmenu
       trigger={<NodexContextMenuSubmenuTrigger>{id}</NodexContextMenuSubmenuTrigger>}

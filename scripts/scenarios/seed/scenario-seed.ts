@@ -1,16 +1,11 @@
-import type {
-  ScenarioFacts,
-  ScenarioManifest,
-  ScenarioSeedPort,
-} from "../contracts";
+import type { ScenarioFacts, ScenarioManifest, ScenarioSeedPort } from "../contracts";
 import { getScenario } from "../registry";
 
 export const materializeScenario = async (
   scenarioId: string,
   port: ScenarioSeedPort,
   workspace: string,
-): Promise<ScenarioManifest> =>
-  await getScenario(scenarioId).materialize(port, workspace);
+): Promise<ScenarioManifest> => await getScenario(scenarioId).materialize(port, workspace);
 
 export const inspectScenario = async (
   manifest: ScenarioManifest,

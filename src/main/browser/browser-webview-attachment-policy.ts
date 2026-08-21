@@ -23,14 +23,14 @@ export type BrowserWebviewAttachmentRejectionReason =
 
 export type BrowserWebviewAttachmentDecision =
   | {
-    ok: true;
-    authorization: BrowserAuthorizedAttachment;
-  }
+      ok: true;
+      authorization: BrowserAuthorizedAttachment;
+    }
   | {
-    ok: false;
-    reason: BrowserWebviewAttachmentRejectionReason;
-    route: BrowserSidebarHostRouteIdentity | null;
-  };
+      ok: false;
+      reason: BrowserWebviewAttachmentRejectionReason;
+      route: BrowserSidebarHostRouteIdentity | null;
+    };
 
 interface BrowserWebviewAttachmentPolicyInput {
   authorizeAttachment: (
@@ -49,9 +49,9 @@ interface BrowserWebviewAttachmentPolicyInput {
 export type BrowserWebviewAttachmentInstanceRegistration =
   | { ok: true; instanceId: number }
   | {
-    ok: false;
-    reason: "duplicate-instance-id" | "invalid-instance-id";
-  };
+      ok: false;
+      reason: "duplicate-instance-id" | "invalid-instance-id";
+    };
 
 export function registerPendingBrowserWebviewAttachment<Attachment>(
   pendingAttachments: Map<number, Attachment>,
@@ -102,29 +102,16 @@ export function decideBrowserWebviewAttachment(
       route,
     };
   }
-  if (
-    !input.isRegisteredBrowserStorage(
-      route,
-      authorization.authorization.browserStorageId,
-    )
-  ) {
-    input.revokeAuthorizedAttachment(
-      authorization.authorization.attachToken,
-    );
+  if (!input.isRegisteredBrowserStorage(route, authorization.authorization.browserStorageId)) {
+    input.revokeAuthorizedAttachment(authorization.authorization.attachToken);
     return { ok: false, reason: "storage-identity-mismatch", route };
   }
   return { ok: true, authorization: authorization.authorization };
 }
 
 export function parseBrowserWebviewInstanceId(value: unknown): number | null {
-  const instanceId = typeof value === "string" && value.trim().length > 0
-    ? Number(value)
-    : value;
-  return (
-    typeof instanceId === "number"
-    && Number.isSafeInteger(instanceId)
-    && instanceId > 0
-  )
+  const instanceId = typeof value === "string" && value.trim().length > 0 ? Number(value) : value;
+  return typeof instanceId === "number" && Number.isSafeInteger(instanceId) && instanceId > 0
     ? instanceId
     : null;
 }

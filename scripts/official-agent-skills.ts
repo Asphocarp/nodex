@@ -1,15 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -38,11 +29,7 @@ export const OFFICIAL_SKILL_FILES = [
   "references/troubleshooting.md",
 ] as const;
 
-const OUTPUT_TOP_LEVEL_FILES = [
-  "LICENSE",
-  "README.md",
-  "release-manifest.json",
-] as const;
+const OUTPUT_TOP_LEVEL_FILES = ["LICENSE", "README.md", "release-manifest.json"] as const;
 
 interface PackageManifest {
   readonly name?: string;
@@ -98,17 +85,8 @@ function portablePath(value: string): string {
   return value.split(sep).join("/");
 }
 
-function requireBoundedIdentity(
-  value: string,
-  label: string,
-  pattern: RegExp,
-): string {
-  if (
-    value.length === 0
-    || value.length > 256
-    || value.trim() !== value
-    || !pattern.test(value)
-  ) {
+function requireBoundedIdentity(value: string, label: string, pattern: RegExp): string {
+  if (value.length === 0 || value.length > 256 || value.trim() !== value || !pattern.test(value)) {
     throw new Error(`${label} is invalid`);
   }
   return value;
@@ -117,34 +95,28 @@ function requireBoundedIdentity(
 function resolveOptions(options: OfficialAgentSkillsOptions = {}): ResolvedOptions {
   const repositoryRoot = resolve(options.repositoryRoot ?? REPOSITORY_ROOT);
   const outputDirectory = resolve(
-    options.outputDirectory
-      ?? join(repositoryRoot, DEFAULT_OUTPUT_RELATIVE),
+    options.outputDirectory ?? join(repositoryRoot, DEFAULT_OUTPUT_RELATIVE),
   );
   const sourceRepository = requireBoundedIdentity(
-    options.sourceRepository
-      ?? process.env.NODEX_AGENT_SKILLS_SOURCE_REPOSITORY
-      ?? process.env.GITHUB_REPOSITORY
-      ?? "local/nodex",
+    options.sourceRepository ??
+      process.env.NODEX_AGENT_SKILLS_SOURCE_REPOSITORY ??
+      process.env.GITHUB_REPOSITORY ??
+      "local/nodex",
     "Skill source repository",
     /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/,
   );
-  const configuredRef = options.sourceRef
-    ?? process.env.NODEX_AGENT_SKILLS_SOURCE_REF
-    ?? null;
-  const sourceRef = configuredRef === null
-    ? null
-    : requireBoundedIdentity(
-      configuredRef,
-      "Skill source ref",
-      /^[A-Za-z0-9._/-]+$/,
-    );
+  const configuredRef = options.sourceRef ?? process.env.NODEX_AGENT_SKILLS_SOURCE_REF ?? null;
+  const sourceRef =
+    configuredRef === null
+      ? null
+      : requireBoundedIdentity(configuredRef, "Skill source ref", /^[A-Za-z0-9._/-]+$/);
 
   const generatedBoundary = resolve(repositoryRoot, GENERATED_ROOT);
   const relativeOutput = relative(generatedBoundary, outputDirectory);
   if (
-    relativeOutput.length === 0
-    || relativeOutput === ".."
-    || relativeOutput.startsWith(`..${sep}`)
+    relativeOutput.length === 0 ||
+    relativeOutput === ".." ||
+    relativeOutput.startsWith(`..${sep}`)
   ) {
     throw new Error("Official Skill output must stay inside .generated");
   }
@@ -190,9 +162,9 @@ async function validateExactTree(
       const absolutePath = join(directory, entry.name);
       const relativePath = portablePath(relative(root, absolutePath));
       if (
-        relativePath.length === 0
-        || relativePath.startsWith("../")
-        || relativePath.includes("/../")
+        relativePath.length === 0 ||
+        relativePath.startsWith("../") ||
+        relativePath.includes("/../")
       ) {
         throw new Error(`Unsafe Skill path: ${relativePath}`);
       }
@@ -235,8 +207,10 @@ async function validateExactTree(
   if (missing.length > 0) {
     throw new Error(`Skill tree is missing required files: ${missing.join(", ")}`);
   }
-  const totalBytes = [...files.values()]
-    .reduce((total, contents) => total + contents.byteLength, 0);
+  const totalBytes = [...files.values()].reduce(
+    (total, contents) => total + contents.byteLength,
+    0,
+  );
   if (totalBytes > totalByteLimit) {
     throw new Error(`Skill tree exceeds ${totalByteLimit} bytes`);
   }
@@ -253,10 +227,7 @@ function decodeUtf8(contents: Buffer, label: string): string {
 }
 
 function validateSkillMetadata(files: ReadonlyMap<string, Buffer>): void {
-  const skill = decodeUtf8(
-    files.get("SKILL.md") ?? Buffer.alloc(0),
-    "SKILL.md",
-  );
+  const skill = decodeUtf8(files.get("SKILL.md") ?? Buffer.alloc(0), "SKILL.md");
   const lines = skill.split("\n");
   if (lines.length > MAX_SKILL_LINES) {
     throw new Error(`SKILL.md exceeds ${MAX_SKILL_LINES} lines`);
@@ -273,9 +244,9 @@ function validateSkillMetadata(files: ReadonlyMap<string, Buffer>): void {
     .filter((line) => line.trim().length > 0)
     .map((line) => line.split(":", 1)[0]?.trim());
   if (
-    frontmatterKeys.length !== 2
-    || frontmatterKeys[0] !== "name"
-    || frontmatterKeys[1] !== "description"
+    frontmatterKeys.length !== 2 ||
+    frontmatterKeys[0] !== "name" ||
+    frontmatterKeys[1] !== "description"
   ) {
     throw new Error("SKILL.md frontmatter may contain only name and description");
   }
@@ -358,9 +329,7 @@ function hashSkillTree(files: ReadonlyMap<string, Buffer>): string {
   return hash.digest("hex");
 }
 
-export function officialSkillTreeSha256(
-  files: ReadonlyMap<string, Buffer>,
-): string {
+export function officialSkillTreeSha256(files: ReadonlyMap<string, Buffer>): string {
   return hashSkillTree(files);
 }
 
@@ -389,18 +358,12 @@ function renderReadme(version: string): string {
   ].join("\n");
 }
 
-async function buildExpectedArtifact(
-  options: ResolvedOptions,
-): Promise<{
+async function buildExpectedArtifact(options: ResolvedOptions): Promise<{
   readonly files: ReadonlyMap<string, Buffer>;
   readonly manifest: OfficialAgentSkillsManifest;
 }> {
   const authoringRoot = join(options.repositoryRoot, AUTHORING_SKILL_RELATIVE);
-  const sourceTree = await validateExactTree(
-    authoringRoot,
-    OFFICIAL_SKILL_FILES,
-    MAX_SKILL_BYTES,
-  );
+  const sourceTree = await validateExactTree(authoringRoot, OFFICIAL_SKILL_FILES, MAX_SKILL_BYTES);
   validateSkillMetadata(sourceTree.files);
 
   const nestedMarkdown = decodeUtf8(
@@ -451,14 +414,8 @@ async function buildExpectedArtifact(
   for (const [path, contents] of sourceTree.files) {
     outputFiles.set(`${SKILL_OUTPUT_PREFIX}/${path}`, contents);
   }
-  outputFiles.set(
-    "README.md",
-    Buffer.from(renderReadme(version), "utf8"),
-  );
-  outputFiles.set(
-    "LICENSE",
-    await readFile(join(options.repositoryRoot, "LICENSE")),
-  );
+  outputFiles.set("README.md", Buffer.from(renderReadme(version), "utf8"));
+  outputFiles.set("LICENSE", await readFile(join(options.repositoryRoot, "LICENSE")));
   outputFiles.set(
     "release-manifest.json",
     Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8"),
@@ -473,9 +430,7 @@ async function writeArtifact(
 ): Promise<void> {
   const generatedRoot = resolve(outputDirectory, "..");
   await mkdir(generatedRoot, { recursive: true });
-  const temporaryDirectory = await mkdtemp(
-    join(generatedRoot, ".official-agent-skills-"),
-  );
+  const temporaryDirectory = await mkdtemp(join(generatedRoot, ".official-agent-skills-"));
   try {
     for (const [path, contents] of files) {
       const destination = join(temporaryDirectory, ...path.split("/"));
@@ -514,7 +469,7 @@ async function verifyResolvedArtifact(
   const actual = await validateExactTree(
     options.outputDirectory,
     outputAllowlist(),
-    MAX_SKILL_BYTES + (256 * 1024),
+    MAX_SKILL_BYTES + 256 * 1024,
   );
 
   for (const [path, expectedContents] of expected.files) {
@@ -586,17 +541,16 @@ export async function smokeOfficialAgentSkills(
 
 async function main(): Promise<void> {
   const [command] = process.argv.slice(2);
-  const manifest = command === "generate"
-    ? await generateOfficialAgentSkills()
-    : command === "verify"
-      ? await verifyOfficialAgentSkills()
-      : command === "smoke"
-        ? await smokeOfficialAgentSkills()
-        : null;
+  const manifest =
+    command === "generate"
+      ? await generateOfficialAgentSkills()
+      : command === "verify"
+        ? await verifyOfficialAgentSkills()
+        : command === "smoke"
+          ? await smokeOfficialAgentSkills()
+          : null;
   if (!manifest) {
-    throw new Error(
-      "Usage: tsx scripts/official-agent-skills.ts <generate|verify|smoke>",
-    );
+    throw new Error("Usage: tsx scripts/official-agent-skills.ts <generate|verify|smoke>");
   }
   process.stdout.write(
     `Official Nodex Skill ${command} passed (${manifest.skills[0].treeSha256}).\n`,

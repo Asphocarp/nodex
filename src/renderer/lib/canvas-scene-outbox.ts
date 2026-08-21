@@ -37,20 +37,14 @@ export interface CanvasSceneOutbox {
     documentId: string,
     mutationId: string,
   ) => Promise<void>;
-  clear: (
-    accessContext: ContentAccessContext,
-    documentId: string,
-  ) => Promise<void>;
+  clear: (accessContext: ContentAccessContext, documentId: string) => Promise<void>;
 }
 
 const outboxBoundaryKey = (
   libraryId: string,
   accessContext: ContentAccessContext,
   documentId: string,
-): string => JSON.stringify([
-  contentAccessIdentityKey({ libraryId, accessContext }),
-  documentId,
-]);
+): string => JSON.stringify([contentAccessIdentityKey({ libraryId, accessContext }), documentId]);
 
 const canonicalOutboxLibraryId = (libraryId: string): string => {
   contentAccessIdentityKey({
@@ -63,14 +57,8 @@ const canonicalOutboxLibraryId = (libraryId: string): string => {
 /** Deterministic test/default-memory implementation; production may use IndexedDB. */
 export class MemoryCanvasSceneOutbox implements CanvasSceneOutbox {
   readonly libraryId: string;
-  private readonly intents = new Map<
-    string,
-    Map<string, CanvasSceneMutationIntent>
-  >();
-  private readonly quarantined = new Map<
-    string,
-    Map<string, QuarantinedCanvasSceneMutation>
-  >();
+  private readonly intents = new Map<string, Map<string, CanvasSceneMutationIntent>>();
+  private readonly quarantined = new Map<string, Map<string, QuarantinedCanvasSceneMutation>>();
 
   constructor(libraryId: string) {
     this.libraryId = canonicalOutboxLibraryId(libraryId);
@@ -79,39 +67,32 @@ export class MemoryCanvasSceneOutbox implements CanvasSceneOutbox {
   list = async (
     accessContext: ContentAccessContext,
     documentId: string,
-  ): Promise<readonly CanvasSceneMutationIntent[]> =>
-    [...(this.intents.get(outboxBoundaryKey(
-      this.libraryId,
-      accessContext,
-      documentId,
-    ))?.values() ?? [])];
+  ): Promise<readonly CanvasSceneMutationIntent[]> => [
+    ...(this.intents.get(outboxBoundaryKey(this.libraryId, accessContext, documentId))?.values() ??
+      []),
+  ];
 
   listQuarantined = async (
     accessContext: ContentAccessContext,
     documentId: string,
-  ): Promise<readonly QuarantinedCanvasSceneMutation[]> =>
-    [...(this.quarantined.get(
-      outboxBoundaryKey(this.libraryId, accessContext, documentId),
-    )?.values() ?? [])];
+  ): Promise<readonly QuarantinedCanvasSceneMutation[]> => [
+    ...(this.quarantined
+      .get(outboxBoundaryKey(this.libraryId, accessContext, documentId))
+      ?.values() ?? []),
+  ];
 
   put = async (input: CanvasSceneMutationIntent): Promise<void> => {
     const intent = canonicalizeCanvasSceneMutationIntent(input);
-    const boundary = outboxBoundaryKey(
-      this.libraryId,
-      intent.accessContext,
-      intent.documentId,
-    );
-    const documentIntents = this.intents.get(boundary)
-      ?? new Map<string, CanvasSceneMutationIntent>();
+    const boundary = outboxBoundaryKey(this.libraryId, intent.accessContext, intent.documentId);
+    const documentIntents =
+      this.intents.get(boundary) ?? new Map<string, CanvasSceneMutationIntent>();
     const existing = documentIntents.get(intent.mutationId);
     if (
-      existing
-      && encodeCanonicalCanvasSceneMutationIntent(existing)
-        !== encodeCanonicalCanvasSceneMutationIntent(intent)
+      existing &&
+      encodeCanonicalCanvasSceneMutationIntent(existing) !==
+        encodeCanonicalCanvasSceneMutationIntent(intent)
     ) {
-      throw new Error(
-        `Canvas mutation ${intent.mutationId} already exists in the outbox`,
-      );
+      throw new Error(`Canvas mutation ${intent.mutationId} already exists in the outbox`);
     }
     if (existing) return;
     documentIntents.set(intent.mutationId, intent);
@@ -124,16 +105,12 @@ export class MemoryCanvasSceneOutbox implements CanvasSceneOutbox {
     rejectedAt: number,
   ): Promise<void> => {
     const intent = canonicalizeCanvasSceneMutationIntent(input);
-    const boundary = outboxBoundaryKey(
-      this.libraryId,
-      intent.accessContext,
-      intent.documentId,
-    );
+    const boundary = outboxBoundaryKey(this.libraryId, intent.accessContext, intent.documentId);
     const documentIntents = this.intents.get(boundary);
     const active = documentIntents?.get(intent.mutationId);
     if (!active) return;
-    const documentQuarantine = this.quarantined.get(boundary)
-      ?? new Map<string, QuarantinedCanvasSceneMutation>();
+    const documentQuarantine =
+      this.quarantined.get(boundary) ?? new Map<string, QuarantinedCanvasSceneMutation>();
     documentQuarantine.set(intent.mutationId, {
       intent,
       error,
@@ -154,26 +131,15 @@ export class MemoryCanvasSceneOutbox implements CanvasSceneOutbox {
     documentId: string,
     mutationId: string,
   ): Promise<void> => {
-    const boundary = outboxBoundaryKey(
-      this.libraryId,
-      accessContext,
-      documentId,
-    );
+    const boundary = outboxBoundaryKey(this.libraryId, accessContext, documentId);
     const documentIntents = this.intents.get(boundary);
     if (!documentIntents) return;
     documentIntents.delete(mutationId);
     if (documentIntents.size === 0) this.intents.delete(boundary);
   };
 
-  clear = async (
-    accessContext: ContentAccessContext,
-    documentId: string,
-  ): Promise<void> => {
-    this.intents.delete(outboxBoundaryKey(
-      this.libraryId,
-      accessContext,
-      documentId,
-    ));
+  clear = async (accessContext: ContentAccessContext, documentId: string): Promise<void> => {
+    this.intents.delete(outboxBoundaryKey(this.libraryId, accessContext, documentId));
   };
 }
 
@@ -208,20 +174,17 @@ interface StoredQuarantinedCanvasSceneMutation {
 const requestResult = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(
-      request.error ?? new Error("Canvas outbox IndexedDB request failed"),
-    );
+    request.onerror = () =>
+      reject(request.error ?? new Error("Canvas outbox IndexedDB request failed"));
   });
 
 const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(
-      transaction.error ?? new Error("Canvas outbox transaction failed"),
-    );
-    transaction.onabort = () => reject(
-      transaction.error ?? new Error("Canvas outbox transaction was aborted"),
-    );
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("Canvas outbox transaction failed"));
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Canvas outbox transaction was aborted"));
   });
 
 const createMutationStore = (database: IDBDatabase): IDBObjectStore => {
@@ -272,9 +235,7 @@ const legacyProjectIntent = (value: unknown): CanvasSceneMutationIntent => {
     throw new TypeError("Legacy Canvas outbox intent has no Project access");
   }
   return canonicalizeCanvasSceneMutationIntent({
-    ...Object.fromEntries(
-      Object.entries(record).filter(([key]) => key !== "projectId"),
-    ),
+    ...Object.fromEntries(Object.entries(record).filter(([key]) => key !== "projectId")),
     accessContext: { kind: "project", projectId: record.projectId },
   });
 };
@@ -288,9 +249,7 @@ const intentFromVersionOneRow = (value: unknown): CanvasSceneMutationIntent => {
     throw new TypeError("Canvas outbox v1 row must contain a request");
   }
   return legacyProjectIntent(
-    Object.fromEntries(
-      Object.entries(request).filter(([key]) => key !== "clientSessionId"),
-    ),
+    Object.fromEntries(Object.entries(request).filter(([key]) => key !== "clientSessionId")),
   );
 };
 
@@ -327,18 +286,12 @@ const openDatabase = (
         transaction?.abort();
         return;
       }
-      const mutationRowsRequest = transaction
-        .objectStore(MUTATION_STORE)
-        .getAll();
-      const quarantineRowsRequest = database.objectStoreNames.contains(
-        QUARANTINE_STORE,
-      )
+      const mutationRowsRequest = transaction.objectStore(MUTATION_STORE).getAll();
+      const quarantineRowsRequest = database.objectStoreNames.contains(QUARANTINE_STORE)
         ? transaction.objectStore(QUARANTINE_STORE).getAll()
         : null;
       let mutationRows: readonly unknown[] | null = null;
-      let quarantineRows: readonly unknown[] | null = quarantineRowsRequest
-        ? null
-        : [];
+      let quarantineRows: readonly unknown[] | null = quarantineRowsRequest ? null : [];
       const rebuild = (): void => {
         if (!mutationRows || !quarantineRows) return;
         try {
@@ -349,9 +302,9 @@ const openDatabase = (
             }
             const record = row as Readonly<Record<string, unknown>>;
             if (
-              typeof record.rejectedAt !== "number"
-              || typeof record.error !== "object"
-              || record.error === null
+              typeof record.rejectedAt !== "number" ||
+              typeof record.error !== "object" ||
+              record.error === null
             ) {
               throw new TypeError("Canvas quarantine row metadata is invalid");
             }
@@ -379,9 +332,7 @@ const openDatabase = (
           for (const rejected of quarantined) {
             quarantineStore.add({
               libraryId: migrationLibraryId,
-              accessKey: contentAccessContextKey(
-                rejected.intent.accessContext,
-              ),
+              accessKey: contentAccessContextKey(rejected.intent.accessContext),
               documentId: rejected.intent.documentId,
               mutationId: rejected.intent.mutationId,
               ...rejected,
@@ -405,9 +356,8 @@ const openDatabase = (
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(
-      request.error ?? new Error("Could not open the Canvas scene outbox"),
-    );
+    request.onerror = () =>
+      reject(request.error ?? new Error("Could not open the Canvas scene outbox"));
   });
 
 export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
@@ -428,27 +378,20 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
     const accessKey = contentAccessContextKey(accessContext);
     const database = await this.getDatabase();
     const transaction = database.transaction(MUTATION_STORE, "readonly");
-    const stored = await requestResult(
-      transaction.objectStore(MUTATION_STORE)
+    const stored = (await requestResult(
+      transaction
+        .objectStore(MUTATION_STORE)
         .index(DOCUMENT_SEQUENCE_INDEX)
         .getAll(
           IDBKeyRange.bound(
             [this.libraryId, accessKey, documentId, 0],
-            [
-              this.libraryId,
-              accessKey,
-              documentId,
-              Number.MAX_SAFE_INTEGER,
-            ],
+            [this.libraryId, accessKey, documentId, Number.MAX_SAFE_INTEGER],
           ),
         ),
-    ) as readonly StoredCanvasSceneMutation[];
+    )) as readonly StoredCanvasSceneMutation[];
     await transactionComplete(transaction);
     return [...stored]
-      .sort(
-        (left, right) =>
-          (left.enqueueSequence ?? 0) - (right.enqueueSequence ?? 0),
-      )
+      .sort((left, right) => (left.enqueueSequence ?? 0) - (right.enqueueSequence ?? 0))
       .map((entry) => canonicalizeCanvasSceneMutationIntent(entry.intent));
   };
 
@@ -459,27 +402,20 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
     const accessKey = contentAccessContextKey(accessContext);
     const database = await this.getDatabase();
     const transaction = database.transaction(QUARANTINE_STORE, "readonly");
-    const stored = await requestResult(
-      transaction.objectStore(QUARANTINE_STORE)
+    const stored = (await requestResult(
+      transaction
+        .objectStore(QUARANTINE_STORE)
         .index(DOCUMENT_SEQUENCE_INDEX)
         .getAll(
           IDBKeyRange.bound(
             [this.libraryId, accessKey, documentId, 0],
-            [
-              this.libraryId,
-              accessKey,
-              documentId,
-              Number.MAX_SAFE_INTEGER,
-            ],
+            [this.libraryId, accessKey, documentId, Number.MAX_SAFE_INTEGER],
           ),
         ),
-    ) as readonly StoredQuarantinedCanvasSceneMutation[];
+    )) as readonly StoredQuarantinedCanvasSceneMutation[];
     await transactionComplete(transaction);
     return [...stored]
-      .sort(
-        (left, right) =>
-          (left.rejectedSequence ?? 0) - (right.rejectedSequence ?? 0),
-      )
+      .sort((left, right) => (left.rejectedSequence ?? 0) - (right.rejectedSequence ?? 0))
       .map((entry) => ({
         intent: canonicalizeCanvasSceneMutationIntent(entry.intent),
         error: entry.error,
@@ -495,29 +431,22 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
     const store = transaction.objectStore(MUTATION_STORE);
     const index = store.index(DOCUMENT_MUTATION_INDEX);
     const existingKey = await requestResult(
-      index.getKey([
-        this.libraryId,
-        accessKey,
-        intent.documentId,
-        intent.mutationId,
-      ]),
+      index.getKey([this.libraryId, accessKey, intent.documentId, intent.mutationId]),
     );
     if (existingKey !== undefined) {
-      const existing = await requestResult(store.get(existingKey)) as
+      const existing = (await requestResult(store.get(existingKey))) as
         | StoredCanvasSceneMutation
         | undefined;
       if (
-        existing
-        && encodeCanonicalCanvasSceneMutationIntent(existing.intent)
-          === encodeCanonicalCanvasSceneMutationIntent(intent)
+        existing &&
+        encodeCanonicalCanvasSceneMutationIntent(existing.intent) ===
+          encodeCanonicalCanvasSceneMutationIntent(intent)
       ) {
         await transactionComplete(transaction);
         return;
       }
       transaction.abort();
-      throw new Error(
-        `Canvas mutation ${intent.mutationId} already exists in the outbox`,
-      );
+      throw new Error(`Canvas mutation ${intent.mutationId} already exists in the outbox`);
     }
     store.add({
       libraryId: this.libraryId,
@@ -537,18 +466,12 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
     const intent = canonicalizeCanvasSceneMutationIntent(input);
     const accessKey = contentAccessContextKey(intent.accessContext);
     const database = await this.getDatabase();
-    const transaction = database.transaction(
-      [MUTATION_STORE, QUARANTINE_STORE],
-      "readwrite",
-    );
+    const transaction = database.transaction([MUTATION_STORE, QUARANTINE_STORE], "readwrite");
     const activeStore = transaction.objectStore(MUTATION_STORE);
     const activeKey = await requestResult(
-      activeStore.index(DOCUMENT_MUTATION_INDEX).getKey([
-        this.libraryId,
-        accessKey,
-        intent.documentId,
-        intent.mutationId,
-      ]),
+      activeStore
+        .index(DOCUMENT_MUTATION_INDEX)
+        .getKey([this.libraryId, accessKey, intent.documentId, intent.mutationId]),
     );
     if (activeKey === undefined) {
       await transactionComplete(transaction);
@@ -556,12 +479,9 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
     }
     const quarantineStore = transaction.objectStore(QUARANTINE_STORE);
     const existingRejectedKey = await requestResult(
-      quarantineStore.index(DOCUMENT_MUTATION_INDEX).getKey([
-        this.libraryId,
-        accessKey,
-        intent.documentId,
-        intent.mutationId,
-      ]),
+      quarantineStore
+        .index(DOCUMENT_MUTATION_INDEX)
+        .getKey([this.libraryId, accessKey, intent.documentId, intent.mutationId]),
     );
     if (existingRejectedKey === undefined) {
       quarantineStore.add({
@@ -576,20 +496,16 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
     }
     activeStore.delete(activeKey);
     const rejectedKeys = await requestResult(
-      quarantineStore.index(DOCUMENT_SEQUENCE_INDEX).getAllKeys(
-        IDBKeyRange.bound(
-          [this.libraryId, accessKey, intent.documentId, 0],
-          [
-            this.libraryId,
-            accessKey,
-            intent.documentId,
-            Number.MAX_SAFE_INTEGER,
-          ],
+      quarantineStore
+        .index(DOCUMENT_SEQUENCE_INDEX)
+        .getAllKeys(
+          IDBKeyRange.bound(
+            [this.libraryId, accessKey, intent.documentId, 0],
+            [this.libraryId, accessKey, intent.documentId, Number.MAX_SAFE_INTEGER],
+          ),
         ),
-      ),
     );
-    const surplus =
-      rejectedKeys.length - MAX_QUARANTINED_MUTATIONS_PER_DOCUMENT;
+    const surplus = rejectedKeys.length - MAX_QUARANTINED_MUTATIONS_PER_DOCUMENT;
     if (surplus > 0) {
       for (const key of rejectedKeys.slice(0, surplus)) {
         quarantineStore.delete(key);
@@ -608,35 +524,25 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
     const transaction = database.transaction(MUTATION_STORE, "readwrite");
     const store = transaction.objectStore(MUTATION_STORE);
     const existingKey = await requestResult(
-      store.index(DOCUMENT_MUTATION_INDEX).getKey([
-        this.libraryId,
-        accessKey,
-        documentId,
-        mutationId,
-      ]),
+      store
+        .index(DOCUMENT_MUTATION_INDEX)
+        .getKey([this.libraryId, accessKey, documentId, mutationId]),
     );
     if (existingKey !== undefined) store.delete(existingKey);
     await transactionComplete(transaction);
   };
 
-  clear = async (
-    accessContext: ContentAccessContext,
-    documentId: string,
-  ): Promise<void> => {
+  clear = async (accessContext: ContentAccessContext, documentId: string): Promise<void> => {
     const accessKey = contentAccessContextKey(accessContext);
     const database = await this.getDatabase();
     const transaction = database.transaction(MUTATION_STORE, "readwrite");
-    const request = transaction.objectStore(MUTATION_STORE)
+    const request = transaction
+      .objectStore(MUTATION_STORE)
       .index(DOCUMENT_SEQUENCE_INDEX)
       .openCursor(
         IDBKeyRange.bound(
           [this.libraryId, accessKey, documentId, 0],
-          [
-            this.libraryId,
-            accessKey,
-            documentId,
-            Number.MAX_SAFE_INTEGER,
-          ],
+          [this.libraryId, accessKey, documentId, Number.MAX_SAFE_INTEGER],
         ),
       );
     await new Promise<void>((resolve, reject) => {
@@ -649,9 +555,8 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
         cursor.delete();
         cursor.continue();
       };
-      request.onerror = () => reject(
-        request.error ?? new Error("Could not clear the Canvas scene outbox"),
-      );
+      request.onerror = () =>
+        reject(request.error ?? new Error("Could not clear the Canvas scene outbox"));
     });
     await transactionComplete(transaction);
   };
@@ -676,9 +581,7 @@ export class IndexedDbCanvasSceneOutbox implements CanvasSceneOutbox {
   }
 }
 
-export const createDefaultCanvasSceneOutbox = (
-  libraryId: string,
-): CanvasSceneOutbox => {
+export const createDefaultCanvasSceneOutbox = (libraryId: string): CanvasSceneOutbox => {
   if (typeof globalThis.indexedDB === "undefined") {
     return new MemoryCanvasSceneOutbox(libraryId);
   }

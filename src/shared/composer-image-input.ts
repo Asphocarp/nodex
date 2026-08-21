@@ -7,18 +7,10 @@ export const COMPOSER_IMAGE_MIME_TYPES = [
   "image/x-png",
 ] as const;
 
-export const COMPOSER_IMAGE_FILE_EXTENSIONS = [
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-] as const;
+export const COMPOSER_IMAGE_FILE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp"] as const;
 
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(COMPOSER_IMAGE_MIME_TYPES);
-const SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
-  COMPOSER_IMAGE_FILE_EXTENSIONS,
-);
+const SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(COMPOSER_IMAGE_FILE_EXTENSIONS);
 const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   gif: "image/gif",
   jpeg: "image/jpeg",
@@ -55,11 +47,9 @@ export function resolveComposerImageMimeType(input: {
 
   const filename = normalizeComposerImageFilenameCandidate(input.filename);
   const separator = filename.lastIndexOf(".");
-  const extension = separator < 0
-    ? ""
-    : filename.slice(separator + 1).toLowerCase();
+  const extension = separator < 0 ? "" : filename.slice(separator + 1).toLowerCase();
   return SUPPORTED_IMAGE_EXTENSIONS.has(extension)
-    ? IMAGE_MIME_BY_EXTENSION[extension] ?? null
+    ? (IMAGE_MIME_BY_EXTENSION[extension] ?? null)
     : null;
 }
 

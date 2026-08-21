@@ -10,10 +10,7 @@ import { createCoreCanvasSceneAdapter } from "./core-canvas-scene-adapter";
 import { CoreModuleResponseError } from "./core-client";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
-import type {
-  CoreEventEnvelope,
-  OwnedDocumentApplyResult,
-} from "./types";
+import type { CoreEventEnvelope, OwnedDocumentApplyResult } from "./types";
 
 const PROJECT_ID = "project:canvas";
 const LIBRARY_ID = "library:canvas";
@@ -180,11 +177,7 @@ describe("Core Canvas scene adapter", () => {
   test("reconnects and retries once when Core reports a lost subscription lease", async () => {
     const client = new SubscriptionLossCanvasClient();
     client.enqueueDocumentCanvasSync(syncSnapshot("sync:one"));
-    const adapter = createCoreCanvasSceneAdapter(
-      client,
-      BINDING,
-      { retryDelayMs: 0 },
-    );
+    const adapter = createCoreCanvasSceneAdapter(client, BINDING, { retryDelayMs: 0 });
     const request = {
       syncRequestId: "sync:one",
       accessContext: ACCESS_CONTEXT,
@@ -214,10 +207,12 @@ describe("Core Canvas scene adapter", () => {
     const close = adapter.subscribe(subscription, (event) => events.push(event));
     client.enqueueDocumentCanvasSync(syncSnapshot("sync:two"));
 
-    await expect(adapter.sync({
-      ...subscription,
-      syncRequestId: "sync:two",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.sync({
+        ...subscription,
+        syncRequestId: "sync:two",
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         libraryId: "library:canvas",
@@ -230,49 +225,57 @@ describe("Core Canvas scene adapter", () => {
     });
 
     client.enqueueDocumentApply(committedMutation());
-    await expect(adapter.applyMutation({
-      ...subscription,
-      mutationId: mutationResult.mutationId,
-      storeEpoch: STORE_EPOCH,
-      generation: 1,
-      baseHeadSeq: 0,
-      elementCandidates: [],
-      appStateIntents: {
-        gridModeEnabled: {
-          expected: { kind: "absent" },
-          value: { kind: "value", value: true },
+    await expect(
+      adapter.applyMutation({
+        ...subscription,
+        mutationId: mutationResult.mutationId,
+        storeEpoch: STORE_EPOCH,
+        generation: 1,
+        baseHeadSeq: 0,
+        elementCandidates: [],
+        appStateIntents: {
+          gridModeEnabled: {
+            expected: { kind: "absent" },
+            value: { kind: "value", value: true },
+          },
         },
-      },
-      fileAdditions: {},
-    })).resolves.toEqual({
+        fileAdditions: {},
+      }),
+    ).resolves.toEqual({
       ok: true,
       value: mutationResult,
       localCommit: committedLocalCommit(STORE_EPOCH, 1),
     });
 
     client.emitDocument(DOCUMENT_ID, committedEvent());
-    await expect.poll(() => events).toEqual([{
-      type: "canvas_scene_committed",
-      libraryId: LIBRARY_ID,
-      accessContext: ACCESS_CONTEXT,
-      documentId: DOCUMENT_ID,
-      storeEpoch: STORE_EPOCH,
-      generation: 1,
-      mutationId: mutationResult.mutationId,
-      baseHeadSeq: 0,
-      headSeq: 1,
-      sceneHash: SCENE_HASH,
-      elementUpdates: [],
-      appState: { gridModeEnabled: true },
-      fileAdditions: {},
-      removedFileIds: [],
-    }]);
+    await expect
+      .poll(() => events)
+      .toEqual([
+        {
+          type: "canvas_scene_committed",
+          libraryId: LIBRARY_ID,
+          accessContext: ACCESS_CONTEXT,
+          documentId: DOCUMENT_ID,
+          storeEpoch: STORE_EPOCH,
+          generation: 1,
+          mutationId: mutationResult.mutationId,
+          baseHeadSeq: 0,
+          headSeq: 1,
+          sceneHash: SCENE_HASH,
+          elementUpdates: [],
+          appState: { gridModeEnabled: true },
+          fileAdditions: {},
+          removedFileIds: [],
+        },
+      ]);
 
     close();
-    await expect(adapter.sync({
-      ...subscription,
-      syncRequestId: "sync:closed",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.sync({
+        ...subscription,
+        syncRequestId: "sync:closed",
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "unknown", retryable: true },
     });
@@ -295,10 +298,12 @@ describe("Core Canvas scene adapter", () => {
       },
     });
 
-    await expect(adapter.sync({
-      ...subscription,
-      syncRequestId: "sync:granted",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.sync({
+        ...subscription,
+        syncRequestId: "sync:granted",
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "canvas_scene_corrupt" },
     });
@@ -306,8 +311,8 @@ describe("Core Canvas scene adapter", () => {
     const physicalMutation = committedMutation();
     client.enqueueDocumentApply({
       ...physicalMutation,
-        outcome: {
-          ...physicalMutation.outcome,
+      outcome: {
+        ...physicalMutation.outcome,
         canvas: {
           ...mutationResult,
           accessContext: {
@@ -317,16 +322,18 @@ describe("Core Canvas scene adapter", () => {
         },
       },
     });
-    await expect(adapter.applyMutation({
-      ...subscription,
-      mutationId: mutationResult.mutationId,
-      storeEpoch: STORE_EPOCH,
-      generation: 1,
-      baseHeadSeq: 0,
-      elementCandidates: [],
-      appStateIntents: {},
-      fileAdditions: {},
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.applyMutation({
+        ...subscription,
+        mutationId: mutationResult.mutationId,
+        storeEpoch: STORE_EPOCH,
+        generation: 1,
+        baseHeadSeq: 0,
+        elementCandidates: [],
+        appStateIntents: {},
+        fileAdditions: {},
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "canvas_scene_corrupt" },
     });
@@ -415,9 +422,7 @@ describe("Core Canvas scene adapter", () => {
         head_seq: 1,
       },
     });
-    await expect(
-      adapter.compact(request, eligibility.value),
-    ).resolves.toEqual({
+    await expect(adapter.compact(request, eligibility.value)).resolves.toEqual({
       ok: true,
       value: compactionResult,
       localCommit: committedLocalCommit(STORE_EPOCH, 4),
@@ -452,15 +457,19 @@ describe("Core Canvas scene adapter", () => {
         canonicalHash: "0".repeat(64),
       }),
     });
-    await expect.poll(() => events).toEqual([{
-      type: "canvas_scene_resync_required",
-      libraryId: LIBRARY_ID,
-      accessContext: ACCESS_CONTEXT,
-      documentId: DOCUMENT_ID,
-      storeEpoch: STORE_EPOCH,
-      generation: 2,
-      headSeq: 1,
-    }]);
+    await expect
+      .poll(() => events)
+      .toEqual([
+        {
+          type: "canvas_scene_resync_required",
+          libraryId: LIBRARY_ID,
+          accessContext: ACCESS_CONTEXT,
+          documentId: DOCUMENT_ID,
+          storeEpoch: STORE_EPOCH,
+          generation: 2,
+          headSeq: 1,
+        },
+      ]);
     close();
   });
 });

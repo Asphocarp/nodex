@@ -3,10 +3,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { render } from "../../test/dom";
 import { installMotionPreferenceForTest } from "../../test/browser-globals";
-import {
-  BrowserTabFavicon,
-  BrowserTabFaviconFrame,
-} from "./browser-tab-favicon";
+import { BrowserTabFavicon, BrowserTabFaviconFrame } from "./browser-tab-favicon";
 
 const originalMatchMedia = window.matchMedia;
 
@@ -20,17 +17,13 @@ afterEach(() => {
 describe("BrowserTabFavicon", () => {
   test("renders spinner-only, loading-favicon, and settled frames", () => {
     const view = render(
-      <BrowserTabFaviconFrame
-        faviconUrl="https://example.com/favicon.ico"
-        phase="spinner-only"
-      />,
+      <BrowserTabFaviconFrame faviconUrl="https://example.com/favicon.ico" phase="spinner-only" />,
     );
 
-    expect(view.container.querySelector("[data-browser-tab-throbber='true']"))
-      .not.toBeNull();
-    expect(view.container.firstElementChild?.getAttribute(
-      "data-browser-tab-icon-phase",
-    )).toBe("spinner-only");
+    expect(view.container.querySelector("[data-browser-tab-throbber='true']")).not.toBeNull();
+    expect(view.container.firstElementChild?.getAttribute("data-browser-tab-icon-phase")).toBe(
+      "spinner-only",
+    );
 
     view.rerender(
       <BrowserTabFaviconFrame
@@ -38,25 +31,19 @@ describe("BrowserTabFavicon", () => {
         phase="loading-favicon"
       />,
     );
-    expect(view.container.querySelector("img")?.getAttribute("src"))
-      .toBe("https://example.com/favicon.ico");
+    expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
+      "https://example.com/favicon.ico",
+    );
 
     view.rerender(
-      <BrowserTabFaviconFrame
-        faviconUrl="https://example.com/favicon.ico"
-        phase="settled"
-      />,
+      <BrowserTabFaviconFrame faviconUrl="https://example.com/favicon.ico" phase="settled" />,
     );
-    expect(view.container.querySelector("[data-browser-tab-throbber='true']"))
-      .toBeNull();
+    expect(view.container.querySelector("[data-browser-tab-throbber='true']")).toBeNull();
   });
 
   test("falls back to the globe when a favicon fails", async () => {
     const view = render(
-      <BrowserTabFaviconFrame
-        faviconUrl="https://example.com/broken.ico"
-        phase="settled"
-      />,
+      <BrowserTabFaviconFrame faviconUrl="https://example.com/broken.ico" phase="settled" />,
     );
     const image = view.container.querySelector("img");
     if (!image) throw new Error("Expected favicon image");
@@ -88,15 +75,12 @@ describe("BrowserTabFavicon", () => {
         />,
       );
       view.rerender(
-        <BrowserTabFavicon
-          faviconUrl={undefined}
-          isLoading={false}
-          isWaitingForResponse={false}
-        />,
+        <BrowserTabFavicon faviconUrl={undefined} isLoading={false} isWaitingForResponse={false} />,
       );
 
-      expect(view.container.querySelector("img")?.getAttribute("src"))
-        .toBe("https://example.com/favicon.ico");
+      expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
+        "https://example.com/favicon.ico",
+      );
       const clip = view.container.querySelector<HTMLElement>(
         "[data-browser-tab-favicon-clip='true']",
       );
@@ -136,8 +120,10 @@ describe("BrowserTabFavicon", () => {
       />,
     );
 
-    expect(view.container.firstElementChild?.classList.contains(
-      "nodex-browser-tab-favicon-reduce-motion",
-    )).toBe(true);
+    expect(
+      view.container.firstElementChild?.classList.contains(
+        "nodex-browser-tab-favicon-reduce-motion",
+      ),
+    ).toBe(true);
   });
 });

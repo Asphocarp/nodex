@@ -66,7 +66,7 @@ function normalizeSettingsPath(path: string | null | undefined): string {
 function parseBrowserAnchor(path: string | null | undefined): BrowserSettingsAnchor | null {
   const hash = readSettingsUrl(path).hash.slice(1);
   return BROWSER_SETTINGS_ANCHORS.has(hash as BrowserSettingsAnchor)
-    ? hash as BrowserSettingsAnchor
+    ? (hash as BrowserSettingsAnchor)
     : null;
 }
 
@@ -83,7 +83,7 @@ function parseSettingsAnchor(path: string | null | undefined): string | null {
 
 function parseBrowserDetail(slug: string): BrowserSettingsDetail | null {
   return BROWSER_SETTINGS_DETAILS.has(slug as BrowserSettingsDetail)
-    ? slug as BrowserSettingsDetail
+    ? (slug as BrowserSettingsDetail)
     : null;
 }
 
@@ -95,22 +95,15 @@ export function buildBrowserSettingsPath(
   detail?: BrowserSettingsDetail,
   anchor?: BrowserSettingsAnchor,
 ): string {
-  const path = detail
-    ? `${SETTINGS_ROOT_PATH}/browser/${detail}`
-    : `${SETTINGS_ROOT_PATH}/browser`;
+  const path = detail ? `${SETTINGS_ROOT_PATH}/browser/${detail}` : `${SETTINGS_ROOT_PATH}/browser`;
   return !detail && anchor ? `${path}#${anchor}` : path;
 }
 
-export function buildSettingsAnchorPath(
-  sectionId: SettingsSectionId,
-  anchor: string,
-): string {
+export function buildSettingsAnchorPath(sectionId: SettingsSectionId, anchor: string): string {
   return `${buildSettingsPath(sectionId)}#${encodeURIComponent(anchor)}`;
 }
 
-export function resolveBrowserSettingsDestination(
-  destination: BrowserSettingsDestination,
-): string {
+export function resolveBrowserSettingsDestination(destination: BrowserSettingsDestination): string {
   return destination === "browser"
     ? buildBrowserSettingsPath()
     : buildBrowserSettingsPath(destination);
@@ -147,9 +140,8 @@ export function resolveSettingsShellState(
   const normalizedPath = normalizeSettingsPath(path);
   const requestedSlug = parseSettingsPath(path);
   const settingsAnchor = parseSettingsAnchor(path);
-  const detailPageId = normalizedPath === OPEN_SOURCE_LICENSES_SETTINGS_PATH
-    ? "open-source-licenses"
-    : null;
+  const detailPageId =
+    normalizedPath === OPEN_SOURCE_LICENSES_SETTINGS_PATH ? "open-source-licenses" : null;
 
   let activeSectionId = defaultSectionId;
   let browserAnchor: BrowserSettingsAnchor | null = null;

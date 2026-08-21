@@ -10,9 +10,7 @@ import {
   createEmptyWorkbenchSessionView,
   materializeInitialWorkbenchSessionView,
 } from "../workbench-session-view";
-import {
-  materializeInitialWorkbenchScene,
-} from "../workbench-scene";
+import { materializeInitialWorkbenchScene } from "../workbench-scene";
 import {
   WorkbenchLayoutSnapshotSchema,
   WorkbenchLayoutSnapshotV3Schema,
@@ -32,13 +30,15 @@ describe("WorkbenchLayoutSnapshotSchema", () => {
       version: 1,
       focusedStage: "cards",
       activeCardsTabId: "session:legacy",
-      recentCardSessions: [{
-        id: "legacy",
-        projectId: "project-1",
-        cardId: "page-1",
-        titleSnapshot: "Legacy Page",
-        lastOpenedAt: "2026-07-16T00:00:00.000Z",
-      }],
+      recentCardSessions: [
+        {
+          id: "legacy",
+          projectId: "project-1",
+          cardId: "page-1",
+          titleSnapshot: "Legacy Page",
+          lastOpenedAt: "2026-07-16T00:00:00.000Z",
+        },
+      ],
       cardStage: {
         open: true,
         projectId: "project-1",
@@ -121,13 +121,15 @@ describe("WorkbenchLayoutSnapshotV4Schema", () => {
       },
       focusedStage: "files",
       projectOrder: ["alpha"],
-      recentPageSessions: [{
-        id: "recent",
-        projectId: "alpha",
-        pageId: "page:one",
-        titleSnapshot: "Page",
-        lastOpenedAt: "2026-07-28T00:00:00.000Z",
-      }],
+      recentPageSessions: [
+        {
+          id: "recent",
+          projectId: "alpha",
+          pageId: "page:one",
+          titleSnapshot: "Page",
+          lastOpenedAt: "2026-07-28T00:00:00.000Z",
+        },
+      ],
     });
 
     expect(parsed).toEqual({
@@ -209,9 +211,7 @@ describe("WorkbenchLayoutSnapshotV4Schema", () => {
     } as const;
 
     const first = WorkbenchLayoutSnapshotV4Schema.parse(input);
-    const second = WorkbenchLayoutSnapshotV4Schema.parse(
-      JSON.parse(JSON.stringify(first)),
-    );
+    const second = WorkbenchLayoutSnapshotV4Schema.parse(JSON.parse(JSON.stringify(first)));
 
     expect(second).toEqual(first);
   });
@@ -350,11 +350,13 @@ describe("WorkbenchLayoutSnapshotV5Schema", () => {
       kind: "project",
       projectId: "alpha",
     });
-    expect(() => WorkbenchLayoutSnapshotV5Schema.parse({
-      ...input,
-      location: input.location.returnTo,
-      scenesByOwnerKey: { wrong: projectScene },
-    })).toThrow();
+    expect(() =>
+      WorkbenchLayoutSnapshotV5Schema.parse({
+        ...input,
+        location: input.location.returnTo,
+        scenesByOwnerKey: { wrong: projectScene },
+      }),
+    ).toThrow();
   });
 });
 
@@ -480,17 +482,13 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
     };
 
     const first = WorkbenchLayoutSnapshotSchema.parse(input);
-    const second = WorkbenchLayoutSnapshotSchema.parse(
-      JSON.parse(JSON.stringify(first)),
-    );
+    const second = WorkbenchLayoutSnapshotSchema.parse(JSON.parse(JSON.stringify(first)));
 
     expect(second).toEqual(first);
     expect(second.location).toEqual({ kind: "pages" });
     expect(second.scenesByOwnerKey.pages?.primary).toBeNull();
-    expect(Object.keys(second.scenesByOwnerKey.pages!.panelSurfacesById))
-      .toEqual([primary.id]);
-    expect(Object.values(second.scenesByOwnerKey.pages!.panelSurfacesById)[0])
-      .toMatchObject({
+    expect(Object.keys(second.scenesByOwnerKey.pages!.panelSurfacesById)).toEqual([primary.id]);
+    expect(Object.values(second.scenesByOwnerKey.pages!.panelSurfacesById)[0]).toMatchObject({
       kind: "db_view",
       config: {
         accessContext: { kind: "library" },
@@ -499,26 +497,28 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
           databaseId: "database:alpha",
         },
       },
-      });
+    });
 
-    expect(() => WorkbenchLayoutSnapshotSchema.parse({
-      ...input,
-      scenesByOwnerKey: {
-        "resource:database:database:alpha": {
-          ...scene,
-          primary: {
-            ...scene.primary,
-            config: {
-              ...scene.primary.config,
-              target: {
-                kind: "database-default" as const,
-                databaseId: parseDatabaseId("database:other"),
+    expect(() =>
+      WorkbenchLayoutSnapshotSchema.parse({
+        ...input,
+        scenesByOwnerKey: {
+          "resource:database:database:alpha": {
+            ...scene,
+            primary: {
+              ...scene.primary,
+              config: {
+                ...scene.primary.config,
+                target: {
+                  kind: "database-default" as const,
+                  databaseId: parseDatabaseId("database:other"),
+                },
               },
             },
           },
         },
-      },
-    })).toThrow();
+      }),
+    ).toThrow();
   });
 
   test("deterministically materializes a missing long-id Resource Scene", () => {
@@ -534,9 +534,7 @@ describe("WorkbenchLayoutSnapshotV6Schema", () => {
 
     const first = WorkbenchLayoutSnapshotSchema.parse(input);
     const second = WorkbenchLayoutSnapshotSchema.parse(input);
-    const surface = Object.values(
-      first.scenesByOwnerKey.pages?.panelSurfacesById ?? {},
-    )[0];
+    const surface = Object.values(first.scenesByOwnerKey.pages?.panelSurfacesById ?? {})[0];
 
     expect(second).toEqual(first);
     expect(surface?.id.length).toBeLessThanOrEqual(160);

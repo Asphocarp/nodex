@@ -2,9 +2,7 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
-import {
-  makeBrowserSidebarConversationScopeKey,
-} from "../../shared/browser-sidebar";
+import { makeBrowserSidebarConversationScopeKey } from "../../shared/browser-sidebar";
 import type { ProjectSession } from "../../shared/types";
 
 export interface CodexOrdinaryBrowserTransferCapture {
@@ -63,11 +61,10 @@ export function captureCodexOrdinaryBrowserTransfer(
         browserViewScopeId: input.browserViewScopeId,
       })
     ] ?? null;
-  const selectedBrowserTabId = (
+  const selectedBrowserTabId =
     rememberedBrowserTabId !== null && seenIds.has(rememberedBrowserTabId)
       ? rememberedBrowserTabId
-      : orderedIds.at(-1) ?? null
-  );
+      : (orderedIds.at(-1) ?? null);
   if (selectedBrowserTabId === null || !seenIds.has(selectedBrowserTabId)) return null;
 
   return {

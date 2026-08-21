@@ -246,27 +246,27 @@ Owner patch publication is a follower-broadcast side effect, not the owner-visib
 
 The current implementation covers these owner/follower contract areas:
 
-| Area | Status | Contract |
-| --- | --- | --- |
-| Single visible owner | complete | One renderer reduces active live transcript state; main owns transport, persistence, routing, and recovery caches. |
-| Follower mirror semantics | complete | Followers apply matching owner snapshots/patches and drop stale owner/base mismatches. |
-| Follower mutation guard | complete | State-changing follower actions route to the owner unless explicitly no-op, owner-local, or outside transcript ownership. |
-| Action authority routing | complete | One router implements owner-local, follower-forward, and no-role resume/adopt behavior for ordinary conversation actions. |
-| Canonical/view commit boundary | complete | Owner action mutations automatically materialize canonical changes before local notification and shared-document publication. |
-| Request ownership | complete | Approval, permission, user-input, and MCP elicitation request rows are owner-visible state. |
-| Notification ownership | complete | Owner-visible app-server notifications route to the renderer owner; command-only/no-owner notifications never enter the visible conversation pipeline. |
-| Prose and output queues | complete | Assistant, plan, reasoning, command output, and terminal interaction updates are ordered through owner-local queues. |
-| Resume/start/history lifecycle | complete | Resume uses the renderer-local stream revision, releases the resume buffer before the owner snapshot, optimistic start/rebind, and complete-history revision waits are owner-published. |
-| Owner-loss recovery | complete | Owner disposal rejects waiters and marks followers `needs_resume`. |
-| No-owner discipline | complete | Main keeps dormant recovery/automation state off the visible stream plane; a renderer must adopt or attach before transcript updates are visible. |
-| Late follower bootstrap | complete | A competing resume receives the accepted owner document, revision, and owner client id without replacing the owner or issuing another app-server resume. |
-| Automation boundary | complete | Cron is command-only; heartbeat requires a fresh exact-owner lease; protocol turns drive run/inbox bookkeeping without a main transcript. |
-| Follower subscription control plane | complete | Active view lifecycle creates explicit follow intent; main separates followed/connected/pending state and emits membership epochs. |
-| Targeted relay and delivery failure | complete | Ordinary state/control messages are target-before-delivery, source-excluding, empty-target no-op, and unavailable targets enter IPC reset/reannounce handling. |
-| Snapshot barrier and owner replacement | complete | New, reconnected, and replacement-owner followers receive the accepted snapshot before becoming patch targets. |
-| Accepted-cache lease | complete | Accidental owner disposal preserves recovery state; deliberate cleanup evicts only after follower/reconnect eligibility checks. |
-| Empty in-progress file-change activity | complete | Empty active file changes retain stable identity and render `Editing files`; terminal empty policy remains separate. |
-| Projectless Review affordance | complete | Session-scoped Review is available when a valid turn target/diff exists; invalid targets hide the affordance without hiding live activity. |
+| Area                                   | Status   | Contract                                                                                                                                                                                |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Single visible owner                   | complete | One renderer reduces active live transcript state; main owns transport, persistence, routing, and recovery caches.                                                                      |
+| Follower mirror semantics              | complete | Followers apply matching owner snapshots/patches and drop stale owner/base mismatches.                                                                                                  |
+| Follower mutation guard                | complete | State-changing follower actions route to the owner unless explicitly no-op, owner-local, or outside transcript ownership.                                                               |
+| Action authority routing               | complete | One router implements owner-local, follower-forward, and no-role resume/adopt behavior for ordinary conversation actions.                                                               |
+| Canonical/view commit boundary         | complete | Owner action mutations automatically materialize canonical changes before local notification and shared-document publication.                                                           |
+| Request ownership                      | complete | Approval, permission, user-input, and MCP elicitation request rows are owner-visible state.                                                                                             |
+| Notification ownership                 | complete | Owner-visible app-server notifications route to the renderer owner; command-only/no-owner notifications never enter the visible conversation pipeline.                                  |
+| Prose and output queues                | complete | Assistant, plan, reasoning, command output, and terminal interaction updates are ordered through owner-local queues.                                                                    |
+| Resume/start/history lifecycle         | complete | Resume uses the renderer-local stream revision, releases the resume buffer before the owner snapshot, optimistic start/rebind, and complete-history revision waits are owner-published. |
+| Owner-loss recovery                    | complete | Owner disposal rejects waiters and marks followers `needs_resume`.                                                                                                                      |
+| No-owner discipline                    | complete | Main keeps dormant recovery/automation state off the visible stream plane; a renderer must adopt or attach before transcript updates are visible.                                       |
+| Late follower bootstrap                | complete | A competing resume receives the accepted owner document, revision, and owner client id without replacing the owner or issuing another app-server resume.                                |
+| Automation boundary                    | complete | Cron is command-only; heartbeat requires a fresh exact-owner lease; protocol turns drive run/inbox bookkeeping without a main transcript.                                               |
+| Follower subscription control plane    | complete | Active view lifecycle creates explicit follow intent; main separates followed/connected/pending state and emits membership epochs.                                                      |
+| Targeted relay and delivery failure    | complete | Ordinary state/control messages are target-before-delivery, source-excluding, empty-target no-op, and unavailable targets enter IPC reset/reannounce handling.                          |
+| Snapshot barrier and owner replacement | complete | New, reconnected, and replacement-owner followers receive the accepted snapshot before becoming patch targets.                                                                          |
+| Accepted-cache lease                   | complete | Accidental owner disposal preserves recovery state; deliberate cleanup evicts only after follower/reconnect eligibility checks.                                                         |
+| Empty in-progress file-change activity | complete | Empty active file changes retain stable identity and render `Editing files`; terminal empty policy remains separate.                                                                    |
+| Projectless Review affordance          | complete | Session-scoped Review is available when a valid turn target/diff exists; invalid targets hide the affordance without hiding live activity.                                              |
 
 Covered owner-routed actions include start turn, edit last user turn, steer turn, interrupt turn, thread settings, goal changes, memory mode, compaction, complete history, queued follow-ups, request responses, fork from turn, and plan-implementation request removal.
 

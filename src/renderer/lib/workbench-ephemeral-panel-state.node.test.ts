@@ -1,8 +1,4 @@
-import {
-  describe,
-  expect,
-  test,
-} from "vitest";
+import { describe, expect, test } from "vitest";
 import {
   createWorkbenchEphemeralPanelState,
   reduceWorkbenchEphemeralPanelState,
@@ -15,11 +11,7 @@ import {
 
 describe("Workbench ephemeral panel state", () => {
   test("functional updates are committed through one aggregate", () => {
-    const slot = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "right",
-      "leaf:right",
-    );
+    const slot = makeWorkbenchSessionPanelSlotKey("session:one", "right", "leaf:right");
     const initial = createWorkbenchEphemeralPanelState();
     const next = reduceWorkbenchEphemeralPanelState(initial, {
       type: "update",
@@ -33,8 +25,7 @@ describe("Workbench ephemeral panel state", () => {
     expect(next.sideChatActiveTabByPanel).toEqual({
       [slot]: "side-chat:one",
     });
-    expect(next.mcpAppActiveTabByPanel)
-      .toBe(initial.mcpAppActiveTabByPanel);
+    expect(next.mcpAppActiveTabByPanel).toBe(initial.mcpAppActiveTabByPanel);
   });
 
   test("identity updates preserve the aggregate reference", () => {
@@ -49,29 +40,11 @@ describe("Workbench ephemeral panel state", () => {
   });
 
   test("session pruning removes every family and slot-keyed override", () => {
-    const oneRightLeaf = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "right",
-      "leaf:right",
-    );
-    const twoRightLeaf = makeWorkbenchSessionPanelSlotKey(
-      "session:two",
-      "right",
-      "leaf:right",
-    );
-    const oneBottomLeaf = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "bottom",
-      "leaf:bottom",
-    );
-    const oneRight = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "right",
-    );
-    const twoRight = makeWorkbenchSessionPanelSlotKey(
-      "session:two",
-      "right",
-    );
+    const oneRightLeaf = makeWorkbenchSessionPanelSlotKey("session:one", "right", "leaf:right");
+    const twoRightLeaf = makeWorkbenchSessionPanelSlotKey("session:two", "right", "leaf:right");
+    const oneBottomLeaf = makeWorkbenchSessionPanelSlotKey("session:one", "bottom", "leaf:bottom");
+    const oneRight = makeWorkbenchSessionPanelSlotKey("session:one", "right");
+    const twoRight = makeWorkbenchSessionPanelSlotKey("session:two", "right");
     const initial = {
       ...createWorkbenchEphemeralPanelState(),
       sideChatTabsBySession: {
@@ -139,16 +112,8 @@ describe("Workbench ephemeral panel state", () => {
       projectId: "project:one",
     });
     const pagesOwnerKey = makeWorkbenchSceneKey({ kind: "pages" });
-    const projectSlot = makeWorkbenchPanelSlotKey(
-      projectOwnerKey,
-      "right",
-      "leaf:project",
-    );
-    const pagesSlot = makeWorkbenchPanelSlotKey(
-      pagesOwnerKey,
-      "right",
-      "leaf:pages",
-    );
+    const projectSlot = makeWorkbenchPanelSlotKey(projectOwnerKey, "right", "leaf:project");
+    const pagesSlot = makeWorkbenchPanelSlotKey(pagesOwnerKey, "right", "leaf:pages");
     const initial = {
       ...createWorkbenchEphemeralPanelState(),
       previewSurfacesByPanel: {
@@ -188,15 +153,8 @@ describe("Workbench ephemeral panel state", () => {
   });
 
   test("selecting one family atomically clears competing slot selections", () => {
-    const slot = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "right",
-      "leaf:right",
-    );
-    const fallback = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "right",
-    );
+    const slot = makeWorkbenchSessionPanelSlotKey("session:one", "right", "leaf:right");
+    const fallback = makeWorkbenchSessionPanelSlotKey("session:one", "right");
     const initial = {
       ...createWorkbenchEphemeralPanelState(),
       previewTabsByPanel: {
@@ -239,22 +197,12 @@ describe("Workbench ephemeral panel state", () => {
   });
 
   test("removes an image editor tab and clears only its active slots", () => {
-    const slot = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "right",
-      "leaf:right",
-    );
-    const fallback = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "right",
-    );
+    const slot = makeWorkbenchSessionPanelSlotKey("session:one", "right", "leaf:right");
+    const fallback = makeWorkbenchSessionPanelSlotKey("session:one", "right");
     const initial = {
       ...createWorkbenchEphemeralPanelState(),
       imageEditorTabsBySession: {
-        "session:one": [
-          { id: "image:one" },
-          { id: "image:two" },
-        ],
+        "session:one": [{ id: "image:one" }, { id: "image:two" }],
       },
       imageEditorActiveTabByPanel: {
         [slot]: "image:one",
@@ -271,9 +219,7 @@ describe("Workbench ephemeral panel state", () => {
       slotKeys: [slot, fallback],
     });
 
-    expect(next.imageEditorTabsBySession["session:one"]).toEqual([
-      { id: "image:two" },
-    ]);
+    expect(next.imageEditorTabsBySession["session:one"]).toEqual([{ id: "image:two" }]);
     expect(next.imageEditorActiveTabByPanel).toEqual({
       [fallback]: "image:two",
     });

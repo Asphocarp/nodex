@@ -7,7 +7,7 @@ export const STATIC_GROUPS = [
   "landing",
 ] as const;
 
-export type StaticGroup = typeof STATIC_GROUPS[number];
+export type StaticGroup = (typeof STATIC_GROUPS)[number];
 
 export const APP_TEST_SUITES = [
   "unit",
@@ -18,11 +18,11 @@ export const APP_TEST_SUITES = [
   "browser",
 ] as const;
 
-export type AppTestSuite = typeof APP_TEST_SUITES[number];
+export type AppTestSuite = (typeof APP_TEST_SUITES)[number];
 
 export const TEST_SELECTION_MODES = ["none", "related", "full"] as const;
 
-export type TestSelectionMode = typeof TEST_SELECTION_MODES[number];
+export type TestSelectionMode = (typeof TEST_SELECTION_MODES)[number];
 
 export type DependencyKind =
   | "editor"
@@ -82,7 +82,8 @@ const assertExactKeys = (value: Readonly<Record<string, unknown>>): void => {
   const expected = new Set<string>(PLAN_KEYS);
   const unknown = Object.keys(value).filter((key) => !expected.has(key));
   const missing = PLAN_KEYS.filter((key) => !Object.hasOwn(value, key));
-  if (unknown.length > 0) throw new Error(`CI gate plan has unknown fields: ${unknown.join(", ")}.`);
+  if (unknown.length > 0)
+    throw new Error(`CI gate plan has unknown fields: ${unknown.join(", ")}.`);
   if (missing.length > 0) throw new Error(`CI gate plan is missing fields: ${missing.join(", ")}.`);
 };
 
@@ -96,7 +97,10 @@ function assertEnumArray<T extends string>(
   name: keyof CiGatePlan,
 ): asserts value is readonly T[] {
   const allowedValues = new Set<string>(allowed);
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string" && allowedValues.has(entry))) {
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => typeof entry === "string" && allowedValues.has(entry))
+  ) {
     throw new Error(`CI gate plan ${name} contains an unsupported value.`);
   }
   if (new Set(value).size !== value.length) {
@@ -105,20 +109,24 @@ function assertEnumArray<T extends string>(
 }
 
 const hasOrdinaryGates = (plan: CiGatePlan): boolean =>
-  plan.staticGroups.length > 0
-  || plan.appTestSuites.length > 0
-  || plan.protocolContracts
-  || plan.rustFast
-  || plan.rustMigration;
+  plan.staticGroups.length > 0 ||
+  plan.appTestSuites.length > 0 ||
+  plan.protocolContracts ||
+  plan.rustFast ||
+  plan.rustMigration;
 
 const assertRelatedPaths: (value: unknown) => asserts value is readonly string[] = (value) => {
-  if (!Array.isArray(value) || !value.every((entry) => (
-    typeof entry === "string"
-    && entry.length > 0
-    && !entry.startsWith("/")
-    && !/[\r\n]/u.test(entry)
-    && !entry.split("/").includes("..")
-  ))) {
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry.length > 0 &&
+        !entry.startsWith("/") &&
+        !/[\r\n]/u.test(entry) &&
+        !entry.split("/").includes(".."),
+    )
+  ) {
     throw new Error("CI gate plan relatedPaths must contain safe repository-relative paths.");
   }
   if (new Set(value).size !== value.length) {
@@ -144,39 +152,59 @@ export function assertCiGatePlan(value: unknown): asserts value is CiGatePlan {
   assertEnumArray(value.appTestSuites, APP_TEST_SUITES, "appTestSuites");
   assertEnumArray(value.staticGroups, STATIC_GROUPS, "staticGroups");
   assertRelatedPaths(value.relatedPaths);
-  if (typeof value.dependencyKind !== "string" || !DEPENDENCY_KINDS.has(value.dependencyKind as DependencyKind)) {
+  if (
+    typeof value.dependencyKind !== "string" ||
+    !DEPENDENCY_KINDS.has(value.dependencyKind as DependencyKind)
+  ) {
     throw new Error("CI gate plan dependencyKind is unsupported.");
   }
-  if (typeof value.testMode !== "string" || !TEST_SELECTION_MODE_VALUES.has(value.testMode as TestSelectionMode)) {
+  if (
+    typeof value.testMode !== "string" ||
+    !TEST_SELECTION_MODE_VALUES.has(value.testMode as TestSelectionMode)
+  ) {
     throw new Error("CI gate plan testMode is unsupported.");
   }
   const candidate = value as unknown as CiGatePlan;
   if (candidate.rustFull && !candidate.rustFast) {
     throw new Error("Full Rust selection requires the Rust fast lanes.");
   }
-  const narrowModes = [candidate.docsOnly, candidate.landingOnly, candidate.releaseTransition].filter(Boolean);
+  const narrowModes = [
+    candidate.docsOnly,
+    candidate.landingOnly,
+    candidate.releaseTransition,
+  ].filter(Boolean);
   if (narrowModes.length > 1) throw new Error("CI gate plan narrow modes are mutually exclusive.");
   if ((candidate.docsOnly || candidate.releaseTransition) && hasOrdinaryGates(candidate)) {
     throw new Error("Docs-only and release-transition plans must not select ordinary gates.");
   }
-  if (candidate.testMode === "none" && (candidate.appTestSuites.length > 0 || candidate.relatedPaths.length > 0)) {
+  if (
+    candidate.testMode === "none" &&
+    (candidate.appTestSuites.length > 0 || candidate.relatedPaths.length > 0)
+  ) {
     throw new Error("A test-free plan must not select test suites or related paths.");
   }
-  if (candidate.testMode === "related" && (candidate.appTestSuites.length === 0 || candidate.relatedPaths.length === 0)) {
+  if (
+    candidate.testMode === "related" &&
+    (candidate.appTestSuites.length === 0 || candidate.relatedPaths.length === 0)
+  ) {
     throw new Error("Related test selection requires suites and changed paths.");
   }
-  if (candidate.testMode === "full" && (candidate.appTestSuites.length === 0 || candidate.relatedPaths.length > 0)) {
+  if (
+    candidate.testMode === "full" &&
+    (candidate.appTestSuites.length === 0 || candidate.relatedPaths.length > 0)
+  ) {
     throw new Error("Full test selection requires suites and no related paths.");
   }
-  if (candidate.landingOnly && (
-    candidate.staticGroups.length !== 1
-    || candidate.staticGroups[0] !== "landing"
-    || candidate.appTestSuites.length > 0
-    || candidate.protocolContracts
-    || candidate.rustFast
-    || candidate.rustMigration
-    || candidate.testMode !== "none"
-  )) {
+  if (
+    candidate.landingOnly &&
+    (candidate.staticGroups.length !== 1 ||
+      candidate.staticGroups[0] !== "landing" ||
+      candidate.appTestSuites.length > 0 ||
+      candidate.protocolContracts ||
+      candidate.rustFast ||
+      candidate.rustMigration ||
+      candidate.testMode !== "none")
+  ) {
     throw new Error("Landing-only plans may select only the landing static group.");
   }
 }

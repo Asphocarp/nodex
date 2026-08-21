@@ -26,11 +26,7 @@ const createTitle = (
   return { document, title };
 };
 
-const replaceEditorDraft = (
-  editor: HTMLDivElement,
-  value: string,
-  isComposing = false,
-): void => {
+const replaceEditorDraft = (editor: HTMLDivElement, value: string, isComposing = false): void => {
   editor.textContent = value;
   fireEvent.input(editor, { isComposing });
 };
@@ -322,14 +318,8 @@ describe("CollaborativePageTitle", () => {
     const second = createTitle("Second");
     const view = render(
       <>
-        <CollaborativePageTitle
-          title={first.title}
-          aria-label="First title"
-        />
-        <CollaborativePageTitle
-          title={second.title}
-          aria-label="Second title"
-        />
+        <CollaborativePageTitle title={first.title} aria-label="First title" />
+        <CollaborativePageTitle title={second.title} aria-label="Second title" />
       </>,
     );
     const firstEditor = view.getByRole("textbox", { name: "First title" }) as HTMLDivElement;

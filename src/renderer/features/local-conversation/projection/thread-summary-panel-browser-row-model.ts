@@ -45,9 +45,13 @@ export function buildThreadSummaryPanelBrowserRow(
   input: ThreadSummaryPanelBrowserRowInput,
 ): ThreadSummaryPanelBrowserRow {
   const rawUrl = input.url?.trim() ?? "";
-  const displayUrl = isHiddenBrowserSummaryUrl(rawUrl) ? null : resolveBrowserSummaryDisplayUrl(rawUrl);
+  const displayUrl = isHiddenBrowserSummaryUrl(rawUrl)
+    ? null
+    : resolveBrowserSummaryDisplayUrl(rawUrl);
   const titleSource = input.configTitle?.trim() || input.tabTitle;
-  const title = displayUrl ? resolveBrowserSummaryTitle(titleSource, displayUrl) : resolveBlankBrowserSummaryTitle(titleSource);
+  const title = displayUrl
+    ? resolveBrowserSummaryTitle(titleSource, displayUrl)
+    : resolveBlankBrowserSummaryTitle(titleSource);
   const faviconUrl = input.faviconUrl?.trim() ?? "";
 
   return {
@@ -59,8 +63,7 @@ export function buildThreadSummaryPanelBrowserRow(
     url: isBrowserAttachTokenUrl(rawUrl) ? "" : rawUrl,
     faviconUrl: faviconUrl.length > 0 ? faviconUrl : null,
     isAgentWorking: input.isAgentWorking === true,
-    isMaterialized: input.workbenchTabId !== null
-      && input.workbenchTabId !== undefined,
+    isMaterialized: input.workbenchTabId !== null && input.workbenchTabId !== undefined,
     panelId: input.panelId,
     leafId: input.leafId ?? null,
   };
@@ -75,44 +78,36 @@ export function buildThreadSummaryPanelBrowserRows({
   activeBrowserUseTabId,
 }: ThreadSummaryPanelBrowserRowsInput): ThreadSummaryPanelBrowserRow[] {
   const snapshotsByKey = new Map(
-    snapshots.map((snapshot) => [
-      makeBrowserSidebarTabKey(snapshot),
-      snapshot,
-    ]),
+    snapshots.map((snapshot) => [makeBrowserSidebarTabKey(snapshot), snapshot]),
   );
-  const runtimeById = new Map(
-    runtimeTabs.map((tab) => [tab.browserTabId, tab]),
-  );
+  const runtimeById = new Map(runtimeTabs.map((tab) => [tab.browserTabId, tab]));
   const rows: ThreadSummaryPanelBrowserRow[] = [];
   const seenBrowserTabIds = new Set<string>();
 
-  const appendWorkbenchSource = (
-    source: ThreadSummaryPanelWorkbenchBrowserSource,
-  ) => {
+  const appendWorkbenchSource = (source: ThreadSummaryPanelWorkbenchBrowserSource) => {
     if (seenBrowserTabIds.has(source.browserTabId)) return;
     seenBrowserTabIds.add(source.browserTabId);
     const runtime = runtimeById.get(source.browserTabId) ?? null;
     const snapshot = runtime
-      ? snapshotsByKey.get(makeBrowserSidebarTabKey(runtime)) ?? null
-      : snapshots.find((candidate) =>
-          candidate.browserTabId === source.browserTabId
-        ) ?? null;
-    rows.push(buildThreadSummaryPanelBrowserRow({
-      id: source.workbenchTabId,
-      browserTabId: source.browserTabId,
-      workbenchTabId: source.workbenchTabId,
-      tabTitle: snapshot?.title ?? source.tabTitle,
-      configTitle:
-        snapshot?.title ?? runtime?.title ?? source.configTitle,
-      url: snapshot?.url ?? runtime?.url ?? source.url,
-      faviconUrl: snapshot?.faviconUrl ?? source.faviconUrl,
-      isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
-        activeBrowserUseTabId,
-        source.browserTabId,
-      ),
-      panelId: source.panelId,
-      leafId: source.leafId,
-    }));
+      ? (snapshotsByKey.get(makeBrowserSidebarTabKey(runtime)) ?? null)
+      : (snapshots.find((candidate) => candidate.browserTabId === source.browserTabId) ?? null);
+    rows.push(
+      buildThreadSummaryPanelBrowserRow({
+        id: source.workbenchTabId,
+        browserTabId: source.browserTabId,
+        workbenchTabId: source.workbenchTabId,
+        tabTitle: snapshot?.title ?? source.tabTitle,
+        configTitle: snapshot?.title ?? runtime?.title ?? source.configTitle,
+        url: snapshot?.url ?? runtime?.url ?? source.url,
+        faviconUrl: snapshot?.faviconUrl ?? source.faviconUrl,
+        isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
+          activeBrowserUseTabId,
+          source.browserTabId,
+        ),
+        panelId: source.panelId,
+        leafId: source.leafId,
+      }),
+    );
   };
 
   for (const source of [...rightTabs, ...bottomTabs, ...pendingTabs]) {
@@ -121,21 +116,22 @@ export function buildThreadSummaryPanelBrowserRows({
   for (const runtime of runtimeTabs) {
     if (seenBrowserTabIds.has(runtime.browserTabId)) continue;
     seenBrowserTabIds.add(runtime.browserTabId);
-    const snapshot =
-      snapshotsByKey.get(makeBrowserSidebarTabKey(runtime)) ?? null;
-    rows.push(buildThreadSummaryPanelBrowserRow({
-      id: `browser-use:${runtime.browserTabId}`,
-      browserTabId: runtime.browserTabId,
-      workbenchTabId: null,
-      tabTitle: snapshot?.title ?? runtime.title,
-      configTitle: snapshot?.title ?? runtime.title,
-      url: snapshot?.url ?? runtime.url,
-      faviconUrl: snapshot?.faviconUrl,
-      isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
-        activeBrowserUseTabId,
-        runtime.browserTabId,
-      ),
-    }));
+    const snapshot = snapshotsByKey.get(makeBrowserSidebarTabKey(runtime)) ?? null;
+    rows.push(
+      buildThreadSummaryPanelBrowserRow({
+        id: `browser-use:${runtime.browserTabId}`,
+        browserTabId: runtime.browserTabId,
+        workbenchTabId: null,
+        tabTitle: snapshot?.title ?? runtime.title,
+        configTitle: snapshot?.title ?? runtime.title,
+        url: snapshot?.url ?? runtime.url,
+        faviconUrl: snapshot?.faviconUrl,
+        isAgentWorking: isThreadSummaryBrowserRowAgentWorking(
+          activeBrowserUseTabId,
+          runtime.browserTabId,
+        ),
+      }),
+    );
   }
   return rows;
 }

@@ -3,10 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { createTestQueryClient, TestQueryProvider } from "@/test/query";
-import {
-  applyCodexHostCatalogEvent,
-  NodexQueryProvider,
-} from "./query-client";
+import { applyCodexHostCatalogEvent, NodexQueryProvider } from "./query-client";
 import { queryKeys } from "./query-keys";
 import type {
   WorktreeEnvironmentConfigRecord,
@@ -47,7 +44,9 @@ function makeConfig(configPath: string): WorktreeEnvironmentConfigRecord {
   };
 }
 
-function makeSnapshot(configs: WorktreeEnvironmentConfigRecord[]): WorktreeEnvironmentSettingsSnapshot {
+function makeSnapshot(
+  configs: WorktreeEnvironmentConfigRecord[],
+): WorktreeEnvironmentSettingsSnapshot {
   return {
     projectId: "project-1",
     projectName: "Project 1",
@@ -176,14 +175,16 @@ describe("server state query hooks", () => {
           mcpStatusCalls += 1;
           mcpStatusArgs = args;
           return {
-            data: [{
-              name: "docs",
-              serverInfo: null,
-              tools: {},
-              resources: [],
-              resourceTemplates: [],
-              authStatus: "unsupported",
-            }],
+            data: [
+              {
+                name: "docs",
+                serverInfo: null,
+                tools: {},
+                resources: [],
+                resourceTemplates: [],
+                authStatus: "unsupported",
+              },
+            ],
             nextCursor: null,
           };
         }
@@ -298,6 +299,8 @@ describe("server state query hooks", () => {
 
     client.setQueryData(queryKeys.mcp.apps(), [makeApp("Docs")]);
     applyCodexHostCatalogEvent(client, event);
-    expect(client.getQueryData<ProtocolAppInfo[]>(queryKeys.mcp.apps())?.[0]?.name).toBe("Calendar");
+    expect(client.getQueryData<ProtocolAppInfo[]>(queryKeys.mcp.apps())?.[0]?.name).toBe(
+      "Calendar",
+    );
   });
 });

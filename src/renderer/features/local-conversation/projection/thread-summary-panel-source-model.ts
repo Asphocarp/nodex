@@ -13,13 +13,15 @@ import {
 
 export type ThreadSummaryPanelSourceKind = "tool" | "webPage" | "webSearch";
 
-export type ThreadSummaryPanelSourceOpenAction = {
-  type: "url";
-  url: string;
-} | {
-  type: "mcpApp";
-  input: ThreadMcpAppSidePanelInput;
-};
+export type ThreadSummaryPanelSourceOpenAction =
+  | {
+      type: "url";
+      url: string;
+    }
+  | {
+      type: "mcpApp";
+      input: ThreadMcpAppSidePanelInput;
+    };
 
 export interface ThreadSummaryPanelSourceItem {
   id: string;
@@ -74,7 +76,9 @@ function isWebSearchItem(item: CodexConversationItem): boolean {
   return item.type === "webSearch" || item.semanticKind === "webSearch";
 }
 
-function resolveMcpAppSourceTarget(item: CodexConversationItem): ThreadSummaryPanelMcpAppSourceTarget | null {
+function resolveMcpAppSourceTarget(
+  item: CodexConversationItem,
+): ThreadSummaryPanelMcpAppSourceTarget | null {
   const payload = item.mcpToolCall;
   const threadId = trimNonEmptyString(item.threadId);
   if (!payload || !threadId) return null;
@@ -146,8 +150,8 @@ function collectToolSources(
       const existingSource = sources.get(source.id);
       if (existingSource) {
         if (
-          (!existingSource.openAction && source.openAction)
-          || (!existingSource.mcpAppTarget && source.mcpAppTarget)
+          (!existingSource.openAction && source.openAction) ||
+          (!existingSource.mcpAppTarget && source.mcpAppTarget)
         ) {
           sources.set(source.id, {
             ...existingSource,
@@ -210,7 +214,9 @@ function resolveWebPageSource(action: unknown): WebPageSourceDraft | null {
   };
 }
 
-function collectWebSources(turns: readonly CodexConversationTurn[]): ThreadSummaryPanelSourceItem[] {
+function collectWebSources(
+  turns: readonly CodexConversationTurn[],
+): ThreadSummaryPanelSourceItem[] {
   const pageSources = new Map<string, ThreadSummaryPanelSourceItem>();
   let sawWebSearch = false;
 
@@ -245,25 +251,24 @@ function collectWebSources(turns: readonly CodexConversationTurn[]): ThreadSumma
   if (pages.length > 0) return pages;
   if (!sawWebSearch) return [];
 
-  return [{
-    id: "web-search",
-    kind: "webSearch",
-    label: "Web search",
-    logoUrl: null,
-    logoUrlDark: null,
-    mcpAppTarget: null,
-    openAction: null,
-  }];
+  return [
+    {
+      id: "web-search",
+      kind: "webSearch",
+      label: "Web search",
+      logoUrl: null,
+      logoUrlDark: null,
+      mcpAppTarget: null,
+      openAction: null,
+    },
+  ];
 }
 
 export function buildThreadSummaryPanelSourceModel(
   turns: readonly CodexConversationTurn[],
   resolvedApps: readonly ProtocolAppInfo[] = [],
 ): ThreadSummaryPanelSourceModel {
-  const items = [
-    ...collectToolSources(turns, resolvedApps),
-    ...collectWebSources(turns),
-  ];
+  const items = [...collectToolSources(turns, resolvedApps), ...collectWebSources(turns)];
 
   return {
     items,

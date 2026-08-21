@@ -58,16 +58,12 @@ describe("CodexImplementPlanRequestCard", () => {
         request={request}
         onRespond={async (response) => {
           responses.push(
-            response.type === "followUp"
-              ? `followUp:${response.prompt}`
-              : response.type,
+            response.type === "followUp" ? `followUp:${response.prompt}` : response.type,
           );
         }}
       />,
     );
-    const input = view.getByPlaceholderText(
-      "No, and tell Nodex what to do differently",
-    );
+    const input = view.getByPlaceholderText("No, and tell Nodex what to do differently");
 
     await act(async () => {
       fireEvent.change(input, {

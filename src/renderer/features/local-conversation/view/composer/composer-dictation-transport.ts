@@ -51,9 +51,7 @@ export async function buildDictationMultipartPayload(input: {
 
   chunks.push(encoder.encode(`--${input.boundary}\r\n`));
   chunks.push(
-    encoder.encode(
-      `Content-Disposition: form-data; name="file"; filename="${input.filename}"\r\n`,
-    ),
+    encoder.encode(`Content-Disposition: form-data; name="file"; filename="${input.filename}"\r\n`),
   );
   chunks.push(encoder.encode(`Content-Type: ${input.contentType}\r\n\r\n`));
   chunks.push(bytes);
@@ -61,9 +59,7 @@ export async function buildDictationMultipartPayload(input: {
 
   if (input.language) {
     chunks.push(encoder.encode(`--${input.boundary}\r\n`));
-    chunks.push(
-      encoder.encode(`Content-Disposition: form-data; name="language"\r\n\r\n`),
-    );
+    chunks.push(encoder.encode(`Content-Disposition: form-data; name="language"\r\n\r\n`));
     chunks.push(encoder.encode(`${input.language}\r\n`));
   }
 
@@ -91,10 +87,7 @@ export async function transcribeDictationBlob(
     contentType?: string;
     filename?: string;
     language?: string;
-    transcribe?: (input: {
-      contentType: string;
-      base64Payload: string;
-    }) => Promise<string>;
+    transcribe?: (input: { contentType: string; base64Payload: string }) => Promise<string>;
   },
 ): Promise<string> {
   const contentType = resolveDictationContentType(blob, options?.contentType);
@@ -107,8 +100,8 @@ export async function transcribeDictationBlob(
     contentType,
     language: options?.language,
   });
-  const transcribe = options?.transcribe
-    ?? (async (input) => await invoke("codex:dictation:transcribe", input));
+  const transcribe =
+    options?.transcribe ?? (async (input) => await invoke("codex:dictation:transcribe", input));
   return await transcribe({
     contentType: `multipart/form-data; boundary=${boundary}`,
     base64Payload: encodeDictationBase64(multipartBody),

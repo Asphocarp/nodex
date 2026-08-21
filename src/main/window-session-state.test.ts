@@ -25,10 +25,7 @@ import {
   makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
 } from "../shared/workbench-scene";
-import {
-  WindowSessionState,
-  windowSessionStateTestHelpers,
-} from "./window-session-state";
+import { WindowSessionState, windowSessionStateTestHelpers } from "./window-session-state";
 
 function withTempUserData(run: (userDataPath: string) => void): void {
   const userDataPath = mkdtempSync(join(tmpdir(), "nodex-window-sessions-"));
@@ -49,10 +46,7 @@ function createClock(start = "2026-07-24T00:00:00.000Z") {
   };
 }
 
-function makeLayout(
-  _legacyStage: string,
-  dbProjectId: string,
-): WorkbenchLayoutSnapshot {
+function makeLayout(_legacyStage: string, dbProjectId: string): WorkbenchLayoutSnapshot {
   return {
     ...createDefaultWorkbenchLayoutSnapshot(),
     location: {
@@ -62,13 +56,11 @@ function makeLayout(
   };
 }
 
-function getActiveProjectId(
-  layout: WorkbenchLayoutSnapshot,
-): string | null {
-  const location = layout.location.kind === "settings"
-      || layout.location.kind === "automations"
-    ? layout.location.returnTo
-    : layout.location;
+function getActiveProjectId(layout: WorkbenchLayoutSnapshot): string | null {
+  const location =
+    layout.location.kind === "settings" || layout.location.kind === "automations"
+      ? layout.location.returnTo
+      : layout.location;
   if (location.kind === "project") return location.projectId;
   if (location.kind === "session") return location.projectContextId;
   return null;
@@ -118,11 +110,10 @@ describe("WindowSessionState", () => {
 
       const seeded = state.seedInitialProjectPresentation(presentation);
       const replayed = state.seedInitialProjectPresentation(presentation);
-      const restarted = new WindowSessionState(userDataPath).readCatalog()
+      const restarted = new WindowSessionState(userDataPath)
+        .readCatalog()
         ?.sessions.find((session) => session.id === initial.id);
-      const scene = restarted?.layout.scenesByOwnerKey[
-        `project:${presentation.projectId}`
-      ];
+      const scene = restarted?.layout.scenesByOwnerKey[`project:${presentation.projectId}`];
 
       expect(seeded.id).toBe(initial.id);
       expect(replayed).toEqual(seeded);
@@ -132,9 +123,9 @@ describe("WindowSessionState", () => {
         projectId: presentation.projectId,
       });
       expect(scene?.primary?.kind).toBe("db_view");
-      expect(Object.values(scene?.panelSurfacesById ?? {}).map(
-        (surface) => surface.kind,
-      )).toEqual(["page_stage"]);
+      expect(Object.values(scene?.panelSurfacesById ?? {}).map((surface) => surface.kind)).toEqual([
+        "page_stage",
+      ]);
     });
   });
 
@@ -154,8 +145,9 @@ describe("WindowSessionState", () => {
       }).selectStartupSessions("all");
 
       expect(restored.map((session) => session.id)).toEqual([first.id]);
-      expect(state.readCatalog()?.sessions.find((session) => session.id === second.id)
-        ?.lifecycle.state).toBe("closed");
+      expect(
+        state.readCatalog()?.sessions.find((session) => session.id === second.id)?.lifecycle.state,
+      ).toBe("closed");
     });
   });
 
@@ -177,10 +169,12 @@ describe("WindowSessionState", () => {
       const catalog = restarted.readCatalog();
 
       expect(restored.map((session) => session.id)).toEqual([first.id]);
-      expect(catalog?.sessions.find((session) => session.id === first.id)?.lifecycle)
-        .toEqual({ state: "open" });
-      expect(catalog?.sessions.find((session) => session.id === second.id)?.lifecycle)
-        .toMatchObject({ state: "closed" });
+      expect(catalog?.sessions.find((session) => session.id === first.id)?.lifecycle).toEqual({
+        state: "open",
+      });
+      expect(
+        catalog?.sessions.find((session) => session.id === second.id)?.lifecycle,
+      ).toMatchObject({ state: "closed" });
       expect(restarted.reopenMostRecentlyClosedSession()?.session.id).toBe(second.id);
     });
   });
@@ -200,8 +194,11 @@ describe("WindowSessionState", () => {
       expect(fresh[0]?.id).not.toBe(first.id);
       expect(fresh[0]?.id).not.toBe(second.id);
       expect(fresh[0]?.lifecycle).toEqual({ state: "open" });
-      expect(catalog?.sessions.filter((session) => session.lifecycle.state === "closed")
-        .map((session) => session.id)).toEqual([first.id, second.id]);
+      expect(
+        catalog?.sessions
+          .filter((session) => session.lifecycle.state === "closed")
+          .map((session) => session.id),
+      ).toEqual([first.id, second.id]);
     });
   });
 
@@ -240,26 +237,23 @@ describe("WindowSessionState", () => {
         kind: "session",
         sessionId: "project-session-1",
       } as const;
-      const sessionScene = createWorkbenchSceneSurface(
-        materializeInitialWorkbenchScene(owner),
-        {
-          panelId: "right",
-          surface: {
-            id: "database-surface",
-            kind: "db_view",
-            titleSnapshot: "Database",
-            config: {
-              accessContext: { kind: "project", projectId: "project-1" },
-              target: {
-                kind: "database-view",
-                databaseViewId: "view-1",
-              },
+      const sessionScene = createWorkbenchSceneSurface(materializeInitialWorkbenchScene(owner), {
+        panelId: "right",
+        surface: {
+          id: "database-surface",
+          kind: "db_view",
+          titleSnapshot: "Database",
+          config: {
+            accessContext: { kind: "project", projectId: "project-1" },
+            target: {
+              kind: "database-view",
+              databaseViewId: "view-1",
             },
-            stateKey: 0,
-            state: null,
           },
+          stateKey: 0,
+          state: null,
         },
-      );
+      });
       const sceneKey = makeWorkbenchSceneKey(owner);
       const layout = {
         ...makeLayout("threads", "project-1"),
@@ -273,9 +267,7 @@ describe("WindowSessionState", () => {
         },
       };
       saveLayout(state, 1, session.id, 1, layout);
-      const sourceSurfaceIds = Object.keys(
-        sessionScene.panelSurfacesById,
-      );
+      const sourceSurfaceIds = Object.keys(sessionScene.panelSurfacesById);
 
       clock.advance();
       const closed = state.detachWindow(1, {
@@ -297,10 +289,9 @@ describe("WindowSessionState", () => {
       });
       expect(reopened?.session.id).toBe(session.id);
       expect(reopened?.session.lifecycle).toEqual({ state: "open" });
-      expect(Object.keys(
-        reopened?.session.layout.scenesByOwnerKey[sceneKey]
-          ?.panelSurfacesById ?? {},
-      )).toEqual(sourceSurfaceIds);
+      expect(
+        Object.keys(reopened?.session.layout.scenesByOwnerKey[sceneKey]?.panelSurfacesById ?? {}),
+      ).toEqual(sourceSurfaceIds);
       expect(reopened?.session.bounds).toMatchObject({ x: 10, y: 20 });
       expect(state.reopenMostRecentlyClosedSession()).toBeNull();
     });
@@ -394,8 +385,10 @@ describe("WindowSessionState", () => {
       state.detachWindow(1, { disposition: "app-quit" });
       state.detachWindow(2, { disposition: "unexpected" });
 
-      expect(state.readCatalog()?.sessions.map((session) => session.lifecycle.state))
-        .toEqual(["open", "open"]);
+      expect(state.readCatalog()?.sessions.map((session) => session.lifecycle.state)).toEqual([
+        "open",
+        "open",
+      ]);
       expect(state.getSessionForWindow(1)).toBeNull();
       expect(state.getSessionForWindow(2)).toBeNull();
     });
@@ -423,26 +416,23 @@ describe("WindowSessionState", () => {
         kind: "session",
         sessionId: "project-session-1",
       } as const;
-      const sessionScene = createWorkbenchSceneSurface(
-        materializeInitialWorkbenchScene(owner),
-        {
-          panelId: "right",
-          surface: {
-            id: "database-surface",
-            kind: "db_view",
-            titleSnapshot: "Database",
-            config: {
-              accessContext: { kind: "project", projectId: "project-1" },
-              target: {
-                kind: "database-view",
-                databaseViewId: "view-1",
-              },
+      const sessionScene = createWorkbenchSceneSurface(materializeInitialWorkbenchScene(owner), {
+        panelId: "right",
+        surface: {
+          id: "database-surface",
+          kind: "db_view",
+          titleSnapshot: "Database",
+          config: {
+            accessContext: { kind: "project", projectId: "project-1" },
+            target: {
+              kind: "database-view",
+              databaseViewId: "view-1",
             },
-            stateKey: 0,
-            state: null,
           },
+          stateKey: 0,
+          state: null,
         },
-      );
+      });
       const sceneKey = makeWorkbenchSceneKey(owner);
       const sourceLayout = {
         ...makeLayout("threads", "project-1"),
@@ -500,12 +490,10 @@ describe("WindowSessionState", () => {
       const reloadedSource = reloaded?.sessions.find((entry) => entry.id === source.id);
       const reloadedClone = reloaded?.sessions.find((entry) => entry.id === clone.id);
       expect(
-        reloadedSource?.layout.scenesByOwnerKey[sceneKey]
-          ?.panelSurfacesById["clone-only-tab"],
+        reloadedSource?.layout.scenesByOwnerKey[sceneKey]?.panelSurfacesById["clone-only-tab"],
       ).toBeUndefined();
       expect(
-        reloadedClone?.layout.scenesByOwnerKey[sceneKey]
-          ?.panelSurfacesById["clone-only-tab"],
+        reloadedClone?.layout.scenesByOwnerKey[sceneKey]?.panelSurfacesById["clone-only-tab"],
       ).toBeDefined();
     });
   });
@@ -522,40 +510,43 @@ describe("WindowSessionState", () => {
       expect(accepted.layoutRevision).toBe(8);
       expect(stale.layoutRevision).toBe(8);
       expect(getActiveProjectId(stale.layout)).toBe("new");
-      expect(() => saveLayout(state, 2, session.id, 9, makeLayout("files", "wrong")))
-        .toThrow(/does not match/);
+      expect(() => saveLayout(state, 2, session.id, 9, makeLayout("files", "wrong"))).toThrow(
+        /does not match/,
+      );
     });
   });
 
   test("migrates v2 records as open and preserves the source file", () => {
     withTempUserData((userDataPath) => {
-      const legacyPath = join(
-        userDataPath,
-        windowSessionStateTestHelpers.legacyV2FileName,
+      const legacyPath = join(userDataPath, windowSessionStateTestHelpers.legacyV2FileName);
+      writeFileSync(
+        legacyPath,
+        JSON.stringify({
+          version: 2,
+          lastActiveSessionId: "legacy-window",
+          sessions: [
+            {
+              id: "legacy-window",
+              layoutRevision: 7,
+              layout: {
+                ...createDefaultWorkbenchLayoutSnapshotV3(),
+                dbProjectId: "legacy",
+                focusedStage: "files",
+              },
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-02T00:00:00.000Z",
+              focusedAt: "2026-01-03T00:00:00.000Z",
+              bounds: {
+                x: 10,
+                y: 20,
+                width: 1_200,
+                height: 800,
+                mode: "normal",
+              },
+            },
+          ],
+        }),
       );
-      writeFileSync(legacyPath, JSON.stringify({
-        version: 2,
-        lastActiveSessionId: "legacy-window",
-        sessions: [{
-          id: "legacy-window",
-          layoutRevision: 7,
-          layout: {
-            ...createDefaultWorkbenchLayoutSnapshotV3(),
-            dbProjectId: "legacy",
-            focusedStage: "files",
-          },
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-02T00:00:00.000Z",
-          focusedAt: "2026-01-03T00:00:00.000Z",
-          bounds: {
-            x: 10,
-            y: 20,
-            width: 1_200,
-            height: 800,
-            mode: "normal",
-          },
-        }],
-      }));
 
       const migrated = new WindowSessionState(userDataPath).readCatalog();
 
@@ -574,9 +565,7 @@ describe("WindowSessionState", () => {
         bounds: { x: 10, y: 20 },
       });
       expect(existsSync(legacyPath)).toBe(true);
-      expect(readdirSync(userDataPath)).toContain(
-        windowSessionStateTestHelpers.stateFileName,
-      );
+      expect(readdirSync(userDataPath)).toContain(windowSessionStateTestHelpers.stateFileName);
     });
   });
 
@@ -589,21 +578,23 @@ describe("WindowSessionState", () => {
         version: 2,
       };
       delete legacyLayout.sessionViewsBySessionId;
-      const legacyPath = join(
-        userDataPath,
-        windowSessionStateTestHelpers.legacyV1FileName,
+      const legacyPath = join(userDataPath, windowSessionStateTestHelpers.legacyV1FileName);
+      writeFileSync(
+        legacyPath,
+        JSON.stringify({
+          version: 1,
+          lastActiveSessionId: "legacy-window",
+          sessions: [
+            {
+              id: "legacy-window",
+              layout: legacyLayout,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              focusedAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        }),
       );
-      writeFileSync(legacyPath, JSON.stringify({
-        version: 1,
-        lastActiveSessionId: "legacy-window",
-        sessions: [{
-          id: "legacy-window",
-          layout: legacyLayout,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-          focusedAt: "2026-01-01T00:00:00.000Z",
-        }],
-      }));
 
       const migrated = new WindowSessionState(userDataPath).readCatalog();
 
@@ -622,9 +613,7 @@ describe("WindowSessionState", () => {
         },
       });
       expect(readFileSync(legacyPath, "utf8")).toContain('"version":1');
-      expect(readdirSync(userDataPath)).toContain(
-        windowSessionStateTestHelpers.stateFileName,
-      );
+      expect(readdirSync(userDataPath)).toContain(windowSessionStateTestHelpers.stateFileName);
     });
   });
 
@@ -661,10 +650,7 @@ describe("WindowSessionState", () => {
       };
       const timestamp = "2026-07-29T00:00:00.000Z";
       writeFileSync(
-        join(
-          userDataPath,
-          windowSessionStateTestHelpers.stateFileName,
-        ),
+        join(userDataPath, windowSessionStateTestHelpers.stateFileName),
         JSON.stringify({
           version: 3,
           lastActiveSessionId: "window-a",
@@ -682,12 +668,11 @@ describe("WindowSessionState", () => {
 
       const migrated = new WindowSessionState(userDataPath).readCatalog();
       const storageIds = migrated?.sessions.map((session) => {
-        const surface = session.layout.scenesByOwnerKey[
-          "session:project-session-1"
-        ]?.panelSurfacesById["browser-tab"];
-        return surface?.kind === "browser"
-          ? surface.config.browserStorageId
-          : undefined;
+        const surface =
+          session.layout.scenesByOwnerKey["session:project-session-1"]?.panelSurfacesById[
+            "browser-tab"
+          ];
+        return surface?.kind === "browser" ? surface.config.browserStorageId : undefined;
       });
 
       expect(storageIds?.[0]).toMatch(/^browser:migrated:[a-f0-9]{64}$/u);
@@ -698,10 +683,7 @@ describe("WindowSessionState", () => {
 
   test("preserves a malformed v3 catalog and recovers with a fresh one", () => {
     withTempUserData((userDataPath) => {
-      const statePath = join(
-        userDataPath,
-        windowSessionStateTestHelpers.stateFileName,
-      );
+      const statePath = join(userDataPath, windowSessionStateTestHelpers.stateFileName);
       writeFileSync(statePath, "{not-json");
       const state = new WindowSessionState(userDataPath);
 
@@ -733,12 +715,15 @@ describe("WindowSessionState", () => {
       const open = state.createFreshSession();
       const catalog = state.readCatalog();
 
-      expect(catalog?.sessions.some((session) => session.id === closedIds[0]))
-        .toBe(false);
-      expect(catalog?.sessions.filter((session) => session.lifecycle.state === "closed")
-        .map((session) => session.id)).toEqual(closedIds.slice(1));
-      expect(catalog?.sessions.find((session) => session.id === open.id)?.lifecycle)
-        .toEqual({ state: "open" });
+      expect(catalog?.sessions.some((session) => session.id === closedIds[0])).toBe(false);
+      expect(
+        catalog?.sessions
+          .filter((session) => session.lifecycle.state === "closed")
+          .map((session) => session.id),
+      ).toEqual(closedIds.slice(1));
+      expect(catalog?.sessions.find((session) => session.id === open.id)?.lifecycle).toEqual({
+        state: "open",
+      });
     });
   });
 
@@ -753,10 +738,7 @@ describe("WindowSessionState", () => {
 
       const open = state.createFreshSession();
       const catalog = state.readCatalog();
-      const statePath = join(
-        userDataPath,
-        windowSessionStateTestHelpers.stateFileName,
-      );
+      const statePath = join(userDataPath, windowSessionStateTestHelpers.stateFileName);
 
       expect(catalog?.sessions.map((session) => session.id)).toEqual([open.id]);
       expect(catalog?.sessions[0]?.lifecycle).toEqual({ state: "open" });

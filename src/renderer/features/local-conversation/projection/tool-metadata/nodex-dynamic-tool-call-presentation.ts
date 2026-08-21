@@ -3,7 +3,12 @@ import type {
   NodexAgentV2ToolName,
   NodexAgentV3ToolName,
 } from "../../../../../shared/nodex-agent-tools/identity";
-export type NodexDynamicToolPresentationIcon = "database" | "read" | "search" | "transfer" | "write";
+export type NodexDynamicToolPresentationIcon =
+  | "database"
+  | "read"
+  | "search"
+  | "transfer"
+  | "write";
 export type NodexMarkdownDiffLineKind = "added" | "removed" | "separator";
 
 export interface NodexMarkdownDiffLine {
@@ -53,9 +58,10 @@ function numberValue(record: Record<string, unknown> | null, key: string): numbe
 
 function quoted(value: string): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
-  const visible = normalized.length > MAX_LABEL_VALUE_LENGTH
-    ? `${normalized.slice(0, MAX_LABEL_VALUE_LENGTH - 1).trimEnd()}…`
-    : normalized;
+  const visible =
+    normalized.length > MAX_LABEL_VALUE_LENGTH
+      ? `${normalized.slice(0, MAX_LABEL_VALUE_LENGTH - 1).trimEnd()}…`
+      : normalized;
   return `“${visible}”`;
 }
 
@@ -64,7 +70,9 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
 }
 
 function parseToolOutput(call: CodexDynamicToolCallView): Record<string, unknown> | null {
-  const texts = (call.contentItems ?? []).flatMap((item) => item.type === "inputText" ? [item.text] : []);
+  const texts = (call.contentItems ?? []).flatMap((item) =>
+    item.type === "inputText" ? [item.text] : [],
+  );
   for (let index = texts.length - 1; index >= 0; index -= 1) {
     if ((texts[index]?.length ?? 0) > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) continue;
     try {
@@ -86,12 +94,15 @@ function textInputPlainText(value: unknown): string | null {
   if (input?.kind === "plain") return stringValue(input, "text");
   if (input?.kind !== "rich") return null;
 
-  const text = asArray(input.richText).flatMap((segment) => {
-    const item = asRecord(segment);
-    if (item?.type === "linebreak") return [" "];
-    const segmentText = stringValue(item, "text");
-    return segmentText ? [segmentText] : [];
-  }).join("").trim();
+  const text = asArray(input.richText)
+    .flatMap((segment) => {
+      const item = asRecord(segment);
+      if (item?.type === "linebreak") return [" "];
+      const segmentText = stringValue(item, "text");
+      return segmentText ? [segmentText] : [];
+    })
+    .join("")
+    .trim();
   return text.length > 0 ? text : null;
 }
 
@@ -132,11 +143,12 @@ function buildMarkdownChangePreview(
 ): NodexMarkdownChangePreview | null {
   const kind = stringValue(body, "kind");
   if (kind === "nfm.insert" || kind === "insert") {
-    const content = typeof body?.content === "string"
-      ? body.content
-      : typeof body?.markdown === "string"
-        ? body.markdown
-        : "";
+    const content =
+      typeof body?.content === "string"
+        ? body.content
+        : typeof body?.markdown === "string"
+          ? body.markdown
+          : "";
     if (content.length > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) return null;
     const additions = contentLineCount(content);
     const lines: NodexMarkdownDiffLine[] = [];
@@ -151,11 +163,12 @@ function buildMarkdownChangePreview(
   }
 
   if (kind === "nfm.replace" || kind === "replace") {
-    const content = typeof body?.content === "string"
-      ? body.content
-      : typeof body?.markdown === "string"
-        ? body.markdown
-        : "";
+    const content =
+      typeof body?.content === "string"
+        ? body.content
+        : typeof body?.markdown === "string"
+          ? body.markdown
+          : "";
     if (content.length > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) return null;
     const additions = contentLineCount(content);
     const lines: NodexMarkdownDiffLine[] = [];
@@ -178,16 +191,18 @@ function buildMarkdownChangePreview(
   let inspectedCharacters = 0;
   for (const [patchIndex, patch] of patches.entries()) {
     const value = asRecord(patch);
-    const oldMarkdown = typeof value?.oldNfm === "string"
-      ? value.oldNfm
-      : typeof value?.oldMarkdown === "string"
-        ? value.oldMarkdown
-        : "";
-    const newMarkdown = typeof value?.newNfm === "string"
-      ? value.newNfm
-      : typeof value?.newMarkdown === "string"
-        ? value.newMarkdown
-        : "";
+    const oldMarkdown =
+      typeof value?.oldNfm === "string"
+        ? value.oldNfm
+        : typeof value?.oldMarkdown === "string"
+          ? value.oldMarkdown
+          : "";
+    const newMarkdown =
+      typeof value?.newNfm === "string"
+        ? value.newNfm
+        : typeof value?.newMarkdown === "string"
+          ? value.newMarkdown
+          : "";
     inspectedCharacters += oldMarkdown.length + newMarkdown.length;
     if (inspectedCharacters > MAX_COLLAPSED_TOOL_DERIVATION_CHARS) return null;
     additions += contentLineCount(newMarkdown);
@@ -195,24 +210,15 @@ function buildMarkdownChangePreview(
     if (patchIndex > 0 && lines.length < MAX_MARKDOWN_DIFF_LINES) {
       lines.push({ kind: "separator", text: `Patch ${patchIndex + 1}` });
     }
-    appendContentPreviewLines(
-      lines,
-      oldMarkdown,
-      "removed",
-      MAX_MARKDOWN_PATCH_SIDE_PREVIEW_LINES,
-    );
-    appendContentPreviewLines(
-      lines,
-      newMarkdown,
-      "added",
-      MAX_MARKDOWN_PATCH_SIDE_PREVIEW_LINES,
-    );
+    appendContentPreviewLines(lines, oldMarkdown, "removed", MAX_MARKDOWN_PATCH_SIDE_PREVIEW_LINES);
+    appendContentPreviewLines(lines, newMarkdown, "added", MAX_MARKDOWN_PATCH_SIDE_PREVIEW_LINES);
   }
   const renderedChangeLineCount = lines.filter((line) => line.kind !== "separator").length;
   return {
-    label: kind === "patch"
-      ? plural(patches.length, "Nested Markdown patch", "Nested Markdown patches")
-      : plural(patches.length, "NFM patch", "NFM patches"),
+    label:
+      kind === "patch"
+        ? plural(patches.length, "Nested Markdown patch", "Nested Markdown patches")
+        : plural(patches.length, "NFM patch", "NFM patches"),
     additions,
     deletions,
     lines,
@@ -320,10 +326,11 @@ function resolveCreate(call: CodexDynamicToolCallView): NodexDynamicToolCallPres
   const target = title ? quoted(title) : "page";
   const data = outputData(call);
   const outputResource = asRecord(data?.resource);
-  const count = call.completed && data
-    ? numberValue(outputResource, "bodyBlockCount")
-      ?? asArray(outputResource?.createdBodyBlockIds).length
-    : null;
+  const count =
+    call.completed && data
+      ? (numberValue(outputResource, "bodyBlockCount") ??
+        asArray(outputResource?.createdBodyBlockIds).length)
+      : null;
   return {
     label: `${phaseLabel(call, {
       active: `Creating ${target}`,
@@ -366,20 +373,25 @@ function resolveTransferBlocks(call: CodexDynamicToolCallView): NodexDynamicTool
   const args = asRecord(call.arguments);
   const mode = args?.mode === "copy" ? "copy" : "move";
   const itemCount = asArray(args?.blockIds).length;
-  const destination = pageDestinationLabel(args?.destination)
-    ?? stringValue(asRecord(args?.destination), "kind");
+  const destination =
+    pageDestinationLabel(args?.destination) ?? stringValue(asRecord(args?.destination), "kind");
   const target = plural(itemCount, "block");
   const destinationSuffix = destination ? ` to ${destination}` : "";
   return {
-    label: `${phaseLabel(call, mode === "copy" ? {
-      active: `Copying ${target}`,
-      completed: `Copied ${target}`,
-      failed: `Failed to copy ${target}`,
-    } : {
-      active: `Moving ${target}`,
-      completed: `Moved ${target}`,
-      failed: `Failed to move ${target}`,
-    })}${destinationSuffix}`,
+    label: `${phaseLabel(
+      call,
+      mode === "copy"
+        ? {
+            active: `Copying ${target}`,
+            completed: `Copied ${target}`,
+            failed: `Failed to copy ${target}`,
+          }
+        : {
+            active: `Moving ${target}`,
+            completed: `Moved ${target}`,
+            failed: `Failed to move ${target}`,
+          },
+    )}${destinationSuffix}`,
     icon: "transfer",
     markdownChange: null,
   };
@@ -388,9 +400,11 @@ function resolveTransferBlocks(call: CodexDynamicToolCallView): NodexDynamicTool
 function resolveEditDatabase(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
   const edits = asArray(args?.edits);
-  const placementCount = edits.filter((edit) => asRecord(edit)?.kind === "view.place")
+  const placementCount = edits
+    .filter((edit) => asRecord(edit)?.kind === "view.place")
     .flatMap((edit) => asArray(asRecord(edit)?.items)).length;
-  const valueCount = edits.length - edits.filter((edit) => asRecord(edit)?.kind === "view.place").length;
+  const valueCount =
+    edits.length - edits.filter((edit) => asRecord(edit)?.kind === "view.place").length;
   const changeParts = [
     valueCount > 0 ? plural(valueCount, "value change") : null,
     placementCount > 0 ? plural(placementCount, "placement") : null,
@@ -467,12 +481,10 @@ function resolveQueryDatabaseV3(
   const args = asRecord(call.arguments);
   const data = outputData(call);
   const view = asRecord(data?.view);
-  const fallbackId = kind === "view"
-    ? stringValue(args, "viewId")
-    : stringValue(args, "dataSourceId");
-  const name = kind === "view"
-    ? stringValue(view, "name")
-    : stringValue(asRecord(data?.dataSource), "name");
+  const fallbackId =
+    kind === "view" ? stringValue(args, "viewId") : stringValue(args, "dataSourceId");
+  const name =
+    kind === "view" ? stringValue(view, "name") : stringValue(asRecord(data?.dataSource), "name");
   const target = name
     ? `${kind} ${quoted(name)}`
     : fallbackId
@@ -492,26 +504,30 @@ function resolveQueryDatabaseV3(
 
 function resolveCreatePages(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
-  const drafts = asArray(args?.pages).map(asRecord).filter(
-    (draft): draft is Record<string, unknown> => draft !== null,
-  );
+  const drafts = asArray(args?.pages)
+    .map(asRecord)
+    .filter((draft): draft is Record<string, unknown> => draft !== null);
   const titles = drafts.flatMap((draft) => {
     const title = stringValue(draft, "title");
     return title ? [inlineMarkdownLabel(title)] : [];
   });
   const count = drafts.length;
-  const subject = count === 1 && titles[0]
-    ? quoted(titles[0])
-    : `${plural(count, "page")}${titles.length > 0 ? `: ${compactTitleList(titles)}` : ""}`;
+  const subject =
+    count === 1 && titles[0]
+      ? quoted(titles[0])
+      : `${plural(count, "page")}${titles.length > 0 ? `: ${compactTitleList(titles)}` : ""}`;
   const outputPages = asArray(outputData(call)?.pages);
   const pageKeys = outputPages.flatMap((page) => {
     const pageKey = stringValue(asRecord(page), "pageKey");
     return pageKey ? [pageKey] : [];
   });
-  const bodyBlockCount = call.completed && outputPages.length > 0
-    ? outputPages.reduce<number>((total, page) =>
-      total + (numberValue(asRecord(page), "bodyBlocksCreated") ?? 0), 0)
-    : null;
+  const bodyBlockCount =
+    call.completed && outputPages.length > 0
+      ? outputPages.reduce<number>(
+          (total, page) => total + (numberValue(asRecord(page), "bodyBlocksCreated") ?? 0),
+          0,
+        )
+      : null;
   const destination = pageDestinationLabel(args?.destination);
   return {
     label: `${phaseLabel(call, {
@@ -535,10 +551,9 @@ function resolveUpdatePage(call: CodexDynamicToolCallView): NodexDynamicToolCall
     : pageId
       ? `page ${quoted(pageId)}`
       : "page";
-  const changes = [
-    title ? "title" : null,
-    markdownChange?.label ?? null,
-  ].filter((value): value is string => value !== null);
+  const changes = [title ? "title" : null, markdownChange?.label ?? null].filter(
+    (value): value is string => value !== null,
+  );
   return {
     label: `${phaseLabel(call, {
       active: `Updating ${target}`,
@@ -558,9 +573,10 @@ function resolveAdvancedUpdatePage(
   const edits = asArray(args?.edits);
   const deletes = edits.filter((edit) => asRecord(edit)?.kind === "delete").length;
   const target = pageId ? `page ${quoted(pageId)}` : "page";
-  const suffix = edits.length > 0
-    ? ` · ${plural(edits.length, "stable block change")}${deletes > 0 ? `, ${plural(deletes, "delete")}` : ""}`
-    : "";
+  const suffix =
+    edits.length > 0
+      ? ` · ${plural(edits.length, "stable block change")}${deletes > 0 ? `, ${plural(deletes, "delete")}` : ""}`
+      : "";
   return {
     label: `${phaseLabel(call, {
       active: `Updating ${target}`,
@@ -599,11 +615,7 @@ function resolveDuplicatePage(call: CodexDynamicToolCallView): NodexDynamicToolC
   const resultId = stringValue(resultData, "pageId");
   const resultPageKey = stringValue(resultData, "pageKey");
   const source = sourceId ? `page ${quoted(sourceId)}` : "page";
-  const result = resultPageKey
-    ? ` → ${resultPageKey}`
-    : resultId
-      ? ` → ${quoted(resultId)}`
-      : "";
+  const result = resultPageKey ? ` → ${resultPageKey}` : resultId ? ` → ${quoted(resultId)}` : "";
   const destination = pageDestinationLabel(args?.destination);
   return {
     label: `${phaseLabel(call, {
@@ -622,22 +634,39 @@ export function resolveNodexDynamicToolCallPresentation(
   if (call.namespace !== "nodex_app") return null;
 
   switch (call.tool as NodexAgentV2ToolName | NodexAgentV3ToolName) {
-    case "get_context": return resolveGetContext(call);
-    case "get_block": return resolveGetBlock(call);
-    case "fetch": return resolveFetch(call);
-    case "search": return resolveSearch(call);
-    case "query_database": return resolveQueryDatabase(call);
-    case "query_database_view": return resolveQueryDatabaseV3(call, "view");
-    case "query_data_source": return resolveQueryDatabaseV3(call, "data source");
-    case "create": return resolveCreate(call);
-    case "create_pages": return resolveCreatePages(call);
-    case "edit_document": return resolveEditDocument(call);
-    case "update_page": return resolveUpdatePage(call);
-    case "advanced_update_page": return resolveAdvancedUpdatePage(call);
-    case "transfer_blocks": return resolveTransferBlocks(call);
-    case "move_pages": return resolveMovePages(call);
-    case "duplicate_page": return resolveDuplicatePage(call);
-    case "edit_database": return resolveEditDatabase(call);
-    default: return null;
+    case "get_context":
+      return resolveGetContext(call);
+    case "get_block":
+      return resolveGetBlock(call);
+    case "fetch":
+      return resolveFetch(call);
+    case "search":
+      return resolveSearch(call);
+    case "query_database":
+      return resolveQueryDatabase(call);
+    case "query_database_view":
+      return resolveQueryDatabaseV3(call, "view");
+    case "query_data_source":
+      return resolveQueryDatabaseV3(call, "data source");
+    case "create":
+      return resolveCreate(call);
+    case "create_pages":
+      return resolveCreatePages(call);
+    case "edit_document":
+      return resolveEditDocument(call);
+    case "update_page":
+      return resolveUpdatePage(call);
+    case "advanced_update_page":
+      return resolveAdvancedUpdatePage(call);
+    case "transfer_blocks":
+      return resolveTransferBlocks(call);
+    case "move_pages":
+      return resolveMovePages(call);
+    case "duplicate_page":
+      return resolveDuplicatePage(call);
+    case "edit_database":
+      return resolveEditDatabase(call);
+    default:
+      return null;
   }
 }

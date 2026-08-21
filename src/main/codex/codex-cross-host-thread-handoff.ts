@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import type {
-  CodexCrossHostPreparedHandoff,
-} from "./codex-thread-handoff-journal";
+import type { CodexCrossHostPreparedHandoff } from "./codex-thread-handoff-journal";
 import type { CodexExecutionHostRegistry } from "./codex-execution-host-registry";
 import type {
   CodexWorktreeWorkerExportHandoffResult,
@@ -26,10 +24,7 @@ export interface PrepareCodexCrossHostThreadHandoffInput {
     readonly hostId: string;
     readonly worktreeGitRoot: string;
   }) => void;
-  readonly onPhase: (
-    phase: string,
-    status: "running" | "success" | "error",
-  ) => void;
+  readonly onPhase: (phase: string, status: "running" | "success" | "error") => void;
   readonly signal?: AbortSignal;
 }
 
@@ -59,10 +54,12 @@ function transferIdForOperation(operationId: string): string {
  * Main only handles integrity-checked opaque files in its private handoff root.
  */
 export class CodexCrossHostThreadHandoffService {
-  constructor(private readonly options: {
-    readonly executionHosts: CodexExecutionHostRegistry;
-    readonly relayBaseRoot: string;
-  }) {}
+  constructor(
+    private readonly options: {
+      readonly executionHosts: CodexExecutionHostRegistry;
+      readonly relayBaseRoot: string;
+    },
+  ) {}
 
   async prepare(
     input: PrepareCodexCrossHostThreadHandoffInput,
@@ -83,8 +80,12 @@ export class CodexCrossHostThreadHandoffService {
       "import-handoff",
     );
     const sourceTransfer = this.options.executionHosts.requireFileTransfer(input.sourceHostId);
-    const destinationTransfer = this.options.executionHosts.requireFileTransfer(input.destinationHostId);
-    const sourceStagingRoot = this.options.executionHosts.requireHandoffStagingRoot(input.sourceHostId);
+    const destinationTransfer = this.options.executionHosts.requireFileTransfer(
+      input.destinationHostId,
+    );
+    const sourceStagingRoot = this.options.executionHosts.requireHandoffStagingRoot(
+      input.sourceHostId,
+    );
     const destinationStagingRoot = this.options.executionHosts.requireHandoffStagingRoot(
       input.destinationHostId,
     );
@@ -103,27 +104,30 @@ export class CodexCrossHostThreadHandoffService {
     let exported: CodexWorktreeWorkerExportHandoffResult | null = null;
     let imported: CodexWorktreeWorkerImportHandoffResult | null = null;
     try {
-      exported = await sourceWorker.exportHandoff({
-        requestId: `${input.operationId}:export`,
-        hostId: input.sourceHostId,
-        transferId,
-        sourceCwd: input.sourceCwd,
-        sourceWorkspaceRoot: input.sourceWorkspaceRoot,
-        stagingRoot: sourceStagingRoot,
-      }, {
-        signal: input.signal ?? new AbortController().signal,
-        onEvent: (event) => {
-          if (event.type !== "handoff-progress") return;
-          input.onPhase(
-            event.step,
-            event.status === "failed"
-              ? "error"
-              : event.status === "completed" || event.status === "skipped"
-                ? "success"
-                : "running",
-          );
+      exported = await sourceWorker.exportHandoff(
+        {
+          requestId: `${input.operationId}:export`,
+          hostId: input.sourceHostId,
+          transferId,
+          sourceCwd: input.sourceCwd,
+          sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+          stagingRoot: sourceStagingRoot,
         },
-      });
+        {
+          signal: input.signal ?? new AbortController().signal,
+          onEvent: (event) => {
+            if (event.type !== "handoff-progress") return;
+            input.onPhase(
+              event.step,
+              event.status === "failed"
+                ? "error"
+                : event.status === "completed" || event.status === "skipped"
+                  ? "success"
+                  : "running",
+            );
+          },
+        },
+      );
       const sourceRollout = await sourceTransfer.describe(input.sourceRolloutPath, input.signal);
       input.onPhase("transfer-state", "running");
       const [relayBundle, relayRollout] = await Promise.all([
@@ -158,43 +162,46 @@ export class CodexCrossHostThreadHandoffService {
       ]);
       input.onPhase("transfer-state", "success");
 
-      imported = await destinationWorker.importHandoff({
-        requestId: `${input.operationId}:import`,
-        hostId: input.destinationHostId,
-        transferId,
-        bundlePath: destinationBundle.path,
-        rolloutPath: stagedDestinationRollout.path,
-        rolloutRelativePath: relativeRolloutPath,
-        destinationCodexHome,
-        sourceCommit: exported.sourceCommit,
-        repositoryIdentity: exported.repositoryIdentity,
-        candidateRepositoryPaths: input.destinationRepositoryPaths,
-        managedRoot: this.options.executionHosts.requireManagedRoot(input.destinationHostId),
-        nodexHome: this.options.executionHosts.requireNodexHome(input.destinationHostId),
-        projectId: input.projectId,
-        threadId: input.threadId,
-        threadTitle: input.threadTitle,
-      }, {
-        signal: input.signal ?? new AbortController().signal,
-        onEvent: (event) => {
-          if (event.type === "path-allocated") {
-            input.onPathAllocated({
-              hostId: input.destinationHostId,
-              worktreeGitRoot: event.worktreeGitRoot,
-            });
-            return;
-          }
-          if (event.type !== "handoff-progress") return;
-          input.onPhase(
-            event.step,
-            event.status === "failed"
-              ? "error"
-              : event.status === "completed" || event.status === "skipped"
-                ? "success"
-                : "running",
-          );
+      imported = await destinationWorker.importHandoff(
+        {
+          requestId: `${input.operationId}:import`,
+          hostId: input.destinationHostId,
+          transferId,
+          bundlePath: destinationBundle.path,
+          rolloutPath: stagedDestinationRollout.path,
+          rolloutRelativePath: relativeRolloutPath,
+          destinationCodexHome,
+          sourceCommit: exported.sourceCommit,
+          repositoryIdentity: exported.repositoryIdentity,
+          candidateRepositoryPaths: input.destinationRepositoryPaths,
+          managedRoot: this.options.executionHosts.requireManagedRoot(input.destinationHostId),
+          nodexHome: this.options.executionHosts.requireNodexHome(input.destinationHostId),
+          projectId: input.projectId,
+          threadId: input.threadId,
+          threadTitle: input.threadTitle,
         },
-      });
+        {
+          signal: input.signal ?? new AbortController().signal,
+          onEvent: (event) => {
+            if (event.type === "path-allocated") {
+              input.onPathAllocated({
+                hostId: input.destinationHostId,
+                worktreeGitRoot: event.worktreeGitRoot,
+              });
+              return;
+            }
+            if (event.type !== "handoff-progress") return;
+            input.onPhase(
+              event.step,
+              event.status === "failed"
+                ? "error"
+                : event.status === "completed" || event.status === "skipped"
+                  ? "success"
+                  : "running",
+            );
+          },
+        },
+      );
 
       return {
         direction: "cross-host",
@@ -258,54 +265,67 @@ export class CodexCrossHostThreadHandoffService {
       "cleanup-transfer-handoff",
     );
     const requestSignal = new AbortController().signal;
-    const collect = async (label: string, operation: () => Promise<readonly string[]>): Promise<void> => {
+    const collect = async (
+      label: string,
+      operation: () => Promise<readonly string[]>,
+    ): Promise<void> => {
       try {
-        warnings.push(...await operation());
+        warnings.push(...(await operation()));
       } catch (error) {
         warnings.push(`${label}: ${errorMessage(error)}`);
       }
     };
     await collect("destination cleanup", async () => {
-      const result = await destinationWorker.cleanupTransferHandoff({
-        requestId: `handoff:cleanup:destination:${prepared.destinationHostId}:${prepared.sourceTemporaryRef}`,
-        hostId: prepared.destinationHostId,
-        transferId: prepared.transferId,
-        stagingRoot: prepared.destinationStagingRoot,
-        repositoryPath: prepared.destinationRepositoryPath,
-        temporaryRef: prepared.destinationTemporaryRef,
-        managedRoot: this.options.executionHosts.requireManagedRoot(prepared.destinationHostId),
-        createdWorktreePath: prepared.managedWorktreePath,
-        createdRolloutPath: prepared.destinationRolloutCreated
-          ? prepared.destinationRollout.path
-          : null,
-        destinationCodexHome: this.options.executionHosts.requireCodexHome(prepared.destinationHostId),
-        outcome,
-      }, { signal: requestSignal });
+      const result = await destinationWorker.cleanupTransferHandoff(
+        {
+          requestId: `handoff:cleanup:destination:${prepared.destinationHostId}:${prepared.sourceTemporaryRef}`,
+          hostId: prepared.destinationHostId,
+          transferId: prepared.transferId,
+          stagingRoot: prepared.destinationStagingRoot,
+          repositoryPath: prepared.destinationRepositoryPath,
+          temporaryRef: prepared.destinationTemporaryRef,
+          managedRoot: this.options.executionHosts.requireManagedRoot(prepared.destinationHostId),
+          createdWorktreePath: prepared.managedWorktreePath,
+          createdRolloutPath: prepared.destinationRolloutCreated
+            ? prepared.destinationRollout.path
+            : null,
+          destinationCodexHome: this.options.executionHosts.requireCodexHome(
+            prepared.destinationHostId,
+          ),
+          outcome,
+        },
+        { signal: requestSignal },
+      );
       return result.warnings;
     });
     await collect("source cleanup", async () => {
-      const result = await sourceWorker.cleanupTransferHandoff({
-        requestId: `handoff:cleanup:source:${prepared.sourceHostId}:${prepared.sourceTemporaryRef}`,
-        hostId: prepared.sourceHostId,
-        transferId: prepared.transferId,
-        stagingRoot: prepared.sourceStagingRoot,
-        repositoryPath: prepared.sourceRepositoryPath,
-        temporaryRef: prepared.sourceTemporaryRef,
-        managedRoot: null,
-        createdWorktreePath: null,
-        createdRolloutPath: null,
-        destinationCodexHome: null,
-        outcome,
-      }, { signal: requestSignal });
+      const result = await sourceWorker.cleanupTransferHandoff(
+        {
+          requestId: `handoff:cleanup:source:${prepared.sourceHostId}:${prepared.sourceTemporaryRef}`,
+          hostId: prepared.sourceHostId,
+          transferId: prepared.transferId,
+          stagingRoot: prepared.sourceStagingRoot,
+          repositoryPath: prepared.sourceRepositoryPath,
+          temporaryRef: prepared.sourceTemporaryRef,
+          managedRoot: null,
+          createdWorktreePath: null,
+          createdRolloutPath: null,
+          destinationCodexHome: null,
+          outcome,
+        },
+        { signal: requestSignal },
+      );
       return result.warnings;
     });
     await collect("destination transfer cleanup", async () => {
-      await this.options.executionHosts.requireFileTransfer(prepared.destinationHostId)
+      await this.options.executionHosts
+        .requireFileTransfer(prepared.destinationHostId)
         .cleanup(prepared.transferId);
       return [];
     });
     await collect("source transfer cleanup", async () => {
-      await this.options.executionHosts.requireFileTransfer(prepared.sourceHostId)
+      await this.options.executionHosts
+        .requireFileTransfer(prepared.sourceHostId)
         .cleanup(prepared.transferId);
       return [];
     });
@@ -331,24 +351,28 @@ export class CodexCrossHostThreadHandoffService {
     const warnings: string[] = [];
     if (input.imported) {
       try {
-        const result = await this.options.executionHosts.requireWorktreeWorker(
-          input.input.destinationHostId,
-          "cleanup-transfer-handoff",
-        ).cleanupTransferHandoff({
-          requestId: `${input.input.operationId}:prepare-failure:destination`,
-          hostId: input.input.destinationHostId,
-          transferId: transferIdForOperation(input.input.operationId),
-          stagingRoot: input.destinationStagingRoot,
-          repositoryPath: input.imported.destinationRepositoryPath,
-          temporaryRef: input.imported.temporaryRef,
-          managedRoot: this.options.executionHosts.requireManagedRoot(input.input.destinationHostId),
-          createdWorktreePath: input.imported.managedWorktreePath,
-          createdRolloutPath: input.imported.destinationRolloutCreated
-            ? input.imported.destinationRolloutPath
-            : null,
-          destinationCodexHome: input.destinationCodexHome,
-          outcome: "rolled-back",
-        }, { signal: new AbortController().signal });
+        const result = await this.options.executionHosts
+          .requireWorktreeWorker(input.input.destinationHostId, "cleanup-transfer-handoff")
+          .cleanupTransferHandoff(
+            {
+              requestId: `${input.input.operationId}:prepare-failure:destination`,
+              hostId: input.input.destinationHostId,
+              transferId: transferIdForOperation(input.input.operationId),
+              stagingRoot: input.destinationStagingRoot,
+              repositoryPath: input.imported.destinationRepositoryPath,
+              temporaryRef: input.imported.temporaryRef,
+              managedRoot: this.options.executionHosts.requireManagedRoot(
+                input.input.destinationHostId,
+              ),
+              createdWorktreePath: input.imported.managedWorktreePath,
+              createdRolloutPath: input.imported.destinationRolloutCreated
+                ? input.imported.destinationRolloutPath
+                : null,
+              destinationCodexHome: input.destinationCodexHome,
+              outcome: "rolled-back",
+            },
+            { signal: new AbortController().signal },
+          );
         warnings.push(...result.warnings);
       } catch (error) {
         warnings.push(`destination prepare cleanup: ${errorMessage(error)}`);
@@ -365,22 +389,26 @@ export class CodexCrossHostThreadHandoffService {
       );
       for (const [index, repositoryPath] of input.input.destinationRepositoryPaths.entries()) {
         try {
-          const result = await this.options.executionHosts.requireWorktreeWorker(
-            input.input.destinationHostId,
-            "cleanup-transfer-handoff",
-          ).cleanupTransferHandoff({
-            requestId: `${input.input.operationId}:prepare-failure:destination:${String(index)}`,
-            hostId: input.input.destinationHostId,
-            transferId,
-            stagingRoot: input.destinationStagingRoot,
-            repositoryPath,
-            temporaryRef: destinationRef,
-            managedRoot: this.options.executionHosts.requireManagedRoot(input.input.destinationHostId),
-            createdWorktreePath: null,
-            createdRolloutPath: index === 0 ? destinationRolloutPath : null,
-            destinationCodexHome: input.destinationCodexHome,
-            outcome: "rolled-back",
-          }, { signal: new AbortController().signal });
+          const result = await this.options.executionHosts
+            .requireWorktreeWorker(input.input.destinationHostId, "cleanup-transfer-handoff")
+            .cleanupTransferHandoff(
+              {
+                requestId: `${input.input.operationId}:prepare-failure:destination:${String(index)}`,
+                hostId: input.input.destinationHostId,
+                transferId,
+                stagingRoot: input.destinationStagingRoot,
+                repositoryPath,
+                temporaryRef: destinationRef,
+                managedRoot: this.options.executionHosts.requireManagedRoot(
+                  input.input.destinationHostId,
+                ),
+                createdWorktreePath: null,
+                createdRolloutPath: index === 0 ? destinationRolloutPath : null,
+                destinationCodexHome: input.destinationCodexHome,
+                outcome: "rolled-back",
+              },
+              { signal: new AbortController().signal },
+            );
           warnings.push(...result.warnings);
         } catch (error) {
           warnings.push(`destination reconciliation ${repositoryPath}: ${errorMessage(error)}`);
@@ -389,22 +417,24 @@ export class CodexCrossHostThreadHandoffService {
     }
     if (input.exported) {
       try {
-        const result = await this.options.executionHosts.requireWorktreeWorker(
-          input.input.sourceHostId,
-          "cleanup-transfer-handoff",
-        ).cleanupTransferHandoff({
-          requestId: `${input.input.operationId}:prepare-failure:source`,
-          hostId: input.input.sourceHostId,
-          transferId: transferIdForOperation(input.input.operationId),
-          stagingRoot: input.sourceStagingRoot,
-          repositoryPath: input.exported.sourceRepositoryPath,
-          temporaryRef: input.exported.temporaryRef,
-          managedRoot: null,
-          createdWorktreePath: null,
-          createdRolloutPath: null,
-          destinationCodexHome: null,
-          outcome: "rolled-back",
-        }, { signal: new AbortController().signal });
+        const result = await this.options.executionHosts
+          .requireWorktreeWorker(input.input.sourceHostId, "cleanup-transfer-handoff")
+          .cleanupTransferHandoff(
+            {
+              requestId: `${input.input.operationId}:prepare-failure:source`,
+              hostId: input.input.sourceHostId,
+              transferId: transferIdForOperation(input.input.operationId),
+              stagingRoot: input.sourceStagingRoot,
+              repositoryPath: input.exported.sourceRepositoryPath,
+              temporaryRef: input.exported.temporaryRef,
+              managedRoot: null,
+              createdWorktreePath: null,
+              createdRolloutPath: null,
+              destinationCodexHome: null,
+              outcome: "rolled-back",
+            },
+            { signal: new AbortController().signal },
+          );
         warnings.push(...result.warnings);
       } catch (error) {
         warnings.push(`source prepare cleanup: ${errorMessage(error)}`);
@@ -415,14 +445,16 @@ export class CodexCrossHostThreadHandoffService {
       ["source transfer cleanup", input.input.sourceHostId],
     ] as const) {
       try {
-        await this.options.executionHosts.requireFileTransfer(hostId)
+        await this.options.executionHosts
+          .requireFileTransfer(hostId)
           .cleanup(transferIdForOperation(input.input.operationId));
       } catch (error) {
         warnings.push(`${label}: ${errorMessage(error)}`);
       }
     }
-    await rm(input.relayRoot, { recursive: true, force: true })
-      .catch((error) => warnings.push(`relay cleanup: ${errorMessage(error)}`));
+    await rm(input.relayRoot, { recursive: true, force: true }).catch((error) =>
+      warnings.push(`relay cleanup: ${errorMessage(error)}`),
+    );
     return warnings;
   }
 }

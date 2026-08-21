@@ -36,7 +36,7 @@ describe("ThreadActivityShell", () => {
     let toggleCount = 0;
     const view = render(
       <ThreadActivityShell
-        header={(
+        header={
           <ThreadActivityHeader
             testId="activity-header"
             disclosure={{
@@ -48,11 +48,13 @@ describe("ThreadActivityShell", () => {
           >
             Searching the web
           </ThreadActivityHeader>
-        )}
+        }
       />,
     );
 
-    const collapsedButton = view.container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
+    const collapsedButton = view.container.querySelector<HTMLButtonElement>(
+      "[data-testid='activity-header']",
+    );
     expect(collapsedButton?.tagName).toBe("BUTTON");
     expect(collapsedButton?.getAttribute("aria-expanded") ?? "").toBe("false");
 
@@ -65,7 +67,7 @@ describe("ThreadActivityShell", () => {
 
     view.rerender(
       <ThreadActivityShell
-        header={(
+        header={
           <ThreadActivityHeader
             testId="activity-header"
             disclosure={{
@@ -77,12 +79,14 @@ describe("ThreadActivityShell", () => {
           >
             Searching the web
           </ThreadActivityHeader>
-        )}
+        }
         body={<div data-testid="activity-body">result</div>}
       />,
     );
 
-    const expandedButton = view.container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
+    const expandedButton = view.container.querySelector<HTMLButtonElement>(
+      "[data-testid='activity-header']",
+    );
     expect(expandedButton?.getAttribute("aria-expanded") ?? "").toBe("true");
     expect(Boolean(view.container.querySelector("[data-testid='activity-body']"))).toBe(true);
   });
@@ -100,7 +104,11 @@ describe("ThreadActivityDisclosure", () => {
         status="completed"
         headerTestId="activity-header"
         icon={<span aria-hidden="true">icon</span>}
-        summary={<a href="/file.ts" data-agent-activity-file-link>Edited file.ts</a>}
+        summary={
+          <a href="/file.ts" data-agent-activity-file-link>
+            Edited file.ts
+          </a>
+        }
       >
         <div>patch rows</div>
       </ThreadActivityDisclosure>,
@@ -128,7 +136,9 @@ describe("ThreadActivityDisclosure", () => {
       </ThreadActivityDisclosure>,
     );
 
-    const button = container.querySelector<HTMLButtonElement>("[data-testid='activity-header'] > button");
+    const button = container.querySelector<HTMLButtonElement>(
+      "[data-testid='activity-header'] > button",
+    );
     expect(button?.getAttribute("aria-label") ?? "").toBe("Toggle activity details");
     expect(button?.getAttribute("aria-labelledby") ?? "").toBe("");
   });
@@ -178,8 +188,9 @@ describe("ThreadActivityDisclosure", () => {
       fireEvent.click(button as HTMLButtonElement);
       await Promise.resolve();
     });
-    expect(container.querySelector<HTMLElement>("[data-testid='activity-body']"))
-      .toBe(collapsedBody);
+    expect(container.querySelector<HTMLElement>("[data-testid='activity-body']")).toBe(
+      collapsedBody,
+    );
     expect(button?.getAttribute("aria-expanded") ?? "").toBe("false");
     expect(collapsedBody?.getAttribute("aria-hidden")).toBe("true");
     expect(collapsedBody?.hasAttribute("inert")).toBe(true);
@@ -198,7 +209,9 @@ describe("ThreadActivityDisclosure", () => {
         <div>Preparing worktree</div>
       </ThreadActivityDisclosure>,
     );
-    const button = view.container.querySelector<HTMLButtonElement>("[data-testid='activity-header']");
+    const button = view.container.querySelector<HTMLButtonElement>(
+      "[data-testid='activity-header']",
+    );
     expect(button?.getAttribute("aria-expanded")).toBe("true");
 
     await act(async () => {
@@ -234,7 +247,9 @@ describe("ThreadActivityDisclosure", () => {
         <div data-testid="stable-activity-body">stream output</div>
       </ThreadActivityDisclosure>,
     );
-    const initialBody = view.container.querySelector<HTMLElement>("[data-testid='stable-activity-body']");
+    const initialBody = view.container.querySelector<HTMLElement>(
+      "[data-testid='stable-activity-body']",
+    );
 
     await act(async () => {
       view.rerender(
@@ -252,10 +267,15 @@ describe("ThreadActivityDisclosure", () => {
       await Promise.resolve();
     });
 
-    const updatedBody = view.container.querySelector<HTMLElement>("[data-testid='stable-activity-body']");
+    const updatedBody = view.container.querySelector<HTMLElement>(
+      "[data-testid='stable-activity-body']",
+    );
     expect(updatedBody).toBe(initialBody);
-    expect(view.container.querySelector("[data-testid='activity-header']")?.getAttribute("aria-expanded") ?? "")
-      .toBe("true");
+    expect(
+      view.container
+        .querySelector("[data-testid='activity-header']")
+        ?.getAttribute("aria-expanded") ?? "",
+    ).toBe("true");
   });
 
   test("renders static headers and no body when expansion is disabled", () => {
@@ -492,7 +512,9 @@ describe("ThreadActivityList", () => {
       />,
     );
 
-    const collapsedList = view.container.querySelector<HTMLElement>("[data-testid='activity-list']");
+    const collapsedList = view.container.querySelector<HTMLElement>(
+      "[data-testid='activity-list']",
+    );
     expect(Boolean(collapsedList)).toBe(true);
     expect(collapsedList?.style.maxHeight ?? "").toBe("0px");
     expect(Boolean(view.container.querySelector("[data-testid='first-row']"))).toBe(false);

@@ -38,9 +38,7 @@ export function tryParseGfmTable(
   if (alignments.some((alignment) => alignment === null)) return null;
 
   const columnCount = headerCells.length;
-  const rows: NfmTableRow[] = [
-    { cells: headerCells.map((cell) => createCellFromGfm(cell)) },
-  ];
+  const rows: NfmTableRow[] = [{ cells: headerCells.map((cell) => createCellFromGfm(cell)) }];
 
   let cursor = startLine + 2;
   while (cursor < lines.length) {
@@ -49,8 +47,9 @@ export function tryParseGfmTable(
     if (rowLine.trim() === "") break;
     if (!looksLikeTableRow(rowLine)) break;
 
-    const rowCells = normalizeCellCount(splitGfmTableRow(rowLine), columnCount)
-      .map((cell) => createCellFromGfm(cell));
+    const rowCells = normalizeCellCount(splitGfmTableRow(rowLine), columnCount).map((cell) =>
+      createCellFromGfm(cell),
+    );
     rows.push({ cells: rowCells });
     cursor += 1;
   }
@@ -59,7 +58,7 @@ export function tryParseGfmTable(
     block: normalizeTable({
       type: "table",
       rows,
-      columns: alignments.map((alignment) => alignment ? { align: alignment } : {}),
+      columns: alignments.map((alignment) => (alignment ? { align: alignment } : {})),
       headerRow: true,
       sourceSyntax: "gfm",
       children: [],
@@ -155,8 +154,8 @@ export function serializeNfmTable(block: NfmTable, indent: number): string[] {
 export function serializeNfmTablePlainText(block: NfmTable, indent: number): string[] {
   const prefix = "\t".repeat(indent);
   const normalized = normalizeTable(block);
-  return normalized.rows.map((row) =>
-    prefix + row.cells.map((cell) => serializeInlinePlainText(cell.content)).join("\t"),
+  return normalized.rows.map(
+    (row) => prefix + row.cells.map((cell) => serializeInlinePlainText(cell.content)).join("\t"),
   );
 }
 
@@ -287,11 +286,14 @@ function parseColumnLine(line: string): NfmTableColumn | null {
   if (!match) return null;
 
   const attrString = match[1] ?? "";
-  const width = normalizePositiveInteger(Number.parseInt(getXmlAttr(attrString, "width") ?? "", 10));
+  const width = normalizePositiveInteger(
+    Number.parseInt(getXmlAttr(attrString, "width") ?? "", 10),
+  );
   const alignValue = getXmlAttr(attrString, "align");
-  const align = alignValue === "left" || alignValue === "center" || alignValue === "right"
-    ? alignValue
-    : undefined;
+  const align =
+    alignValue === "left" || alignValue === "center" || alignValue === "right"
+      ? alignValue
+      : undefined;
 
   return {
     ...(width !== undefined ? { width } : {}),
@@ -341,8 +343,12 @@ function parseXmlCell(line: string): NfmTableCell | null {
   if (!match) return null;
 
   const attrString = match[1] ?? "";
-  const colspan = normalizePositiveInteger(Number.parseInt(getXmlAttr(attrString, "colspan") ?? "", 10));
-  const rowspan = normalizePositiveInteger(Number.parseInt(getXmlAttr(attrString, "rowspan") ?? "", 10));
+  const colspan = normalizePositiveInteger(
+    Number.parseInt(getXmlAttr(attrString, "colspan") ?? "", 10),
+  );
+  const rowspan = normalizePositiveInteger(
+    Number.parseInt(getXmlAttr(attrString, "rowspan") ?? "", 10),
+  );
 
   return {
     content: parseInlineContent(match[2] ?? ""),
@@ -354,9 +360,7 @@ function parseXmlCell(line: string): NfmTableCell | null {
 
 function parseColorAttr(attrs: string, name: string): NfmColor | undefined {
   const value = getXmlAttr(attrs, name);
-  return value && NFM_COLORS.includes(value as NfmColor)
-    ? (value as NfmColor)
-    : undefined;
+  return value && NFM_COLORS.includes(value as NfmColor) ? (value as NfmColor) : undefined;
 }
 
 function normalizePositiveInteger(value: unknown): number | undefined {
@@ -449,8 +453,8 @@ function serializeXmlTable(block: NfmTable, indent: number): string[] {
       if (cell.colspan) cellAttrs.push(`colspan="${cell.colspan}"`);
       if (cell.rowspan) cellAttrs.push(`rowspan="${cell.rowspan}"`);
       lines.push(
-        `${prefix}\t\t<td${cellAttrs.length ? ` ${cellAttrs.join(" ")}` : ""}>`
-        + `${serializeInlineContent(cell.content)}</td>`,
+        `${prefix}\t\t<td${cellAttrs.length ? ` ${cellAttrs.join(" ")}` : ""}>` +
+          `${serializeInlineContent(cell.content)}</td>`,
       );
     }
     lines.push(`${prefix}\t</tr>`);

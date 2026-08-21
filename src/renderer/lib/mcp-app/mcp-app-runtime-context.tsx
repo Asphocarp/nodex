@@ -1,16 +1,7 @@
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-} from "react";
-import {
-  mcpAppRuntimeManager,
-  type McpAppRuntimeManager,
-} from "./mcp-app-runtime-manager";
+import { createContext, type ReactNode, useContext } from "react";
+import { mcpAppRuntimeManager, type McpAppRuntimeManager } from "./mcp-app-runtime-manager";
 
-const McpAppRuntimeManagerContext = createContext<McpAppRuntimeManager>(
-  mcpAppRuntimeManager,
-);
+const McpAppRuntimeManagerContext = createContext<McpAppRuntimeManager>(mcpAppRuntimeManager);
 
 export function McpAppRuntimeManagerProvider({
   children,

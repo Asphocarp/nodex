@@ -112,22 +112,29 @@ export function PageStageDevStoryPage({
   ]);
 
   useEffect(() => {
-    setCollapsedProperties(buildPageStageStoryCollapsedProperties({
-      collapseThreadsByDefault,
-      collapseSecondaryProperties,
-    }));
+    setCollapsedProperties(
+      buildPageStageStoryCollapsedProperties({
+        collapseThreadsByDefault,
+        collapseSecondaryProperties,
+      }),
+    );
   }, [collapseSecondaryProperties, collapseThreadsByDefault, setCollapsedProperties]);
 
-  const page = useMemo(() => buildPageStageStoryPage({
-    runInTarget,
-    existingWorktree,
-  }), [existingWorktree, runInTarget]);
+  const page = useMemo(
+    () =>
+      buildPageStageStoryPage({
+        runInTarget,
+        existingWorktree,
+      }),
+    [existingWorktree, runInTarget],
+  );
   const displayPage = useMemo(() => {
-    const description = descriptionVariant === "heading-rail"
-      ? headingRailDescription
-      : descriptionVariant === "few-headings"
-        ? fewHeadingsDescription
-        : page.description;
+    const description =
+      descriptionVariant === "heading-rail"
+        ? headingRailDescription
+        : descriptionVariant === "few-headings"
+          ? fewHeadingsDescription
+          : page.description;
     return {
       ...page,
       description,
@@ -145,10 +152,7 @@ export function PageStageDevStoryPage({
     };
   }, [page, descriptionVariant, schemaVariant]);
   const stagePage = useMemo((): PageStagePageModel => {
-    const result = buildPageDetailStoryResult(
-      PAGE_STAGE_STORY_PROJECT_ID,
-      displayPage,
-    );
+    const result = buildPageDetailStoryResult(PAGE_STAGE_STORY_PROJECT_ID, displayPage);
     if (!result.ok) throw new Error(result.error.message);
     const projected = projectPageDetailToStageModel(result.value);
     if (standalone) {
@@ -159,16 +163,21 @@ export function PageStageDevStoryPage({
       };
     }
     if (
-      schemaVariant === "default"
-      || schemaVariant === "empty-values"
-      || projected.databaseContext.kind !== "member"
+      schemaVariant === "default" ||
+      schemaVariant === "empty-values" ||
+      projected.databaseContext.kind !== "member"
     ) {
       return projected;
     }
-    const omittedByVariant: Readonly<Record<Exclude<
-      NonNullable<PageStageDevStoryPageProps["schemaVariant"]>,
-      "default" | "empty-values" | "corrupt-property"
-    >, readonly string[]>> = {
+    const omittedByVariant: Readonly<
+      Record<
+        Exclude<
+          NonNullable<PageStageDevStoryPageProps["schemaVariant"]>,
+          "default" | "empty-values" | "corrupt-property"
+        >,
+        readonly string[]
+      >
+    > = {
       "sparse-custom": ["priority", "tags", "due_date", "assignee"],
       "missing-due-date": ["due_date"],
       "missing-assignee": ["assignee"],
@@ -181,10 +190,11 @@ export function PageStageDevStoryPage({
     );
     const properties = projected.databaseContext.properties
       .filter((item) => !omitted.has(item.property.propertyId))
-      .map((item) => schemaVariant === "corrupt-property"
-          && item.property.propertyId === "due_date"
-        ? { ...item, value: "not-a-date", error: "Expected an ISO date" }
-        : item);
+      .map((item) =>
+        schemaVariant === "corrupt-property" && item.property.propertyId === "due_date"
+          ? { ...item, value: "not-a-date", error: "Expected an ISO date" }
+          : item,
+      );
     return {
       ...projected,
       databaseContext: {
@@ -195,12 +205,13 @@ export function PageStageDevStoryPage({
     };
   }, [displayPage, schemaVariant, standalone]);
   const storyDocument = useMemo(
-    () => createPageStageStoryDocument({
-      projectId: PAGE_STAGE_STORY_PROJECT_ID,
-      pageId: displayPage.id,
-      title: displayPage.title,
-      description: displayPage.description,
-    }),
+    () =>
+      createPageStageStoryDocument({
+        projectId: PAGE_STAGE_STORY_PROJECT_ID,
+        pageId: displayPage.id,
+        title: displayPage.title,
+        description: displayPage.description,
+      }),
     [displayPage.description, displayPage.id, displayPage.title],
   );
   useEffect(() => storyDocument.destroy, [storyDocument]);
@@ -209,18 +220,19 @@ export function PageStageDevStoryPage({
     [extraThreadCount, previewMode, threadDensity],
   );
   const historySnapshotDescription = useMemo(
-    () => [
-      displayPage.description,
-      "## Snapshot preview",
-      "This read-only preview uses the same BlockNote rendering path as Page Detail.",
-      "- Stable text, lists, and links render normally",
-      "- Live page/thread embeds stay inert inside history",
-      'Before <attachment kind="file" mode="link" source="/tmp/history-notes.md" name="history-notes.md" /> after',
-      'Use <agent-config mode="plan" model="gpt-5.5" reasoning="high" /> for this prompt',
-      '<page-ref url="nodex://pages/page-stage-preview" />',
-      '<thread-section label="Follow-up investigation" thread="thr_preview" />',
-      '<toggle-list-inline-view project="default" />',
-    ].join("\n\n"),
+    () =>
+      [
+        displayPage.description,
+        "## Snapshot preview",
+        "This read-only preview uses the same BlockNote rendering path as Page Detail.",
+        "- Stable text, lists, and links render normally",
+        "- Live page/thread embeds stay inert inside history",
+        'Before <attachment kind="file" mode="link" source="/tmp/history-notes.md" name="history-notes.md" /> after',
+        'Use <agent-config mode="plan" model="gpt-5.5" reasoning="high" /> for this prompt',
+        '<page-ref url="nodex://pages/page-stage-preview" />',
+        '<thread-section label="Follow-up investigation" thread="thr_preview" />',
+        '<toggle-list-inline-view project="default" />',
+      ].join("\n\n"),
     [displayPage.description],
   );
 
@@ -243,7 +255,8 @@ export function PageStageDevStoryPage({
     void toStatus;
   }, []);
 
-  const threadCountLabel = linkedThreads.length === 1 ? "1 linked thread" : `${linkedThreads.length} linked threads`;
+  const threadCountLabel =
+    linkedThreads.length === 1 ? "1 linked thread" : `${linkedThreads.length} linked threads`;
 
   return (
     <div className="min-h-[calc(100vh-3rem)] bg-[linear-gradient(180deg,var(--background),color-mix(in_srgb,var(--background),var(--background-secondary)_42%))] text-(--foreground)">
@@ -253,7 +266,9 @@ export function PageStageDevStoryPage({
             <div className="max-w-3xl">
               <div className="text-sm font-semibold">Page Detail</div>
               <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-                Production-backed scene for the full page stage and the linked-thread property row. Presets and controls now live in Storybook stories and the Controls panel, not inside the canvas.
+                Production-backed scene for the full page stage and the linked-thread property row.
+                Presets and controls now live in Storybook stories and the Controls panel, not
+                inside the canvas.
               </div>
             </div>
             <div className="flex max-w-sm flex-wrap justify-end gap-2">
@@ -289,15 +304,13 @@ export function PageStageDevStoryPage({
               })}
               {...(stagePage.databaseContext.kind === "member"
                 ? {
-                    onDelete: async () => {
-                    },
+                    onDelete: async () => {},
                     onMove: handleMove,
                   }
                 : {})}
               onToggleHistoryPanel={handleToggleHistoryPanel}
               linkedCodexThreads={linkedThreads}
-              onOpenCodexThread={enableOpenThread ? async () => {
-              } : undefined}
+              onOpenCodexThread={enableOpenThread ? async () => {} : undefined}
               onOpenNewCodexThread={showNewThreadAction ? handleOpenNewThread : undefined}
               historyPanelActive={historyPanelActive}
             />
@@ -360,7 +373,8 @@ export function PageStageDevStoryPage({
                     className="mt-8 text-token-text-primary"
                   />
                   <div className="mt-8 rounded-lg bg-token-foreground/5 px-3 py-2 text-xs text-token-description-foreground">
-                    Revert controls and field-level diffs remain available below the selected snapshot in production.
+                    Revert controls and field-level diffs remain available below the selected
+                    snapshot in production.
                   </div>
                 </div>
               </div>
@@ -389,14 +403,18 @@ export function PageStageDevStoryPage({
                     type="button"
                     className={[
                       "w-full rounded-md px-2.5 py-2 text-left",
-                      index === 0
-                        ? "bg-token-foreground/10"
-                        : "hover:bg-token-foreground/5",
+                      index === 0 ? "bg-token-foreground/10" : "hover:bg-token-foreground/5",
                     ].join(" ")}
                   >
-                    <div className="truncate text-sm font-medium text-token-text-primary">{label}</div>
+                    <div className="truncate text-sm font-medium text-token-text-primary">
+                      {label}
+                    </div>
                     <div className="mt-0.5 truncate text-xs text-token-description-foreground">
-                      {index === 0 ? "Updated title and tags" : index === 1 ? "Moved to In progress" : "Created page"}
+                      {index === 0
+                        ? "Updated title and tags"
+                        : index === 1
+                          ? "Moved to In progress"
+                          : "Created page"}
                     </div>
                   </button>
                 ))}

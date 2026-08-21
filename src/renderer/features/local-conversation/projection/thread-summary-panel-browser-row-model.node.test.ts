@@ -82,20 +82,24 @@ describe("buildThreadSummaryPanelBrowserRows", () => {
       updatedAt: 1,
     };
     const rows = buildThreadSummaryPanelBrowserRows({
-      rightTabs: [{
-        browserTabId: "browser-one",
-        workbenchTabId: "tab-one",
-        tabTitle: "Stale",
-        panelId: "right",
-        leafId: "leaf-right",
-      }],
+      rightTabs: [
+        {
+          browserTabId: "browser-one",
+          workbenchTabId: "tab-one",
+          tabTitle: "Stale",
+          panelId: "right",
+          leafId: "leaf-right",
+        },
+      ],
       bottomTabs: [],
-      pendingTabs: [{
-        browserTabId: "browser-one",
-        workbenchTabId: "preview-one",
-        tabTitle: "Duplicate",
-        panelId: "bottom",
-      }],
+      pendingTabs: [
+        {
+          browserTabId: "browser-one",
+          workbenchTabId: "preview-one",
+          tabTitle: "Duplicate",
+          panelId: "bottom",
+        },
+      ],
       runtimeTabs: [
         {
           ...runtimeBase,
@@ -114,12 +118,14 @@ describe("buildThreadSummaryPanelBrowserRows", () => {
       activeBrowserUseTabId: "browser-two",
     });
 
-    expect(rows.map((row) => ({
-      browserTabId: row.browserTabId,
-      id: row.id,
-      isAgentWorking: row.isAgentWorking,
-      isMaterialized: row.isMaterialized,
-    }))).toEqual([
+    expect(
+      rows.map((row) => ({
+        browserTabId: row.browserTabId,
+        id: row.id,
+        isAgentWorking: row.isAgentWorking,
+        isMaterialized: row.isMaterialized,
+      })),
+    ).toEqual([
       {
         browserTabId: "browser-one",
         id: "tab-one",

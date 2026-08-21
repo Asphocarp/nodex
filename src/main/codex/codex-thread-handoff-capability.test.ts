@@ -38,17 +38,21 @@ describe("Codex thread handoff capability", () => {
       status: "available",
       mode: "local",
     });
-    expect(evaluateCodexThreadHandoffCapability(capableInput({
-      runtimeVersion: null,
-      appServer: {
-        threadSettingsUpdate: false,
-        threadResumeLocation: false,
-        rolloutPathConsistency: false,
-      },
-      coreAtomicExecutionLocation: false,
-      sourceHost: { available: false, transactionEffects: false },
-      destinationHost: { available: false, transactionEffects: false },
-    }))).toEqual({
+    expect(
+      evaluateCodexThreadHandoffCapability(
+        capableInput({
+          runtimeVersion: null,
+          appServer: {
+            threadSettingsUpdate: false,
+            threadResumeLocation: false,
+            rolloutPathConsistency: false,
+          },
+          coreAtomicExecutionLocation: false,
+          sourceHost: { available: false, transactionEffects: false },
+          destinationHost: { available: false, transactionEffects: false },
+        }),
+      ),
+    ).toEqual({
       status: "unavailable",
       mode: "local",
       reasons: [
@@ -65,17 +69,25 @@ describe("Codex thread handoff capability", () => {
   });
 
   test("adds transfer capability only for cross-host movement", () => {
-    expect(evaluateCodexThreadHandoffCapability(capableInput({
-      crossHost: true,
-      crossHostTransfer: false,
-    }))).toMatchObject({
+    expect(
+      evaluateCodexThreadHandoffCapability(
+        capableInput({
+          crossHost: true,
+          crossHostTransfer: false,
+        }),
+      ),
+    ).toMatchObject({
       status: "unavailable",
       mode: "cross-host",
       reasons: ["cross-host-transfer-unavailable"],
     });
-    expect(evaluateCodexThreadHandoffCapability(capableInput({
-      crossHost: true,
-      crossHostTransfer: true,
-    }))).toEqual({ status: "available", mode: "cross-host" });
+    expect(
+      evaluateCodexThreadHandoffCapability(
+        capableInput({
+          crossHost: true,
+          crossHostTransfer: true,
+        }),
+      ),
+    ).toEqual({ status: "available", mode: "cross-host" });
   });
 });

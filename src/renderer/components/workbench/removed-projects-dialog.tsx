@@ -46,11 +46,7 @@ export function RemovedProjectsDialog({
   return <OpenRemovedProjectsDialog onOpenChange={onOpenChange} />;
 }
 
-function OpenRemovedProjectsDialog({
-  onOpenChange,
-}: {
-  onOpenChange: (open: boolean) => void;
-}) {
+function OpenRemovedProjectsDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
   const {
     projects,
     loading,
@@ -71,9 +67,11 @@ function OpenRemovedProjectsDialog({
     try {
       const result = await restoreProject(project.id);
       if (result.kind !== "updated") {
-        throw new Error(result.kind === "not-found"
-          ? "The project could not be found."
-          : "The project could not be restored while work is active.");
+        throw new Error(
+          result.kind === "not-found"
+            ? "The project could not be found."
+            : "The project could not be restored while work is active.",
+        );
       }
       toast.success(`Restored “${project.name}”`);
     } catch (restoreError) {
@@ -149,7 +147,9 @@ export function RemovedProjectsDialogView({
               </div>
             ) : error ? (
               <div className="flex min-h-28 flex-col items-center justify-center gap-3 text-center">
-                <p className="text-sm text-token-description-foreground">Could not load removed projects.</p>
+                <p className="text-sm text-token-description-foreground">
+                  Could not load removed projects.
+                </p>
                 <NodexButton size="sm" variant="secondary" onClick={onRetry}>
                   Retry
                 </NodexButton>
@@ -163,7 +163,10 @@ export function RemovedProjectsDialogView({
                 {projects.map((project) => {
                   const restoring = restoringProjectIds.has(project.id);
                   return (
-                    <li key={project.id} className="flex min-w-0 items-center justify-between gap-4 py-3 first:pt-1 last:pb-1">
+                    <li
+                      key={project.id}
+                      className="flex min-w-0 items-center justify-between gap-4 py-3 first:pt-1 last:pb-1"
+                    >
                       <ProjectIdentity project={project} />
                       <NodexButton
                         size="sm"

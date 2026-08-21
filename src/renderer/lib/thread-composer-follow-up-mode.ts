@@ -6,8 +6,7 @@ export type ThreadComposerShortcutAccelerator =
   | "CmdOrCtrl+Enter"
   | "CmdOrCtrl+Shift+Enter";
 
-export const THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY =
-  "nodex-thread-composer-queue-follow-ups-v1";
+export const THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY = "nodex-thread-composer-queue-follow-ups-v1";
 
 interface ResolveThreadInProgressFollowUpModeInput {
   invertInProgressFollowUpMode?: boolean;
@@ -55,10 +54,7 @@ export function resolveThreadInProgressFollowUpMode(
 export function resolveThreadComposerPrimaryShortcutAccelerator(
   input: ThreadComposerPrimaryShortcutLabelInput,
 ): ThreadComposerShortcutAccelerator {
-  if (
-    input.enterBehavior === "cmdIfMultiline"
-    && input.hasMultilinePrompt
-  ) {
+  if (input.enterBehavior === "cmdIfMultiline" && input.hasMultilinePrompt) {
     return "CmdOrCtrl+Enter";
   }
 
@@ -68,14 +64,10 @@ export function resolveThreadComposerPrimaryShortcutAccelerator(
 export function resolveThreadComposerAlternateShortcutAccelerator(
   enterBehavior: ComposerEnterBehavior,
 ): ThreadComposerShortcutAccelerator {
-  return enterBehavior === "cmdIfMultiline"
-    ? "CmdOrCtrl+Shift+Enter"
-    : "CmdOrCtrl+Enter";
+  return enterBehavior === "cmdIfMultiline" ? "CmdOrCtrl+Shift+Enter" : "CmdOrCtrl+Enter";
 }
 
-export function resolveShortcutKeycapTokens(
-  input: ResolveShortcutKeycapTokensInput,
-): string[] {
+export function resolveShortcutKeycapTokens(input: ResolveShortcutKeycapTokensInput): string[] {
   if (input.accelerator === "Enter") return ["Enter"];
 
   if (input.accelerator === "CmdOrCtrl+Enter") {

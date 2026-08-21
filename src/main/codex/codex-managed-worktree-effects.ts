@@ -1,13 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readdir,
-  realpath,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
@@ -66,7 +58,10 @@ export function resolveManagedWorktreeSnapshotRef(worktreePath: string): string 
   return `${SNAPSHOT_REF_PREFIX}${resolveManagedWorktreeId(worktreePath)}`;
 }
 
-function assertManagedWorktreePath(managedRoot: string, worktreeGitRoot: string): {
+function assertManagedWorktreePath(
+  managedRoot: string,
+  worktreeGitRoot: string,
+): {
   readonly managedRoot: string;
   readonly worktreeGitRoot: string;
 } {
@@ -105,11 +100,9 @@ async function readRef(
   ref: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const result = await runCodexGitCommand(
-    ["rev-parse", "--verify", ref],
-    repositoryPath,
-    { signal },
-  ).catch((error) => {
+  const result = await runCodexGitCommand(["rev-parse", "--verify", ref], repositoryPath, {
+    signal,
+  }).catch((error) => {
     throwIfCodexRequestAborted(signal);
     if (error instanceof Error) return null;
     throw error;
@@ -150,10 +143,7 @@ export async function snapshotManagedWorktree(
     readonly operation?: "snapshot" | "remove";
   } = {},
 ): Promise<CodexWorktreeWorkerSnapshotResult> {
-  const { worktreeGitRoot } = assertManagedWorktreePath(
-    input.managedRoot,
-    input.worktreeGitRoot,
-  );
+  const { worktreeGitRoot } = assertManagedWorktreePath(input.managedRoot, input.worktreeGitRoot);
   options.onEvent?.({
     operation: options.operation ?? "snapshot",
     type: "snapshot-started",
@@ -176,38 +166,45 @@ export async function snapshotManagedWorktree(
       env,
       signal: options.signal,
     });
-    const tree = (await runCodexGitCommand(["write-tree"], worktreeGitRoot, {
-      env,
-      signal: options.signal,
-    })).stdout.trim();
+    const tree = (
+      await runCodexGitCommand(["write-tree"], worktreeGitRoot, {
+        env,
+        signal: options.signal,
+      })
+    ).stdout.trim();
     const headTree = head
-      ? (await runCodexGitCommand(["rev-parse", `${head}^{tree}`], worktreeGitRoot, {
-          signal: options.signal,
-        })).stdout.trim()
+      ? (
+          await runCodexGitCommand(["rev-parse", `${head}^{tree}`], worktreeGitRoot, {
+            signal: options.signal,
+          })
+        ).stdout.trim()
       : null;
     const changed = head === null || tree !== headTree;
-    const commitId = !changed && head
-      ? head
-      : (await runCodexGitCommand(
-          [
-            "commit-tree",
-            tree,
-            ...(head ? ["-p", head] : []),
-            "-m",
-            `Codex worktree snapshot: ${input.reason}`,
-          ],
-          worktreeGitRoot,
-          {
-            env: {
-              ...env,
-              GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Codex",
-              GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "codex@localhost",
-              GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Codex",
-              GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "codex@localhost",
-            },
-            signal: options.signal,
-          },
-        )).stdout.trim();
+    const commitId =
+      !changed && head
+        ? head
+        : (
+            await runCodexGitCommand(
+              [
+                "commit-tree",
+                tree,
+                ...(head ? ["-p", head] : []),
+                "-m",
+                `Codex worktree snapshot: ${input.reason}`,
+              ],
+              worktreeGitRoot,
+              {
+                env: {
+                  ...env,
+                  GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Codex",
+                  GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "codex@localhost",
+                  GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Codex",
+                  GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "codex@localhost",
+                },
+                signal: options.signal,
+              },
+            )
+          ).stdout.trim();
     await runCodexGitCommand(["update-ref", snapshotRef, commitId], repositoryPath, {
       signal: options.signal,
     });
@@ -221,10 +218,7 @@ export async function inspectManagedWorktree(
   input: CodexWorktreeWorkerInspectInput,
   signal?: AbortSignal,
 ): Promise<CodexWorktreeWorkerInspectResult> {
-  const { worktreeGitRoot } = assertManagedWorktreePath(
-    input.managedRoot,
-    input.worktreeGitRoot,
-  );
+  const { worktreeGitRoot } = assertManagedWorktreePath(input.managedRoot, input.worktreeGitRoot);
   if (!isPathWithin(worktreeGitRoot, input.cwd)) {
     throw new Error("Worktree cwd is outside the worktree root");
   }
@@ -248,11 +242,12 @@ export async function inspectManagedWorktree(
   for (const candidate of input.candidateRepositoryPaths) {
     try {
       const repositoryPath = path.resolve(candidate);
-      const isRepository = (await runCodexGitCommand(
-        ["rev-parse", "--is-inside-work-tree"],
-        repositoryPath,
-        { signal },
-      )).stdout.trim() === "true";
+      const isRepository =
+        (
+          await runCodexGitCommand(["rev-parse", "--is-inside-work-tree"], repositoryPath, {
+            signal,
+          })
+        ).stdout.trim() === "true";
       if (!isRepository) continue;
       completedInspection = true;
       const commitId = await readRef(repositoryPath, snapshotRef, signal);
@@ -283,10 +278,7 @@ export async function restoreManagedWorktree(
     readonly onEvent?: (event: CodexWorktreeWorkerEvent) => void;
   } = {},
 ): Promise<CodexWorktreeWorkerRestoreResult> {
-  const { worktreeGitRoot } = assertManagedWorktreePath(
-    input.managedRoot,
-    input.worktreeGitRoot,
-  );
+  const { worktreeGitRoot } = assertManagedWorktreePath(input.managedRoot, input.worktreeGitRoot);
   options.onEvent?.({ operation: "restore", type: "restore-started" });
   const inspected = await inspectManagedWorktree(input, options.signal);
   if (inspected.availability.state === "available") {
@@ -346,18 +338,16 @@ export async function restoreManagedWorktree(
     if (!(await stat(input.cwd).catch(() => null))?.isDirectory()) {
       const relativeCwd = path.relative(worktreeGitRoot, input.cwd);
       if (
-        relativeCwd === ""
-        || relativeCwd === ".."
-        || relativeCwd.startsWith(`..${path.sep}`)
-        || path.isAbsolute(relativeCwd)
+        relativeCwd === "" ||
+        relativeCwd === ".." ||
+        relativeCwd.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativeCwd)
       ) {
         throw new Error("Invalid restored worktree cwd");
       }
-      await runCodexGitCommand(
-        ["sparse-checkout", "add", "--", relativeCwd],
-        worktreeGitRoot,
-        { signal: options.signal },
-      );
+      await runCodexGitCommand(["sparse-checkout", "add", "--", relativeCwd], worktreeGitRoot, {
+        signal: options.signal,
+      });
       if (!(await stat(input.cwd).catch(() => null))?.isDirectory()) {
         throw new Error("Failed to materialize restored worktree cwd");
       }
@@ -386,10 +376,7 @@ export async function removeRetainedManagedWorktree(
     readonly loadBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   } = {},
 ): Promise<CodexWorktreeWorkerRemoveResult> {
-  const { worktreeGitRoot } = assertManagedWorktreePath(
-    input.managedRoot,
-    input.worktreeGitRoot,
-  );
+  const { worktreeGitRoot } = assertManagedWorktreePath(input.managedRoot, input.worktreeGitRoot);
   const existing = await stat(worktreeGitRoot).catch(() => null);
   if (!existing?.isDirectory()) {
     return { removed: false, alreadyMissing: true, snapshot: null, warnings: [] };
@@ -401,11 +388,14 @@ export async function removeRetainedManagedWorktree(
   const warnings: string[] = [];
   let snapshot: CodexWorktreeWorkerSnapshotResult | null = null;
   try {
-    snapshot = await snapshotManagedWorktree({ ...input }, {
-      signal: options.signal,
-      onEvent: options.onEvent,
-      operation: "remove",
-    });
+    snapshot = await snapshotManagedWorktree(
+      { ...input },
+      {
+        signal: options.signal,
+        onEvent: options.onEvent,
+        operation: "remove",
+      },
+    );
   } catch (error) {
     throwIfCodexRequestAborted(options.signal);
     if (input.snapshotPolicy === "required") throw error;
@@ -416,11 +406,13 @@ export async function removeRetainedManagedWorktree(
     ["config", "--worktree", "--get", LOCAL_ENVIRONMENT_CONFIG_KEY],
     worktreeGitRoot,
     { allowedExitCodes: [0, 1], signal: options.signal },
-  ).then((result) => result.stdout.trim()).catch((error) => {
-    throwIfCodexRequestAborted(options.signal);
-    warnings.push(error instanceof Error ? error.message : String(error));
-    return "";
-  });
+  )
+    .then((result) => result.stdout.trim())
+    .catch((error) => {
+      throwIfCodexRequestAborted(options.signal);
+      warnings.push(error instanceof Error ? error.message : String(error));
+      return "";
+    });
   if (selectedEnvironment && selectedEnvironment !== NO_LOCAL_ENVIRONMENT) {
     try {
       const environment = await readWorktreeEnvironmentDefinition({
@@ -438,13 +430,14 @@ export async function removeRetainedManagedWorktree(
             CODEX_SOURCE_TREE_PATH: repositoryPath,
             CODEX_WORKTREE_PATH: worktreeGitRoot,
           },
-          onOutput: (output) => options.onEvent?.({
-            operation: "remove",
-            type: "output",
-            phase: "cleanup",
-            stream: output.stream,
-            data: output.data,
-          }),
+          onOutput: (output) =>
+            options.onEvent?.({
+              operation: "remove",
+              type: "output",
+              phase: "cleanup",
+              stream: output.stream,
+              data: output.data,
+            }),
         });
       }
     } catch (error) {

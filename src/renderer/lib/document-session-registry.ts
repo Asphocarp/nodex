@@ -41,50 +41,45 @@ export interface EditorSurfaceAwarenessLease {
   getRetainedState: () => Readonly<Record<string, unknown>> | null;
 }
 
-export const makeEditorSurfaceKey = (
-  projectSessionId: string,
-  tabId: string,
-): string => `${projectSessionId}\u0000${tabId}`;
+export const makeEditorSurfaceKey = (projectSessionId: string, tabId: string): string =>
+  `${projectSessionId}\u0000${tabId}`;
 
-export const makeDocumentSessionIdentity = (
-  descriptor: OwnedDocumentDescriptor,
-): string => [
-  descriptor.storeEpoch,
-  descriptor.libraryId,
-  contentAccessContextKey(descriptor.accessContext),
-  descriptor.documentId,
-  descriptor.generation,
-  descriptor.schemaKey,
-  descriptor.schemaVersion,
-  descriptor.sync.kind,
-].join("\u0000");
+export const makeDocumentSessionIdentity = (descriptor: OwnedDocumentDescriptor): string =>
+  [
+    descriptor.storeEpoch,
+    descriptor.libraryId,
+    contentAccessContextKey(descriptor.accessContext),
+    descriptor.documentId,
+    descriptor.generation,
+    descriptor.schemaKey,
+    descriptor.schemaVersion,
+    descriptor.sync.kind,
+  ].join("\u0000");
 
 const hasSameRuntimeIdentity = (
   left: OwnedDocumentDescriptor,
   right: OwnedDocumentDescriptor,
-): boolean =>
-  makeDocumentSessionIdentity(left) === makeDocumentSessionIdentity(right);
+): boolean => makeDocumentSessionIdentity(left) === makeDocumentSessionIdentity(right);
 
-const persistRuntime = async (
-  runtime: BlockDocumentSurfaceRuntime,
-): Promise<void> => {
+const persistRuntime = async (runtime: BlockDocumentSurfaceRuntime): Promise<void> => {
   const status = runtime.getStatus();
   if (
-    !status.ready
-    || status.reloadRequired
-    || status.phase === "closing"
-    || status.phase === "closed"
+    !status.ready ||
+    status.reloadRequired ||
+    status.phase === "closing" ||
+    status.phase === "closed"
   ) {
     return;
   }
-  await runtime.persist().then(() => undefined, () => undefined);
+  await runtime.persist().then(
+    () => undefined,
+    () => undefined,
+  );
 };
 
 const isRuntimeReusable = (runtime: BlockDocumentSurfaceRuntime): boolean => {
   const status = runtime.getStatus();
-  return !status.reloadRequired
-    && status.phase !== "closing"
-    && status.phase !== "closed";
+  return !status.reloadRequired && status.phase !== "closing" && status.phase !== "closed";
 };
 
 /**
@@ -126,7 +121,8 @@ export class EditorSurfaceLease {
     this.runtime = input.runtime;
     this.transactionOrigin = Object.freeze({ surfaceKey: input.key });
     this.connectBarrier = input.connectBarrier ?? Promise.resolve();
-    this.releaseRuntime = input.releaseRuntime ?? (() => this.runtime.close().then(() => undefined));
+    this.releaseRuntime =
+      input.releaseRuntime ?? (() => this.runtime.close().then(() => undefined));
     this.awarenessLease = input.awarenessLease ?? {
       surfaceId: input.key,
       publish: (state) => this.runtime.awareness.setLocalState({ ...state }),
@@ -154,10 +150,7 @@ export class EditorSurfaceLease {
     return this.activeViewGeneration;
   }
 
-  releaseView(
-    generation: number,
-    options: { readonly persist?: boolean } = {},
-  ): boolean {
+  releaseView(generation: number, options: { readonly persist?: boolean } = {}): boolean {
     if (generation !== this.activeViewGeneration) return false;
     this.activeViewGeneration = 0;
     if (this.disposed) return true;
@@ -252,9 +245,9 @@ export class DocumentSessionRegistry {
   }): EditorSurfaceLease {
     const existing = this.surfaces.get(input.key);
     if (
-      existing
-      && hasSameRuntimeIdentity(existing.descriptor, input.descriptor)
-      && isRuntimeReusable(existing.runtime)
+      existing &&
+      hasSameRuntimeIdentity(existing.descriptor, input.descriptor) &&
+      isRuntimeReusable(existing.runtime)
     ) {
       return existing;
     }
@@ -262,16 +255,15 @@ export class DocumentSessionRegistry {
     const connectBarrier = existing?.dispose() ?? Promise.resolve();
     const identity = makeDocumentSessionIdentity(input.descriptor);
     const existingDocument = this.documents.get(identity);
-    const document = existingDocument
-      && !existingDocument.closing
-      && isRuntimeReusable(existingDocument.runtime)
-      ? existingDocument
-      : this.createDocumentEntry({
-          identity,
-          descriptor: input.descriptor,
-          createRuntime: input.createRuntime,
-          connectBarrier: existingDocument?.closePromise ?? connectBarrier,
-        });
+    const document =
+      existingDocument && !existingDocument.closing && isRuntimeReusable(existingDocument.runtime)
+        ? existingDocument
+        : this.createDocumentEntry({
+            identity,
+            descriptor: input.descriptor,
+            createRuntime: input.createRuntime,
+            connectBarrier: existingDocument?.closePromise ?? connectBarrier,
+          });
     document.references += 1;
     const surface = new EditorSurfaceLease({
       key: input.key,
@@ -303,16 +295,12 @@ export class DocumentSessionRegistry {
   }
 
   async persistAll(): Promise<void> {
-    await Promise.all([...this.documents.values()].map((entry) =>
-      persistRuntime(entry.runtime)
-    ));
+    await Promise.all([...this.documents.values()].map((entry) => persistRuntime(entry.runtime)));
   }
 
   async disposeProjectSession(projectSessionId: string): Promise<void> {
     const keyPrefix = `${projectSessionId}\u0000`;
-    const matches = [...this.surfaces.entries()].filter(([key]) =>
-      key.startsWith(keyPrefix)
-    );
+    const matches = [...this.surfaces.entries()].filter(([key]) => key.startsWith(keyPrefix));
     for (const [key] of matches) this.surfaces.delete(key);
     await Promise.all(matches.map(([, surface]) => surface.dispose()));
   }
@@ -380,13 +368,14 @@ export class DocumentSessionRegistry {
     }
 
     const [activeSurfaceId, active] = activeSurfaces.reduce((latest, current) =>
-      current[1].sequence > latest[1].sequence ? current : latest
+      current[1].sequence > latest[1].sequence ? current : latest,
     );
-    const nodex = typeof active.state.nodex === "object"
-      && active.state.nodex !== null
-      && !Array.isArray(active.state.nodex)
-      ? active.state.nodex as Readonly<Record<string, unknown>>
-      : {};
+    const nodex =
+      typeof active.state.nodex === "object" &&
+      active.state.nodex !== null &&
+      !Array.isArray(active.state.nodex)
+        ? (active.state.nodex as Readonly<Record<string, unknown>>)
+        : {};
     entry.runtime.awareness.setLocalState({
       ...active.state,
       nodex: {

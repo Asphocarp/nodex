@@ -1,14 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  type RefObject,
-} from "react";
-import {
-  useMotionValue,
-  useTransform,
-  type MotionValue,
-} from "motion/react";
+import { useCallback, useEffect, useLayoutEffect, type RefObject } from "react";
+import { useMotionValue, useTransform, type MotionValue } from "motion/react";
 import {
   CODEX_SHELL_MEDIUM_WIDTH_PX,
   CODEX_SHELL_NARROW_WIDTH_PX,
@@ -67,14 +58,9 @@ function resolveShellWidthClass(width: number): CodexShellWidthClass {
 }
 
 function readWindowZoom(root: HTMLElement | null): number {
-  const rawZoom = root
-    ? window.getComputedStyle(root)
-        .getPropertyValue("--codex-window-zoom")
-    : "";
+  const rawZoom = root ? window.getComputedStyle(root).getPropertyValue("--codex-window-zoom") : "";
   const parsedZoom = Number.parseFloat(rawZoom);
-  return Number.isFinite(parsedZoom) && parsedZoom > 0
-    ? parsedZoom
-    : 1;
+  return Number.isFinite(parsedZoom) && parsedZoom > 0 ? parsedZoom : 1;
 }
 
 function readRootFontSize(): number {
@@ -82,9 +68,7 @@ function readRootFontSize(): number {
   const parsedFontSize = Number.parseFloat(
     window.getComputedStyle(document.documentElement).fontSize,
   );
-  return Number.isFinite(parsedFontSize) && parsedFontSize > 0
-    ? parsedFontSize
-    : 16;
+  return Number.isFinite(parsedFontSize) && parsedFontSize > 0 ? parsedFontSize : 16;
 }
 
 /**
@@ -132,24 +116,12 @@ export function useWorkbenchChromeLayout({
   );
 
   useLayoutEffect(() => {
-    rightPanelRequestedWidth.set(
-      persistedRightPanelWidth ?? RIGHT_PANEL_DEFAULT_WIDTH,
-    );
-  }, [
-    activeSessionId,
-    persistedRightPanelWidth,
-    rightPanelRequestedWidth,
-  ]);
+    rightPanelRequestedWidth.set(persistedRightPanelWidth ?? RIGHT_PANEL_DEFAULT_WIDTH);
+  }, [activeSessionId, persistedRightPanelWidth, rightPanelRequestedWidth]);
 
   useLayoutEffect(() => {
-    bottomPanelRequestedHeight.set(
-      persistedBottomPanelHeight ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
-    );
-  }, [
-    activeSessionId,
-    bottomPanelRequestedHeight,
-    persistedBottomPanelHeight,
-  ]);
+    bottomPanelRequestedHeight.set(persistedBottomPanelHeight ?? BOTTOM_PANEL_DEFAULT_HEIGHT);
+  }, [activeSessionId, bottomPanelRequestedHeight, persistedBottomPanelHeight]);
 
   useEffect(() => {
     const measure = () => rootFontSize.set(readRootFontSize());
@@ -160,67 +132,34 @@ export function useWorkbenchChromeLayout({
     };
   }, [rootFontSize]);
 
-  const rightPanelFullWidthValue = useSyncedMotionValue(
-    rightPanelFullWidth ? 1 : 0,
-  );
-  const rightPanelOpenValue = useSyncedMotionValue(
-    rightPanelOpen ? 1 : 0,
-  );
+  const rightPanelFullWidthValue = useSyncedMotionValue(rightPanelFullWidth ? 1 : 0);
+  const rightPanelOpenValue = useSyncedMotionValue(rightPanelOpen ? 1 : 0);
   const sidebarOpenValue = useSyncedMotionValue(sidebarOpen ? 1 : 0);
-  const activeSessionValue = useSyncedMotionValue(
-    activeSessionId ? 1 : 0,
-  );
+  const activeSessionValue = useSyncedMotionValue(activeSessionId ? 1 : 0);
   const shellMainContentWidth = useTransform(
-    [
-      shellBodySize.width,
-      sidebarMotion.targetWidth,
-      sidebarOpenValue,
-    ],
-    ([
-      latestShellWidth,
-      latestSidebarWidth,
-      latestSidebarOpen,
-    ]) => Math.max(
-      0,
-      Number(latestShellWidth) - (
-        Number(latestSidebarOpen) > 0
-          ? Number(latestSidebarWidth)
-          : 0
+    [shellBodySize.width, sidebarMotion.targetWidth, sidebarOpenValue],
+    ([latestShellWidth, latestSidebarWidth, latestSidebarOpen]) =>
+      Math.max(
+        0,
+        Number(latestShellWidth) - (Number(latestSidebarOpen) > 0 ? Number(latestSidebarWidth) : 0),
       ),
-    ),
   );
   const regularRightPanelWidth = useTransform(
     [rightPanelRequestedWidth, shellMainContentWidth],
     ([latestRequestedWidth, latestSizingWidth]) =>
-      clampRegularRightPanelWidth(
-        Number(latestRequestedWidth),
-        Number(latestSizingWidth),
-      ),
+      clampRegularRightPanelWidth(Number(latestRequestedWidth), Number(latestSizingWidth)),
   );
   const bottomPanelHeight = useTransform(
     [bottomPanelRequestedHeight, shellBodySize.height],
     ([latestRequestedHeight, latestShellHeight]) =>
-      clampBottomPanelHeight(
-        Number(latestRequestedHeight),
-        Number(latestShellHeight),
-      ),
+      clampBottomPanelHeight(Number(latestRequestedHeight), Number(latestShellHeight)),
   );
   const rightPanelTargetWidth = useTransform(
-    [
-      shellMainContentWidth,
-      regularRightPanelWidth,
-      rightPanelFullWidthValue,
-    ],
-    ([
-      latestSizingWidth,
-      latestRegularWidth,
-      latestFullWidth,
-    ]) => Number(latestFullWidth) > 0
-      ? Math.max(
-          Number(latestSizingWidth),
-          Number(latestRegularWidth),
-        )
-      : Number(latestRegularWidth),
+    [shellMainContentWidth, regularRightPanelWidth, rightPanelFullWidthValue],
+    ([latestSizingWidth, latestRegularWidth, latestFullWidth]) =>
+      Number(latestFullWidth) > 0
+        ? Math.max(Number(latestSizingWidth), Number(latestRegularWidth))
+        : Number(latestRegularWidth),
   );
   const rightPanelMotion = useCodexAnimatedPanelState({
     open: rightPanelOpen,
@@ -235,34 +174,17 @@ export function useWorkbenchChromeLayout({
     resetKey: activeSessionId,
   });
   const rightPanelAnimatedWidth = useTransform(
-    [
-      rightPanelMotion.progress,
-      rightPanelMotion.targetSize,
-      rightPanelFullWidthValue,
-    ],
-    ([
-      latestProgress,
-      latestTargetSize,
-      latestFullWidth,
-    ]) => Number(latestFullWidth) > 0
-      ? 0
-      : resolveCodexAnimatedPanelSize(
-          Number(latestProgress),
-          Number(latestTargetSize),
-        ),
-  );
-  const automationsRouteHeaderSlotSuppressed = useSyncedMotionValue(
-    automationsRouteOpen ? 1 : 0,
-  );
-  const rightHeaderShellSlotWidth = useTransform(
-    [
-      rightPanelAnimatedWidth,
-      automationsRouteHeaderSlotSuppressed,
-    ],
-    ([latestRightPanelWidth, latestSuppressed]) =>
-      Number(latestSuppressed) > 0
+    [rightPanelMotion.progress, rightPanelMotion.targetSize, rightPanelFullWidthValue],
+    ([latestProgress, latestTargetSize, latestFullWidth]) =>
+      Number(latestFullWidth) > 0
         ? 0
-        : Number(latestRightPanelWidth),
+        : resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize)),
+  );
+  const automationsRouteHeaderSlotSuppressed = useSyncedMotionValue(automationsRouteOpen ? 1 : 0);
+  const rightHeaderShellSlotWidth = useTransform(
+    [rightPanelAnimatedWidth, automationsRouteHeaderSlotSuppressed],
+    ([latestRightPanelWidth, latestSuppressed]) =>
+      Number(latestSuppressed) > 0 ? 0 : Number(latestRightPanelWidth),
   );
   const bottomPanelAnimatedHeightCss = useTransform(
     bottomPanelMotion.animatedSize,
@@ -286,68 +208,51 @@ export function useWorkbenchChromeLayout({
       latestRightPanelOpen,
       latestRightPanelFullWidth,
       latestActiveSession,
-    ]) => Number(latestActiveSession) > 0
-      ? resolveCodexMainContentTargetWidth({
-          shellWidth: Number(latestShellWidth),
-          leftSidebarOpen: Number(latestSidebarOpen) > 0,
-          leftSidebarWidth: Number(latestSidebarWidth),
-          rightPanelOpen: Number(latestRightPanelOpen) > 0,
-          rightPanelWidth: Number(latestRightPanelWidth),
-          rightPanelFullWidth:
-            Number(latestRightPanelFullWidth) > 0,
-        })
-      : 0,
+    ]) =>
+      Number(latestActiveSession) > 0
+        ? resolveCodexMainContentTargetWidth({
+            shellWidth: Number(latestShellWidth),
+            leftSidebarOpen: Number(latestSidebarOpen) > 0,
+            leftSidebarWidth: Number(latestSidebarWidth),
+            rightPanelOpen: Number(latestRightPanelOpen) > 0,
+            rightPanelWidth: Number(latestRightPanelWidth),
+            rightPanelFullWidth: Number(latestRightPanelFullWidth) > 0,
+          })
+        : 0,
   );
   const appShellMainContentLayout = "thread-edge-scroll" as const;
   const appShellHeaderEdgeScrollValue = useTransform(
-    [
-      mainContentTargetWidth,
-      rootFontSize,
-      rightPanelFullWidthValue,
-    ],
-    ([
-      latestMainContentWidth,
-      latestRootFontSize,
-      latestRightPanelFullWidth,
-    ]) => resolveCodexHeaderEdgeScroll({
-      layout: appShellMainContentLayout,
-      mainContentWidth: Number(latestMainContentWidth),
-      rootFontSizePx: Number(latestRootFontSize),
-      rightPanelFullWidth:
-        Number(latestRightPanelFullWidth) > 0,
-    }) ? 1 : 0,
+    [mainContentTargetWidth, rootFontSize, rightPanelFullWidthValue],
+    ([latestMainContentWidth, latestRootFontSize, latestRightPanelFullWidth]) =>
+      resolveCodexHeaderEdgeScroll({
+        layout: appShellMainContentLayout,
+        mainContentWidth: Number(latestMainContentWidth),
+        rootFontSizePx: Number(latestRootFontSize),
+        rightPanelFullWidth: Number(latestRightPanelFullWidth) > 0,
+      })
+        ? 1
+        : 0,
   );
-  const appShellHeaderEdgeScroll =
-    useMotionValueState(appShellHeaderEdgeScrollValue) > 0;
-  const appShellMainContentFrameBorderVisible =
-    resolveCodexMainContentFrameBorder({
-      rightPanelOpen,
-      headerEdgeScroll: appShellHeaderEdgeScroll,
-    });
+  const appShellHeaderEdgeScroll = useMotionValueState(appShellHeaderEdgeScrollValue) > 0;
+  const appShellMainContentFrameBorderVisible = resolveCodexMainContentFrameBorder({
+    rightPanelOpen,
+    headerEdgeScroll: appShellHeaderEdgeScroll,
+  });
   const threadSummaryPanelLayoutModeValue = useTransform(
     mainContentTargetWidth,
     resolveCodexSummaryPanelLayoutMode,
   );
-  const threadSummaryPanelLayoutMode = useMotionValueState(
-    threadSummaryPanelLayoutModeValue,
-  );
-  const shellWidthClassValue = useTransform(
-    shellBodySize.width,
-    resolveShellWidthClass,
-  );
+  const threadSummaryPanelLayoutMode = useMotionValueState(threadSummaryPanelLayoutModeValue);
+  const shellWidthClassValue = useTransform(shellBodySize.width, resolveShellWidthClass);
   const shellWidthClass = useMotionValueState(shellWidthClassValue);
 
   const safeHeaderLeftWidth = isMacPlatform
     ? MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX
     : NON_MAC_SAFE_HEADER_LEFT_PX;
   const collapsedHeaderLeftFallbackWidth =
-    safeHeaderLeftWidth
-    + LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX;
+    safeHeaderLeftWidth + LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX;
   const effectiveHeaderLeftWidth = sidebarLogicalCollapsed
-    ? Math.max(
-        headerLeftWidth,
-        collapsedHeaderLeftFallbackWidth,
-      )
+    ? Math.max(headerLeftWidth, collapsedHeaderLeftFallbackWidth)
     : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24);
   const headerLeftShellSlotWidth =
     sidebarLogicalCollapsed && rightPanelFullWidth
@@ -372,10 +277,8 @@ export function useWorkbenchChromeLayout({
     effectiveHeaderLeftWidth,
     headerLeftShellSlotMinWidth,
     headerLeftShellSlotWidth,
-    headerLeftFallbackRailWidth:
-      LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX,
-    headerLeftFallbackWidth:
-      collapsedHeaderLeftFallbackWidth,
+    headerLeftFallbackRailWidth: LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX,
+    headerLeftFallbackWidth: collapsedHeaderLeftFallbackWidth,
     mainContentTargetWidth,
     realSidebarMounted: sidebarMotion.mounted,
     regularRightPanelWidth,

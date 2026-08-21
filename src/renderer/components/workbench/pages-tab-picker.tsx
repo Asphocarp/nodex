@@ -14,16 +14,9 @@ import {
   SearchIcon,
   SidePanelPlusIcon,
 } from "@/components/shared/icons";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { useInfiniteLibraryCatalog } from "@/lib/use-library-navigation";
-import {
-  MAX_LIBRARY_QUERY_LENGTH,
-  type LibraryRouteTarget,
-} from "../../../shared/library-module";
+import { MAX_LIBRARY_QUERY_LENGTH, type LibraryRouteTarget } from "../../../shared/library-module";
 import { useLibraryCreateCommands } from "../library/library-new-menu";
 import {
   TOOLBAR_BUTTON_BASE_CLASS,
@@ -46,17 +39,14 @@ function targetIcon(target: LibraryRouteTarget) {
 export interface PagesTabPickerDataSource {
   readonly useCatalog: (
     input: Parameters<typeof useInfiniteLibraryCatalog>[0],
-  ) => Pick<ReturnType<typeof useInfiniteLibraryCatalog>,
-    | "data"
-    | "isPending"
-    | "isError"
-    | "hasNextPage"
-    | "refetch"
-    | "fetchNextPage"
+  ) => Pick<
+    ReturnType<typeof useInfiniteLibraryCatalog>,
+    "data" | "isPending" | "isError" | "hasNextPage" | "refetch" | "fetchNextPage"
   >;
   readonly useCreateCommands: (
     input: Parameters<typeof useLibraryCreateCommands>[0],
-  ) => Pick<ReturnType<typeof useLibraryCreateCommands>,
+  ) => Pick<
+    ReturnType<typeof useLibraryCreateCommands>,
     "isPending" | "createPage" | "createDatabase"
   >;
 }
@@ -122,16 +112,14 @@ export function PagesTabPicker({
     const previewPageIds = new Set(preview.rows.map((row) => row.pageId));
     return [
       ...previewItems,
-      ...catalogItems.filter((item) =>
-        item.target.kind !== "page" || !previewPageIds.has(item.target.pageId)),
+      ...catalogItems.filter(
+        (item) => item.target.kind !== "page" || !previewPageIds.has(item.target.pageId),
+      ),
     ];
   }, [catalogItems, dataSource, liveQuery, preview.rows]);
-  const resolvedActiveIndex = items.length === 0
-    ? -1
-    : Math.min(activeIndex, items.length - 1);
-  const activeDescendantId = resolvedActiveIndex >= 0
-    ? `${listboxId}-option-${resolvedActiveIndex}`
-    : undefined;
+  const resolvedActiveIndex = items.length === 0 ? -1 : Math.min(activeIndex, items.length - 1);
+  const activeDescendantId =
+    resolvedActiveIndex >= 0 ? `${listboxId}-option-${resolvedActiveIndex}` : undefined;
   useEffect(() => {
     if (resolvedActiveIndex < 0) return;
     optionRefs.current.get(resolvedActiveIndex)?.scrollIntoView?.({
@@ -245,13 +233,9 @@ export function PagesTabPicker({
               onMouseMove={() => setActiveIndex(index)}
               onClick={() => accept(item.target, item.title)}
             >
-              <span className="shrink-0 text-token-text-secondary">
-                {targetIcon(item.target)}
-              </span>
+              <span className="shrink-0 text-token-text-secondary">{targetIcon(item.target)}</span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate">
-                  {item.title.trim() || "Untitled"}
-                </span>
+                <span className="block truncate">{item.title.trim() || "Untitled"}</span>
                 {item.locationLabel ? (
                   <span className="block truncate text-xs text-token-text-tertiary">
                     {item.locationLabel}
@@ -334,14 +318,14 @@ export function EmptyPagesScene({
         <PagesTabPicker
           onOpenTarget={onOpenTarget}
           dataSource={dataSource}
-          triggerButton={(
+          triggerButton={
             <button
               type="button"
               className="h-8 rounded-lg bg-token-foreground px-3 text-sm font-medium text-token-background"
             >
               Browse Pages
             </button>
-          )}
+          }
         />
       </div>
     </div>

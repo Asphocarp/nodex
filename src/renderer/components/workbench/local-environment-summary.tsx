@@ -92,8 +92,7 @@ function LocalEnvironmentScriptPreview({
 }
 
 function hasLifecycleScript(definition: WorktreeEnvironmentScriptDefinition): boolean {
-  return Boolean(definition.script)
-    || Object.values(definition.platformScripts).some(Boolean);
+  return Boolean(definition.script) || Object.values(definition.platformScripts).some(Boolean);
 }
 
 function LifecycleSummary({
@@ -110,9 +109,8 @@ function LifecycleSummary({
   const [platform, setPlatform] = useState<LifecyclePlatform>("default");
   const hasAnyScript = hasLifecycleScript(definition);
   const defaultScript = definition.script ?? "";
-  const explicitScript = platform === "default"
-    ? defaultScript
-    : definition.platformScripts[platform] ?? "";
+  const explicitScript =
+    platform === "default" ? defaultScript : (definition.platformScripts[platform] ?? "");
   const usesFallback = platform !== "default" && !explicitScript && Boolean(defaultScript);
   const resolvedScript = explicitScript || (usesFallback ? defaultScript : "");
 
@@ -127,11 +125,7 @@ function LifecycleSummary({
       </div>
 
       {hasAnyScript ? (
-        <PlatformSelector
-          label={`${title} platform`}
-          value={platform}
-          onChange={setPlatform}
-        />
+        <PlatformSelector label={`${title} platform`} value={platform} onChange={setPlatform} />
       ) : null}
 
       {!hasAnyScript ? (
@@ -150,9 +144,7 @@ function LifecycleSummary({
           />
         </div>
       ) : (
-        <p className="text-sm text-token-text-secondary">
-          No script configured for this platform
-        </p>
+        <p className="text-sm text-token-text-secondary">No script configured for this platform</p>
       )}
     </section>
   );
@@ -209,7 +201,11 @@ function ActionsSummary({ environment }: { environment: WorktreeEnvironmentDefin
                         });
                       }}
                     >
-                      {expanded ? <ChevronUp className="icon-xs" /> : <ChevronDown className="icon-xs" />}
+                      {expanded ? (
+                        <ChevronUp className="icon-xs" />
+                      ) : (
+                        <ChevronDown className="icon-xs" />
+                      )}
                     </NodexButton>
                   ) : null}
                 </div>

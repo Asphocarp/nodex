@@ -2,40 +2,47 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { z } from "zod";
 
-import {
-  NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV,
-} from "../../shared/native-runtime-environment";
+import { NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV } from "../../shared/native-runtime-environment";
 import type { BrowserProfileSource } from "../../shared/browser-profile";
 
 const MAX_HELPER_OUTPUT_BYTES = 64 * 1024 * 1024;
 const HELPER_TIMEOUT_MS = 30_000;
 
-const ImportedCookieSchema = z.object({
-  domain: z.string().min(1).max(253),
-  name: z.string().max(8_192),
-  value: z.string().max(1024 * 1024),
-  path: z.string().min(1).max(16_384),
-  secure: z.boolean(),
-  httpOnly: z.boolean(),
-  expirationDate: z.number().finite().positive().nullable(),
-  sameSite: z.enum(["unspecified", "no_restriction", "lax", "strict"]),
-}).strict();
+const ImportedCookieSchema = z
+  .object({
+    domain: z.string().min(1).max(253),
+    name: z.string().max(8_192),
+    value: z.string().max(1024 * 1024),
+    path: z.string().min(1).max(16_384),
+    secure: z.boolean(),
+    httpOnly: z.boolean(),
+    expirationDate: z.number().finite().positive().nullable(),
+    sameSite: z.enum(["unspecified", "no_restriction", "lax", "strict"]),
+  })
+  .strict();
 
-const ImportedCredentialSchema = z.object({
-  origin: z.string().url().max(16_384),
-  username: z.string().max(8_192),
-  password: z.string().min(1).max(1024 * 1024),
-}).strict();
+const ImportedCredentialSchema = z
+  .object({
+    origin: z.string().url().max(16_384),
+    username: z.string().max(8_192),
+    password: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  })
+  .strict();
 
-const HelperResponseSchema = z.object({
-  schemaVersion: z.literal(1),
-  ok: z.boolean(),
-  cookies: z.array(ImportedCookieSchema).max(20_000),
-  credentials: z.array(ImportedCredentialSchema).max(20_000),
-  cookieFailures: z.number().int().nonnegative(),
-  passwordFailures: z.number().int().nonnegative(),
-  errorCode: z.string().max(128).nullable(),
-}).strict();
+const HelperResponseSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    ok: z.boolean(),
+    cookies: z.array(ImportedCookieSchema).max(20_000),
+    credentials: z.array(ImportedCredentialSchema).max(20_000),
+    cookieFailures: z.number().int().nonnegative(),
+    passwordFailures: z.number().int().nonnegative(),
+    errorCode: z.string().max(128).nullable(),
+  })
+  .strict();
 
 export type BrowserProfileHelperResponse = z.infer<typeof HelperResponseSchema>;
 
@@ -61,9 +68,7 @@ export class BrowserProfileHelperClient {
     this.timeoutMs = options.timeoutMs ?? HELPER_TIMEOUT_MS;
   }
 
-  async readProfile(
-    request: BrowserProfileHelperRequest,
-  ): Promise<BrowserProfileHelperResponse> {
+  async readProfile(request: BrowserProfileHelperRequest): Promise<BrowserProfileHelperResponse> {
     const response = await runHelper(
       this.executablePath,
       {
@@ -79,9 +84,7 @@ export class BrowserProfileHelperClient {
     );
     const parsed = HelperResponseSchema.parse(response);
     if (parsed.ok) return parsed;
-    throw new BrowserProfileHelperError(
-      parsed.errorCode ?? "unknown_error",
-    );
+    throw new BrowserProfileHelperError(parsed.errorCode ?? "unknown_error");
   }
 }
 
@@ -102,21 +105,13 @@ export function resolveBrowserProfileHelperExecutable(options: {
   repositoryRoot?: string;
 }): string {
   const environment = options.environment ?? process.env;
-  const override = environment[
-    NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV
-  ]?.trim();
+  const override = environment[NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV]?.trim();
   if (override) {
     if (path.isAbsolute(override)) return path.normalize(override);
-    throw new Error(
-      `${NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV} must be absolute`,
-    );
+    throw new Error(`${NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV} must be absolute`);
   }
   if (options.isPackaged) {
-    return path.join(
-      options.resourcesPath,
-      "bin",
-      "nodex-browser-profile-helper",
-    );
+    return path.join(options.resourcesPath, "bin", "nodex-browser-profile-helper");
   }
   return path.join(
     options.repositoryRoot ?? process.cwd(),

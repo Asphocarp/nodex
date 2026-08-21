@@ -10,10 +10,7 @@ export type ThreadStatusDisplayLabel =
   | "Thread";
 
 export function resolveThreadStatusDisplayLabel(
-  thread: Pick<
-    ProjectSessionThreadSummary,
-    "archived" | "statusActiveFlags" | "statusType"
-  >,
+  thread: Pick<ProjectSessionThreadSummary, "archived" | "statusActiveFlags" | "statusType">,
 ): ThreadStatusDisplayLabel {
   if (thread.archived) return "Archived";
   if (thread.statusType === "systemError") return "Error";

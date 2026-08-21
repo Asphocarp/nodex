@@ -1,12 +1,9 @@
 export const MCP_APP_SANDBOX_SCHEME = "nodex-mcp-sandbox";
 export const MCP_APP_SANDBOX_REMOTE_HOST = "web-sandbox.oaiusercontent.com";
 export const MCP_APP_SANDBOX_PARTITION_PREFIX = "nodex-mcp-app-sandbox:";
-export const MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL =
-  "nodex:mcp-app-sandbox-guest-message";
-export const MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL =
-  "nodex:mcp-app-sandbox-host-message";
-export type McpAppSandboxHostMessageChannel =
-  typeof MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL;
+export const MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL = "nodex:mcp-app-sandbox-guest-message";
+export const MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL = "nodex:mcp-app-sandbox-host-message";
+export type McpAppSandboxHostMessageChannel = typeof MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL;
 
 export const MCP_APP_REQUIRED_GUEST_PORT_NAMES = [
   "navigate",
@@ -23,17 +20,11 @@ export const MCP_APP_REQUIRED_GUEST_PORT_NAMES = [
   "setWidgetView",
 ] as const;
 
-export const MCP_APP_OPTIONAL_GUEST_PORT_NAMES = [
-  "notifyMcpAppsMcpNotification",
-] as const;
+export const MCP_APP_OPTIONAL_GUEST_PORT_NAMES = ["notifyMcpAppsMcpNotification"] as const;
 
-export type McpAppRequiredGuestPortName =
-  (typeof MCP_APP_REQUIRED_GUEST_PORT_NAMES)[number];
-export type McpAppOptionalGuestPortName =
-  (typeof MCP_APP_OPTIONAL_GUEST_PORT_NAMES)[number];
-export type McpAppGuestPortName =
-  | McpAppRequiredGuestPortName
-  | McpAppOptionalGuestPortName;
+export type McpAppRequiredGuestPortName = (typeof MCP_APP_REQUIRED_GUEST_PORT_NAMES)[number];
+export type McpAppOptionalGuestPortName = (typeof MCP_APP_OPTIONAL_GUEST_PORT_NAMES)[number];
+export type McpAppGuestPortName = McpAppRequiredGuestPortName | McpAppOptionalGuestPortName;
 
 export interface McpAppSandboxGuestInitMessage {
   type: "init";
@@ -42,8 +33,7 @@ export interface McpAppSandboxGuestInitMessage {
   portNames: McpAppGuestPortName[];
 }
 
-export interface McpAppSandboxHostInitMessage
-  extends McpAppSandboxGuestInitMessage {
+export interface McpAppSandboxHostInitMessage extends McpAppSandboxGuestInitMessage {
   sandboxId: string;
   skybridgeCacheState?: "cold" | "warming" | "warm";
 }
@@ -78,20 +68,10 @@ export interface ParsedMcpAppSandboxSource {
 const SANDBOX_ID_PATTERN = /^source-[0-9a-f]{16}$/u;
 const INIT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 const SUBDOMAIN_PATTERN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$/u;
-const EXPECTED_QUERY_KEYS = [
-  "app",
-  "locale",
-  "deviceType",
-  "unsafeSkipTargetOriginCheck",
-] as const;
+const EXPECTED_QUERY_KEYS = ["app", "locale", "deviceType", "unsafeSkipTargetOriginCheck"] as const;
 async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function fnv1a64(value: string): string {
@@ -103,11 +83,7 @@ function fnv1a64(value: string): string {
   return hash.toString(16).padStart(16, "0").slice(0, 16);
 }
 
-function stableSlug(input: {
-  fallback: string;
-  prefix: string;
-  value: string;
-}): string {
+function stableSlug(input: { fallback: string; prefix: string; value: string }): string {
   const suffix = fnv1a64(input.value);
   const slugBudget = 63 - input.prefix.length - suffix.length - 2;
   const slug = input.value
@@ -213,10 +189,7 @@ export function parseMcpAppSandboxPartition(partition: string): string | null {
   return isValidMcpAppSandboxId(sandboxId) ? sandboxId : null;
 }
 
-export function buildMcpAppSandboxSourceUrl(input: {
-  subdomain: string;
-  locale: string;
-}): string {
+export function buildMcpAppSandboxSourceUrl(input: { subdomain: string; locale: string }): string {
   if (!SUBDOMAIN_PATTERN.test(input.subdomain)) {
     throw new Error("Invalid MCP App sandbox subdomain");
   }
@@ -230,10 +203,7 @@ export function buildMcpAppSandboxSourceUrl(input: {
   return url.toString();
 }
 
-export function appendMcpAppSandboxInitId(
-  sourceUrl: string,
-  initId: string,
-): string {
+export function appendMcpAppSandboxInitId(sourceUrl: string, initId: string): string {
   if (!isValidMcpAppInitId(initId)) {
     throw new Error("Invalid MCP App sandbox init id");
   }
@@ -246,15 +216,10 @@ export function appendMcpAppSandboxInitId(
   return url.toString();
 }
 
-export function parseMcpAppSandboxSourceUrl(
-  value: string,
-): ParsedMcpAppSandboxSource | null {
+export function parseMcpAppSandboxSourceUrl(value: string): ParsedMcpAppSandboxSource | null {
   try {
     const url = new URL(value);
-    if (
-      url.protocol !== "https:"
-      && url.protocol !== `${MCP_APP_SANDBOX_SCHEME}:`
-    ) return null;
+    if (url.protocol !== "https:" && url.protocol !== `${MCP_APP_SANDBOX_SCHEME}:`) return null;
     if (url.port || url.username || url.password || url.pathname !== "/") return null;
     const isBaseHost = url.hostname === MCP_APP_SANDBOX_REMOTE_HOST;
     if (!isBaseHost && !url.hostname.endsWith(`.${MCP_APP_SANDBOX_REMOTE_HOST}`)) {
@@ -267,22 +232,19 @@ export function parseMcpAppSandboxSourceUrl(
 
     const queryKeys = [...url.searchParams.keys()];
     if (
-      queryKeys.length !== EXPECTED_QUERY_KEYS.length
-      || !EXPECTED_QUERY_KEYS.every((key) => queryKeys.includes(key))
-      || url.searchParams.get("app") !== "skybridge"
-      || !url.searchParams.get("locale")?.trim()
-      || url.searchParams.get("deviceType") !== "desktop"
-      || url.searchParams.get("unsafeSkipTargetOriginCheck") !== "true"
+      queryKeys.length !== EXPECTED_QUERY_KEYS.length ||
+      !EXPECTED_QUERY_KEYS.every((key) => queryKeys.includes(key)) ||
+      url.searchParams.get("app") !== "skybridge" ||
+      !url.searchParams.get("locale")?.trim() ||
+      url.searchParams.get("deviceType") !== "desktop" ||
+      url.searchParams.get("unsafeSkipTargetOriginCheck") !== "true"
     ) {
       return null;
     }
 
     const hashParams = new URLSearchParams(url.hash.slice(1));
     const initId = hashParams.get("initId");
-    if (
-      (url.hash && (!initId || !isValidMcpAppInitId(initId)))
-      || (!url.hash && initId !== null)
-    ) {
+    if ((url.hash && (!initId || !isValidMcpAppInitId(initId))) || (!url.hash && initId !== null)) {
       return null;
     }
 
@@ -304,11 +266,11 @@ export function parseMcpAppSandboxGuestInitMessage(
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (
-    record.type !== "init"
-    || typeof record.initId !== "string"
-    || !isValidMcpAppInitId(record.initId)
-    || typeof record.origin !== "string"
-    || !Array.isArray(record.portNames)
+    record.type !== "init" ||
+    typeof record.initId !== "string" ||
+    !isValidMcpAppInitId(record.initId) ||
+    typeof record.origin !== "string" ||
+    !Array.isArray(record.portNames)
   ) {
     return null;
   }
@@ -337,20 +299,17 @@ export function parseMcpAppSandboxHostInitMessage(
 ): McpAppSandboxHostInitMessage | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if (
-    typeof record.sandboxId !== "string"
-    || !isValidMcpAppSandboxId(record.sandboxId)
-  ) {
+  if (typeof record.sandboxId !== "string" || !isValidMcpAppSandboxId(record.sandboxId)) {
     return null;
   }
   const guestMessage = parseMcpAppSandboxGuestInitMessage(record);
   if (!guestMessage) return null;
   const cacheState = record.skybridgeCacheState;
   if (
-    cacheState !== undefined
-    && cacheState !== "cold"
-    && cacheState !== "warming"
-    && cacheState !== "warm"
+    cacheState !== undefined &&
+    cacheState !== "cold" &&
+    cacheState !== "warming" &&
+    cacheState !== "warm"
   ) {
     return null;
   }

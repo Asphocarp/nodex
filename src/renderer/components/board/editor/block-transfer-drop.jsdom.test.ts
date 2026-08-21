@@ -140,88 +140,85 @@ describe("Board Card Block transfer drop", () => {
   test.each([
     [false, "move"],
     [true, "copy"],
-  ] as const)(
-    "submits one authority intent at drop time (alt=%s)",
-    async (altKey, mode) => {
-      const container = document.createElement("div");
-      const transfer = vi.fn(async (...args: [PublicBlockTransferIntent]) => {
-        void args;
-        return {
-          ok: true as const,
-          localCommit: {
-            status: "no_op" as const,
-            observed: { store_epoch: "epoch-a", commit_head: 1 },
-          },
-          value: {
-            version: 3 as const,
-            operationId: "operation-a",
-            projectId: "project-a",
-            storeEpoch: "epoch-a",
-            mode,
-            duplicate: false,
-            sourceRootBlockIds: ["card-target"],
-            resultRootBlockIds: ["card-target"],
-            copiedBlockIds: {},
-            transformationEvidence: [],
-            finalLocations: {
-              "card-target": {
-                kind: "document" as const,
-                documentId: "document-host",
-              },
-            },
-            finalLocationRevisions: { "card-target": 2 },
-            documentCommits: [],
-            affectedDatabaseBlockIds: ["database-a"],
-            commitSeq: 1,
-            committedAt: "2026-07-13T00:00:00.000Z",
-            undoToken: null,
-          },
-        };
-      });
-      const cleanup = setupBlockTransferDocumentDrop(
-        container,
-        { document: [] },
-        {
-          ...structuralPreparation,
-          surfaceId: "surface-target",
+  ] as const)("submits one authority intent at drop time (alt=%s)", async (altKey, mode) => {
+    const container = document.createElement("div");
+    const transfer = vi.fn(async (...args: [PublicBlockTransferIntent]) => {
+      void args;
+      return {
+        ok: true as const,
+        localCommit: {
+          status: "no_op" as const,
+          observed: { store_epoch: "epoch-a", commit_head: 1 },
+        },
+        value: {
+          version: 3 as const,
+          operationId: "operation-a",
           projectId: "project-a",
-          documentId: "document-host",
           storeEpoch: "epoch-a",
-          hostPageId: "card-host",
-          ancestorPageIds: [],
-          createOperationId: () => "operation-a",
-          transfer,
-          reportError: vi.fn(),
+          mode,
+          duplicate: false,
+          sourceRootBlockIds: ["card-target"],
+          resultRootBlockIds: ["card-target"],
+          copiedBlockIds: {},
+          transformationEvidence: [],
+          finalLocations: {
+            "card-target": {
+              kind: "document" as const,
+              documentId: "document-host",
+            },
+          },
+          finalLocationRevisions: { "card-target": 2 },
+          documentCommits: [],
+          affectedDatabaseBlockIds: ["database-a"],
+          commitSeq: 1,
+          committedAt: "2026-07-13T00:00:00.000Z",
+          undoToken: null,
         },
-      );
-      const registration = dropTargetHarness.registration as ElementDropTargetArgs;
-      const self = { element: container, data: {}, dropEffect: mode };
-      const event = {
-        source: { data: dragData },
-        location: {
-          current: { input: input(altKey), dropTargets: [self] },
-        },
-        self,
-      } as unknown as Parameters<NonNullable<ElementDropTargetArgs["onDrop"]>>[0];
+      };
+    });
+    const cleanup = setupBlockTransferDocumentDrop(
+      container,
+      { document: [] },
+      {
+        ...structuralPreparation,
+        surfaceId: "surface-target",
+        projectId: "project-a",
+        documentId: "document-host",
+        storeEpoch: "epoch-a",
+        hostPageId: "card-host",
+        ancestorPageIds: [],
+        createOperationId: () => "operation-a",
+        transfer,
+        reportError: vi.fn(),
+      },
+    );
+    const registration = dropTargetHarness.registration as ElementDropTargetArgs;
+    const self = { element: container, data: {}, dropEffect: mode };
+    const event = {
+      source: { data: dragData },
+      location: {
+        current: { input: input(altKey), dropTargets: [self] },
+      },
+      self,
+    } as unknown as Parameters<NonNullable<ElementDropTargetArgs["onDrop"]>>[0];
 
-      expect(
-        registration.canDrop?.({
-          source: { data: dragData },
-          input: event.location.current.input,
-          element: container,
-        } as never),
-      ).toBe(true);
-      registration.onDrop?.(event);
-      await vi.waitFor(() => expect(transfer).toHaveBeenCalledOnce());
-      expect(transfer.mock.calls[0]?.[0]).toMatchObject({
-        mode,
-        rootBlockIds: ["card-target"],
-        source: { kind: "data_source", dataSourceId: "source-a" },
-        target: { kind: "page", pageId: "card-host" },
-      });
-      cleanup();
-    },
-  );
+    expect(
+      registration.canDrop?.({
+        source: { data: dragData },
+        input: event.location.current.input,
+        element: container,
+      } as never),
+    ).toBe(true);
+    registration.onDrop?.(event);
+    await vi.waitFor(() => expect(transfer).toHaveBeenCalledOnce());
+    expect(transfer.mock.calls[0]?.[0]).toMatchObject({
+      mode,
+      rootBlockIds: ["card-target"],
+      source: { kind: "data_source", dataSourceId: "source-a" },
+      target: { kind: "page", pageId: "card-host" },
+    });
+    cleanup();
+  });
 
   test("claims a managed editor drag before ProseMirror and submits one atomic transfer", async () => {
     const container = document.createElement("div");
@@ -506,17 +503,13 @@ describe("Board Card Block transfer drop", () => {
     try {
       dispatchDrag("dragover", outerTarget);
       expect(outer.hasAttribute("data-block-transfer-drop-hover")).toBe(true);
-      expect(
-        document.querySelectorAll("[data-block-transfer-drop-indicator]"),
-      ).toHaveLength(1);
+      expect(document.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(1);
 
       dispatchDrag("dragover", target);
       expect(outer.hasAttribute("data-block-transfer-drop-hover")).toBe(false);
       expect(inner.hasAttribute("data-block-transfer-drop-hover")).toBe(true);
       expect(clearOuterDropCursor).toHaveBeenCalled();
-      expect(
-        document.querySelectorAll("[data-block-transfer-drop-indicator]"),
-      ).toHaveLength(1);
+      expect(document.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(1);
 
       const drop = dispatchDrag("drop", target);
       await vi.waitFor(() => expect(innerTransfer).toHaveBeenCalledOnce());
@@ -587,11 +580,9 @@ describe("Board Card Block transfer drop", () => {
         reportError: vi.fn(),
       },
     );
-    const [outerRegistration, innerRegistration] =
-      dropTargetHarness.registrations.slice(registrationStart) as [
-        ElementDropTargetArgs,
-        ElementDropTargetArgs,
-      ];
+    const [outerRegistration, innerRegistration] = dropTargetHarness.registrations.slice(
+      registrationStart,
+    ) as [ElementDropTargetArgs, ElementDropTargetArgs];
     const outerRecord = { element: outer, data: {}, dropEffect: "move" };
     const innerRecord = { element: inner, data: {}, dropEffect: "move" };
     const location = {
@@ -610,9 +601,7 @@ describe("Board Card Block transfer drop", () => {
       outerRegistration.onDrag?.(eventFor(outerRecord));
       expect(outer.hasAttribute("data-block-transfer-drop-hover")).toBe(false);
       expect(inner.hasAttribute("data-block-transfer-drop-hover")).toBe(true);
-      expect(
-        document.querySelectorAll("[data-block-transfer-drop-indicator]"),
-      ).toHaveLength(1);
+      expect(document.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(1);
 
       innerRegistration.onDrop?.(eventFor(innerRecord));
       outerRegistration.onDrop?.(eventFor(outerRecord));

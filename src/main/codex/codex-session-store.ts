@@ -91,7 +91,10 @@ function loadSessionIndexIfNeeded(codexHome?: string): void {
   }
 }
 
-function readSessionIndexEntry(threadId: string, codexHome?: string): CodexSessionIndexEntry | null {
+function readSessionIndexEntry(
+  threadId: string,
+  codexHome?: string,
+): CodexSessionIndexEntry | null {
   loadSessionIndexIfNeeded(codexHome);
   return sessionIndexCache.get(threadId) ?? null;
 }
@@ -107,7 +110,11 @@ function resolveSessionSearchRoots(codexHome: string): SessionFileMatch[] {
   ];
 }
 
-function findSessionFileInDirectory(directoryPath: string, threadId: string, archived: boolean): SessionFileMatch | null {
+function findSessionFileInDirectory(
+  directoryPath: string,
+  threadId: string,
+  archived: boolean,
+): SessionFileMatch | null {
   if (!fs.existsSync(directoryPath)) return null;
 
   const entries = fs.readdirSync(directoryPath, { withFileTypes: true });
@@ -129,7 +136,10 @@ function findSessionFileInDirectory(directoryPath: string, threadId: string, arc
   return null;
 }
 
-function resolveSessionFile(threadId: string, configuredCodexHome?: string): SessionFileMatch | null {
+function resolveSessionFile(
+  threadId: string,
+  configuredCodexHome?: string,
+): SessionFileMatch | null {
   const codexHome = configuredCodexHome ?? resolveRuntimeHomeDir();
   if (sessionFileCacheHome !== codexHome) {
     sessionFileCache.clear();
@@ -162,7 +172,7 @@ export function hasCodexSessionMaterialized(threadId: string, codexHome?: string
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function normalizeOptionalSessionText(value: unknown): string | null {
@@ -175,10 +185,14 @@ function normalizeText(value: string): string {
 
 function extractResponseMessageText(payload: Record<string, unknown>): string {
   if (!Array.isArray(payload.content)) return "";
-  return normalizeText(payload.content.flatMap((part): string[] => {
-    const candidate = asRecord(part);
-    return typeof candidate?.text === "string" ? [candidate.text] : [];
-  }).join("\n"));
+  return normalizeText(
+    payload.content
+      .flatMap((part): string[] => {
+        const candidate = asRecord(part);
+        return typeof candidate?.text === "string" ? [candidate.text] : [];
+      })
+      .join("\n"),
+  );
 }
 
 function hasMatchingReplayMessage(
@@ -188,10 +202,11 @@ function hasMatchingReplayMessage(
   text: string,
 ): boolean {
   const normalizedText = normalizeText(text);
-  return transcript.some((entry) =>
-    entry.turnId === turnId
-    && entry.role === role
-    && normalizeText(entry.markdownText ?? "") === normalizedText
+  return transcript.some(
+    (entry) =>
+      entry.turnId === turnId &&
+      entry.role === role &&
+      normalizeText(entry.markdownText ?? "") === normalizedText,
   );
 }
 
@@ -331,7 +346,10 @@ function appendReplayContextCompaction(
 
 function sortTurns(turnsById: Map<string, MutableTurnRecord>): CodexTurnSummary[] {
   return [...turnsById.values()]
-    .sort((a, b) => a.createdAt - b.createdAt || a.updatedAt - b.updatedAt || a.turnId.localeCompare(b.turnId))
+    .sort(
+      (a, b) =>
+        a.createdAt - b.createdAt || a.updatedAt - b.updatedAt || a.turnId.localeCompare(b.turnId),
+    )
     .map((turn) => ({
       threadId: turn.threadId,
       turnId: turn.turnId,
@@ -429,7 +447,11 @@ function parseSessionJsonl(
         continue;
       }
 
-      if (eventType === "user_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
+      if (
+        eventType === "user_message" &&
+        typeof payload?.message === "string" &&
+        payload.message.trim().length > 0
+      ) {
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
         if (hasMatchingReplayMessage(transcript, turn.turnId, "user", payload.message)) continue;
         const itemId = buildReplayItemId(input.threadId, "user", lineIndex);
@@ -452,10 +474,15 @@ function parseSessionJsonl(
         continue;
       }
 
-      if (eventType === "agent_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
+      if (
+        eventType === "agent_message" &&
+        typeof payload?.message === "string" &&
+        payload.message.trim().length > 0
+      ) {
         const assistantPhase = typeof payload.phase === "string" ? payload.phase : null;
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
-        if (hasMatchingReplayMessage(transcript, turn.turnId, "assistant", payload.message)) continue;
+        if (hasMatchingReplayMessage(transcript, turn.turnId, "assistant", payload.message))
+          continue;
         const itemId = buildReplayItemId(input.threadId, "msg", lineIndex);
         appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
           threadId: input.threadId,
@@ -477,7 +504,11 @@ function parseSessionJsonl(
         continue;
       }
 
-      if (eventType === "agent_reasoning" && typeof payload?.text === "string" && payload.text.trim().length > 0) {
+      if (
+        eventType === "agent_reasoning" &&
+        typeof payload?.text === "string" &&
+        payload.text.trim().length > 0
+      ) {
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
         appendReplayReasoningSummary(
           transcript,
@@ -517,9 +548,10 @@ function parseSessionJsonl(
       const text = extractResponseMessageText(payload);
       if (!role || !text || hasMatchingReplayMessage(transcript, turn.turnId, role, text)) continue;
 
-      const itemId = typeof payload.id === "string" && payload.id.trim().length > 0
-        ? payload.id
-        : buildReplayItemId(input.threadId, role === "user" ? "user" : "msg", lineIndex);
+      const itemId =
+        typeof payload.id === "string" && payload.id.trim().length > 0
+          ? payload.id
+          : buildReplayItemId(input.threadId, role === "user" ? "user" : "msg", lineIndex);
       appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
         threadId: input.threadId,
         turnId: turn.turnId,
@@ -573,10 +605,11 @@ function parseSessionJsonl(
     // Responses JSONL calls do not carry the generated v2 ThreadItem contract.
     // Fail closed: canonical app-server resume owns every tool-family projection.
     if (
-      responseType === "function_call"
-      || responseType === "web_search_call"
-      || responseType === "function_call_output"
-    ) continue;
+      responseType === "function_call" ||
+      responseType === "web_search_call" ||
+      responseType === "function_call_output"
+    )
+      continue;
   }
 
   const turns = sortTurns(turnsById);
@@ -644,7 +677,9 @@ export function readCodexSessionThreadMetadata(
       if (!payload) return null;
       return {
         threadId: normalizeOptionalSessionText(payload.id) ?? normalizedThreadId,
-        parentThreadId: normalizeOptionalSessionText(payload.parent_thread_id ?? payload.parentThreadId),
+        parentThreadId: normalizeOptionalSessionText(
+          payload.parent_thread_id ?? payload.parentThreadId,
+        ),
         source: payload.source ?? null,
         threadSource: normalizeOptionalSessionText(payload.thread_source ?? payload.threadSource),
         cwd: normalizeOptionalSessionText(payload.cwd),

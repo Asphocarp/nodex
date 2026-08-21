@@ -9,10 +9,7 @@ import { extractCodexThreadSpawnMetadata } from "./codex-subagent-metadata";
 export const DEFAULT_CODEX_NOTIFICATION_HOST_ID = "default";
 
 export type CodexNotificationTurnStatus = "completed" | "failed" | "interrupted";
-export type CodexNotificationApprovalKind =
-  | "commandExecution"
-  | "fileChange"
-  | "permissionRequest";
+export type CodexNotificationApprovalKind = "commandExecution" | "fileChange" | "permissionRequest";
 
 export interface CodexNotificationConversationFacts {
   conversationId: string;
@@ -111,8 +108,8 @@ export function decideCodexTurnNotification(
     return { type: "suppress", reason: "automation-dont-notify" };
   }
   if (
-    event.automationNotificationDecision === null
-    && event.heartbeatAssistantMessage?.decision === "DONT_NOTIFY"
+    event.automationNotificationDecision === null &&
+    event.heartbeatAssistantMessage?.decision === "DONT_NOTIFY"
   ) {
     return { type: "suppress", reason: "heartbeat-dont-notify" };
   }
@@ -157,9 +154,11 @@ export function resolveCodexTurnNotificationBody(
   >,
 ): string {
   const heartbeat = event.heartbeatAssistantMessage;
-  return normalizeDesktopNotificationText(
-    heartbeat?.notificationMessage ?? heartbeat?.visibleText ?? event.lastAgentMessage,
-  ) ?? "Nodex finished a turn.";
+  return (
+    normalizeDesktopNotificationText(
+      heartbeat?.notificationMessage ?? heartbeat?.visibleText ?? event.lastAgentMessage,
+    ) ?? "Nodex finished a turn."
+  );
 }
 
 export function resolveCodexTurnNotificationTitle(title: string | null): string {

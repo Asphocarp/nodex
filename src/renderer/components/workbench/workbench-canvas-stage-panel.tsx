@@ -1,8 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useEffect,
-} from "react";
+import { lazy, Suspense, useEffect } from "react";
 
 import { CanvasDocumentState } from "@/components/board/canvas-document-state";
 import { makeCanvasSceneSurfaceKey } from "@/lib/canvas-scene-surface-runtime";
@@ -12,16 +8,11 @@ import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";
 import type { WorkbenchSurfaceDescriptor } from "../../../shared/workbench-scene";
 
 const CanvasDocumentSurface = lazy(async () => {
-  const module = await import(
-    "@/components/canvas/canvas-document-surface"
-  );
+  const module = await import("@/components/canvas/canvas-document-surface");
   return { default: module.CanvasDocumentSurface };
 });
 
-type CanvasStageSurface = Extract<
-  WorkbenchSurfaceDescriptor,
-  { readonly kind: "canvas_stage" }
->;
+type CanvasStageSurface = Extract<WorkbenchSurfaceDescriptor, { readonly kind: "canvas_stage" }>;
 
 export function WorkbenchCanvasStagePanel({
   surface,
@@ -43,13 +34,8 @@ export function WorkbenchCanvasStagePanel({
     readonly titleSnapshot?: string;
   }) => void;
 }) {
-  const target = useLibraryCanvasTarget(
-    surface.config.canvasBlockId,
-    isActivePanelTab,
-  );
-  const summary = target.data?.value.status === "available"
-    ? target.data.value.summary
-    : null;
+  const target = useLibraryCanvasTarget(surface.config.canvasBlockId, isActivePanelTab);
+  const summary = target.data?.value.status === "available" ? target.data.value.summary : null;
 
   useEffect(() => {
     if (!summary?.title || summary.title === surface.titleSnapshot) return;
@@ -61,10 +47,13 @@ export function WorkbenchCanvasStagePanel({
   useEffect(() => {
     if (targetStatus !== "deleted" || !targetLibraryId) return;
     void canvasDocumentSessionRegistry
-      .retireOwner({
-        libraryId: targetLibraryId,
-        accessContext: surface.config.accessContext,
-      }, surface.config.canvasBlockId)
+      .retireOwner(
+        {
+          libraryId: targetLibraryId,
+          accessContext: surface.config.accessContext,
+        },
+        surface.config.canvasBlockId,
+      )
       .catch(() => undefined);
   }, [surface.config, targetLibraryId, targetStatus]);
 
@@ -76,9 +65,7 @@ export function WorkbenchCanvasStagePanel({
       <CanvasDocumentState
         status="error"
         message={
-          target.error instanceof Error
-            ? target.error.message
-            : "Canvas could not be opened"
+          target.error instanceof Error ? target.error.message : "Canvas could not be opened"
         }
         onRetry={() => void target.refetch()}
       />
@@ -104,17 +91,11 @@ export function WorkbenchCanvasStagePanel({
   }
 
   return (
-    <Suspense
-      fallback={<CanvasDocumentState status="loading" label="Opening Canvas…" />}
-    >
+    <Suspense fallback={<CanvasDocumentState status="loading" label="Opening Canvas…" />}>
       <CanvasDocumentSurface
         accessContext={surface.config.accessContext}
         canvasBlockId={surface.config.canvasBlockId}
-        surfaceKey={makeCanvasSceneSurfaceKey(
-          windowSessionId,
-          presentationOwnerId,
-          surface.id,
-        )}
+        surfaceKey={makeCanvasSceneSurfaceKey(windowSessionId, presentationOwnerId, surface.id)}
         viewportPreferenceScope={makeCanvasViewportPreferenceScope({
           variant: "stage",
           windowSessionId,
@@ -122,11 +103,13 @@ export function WorkbenchCanvasStagePanel({
         })}
         variant="stage"
         active={isActivePanelTab}
-        onOpenPage={onOpenPage
-          ? ({ pageId, titleSnapshot }) => {
-              onOpenPage({ pageId, titleSnapshot });
-            }
-          : undefined}
+        onOpenPage={
+          onOpenPage
+            ? ({ pageId, titleSnapshot }) => {
+                onOpenPage({ pageId, titleSnapshot });
+              }
+            : undefined
+        }
       />
     </Suspense>
   );

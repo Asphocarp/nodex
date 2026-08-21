@@ -12,17 +12,10 @@ import {
   conflictKeysForPatch,
   createOptimisticCard,
 } from "./board-optimistic-ops";
-import type {
-  BoardSummary,
-  PageCreateInput,
-  DatabasePageSummary,
-} from "./types";
+import type { BoardSummary, PageCreateInput, DatabasePageSummary } from "./types";
 import { CoreApiError } from "./api";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
-import {
-  createBoardStoreRegistry,
-  type BoardStoreDependencies,
-} from "./board-store";
+import { createBoardStoreRegistry, type BoardStoreDependencies } from "./board-store";
 import type {
   DatabaseViewGroupsInput,
   DatabaseViewGroupsSnapshot,
@@ -73,11 +66,13 @@ function createDatabaseViewSnapshot(
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
-      sort: [{
-        field: { kind: "manual" },
-        direction: "asc",
-        nulls: "last",
-      }],
+      sort: [
+        {
+          field: { kind: "manual" },
+          direction: "asc",
+          nulls: "last",
+        },
+      ],
       group: { propertyId: statusPropertyId },
       display: { propertyIds: [statusPropertyId], showTitle: true },
     }),
@@ -129,44 +124,46 @@ function createDatabaseViewSnapshot(
     dataSource,
     properties: [statusProperty],
     view,
-    rows: [{
-      pageKey: null,
-      membership: {
-        membershipId: "membership-1",
-        dataSourceId,
-        revision: 1,
-        createdAt: "2026-07-12T00:00:00.000Z",
-      },
-      page: {
-        pageId: "card-1",
-        libraryId,
-        parent: { kind: "data_source" as const, dataSourceId },
-        lifecycle: "active" as const,
-        parentRevision: 1,
-        metadataRevision: 1,
-        documentId: "document-1",
-        documentGeneration: 1,
-        documentHeadSeq: 1,
-        title,
-        richTitle: plainTextToPortableRichText(title),
-        preview: "",
-        plainText: "",
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
-      },
-      values: {
-        [statusPropertyId]: {
-          propertyId: statusPropertyId,
-          valueType: "select" as const,
-          value: "triage",
+    rows: [
+      {
+        pageKey: null,
+        membership: {
+          membershipId: "membership-1",
+          dataSourceId,
           revision: 1,
+          createdAt: "2026-07-12T00:00:00.000Z",
         },
+        page: {
+          pageId: "card-1",
+          libraryId,
+          parent: { kind: "data_source" as const, dataSourceId },
+          lifecycle: "active" as const,
+          parentRevision: 1,
+          metadataRevision: 1,
+          documentId: "document-1",
+          documentGeneration: 1,
+          documentHeadSeq: 1,
+          title,
+          richTitle: plainTextToPortableRichText(title),
+          preview: "",
+          plainText: "",
+          createdAt: "2026-07-12T00:00:00.000Z",
+          updatedAt: "2026-07-12T00:00:00.000Z",
+        },
+        values: {
+          [statusPropertyId]: {
+            propertyId: statusPropertyId,
+            valueType: "select" as const,
+            value: "triage",
+            revision: 1,
+          },
+        },
+        taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
+        position: { rankKey: "a", revision: 1 },
+        effectiveGroupKey: "triage",
+        effectiveSubgroupKey: null,
       },
-      taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
-      position: { rankKey: "a", revision: 1 },
-      effectiveGroupKey: "triage",
-      effectiveSubgroupKey: null,
-    }],
+    ],
   };
   return {
     ok: true,
@@ -225,14 +222,8 @@ function createBoardSnapshot(
   primary = true,
   projectionRevision = 1,
 ): DatabaseViewWindowSnapshot {
-  const card = board.columns.flatMap((column) => column.cards)[0]
-    ?? createPageSummary();
-  const queryResult = createDatabaseViewSnapshot(
-    viewId,
-    card.title,
-    primary,
-    commitSeq,
-  );
+  const card = board.columns.flatMap((column) => column.cards)[0] ?? createPageSummary();
+  const queryResult = createDatabaseViewSnapshot(viewId, card.title, primary, commitSeq);
   if (!queryResult.ok || queryResult.value.value.kind !== "query") {
     throw new Error("Database View test fixture is invalid");
   }
@@ -277,17 +268,18 @@ function createBoardSnapshot(
       schemaVersion: 1,
       revision: projectionRevision,
       coveredCommitSeq: commitSeq,
-      effectHash: projectionRevision > 0
-        ? String(projectionRevision).padStart(64, "a").slice(-64)
-        : null,
+      effectHash:
+        projectionRevision > 0 ? String(projectionRevision).padStart(64, "a").slice(-64) : null,
     },
     nextCursor: null,
-    rows: [{
-      page: card,
-      groupKey: card.status,
-      subgroupKey: null,
-      rankKey: "a",
-    }],
+    rows: [
+      {
+        page: card,
+        groupKey: card.status,
+        subgroupKey: null,
+        rankKey: "a",
+      },
+    ],
     board,
     query,
     view: {
@@ -313,12 +305,18 @@ function createTwoPageBoardSnapshot(
     id: pageId,
     order: index,
   }));
-  const snapshot = createBoardSnapshot({
-    columns: [
-      { id: "triage", name: "Ideas", cards },
-      { id: "ship", name: "Ship", cards: [] },
-    ],
-  }, commitSeq, "view-primary", true, commitSeq);
+  const snapshot = createBoardSnapshot(
+    {
+      columns: [
+        { id: "triage", name: "Ideas", cards },
+        { id: "ship", name: "Ship", cards: [] },
+      ],
+    },
+    commitSeq,
+    "view-primary",
+    true,
+    commitSeq,
+  );
   const template = snapshot.query.rows[0];
   if (!template) throw new Error("Database View row fixture is missing");
   const queryRows = cards.map((card, index) => ({
@@ -377,16 +375,18 @@ function createGroupsSnapshot(
   };
   return {
     ...snapshot,
-    authorization: overrides.authorization ?? authorizedReadStampFixture({
-      deliveryAddress: {
-        kind: "project",
-        library_id: snapshot.libraryId,
-        project_id: snapshot.projectId,
-      },
-      subject: { kind: "view", view_id: snapshot.viewId },
-      storeEpoch: snapshot.storeEpoch,
-      commitSeq: snapshot.commitSeq,
-    }),
+    authorization:
+      overrides.authorization ??
+      authorizedReadStampFixture({
+        deliveryAddress: {
+          kind: "project",
+          library_id: snapshot.libraryId,
+          project_id: snapshot.projectId,
+        },
+        subject: { kind: "view", view_id: snapshot.viewId },
+        storeEpoch: snapshot.storeEpoch,
+        commitSeq: snapshot.commitSeq,
+      }),
   };
 }
 
@@ -394,16 +394,12 @@ function createGroupsSnapshot(
  * Test registry with an ungrouped groups read by default, which keeps the
  * store on the single flat window path most tests exercise.
  */
-function createTestRegistry(
-  dependencies: Partial<BoardStoreDependencies> = {},
-) {
+function createTestRegistry(dependencies: Partial<BoardStoreDependencies> = {}) {
   return createBoardStoreRegistry({
     getProjectionInvalidationRegistry: () => null,
     readViewGroups: async (_projectId, input) => {
       const viewId = input.databaseViewId ?? "view-primary";
-      const revision = input.minimumCommitCursor?.commitSeq
-        ?? input.minimumCommitSeq
-        ?? 1;
+      const revision = input.minimumCommitCursor?.commitSeq ?? input.minimumCommitSeq ?? 1;
       return createGroupsSnapshot({
         viewId,
         storeEpoch: input.minimumCommitCursor?.storeEpoch ?? "epoch-1",
@@ -489,12 +485,14 @@ function pageChanged(
         database_ids: ["database-1"],
         data_source_ids: ["source-1"],
         view_ids: ["view-focused", "view-primary"],
-        document_heads: [{
-          page_id: pageId,
-          document_id: "document-1",
-          generation: 1,
-          head_seq: commitSeq,
-        }],
+        document_heads: [
+          {
+            page_id: pageId,
+            document_id: "document-1",
+            generation: 1,
+            head_seq: commitSeq,
+          },
+        ],
       },
       effect: {
         scope: {
@@ -545,10 +543,7 @@ function pageRemoved(commitSeq: number, pageId: string): ProjectionStreamMessage
   };
 }
 
-function pageRevoked(
-  commitSeq: number,
-  pageId: string,
-): ResourceRevocationMessage {
+function pageRevoked(commitSeq: number, pageId: string): ResourceRevocationMessage {
   return {
     version: 1,
     kind: "revocation",
@@ -739,15 +734,10 @@ describe("board store", () => {
           },
         });
       },
-      readViewWindow: async () => readGeneration === 1
-        ? createBoardSnapshot(
-            createBoard("Visible before refresh"),
-            1,
-            "view-focused",
-            false,
-            1,
-          )
-        : await replacement.promise,
+      readViewWindow: async () =>
+        readGeneration === 1
+          ? createBoardSnapshot(createBoard("Visible before refresh"), 1, "view-focused", false, 1)
+          : await replacement.promise,
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("project-1", "view-focused");
@@ -759,24 +749,26 @@ describe("board store", () => {
 
     expect(store.getSnapshot().loading).toBe(false);
     expect(store.getSnapshot().error).toBe(null);
-    expect(store.getSnapshot().databaseView?.columns
-      .flatMap((column) => column.rows)
-      .map((row) => row.title)).toContain("Visible before refresh");
+    expect(
+      store
+        .getSnapshot()
+        .databaseView?.columns.flatMap((column) => column.rows)
+        .map((row) => row.title),
+    ).toContain("Visible before refresh");
 
-    replacement.resolve(createBoardSnapshot(
-      createBoard("Atomically replaced"),
-      2,
-      "view-focused",
-      false,
-      2,
-    ));
+    replacement.resolve(
+      createBoardSnapshot(createBoard("Atomically replaced"), 2, "view-focused", false, 2),
+    );
     await refresh;
 
     expect(store.getSnapshot().loading).toBe(false);
     expect(store.getSnapshot().error).toBe(null);
-    expect(store.getSnapshot().databaseView?.columns
-      .flatMap((column) => column.rows)
-      .map((row) => row.title)).toContain("Atomically replaced");
+    expect(
+      store
+        .getSnapshot()
+        .databaseView?.columns.flatMap((column) => column.rows)
+        .map((row) => row.title),
+    ).toContain("Atomically replaced");
   });
 
   test("ignores a released projection fence from the previous presentation", async () => {
@@ -787,13 +779,7 @@ describe("board store", () => {
       readViewWindow: async () => {
         readCount += 1;
         return readCount === 1
-          ? createBoardSnapshot(
-              createBoard("Visible during handoff"),
-              1,
-              "view-focused",
-              false,
-              1,
-            )
+          ? createBoardSnapshot(createBoard("Visible during handoff"), 1, "view-focused", false, 1)
           : replacement.promise;
       },
       subscribeBoardChanges: () => () => {},
@@ -818,16 +804,15 @@ describe("board store", () => {
     });
 
     expect(store.getSnapshot().loading).toBe(false);
-    expect(store.getSnapshot().databaseView?.columns
-      .flatMap((column) => column.rows)
-      .map((row) => row.title)).toContain("Visible during handoff");
-    replacement.resolve(createBoardSnapshot(
-      createBoard("Replacement"),
-      2,
-      "view-focused",
-      false,
-      2,
-    ));
+    expect(
+      store
+        .getSnapshot()
+        .databaseView?.columns.flatMap((column) => column.rows)
+        .map((row) => row.title),
+    ).toContain("Visible during handoff");
+    replacement.resolve(
+      createBoardSnapshot(createBoard("Replacement"), 2, "view-focused", false, 2),
+    );
     await waitForMicrotasks();
     unsubscribe();
   });
@@ -838,13 +823,7 @@ describe("board store", () => {
       readViewWindow: async () => {
         readCount += 1;
         if (readCount > 1) throw new Error("refresh unavailable");
-        return createBoardSnapshot(
-          createBoard("Still visible"),
-          1,
-          "view-focused",
-          false,
-          1,
-        );
+        return createBoardSnapshot(createBoard("Still visible"), 1, "view-focused", false, 1);
       },
       subscribeBoardChanges: () => () => {},
     });
@@ -856,9 +835,12 @@ describe("board store", () => {
 
     expect(store.getSnapshot().loading).toBe(false);
     expect(store.getSnapshot().error).toBe("refresh unavailable");
-    expect(store.getSnapshot().databaseView?.columns
-      .flatMap((column) => column.rows)
-      .map((row) => row.title)).toContain("Still visible");
+    expect(
+      store
+        .getSnapshot()
+        .databaseView?.columns.flatMap((column) => column.rows)
+        .map((row) => row.title),
+    ).toContain("Still visible");
   });
 
   test("isolates durable View stores and never reads primary Board data for a secondary View", async () => {
@@ -869,9 +851,7 @@ describe("board store", () => {
         calls.push(`database:view-window:get:${projectId}:${viewId}`);
         return createBoardSnapshot(
           createBoard(
-            viewId === "view-focused"
-              ? "Focused query row"
-              : "Full primary Card summary",
+            viewId === "view-focused" ? "Focused query row" : "Full primary Card summary",
           ),
           1,
           viewId,
@@ -886,22 +866,14 @@ describe("board store", () => {
     await Promise.all([primary.fetchBoard(), focused.fetchBoard()]);
 
     expect(primary === focused).toBe(false);
-    expect(primary.getSnapshot().databaseView?.databaseViewId).toBe(
-      "view-primary",
-    );
-    expect(primary.getSnapshot().pageIndex.get("card-1")?.title).toBe(
-      "Full primary Card summary",
-    );
-    expect(focused.getSnapshot().databaseView?.databaseViewId).toBe(
-      "view-focused",
-    );
+    expect(primary.getSnapshot().databaseView?.databaseViewId).toBe("view-primary");
+    expect(primary.getSnapshot().pageIndex.get("card-1")?.title).toBe("Full primary Card summary");
+    expect(focused.getSnapshot().databaseView?.databaseViewId).toBe("view-focused");
     expect(focused.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe(
       "Focused query row",
     );
     expect(focused.getSnapshot().board).not.toBe(null);
-    expect(
-      calls.filter((call) => call.startsWith("database:view-window:get")).length,
-    ).toBe(2);
+    expect(calls.filter((call) => call.startsWith("database:view-window:get")).length).toBe(2);
     const callsBeforeFreshEnsure = calls.length;
     await focused.ensureFreshBoard();
     expect(calls.length).toBe(callsBeforeFreshEnsure);
@@ -944,9 +916,7 @@ describe("board store", () => {
       readViewWindow: async () => {
         readCount += 1;
         return createBoardSnapshot(
-          createBoard(
-            readCount === 1 ? "Before Document edit" : "After Document edit",
-          ),
+          createBoard(readCount === 1 ? "Before Document edit" : "After Document edit"),
           readCount === 1 ? 1 : 9,
           "view-focused",
           false,
@@ -963,11 +933,7 @@ describe("board store", () => {
       "Before Document edit",
     );
 
-    projection.publish(pageChanged(
-      9,
-      "card-filtered-out-before-title-change",
-      "view-focused",
-    ));
+    projection.publish(pageChanged(9, "card-filtered-out-before-title-change", "view-focused"));
     await waitForMicrotasks();
 
     expect(readCount).toBe(2);
@@ -982,9 +948,7 @@ describe("board store", () => {
     const readFloors: number[] = [];
     const registry = createTestRegistry({
       readViewWindow: async (_projectId, input) => {
-        const floor = input.minimumCommitCursor?.commitSeq
-          ?? input.minimumCommitSeq
-          ?? 1;
+        const floor = input.minimumCommitCursor?.commitSeq ?? input.minimumCommitSeq ?? 1;
         readFloors.push(floor);
         return createBoardSnapshot(
           createBoard(`Revision ${floor}`),
@@ -1005,17 +969,13 @@ describe("board store", () => {
     await waitForMicrotasks();
 
     expect(readFloors).toContain(2);
-    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
-      "Revision 2",
-    );
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Revision 2");
 
     projection.publish(pageChanged(3, "card-1", "view-focused"));
     await waitForProjectionRepair();
 
     expect(readFloors).toContain(3);
-    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
-      "Revision 3",
-    );
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Revision 3");
     unsubscribe();
   });
 
@@ -1027,13 +987,7 @@ describe("board store", () => {
       readViewWindow: async () => {
         readCount += 1;
         if (readCount === 1) return await firstRead.promise;
-        return createBoardSnapshot(
-          createBoard("Latest head"),
-          10,
-          "view-focused",
-          false,
-          10,
-        );
+        return createBoardSnapshot(createBoard("Latest head"), 10, "view-focused", false, 10);
       },
       subscribeBoardChanges: () => () => {},
       getProjectionInvalidationRegistry: projection.getRegistry,
@@ -1042,19 +996,14 @@ describe("board store", () => {
     const unsubscribe = store.subscribe(() => {});
 
     projection.publish(pageChanged(10, "card-1", "view-focused"));
-    firstRead.resolve(createBoardSnapshot(
-      createBoard("Stale in-flight head"),
-      1,
-      "view-focused",
-      false,
-    ));
+    firstRead.resolve(
+      createBoardSnapshot(createBoard("Stale in-flight head"), 1, "view-focused", false),
+    );
     await waitForMicrotasks();
     await waitForMicrotasks();
 
     expect(readCount).toBe(2);
-    expect(store.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe(
-      "Latest head",
-    );
+    expect(store.getSnapshot().databaseView?.columns[0]?.rows[0]?.title).toBe("Latest head");
     unsubscribe();
   });
 
@@ -1185,12 +1134,13 @@ describe("board store", () => {
     let activeReads = 0;
     let maxActiveReads = 0;
     const registry = createTestRegistry({
-      readViewGroups: async () => createGroupsSnapshot({
-        grouped: true,
-        totalRows: groups.length,
-        totalGroups: groups.length,
-        groups,
-      }),
+      readViewGroups: async () =>
+        createGroupsSnapshot({
+          grouped: true,
+          totalRows: groups.length,
+          totalGroups: groups.length,
+          groups,
+        }),
       readViewWindow: async () => {
         windowReads += 1;
         activeReads += 1;
@@ -1236,13 +1186,7 @@ describe("board store", () => {
       },
       readViewWindow: async () => {
         windowReads += 1;
-        return createBoardSnapshot(
-          createBoard("Consistent head"),
-          2,
-          "view-primary",
-          true,
-          2,
-        );
+        return createBoardSnapshot(createBoard("Consistent head"), 2, "view-primary", true, 2);
       },
       subscribeBoardChanges: () => () => {},
     });
@@ -1252,9 +1196,7 @@ describe("board store", () => {
 
     expect(groupReads).toBe(2);
     expect(windowReads).toBe(2);
-    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
-      "Consistent head",
-    );
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Consistent head");
   });
 
   test("appends a real continuation window without duplicating loaded rows", async () => {
@@ -1295,10 +1237,7 @@ describe("board store", () => {
         minimumCommitCursor: { storeEpoch: "epoch-1", commitSeq: 1 },
       },
     ]);
-    expect([...store.getSnapshot().pageIndex.keys()]).toEqual([
-      "card-1",
-      "card-2",
-    ]);
+    expect([...store.getSnapshot().pageIndex.keys()]).toEqual(["card-1", "card-2"]);
     expect(store.getSnapshot().hasMore).toBe(false);
   });
 
@@ -1381,14 +1320,15 @@ describe("board store", () => {
     });
     const requests: Array<{ groupScope?: unknown; after?: string; first?: number }> = [];
     const registry = createTestRegistry({
-      readViewGroups: async () => createGroupsSnapshot({
-        grouped: true,
-        totalRows: 4,
-        groups: [
-          { groupKey: "ship", subgroupKey: null, totalRows: 1 },
-          { groupKey: "triage", subgroupKey: null, totalRows: 3 },
-        ],
-      }),
+      readViewGroups: async () =>
+        createGroupsSnapshot({
+          grouped: true,
+          totalRows: 4,
+          groups: [
+            { groupKey: "ship", subgroupKey: null, totalRows: 1 },
+            { groupKey: "triage", subgroupKey: null, totalRows: 3 },
+          ],
+        }),
       readViewWindow: async (_projectId, request) => {
         requests.push(request);
         const key = request.groupScope?.groupKey ?? "unassigned";
@@ -1437,17 +1377,16 @@ describe("board store", () => {
       "triage-1",
       "triage-2",
     ]);
-    expect(
-      store.getSnapshot().groupPagination.get(triageScopeKey)?.hasMore,
-    ).toBe(false);
+    expect(store.getSnapshot().groupPagination.get(triageScopeKey)?.hasMore).toBe(false);
   });
 
   test("a refresh re-reads the loaded span instead of resetting to one window", async () => {
-    const cards = (count: number) => Array.from({ length: count }, (_, index) => ({
-      ...createPageSummary(`Card ${index}`),
-      id: `card-${index}`,
-      order: index,
-    }));
+    const cards = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        ...createPageSummary(`Card ${index}`),
+        id: `card-${index}`,
+        order: index,
+      }));
     const windowOf = (
       loaded: DatabasePageSummary[],
       nextCursor: string | null,
@@ -1793,9 +1732,7 @@ describe("board store", () => {
       { storeEpoch: "epoch-1", commitSeq: 7 },
     );
 
-    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
-      "Newer title",
-    );
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Newer title");
   });
 
   test("shows a newly promoted Page in the loaded Board before projection refresh", async () => {
@@ -1816,9 +1753,7 @@ describe("board store", () => {
     );
 
     const snapshot = store.getSnapshot();
-    expect(snapshot.pageIndex.get("page-promoted")?.title).toBe(
-      "Promoted title",
-    );
+    expect(snapshot.pageIndex.get("page-promoted")?.title).toBe("Promoted title");
     expect(
       snapshot.board?.columns
         .find((column) => column.id === "triage")
@@ -1850,21 +1785,28 @@ describe("board store", () => {
 
     projection.publish(pageUpserted(2, promoted));
 
-    expect(store.getSnapshot().pageIndex.get("page-promoted")?.title).toBe(
-      "Promoted immediately",
-    );
+    expect(store.getSnapshot().pageIndex.get("page-promoted")?.title).toBe("Promoted immediately");
     expect(
-      store.getSnapshot().databaseView?.columns
-        .flatMap((column) => column.rows)
+      store
+        .getSnapshot()
+        .databaseView?.columns.flatMap((column) => column.rows)
         .some((row) => row.pageId === "page-promoted"),
     ).toBe(true);
     await waitForProjectionRepair();
     expect(readCount).toBe(2);
-    delayedRepair.resolve(createBoardSnapshot({
-      columns: createBoard().columns.map((column) => column.id === "triage"
-        ? { ...column, cards: [...column.cards, promoted] }
-        : column),
-    }, 2, "view-primary", true, 2));
+    delayedRepair.resolve(
+      createBoardSnapshot(
+        {
+          columns: createBoard().columns.map((column) =>
+            column.id === "triage" ? { ...column, cards: [...column.cards, promoted] } : column,
+          ),
+        },
+        2,
+        "view-primary",
+        true,
+        2,
+      ),
+    );
     await waitForMicrotasks();
     release();
   });
@@ -1910,11 +1852,13 @@ describe("board store", () => {
     });
     const store = registry.getStore("project-1");
     store.setPresentationOverride({
-      sort: [{
-        field: { kind: "property", propertyId: "priority" },
-        direction: "asc",
-        nulls: "last",
-      }],
+      sort: [
+        {
+          field: { kind: "property", propertyId: "priority" },
+          direction: "asc",
+          nulls: "last",
+        },
+      ],
     });
     const release = store.subscribe(() => {});
     await waitForMicrotasks();
@@ -1927,11 +1871,13 @@ describe("board store", () => {
     projection.publish(pageUpserted(2, updated, "z"));
     await waitForMicrotasks();
 
-    expect(store.getSnapshot().databaseView?.query.rows.map((row) =>
-      row.page.pageId
-    )).toEqual(["card-2", "card-1"]);
-    expect(store.getSnapshot().databaseView?.query.rows[0]?.page.title)
-      .toBe("Updated without manual reorder");
+    expect(store.getSnapshot().databaseView?.query.rows.map((row) => row.page.pageId)).toEqual([
+      "card-2",
+      "card-1",
+    ]);
+    expect(store.getSnapshot().databaseView?.query.rows[0]?.page.title).toBe(
+      "Updated without manual reorder",
+    );
 
     repair.resolve({
       ...propertySorted,
@@ -1978,7 +1924,12 @@ describe("board store", () => {
     const pendingMutation = store.runOptimisticMutation({
       kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "Updated title" }),
-      apply: buildPatchPageTransform("triage", "card-1", { title: "Updated title" }, { bumpRevision: true }),
+      apply: buildPatchPageTransform(
+        "triage",
+        "card-1",
+        { title: "Updated title" },
+        { bumpRevision: true },
+      ),
       runRemote: async () => deferred.promise,
     });
 
@@ -2008,7 +1959,7 @@ describe("board store", () => {
     await store.fetchBoard();
     const reorder = (model: NonNullable<ReturnType<typeof store.getSnapshot>["databaseView"]>) => {
       const rows = [...model.query.rows].sort((left, right) =>
-        left.page.pageId === "card-2" ? -1 : right.page.pageId === "card-2" ? 1 : 0
+        left.page.pageId === "card-2" ? -1 : right.page.pageId === "card-2" ? 1 : 0,
       );
       if (rows.every((row, index) => row === model.query.rows[index])) return model;
       return { ...model, query: { ...model.query, rows } };
@@ -2028,8 +1979,8 @@ describe("board store", () => {
       },
       getCommitCursor: (receipt) => receipt,
     });
-    const visibleOrder = () => store.getSnapshot().databaseView?.query.rows
-      .map((row) => row.page.pageId);
+    const visibleOrder = () =>
+      store.getSnapshot().databaseView?.query.rows.map((row) => row.page.pageId);
     expect(visibleOrder()).toEqual(["card-2", "card-1"]);
 
     remote.resolve({ storeEpoch: "epoch-1", commitSeq: 2 });
@@ -2152,19 +2103,29 @@ describe("board store", () => {
         return result;
       },
     });
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe(
+      "Created",
+    );
 
     const updateMutation = store.runOptimisticMutation({
       kind: "page:update",
-      conflictKeys: conflictKeysForPatch("018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
-      apply: buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
+      conflictKeys: conflictKeysForPatch("018f0f85-6d56-7625-bdea-000000000000", {
+        title: "Created edited",
+      }),
+      apply: buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", {
+        title: "Created edited",
+      }),
       runRemote: async () => {
         const result = await updateRemoteDeferred.promise;
-        serverBoard = buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" })(serverBoard);
+        serverBoard = buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", {
+          title: "Created edited",
+        })(serverBoard);
         return result;
       },
     });
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe(
+      "Created edited",
+    );
 
     const moveMutation = store.runOptimisticMutation({
       kind: "page:move",
@@ -2189,22 +2150,36 @@ describe("board store", () => {
       },
     });
 
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
+    expect(
+      store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId,
+    ).toBe("ship");
 
     createRemoteDeferred.resolve({ id: "018f0f85-6d56-7625-bdea-000000000000" });
     await createMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(
+      store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId,
+    ).toBe("ship");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe(
+      "Created edited",
+    );
 
     updateRemoteDeferred.resolve({ ok: true });
     await updateMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(
+      store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId,
+    ).toBe("ship");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe(
+      "Created edited",
+    );
 
     moveRemoteDeferred.resolve({ ok: true });
     await moveMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(
+      store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId,
+    ).toBe("ship");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe(
+      "Created edited",
+    );
   });
 
   test("converges a pending create when its canonical projection arrives first", async () => {
@@ -2240,25 +2215,31 @@ describe("board store", () => {
       refreshOnSuccess: false,
     });
     expect(
-      store.getSnapshot().board?.columns.flatMap((column) => column.cards)
+      store
+        .getSnapshot()
+        .board?.columns.flatMap((column) => column.cards)
         .filter((card) => card.id === pageId),
     ).toHaveLength(1);
 
     projection.publish(pageUpserted(2, canonicalCard));
     await waitForMicrotasks();
 
-    const pendingOccurrences = store.getSnapshot().board?.columns
-      .flatMap((column) => column.cards)
-      .filter((card) => card.id === pageId) ?? [];
+    const pendingOccurrences =
+      store
+        .getSnapshot()
+        .board?.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === pageId) ?? [];
     expect(pendingOccurrences).toEqual([canonicalCard]);
     expect(store.getSnapshot().pendingMutationCount).toBe(1);
 
     store.applyLocalPatch("triage", pageId, {
       title: "Edited while create is pending",
     });
-    const editedOccurrences = store.getSnapshot().board?.columns
-      .flatMap((column) => column.cards)
-      .filter((card) => card.id === pageId) ?? [];
+    const editedOccurrences =
+      store
+        .getSnapshot()
+        .board?.columns.flatMap((column) => column.cards)
+        .filter((card) => card.id === pageId) ?? [];
     expect(editedOccurrences).toHaveLength(1);
     expect(editedOccurrences[0]?.title).toBe("Edited while create is pending");
 
@@ -2266,7 +2247,9 @@ describe("board store", () => {
     await mutation;
 
     const settledOccurrences =
-      store.getSnapshot().board?.columns.flatMap((column) => column.cards)
+      store
+        .getSnapshot()
+        .board?.columns.flatMap((column) => column.cards)
         .filter((card) => card.id === pageId) ?? [];
     expect(settledOccurrences).toHaveLength(1);
     expect(settledOccurrences[0]?.title).toBe("Edited while create is pending");
@@ -2298,18 +2281,25 @@ describe("board store", () => {
     if (!existingCard) throw new Error("Existing card fixture is missing");
     const canonicalBoard: BoardSummary = {
       ...initialBoard,
-      columns: initialBoard.columns.map((column) => column.id === "triage"
-        ? {
-            ...column,
-            cards: [canonicalCard, { ...existingCard, order: 1 }],
-          }
-        : column),
+      columns: initialBoard.columns.map((column) =>
+        column.id === "triage"
+          ? {
+              ...column,
+              cards: [canonicalCard, { ...existingCard, order: 1 }],
+            }
+          : column,
+      ),
     };
     const repairedSnapshot = {
       ...createBoardSnapshot(canonicalBoard, 2, "view-primary", true, 2),
       rows: [
         { page: canonicalCard, groupKey: "triage", subgroupKey: null, rankKey: "0" },
-        { page: { ...existingCard, order: 1 }, groupKey: "triage", subgroupKey: null, rankKey: "a" },
+        {
+          page: { ...existingCard, order: 1 },
+          groupKey: "triage",
+          subgroupKey: null,
+          rankKey: "a",
+        },
       ],
     } satisfies DatabaseViewWindowSnapshot;
     let readCount = 0;
@@ -2325,9 +2315,11 @@ describe("board store", () => {
     const store = registry.getStore("project-1");
     const visibleRuns: string[][] = [];
     const unsubscribe = store.subscribe(() => {
-      const ids = store.getSnapshot().board?.columns
-        .find((column) => column.id === "triage")
-        ?.cards.map((card) => card.id) ?? [];
+      const ids =
+        store
+          .getSnapshot()
+          .board?.columns.find((column) => column.id === "triage")
+          ?.cards.map((card) => card.id) ?? [];
       if (ids.includes(pageId)) visibleRuns.push(ids);
     });
     await waitForMicrotasks();
@@ -2363,13 +2355,8 @@ describe("board store", () => {
     let canonicalBoard = createBoard();
     let commitSeq = 1;
     const registry = createTestRegistry({
-      readViewWindow: async () => createBoardSnapshot(
-        cloneBoard(canonicalBoard),
-        commitSeq,
-        "view-primary",
-        true,
-        commitSeq,
-      ),
+      readViewWindow: async () =>
+        createBoardSnapshot(cloneBoard(canonicalBoard), commitSeq, "view-primary", true, commitSeq),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -2388,9 +2375,7 @@ describe("board store", () => {
     commitSeq = 2;
     await mutation;
 
-    expect(store.getSnapshot().pageIndex.get(pageId)?.title).toBe(
-      "Outside loaded window",
-    );
+    expect(store.getSnapshot().pageIndex.get(pageId)?.title).toBe("Outside loaded window");
     expect(store.getSnapshot().pendingMutationCount).toBe(0);
 
     const canonicalCard = { ...optimisticCard, order: 1, revision: 1 };
@@ -2445,13 +2430,7 @@ describe("board store", () => {
     await waitForMicrotasks();
 
     expect(store.getSnapshot().pageIndex.has(pageId)).toBe(true);
-    repair.resolve(createBoardSnapshot(
-      createBoard(),
-      2,
-      "view-primary",
-      true,
-      2,
-    ));
+    repair.resolve(createBoardSnapshot(createBoard(), 2, "view-primary", true, 2));
     await mutation;
 
     expect(store.getSnapshot().pageIndex.has(pageId)).toBe(true);
@@ -2509,13 +2488,8 @@ describe("board store", () => {
     };
     let commitSeq = 1;
     const registry = createTestRegistry({
-      readViewWindow: async () => createBoardSnapshot(
-        cloneBoard(canonicalBoard),
-        commitSeq,
-        "view-primary",
-        true,
-        commitSeq,
-      ),
+      readViewWindow: async () =>
+        createBoardSnapshot(cloneBoard(canonicalBoard), commitSeq, "view-primary", true, commitSeq),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -2533,8 +2507,7 @@ describe("board store", () => {
         cursor: { storeEpoch: "epoch-1", commitSeq: 2 },
       }),
       getCommitCursor: (result) => result.cursor,
-      isCommitMaterialized: (board) =>
-        boardContainsPageIds(board, [moveInput.pageId]),
+      isCommitMaterialized: (board) => boardContainsPageIds(board, [moveInput.pageId]),
     });
     commitSeq = 2;
     await mutation;
@@ -2616,17 +2589,18 @@ describe("board store", () => {
           storeEpoch,
         };
       },
-      readViewGroups: async () => createGroupsSnapshot({
-        storeEpoch,
-        commitSeq,
-        projection: {
-          scopeKey: "scope:view-primary",
-          schemaVersion: 1,
-          revision: commitSeq,
-          coveredCommitSeq: commitSeq,
-          effectHash: String(commitSeq).padStart(64, "a").slice(-64),
-        },
-      }),
+      readViewGroups: async () =>
+        createGroupsSnapshot({
+          storeEpoch,
+          commitSeq,
+          projection: {
+            scopeKey: "scope:view-primary",
+            schemaVersion: 1,
+            revision: commitSeq,
+            coveredCommitSeq: commitSeq,
+            effectHash: String(commitSeq).padStart(64, "a").slice(-64),
+          },
+        }),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -2646,10 +2620,13 @@ describe("board store", () => {
       isCommitMaterialized: (board) => boardContainsPageIds(board, [pageId]),
     });
 
-    expect(windowInputs.some((input) => (
-      input.minimumCommitCursor?.storeEpoch === "epoch:old"
-      && input.minimumCommitCursor.commitSeq === 101
-    ))).toBe(true);
+    expect(
+      windowInputs.some(
+        (input) =>
+          input.minimumCommitCursor?.storeEpoch === "epoch:old" &&
+          input.minimumCommitCursor.commitSeq === 101,
+      ),
+    ).toBe(true);
     expect(outcome.superseded).toBe(true);
     expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("New Store");
@@ -2668,10 +2645,11 @@ describe("board store", () => {
     };
     const registry = createTestRegistry({
       readViewWindow: async () => replacement,
-      readViewGroups: async () => createGroupsSnapshot({
-        storeEpoch: "epoch:new",
-        commitSeq: 1,
-      }),
+      readViewGroups: async () =>
+        createGroupsSnapshot({
+          storeEpoch: "epoch:new",
+          commitSeq: 1,
+        }),
       subscribeBoardChanges: () => () => {},
     });
     const store = registry.getStore("default");
@@ -2690,9 +2668,7 @@ describe("board store", () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.superseded).toBe(true);
     expect(store.getSnapshot().pageIndex.has(pageId)).toBe(false);
-    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe(
-      "Replacement Store",
-    );
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Replacement Store");
   });
 
   test("keeps an acknowledged move visible until canonical base converges", async () => {
@@ -2703,9 +2679,7 @@ describe("board store", () => {
       toStatus: "ship" as const,
       newOrder: 0,
     };
-    const canonicalBoard = buildMovePageTransform(moveInput)(
-      cloneBoard(initialBoard),
-    );
+    const canonicalBoard = buildMovePageTransform(moveInput)(cloneBoard(initialBoard));
     const remote = createDeferred<{ ok: true }>();
     const canonicalRefresh = createDeferred<DatabaseViewWindowSnapshot>();
     let readCount = 0;
@@ -2764,9 +2738,7 @@ describe("board store", () => {
       status: "triage",
       order: 0,
     });
-    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe(
-      "triage",
-    );
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("triage");
     unsubscribe();
   });
 
@@ -2817,13 +2789,7 @@ describe("board store", () => {
     expect(readCount).toBe(2);
     expect(secondRemoteStarted).toBe(false);
 
-    firstRefresh.resolve(createBoardSnapshot(
-      createBoard(),
-      2,
-      "view-primary",
-      true,
-      2,
-    ));
+    firstRefresh.resolve(createBoardSnapshot(createBoard(), 2, "view-primary", true, 2));
     await first;
     await second;
 
@@ -2935,9 +2901,7 @@ describe("board store", () => {
       toStatus: "ship" as const,
       newOrder: 0,
     };
-    const canonicalBoard = buildMovePageTransform(moveInput)(
-      cloneBoard(initialBoard),
-    );
+    const canonicalBoard = buildMovePageTransform(moveInput)(cloneBoard(initialBoard));
     const canonicalCard = canonicalBoard.columns[1]?.cards[0];
     if (!canonicalCard) throw new Error("Canonical moved Page fixture is missing");
     const remote = createDeferred<{ ok: true }>();
@@ -2970,9 +2934,7 @@ describe("board store", () => {
       status: "triage",
       order: 0,
     });
-    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe(
-      "triage",
-    );
+    expect(store.getSnapshot().pageIndex.get("card-1")?.columnId).toBe("triage");
   });
 
   test("failed delete rolls back automatically", async () => {
@@ -3007,16 +2969,8 @@ describe("board store", () => {
     const registry = createTestRegistry({
       readViewWindow: async (_projectId, input) => {
         boardFetchCount += 1;
-        const revision = input.minimumCommitCursor?.commitSeq
-          ?? input.minimumCommitSeq
-          ?? 1;
-        return createBoardSnapshot(
-          board,
-          revision,
-          "view-primary",
-          true,
-          revision,
-        );
+        const revision = input.minimumCommitCursor?.commitSeq ?? input.minimumCommitSeq ?? 1;
+        return createBoardSnapshot(board, revision, "view-primary", true, revision);
       },
       subscribeBoardChanges: (_projectId, callback) => {
         callbacks.onBoardChange = callback;
@@ -3107,13 +3061,19 @@ describe("board store", () => {
         readCount += 1;
         if (readCount === 1) return createBoardSnapshot(createBoard(), 1);
         if (readCount === 2) return await staleRead.promise;
-        return createBoardSnapshot({
-          ...createBoard(),
-          columns: createBoard().columns.map((column) => ({
-            ...column,
-            cards: column.cards.filter((card) => card.id !== "card-1"),
-          })),
-        }, 2, "view-primary", true, 2);
+        return createBoardSnapshot(
+          {
+            ...createBoard(),
+            columns: createBoard().columns.map((column) => ({
+              ...column,
+              cards: column.cards.filter((card) => card.id !== "card-1"),
+            })),
+          },
+          2,
+          "view-primary",
+          true,
+          2,
+        );
       },
       subscribeBoardChanges: () => () => {},
       getProjectionInvalidationRegistry: projection.getRegistry,
@@ -3239,11 +3199,12 @@ describe("board store", () => {
 
   test("evicts the least-recent inactive Board after the retained capacity", async () => {
     const registry = createTestRegistry({
-      readViewWindow: async (_projectId, input) => createBoardSnapshot(
-        createBoard(input.databaseViewId ?? "primary"),
-        1,
-        input.databaseViewId ?? "view-primary",
-      ),
+      readViewWindow: async (_projectId, input) =>
+        createBoardSnapshot(
+          createBoard(input.databaseViewId ?? "primary"),
+          1,
+          input.databaseViewId ?? "view-primary",
+        ),
       subscribeBoardChanges: () => () => {},
     });
     let firstStore: ReturnType<typeof registry.getStore> | null = null;
@@ -3329,12 +3290,16 @@ describe("board store", () => {
     store.applyLocalPatch("triage", "card-1", { title: "Local title" });
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Local title");
 
-    serverBoard = buildPatchPageTransform("triage", "card-1", { title: "Local title" })(serverBoard);
+    serverBoard = buildPatchPageTransform("triage", "card-1", { title: "Local title" })(
+      serverBoard,
+    );
     await store.refreshBoard();
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Local title");
 
     // If local overlay was not collected, this server update would be masked.
-    serverBoard = buildPatchPageTransform("triage", "card-1", { title: "Server next" })(serverBoard);
+    serverBoard = buildPatchPageTransform("triage", "card-1", { title: "Server next" })(
+      serverBoard,
+    );
     await store.refreshBoard();
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Server next");
   });
@@ -3366,15 +3331,23 @@ describe("board store", () => {
       },
     });
 
-    store.applyLocalPatch("triage", "018f0f85-6d56-7625-bdea-000000000001", { title: "Edited while pending" });
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
+    store.applyLocalPatch("triage", "018f0f85-6d56-7625-bdea-000000000001", {
+      title: "Edited while pending",
+    });
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe(
+      "Edited while pending",
+    );
 
     // Re-fetch while create is still pending: patch must not be dropped.
     await store.refreshBoard();
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe(
+      "Edited while pending",
+    );
 
     createRemoteDeferred.resolve({ id: "018f0f85-6d56-7625-bdea-000000000001" });
     await createMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe(
+      "Edited while pending",
+    );
   });
 });

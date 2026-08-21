@@ -17,9 +17,7 @@ export function recordReviewRuntimeEvent(event: ReviewRuntimeProbeEvent): void {
 }
 
 /** Test/development seam. Production leaves the probe unset and pays one null check. */
-export function installReviewRuntimeProbe(
-  probe: ReviewRuntimeProbe,
-): () => void {
+export function installReviewRuntimeProbe(probe: ReviewRuntimeProbe): () => void {
   activeProbe = probe;
   return () => {
     if (activeProbe === probe) activeProbe = null;

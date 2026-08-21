@@ -12,13 +12,12 @@ export type CoreDatabaseViewPresentationOverride = Extract<
 const toCoreViewField = (
   field: DatabaseViewField,
 ): Extract<
-  NonNullable<
-    NonNullable<CoreDatabaseViewPresentationOverride["layouts"]>["board"]
-  >["fields"],
+  NonNullable<NonNullable<CoreDatabaseViewPresentationOverride["layouts"]>["board"]>["fields"],
   readonly unknown[]
->[number] => field.kind === "property"
-  ? { kind: "property", property_id: field.propertyId }
-  : { kind: "intrinsic", field: field.field };
+>[number] =>
+  field.kind === "property"
+    ? { kind: "property", property_id: field.propertyId }
+    : { kind: "intrinsic", field: field.field };
 
 export const toCoreDatabaseViewPresentationOverride = (
   override: DatabaseViewPresentationOverride,
@@ -28,9 +27,10 @@ export const toCoreDatabaseViewPresentationOverride = (
     ? {}
     : {
         sort: override.sort.map((rule) => ({
-          field: rule.field.kind === "property"
-            ? { kind: "property" as const, property_id: rule.field.propertyId }
-            : { kind: rule.field.kind },
+          field:
+            rule.field.kind === "property"
+              ? { kind: "property" as const, property_id: rule.field.propertyId }
+              : { kind: rule.field.kind },
           direction: rule.direction,
           nulls: rule.nulls,
         })),
@@ -38,27 +38,25 @@ export const toCoreDatabaseViewPresentationOverride = (
   ...(override.group === undefined
     ? {}
     : {
-        group: override.group === null
-          ? { kind: "none" as const }
-          : { kind: "property" as const, property_id: override.group.propertyId },
+        group:
+          override.group === null
+            ? { kind: "none" as const }
+            : { kind: "property" as const, property_id: override.group.propertyId },
       }),
   ...(override.subgroup === undefined
     ? {}
     : {
-        subgroup: override.subgroup === null
-          ? { kind: "none" as const }
-          : { kind: "property" as const, property_id: override.subgroup.propertyId },
+        subgroup:
+          override.subgroup === null
+            ? { kind: "none" as const }
+            : { kind: "property" as const, property_id: override.subgroup.propertyId },
       }),
-  ...(override.groupDirection === undefined
-    ? {}
-    : { group_direction: override.groupDirection }),
+  ...(override.groupDirection === undefined ? {} : { group_direction: override.groupDirection }),
   ...(override.completion === undefined
     ? {}
     : {
         completion: {
-          ...(override.completion.range === undefined
-            ? {}
-            : { range: override.completion.range }),
+          ...(override.completion.range === undefined ? {} : { range: override.completion.range }),
           ...(override.completion.orderByRecency === undefined
             ? {}
             : { order_by_recency: override.completion.orderByRecency }),
@@ -104,16 +102,15 @@ export const toCoreDatabaseViewPresentationOverride = (
 
 const fromCoreViewField = (
   field: NonNullable<
-    NonNullable<
-      NonNullable<CoreDatabaseViewPresentationOverride["layouts"]>["board"]
-    >["fields"]
+    NonNullable<NonNullable<CoreDatabaseViewPresentationOverride["layouts"]>["board"]>["fields"]
   >[number],
-): DatabaseViewField => field.kind === "property"
-  ? { kind: "property", propertyId: field.property_id }
-  : {
-      kind: "intrinsic",
-      field: field.field,
-    };
+): DatabaseViewField =>
+  field.kind === "property"
+    ? { kind: "property", propertyId: field.property_id }
+    : {
+        kind: "intrinsic",
+        field: field.field,
+      };
 
 export const fromCoreDatabaseViewPresentationOverride = (
   override: CoreDatabaseViewPresentationOverride,
@@ -123,9 +120,10 @@ export const fromCoreDatabaseViewPresentationOverride = (
     ? {}
     : {
         sort: override.sort.map((rule) => ({
-          field: rule.field.kind === "property"
-            ? { kind: "property" as const, propertyId: rule.field.property_id }
-            : { kind: rule.field.kind },
+          field:
+            rule.field.kind === "property"
+              ? { kind: "property" as const, propertyId: rule.field.property_id }
+              : { kind: rule.field.kind },
           direction: rule.direction,
           nulls: rule.nulls,
         })),
@@ -133,27 +131,20 @@ export const fromCoreDatabaseViewPresentationOverride = (
   ...(override.group == null
     ? {}
     : {
-        group: override.group.kind === "none"
-          ? null
-          : { propertyId: override.group.property_id },
+        group: override.group.kind === "none" ? null : { propertyId: override.group.property_id },
       }),
   ...(override.subgroup == null
     ? {}
     : {
-        subgroup: override.subgroup.kind === "none"
-          ? null
-          : { propertyId: override.subgroup.property_id },
+        subgroup:
+          override.subgroup.kind === "none" ? null : { propertyId: override.subgroup.property_id },
       }),
-  ...(override.group_direction == null
-    ? {}
-    : { groupDirection: override.group_direction }),
+  ...(override.group_direction == null ? {} : { groupDirection: override.group_direction }),
   ...(override.completion == null
     ? {}
     : {
         completion: {
-          ...(override.completion.range == null
-            ? {}
-            : { range: override.completion.range }),
+          ...(override.completion.range == null ? {} : { range: override.completion.range }),
           ...(override.completion.order_by_recency == null
             ? {}
             : { orderByRecency: override.completion.order_by_recency }),
@@ -182,9 +173,7 @@ export const fromCoreDatabaseViewPresentationOverride = (
           return {
             ...layouts,
             [layout]: {
-              ...(display.fields == null
-                ? {}
-                : { fields: display.fields.map(fromCoreViewField) }),
+              ...(display.fields == null ? {} : { fields: display.fields.map(fromCoreViewField) }),
               ...(display.show_empty_groups == null
                 ? {}
                 : { showEmptyGroups: display.show_empty_groups }),

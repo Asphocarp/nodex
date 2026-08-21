@@ -10,7 +10,9 @@ import {
 } from "./codex-owner-follower-replication";
 import { buildCodexConversationStateUpdates } from "./codex-conversation-patches";
 
-function conversation(overrides: Partial<CodexConversationSnapshot> = {}): CodexConversationSnapshot {
+function conversation(
+  overrides: Partial<CodexConversationSnapshot> = {},
+): CodexConversationSnapshot {
   return {
     threadId: "thread-1",
     projectId: "project-1",
@@ -81,11 +83,13 @@ describe("owner/follower canonical checkpoints", () => {
     const base = conversation({
       canonicalState: {
         protocol: { id: "thread-1" },
-        turns: [{
-          protocol: { id: "turn-1" },
-          items: [{ id: "patch-1", changes: [] }],
-          sidecar: { lifecycleStatusByItemId: { "patch-1": "inProgress" } },
-        }],
+        turns: [
+          {
+            protocol: { id: "turn-1" },
+            items: [{ id: "patch-1", changes: [] }],
+            sidecar: { lifecycleStatusByItemId: { "patch-1": "inProgress" } },
+          },
+        ],
       } as never,
       hasUnreadTurn: false,
       unreadMessageCount: 0,
@@ -95,11 +99,13 @@ describe("owner/follower canonical checkpoints", () => {
       ...base,
       canonicalState: {
         ...(base.canonicalState as object),
-        turns: [{
-          protocol: { id: "turn-1" },
-          items: [{ id: "patch-1", changes: [] }],
-          sidecar: { lifecycleStatusByItemId: { "patch-1": "completed" } },
-        }],
+        turns: [
+          {
+            protocol: { id: "turn-1" },
+            items: [{ id: "patch-1", changes: [] }],
+            sidecar: { lifecycleStatusByItemId: { "patch-1": "completed" } },
+          },
+        ],
       } as never,
     };
 
@@ -137,20 +143,22 @@ describe("owner/follower canonical checkpoints", () => {
       conversation: document,
     });
 
-    expect(applyCodexThreadOwnerPublication({
-      current: null,
-      expectedOwnerEpoch: 1,
-      publication: {
-        conversationId: document.threadId,
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: document,
+    expect(
+      applyCodexThreadOwnerPublication({
+        current: null,
+        expectedOwnerEpoch: 1,
+        publication: {
+          conversationId: document.threadId,
+          change: {
+            type: "snapshot",
+            revision: 1,
+            conversationState: document,
+          },
+          baseCheckpoint: null,
+          checkpoint,
         },
-        baseCheckpoint: null,
-        checkpoint,
-      },
-    })).toEqual({
+      }),
+    ).toEqual({
       accepted: true,
       replica: { checkpoint, conversation: document },
     });
@@ -191,20 +199,24 @@ describe("owner/follower canonical checkpoints", () => {
     });
     if (!accepted.accepted) throw new Error("Expected accepted publication");
 
-    expect(applyCodexThreadOwnerPublication({
-      current: accepted.replica,
-      expectedOwnerEpoch: 2,
-      publication,
-    })).toMatchObject({ accepted: false, reason: "base-checkpoint-mismatch" });
-    expect(applyCodexThreadOwnerPublication({
-      current: accepted.replica,
-      expectedOwnerEpoch: 2,
-      publication: {
-        ...publication,
-        baseCheckpoint: nextCheckpoint,
-        checkpoint: { ...nextCheckpoint, revision: 10 },
-        change: { ...publication.change, baseRevision: 8, revision: 10 },
-      },
-    })).toMatchObject({ accepted: false, reason: "revision-gap" });
+    expect(
+      applyCodexThreadOwnerPublication({
+        current: accepted.replica,
+        expectedOwnerEpoch: 2,
+        publication,
+      }),
+    ).toMatchObject({ accepted: false, reason: "base-checkpoint-mismatch" });
+    expect(
+      applyCodexThreadOwnerPublication({
+        current: accepted.replica,
+        expectedOwnerEpoch: 2,
+        publication: {
+          ...publication,
+          baseCheckpoint: nextCheckpoint,
+          checkpoint: { ...nextCheckpoint, revision: 10 },
+          change: { ...publication.change, baseRevision: 8, revision: 10 },
+        },
+      }),
+    ).toMatchObject({ accepted: false, reason: "revision-gap" });
   });
 });

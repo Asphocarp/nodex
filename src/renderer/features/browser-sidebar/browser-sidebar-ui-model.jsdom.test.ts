@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import type { BrowserSidebarLocalServersSnapshot, BrowserSidebarViewport } from "../../../shared/browser-sidebar";
+import type {
+  BrowserSidebarLocalServersSnapshot,
+  BrowserSidebarViewport,
+} from "../../../shared/browser-sidebar";
 import {
   readBrowserAddressValue,
   resolveBrowserLocalServerSettings,
@@ -15,7 +18,9 @@ describe("browser-sidebar-ui-model", () => {
   test("formats address bar values like the Codex browser chrome", () => {
     expect(readBrowserAddressValue("about:blank")).toBe("");
     expect(readBrowserAddressValue("https://www.google.com/")).toBe("google.com");
-    expect(readBrowserAddressValue("https://localhost:5001/dashboard?tab=1")).toBe("localhost:5001/dashboard?tab=1");
+    expect(readBrowserAddressValue("https://localhost:5001/dashboard?tab=1")).toBe(
+      "localhost:5001/dashboard?tab=1",
+    );
   });
 
   test("commits address edits only for meaningful URL changes", () => {
@@ -95,8 +100,7 @@ describe("browser-sidebar-ui-model", () => {
   test("resolves custom zoom options and viewport math", () => {
     expect(resolveBrowserZoomOptions(115)).toContain(115);
     expect(resolveBrowserZoomOptions(100)).toEqual([
-      25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250,
-      300, 400, 500,
+      25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500,
     ]);
 
     const viewport: BrowserSidebarViewport = {
@@ -132,12 +136,14 @@ function makeServer(
     lastSeenAt,
     online,
     hidden,
-    routes: [{
-      id: `${origin}/`,
-      path: "/",
-      title: origin,
-      lastSeenAt,
-      hidden: false,
-    }],
+    routes: [
+      {
+        id: `${origin}/`,
+        path: "/",
+        title: origin,
+        lastSeenAt,
+        hidden: false,
+      },
+    ],
   };
 }

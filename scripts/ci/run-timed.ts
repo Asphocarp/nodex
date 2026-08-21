@@ -32,10 +32,7 @@ export interface RunTimedOptions {
   readonly now?: () => Date;
 }
 
-const readOption = (
-  args: readonly string[],
-  name: string,
-): string | undefined => {
+const readOption = (args: readonly string[], name: string): string | undefined => {
   const index = args.indexOf(name);
   if (index < 0) return undefined;
   const value = args[index + 1];
@@ -43,9 +40,7 @@ const readOption = (
   return value;
 };
 
-export const parseRunTimedArguments = (
-  args: readonly string[],
-): TimedCommandArguments => {
+export const parseRunTimedArguments = (args: readonly string[]): TimedCommandArguments => {
   const separator = args.indexOf("--");
   if (separator < 0) {
     throw new Error("Usage: run-timed --name <name> -- <command> [args...].");
@@ -88,18 +83,19 @@ const optionalPositiveInteger = (value: string | undefined): number | null => {
 
 const runChild = async (
   options: Pick<RunTimedOptions, "command" | "commandArguments" | "cwd" | "env">,
-): Promise<number> => await new Promise((resolve) => {
-  const child = spawn(options.command, [...options.commandArguments], {
-    cwd: options.cwd,
-    env: options.env,
-    stdio: "inherit",
+): Promise<number> =>
+  await new Promise((resolve) => {
+    const child = spawn(options.command, [...options.commandArguments], {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: "inherit",
+    });
+    child.once("error", (error) => {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      resolve(1);
+    });
+    child.once("close", (code) => resolve(code ?? 1));
   });
-  child.once("error", (error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    resolve(1);
-  });
-  child.once("close", (code) => resolve(code ?? 1));
-});
 
 const appendSummary = async (
   summaryPath: string | undefined,
@@ -124,9 +120,7 @@ const appendSummary = async (
   );
 };
 
-export const runTimedCommand = async (
-  options: RunTimedOptions,
-): Promise<TimedCommandRecord> => {
+export const runTimedCommand = async (options: RunTimedOptions): Promise<TimedCommandRecord> => {
   if (!options.name.trim()) throw new Error("Timed command name must not be empty.");
   const now = options.now ?? (() => new Date());
   const started = now();
@@ -144,14 +138,10 @@ export const runTimedCommand = async (
     durationMs: Math.max(0, finished.getTime() - started.getTime()),
     exitCode,
   };
-  const timingDirectory = options.timingDirectory
-    ?? path.resolve(process.cwd(), ".generated/ci-timings");
+  const timingDirectory =
+    options.timingDirectory ?? path.resolve(process.cwd(), ".generated/ci-timings");
   await mkdir(timingDirectory, { recursive: true });
-  const jobName = sanitizeJobName(
-    environment.CI_TIMING_JOB
-      ?? environment.GITHUB_JOB
-      ?? "local",
-  );
+  const jobName = sanitizeJobName(environment.CI_TIMING_JOB ?? environment.GITHUB_JOB ?? "local");
   await appendFile(
     path.join(timingDirectory, `${jobName}.jsonl`),
     `${JSON.stringify(record)}\n`,
@@ -173,7 +163,9 @@ const main = async (): Promise<void> => {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     process.exitCode = 1;
   });
 }

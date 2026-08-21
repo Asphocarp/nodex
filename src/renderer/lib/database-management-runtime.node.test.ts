@@ -42,60 +42,68 @@ const descriptor = (): DatabaseContainerDescriptorV2 => ({
     createdAt: timestamp,
     updatedAt: timestamp,
   },
-  dataSources: [{
-    dataSourceId,
-    libraryId,
-    homeDatabaseId: databaseId,
-    name: "Pages",
-    schemaKey: "nodex.pages",
-    schemaRevision: 1,
-    lifecycle: "active",
-    rankKey: "a",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }],
-  views: [{
-    viewId,
-    databaseId,
-    dataSourceId,
-    name: "Board",
-    defaultLayout: "board",
-    config: upgradeDatabaseViewConfigV2({
-      schemaKey: "nodex.database-view",
-      schemaVersion: 2,
-      filter: { kind: "group", operator: "and", children: [] },
-      sort: [{
-        field: { kind: "manual" },
-        direction: "asc",
-        nulls: "last",
-      }],
-      group: null,
-      display: { propertyIds: [], showTitle: true },
-    }),
-    isDefault: true,
-    revision: 1,
-    rankKey: "a",
-    lifecycle: "active",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }],
+  dataSources: [
+    {
+      dataSourceId,
+      libraryId,
+      homeDatabaseId: databaseId,
+      name: "Pages",
+      schemaKey: "nodex.pages",
+      schemaRevision: 1,
+      lifecycle: "active",
+      rankKey: "a",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ],
+  views: [
+    {
+      viewId,
+      databaseId,
+      dataSourceId,
+      name: "Board",
+      defaultLayout: "board",
+      config: upgradeDatabaseViewConfigV2({
+        schemaKey: "nodex.database-view",
+        schemaVersion: 2,
+        filter: { kind: "group", operator: "and", children: [] },
+        sort: [
+          {
+            field: { kind: "manual" },
+            direction: "asc",
+            nulls: "last",
+          },
+        ],
+        group: null,
+        display: { propertyIds: [], showTitle: true },
+      }),
+      isDefault: true,
+      revision: 1,
+      rankKey: "a",
+      lifecycle: "active",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ],
 });
 
 const source = (): DataSourceDescriptorV2 => ({
   dataSource: descriptor().dataSources[0]!,
-  properties: [{
-    propertyId: parseDataSourcePropertyId("status"),
-    dataSourceId,
-    name: "Status",
-    ...testPropertySemantics("select"),
-    valueType: "select",
-    config: {},
-    rankKey: "a",
-    lifecycle: "active",
-    revision: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }],
+  properties: [
+    {
+      propertyId: parseDataSourcePropertyId("status"),
+      dataSourceId,
+      name: "Status",
+      ...testPropertySemantics("select"),
+      valueType: "select",
+      config: {},
+      rankKey: "a",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ],
 });
 
 const snapshot = (
@@ -139,23 +147,24 @@ const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
   },
 });
 
-const readDependency = (
-  commitSeq = 5,
-): DatabaseManagementRuntimeDependencies["read"] => async (
-  _projectId,
-  request,
-) => request.read.mode === "database"
-  ? readResult({ kind: "database", value: descriptor() }, commitSeq)
-  : request.read.mode === "catalog_window"
-    ? readResult({
-        kind: "catalog_window",
-        value: {
-          databases: [descriptor()],
-          nextCursor: null,
-          projectionRevision: commitSeq,
-        },
-      }, commitSeq)
-    : readResult({ kind: "data_source", value: source() }, commitSeq);
+const readDependency =
+  (commitSeq = 5): DatabaseManagementRuntimeDependencies["read"] =>
+  async (_projectId, request) =>
+    request.read.mode === "database"
+      ? readResult({ kind: "database", value: descriptor() }, commitSeq)
+      : request.read.mode === "catalog_window"
+        ? readResult(
+            {
+              kind: "catalog_window",
+              value: {
+                databases: [descriptor()],
+                nextCursor: null,
+                projectionRevision: commitSeq,
+              },
+            },
+            commitSeq,
+          )
+        : readResult({ kind: "data_source", value: source() }, commitSeq);
 
 describe("canonical Database management runtime", () => {
   test("reads the authorized Database catalog and selected Data Source", async () => {
@@ -176,13 +185,15 @@ describe("canonical Database management runtime", () => {
     const authority = await commitDatabaseManagementOperations({
       projectId,
       operationId: "operation-1",
-      buildOperations: (current) => [{
-        kind: "delete_property",
-        dataSourceId: current.selectedDataSource.dataSourceId,
-        propertyId: parseDataSourcePropertyId("status"),
-        expectedDataSourceRevision: 1,
-        expectedPropertyRevision: 1,
-      }],
+      buildOperations: (current) => [
+        {
+          kind: "delete_property",
+          dataSourceId: current.selectedDataSource.dataSourceId,
+          propertyId: parseDataSourcePropertyId("status"),
+          expectedDataSourceRevision: 1,
+          expectedPropertyRevision: 1,
+        },
+      ],
       dependencies: {
         read: readDependency(),
         apply: async (_projectId, request) => {
@@ -200,26 +211,30 @@ describe("canonical Database management runtime", () => {
   });
 
   test("surfaces typed authorization failures", async () => {
-    await expect(commitDatabaseManagementOperations({
-      projectId,
-      operationId: "operation-denied",
-      buildOperations: () => [{
-        kind: "delete_view",
-        databaseId,
-        viewId,
-        expectedRevision: 1,
-      }],
-      dependencies: {
-        read: readDependency(),
-        apply: async () => ({
-          ok: false,
-          error: {
-            code: "authorization_denied",
-            message: "Manage Views denied",
-            retryable: false,
+    await expect(
+      commitDatabaseManagementOperations({
+        projectId,
+        operationId: "operation-denied",
+        buildOperations: () => [
+          {
+            kind: "delete_view",
+            databaseId,
+            viewId,
+            expectedRevision: 1,
           },
-        }),
-      },
-    })).rejects.toBeInstanceOf(DatabaseManagementMutationError);
+        ],
+        dependencies: {
+          read: readDependency(),
+          apply: async () => ({
+            ok: false,
+            error: {
+              code: "authorization_denied",
+              message: "Manage Views denied",
+              retryable: false,
+            },
+          }),
+        },
+      }),
+    ).rejects.toBeInstanceOf(DatabaseManagementMutationError);
   });
 });

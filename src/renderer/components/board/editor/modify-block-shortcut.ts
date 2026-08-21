@@ -53,7 +53,9 @@ function isModifiableBlock(block: ModifyShortcutBlock | undefined): boolean {
   return isToggleLikeBlock(block);
 }
 
-function resolveSelectedBlock(editor: ModifyShortcutEditor): ModifyShortcutBlock | null | undefined {
+function resolveSelectedBlock(
+  editor: ModifyShortcutEditor,
+): ModifyShortcutBlock | null | undefined {
   const selection = editor.getSelection?.();
   if (!selection) return undefined;
 

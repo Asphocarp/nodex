@@ -1,27 +1,17 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import {
-  Visitor,
-  type ImportDeclaration,
-  type JSXAttribute,
-  type Program,
-} from "oxc-parser";
-import {
-  parseTypeScriptSource,
-  sourcePosition,
-} from "../lib/oxc-source";
+import { Visitor, type ImportDeclaration, type JSXAttribute, type Program } from "oxc-parser";
+import { parseTypeScriptSource, sourcePosition } from "../lib/oxc-source";
 
 const projectRoot = resolve(import.meta.dirname, "../..");
 const rendererRoot = resolve(projectRoot, "src/renderer");
 const sharedIconRoot = resolve(rendererRoot, "components/shared/icons");
 const genericIconModule = resolve(sharedIconRoot, "generic-icons.tsx");
-const inlineSvgBaselinePath = resolve(
-  import.meta.dirname,
-  "icon-inline-svg-baseline.json",
-);
-const inlineSvgBaseline = JSON.parse(
-  readFileSync(inlineSvgBaselinePath, "utf8"),
-) as Record<string, number>;
+const inlineSvgBaselinePath = resolve(import.meta.dirname, "icon-inline-svg-baseline.json");
+const inlineSvgBaseline = JSON.parse(readFileSync(inlineSvgBaselinePath, "utf8")) as Record<
+  string,
+  number
+>;
 
 const sourceExtensions = new Set([".ts", ".tsx"]);
 const iconSizeClassPattern = /\bicon-(?:3xs|xxs|2xs|xs|sm|base|md|lg)\b/;
@@ -45,9 +35,9 @@ function projectPath(path: string): string {
 function importedNames(declaration: ImportDeclaration): string[] {
   return declaration.specifiers.flatMap((specifier) => {
     if (specifier.type !== "ImportSpecifier") return [];
-    return [specifier.imported.type === "Identifier"
-      ? specifier.imported.name
-      : specifier.imported.value];
+    return [
+      specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value,
+    ];
   });
 }
 
@@ -65,17 +55,17 @@ function verifySharedIconIntrinsicSizing(
         (attribute): attribute is JSXAttribute => attribute.type === "JSXAttribute",
       );
       const className = attributes.find(
-        (attribute) => attribute.name.type === "JSXIdentifier"
-          && attribute.name.name === "className",
+        (attribute) =>
+          attribute.name.type === "JSXIdentifier" && attribute.name.name === "className",
       );
-      const classNameSource = className
-        ? sourceText.slice(className.start, className.end)
-        : "";
+      const classNameSource = className ? sourceText.slice(className.start, className.end) : "";
       if (!iconSizeClassPattern.test(classNameSource)) return;
 
-      const attributeNames = new Set(attributes.map((attribute) => (
-        attribute.name.type === "JSXIdentifier" ? attribute.name.name : ""
-      )));
+      const attributeNames = new Set(
+        attributes.map((attribute) =>
+          attribute.name.type === "JSXIdentifier" ? attribute.name.name : "",
+        ),
+      );
       if (attributeNames.has("width") && attributeNames.has("height")) return;
 
       failures.push(
@@ -107,9 +97,11 @@ for (const path of listSourceFiles(rendererRoot)) {
       }
     }
 
-    if (path !== genericIconModule
-      || statement.type !== "ExportNamedDeclaration"
-      || statement.declaration?.type !== "VariableDeclaration") {
+    if (
+      path !== genericIconModule ||
+      statement.type !== "ExportNamedDeclaration" ||
+      statement.declaration?.type !== "VariableDeclaration"
+    ) {
       continue;
     }
     for (const declaration of statement.declaration.declarations) {

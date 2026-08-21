@@ -83,10 +83,7 @@ describe("composer prompt draft atom", () => {
       ["app/client:pending/route/composer"],
       "survives pending attachment",
     );
-    const aliases = buildComposerPromptAliases(
-      "app/client:pending/route/composer",
-      "thread_real",
-    );
+    const aliases = buildComposerPromptAliases("app/client:pending/route/composer", "thread_real");
     const attached = backfillComposerPromptAliases(primaryOnly, aliases);
 
     expect(readComposerPromptDraft(attached, aliases)).toBe("survives pending attachment");
@@ -116,19 +113,27 @@ describe("composer prompt draft atom", () => {
       ],
     };
 
-    expect(deserializeComposerPromptDraft(serializeComposerPromptDraft(document))).toEqual(document);
-    expect(deserializeComposerPromptDraft(serializeComposerPromptDraft({
-      text: "@Plugin Management",
-      links: [],
-      mentions: [{
-        from: 0,
-        to: 18,
-        kind: "app",
-        id: "app:plugin-management",
-        label: "Plugin Management",
-        path: "app://plugin-management",
-      }],
-    })).mentions[0]?.kind).toBe("app");
+    expect(deserializeComposerPromptDraft(serializeComposerPromptDraft(document))).toEqual(
+      document,
+    );
+    expect(
+      deserializeComposerPromptDraft(
+        serializeComposerPromptDraft({
+          text: "@Plugin Management",
+          links: [],
+          mentions: [
+            {
+              from: 0,
+              to: 18,
+              kind: "app",
+              id: "app:plugin-management",
+              label: "Plugin Management",
+              path: "app://plugin-management",
+            },
+          ],
+        }),
+      ).mentions[0]?.kind,
+    ).toBe("app");
     expect(deserializeComposerPromptDraft("legacy plain text").text).toBe("legacy plain text");
   });
 
@@ -150,19 +155,22 @@ describe("composer prompt draft atom", () => {
 
     expect(firstStore.jotaiStore.get(firstAtom).status).toBe("loading");
     await preloadPersistedAtom(firstStore, composerPromptDraftsAtom);
-    expect(readComposerPromptDraft(firstStore.jotaiStore.get(firstAtom).value, aliases))
-      .toBe("restored baseline");
+    expect(readComposerPromptDraft(firstStore.jotaiStore.get(firstAtom).value, aliases)).toBe(
+      "restored baseline",
+    );
 
     await firstStore.jotaiStore.set(firstAtom, (current) =>
-      updateComposerPromptDrafts(current, aliases, "edited before restart"));
+      updateComposerPromptDrafts(current, aliases, "edited before restart"),
+    );
     disposeMaitaiStore(firstStore);
     stores.splice(stores.indexOf(firstStore), 1);
 
     const restartedStore = createPromptStore(transport);
     await preloadPersistedAtom(restartedStore, composerPromptDraftsAtom);
     const restartedAtom = getConcretePersistedAtom(restartedStore, composerPromptDraftsAtom);
-    expect(readComposerPromptDraft(restartedStore.jotaiStore.get(restartedAtom).value, aliases))
-      .toBe("edited before restart");
+    expect(
+      readComposerPromptDraft(restartedStore.jotaiStore.get(restartedAtom).value, aliases),
+    ).toBe("edited before restart");
   });
 
   test("publishes prompt edits across renderer windows", async () => {
@@ -178,9 +186,11 @@ describe("composer prompt draft atom", () => {
     const aliases = ["composer:shared"];
 
     await firstStore.jotaiStore.set(firstAtom, (current) =>
-      updateComposerPromptDrafts(current, aliases, "other window draft"));
+      updateComposerPromptDrafts(current, aliases, "other window draft"),
+    );
 
-    expect(readComposerPromptDraft(secondStore.jotaiStore.get(secondAtom).value, aliases))
-      .toBe("other window draft");
+    expect(readComposerPromptDraft(secondStore.jotaiStore.get(secondAtom).value, aliases)).toBe(
+      "other window draft",
+    );
   });
 });

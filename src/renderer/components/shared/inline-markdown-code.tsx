@@ -24,11 +24,7 @@ export function InlineMarkdownCode({
   return (
     <span
       {...props}
-      className={cn(
-        INLINE_MARKDOWN_CLASS_NAME,
-        INLINE_MARKDOWN_VISUAL_CLASS_NAME,
-        className,
-      )}
+      className={cn(INLINE_MARKDOWN_CLASS_NAME, INLINE_MARKDOWN_VISUAL_CLASS_NAME, className)}
     >
       {children}
     </span>

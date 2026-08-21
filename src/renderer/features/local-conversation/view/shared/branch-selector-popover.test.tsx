@@ -24,7 +24,7 @@ describe("branch selector popover", () => {
               defaultBranch: "main",
               branches: ["main", "feature/dropdown"],
             }}
-            onRefresh={async () => { }}
+            onRefresh={async () => {}}
             onCheckout={async () => true}
             onCreate={async () => true}
           />
@@ -40,29 +40,40 @@ describe("branch selector popover", () => {
       await settleAsyncRender();
     });
 
-    const content = view.container.ownerDocument.body.querySelector('[data-radix-menu-content]');
-    const popover = view.container.ownerDocument.body.querySelector('[data-slot="popover-content"]');
-    const searchInput = view.container.ownerDocument.body.querySelector('input[placeholder="Search branches"]');
+    const content = view.container.ownerDocument.body.querySelector("[data-radix-menu-content]");
+    const popover = view.container.ownerDocument.body.querySelector(
+      '[data-slot="popover-content"]',
+    );
+    const searchInput = view.container.ownerDocument.body.querySelector(
+      'input[placeholder="Search branches"]',
+    );
 
     expect(content).not.toBeNull();
     expect(popover === null).toBe(true);
     expect(searchInput).not.toBeNull();
-    expect(view.container.ownerDocument.body.textContent?.includes("Create and checkout new branch…") ?? false).toBe(true);
+    expect(
+      view.container.ownerDocument.body.textContent?.includes("Create and checkout new branch…") ??
+        false,
+    ).toBe(true);
   });
 
   test("matches reference search Enter behavior", () => {
-    expect(resolveBranchSearchEnterAction({
-      search: "",
-      branches: ["main"],
-      currentBranch: "main",
-      disabled: false,
-    }).kind).toBe("close");
-    expect(resolveBranchSearchEnterAction({
-      search: "new",
-      branches: [],
-      currentBranch: "main",
-      disabled: false,
-    }).kind).toBe("none");
+    expect(
+      resolveBranchSearchEnterAction({
+        search: "",
+        branches: ["main"],
+        currentBranch: "main",
+        disabled: false,
+      }).kind,
+    ).toBe("close");
+    expect(
+      resolveBranchSearchEnterAction({
+        search: "new",
+        branches: [],
+        currentBranch: "main",
+        disabled: false,
+      }).kind,
+    ).toBe("none");
     const checkoutAction = resolveBranchSearchEnterAction({
       search: "feature",
       branches: ["main", "feature/existing"],
@@ -70,13 +81,17 @@ describe("branch selector popover", () => {
       disabled: false,
     });
     expect(checkoutAction.kind).toBe("checkout");
-    expect(checkoutAction.kind === "checkout" ? checkoutAction.branch : null).toBe("feature/existing");
-    expect(resolveBranchSearchEnterAction({
-      search: "feature",
-      branches: ["feature/existing"],
-      currentBranch: "main",
-      disabled: true,
-    }).kind).toBe("none");
+    expect(checkoutAction.kind === "checkout" ? checkoutAction.branch : null).toBe(
+      "feature/existing",
+    );
+    expect(
+      resolveBranchSearchEnterAction({
+        search: "feature",
+        branches: ["feature/existing"],
+        currentBranch: "main",
+        disabled: true,
+      }).kind,
+    ).toBe("none");
   });
 
   test("validates create branch names", () => {
@@ -102,7 +117,7 @@ describe("branch selector popover", () => {
               defaultBranch: "main",
               branches: ["main", "feature/existing"],
             }}
-            onRefresh={async () => { }}
+            onRefresh={async () => {}}
             onCheckout={async () => true}
             onCreate={async () => true}
           />
@@ -122,9 +137,15 @@ describe("branch selector popover", () => {
       await settleAsyncRender();
     });
 
-    expect(view.container.ownerDocument.body.textContent?.includes("Create and checkout branch") ?? false).toBe(true);
-    const branchNameInput = view.container.ownerDocument.body.querySelector('input[aria-label="Branch name"]');
-    if (!(branchNameInput instanceof HTMLInputElement)) throw new Error("Expected branch name input");
+    expect(
+      view.container.ownerDocument.body.textContent?.includes("Create and checkout branch") ??
+        false,
+    ).toBe(true);
+    const branchNameInput = view.container.ownerDocument.body.querySelector(
+      'input[aria-label="Branch name"]',
+    );
+    if (!(branchNameInput instanceof HTMLInputElement))
+      throw new Error("Expected branch name input");
     expect((view.getByText("Create and checkout") as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -160,7 +181,9 @@ describe("branch selector popover", () => {
       fireEvent.click(trigger);
       await settleAsyncRender();
     });
-    expect(view.container.ownerDocument.body.textContent?.includes("Loading branches…") ?? false).toBe(true);
+    expect(
+      view.container.ownerDocument.body.textContent?.includes("Loading branches…") ?? false,
+    ).toBe(true);
 
     await act(async () => {
       view.rerender(
@@ -185,7 +208,9 @@ describe("branch selector popover", () => {
       await settleAsyncRender();
     });
 
-    expect(view.container.ownerDocument.body.textContent?.includes("Unable to load branches") ?? false).toBe(true);
+    expect(
+      view.container.ownerDocument.body.textContent?.includes("Unable to load branches") ?? false,
+    ).toBe(true);
     await act(async () => {
       fireEvent.click(view.getByText("Retry"));
       await settleAsyncRender();

@@ -25,9 +25,7 @@ export const useContentPageDetail = (
   pageId: string | null,
 ): ContentPageDetailSnapshot => {
   const queryClient = useQueryClient();
-  const projectId = accessContext.kind === "project"
-    ? accessContext.projectId
-    : null;
+  const projectId = accessContext.kind === "project" ? accessContext.projectId : null;
   const project = usePageDetail(libraryId, projectId, pageId);
   const libraryPageId = pageId ?? "";
   const libraryQueryKey = queryKeys.library.pageDetail(libraryPageId);
@@ -37,36 +35,36 @@ export const useContentPageDetail = (
   });
   const libraryDetail = library.data ?? null;
 
-  useProjectionRegistration(libraryDetail
-    ? {
-      scope: { kind: "library", libraryId: libraryDetail.libraryId },
-      consumerKey: hashKey(["projection", libraryQueryKey]),
-      getDependencies: () => pageDetailDataDependencies(
-        queryClient.getQueryData<LibraryPageDetail>(libraryQueryKey) ?? null,
-        libraryPageId,
-      ),
-      getCursor: () => {
-        const detail = queryClient.getQueryData<LibraryPageDetail>(
-          libraryQueryKey,
-        );
-        return detail
-          ? { storeEpoch: detail.storeEpoch, commitSeq: detail.commitSeq }
-          : null;
-      },
-      invalidate: async () => {
-        await invalidateExactQuery(queryClient, libraryQueryKey);
-      },
-    }
-    : null);
+  useProjectionRegistration(
+    libraryDetail
+      ? {
+          scope: { kind: "library", libraryId: libraryDetail.libraryId },
+          consumerKey: hashKey(["projection", libraryQueryKey]),
+          getDependencies: () =>
+            pageDetailDataDependencies(
+              queryClient.getQueryData<LibraryPageDetail>(libraryQueryKey) ?? null,
+              libraryPageId,
+            ),
+          getCursor: () => {
+            const detail = queryClient.getQueryData<LibraryPageDetail>(libraryQueryKey);
+            return detail ? { storeEpoch: detail.storeEpoch, commitSeq: detail.commitSeq } : null;
+          },
+          invalidate: async () => {
+            await invalidateExactQuery(queryClient, libraryQueryKey);
+          },
+        }
+      : null,
+  );
 
   if (accessContext.kind === "project") return project;
   return {
     detail: libraryDetail,
     loading: library.isPending || library.isFetching,
-    error: library.error instanceof Error
-      ? library.error.message
-      : library.isError
-        ? "Page details are unavailable"
-        : null,
+    error:
+      library.error instanceof Error
+        ? library.error.message
+        : library.isError
+          ? "Page details are unavailable"
+          : null,
   };
 };

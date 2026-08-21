@@ -42,12 +42,8 @@ function makeSession(
   tabs: WorkbenchTabProjection[] = [],
   id = "session-1",
 ): WorkbenchSessionRenderProjection {
-  const rightTabIds = tabs
-    .filter((tab) => tab.panelId === "right")
-    .map((tab) => tab.id);
-  const bottomTabIds = tabs
-    .filter((tab) => tab.panelId === "bottom")
-    .map((tab) => tab.id);
+  const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+  const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
   return {
     id,
     projectId: "project-1",
@@ -66,20 +62,12 @@ function makeSession(
     panels: {
       right: {
         collapsed: true,
-        layout: makeWorkbenchPanelLayout(
-          rightTabIds,
-          rightTabIds[0] ?? null,
-          "right-leaf",
-        ),
+        layout: makeWorkbenchPanelLayout(rightTabIds, rightTabIds[0] ?? null, "right-leaf"),
         size: { widthPx: 600 },
       },
       bottom: {
         collapsed: true,
-        layout: makeWorkbenchPanelLayout(
-          bottomTabIds,
-          bottomTabIds[0] ?? null,
-          "bottom-leaf",
-        ),
+        layout: makeWorkbenchPanelLayout(bottomTabIds, bottomTabIds[0] ?? null, "bottom-leaf"),
         size: { heightPx: 280 },
       },
     },
@@ -126,10 +114,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
     Object.defineProperty(window, "api", {
       configurable: true,
       value: {
-        on: (
-          channel: string,
-          listener: (payload: unknown) => void,
-        ) => {
+        on: (channel: string, listener: (payload: unknown) => void) => {
           mocks.listeners.set(channel, listener);
           return () => mocks.listeners.delete(channel);
         },
@@ -150,54 +135,51 @@ describe("useBrowserUsePresentationCoordinator", () => {
       source: "browser-use",
     };
     mocks.runtime.presentationRequests = [request];
-    const createSessionViewTab = vi.fn((
-      input: WorkbenchTabCreateInput,
-    ): WorkbenchTabProjection => ({
-      id: input.clientTabId ?? "created",
-      sessionId: input.sessionId,
-      projectId: input.kind === "browser"
-        ? input.config.projectId
-        : "project-1",
-      panelId: input.panelId,
-      title: input.title,
-      order: 0,
-      stateKey: 0,
-      state: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      kind: "browser",
-      browserTabId: input.kind === "browser"
-        ? input.browserTabId ?? "missing"
-        : "missing",
-      config: input.kind === "browser"
-        ? input.config
-        : { projectId: "project-1" },
-    } as WorkbenchTabProjection));
+    const createSessionViewTab = vi.fn(
+      (input: WorkbenchTabCreateInput): WorkbenchTabProjection =>
+        ({
+          id: input.clientTabId ?? "created",
+          sessionId: input.sessionId,
+          projectId: input.kind === "browser" ? input.config.projectId : "project-1",
+          panelId: input.panelId,
+          title: input.title,
+          order: 0,
+          stateKey: 0,
+          state: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          kind: "browser",
+          browserTabId: input.kind === "browser" ? (input.browserTabId ?? "missing") : "missing",
+          config: input.kind === "browser" ? input.config : { projectId: "project-1" },
+        }) as WorkbenchTabProjection,
+    );
     const setActivePanelTab = vi.fn(async () => undefined);
 
-    renderHook(() => useBrowserUsePresentationCoordinator({
-      activeSession: makeSession(),
-      catalog: {
-        findById: () => null,
-        prefetch: async () => null,
-        resolveScene: () => {
-          throw new Error("not used");
+    renderHook(() =>
+      useBrowserUsePresentationCoordinator({
+        activeSession: makeSession(),
+        catalog: {
+          findById: () => null,
+          prefetch: async () => null,
+          resolveScene: () => {
+            throw new Error("not used");
+          },
+          select: () => undefined,
         },
-        select: () => undefined,
-      },
-      controller: {
-        previewTabsByPanel: {},
-        durable: {
-          createTab: vi.fn(),
-          removeTab: vi.fn(),
-        },
-      } as never,
-      createSessionViewTab,
-      pinPreviewTab: async () => undefined,
-      setActivePanelCollapsed: async () => null,
-      setActivePanelTab,
-      windowSessionId: "window-1",
-    }));
+        controller: {
+          previewTabsByPanel: {},
+          durable: {
+            createTab: vi.fn(),
+            removeTab: vi.fn(),
+          },
+        } as never,
+        createSessionViewTab,
+        pinPreviewTab: async () => undefined,
+        setActivePanelCollapsed: async () => null,
+        setActivePanelTab,
+        windowSessionId: "window-1",
+      }),
+    );
 
     await waitFor(() => {
       expect(createSessionViewTab).toHaveBeenCalledWith(
@@ -207,14 +189,10 @@ describe("useBrowserUsePresentationCoordinator", () => {
         }),
       );
     });
-    expect(setActivePanelTab).toHaveBeenCalledWith(
-      "right",
-      "tab:browser-use:browser-use%3Aone",
-      {
-        leafId: "right-leaf",
-        openPanel: true,
-      },
-    );
+    expect(setActivePanelTab).toHaveBeenCalledWith("right", "tab:browser-use:browser-use%3Aone", {
+      leafId: "right-leaf",
+      openPanel: true,
+    });
     expect(mocks.consume).toHaveBeenCalledWith("request-1");
   });
 
@@ -236,34 +214,36 @@ describe("useBrowserUsePresentationCoordinator", () => {
     const patchPanel = vi.fn();
     const select = vi.fn();
 
-    renderHook(() => useBrowserUsePresentationCoordinator({
-      activeSession: null,
-      catalog: {
-        findById: () => ({
-          domain: target,
-          scene: sceneForSession(target),
-        }),
-        prefetch: async () => null,
-        resolveScene: () => {
-          throw new Error("not used");
+    renderHook(() =>
+      useBrowserUsePresentationCoordinator({
+        activeSession: null,
+        catalog: {
+          findById: () => ({
+            domain: target,
+            scene: sceneForSession(target),
+          }),
+          prefetch: async () => null,
+          resolveScene: () => {
+            throw new Error("not used");
+          },
+          select,
         },
-        select,
-      },
-      controller: {
-        previewTabsByPanel: {},
-        durable: {
-          activateTab: vi.fn(),
-          createTab,
-          patchPanel,
-          removeTab: vi.fn(),
-        },
-      } as never,
-      createSessionViewTab: vi.fn(),
-      pinPreviewTab: async () => undefined,
-      setActivePanelCollapsed: async () => null,
-      setActivePanelTab: async () => undefined,
-      windowSessionId: "window-1",
-    }));
+        controller: {
+          previewTabsByPanel: {},
+          durable: {
+            activateTab: vi.fn(),
+            createTab,
+            patchPanel,
+            removeTab: vi.fn(),
+          },
+        } as never,
+        createSessionViewTab: vi.fn(),
+        pinPreviewTab: async () => undefined,
+        setActivePanelCollapsed: async () => null,
+        setActivePanelTab: async () => undefined,
+        windowSessionId: "window-1",
+      }),
+    );
 
     await waitFor(() => {
       expect(select).toHaveBeenCalledTimes(1);
@@ -280,22 +260,14 @@ describe("useBrowserUsePresentationCoordinator", () => {
         }),
       }),
     );
-    expect(patchPanel).toHaveBeenCalledWith(
-      target,
-      "right",
-      { collapsed: false },
-    );
+    expect(patchPanel).toHaveBeenCalledWith(target, "right", { collapsed: false });
     expect(createTab.mock.invocationCallOrder[0]).toBeLessThan(
       select.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
     );
   });
 
   test("hides an inactive Session Browser without navigating away", async () => {
-    const browserTab = makeBrowserTab(
-      "tab-hidden",
-      "browser-use:hidden",
-      "right",
-    );
+    const browserTab = makeBrowserTab("tab-hidden", "browser-use:hidden", "right");
     const base = makeSession([browserTab]);
     const target: WorkbenchSessionRenderProjection = {
       ...base,
@@ -304,54 +276,54 @@ describe("useBrowserUsePresentationCoordinator", () => {
         right: { ...base.panels.right, collapsed: false },
       },
     };
-    mocks.runtime.presentationRequests = [{
-      browserConversationId: target.id,
-      browserViewScopeId: "window-1",
-      browserTabId: "browser-use:hidden",
-      requestId: "request-hidden",
-      codexSessionId: "thread-hidden",
-      projectId: "project-1",
-      visible: false,
-      transition: "default",
-      source: "browser-use",
-    }];
+    mocks.runtime.presentationRequests = [
+      {
+        browserConversationId: target.id,
+        browserViewScopeId: "window-1",
+        browserTabId: "browser-use:hidden",
+        requestId: "request-hidden",
+        codexSessionId: "thread-hidden",
+        projectId: "project-1",
+        visible: false,
+        transition: "default",
+        source: "browser-use",
+      },
+    ];
     const patchPanel = vi.fn();
     const select = vi.fn();
 
-    renderHook(() => useBrowserUsePresentationCoordinator({
-      activeSession: null,
-      catalog: {
-        findById: () => ({
-          domain: target,
-          scene: sceneForSession(target),
-        }),
-        prefetch: async () => null,
-        resolveScene: () => {
-          throw new Error("not used");
+    renderHook(() =>
+      useBrowserUsePresentationCoordinator({
+        activeSession: null,
+        catalog: {
+          findById: () => ({
+            domain: target,
+            scene: sceneForSession(target),
+          }),
+          prefetch: async () => null,
+          resolveScene: () => {
+            throw new Error("not used");
+          },
+          select,
         },
-        select,
-      },
-      controller: {
-        previewTabsByPanel: {},
-        durable: {
-          createTab: vi.fn(),
-          patchPanel,
-          removeTab: vi.fn(),
-        },
-      } as never,
-      createSessionViewTab: vi.fn(),
-      pinPreviewTab: async () => undefined,
-      setActivePanelCollapsed: async () => null,
-      setActivePanelTab: async () => undefined,
-      windowSessionId: "window-1",
-    }));
+        controller: {
+          previewTabsByPanel: {},
+          durable: {
+            createTab: vi.fn(),
+            patchPanel,
+            removeTab: vi.fn(),
+          },
+        } as never,
+        createSessionViewTab: vi.fn(),
+        pinPreviewTab: async () => undefined,
+        setActivePanelCollapsed: async () => null,
+        setActivePanelTab: async () => undefined,
+        windowSessionId: "window-1",
+      }),
+    );
 
     await waitFor(() => {
-      expect(patchPanel).toHaveBeenCalledWith(
-        target,
-        "right",
-        { collapsed: true },
-      );
+      expect(patchPanel).toHaveBeenCalledWith(target, "right", { collapsed: true });
     });
     expect(select).not.toHaveBeenCalled();
     expect(mocks.invoke).toHaveBeenCalledWith(
@@ -381,87 +353,85 @@ describe("useBrowserUsePresentationCoordinator", () => {
     const createSessionViewTab = vi.fn();
     const setActivePanelTab = vi.fn(async () => undefined);
 
-    renderHook(() => useBrowserUsePresentationCoordinator({
-      activeSession: makeSession([
-        makeBrowserTab(
-          "tab-existing",
-          request.browserTabId,
-          "bottom",
-        ),
-      ]),
-      catalog: {
-        findById: () => null,
-        prefetch: async () => null,
-        resolveScene: () => {
-          throw new Error("not used");
+    renderHook(() =>
+      useBrowserUsePresentationCoordinator({
+        activeSession: makeSession([
+          makeBrowserTab("tab-existing", request.browserTabId, "bottom"),
+        ]),
+        catalog: {
+          findById: () => null,
+          prefetch: async () => null,
+          resolveScene: () => {
+            throw new Error("not used");
+          },
+          select: () => undefined,
         },
-        select: () => undefined,
-      },
-      controller: {
-        previewTabsByPanel: {},
-        durable: {
-          createTab: vi.fn(),
-          removeTab: vi.fn(),
-        },
-      } as never,
-      createSessionViewTab,
-      pinPreviewTab: async () => undefined,
-      setActivePanelCollapsed: async () => null,
-      setActivePanelTab,
-      windowSessionId: "window-1",
-    }));
+        controller: {
+          previewTabsByPanel: {},
+          durable: {
+            createTab: vi.fn(),
+            removeTab: vi.fn(),
+          },
+        } as never,
+        createSessionViewTab,
+        pinPreviewTab: async () => undefined,
+        setActivePanelCollapsed: async () => null,
+        setActivePanelTab,
+        windowSessionId: "window-1",
+      }),
+    );
 
     await waitFor(() => {
-      expect(setActivePanelTab).toHaveBeenCalledWith(
-        "bottom",
-        "tab-existing",
-        {
-          leafId: "bottom-leaf",
-          openPanel: true,
-        },
-      );
+      expect(setActivePanelTab).toHaveBeenCalledWith("bottom", "tab-existing", {
+        leafId: "bottom-leaf",
+        openPanel: true,
+      });
     });
     expect(setActivePanelTab).toHaveBeenCalledTimes(1);
     expect(createSessionViewTab).not.toHaveBeenCalled();
   });
 
   test("rejects a request owned by another window scope", async () => {
-    mocks.runtime.presentationRequests = [{
-      browserConversationId: "session-1",
-      browserViewScopeId: "window-other",
-      browserTabId: "browser-use:other-window",
-      requestId: "request-other-window",
-      codexSessionId: "session-1",
-      projectId: "project-1",
-      visible: true,
-      transition: "default",
-      source: "browser-use",
-    }];
+    mocks.runtime.presentationRequests = [
+      {
+        browserConversationId: "session-1",
+        browserViewScopeId: "window-other",
+        browserTabId: "browser-use:other-window",
+        requestId: "request-other-window",
+        codexSessionId: "session-1",
+        projectId: "project-1",
+        visible: true,
+        transition: "default",
+        source: "browser-use",
+      },
+    ];
     const createSessionViewTab = vi.fn();
 
-    renderHook(() => useBrowserUsePresentationCoordinator({
-      activeSession: makeSession(),
-      catalog: {
-        findById: () => null,
-        prefetch: async () => null,
-        resolveScene: () => {
-          throw new Error("not used");
+    renderHook(() =>
+      useBrowserUsePresentationCoordinator({
+        activeSession: makeSession(),
+        catalog: {
+          findById: () => null,
+          prefetch: async () => null,
+          resolveScene: () => {
+            throw new Error("not used");
+          },
+          select: () => undefined,
         },
-        select: () => undefined,
-      },
-      controller: {
-        previewTabsByPanel: {},
-        durable: {
-          createTab: vi.fn(),
-          removeTab: vi.fn(),
-        },
-      } as never,
-      createSessionViewTab,
-      pinPreviewTab: async () => undefined,
-      setActivePanelCollapsed: async () => null,
-      setActivePanelTab: async () => undefined,
-      windowSessionId: "window-1",
-    }));
+        controller: {
+          previewTabsByPanel: {},
+          durable: {
+            createTab: vi.fn(),
+            removeTab: vi.fn(),
+          },
+        } as never,
+        createSessionViewTab,
+        pinPreviewTab: async () => undefined,
+        setActivePanelCollapsed: async () => null,
+        setActivePanelTab: async () => undefined,
+        windowSessionId: "window-1",
+      }),
+    );
 
     await waitFor(() => {
       expect(mocks.invoke).toHaveBeenCalledWith(
@@ -478,27 +448,24 @@ describe("useBrowserUsePresentationCoordinator", () => {
   });
 
   test("opens a runtime-only page from the thread summary without acknowledging a synthetic request", async () => {
-    const createSessionViewTab = vi.fn((
-      input: WorkbenchTabCreateInput,
-    ): WorkbenchTabProjection => ({
-      id: input.clientTabId ?? "created",
-      sessionId: input.sessionId,
-      projectId: "project-1",
-      panelId: input.panelId,
-      title: input.title,
-      order: 0,
-      stateKey: 0,
-      state: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      kind: "browser",
-      browserTabId: input.kind === "browser"
-        ? input.browserTabId ?? "missing"
-        : "missing",
-      config: input.kind === "browser"
-        ? input.config
-        : { projectId: "project-1" },
-    } as WorkbenchTabProjection));
+    const createSessionViewTab = vi.fn(
+      (input: WorkbenchTabCreateInput): WorkbenchTabProjection =>
+        ({
+          id: input.clientTabId ?? "created",
+          sessionId: input.sessionId,
+          projectId: "project-1",
+          panelId: input.panelId,
+          title: input.title,
+          order: 0,
+          stateKey: 0,
+          state: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          kind: "browser",
+          browserTabId: input.kind === "browser" ? (input.browserTabId ?? "missing") : "missing",
+          config: input.kind === "browser" ? input.config : { projectId: "project-1" },
+        }) as WorkbenchTabProjection,
+    );
     const setActivePanelTab = vi.fn(async () => undefined);
     const { result } = renderHook(() =>
       useBrowserUsePresentationCoordinator({
@@ -523,7 +490,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
         setActivePanelCollapsed: async () => null,
         setActivePanelTab,
         windowSessionId: "window-1",
-      })
+      }),
     );
 
     await act(async () => {
@@ -550,85 +517,84 @@ describe("useBrowserUsePresentationCoordinator", () => {
   test("materializes a released runtime-only page but removes a truly closed shell", async () => {
     const createSessionViewTab = vi.fn();
     const removeTab = vi.fn();
-    const browserTab = makeBrowserTab(
-      "tab-browser",
-      "browser-use:lifecycle",
-      "right",
-    );
-    mocks.runtime.state.tabs = [{
-      browserConversationId: "session-1",
-      browserViewScopeId: "window-1",
-      browserTabId: "browser-use:lifecycle",
-      browserStorageId: "browser:use:browser-use:lifecycle",
-      projectId: "project-1",
-      webContentsId: 42,
-      mountGeneration: 1,
-      url: "https://example.com",
-      title: "Example Domain",
-      isLoading: false,
-      isWaitingForResponse: false,
-      canGoBack: false,
-      canGoForward: false,
-      zoomPercent: 100,
-      deviceToolbarVisible: false,
-      viewport: {
-        width: 390,
-        height: 844,
-        presetId: "responsive",
+    const browserTab = makeBrowserTab("tab-browser", "browser-use:lifecycle", "right");
+    mocks.runtime.state.tabs = [
+      {
+        browserConversationId: "session-1",
+        browserViewScopeId: "window-1",
+        browserTabId: "browser-use:lifecycle",
+        browserStorageId: "browser:use:browser-use:lifecycle",
+        projectId: "project-1",
+        webContentsId: 42,
+        mountGeneration: 1,
+        url: "https://example.com",
+        title: "Example Domain",
+        isLoading: false,
+        isWaitingForResponse: false,
+        canGoBack: false,
+        canGoForward: false,
         zoomPercent: 100,
-      },
-      deviceToolbarState: {
-        responsiveViewportSize: null,
-        toolbarState: {
-          isEnabled: false,
-          presetId: "responsive",
+        deviceToolbarVisible: false,
+        viewport: {
           width: 390,
           height: 844,
+          presetId: "responsive",
+          zoomPercent: 100,
         },
+        deviceToolbarState: {
+          responsiveViewportSize: null,
+          toolbarState: {
+            isEnabled: false,
+            presetId: "responsive",
+            width: 390,
+            height: 844,
+          },
+        },
+        interactionMode: "browse",
+        findState: {
+          open: false,
+          query: "",
+          activeMatchOrdinal: null,
+          matchCount: null,
+          caseSensitive: false,
+        },
+        hasBrowserPage: true,
+        pageActionsDisabled: false,
+        presented: false,
+        visible: false,
+        lastSelectedAt: 1,
+        audible: false,
+        mediaActive: false,
+        activeDownload: false,
+        lifecycleState: "live-detached",
+        updatedAt: 1,
       },
-      interactionMode: "browse",
-      findState: {
-        open: false,
-        query: "",
-        activeMatchOrdinal: null,
-        matchCount: null,
-        caseSensitive: false,
-      },
-      hasBrowserPage: true,
-      pageActionsDisabled: false,
-      presented: false,
-      visible: false,
-      lastSelectedAt: 1,
-      audible: false,
-      mediaActive: false,
-      activeDownload: false,
-      lifecycleState: "live-detached",
-      updatedAt: 1,
-    }];
+    ];
     const { rerender } = renderHook(
-      ({ session }) => useBrowserUsePresentationCoordinator({
-        activeSession: session,
-        catalog: {
-          findById: () => null,
-          prefetch: async () => null,
-          resolveScene: () => {
-            throw new Error("not used");
+      ({ session }) =>
+        useBrowserUsePresentationCoordinator({
+          activeSession: session,
+          catalog: {
+            findById: () => null,
+            prefetch: async () => null,
+            resolveScene: () => {
+              throw new Error("not used");
+            },
+            select: () => undefined,
           },
-          select: () => undefined,
-        },
-        controller: {
-          previewTabsByPanel: {},
-          durable: {
-            createTab: vi.fn(),
-            removeTab,
-          },
-        } as never,
-        createSessionViewTab,
-        pinPreviewTab: async () => undefined,
-        setActivePanelCollapsed: async () => null,
-        setActivePanelTab: async () => undefined,
-        windowSessionId: "window-1",
-      }),
+          controller: {
+            previewTabsByPanel: {},
+            durable: {
+              createTab: vi.fn(),
+              removeTab,
+            },
+          } as never,
+          createSessionViewTab,
+          pinPreviewTab: async () => undefined,
+          setActivePanelCollapsed: async () => null,
+          setActivePanelTab: async () => undefined,
+          windowSessionId: "window-1",
+        }),
       { initialProps: { session: makeSession() } },
     );
     const identity = {
@@ -638,9 +604,7 @@ describe("useBrowserUsePresentationCoordinator", () => {
     };
 
     await act(async () => {
-      mocks.listeners.get(
-        "browser-sidebar-browser-use-page-released",
-      )?.(identity);
+      mocks.listeners.get("browser-sidebar-browser-use-page-released")?.(identity);
       await Promise.resolve();
     });
     expect(createSessionViewTab).toHaveBeenCalledWith(
@@ -653,9 +617,10 @@ describe("useBrowserUsePresentationCoordinator", () => {
 
     rerender({ session: makeSession([browserTab]) });
     await act(async () => {
-      mocks.listeners.get(
-        "browser-sidebar-browser-use-page-closed",
-      )?.({ ...identity, reason: "agent" });
+      mocks.listeners.get("browser-sidebar-browser-use-page-closed")?.({
+        ...identity,
+        reason: "agent",
+      });
       await Promise.resolve();
     });
     expect(removeTab).toHaveBeenCalledWith(
@@ -667,37 +632,37 @@ describe("useBrowserUsePresentationCoordinator", () => {
   test("retains a released page in an inactive Session without foreground presentation", async () => {
     const target = makeSession();
     const createTab = vi.fn();
-    renderHook(() => useBrowserUsePresentationCoordinator({
-      activeSession: null,
-      catalog: {
-        findById: () => ({
-          domain: target,
-          scene: sceneForSession(target),
-        }),
-        prefetch: async () => null,
-        resolveScene: () => {
-          throw new Error("not used");
+    renderHook(() =>
+      useBrowserUsePresentationCoordinator({
+        activeSession: null,
+        catalog: {
+          findById: () => ({
+            domain: target,
+            scene: sceneForSession(target),
+          }),
+          prefetch: async () => null,
+          resolveScene: () => {
+            throw new Error("not used");
+          },
+          select: () => undefined,
         },
-        select: () => undefined,
-      },
-      controller: {
-        previewTabsByPanel: {},
-        durable: {
-          createTab,
-          removeTab: vi.fn(),
-        },
-      } as never,
-      createSessionViewTab: vi.fn(),
-      pinPreviewTab: async () => undefined,
-      setActivePanelCollapsed: async () => null,
-      setActivePanelTab: async () => undefined,
-      windowSessionId: "window-1",
-    }));
+        controller: {
+          previewTabsByPanel: {},
+          durable: {
+            createTab,
+            removeTab: vi.fn(),
+          },
+        } as never,
+        createSessionViewTab: vi.fn(),
+        pinPreviewTab: async () => undefined,
+        setActivePanelCollapsed: async () => null,
+        setActivePanelTab: async () => undefined,
+        windowSessionId: "window-1",
+      }),
+    );
 
     await act(async () => {
-      mocks.listeners.get(
-        "browser-sidebar-browser-use-page-released",
-      )?.({
+      mocks.listeners.get("browser-sidebar-browser-use-page-released")?.({
         browserConversationId: target.id,
         browserViewScopeId: "window-1",
         browserTabId: "browser-use:inactive-release",

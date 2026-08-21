@@ -1,10 +1,11 @@
+import { type ReactNode, useCallback, useEffect, useSyncExternalStore } from "react";
 import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useSyncExternalStore,
-} from "react";
-import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from "@/components/shared/icons/generic-icons";
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  X,
+} from "@/components/shared/icons/generic-icons";
 import { NodexButton } from "@/components/ui/button";
 import { motion } from "motion/react";
 import { APP_SHELL_TOAST_LAYER_CLASS } from "@/lib/app-shell-layers";
@@ -151,10 +152,9 @@ class NodexToastStore {
   runLatestAction(): boolean {
     const record = this.orderedIds
       .map((id) => this.records.get(id) ?? null)
-      .find((candidate): candidate is ToastPlainRecord =>
-        candidate?.kind === "plain"
-        && candidate.isShown
-        && candidate.action !== undefined,
+      .find(
+        (candidate): candidate is ToastPlainRecord =>
+          candidate?.kind === "plain" && candidate.isShown && candidate.action !== undefined,
       );
     if (!record?.action) return false;
     const shouldClose = record.action.onClick();
@@ -220,9 +220,7 @@ class NodexToastStore {
   }
 
   private createPhysicalToastId(logicalId: string | null): string {
-    const physicalId = logicalId
-      ? `${logicalId}-${this.nextId}`
-      : String(this.nextId);
+    const physicalId = logicalId ? `${logicalId}-${this.nextId}` : String(this.nextId);
     this.nextId += 1;
     return physicalId;
   }
@@ -410,20 +408,16 @@ function NodexToastItem({ record }: { record: ToastRecord }) {
 
   return (
     <ToastLifecycleWrapper record={record}>
-      {record.kind === "plain"
-        ? <NodexToastPlainSurface record={record} onClose={closeToast} />
-        : <NodexToastCustomSurface record={record} onClose={closeToast} />}
+      {record.kind === "plain" ? (
+        <NodexToastPlainSurface record={record} onClose={closeToast} />
+      ) : (
+        <NodexToastCustomSurface record={record} onClose={closeToast} />
+      )}
     </ToastLifecycleWrapper>
   );
 }
 
-function ToastLifecycleWrapper({
-  record,
-  children,
-}: {
-  record: ToastRecord;
-  children: ReactNode;
-}) {
+function ToastLifecycleWrapper({ record, children }: { record: ToastRecord; children: ReactNode }) {
   const closeToast = useCallback(() => {
     nodexToastStore.close(record.id);
   }, [record.id]);
@@ -449,17 +443,19 @@ function ToastLifecycleWrapper({
         y: -10,
         scale: 0.98,
       }}
-      animate={record.isShown
-        ? {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-          }
-        : {
-            opacity: 0,
-            y: -8,
-            scale: 0.98,
-          }}
+      animate={
+        record.isShown
+          ? {
+              opacity: 1,
+              y: 0,
+              scale: 1,
+            }
+          : {
+              opacity: 0,
+              y: -8,
+              scale: 0.98,
+            }
+      }
       transition={{
         duration: TOAST_EXIT_DURATION_S,
         ease: [0.19, 1, 0.22, 1],

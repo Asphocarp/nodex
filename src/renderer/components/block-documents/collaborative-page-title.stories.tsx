@@ -33,19 +33,15 @@ function CollaborativePageTitleStory({
     return page;
   });
 
-  useEffect(
-    () => () => pageDocument.document.destroy(),
-    [pageDocument],
-  );
+  useEffect(() => () => pageDocument.document.destroy(), [pageDocument]);
 
   return (
     <div className="min-h-screen bg-token-main-surface-primary px-10 py-16">
       <div className="mx-auto w-full max-w-(--page-stage-body-max-width)">
-        <CollaborativePageTitle
-          title={pageDocument.title}
-        />
+        <CollaborativePageTitle title={pageDocument.title} />
         <p className="mt-2 text-sm text-token-description-foreground">
-          This story uses the same Y.Text input and local-only undo path as a collaborative Page surface.
+          This story uses the same Y.Text input and local-only undo path as a collaborative Page
+          surface.
         </p>
       </div>
     </div>

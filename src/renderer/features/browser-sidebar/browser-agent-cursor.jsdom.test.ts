@@ -9,9 +9,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function makeCursor(
-  overrides: Partial<BrowserUseCursorState> = {},
-): BrowserUseCursorState {
+function makeCursor(overrides: Partial<BrowserUseCursorState> = {}): BrowserUseCursorState {
   return {
     browserConversationId: "conversation-1",
     browserViewScopeId: "window-1",
@@ -27,16 +25,20 @@ function makeCursor(
 
 describe("browser agent cursor", () => {
   test("uses the target-relative default point and clamps reported coordinates", () => {
-    expect(clampBrowserAgentCursorPoint({
-      viewportHeight: 800,
-      viewportWidth: 1_000,
-    })).toEqual({ x: 580, y: 440 });
-    expect(clampBrowserAgentCursorPoint({
-      cursorX: 1_500,
-      cursorY: -100,
-      viewportHeight: 800,
-      viewportWidth: 1_000,
-    })).toEqual({ x: 1_000, y: 0 });
+    expect(
+      clampBrowserAgentCursorPoint({
+        viewportHeight: 800,
+        viewportWidth: 1_000,
+      }),
+    ).toEqual({ x: 580, y: 440 });
+    expect(
+      clampBrowserAgentCursorPoint({
+        cursorX: 1_500,
+        cursorY: -100,
+        viewportHeight: 800,
+        viewportWidth: 1_000,
+      }),
+    ).toEqual({ x: 1_000, y: 0 });
   });
 
   test("renders the glowing cursor asset and acknowledges a non-animated move immediately", () => {
@@ -52,12 +54,8 @@ describe("browser agent cursor", () => {
       viewportSize: { height: 800, width: 1_000 },
     });
 
-    const cursor = host.querySelector<HTMLElement>(
-      "[data-testid='browser-agent-cursor']",
-    );
-    const asset = host.querySelector<HTMLImageElement>(
-      "[data-browser-agent-cursor-asset]",
-    );
+    const cursor = host.querySelector<HTMLElement>("[data-testid='browser-agent-cursor']");
+    const asset = host.querySelector<HTMLImageElement>("[data-browser-agent-cursor-asset]");
     expect(cursor?.style.transform).toContain("translate3d(88px, 38px, 0)");
     expect(asset?.src.startsWith("data:image/png;base64,")).toBe(true);
     expect(asset?.width).toBe(23);
@@ -84,8 +82,7 @@ describe("browser agent cursor", () => {
     });
 
     expect(
-      host.querySelector<HTMLElement>("[data-testid='browser-agent-cursor']")
-        ?.style.transform,
+      host.querySelector<HTMLElement>("[data-testid='browser-agent-cursor']")?.style.transform,
     ).toContain("translate3d(568px, 428px, 0)");
     expect(onArrived).not.toHaveBeenCalled();
     controller.destroy();

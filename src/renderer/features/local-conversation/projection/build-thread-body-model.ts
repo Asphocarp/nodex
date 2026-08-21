@@ -60,9 +60,8 @@ export function resolveThreadStartProgressPresentation(
 }
 
 export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyModel {
-  const conversation = input.conversation?.threadId === input.activeThreadId
-    ? input.conversation
-    : null;
+  const conversation =
+    input.conversation?.threadId === input.activeThreadId ? input.conversation : null;
   const resumeState = conversation?.resumeState ?? (input.activeThreadId ? "needs_resume" : null);
   const isArchivedThread = Boolean(
     input.activeThreadId && (input.activeThreadArchived || conversation?.archived),
@@ -213,10 +212,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
       showThreadStartProgressPanel: false,
       emptyState: {
         type: "resumingThread",
-        title:
-          conversation.resumeState === "resuming"
-            ? "Restoring thread"
-            : "Preparing thread",
+        title: conversation.resumeState === "resuming" ? "Restoring thread" : "Preparing thread",
         description:
           conversation.resumeState === "resuming"
             ? "Loading the latest conversation state before rendering the thread."
@@ -230,13 +226,12 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
     conversation,
     parentTurns: input.parentTurns,
   });
-  const activeTurnId = [...visibleEntries]
-    .reverse()
-    .find((entry) => entry.turn.status === "inProgress")?.turnId ?? null;
+  const activeTurnId =
+    [...visibleEntries].reverse().find((entry) => entry.turn.status === "inProgress")?.turnId ??
+    null;
   const latestTurnId = visibleEntries[visibleEntries.length - 1]?.turnId ?? null;
   const visibleTurnCount = visibleEntries.length;
-  const isThreadRunning =
-    conversation.statusType === "active" || activeTurnId !== null;
+  const isThreadRunning = conversation.statusType === "active" || activeTurnId !== null;
 
   if (visibleTurnCount === 0) {
     if (hasThreadStartProgress) {

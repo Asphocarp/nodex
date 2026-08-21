@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  handleNfmEditorModEnterShortcut,
-} from "./nfm-editor-mod-enter-shortcut";
+import { handleNfmEditorModEnterShortcut } from "./nfm-editor-mod-enter-shortcut";
 import type { ModifyShortcutEditor } from "./modify-block-shortcut";
 
 describe("handleNfmEditorModEnterShortcut", () => {
@@ -43,11 +41,8 @@ describe("handleNfmEditorModEnterShortcut", () => {
     });
     const editor: ModifyShortcutEditor = {
       domElement: {
-        querySelector: (selector: string) => (
-          selector === '.bn-block[data-id="page-1"] [data-page-outliner-caret]'
-            ? button
-            : null
-        ),
+        querySelector: (selector: string) =>
+          selector === '.bn-block[data-id="page-1"] [data-page-outliner-caret]' ? button : null,
       } as unknown as ParentNode,
       getTextCursorPosition: () => ({
         block: { id: "page-1", type: "page", props: {} },

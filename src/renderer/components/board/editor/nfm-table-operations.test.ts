@@ -37,9 +37,7 @@ function cellText(content: NfmTableContent, row: number, column: number) {
   const cell = content.rows[row]?.cells[column];
   if (!cell || Array.isArray(cell)) return "";
 
-  return cell.content
-    .map((item) => item.type === "text" ? item.text : "")
-    .join("");
+  return cell.content.map((item) => (item.type === "text" ? item.text : "")).join("");
 }
 
 function cellBackground(content: NfmTableContent, row: number, column: number) {

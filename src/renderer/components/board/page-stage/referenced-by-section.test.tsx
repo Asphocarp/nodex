@@ -17,13 +17,7 @@ const ITEM = {
 describe("ReferencedBySection", () => {
   test("stays collapsed by default and opens the exact source Block row", () => {
     const onOpen = vi.fn();
-    const view = render(
-      <ReferencedBySection
-        items={[ITEM]}
-        sourcePageCount={1}
-        onOpen={onOpen}
-      />,
-    );
+    const view = render(<ReferencedBySection items={[ITEM]} sourcePageCount={1} onOpen={onOpen} />);
 
     const disclosure = view.getByRole("button", { name: /Referenced by 1/ });
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");
@@ -50,12 +44,7 @@ describe("ReferencedBySection", () => {
 
   test("keeps a loading state visible without exposing a zero count", () => {
     const loadingView = render(
-      <ReferencedBySection
-        items={[]}
-        sourcePageCount={0}
-        loading
-        onOpen={() => undefined}
-      />,
+      <ReferencedBySection items={[]} sourcePageCount={0} loading onOpen={() => undefined} />,
     );
     expect(loadingView.getByRole("button", { name: "Referenced by …" })).toBeTruthy();
   });

@@ -7,7 +7,9 @@ import {
   type CodexHooksSettingsViewProps,
 } from "./workbench-hooks-settings-page";
 
-function hook(overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">): HookMetadata {
+function hook(
+  overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">,
+): HookMetadata {
   return {
     eventName: "stop",
     handlerType: "command",
@@ -54,9 +56,7 @@ const ENTRIES: HooksListEntry[] = [
 ];
 
 function HooksStory(props: Partial<CodexHooksSettingsViewProps> & { initialPath?: string }) {
-  const [path, setPath] = useState(
-    props.initialPath ?? "/settings/hooks-settings?hostId=default",
-  );
+  const [path, setPath] = useState(props.initialPath ?? "/settings/hooks-settings?hostId=default");
 
   return (
     <div className="h-screen bg-token-main-surface-primary">

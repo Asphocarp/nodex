@@ -140,9 +140,7 @@ export const pageOutlinerPlainTitle = (target: PageOutlinerTarget): string => {
   return target.page.title.trim() || target.fallbackTitle;
 };
 
-export const pageOutlinerInlineStateLabel = (
-  target: PageOutlinerTarget,
-): string | null => {
+export const pageOutlinerInlineStateLabel = (target: PageOutlinerTarget): string | null => {
   if (target.status === "loading") return "Loading";
   if (target.status === "error") return "Unavailable";
   if (target.status === "missing") return "Missing";

@@ -1,10 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { CalendarRangeState } from "@/lib/calendar-range";
-import {
-  CalendarToolbarControls,
-  CalendarToolbarMonthLabel,
-} from "./calendar-toolbar";
+import { CalendarToolbarControls, CalendarToolbarMonthLabel } from "./calendar-toolbar";
 
 const meta = {
   title: "Board/Calendar/Toolbar",
@@ -26,11 +23,14 @@ function ToolbarHarness({
 }) {
   const [range, setRange] = useState(initialRange);
   const today = new Date(2026, 1, 14);
-  const visibleDays = Array.from({ length: range.mode === "multi-week" ? range.multiWeekCount * 7 : 4 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() + index);
-    return date;
-  });
+  const visibleDays = Array.from(
+    { length: range.mode === "multi-week" ? range.multiWeekCount * 7 : 4 },
+    (_, index) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() + index);
+      return date;
+    },
+  );
 
   return (
     <div className="min-h-screen bg-token-main-surface-primary p-4 text-token-foreground">

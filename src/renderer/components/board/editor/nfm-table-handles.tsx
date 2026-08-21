@@ -100,7 +100,8 @@ const NFM_TABLE_COLOR_LABELS = {
 const NFM_TABLE_TEXT_COLOR_STYLES = {
   default: "var(--color-token-foreground)",
   gray: "color-mix(in srgb, var(--color-token-foreground) 42%, transparent)",
-  brown: "color-mix(in srgb, var(--color-token-charts-orange) 70%, var(--color-token-foreground) 18%)",
+  brown:
+    "color-mix(in srgb, var(--color-token-charts-orange) 70%, var(--color-token-foreground) 18%)",
   orange: "var(--color-token-charts-orange)",
   yellow: "var(--color-token-charts-yellow)",
   green: "var(--color-token-charts-green)",
@@ -125,7 +126,7 @@ const NFM_TABLE_BACKGROUND_COLOR_STYLES = {
 
 function normalizeTableColorValue(value: unknown): NfmTableColorValue {
   return NFM_TABLE_COLOR_VALUES.includes(value as NfmTableColorValue)
-    ? value as NfmTableColorValue
+    ? (value as NfmTableColorValue)
     : "default";
 }
 
@@ -184,13 +185,10 @@ function NfmTableColorDot({
   selected: boolean;
 }) {
   const colorValue = NFM_TABLE_TEXT_COLOR_STYLES[color];
-  const backgroundColor = kind === "background"
-    ? NFM_TABLE_BACKGROUND_COLOR_STYLES[color]
-    : "transparent";
+  const backgroundColor =
+    kind === "background" ? NFM_TABLE_BACKGROUND_COLOR_STYLES[color] : "transparent";
   const foregroundColor = kind === "text" ? colorValue : "var(--color-token-foreground)";
-  const borderColor = color === "default"
-    ? "var(--color-token-border)"
-    : colorValue;
+  const borderColor = color === "default" ? "var(--color-token-border)" : colorValue;
 
   return (
     <span
@@ -229,10 +227,7 @@ function NfmTableColorSection({
         {label}
       </Components.Generic.Menu.Label>
       {NFM_TABLE_COLOR_VALUES.map((color) => (
-        <Components.Generic.Menu.Item
-          key={`${kind}-${color}`}
-          onClick={() => onSelect(color)}
-        >
+        <Components.Generic.Menu.Item key={`${kind}-${color}`} onClick={() => onSelect(color)}>
           <NfmTableMenuRowContent
             icon={
               <NfmTableColorDot
@@ -242,9 +237,9 @@ function NfmTableColorSection({
               />
             }
             rightSlot={
-              normalizedCurrentColor === color
-                ? <CheckmarkIcon className="size-4 shrink-0" />
-                : undefined
+              normalizedCurrentColor === color ? (
+                <CheckmarkIcon className="size-4 shrink-0" />
+              ) : undefined
             }
           >
             {NFM_TABLE_COLOR_LABELS[color]}
@@ -275,13 +270,8 @@ function NfmTableColorSubmenu({
   return (
     <Components.Generic.Menu.Root position="right" sub>
       <Components.Generic.Menu.Trigger sub>
-        <Components.Generic.Menu.Item
-          className="bn-menu-item"
-          subTrigger
-        >
-          <NfmTableMenuRowContent icon={<NfmSideMenuColorIcon />}>
-            Color
-          </NfmTableMenuRowContent>
+        <Components.Generic.Menu.Item className="bn-menu-item" subTrigger>
+          <NfmTableMenuRowContent icon={<NfmSideMenuColorIcon />}>Color</NfmTableMenuRowContent>
         </Components.Generic.Menu.Item>
       </Components.Generic.Menu.Trigger>
       <Components.Generic.Menu.Dropdown
@@ -364,23 +354,32 @@ function NfmTableHandleColorPickerButton(props: { orientation: "row" | "column" 
   const firstCell = mapTableCell<DefaultInlineContentSchema, DefaultStyleSchema>(
     currentCells[0].cell,
   );
-  const hasSameTextColor = currentCells.every(({ cell }) =>
-    isTableCell(cell) && cell.props.textColor === firstCell.props.textColor
+  const hasSameTextColor = currentCells.every(
+    ({ cell }) => isTableCell(cell) && cell.props.textColor === firstCell.props.textColor,
   );
-  const hasSameBackgroundColor = currentCells.every(({ cell }) =>
-    isTableCell(cell) && cell.props.backgroundColor === firstCell.props.backgroundColor
+  const hasSameBackgroundColor = currentCells.every(
+    ({ cell }) =>
+      isTableCell(cell) && cell.props.backgroundColor === firstCell.props.backgroundColor,
   );
 
   return (
     <NfmTableColorSubmenu
-      text={editor.settings.tables.cellTextColor ? {
-        color: hasSameTextColor ? firstCell.props.textColor : "default",
-        setColor: (color) => updateColor(color, "text"),
-      } : undefined}
-      background={editor.settings.tables.cellBackgroundColor ? {
-        color: hasSameBackgroundColor ? firstCell.props.backgroundColor : "default",
-        setColor: (color) => updateColor(color, "background"),
-      } : undefined}
+      text={
+        editor.settings.tables.cellTextColor
+          ? {
+              color: hasSameTextColor ? firstCell.props.textColor : "default",
+              setColor: (color) => updateColor(color, "text"),
+            }
+          : undefined
+      }
+      background={
+        editor.settings.tables.cellBackgroundColor
+          ? {
+              color: hasSameBackgroundColor ? firstCell.props.backgroundColor : "default",
+              setColor: (color) => updateColor(color, "background"),
+            }
+          : undefined
+      }
     />
   );
 }
@@ -426,25 +425,33 @@ function NfmTableCellColorPickerButton() {
     editor.setTextCursorPosition(block);
   };
 
-  const mappedCell = mapTableCell<DefaultInlineContentSchema, DefaultStyleSchema>(
-    currentCell,
-  );
+  const mappedCell = mapTableCell<DefaultInlineContentSchema, DefaultStyleSchema>(currentCell);
 
   return (
     <NfmTableColorSubmenu
-      text={editor.settings.tables.cellTextColor ? {
-        color: mappedCell.props.textColor,
-        setColor: (color) => updateColor(color, "text"),
-      } : undefined}
-      background={editor.settings.tables.cellBackgroundColor ? {
-        color: mappedCell.props.backgroundColor,
-        setColor: (color) => updateColor(color, "background"),
-      } : undefined}
+      text={
+        editor.settings.tables.cellTextColor
+          ? {
+              color: mappedCell.props.textColor,
+              setColor: (color) => updateColor(color, "text"),
+            }
+          : undefined
+      }
+      background={
+        editor.settings.tables.cellBackgroundColor
+          ? {
+              color: mappedCell.props.backgroundColor,
+              setColor: (color) => updateColor(color, "background"),
+            }
+          : undefined
+      }
     />
   );
 }
 
-function getInsertLabel(props: TableHandleMenuProps & { side: "above" | "below" | "left" | "right" }) {
+function getInsertLabel(
+  props: TableHandleMenuProps & { side: "above" | "below" | "left" | "right" },
+) {
   if (props.side === "left") return "Insert left";
   if (props.side === "right") return "Insert right";
   if (props.side === "above") return "Insert above";
@@ -501,9 +508,10 @@ function NfmTableHandleMutationButton({
       kind: orientation,
       index,
     } satisfies NfmTableRowOrColumnTarget;
-    const nextContent = action === "duplicate"
-      ? duplicateNfmTableTarget(tableContent, target)
-      : clearNfmTableTarget(tableContent, target);
+    const nextContent =
+      action === "duplicate"
+        ? duplicateNfmTableTarget(tableContent, target)
+        : clearNfmTableTarget(tableContent, target);
     if (nextContent === tableContent) return;
 
     editor.updateBlock(block, {
@@ -514,11 +522,7 @@ function NfmTableHandleMutationButton({
   };
 
   return (
-    <NfmTableActionMenuItem
-      icon={icon}
-      onClick={mutateTable}
-      shortcut={shortcut}
-    >
+    <NfmTableActionMenuItem icon={icon} onClick={mutateTable} shortcut={shortcut}>
       {children}
     </NfmTableActionMenuItem>
   );
@@ -564,17 +568,18 @@ function NfmTableCellClearButton() {
 }
 
 function NfmTableHandleMenu(props: TableHandleMenuProps) {
-  const insertButtons = props.orientation === "row" ? (
-    <>
-      <NfmTableInsertButton orientation="row" side="above" />
-      <NfmTableInsertButton orientation="row" side="below" />
-    </>
-  ) : (
-    <>
-      <NfmTableInsertButton orientation="column" side="left" />
-      <NfmTableInsertButton orientation="column" side="right" />
-    </>
-  );
+  const insertButtons =
+    props.orientation === "row" ? (
+      <>
+        <NfmTableInsertButton orientation="row" side="above" />
+        <NfmTableInsertButton orientation="row" side="below" />
+      </>
+    ) : (
+      <>
+        <NfmTableInsertButton orientation="column" side="left" />
+        <NfmTableInsertButton orientation="column" side="right" />
+      </>
+    );
 
   return (
     <TableHandleMenu {...props}>
@@ -596,9 +601,7 @@ function NfmTableHandleMenu(props: TableHandleMenuProps) {
         Clear contents
       </NfmTableHandleMutationButton>
       <DeleteButton orientation={props.orientation}>
-        <NfmTableMenuRowContent icon={<NfmSideMenuDeleteIcon />}>
-          Delete
-        </NfmTableMenuRowContent>
+        <NfmTableMenuRowContent icon={<NfmSideMenuDeleteIcon />}>Delete</NfmTableMenuRowContent>
       </DeleteButton>
       <TableHeaderRowButton orientation={props.orientation}>
         <NfmTableMenuRowContent icon={<NfmSideMenuTableHeaderIcon />}>

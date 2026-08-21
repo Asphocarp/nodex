@@ -1,10 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ServerRequest } from "@nodex/codex-app-server-protocol";
-import type {
-  HookRunSummary,
-  ThreadItem,
-  Turn,
-} from "@nodex/codex-app-server-protocol/v2";
+import type { HookRunSummary, ThreadItem, Turn } from "@nodex/codex-app-server-protocol/v2";
 import { projectCodexCanonicalTurnItemViews } from "../codex-canonical-item-projector";
 import {
   appendCodexCanonicalForkedFromConversationItem,
@@ -60,22 +56,14 @@ import {
 } from "./test-fixtures/agent-activity-v2-request-family-corpus";
 
 type IsExact<TLeft, TRight> =
-  (<T>() => T extends TLeft ? 1 : 2) extends
-  (<T>() => T extends TRight ? 1 : 2)
-    ? (<T>() => T extends TRight ? 1 : 2) extends
-      (<T>() => T extends TLeft ? 1 : 2)
+  (<T>() => T extends TLeft ? 1 : 2) extends <T>() => T extends TRight ? 1 : 2
+    ? (<T>() => T extends TRight ? 1 : 2) extends <T>() => T extends TLeft ? 1 : 2
       ? true
       : false
     : false;
 
-const generatedItemTypeProof: IsExact<
-  CodexCanonicalProtocolItem,
-  ThreadItem
-> = true;
-const generatedRequestTypeProof: IsExact<
-  CodexCanonicalProtocolRequest,
-  ServerRequest
-> = true;
+const generatedItemTypeProof: IsExact<CodexCanonicalProtocolItem, ThreadItem> = true;
+const generatedRequestTypeProof: IsExact<CodexCanonicalProtocolRequest, ServerRequest> = true;
 
 function collectAllGeneratedCorpusRequests(): ServerRequest[] {
   const requests = agentActivityV2PendingResolvedRequestCases.map(
@@ -113,10 +101,12 @@ const optionPickerRequest = {
     threadId: AGENT_ACTIVITY_V2_CORPUS_THREAD_ID,
     turnId: AGENT_ACTIVITY_V2_CORPUS_TURN_ID,
     question: "Choose a fixture option.",
-    options: [{
-      label: "Continue",
-      description: "Continue with the sanitized fixture.",
-    }],
+    options: [
+      {
+        label: "Continue",
+        description: "Continue with the sanitized fixture.",
+      },
+    ],
     allowMultiple: false,
     submitLabel: "Continue",
     skipLabel: null,
@@ -171,22 +161,25 @@ function buildCompleteFixtureTurnParams(
 
 function hydrateCanonicalFixtureTurns(turns: Turn[]) {
   const fixtureThread = buildAgentActivityV2CorpusThread([]);
-  return createCodexCanonicalHydratedConversationState({
-    ...fixtureThread,
-    turns,
-  }, {
-    model: "gpt-fixture",
-    reasoningEffort: "high",
-    cwd: "/workspace/project",
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
-    sandboxPolicy: {
-      type: "readOnly",
-      networkAccess: false,
+  return createCodexCanonicalHydratedConversationState(
+    {
+      ...fixtureThread,
+      turns,
     },
-    activePermissionProfile: null,
-    runtimeWorkspaceRoots: ["/workspace/project"],
-  });
+    {
+      model: "gpt-fixture",
+      reasoningEffort: "high",
+      cwd: "/workspace/project",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: {
+        type: "readOnly",
+        networkAccess: false,
+      },
+      activePermissionProfile: null,
+      runtimeWorkspaceRoots: ["/workspace/project"],
+    },
+  );
 }
 
 describe("protocol-backed canonical conversation state", () => {
@@ -204,8 +197,9 @@ describe("protocol-backed canonical conversation state", () => {
       expect(canonical === request).toBe(true);
     }
 
-    expect(getCommandApprovalItemId(agentActivityV2CommandApprovalRequest))
-      .toBe("pending-command-approval");
+    expect(getCommandApprovalItemId(agentActivityV2CommandApprovalRequest)).toBe(
+      "pending-command-approval",
+    );
   });
 
   test("rejects partially loaded turns at the hydrated history boundary", () => {
@@ -265,14 +259,12 @@ describe("protocol-backed canonical conversation state", () => {
     expect(turn.sidecar.turnStartedAtMs).toBe(1_000);
     expect(turn.sidecar.finalAssistantStartedAtMs).toBe(null);
     expect(turn.sidecar.diff).toBe(null);
-    expect(Object.prototype.hasOwnProperty.call(
-      turn.sidecar,
-      "commandExecutionStartedAtMsById",
-    )).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(
-      turn.sidecar,
-      "interruptedCommandExecutionItemIds",
-    )).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(turn.sidecar, "commandExecutionStartedAtMsById"),
+    ).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(turn.sidecar, "interruptedCommandExecutionItemIds"),
+    ).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(turn.sidecar, "hookRuns")).toBe(false);
     expect(turn.items[0] === items[0]).toBe(true);
     expect(first.requests[0] === pendingRequests[0]).toBe(true);
@@ -285,18 +277,20 @@ describe("protocol-backed canonical conversation state", () => {
       type: "userMessage",
       id: "hydrated-user-message",
       clientId: null,
-      content: [{
-        type: "text",
-        text: [
-          "# Files mentioned by the user:",
-          "",
-          "## fixture: /workspace/project/file.ts (lines 2-7)",
-          "",
-          "## My request for Codex:",
-          "Inspect the raw slots.",
-        ].join("\n"),
-        text_elements: [],
-      }],
+      content: [
+        {
+          type: "text",
+          text: [
+            "# Files mentioned by the user:",
+            "",
+            "## fixture: /workspace/project/file.ts (lines 2-7)",
+            "",
+            "## My request for Codex:",
+            "Inspect the raw slots.",
+          ].join("\n"),
+          text_elements: [],
+        },
+      ],
     } satisfies ThreadItem;
     const hidden = {
       type: "enteredReviewMode",
@@ -324,12 +318,7 @@ describe("protocol-backed canonical conversation state", () => {
       exitCode: null,
       durationMs: null,
     } satisfies ThreadItem;
-    const thread = buildAgentActivityV2CorpusThread([
-      userMessage,
-      hidden,
-      fileChange,
-      command,
-    ]);
+    const thread = buildAgentActivityV2CorpusThread([userMessage, hidden, fileChange, command]);
     const state = createCodexCanonicalHydratedConversationState(thread, {
       model: "gpt-fixture",
       reasoningEffort: "high",
@@ -360,58 +349,70 @@ describe("protocol-backed canonical conversation state", () => {
     expect(turn.sidecar.params.model).toBe("gpt-fixture");
     expect(turn.sidecar.params.cwd).toBe("/workspace/project");
     expect(turn.sidecar.params.effort).toBe("high");
-    expect(JSON.stringify(turn.sidecar.params.attachments)).toBe(JSON.stringify([{
-      label: "fixture",
-      path: "/workspace/project/file.ts",
-      fsPath: "/workspace/project/file.ts",
-    }]));
+    expect(JSON.stringify(turn.sidecar.params.attachments)).toBe(
+      JSON.stringify([
+        {
+          label: "fixture",
+          path: "/workspace/project/file.ts",
+          fsPath: "/workspace/project/file.ts",
+        },
+      ]),
+    );
     expect(turn.sidecar.params.sandboxPolicy?.type).toBe("workspaceWrite");
     expect(Object.prototype.hasOwnProperty.call(turn.sidecar.params, "permissions")).toBe(false);
     expect(state.sidecar.hydrationContext?.model ?? null).toBe("gpt-fixture");
     expect(state.sidecar.hydrationContext?.cwd ?? null).toBe("/workspace/project");
-    expect(
-      state.sidecar.hydrationContext?.currentPermissions.sandboxPolicy.type ?? null,
-    ).toBe("workspaceWrite");
+    expect(state.sidecar.hydrationContext?.currentPermissions.sandboxPolicy.type ?? null).toBe(
+      "workspaceWrite",
+    );
   });
 
   test("hydrates duplicate turn ids per occurrence before the exact DB fold", () => {
     const baseTurn = buildAgentActivityV2CorpusThread([]).turns[0];
     if (!baseTurn) throw new Error("Canonical corpus turn is missing");
-    const heartbeatInput = [{
-      type: "text",
-      text: [
-        "<heartbeat>",
-        "<current_time_iso>2026-07-10T00:00:00Z</current_time_iso>",
-        "<instructions>Check status</instructions>",
-        "</heartbeat>",
-      ].join("\n"),
-      text_elements: [],
-    }] satisfies Extract<ThreadItem, { type: "userMessage" }>["content"];
-    const ordinaryInput = [{
-      type: "text",
-      text: "Continue normally",
-      text_elements: [],
-    }] satisfies Extract<ThreadItem, { type: "userMessage" }>["content"];
+    const heartbeatInput = [
+      {
+        type: "text",
+        text: [
+          "<heartbeat>",
+          "<current_time_iso>2026-07-10T00:00:00Z</current_time_iso>",
+          "<instructions>Check status</instructions>",
+          "</heartbeat>",
+        ].join("\n"),
+        text_elements: [],
+      },
+    ] satisfies Extract<ThreadItem, { type: "userMessage" }>["content"];
+    const ordinaryInput = [
+      {
+        type: "text",
+        text: "Continue normally",
+        text_elements: [],
+      },
+    ] satisfies Extract<ThreadItem, { type: "userMessage" }>["content"];
     const duplicateTurns = [
       {
         ...baseTurn,
         id: "turn-duplicate-hydration",
-        items: [{
-          type: "userMessage",
-          id: "heartbeat-input",
-          clientId: null,
-          content: heartbeatInput,
-        }],
+        items: [
+          {
+            type: "userMessage",
+            id: "heartbeat-input",
+            clientId: null,
+            content: heartbeatInput,
+          },
+        ],
       },
       {
         ...baseTurn,
         id: "turn-duplicate-hydration",
-        items: [{
-          type: "userMessage",
-          id: "ordinary-input",
-          clientId: null,
-          content: ordinaryInput,
-        }],
+        items: [
+          {
+            type: "userMessage",
+            id: "ordinary-input",
+            clientId: null,
+            content: ordinaryInput,
+          },
+        ],
       },
     ] satisfies Turn[];
 
@@ -450,63 +451,81 @@ describe("protocol-backed canonical conversation state", () => {
   });
 
   test("resolves paged-resume cwd with the exact requested-descendant rule", () => {
-    expect(resolveCodexCanonicalHydratedCwd({
-      requestedCwd: "/workspace/project/subdir/",
-      responseCwd: "/workspace/project",
-      threadCwd: "/stale/thread",
-      fallbackCwd: "/fallback",
-    })).toBe("/workspace/project/subdir/");
-    expect(resolveCodexCanonicalHydratedCwd({
-      requestedCwd: "/other/project",
-      responseCwd: "/workspace/project",
-      threadCwd: null,
-      fallbackCwd: "/fallback",
-    })).toBe("/workspace/project");
-    expect(resolveCodexCanonicalHydratedCwd({
-      requestedCwd: "C:\\Workspace\\Project\\Subdir",
-      responseCwd: "c:/workspace/project",
-      threadCwd: null,
-      fallbackCwd: null,
-    })).toBe("C:\\Workspace\\Project\\Subdir");
-    expect(resolveCodexCanonicalHydratedCwd({
-      requestedCwd: null,
-      responseCwd: null,
-      threadCwd: null,
-      fallbackCwd: null,
-    })).toBe(null);
+    expect(
+      resolveCodexCanonicalHydratedCwd({
+        requestedCwd: "/workspace/project/subdir/",
+        responseCwd: "/workspace/project",
+        threadCwd: "/stale/thread",
+        fallbackCwd: "/fallback",
+      }),
+    ).toBe("/workspace/project/subdir/");
+    expect(
+      resolveCodexCanonicalHydratedCwd({
+        requestedCwd: "/other/project",
+        responseCwd: "/workspace/project",
+        threadCwd: null,
+        fallbackCwd: "/fallback",
+      }),
+    ).toBe("/workspace/project");
+    expect(
+      resolveCodexCanonicalHydratedCwd({
+        requestedCwd: "C:\\Workspace\\Project\\Subdir",
+        responseCwd: "c:/workspace/project",
+        threadCwd: null,
+        fallbackCwd: null,
+      }),
+    ).toBe("C:\\Workspace\\Project\\Subdir");
+    expect(
+      resolveCodexCanonicalHydratedCwd({
+        requestedCwd: null,
+        responseCwd: null,
+        threadCwd: null,
+        fallbackCwd: null,
+      }),
+    ).toBe(null);
   });
 
   test("clamps projectless cwd to the workspace-browser root across path styles", () => {
-    expect(resolveCodexCanonicalProjectlessCwd({
-      cwd: "/workspace/root/nested",
-      fallbackCwd: null,
-      workspaceBrowserRoot: "/workspace/root",
-      projectless: true,
-    })).toBe("/workspace/root/nested");
-    expect(resolveCodexCanonicalProjectlessCwd({
-      cwd: "/outside/root",
-      fallbackCwd: null,
-      workspaceBrowserRoot: "/workspace/root/",
-      projectless: true,
-    })).toBe("/workspace/root/");
-    expect(resolveCodexCanonicalProjectlessCwd({
-      cwd: "C:\\Workspace\\Root\\nested",
-      fallbackCwd: null,
-      workspaceBrowserRoot: "c:/workspace/root",
-      projectless: true,
-    })).toBe("C:\\Workspace\\Root\\nested");
-    expect(resolveCodexCanonicalProjectlessCwd({
-      cwd: "D:\\outside",
-      fallbackCwd: null,
-      workspaceBrowserRoot: "C:\\Workspace\\Root",
-      projectless: true,
-    })).toBe("C:\\Workspace\\Root");
-    expect(resolveCodexCanonicalProjectlessCwd({
-      cwd: "/outside",
-      fallbackCwd: "/fallback",
-      workspaceBrowserRoot: null,
-      projectless: false,
-    })).toBe("/outside");
+    expect(
+      resolveCodexCanonicalProjectlessCwd({
+        cwd: "/workspace/root/nested",
+        fallbackCwd: null,
+        workspaceBrowserRoot: "/workspace/root",
+        projectless: true,
+      }),
+    ).toBe("/workspace/root/nested");
+    expect(
+      resolveCodexCanonicalProjectlessCwd({
+        cwd: "/outside/root",
+        fallbackCwd: null,
+        workspaceBrowserRoot: "/workspace/root/",
+        projectless: true,
+      }),
+    ).toBe("/workspace/root/");
+    expect(
+      resolveCodexCanonicalProjectlessCwd({
+        cwd: "C:\\Workspace\\Root\\nested",
+        fallbackCwd: null,
+        workspaceBrowserRoot: "c:/workspace/root",
+        projectless: true,
+      }),
+    ).toBe("C:\\Workspace\\Root\\nested");
+    expect(
+      resolveCodexCanonicalProjectlessCwd({
+        cwd: "D:\\outside",
+        fallbackCwd: null,
+        workspaceBrowserRoot: "C:\\Workspace\\Root",
+        projectless: true,
+      }),
+    ).toBe("C:\\Workspace\\Root");
+    expect(
+      resolveCodexCanonicalProjectlessCwd({
+        cwd: "/outside",
+        fallbackCwd: "/fallback",
+        workspaceBrowserRoot: null,
+        projectless: false,
+      }),
+    ).toBe("/outside");
   });
 
   test("appends exact fork provenance and synthesizes the S1 placeholder when empty", () => {
@@ -551,10 +570,9 @@ describe("protocol-backed canonical conversation state", () => {
     expect(synthesized?.sidecar.firstTurnWorkItemStartedAtMs).toBe(null);
     expect(synthesized?.sidecar.params.model).toBe(null);
     expect(synthesized?.sidecar.params.effort).toBe("minimal");
-    expect(Object.prototype.hasOwnProperty.call(
-      synthesized?.sidecar.params ?? {},
-      "attachments",
-    )).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(synthesized?.sidecar.params ?? {}, "attachments"),
+    ).toBe(false);
     expect(JSON.stringify(synthesized?.sidecar.hookRuns ?? null)).toBe("[]");
   });
 
@@ -591,9 +609,7 @@ describe("protocol-backed canonical conversation state", () => {
     const appendedToLatest = appendCodexCanonicalWorktreeInitItem(base, item);
     expect(appendedToLatest.turns.length).toBe(base.turns.length);
     expect(appendedToLatest.turns.at(-1)?.items.at(-1) === item).toBe(true);
-    expect(appendedToLatest.turns.at(-1)?.protocol.status).toBe(
-      base.turns.at(-1)?.protocol.status,
-    );
+    expect(appendedToLatest.turns.at(-1)?.protocol.status).toBe(base.turns.at(-1)?.protocol.status);
 
     const forkInit = appendCodexCanonicalWorktreeInitItem(base, item, "new-turn");
     const forkInitTurn = forkInit.turns.at(-1);
@@ -609,17 +625,11 @@ describe("protocol-backed canonical conversation state", () => {
     expect(forkInitTurn?.sidecar.turnStartedAtMs).toBe(null);
     expect(isCodexCanonicalProtocolItem(item)).toBe(false);
 
-    const rendererReloadTurns = mergeCodexCanonicalTurnStates(
-      forkInit.turns,
-      base.turns,
-    );
+    const rendererReloadTurns = mergeCodexCanonicalTurnStates(forkInit.turns, base.turns);
     expect(rendererReloadTurns.flatMap((turn) => turn.items)).toContain(item);
     expect(rendererReloadTurns.filter((turn) => turn.protocol.id === null)).toHaveLength(1);
 
-    const noTurns = appendCodexCanonicalWorktreeInitItem(
-      { ...base, turns: [] },
-      item,
-    );
+    const noTurns = appendCodexCanonicalWorktreeInitItem({ ...base, turns: [] }, item);
     expect(noTurns.turns.length).toBe(1);
     expect(noTurns.turns[0]?.protocol.status).toBe("completed");
     expect(noTurns.turns[0]?.items[0] === item).toBe(true);
@@ -653,26 +663,15 @@ describe("protocol-backed canonical conversation state", () => {
       source: "manual" as const,
     };
 
-    const pending = appendCodexCanonicalInProgressSyntheticItem(
-      empty,
-      placeholder,
-      42,
-    );
+    const pending = appendCodexCanonicalInProgressSyntheticItem(empty, placeholder, 42);
 
     expect(pending.turns[0]?.protocol.id).toBe(null);
     expect(pending.turns[0]?.protocol.status).toBe("inProgress");
     expect(pending.turns[0]?.sidecar.turnStartedAtMs).toBe(42);
     expect(pending.turns[0]?.items).toStrictEqual([placeholder]);
-    expect(appendCodexCanonicalInProgressSyntheticItem(
-      pending,
-      placeholder,
-      43,
-    )).toBe(pending);
+    expect(appendCodexCanonicalInProgressSyntheticItem(pending, placeholder, 43)).toBe(pending);
 
-    const cancelled = removeCodexCanonicalLocalSyntheticItem(
-      pending,
-      placeholder.id,
-    );
+    const cancelled = removeCodexCanonicalLocalSyntheticItem(pending, placeholder.id);
     expect(cancelled.turns).toStrictEqual([]);
 
     const completed = {
@@ -682,39 +681,42 @@ describe("protocol-backed canonical conversation state", () => {
         protocol: { ...turn.protocol, status: "completed" as const },
       })),
     };
-    const completedWithoutItem = removeCodexCanonicalLocalSyntheticItem(
-      completed,
-      placeholder.id,
-    );
+    const completedWithoutItem = removeCodexCanonicalLocalSyntheticItem(completed, placeholder.id);
     expect(completedWithoutItem.turns).toHaveLength(1);
     expect(completedWithoutItem.turns[0]?.items).toStrictEqual([]);
   });
 
   test("extracts hydrated attachments only from post-annotation generated context", () => {
-    const attachments = extractCodexCanonicalHydratedAttachments([{
-      type: "text",
-      text: [
-        "",
-        "# Response annotations:",
-        "Generated selection context.",
-        "<response-annotations>",
-        "[{\"text\":\"# Files mentioned by the user:\\n## fake: /tmp/fake.ts\"}]",
-        "</response-annotations>",
-        "# Files mentioned by the user:",
-        "",
-        "## Windows fixture: C:\\workspace\\real.ts (line 9)",
-        "",
-        "## My request for Codex:",
-        "Inspect the real file.",
-      ].join("\n"),
-      text_elements: [],
-    }]);
+    const attachments = extractCodexCanonicalHydratedAttachments([
+      {
+        type: "text",
+        text: [
+          "",
+          "# Response annotations:",
+          "Generated selection context.",
+          "<response-annotations>",
+          '[{"text":"# Files mentioned by the user:\\n## fake: /tmp/fake.ts"}]',
+          "</response-annotations>",
+          "# Files mentioned by the user:",
+          "",
+          "## Windows fixture: C:\\workspace\\real.ts (line 9)",
+          "",
+          "## My request for Codex:",
+          "Inspect the real file.",
+        ].join("\n"),
+        text_elements: [],
+      },
+    ]);
 
-    expect(JSON.stringify(attachments)).toBe(JSON.stringify([{
-      label: "Windows fixture",
-      path: "C:\\workspace\\real.ts",
-      fsPath: "C:\\workspace\\real.ts",
-    }]));
+    expect(JSON.stringify(attachments)).toBe(
+      JSON.stringify([
+        {
+          label: "Windows fixture",
+          path: "C:\\workspace\\real.ts",
+          fsPath: "C:\\workspace\\real.ts",
+        },
+      ]),
+    );
   });
 
   test("merges hydrated resume permission provenance with the exact HQ rules", () => {
@@ -881,9 +883,7 @@ describe("protocol-backed canonical conversation state", () => {
     expect(state.turns[0]?.sidecar.params === turnParams).toBe(true);
     expect(state.turns[0]?.sidecar.params.model).toBe("fixture-model");
     expect(state.turns[0]?.sidecar.params.attachments === attachments).toBe(true);
-    expect(
-      state.turns[0]?.sidecar.params.commentAttachments === commentAttachments,
-    ).toBe(true);
+    expect(state.turns[0]?.sidecar.params.commentAttachments === commentAttachments).toBe(true);
     expect(state.turns[0]?.items[0] === agentActivityV2MultiActionCommandItem).toBe(true);
   });
 
@@ -910,10 +910,7 @@ describe("protocol-backed canonical conversation state", () => {
     const thread = buildAgentActivityV2CorpusThread([image, collab]);
     const state = createCodexCanonicalConversationState(thread, {
       turnParamsById: {
-        [AGENT_ACTIVITY_V2_CORPUS_TURN_ID]: buildCompleteFixtureTurnParams(
-          thread.id,
-          thread.cwd,
-        ),
+        [AGENT_ACTIVITY_V2_CORPUS_TURN_ID]: buildCompleteFixtureTurnParams(thread.id, thread.cwd),
       },
     });
     const hydratedImage = state.turns[0]?.items[0];
@@ -926,9 +923,9 @@ describe("protocol-backed canonical conversation state", () => {
     ).toBe("data:image/png;base64,aHlkcmF0ZWQ=");
     expect(
       hydratedCollab?.type === "collabAgentToolCall" && "receiverThreads" in hydratedCollab
-        ? hydratedCollab.receiverThreads.map((receiver) => (
-            `${receiver.threadId}:${String(receiver.thread)}`
-          )).join(",")
+        ? hydratedCollab.receiverThreads
+            .map((receiver) => `${receiver.threadId}:${String(receiver.thread)}`)
+            .join(",")
         : "",
     ).toBe("receiver-a:null,receiver-b:null");
   });
@@ -936,10 +933,7 @@ describe("protocol-backed canonical conversation state", () => {
   test("retains both exact hydrated-profile and live permission contexts", () => {
     const thread = buildAgentActivityV2CorpusThread([agentActivityV2MultiActionCommandItem]);
     const sandboxParams = buildCompleteFixtureTurnParams(thread.id, thread.cwd);
-    const {
-      sandboxPolicy: _sandboxPolicy,
-      ...sharedParams
-    } = sandboxParams;
+    const { sandboxPolicy: _sandboxPolicy, ...sharedParams } = sandboxParams;
     expect(_sandboxPolicy.type).toBe("workspaceWrite");
     const profileParams = {
       ...sharedParams,
@@ -965,11 +959,11 @@ describe("protocol-backed canonical conversation state", () => {
     });
 
     expect(profileState.turns[0]?.sidecar.params === profileParams).toBe(true);
-    expect(profileState.turns[0]?.sidecar.params.runtimeWorkspaceRoots?.[0])
-      .toBe("/workspace/project");
+    expect(profileState.turns[0]?.sidecar.params.runtimeWorkspaceRoots?.[0]).toBe(
+      "/workspace/project",
+    );
     expect(liveState.turns[0]?.sidecar.params === liveParams).toBe(true);
-    expect(liveState.turns[0]?.sidecar.params.sandboxPolicy?.type)
-      .toBe("workspaceWrite");
+    expect(liveState.turns[0]?.sidecar.params.sandboxPolicy?.type).toBe("workspaceWrite");
     expect(liveState.turns[0]?.sidecar.params.permissions).toBe("fixture-profile");
   });
 
@@ -1001,14 +995,12 @@ describe("protocol-backed canonical conversation state", () => {
   });
 
   test("models all request-caused synthetic families outside ThreadItem", () => {
-    const userInputQuestions = agentActivityV2UserInputRequest.params.questions.map(
-      (question) => ({
-        id: question.id,
-        header: question.header,
-        question: question.question,
-        options: question.options ?? [],
-      }),
-    );
+    const userInputQuestions = agentActivityV2UserInputRequest.params.questions.map((question) => ({
+      id: question.id,
+      header: question.header,
+      question: question.question,
+      options: question.options ?? [],
+    }));
     const firstUserInputQuestion = userInputQuestions[0];
     if (!firstUserInputQuestion) {
       throw new Error("Canonical fixture user-input request must have a question");
@@ -1056,10 +1048,8 @@ describe("protocol-backed canonical conversation state", () => {
     expect(syntheticItems.length).toBe(3);
     expect(syntheticItems[0]?.requestId).toBe(agentActivityV2UserInputRequest.id);
     expect(Object.prototype.hasOwnProperty.call(syntheticItems[0], "request")).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(firstUserInputQuestion, "isOther"))
-      .toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(firstUserInputQuestion, "isSecret"))
-      .toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(firstUserInputQuestion, "isOther")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(firstUserInputQuestion, "isSecret")).toBe(false);
     expect(syntheticItems[1]?.type).toBe("permissionRequest");
     expect(syntheticItems[2]?.type).toBe("mcpServerElicitation");
     expect(Object.prototype.hasOwnProperty.call(elicitation, "mode")).toBe(false);
@@ -1082,8 +1072,8 @@ describe("protocol-backed canonical conversation state", () => {
     expect(buildCodexCanonicalRequestIdentityKey(numeric.id)).toBe("number:73");
     expect(buildCodexCanonicalRequestIdentityKey(textual.id)).toBe("string:73");
     expect(
-      buildCodexCanonicalRequestIdentityKey(numeric.id)
-      === buildCodexCanonicalRequestIdentityKey(textual.id),
+      buildCodexCanonicalRequestIdentityKey(numeric.id) ===
+        buildCodexCanonicalRequestIdentityKey(textual.id),
     ).toBe(false);
   });
 
@@ -1122,23 +1112,24 @@ describe("protocol-backed canonical conversation state", () => {
 
     for (const marker of hiddenMarkers) {
       expect(isCodexCanonicalProtocolItem(marker)).toBe(true);
-      expect(projectCodexCanonicalTurnItemViews({
-        threadId: "thread-canonical",
-        turnId: "turn-canonical",
-        items: [materializeCodexCanonicalProtocolItem(marker)],
-        observedAtMs: 7_300,
-        turnStatus: "inProgress",
-      })).toEqual([]);
+      expect(
+        projectCodexCanonicalTurnItemViews({
+          threadId: "thread-canonical",
+          turnId: "turn-canonical",
+          items: [materializeCodexCanonicalProtocolItem(marker)],
+          observedAtMs: 7_300,
+          turnStatus: "inProgress",
+        }),
+      ).toEqual([]);
     }
   });
 
   test("retains complete MCP protocol context for the C-02 projection boundary", () => {
-    const canonical = createCodexCanonicalProtocolItem(
-      agentActivityV2McpAppContextPrecedenceItem,
-    );
+    const canonical = createCodexCanonicalProtocolItem(agentActivityV2McpAppContextPrecedenceItem);
 
-    expect(canonical.appContext === agentActivityV2McpAppContextPrecedenceItem.appContext)
-      .toBe(true);
+    expect(canonical.appContext === agentActivityV2McpAppContextPrecedenceItem.appContext).toBe(
+      true,
+    );
     expect(Object.keys(canonical.appContext).length).toBe(6);
     expect(canonical.appContext.actionName).toBe("Lookup fixture");
   });

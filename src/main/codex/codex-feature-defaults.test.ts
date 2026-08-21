@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { parse as parseToml } from "smol-toml";
-import {
-  CODEX_FEATURE_DEFAULTS,
-  materializeCodexFeatureDefaults,
-} from "./codex-feature-defaults";
+import { CODEX_FEATURE_DEFAULTS, materializeCodexFeatureDefaults } from "./codex-feature-defaults";
 
 const temporaryHomes: string[] = [];
 
@@ -17,9 +14,11 @@ async function createTemporaryHome(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryHomes.splice(0).map(async (home) => {
-    await rm(home, { recursive: true, force: true });
-  }));
+  await Promise.all(
+    temporaryHomes.splice(0).map(async (home) => {
+      await rm(home, { recursive: true, force: true });
+    }),
+  );
 });
 
 describe("Codex feature defaults", () => {
@@ -39,28 +38,27 @@ describe("Codex feature defaults", () => {
   test("preserves explicit feature values and unrelated config", async () => {
     const home = await createTemporaryHome();
     const configPath = join(home, "config.toml");
-    await writeFile(configPath, [
-      "model = \"gpt-test\"",
-      "integer_setting = 1",
-      "float_setting = 1.0",
-      "",
-      "[features]",
-      "unified_exec = false",
-      "prevent_idle_sleep = false",
-      "custom_feature = false",
-      "",
-    ].join("\n"));
+    await writeFile(
+      configPath,
+      [
+        'model = "gpt-test"',
+        "integer_setting = 1",
+        "float_setting = 1.0",
+        "",
+        "[features]",
+        "unified_exec = false",
+        "prevent_idle_sleep = false",
+        "custom_feature = false",
+        "",
+      ].join("\n"),
+    );
 
     const firstResult = await materializeCodexFeatureDefaults(home);
     const firstContents = await readFile(configPath, "utf8");
     const parsed = parseToml(firstContents, { integersAsBigInt: true });
     const secondResult = await materializeCodexFeatureDefaults(home);
 
-    expect(firstResult.added).toEqual([
-      "shell_snapshot",
-      "multi_agent",
-      "respect_system_proxy",
-    ]);
+    expect(firstResult.added).toEqual(["shell_snapshot", "multi_agent", "respect_system_proxy"]);
     expect(parsed).toMatchObject({
       model: "gpt-test",
       integer_setting: 1n,
@@ -81,7 +79,7 @@ describe("Codex feature defaults", () => {
   test("does not overwrite an invalid features value", async () => {
     const home = await createTemporaryHome();
     const configPath = join(home, "config.toml");
-    const source = "features = \"invalid\"\n";
+    const source = 'features = "invalid"\n';
     await writeFile(configPath, source);
 
     await expect(materializeCodexFeatureDefaults(home)).rejects.toThrow(

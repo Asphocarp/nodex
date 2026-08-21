@@ -5,21 +5,9 @@ import type {
   CoreStreamCheckpoint,
 } from "./types";
 
-export type LocalCommitIngress =
-  | "apply"
-  | "projection_live"
-  | "tailer"
-  | "replay"
-  | "resolve";
-export type LocalCommitLaneKind =
-  | "document"
-  | "projection"
-  | "visibility"
-  | "notification";
-export type LocalCommitStreamResetReason =
-  | "event_gap"
-  | "reconnect"
-  | "store_epoch_changed";
+export type LocalCommitIngress = "apply" | "projection_live" | "tailer" | "replay" | "resolve";
+export type LocalCommitLaneKind = "document" | "projection" | "visibility" | "notification";
+export type LocalCommitStreamResetReason = "event_gap" | "reconnect" | "store_epoch_changed";
 
 export type LocalCommitAdmission =
   | { readonly kind: "accepted"; readonly key: string }
@@ -113,16 +101,16 @@ const validateAuthorizationScope = (
     throw new Error("Delivery authorization Library is invalid");
   }
   if (
-    (scope.kind === "project" || scope.kind === "document")
-    && scope.project_id !== null
-    && scope.project_id !== undefined
-    && (!scope.project_id || scope.project_id.trim() !== scope.project_id)
+    (scope.kind === "project" || scope.kind === "document") &&
+    scope.project_id !== null &&
+    scope.project_id !== undefined &&
+    (!scope.project_id || scope.project_id.trim() !== scope.project_id)
   ) {
     throw new Error("Delivery authorization Project is invalid");
   }
   if (
-    scope.kind === "document"
-    && (!scope.document_id || scope.document_id.trim() !== scope.document_id)
+    scope.kind === "document" &&
+    (!scope.document_id || scope.document_id.trim() !== scope.document_id)
   ) {
     throw new Error("Delivery authorization Document is invalid");
   }
@@ -165,16 +153,18 @@ const identityOf = (packet: CoreAuthorizedDeliveryPacket) => {
     throw new Error("Authorized delivery packet hash is invalid");
   }
   if (
-    !packet.manifest.operation_id
-    || packet.manifest.operation_id.trim() !== packet.manifest.operation_id
-    || !packet.manifest.committed_at
+    !packet.manifest.operation_id ||
+    packet.manifest.operation_id.trim() !== packet.manifest.operation_id ||
+    !packet.manifest.committed_at
   ) {
     throw new Error("Authorized delivery packet manifest header is invalid");
   }
   validateAuthorizationScope(packet.authorization_scope);
   validateAuthorizationScope(packet.delivery_address);
-  if (authorizationScopeKey(packet.authorization_scope)
-    !== authorizationScopeKey(packet.delivery_address)) {
+  if (
+    authorizationScopeKey(packet.authorization_scope) !==
+    authorizationScopeKey(packet.delivery_address)
+  ) {
     throw new Error("Delivery address and authorization scope diverge");
   }
   for (const delta of packet.visibility_deltas) {
@@ -188,59 +178,44 @@ const identityOf = (packet: CoreAuthorizedDeliveryPacket) => {
   };
 };
 
-const sameValues = <Value>(
-  actual: readonly Value[],
-  expected: readonly Value[],
-): boolean => actual.length === expected.length
-  && actual.every((value, index) => value === expected[index]);
+const sameValues = <Value>(actual: readonly Value[], expected: readonly Value[]): boolean =>
+  actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 
 const validateCoverage = (packet: CoreAuthorizedDeliveryPacket): void => {
   const atomIds = packet.atoms.map((atom) => atom.descriptor.atom_id);
-  const documentOrders = packet.document_effects.map(
-    (effect) => effect.reference.effect_order,
-  );
+  const documentOrders = packet.document_effects.map((effect) => effect.reference.effect_order);
   const inlineDocumentOrders = packet.document_effects
     .filter((effect) => Boolean(effect.inline_update))
     .map((effect) => effect.reference.effect_order);
-  const projectionScopeKeys = packet.projection_effects.map(
-    (effect) => effect.scope.canonical_key,
-  );
+  const projectionScopeKeys = packet.projection_effects.map((effect) => effect.scope.canonical_key);
   if (
-    !sameValues(packet.coverage.atom_ids, atomIds)
-    || !sameValues(packet.coverage.document_effect_orders, documentOrders)
-    || !sameValues(
-      packet.coverage.inline_document_effect_orders,
-      inlineDocumentOrders,
-    )
-    || !sameValues(packet.coverage.projection_scope_keys, projectionScopeKeys)
+    !sameValues(packet.coverage.atom_ids, atomIds) ||
+    !sameValues(packet.coverage.document_effect_orders, documentOrders) ||
+    !sameValues(packet.coverage.inline_document_effect_orders, inlineDocumentOrders) ||
+    !sameValues(packet.coverage.projection_scope_keys, projectionScopeKeys)
   ) {
     throw new Error("Authorized delivery packet coverage is inconsistent");
   }
   for (const effect of packet.projection_effects) {
     if (
-      !effect.scope.canonical_key
-      || effect.scope.schema_version < 1
-      || effect.base_revision < 0
-      || effect.result_revision !== effect.base_revision + 1
-      || effect.covered_commit_seq !== packet.manifest.identity.commit_seq
-      || !/^[a-f0-9]{64}$/u.test(effect.effect_hash)
+      !effect.scope.canonical_key ||
+      effect.scope.schema_version < 1 ||
+      effect.base_revision < 0 ||
+      effect.result_revision !== effect.base_revision + 1 ||
+      effect.covered_commit_seq !== packet.manifest.identity.commit_seq ||
+      !/^[a-f0-9]{64}$/u.test(effect.effect_hash)
     ) {
       throw new Error("Authorized Projection effect is invalid");
     }
   }
 };
 
-const resourceClaims = (
-  packet: CoreAuthorizedDeliveryPacket,
-): readonly ResourceClaim[] => {
+const resourceClaims = (packet: CoreAuthorizedDeliveryPacket): readonly ResourceClaim[] => {
   const claims: ResourceClaim[] = [];
   for (const atom of packet.atoms) {
     const descriptor = atom.descriptor;
     claims.push({
-      key: scopedClaimKey(
-        packet.authorization_scope,
-        `notification:atom:${descriptor.atom_id}`,
-      ),
+      key: scopedClaimKey(packet.authorization_scope, `notification:atom:${descriptor.atom_id}`),
       fingerprint: `${descriptor.kind}:${descriptor.payload_hash}`,
     });
     if (atom.payload.module === "owned_document") {
@@ -278,10 +253,7 @@ const resourceClaims = (
   }
   for (const delta of packet.visibility_deltas) {
     claims.push({
-      key: scopedClaimKey(
-        delta.authorization_scope,
-        `visibility:${delta.delta_hash}`,
-      ),
+      key: scopedClaimKey(delta.authorization_scope, `visibility:${delta.delta_hash}`),
       fingerprint: JSON.stringify([delta.change, delta.roots]),
     });
   }
@@ -335,10 +307,7 @@ const documentDeliveries = (
   for (const atom of packet.atoms) {
     if (atom.payload.module !== "owned_document") continue;
     const documentId = atom.payload.event.document_id;
-    add(
-      documentId,
-      `document-control:atom:${atom.descriptor.atom_id}:${documentId}`,
-    );
+    add(documentId, `document-control:atom:${atom.descriptor.atom_id}:${documentId}`);
   }
   return [...claimsByDocument]
     .sort(([left], [right]) => left.localeCompare(right))
@@ -367,20 +336,11 @@ export class LocalCommitCoordinator {
 
   constructor(input: LocalCommitCoordinatorInput) {
     this.#input = input;
-    this.#maxRememberedCommits = Math.max(
-      1,
-      Math.floor(input.maxRememberedCommits ?? 100_000),
-    );
-    this.#maxDeliveryAttempts = Math.max(
-      1,
-      Math.floor(input.maxDeliveryAttempts ?? 3),
-    );
+    this.#maxRememberedCommits = Math.max(1, Math.floor(input.maxRememberedCommits ?? 100_000));
+    this.#maxDeliveryAttempts = Math.max(1, Math.floor(input.maxDeliveryAttempts ?? 3));
   }
 
-  admit(
-    packet: CoreAuthorizedDeliveryPacket,
-    ingress: LocalCommitIngress,
-  ): LocalCommitAdmission {
+  admit(packet: CoreAuthorizedDeliveryPacket, ingress: LocalCommitIngress): LocalCommitAdmission {
     return this.#admit(packet, ingress).admission;
   }
 
@@ -400,10 +360,7 @@ export class LocalCommitCoordinator {
     return admitted.admission;
   }
 
-  #admit(
-    packet: CoreAuthorizedDeliveryPacket,
-    ingress: LocalCommitIngress,
-  ): AdmissionResult {
+  #admit(packet: CoreAuthorizedDeliveryPacket, ingress: LocalCommitIngress): AdmissionResult {
     const identity = identityOf(packet);
     if (identity.storeEpoch !== this.#input.expectedStoreEpoch) {
       throw new Error(`Commit belongs to another Store epoch: ${identity.key}`);
@@ -411,10 +368,11 @@ export class LocalCommitCoordinator {
     if (packet.authorization_scope.library_id !== this.#input.expectedLibraryId) {
       throw new Error("Commit delivery belongs to another Library");
     }
-    if (packet.visibility_deltas.some(
-      (delta) =>
-        delta.authorization_scope.library_id !== this.#input.expectedLibraryId,
-    )) {
+    if (
+      packet.visibility_deltas.some(
+        (delta) => delta.authorization_scope.library_id !== this.#input.expectedLibraryId,
+      )
+    ) {
       throw new Error("Commit visibility delta belongs to another Library");
     }
     const claims = resourceClaims(packet);
@@ -454,39 +412,24 @@ export class LocalCommitCoordinator {
 
     for (const delta of packet.visibility_deltas) {
       const scopeKey = authorizationScopeKey(delta.authorization_scope);
-      const key = scopedClaimKey(
-        delta.authorization_scope,
-        `visibility:${delta.delta_hash}`,
-      );
+      const key = scopedClaimKey(delta.authorization_scope, `visibility:${delta.delta_hash}`);
       const claim = admittedByKey.get(key);
       if (!claim) continue;
-      this.#schedule(
-        "visibility",
-        `${scopeKey}:${delta.delta_hash}`,
-        packet,
-        [claim],
-        () => this.#input.onVisibility(packet, delta, ingress),
+      this.#schedule("visibility", `${scopeKey}:${delta.delta_hash}`, packet, [claim], () =>
+        this.#input.onVisibility(packet, delta, ingress),
       );
     }
     for (const delivery of documentDeliveries(packet, admittedByKey)) {
-      this.#schedule(
-        "document",
-        delivery.documentId,
-        packet,
-        delivery.claims,
-        () => this.#input.onDocument(packet, delivery.documentId, ingress),
+      this.#schedule("document", delivery.documentId, packet, delivery.claims, () =>
+        this.#input.onDocument(packet, delivery.documentId, ingress),
       );
     }
     for (const effect of packet.projection_effects) {
       const key = `projection:${effect.scope.canonical_key}:${effect.result_revision}`;
       const claim = admittedByKey.get(key);
       if (!claim) continue;
-      this.#schedule(
-        "projection",
-        effect.scope.canonical_key,
-        packet,
-        [claim],
-        () => this.#input.onProjection(packet, effect, ingress),
+      this.#schedule("projection", effect.scope.canonical_key, packet, [claim], () =>
+        this.#input.onProjection(packet, effect, ingress),
       );
     }
     for (const atom of packet.atoms) {
@@ -497,12 +440,8 @@ export class LocalCommitCoordinator {
       );
       const claim = admittedByKey.get(key);
       if (!claim) continue;
-      this.#schedule(
-        "notification",
-        `${scopeKey}:${identity.key}`,
-        packet,
-        [claim],
-        () => this.#input.onNotification(packet, atom, ingress),
+      this.#schedule("notification", `${scopeKey}:${identity.key}`, packet, [claim], () =>
+        this.#input.onNotification(packet, atom, ingress),
       );
     }
     return {
@@ -519,9 +458,9 @@ export class LocalCommitCoordinator {
       throw new Error("Stream checkpoint belongs to another Store epoch");
     }
     if (
-      this.#checkpoint
-      && checkpoint.generation === this.#checkpoint.generation
-      && checkpoint.scanned_through_seq < this.#checkpoint.scanned_through_seq
+      this.#checkpoint &&
+      checkpoint.generation === this.#checkpoint.generation &&
+      checkpoint.scanned_through_seq < this.#checkpoint.scanned_through_seq
     ) {
       throw new Error("Stream checkpoint moved backwards");
     }
@@ -626,7 +565,7 @@ export class LocalCommitCoordinator {
   #trimRemembered(): void {
     while (this.#remembered.size > this.#maxRememberedCommits) {
       const removable = [...this.#remembered].find(([, commit]) =>
-        [...commit.resources.values()].every((resource) => resource.status === "completed")
+        [...commit.resources.values()].every((resource) => resource.status === "completed"),
       );
       if (!removable) return;
       this.#remembered.delete(removable[0]);

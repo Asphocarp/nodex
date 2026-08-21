@@ -3,8 +3,7 @@ import path from "node:path";
 
 export type BrowserRuntimeTargetPlatform = "darwin";
 export type BrowserRuntimeTargetArch = "arm64" | "x64";
-export type BrowserRuntimeTargetKey =
-  `${BrowserRuntimeTargetPlatform}-${BrowserRuntimeTargetArch}`;
+export type BrowserRuntimeTargetKey = `${BrowserRuntimeTargetPlatform}-${BrowserRuntimeTargetArch}`;
 
 export type BrowserRuntimeReleaseAsset = {
   archiveSha256: string;
@@ -43,11 +42,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function requireString(value: unknown, label: string): string {
-  if (
-    typeof value === "string"
-    && value.trim().length > 0
-    && !value.includes("\0")
-  ) {
+  if (typeof value === "string" && value.trim().length > 0 && !value.includes("\0")) {
     return value;
   }
   throw new Error(`Invalid Browser runtime release lock ${label}`);
@@ -61,12 +56,7 @@ function requireSha256(value: unknown, label: string): string {
 
 function requireAssetName(value: unknown, label: string): string {
   const parsed = requireString(value, label);
-  if (
-    parsed.includes("/")
-    || parsed.includes("\\")
-    || parsed === "."
-    || parsed === ".."
-  ) {
+  if (parsed.includes("/") || parsed.includes("\\") || parsed === "." || parsed === "..") {
     throw new Error(`Invalid Browser runtime release lock ${label}`);
   }
   return parsed;
@@ -83,10 +73,7 @@ function parseRuntimeVersions(
     codexCli: requireString(value.codexCli, `${label}.codexCli`),
     cuaRuntime: requireString(value.cuaRuntime, `${label}.cuaRuntime`),
     node: requireString(value.node, `${label}.node`),
-    peerAuthorization: requireString(
-      value.peerAuthorization,
-      `${label}.peerAuthorization`,
-    ),
+    peerAuthorization: requireString(value.peerAuthorization, `${label}.peerAuthorization`),
   };
 }
 
@@ -107,22 +94,13 @@ function parseAsset(value: unknown, label: string): BrowserRuntimeReleaseAsset {
     archiveSize: value.archiveSize as number,
     assetName: requireAssetName(value.assetName, `${label}.assetName`),
     manifestSha256: requireSha256(value.manifestSha256, `${label}.manifestSha256`),
-    runtimeVersions: parseRuntimeVersions(
-      value.runtimeVersions,
-      `${label}.runtimeVersions`,
-    ),
+    runtimeVersions: parseRuntimeVersions(value.runtimeVersions, `${label}.runtimeVersions`),
     url,
   };
 }
 
-export function parseBrowserRuntimeReleaseLock(
-  value: unknown,
-): BrowserRuntimeReleaseLock {
-  if (
-    !isObject(value)
-    || value.schemaVersion !== 1
-    || value.runtimeFamily !== "browser"
-  ) {
+export function parseBrowserRuntimeReleaseLock(value: unknown): BrowserRuntimeReleaseLock {
+  if (!isObject(value) || value.schemaVersion !== 1 || value.runtimeFamily !== "browser") {
     throw new Error("Invalid Browser runtime release lock header");
   }
   if (!isObject(value.source) || value.source.product !== "chatgpt-desktop") {
@@ -152,8 +130,7 @@ export function parseBrowserRuntimeReleaseLock(
   };
   for (const targetKey of EXPECTED_TARGET_KEYS) {
     const asset = assets[targetKey];
-    const expectedUrl =
-      `https://github.com/${repository}/releases/download/${tag}/${asset.assetName}`;
+    const expectedUrl = `https://github.com/${repository}/releases/download/${tag}/${asset.assetName}`;
     if (asset.url !== expectedUrl) {
       throw new Error(
         `Browser runtime release lock ${targetKey} URL does not match its repository and tag`,
@@ -163,10 +140,7 @@ export function parseBrowserRuntimeReleaseLock(
 
   return {
     assets,
-    browserPluginVersion: requireString(
-      value.browserPluginVersion,
-      "browserPluginVersion",
-    ),
+    browserPluginVersion: requireString(value.browserPluginVersion, "browserPluginVersion"),
     codexCompatibilityVersion: requireString(
       value.codexCompatibilityVersion,
       "codexCompatibilityVersion",
@@ -183,9 +157,7 @@ export function parseBrowserRuntimeReleaseLock(
   };
 }
 
-export function readBrowserRuntimeReleaseLock(
-  lockPath: string,
-): BrowserRuntimeReleaseLock {
+export function readBrowserRuntimeReleaseLock(lockPath: string): BrowserRuntimeReleaseLock {
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(lockPath, "utf8"));
@@ -196,10 +168,5 @@ export function readBrowserRuntimeReleaseLock(
 }
 
 export function resolveBrowserRuntimeReleaseLockPath(projectRoot: string): string {
-  return path.join(
-    projectRoot,
-    "resources",
-    "browser-runtime",
-    "browser-runtime.lock.json",
-  );
+  return path.join(projectRoot, "resources", "browser-runtime", "browser-runtime.lock.json");
 }

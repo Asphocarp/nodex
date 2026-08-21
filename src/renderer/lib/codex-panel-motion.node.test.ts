@@ -15,7 +15,11 @@ import {
 describe("Codex panel motion helpers", () => {
   test("matches the Codex project folder fold transition", () => {
     expect(CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION.duration).toBe(0.5);
-    expect(Array.isArray(CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION.ease) ? CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION.ease.join(",") : "").toBe("0.19,1,0.22,1");
+    expect(
+      Array.isArray(CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION.ease)
+        ? CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION.ease.join(",")
+        : "",
+    ).toBe("0.19,1,0.22,1");
   });
 
   test("clamps panel progress to the Codex 0..1 range", () => {
@@ -44,60 +48,80 @@ describe("Codex panel motion helpers", () => {
   });
 
   test("derives Codex main content target width from shell panel reservations", () => {
-    expect(resolveCodexMainContentTargetWidth({
-      shellWidth: 1800,
-      leftSidebarOpen: false,
-      leftSidebarWidth: 300,
-      rightPanelOpen: false,
-      rightPanelWidth: 600,
-    })).toBe(1800);
-    expect(resolveCodexMainContentTargetWidth({
-      shellWidth: 1800,
-      leftSidebarOpen: true,
-      leftSidebarWidth: 300,
-      rightPanelOpen: true,
-      rightPanelWidth: 500,
-    })).toBe(1000);
-    expect(resolveCodexMainContentTargetWidth({
-      shellWidth: 1800,
-      leftSidebarOpen: true,
-      leftSidebarWidth: 300,
-      rightPanelOpen: true,
-      rightPanelWidth: 500,
-      rightPanelFullWidth: true,
-    })).toBe(0);
+    expect(
+      resolveCodexMainContentTargetWidth({
+        shellWidth: 1800,
+        leftSidebarOpen: false,
+        leftSidebarWidth: 300,
+        rightPanelOpen: false,
+        rightPanelWidth: 600,
+      }),
+    ).toBe(1800);
+    expect(
+      resolveCodexMainContentTargetWidth({
+        shellWidth: 1800,
+        leftSidebarOpen: true,
+        leftSidebarWidth: 300,
+        rightPanelOpen: true,
+        rightPanelWidth: 500,
+      }),
+    ).toBe(1000);
+    expect(
+      resolveCodexMainContentTargetWidth({
+        shellWidth: 1800,
+        leftSidebarOpen: true,
+        leftSidebarWidth: 300,
+        rightPanelOpen: true,
+        rightPanelWidth: 500,
+        rightPanelFullWidth: true,
+      }),
+    ).toBe(0);
   });
 
   test("matches Codex thread edge-scroll and frame border guards", () => {
-    expect(resolveCodexHeaderEdgeScroll({
-      layout: "thread-edge-scroll",
-      mainContentWidth: 1535,
-    })).toBe(false);
-    expect(resolveCodexHeaderEdgeScroll({
-      layout: "thread-edge-scroll",
-      mainContentWidth: 1536,
-    })).toBe(true);
-    expect(resolveCodexHeaderEdgeScroll({
-      layout: "thread-edge-scroll",
-      mainContentWidth: 1536,
-      rightPanelFullWidth: true,
-    })).toBe(false);
-    expect(resolveCodexHeaderEdgeScroll({
-      layout: "full-bleed",
-      mainContentWidth: 1536,
-    })).toBe(false);
-    expect(resolveCodexMainContentFrameBorder({
-      rightPanelOpen: false,
-      headerEdgeScroll: true,
-    })).toBe(false);
-    expect(resolveCodexMainContentFrameBorder({
-      rightPanelOpen: true,
-      headerEdgeScroll: true,
-    })).toBe(true);
-    expect(resolveCodexMainContentFrameBorder({
-      rightPanelOpen: false,
-      headerEdgeScroll: false,
-    })).toBe(true);
+    expect(
+      resolveCodexHeaderEdgeScroll({
+        layout: "thread-edge-scroll",
+        mainContentWidth: 1535,
+      }),
+    ).toBe(false);
+    expect(
+      resolveCodexHeaderEdgeScroll({
+        layout: "thread-edge-scroll",
+        mainContentWidth: 1536,
+      }),
+    ).toBe(true);
+    expect(
+      resolveCodexHeaderEdgeScroll({
+        layout: "thread-edge-scroll",
+        mainContentWidth: 1536,
+        rightPanelFullWidth: true,
+      }),
+    ).toBe(false);
+    expect(
+      resolveCodexHeaderEdgeScroll({
+        layout: "full-bleed",
+        mainContentWidth: 1536,
+      }),
+    ).toBe(false);
+    expect(
+      resolveCodexMainContentFrameBorder({
+        rightPanelOpen: false,
+        headerEdgeScroll: true,
+      }),
+    ).toBe(false);
+    expect(
+      resolveCodexMainContentFrameBorder({
+        rightPanelOpen: true,
+        headerEdgeScroll: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveCodexMainContentFrameBorder({
+        rightPanelOpen: false,
+        headerEdgeScroll: false,
+      }),
+    ).toBe(true);
   });
 
   test("applies Codex shift only for pinned shift mode", () => {

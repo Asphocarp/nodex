@@ -19,8 +19,7 @@ export interface SiteStatusPolicyService {
   isCommentModeBlocked(url: string): Promise<boolean>;
 }
 
-export interface SiteStatusPolicyServiceDependencies
-  extends ChatGptDesktopRequestDependencies {
+export interface SiteStatusPolicyServiceDependencies extends ChatGptDesktopRequestDependencies {
   apiBaseUrl: string;
   logger: SiteStatusLogger;
   now?: () => number;
@@ -52,15 +51,12 @@ function siteStatusPath(url: string): string {
   }).toString()}`;
 }
 
-export class BrowserUseSiteStatusPolicyService
-implements SiteStatusPolicyService {
+export class BrowserUseSiteStatusPolicyService implements SiteStatusPolicyService {
   private readonly cache = new Map<string, SiteStatusCacheEntry>();
   private readonly inflight = new Map<string, Promise<boolean>>();
   private readonly now: () => number;
 
-  constructor(
-    private readonly deps: SiteStatusPolicyServiceDependencies,
-  ) {
+  constructor(private readonly deps: SiteStatusPolicyServiceDependencies) {
     this.now = deps.now ?? Date.now;
   }
 
@@ -107,26 +103,18 @@ implements SiteStatusPolicyService {
         refreshOn401: true,
       });
       if (!response.ok) {
-        this.deps.logger.warn(
-          "Browser sidebar comment mode site status request failed",
-          {
-            code: "site-status-http-error",
-            status: response.status,
-          },
-        );
+        this.deps.logger.warn("Browser sidebar comment mode site status request failed", {
+          code: "site-status-http-error",
+          status: response.status,
+        });
         return false;
       }
 
-      const body = SiteStatusResponseSchema.safeParse(
-        JSON.parse(await response.text()),
-      );
+      const body = SiteStatusResponseSchema.safeParse(JSON.parse(await response.text()));
       if (!body.success) {
-        this.deps.logger.warn(
-          "Browser sidebar comment mode site status response was invalid",
-          {
-            code: "site-status-invalid-response",
-          },
-        );
+        this.deps.logger.warn("Browser sidebar comment mode site status response was invalid", {
+          code: "site-status-invalid-response",
+        });
         return false;
       }
 
@@ -137,12 +125,9 @@ implements SiteStatusPolicyService {
       });
       return blocked;
     } catch {
-      this.deps.logger.warn(
-        "Failed to load browser sidebar comment mode site status",
-        {
-          code: "site-status-request-failed",
-        },
-      );
+      this.deps.logger.warn("Failed to load browser sidebar comment mode site status", {
+        code: "site-status-request-failed",
+      });
       return false;
     }
   }

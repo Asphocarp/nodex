@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  parseAuthorizedReadStamp,
-  type AuthorityResource,
-} from "./authorized-read-stamp";
+import { parseAuthorizedReadStamp, type AuthorityResource } from "./authorized-read-stamp";
 import { authorizedReadStampFixture } from "./testing/authorized-read-stamp-fixture";
 
 const address = {
@@ -19,10 +16,12 @@ describe("AuthorizedReadStamp boundary", () => {
       subject: { kind: "page", page_id: "page-1" },
     });
 
-    expect(() => parseAuthorizedReadStamp({
-      ...stamp,
-      authorization_dependencies: [{ kind: "unknown", unknown_id: "root-1" }],
-    })).toThrow("Authorized read stamp is invalid");
+    expect(() =>
+      parseAuthorizedReadStamp({
+        ...stamp,
+        authorization_dependencies: [{ kind: "unknown", unknown_id: "root-1" }],
+      }),
+    ).toThrow("Authorized read stamp is invalid");
   });
 
   test("rejects dependencies outside canonical ResourceKey order", () => {
@@ -35,11 +34,11 @@ describe("AuthorizedReadStamp boundary", () => {
       subject: { kind: "page", page_id: "page-1" },
     });
 
-    expect(() => parseAuthorizedReadStamp({
-      ...stamp,
-      authorization_dependencies: dependencies,
-    })).toThrow(
-      "Authorized read stamp is invalid",
-    );
+    expect(() =>
+      parseAuthorizedReadStamp({
+        ...stamp,
+        authorization_dependencies: dependencies,
+      }),
+    ).toThrow("Authorized read stamp is invalid");
   });
 });

@@ -230,7 +230,8 @@ function createCalendarMoveDragGhost({
   content.style.opacity = "0";
   content.style.transformOrigin = "top left";
   content.style.transform = "scale(0.96)";
-  content.style.transition = "opacity 120ms ease, transform 120ms ease, background-color 120ms ease";
+  content.style.transition =
+    "opacity 120ms ease, transform 120ms ease, background-color 120ms ease";
   content.style.willChange = "opacity, transform";
 
   const titleNode = document.createElement("div");
@@ -302,7 +303,9 @@ export function CalendarGrid({
   const eventInteractionRef = useRef<EventInteractionState | null>(null);
   const activeMoveDragRef = useRef<ActiveMoveDragState | null>(null);
   const moveDragGhostRef = useRef<MoveDragGhost | null>(null);
-  const completedMoveDropRef = useRef<{ eventId: string; preserveTimedPreview: boolean } | null>(null);
+  const completedMoveDropRef = useRef<{ eventId: string; preserveTimedPreview: boolean } | null>(
+    null,
+  );
   const suppressOpenRef = useRef<{ eventId: string; until: number } | null>(null);
   const eventPreviewRef = useRef<CalendarEventPreviewState | null>(null);
   const pendingDropPreviewEventIdRef = useRef<string | null>(null);
@@ -338,32 +341,38 @@ export function CalendarGrid({
     moveDragGhostRef.current = null;
   }, []);
 
-  const clearPendingDropPreview = useCallback((eventId?: string) => {
-    const pendingEventId = pendingDropPreviewEventIdRef.current;
-    if (!pendingEventId) return;
-    if (eventId && pendingEventId !== eventId) return;
+  const clearPendingDropPreview = useCallback(
+    (eventId?: string) => {
+      const pendingEventId = pendingDropPreviewEventIdRef.current;
+      if (!pendingEventId) return;
+      if (eventId && pendingEventId !== eventId) return;
 
-    pendingDropPreviewEventIdRef.current = null;
-    if (pendingDropPreviewTimeoutRef.current !== null) {
-      window.clearTimeout(pendingDropPreviewTimeoutRef.current);
-      pendingDropPreviewTimeoutRef.current = null;
-    }
+      pendingDropPreviewEventIdRef.current = null;
+      if (pendingDropPreviewTimeoutRef.current !== null) {
+        window.clearTimeout(pendingDropPreviewTimeoutRef.current);
+        pendingDropPreviewTimeoutRef.current = null;
+      }
 
-    const currentPreview = eventPreviewRef.current;
-    if (!currentPreview || currentPreview.eventId !== pendingEventId) return;
-    setEventPreviewSynced(null);
-  }, [setEventPreviewSynced]);
+      const currentPreview = eventPreviewRef.current;
+      if (!currentPreview || currentPreview.eventId !== pendingEventId) return;
+      setEventPreviewSynced(null);
+    },
+    [setEventPreviewSynced],
+  );
 
-  const armPendingDropPreview = useCallback((eventId: string) => {
-    pendingDropPreviewEventIdRef.current = eventId;
-    if (pendingDropPreviewTimeoutRef.current !== null) {
-      window.clearTimeout(pendingDropPreviewTimeoutRef.current);
-    }
+  const armPendingDropPreview = useCallback(
+    (eventId: string) => {
+      pendingDropPreviewEventIdRef.current = eventId;
+      if (pendingDropPreviewTimeoutRef.current !== null) {
+        window.clearTimeout(pendingDropPreviewTimeoutRef.current);
+      }
 
-    pendingDropPreviewTimeoutRef.current = window.setTimeout(() => {
-      clearPendingDropPreview(eventId);
-    }, DROP_PREVIEW_TIMEOUT_MS);
-  }, [clearPendingDropPreview]);
+      pendingDropPreviewTimeoutRef.current = window.setTimeout(() => {
+        clearPendingDropPreview(eventId);
+      }, DROP_PREVIEW_TIMEOUT_MS);
+    },
+    [clearPendingDropPreview],
+  );
 
   useEffect(() => {
     eventPreviewRef.current = eventPreview;
@@ -446,15 +455,16 @@ export function CalendarGrid({
   const hourHeight = resolveHourHeight(timelineViewportHeight ?? Number.NaN);
   const slotHeight = hourHeight / 4;
 
-  const rawDayColWidth = containerWidth > 0 && visibleDays.length > 0
-    ? (containerWidth - GUTTER_WIDTH) / visibleDays.length
-    : 0;
-  const dayColWidth = visibleDays.length > 7
-    ? Math.max(rawDayColWidth, MIN_LARGE_RANGE_DAY_COLUMN_WIDTH)
-    : rawDayColWidth;
-  const calendarContentWidth = dayColWidth > 0
-    ? GUTTER_WIDTH + dayColWidth * visibleDays.length
-    : undefined;
+  const rawDayColWidth =
+    containerWidth > 0 && visibleDays.length > 0
+      ? (containerWidth - GUTTER_WIDTH) / visibleDays.length
+      : 0;
+  const dayColWidth =
+    visibleDays.length > 7
+      ? Math.max(rawDayColWidth, MIN_LARGE_RANGE_DAY_COLUMN_WIDTH)
+      : rawDayColWidth;
+  const calendarContentWidth =
+    dayColWidth > 0 ? GUTTER_WIDTH + dayColWidth * visibleDays.length : undefined;
 
   useLayoutEffect(() => {
     dayColWidthRef.current = dayColWidth;
@@ -514,9 +524,7 @@ export function CalendarGrid({
   );
 
   const isMoveDragPreviewActiveNow = Boolean(
-    activeMoveDragEventId
-    && eventPreview
-    && eventPreview.eventId === activeMoveDragEventId,
+    activeMoveDragEventId && eventPreview && eventPreview.eventId === activeMoveDragEventId,
   );
 
   const previewedPages = useMemo(
@@ -557,10 +565,7 @@ export function CalendarGrid({
     if (dayIndex !== preview.dayIndex) return;
 
     const range = slotRangeFromDates(page.scheduledStart, page.scheduledEnd);
-    if (
-      range.startSlot !== preview.range.startSlot ||
-      range.endSlot !== preview.range.endSlot
-    ) {
+    if (range.startSlot !== preview.range.startSlot || range.endSlot !== preview.range.endSlot) {
       return;
     }
 
@@ -568,10 +573,7 @@ export function CalendarGrid({
   }, [clearPendingDropPreview, findDayIndex, scheduledPages]);
 
   const resolvePointerDropTarget = useCallback(
-    (
-      clientX: number,
-      clientY: number,
-    ): CalendarMoveDropTarget | null => {
+    (clientX: number, clientY: number): CalendarMoveDropTarget | null => {
       if (visibleDays.length === 0) return null;
 
       const resolveDayIndexFromRect = (rect: DOMRect): number | null => {
@@ -749,9 +751,7 @@ export function CalendarGrid({
   const finishEventInteraction = useCallback(
     (
       event: React.PointerEvent<HTMLElement>,
-      {
-        canceled,
-      }: { canceled: boolean; reason: EventInteractionFinishReason },
+      { canceled }: { canceled: boolean; reason: EventInteractionFinishReason },
     ) => {
       const interaction = eventInteractionRef.current;
       if (!interaction || interaction.pointerId !== event.pointerId) return;
@@ -825,7 +825,11 @@ export function CalendarGrid({
           scheduledEnd: rangeDates.end,
           isAllDay: false,
           eventTitle: page.title,
-          fromLabel: formatScheduleLabel(page.scheduledStart, page.scheduledEnd, Boolean(page.isAllDay)),
+          fromLabel: formatScheduleLabel(
+            page.scheduledStart,
+            page.scheduledEnd,
+            Boolean(page.isAllDay),
+          ),
           toLabel: formatScheduleLabel(rangeDates.start, rangeDates.end),
           thisAndFutureEquivalentToAll: Boolean(page.thisAndFutureEquivalentToAll),
         });
@@ -854,137 +858,150 @@ export function CalendarGrid({
     ],
   );
 
-  const handlePageOpen = useCallback((page: ScheduledPage) => {
-    const suppress = suppressOpenRef.current;
-    if (suppress && suppress.eventId === page.id && suppress.until > Date.now()) {
-      return;
-    }
-    onClickPage(page);
-  }, [onClickPage]);
-
-  const updateMoveDragPreview = useCallback((target: CalendarMoveDropTarget | null) => {
-    const drag = activeMoveDragRef.current;
-    if (!drag) return;
-
-    if (!target) {
-      setMoveDropRegion("outside");
-      setAllDayMovePreview(null);
-      setEventPreviewSynced(null);
-      return;
-    }
-
-    const preview = resolveCalendarMovePreview(drag, target);
-    if (!preview) {
-      setMoveDropRegion("outside");
-      setAllDayMovePreview(null);
-      setEventPreviewSynced(null);
-      return;
-    }
-
-    if (preview.kind === "timed") {
-      const nextPreview = createCalendarEventPreview(
-        drag.eventId,
-        preview.dayIndex,
-        preview.range,
-      );
-      if (!areCalendarEventPreviewsEqual(eventPreviewRef.current, nextPreview)) {
-        setEventPreviewSynced(nextPreview);
+  const handlePageOpen = useCallback(
+    (page: ScheduledPage) => {
+      const suppress = suppressOpenRef.current;
+      if (suppress && suppress.eventId === page.id && suppress.until > Date.now()) {
+        return;
       }
-      setAllDayMovePreview(null);
-      setMoveDropRegion("timed");
-      return;
-    }
+      onClickPage(page);
+    },
+    [onClickPage],
+  );
 
-    setEventPreviewSynced(null);
-    setAllDayMovePreview((current) => {
-      if (
-        current
-        && current.eventId === drag.eventId
-        && current.startDayIndex === preview.startDayIndex
-        && current.endDayIndex === preview.endDayIndex
-      ) {
-        return current;
+  const updateMoveDragPreview = useCallback(
+    (target: CalendarMoveDropTarget | null) => {
+      const drag = activeMoveDragRef.current;
+      if (!drag) return;
+
+      if (!target) {
+        setMoveDropRegion("outside");
+        setAllDayMovePreview(null);
+        setEventPreviewSynced(null);
+        return;
       }
-      return {
-        eventId: drag.eventId,
-        startDayIndex: preview.startDayIndex,
-        endDayIndex: preview.endDayIndex,
-      };
-    });
-    setMoveDropRegion("all-day");
-  }, [setEventPreviewSynced]);
 
-  const commitMoveDrop = useCallback((target: CalendarMoveDropTarget): boolean => {
-    const drag = activeMoveDragRef.current;
-    if (!drag) return false;
-
-    const page = pageById.get(drag.eventId);
-    if (!page) return false;
-
-    const nextSchedule = resolveCalendarMoveDropSchedule(drag, target, visibleDays);
-    if (!nextSchedule) return false;
-
-    const unchanged = nextSchedule.isAllDay
-      ? Boolean(page.isAllDay)
-      && isSameDay(page.scheduledStart, nextSchedule.start)
-      && resolveAllDaySpanDays(page.scheduledStart, page.scheduledEnd)
-      === resolveAllDaySpanDays(nextSchedule.start, nextSchedule.end)
-      : !page.isAllDay
-      && page.scheduledStart.getTime() === nextSchedule.start.getTime()
-      && page.scheduledEnd.getTime() === nextSchedule.end.getTime();
-
-    if (unchanged) return false;
-
-    const isRecurringEvent = page.isRecurring || Boolean(page.recurrence);
-    if (isRecurringEvent) {
-      clearPendingDropPreview(drag.eventId);
-      setEventPreviewSynced(null);
-      setPendingScopedUpdate({
-        columnId: drag.columnId,
-        pageId: drag.pageId,
-        occurrenceStart: drag.occurrenceStart,
-        scheduledStart: nextSchedule.start,
-        scheduledEnd: nextSchedule.end,
-        isAllDay: nextSchedule.isAllDay,
-        eventTitle: page.title,
-        fromLabel: formatScheduleLabel(page.scheduledStart, page.scheduledEnd, Boolean(page.isAllDay)),
-        toLabel: formatScheduleLabel(nextSchedule.start, nextSchedule.end, nextSchedule.isAllDay),
-        thisAndFutureEquivalentToAll: Boolean(page.thisAndFutureEquivalentToAll),
-      });
-      return false;
-    }
-
-    if (nextSchedule.isAllDay) {
-      clearPendingDropPreview(drag.eventId);
-      setEventPreviewSynced(null);
-    } else {
       const preview = resolveCalendarMovePreview(drag, target);
-      if (preview?.kind === "timed") {
-        setEventPreviewSynced(
-          createCalendarEventPreview(drag.eventId, preview.dayIndex, preview.range),
-        );
+      if (!preview) {
+        setMoveDropRegion("outside");
+        setAllDayMovePreview(null);
+        setEventPreviewSynced(null);
+        return;
       }
-      armPendingDropPreview(drag.eventId);
-    }
 
-    void onUpdatePageSchedule(
-      drag.columnId,
-      drag.pageId,
-      drag.occurrenceStart,
-      nextSchedule.start,
-      nextSchedule.end,
-      nextSchedule.isAllDay,
-    );
+      if (preview.kind === "timed") {
+        const nextPreview = createCalendarEventPreview(
+          drag.eventId,
+          preview.dayIndex,
+          preview.range,
+        );
+        if (!areCalendarEventPreviewsEqual(eventPreviewRef.current, nextPreview)) {
+          setEventPreviewSynced(nextPreview);
+        }
+        setAllDayMovePreview(null);
+        setMoveDropRegion("timed");
+        return;
+      }
 
-    return !nextSchedule.isAllDay;
-  }, [
-    armPendingDropPreview,
-    pageById,
-    clearPendingDropPreview,
-    onUpdatePageSchedule,
-    setEventPreviewSynced,
-    visibleDays,
-  ]);
+      setEventPreviewSynced(null);
+      setAllDayMovePreview((current) => {
+        if (
+          current &&
+          current.eventId === drag.eventId &&
+          current.startDayIndex === preview.startDayIndex &&
+          current.endDayIndex === preview.endDayIndex
+        ) {
+          return current;
+        }
+        return {
+          eventId: drag.eventId,
+          startDayIndex: preview.startDayIndex,
+          endDayIndex: preview.endDayIndex,
+        };
+      });
+      setMoveDropRegion("all-day");
+    },
+    [setEventPreviewSynced],
+  );
+
+  const commitMoveDrop = useCallback(
+    (target: CalendarMoveDropTarget): boolean => {
+      const drag = activeMoveDragRef.current;
+      if (!drag) return false;
+
+      const page = pageById.get(drag.eventId);
+      if (!page) return false;
+
+      const nextSchedule = resolveCalendarMoveDropSchedule(drag, target, visibleDays);
+      if (!nextSchedule) return false;
+
+      const unchanged = nextSchedule.isAllDay
+        ? Boolean(page.isAllDay) &&
+          isSameDay(page.scheduledStart, nextSchedule.start) &&
+          resolveAllDaySpanDays(page.scheduledStart, page.scheduledEnd) ===
+            resolveAllDaySpanDays(nextSchedule.start, nextSchedule.end)
+        : !page.isAllDay &&
+          page.scheduledStart.getTime() === nextSchedule.start.getTime() &&
+          page.scheduledEnd.getTime() === nextSchedule.end.getTime();
+
+      if (unchanged) return false;
+
+      const isRecurringEvent = page.isRecurring || Boolean(page.recurrence);
+      if (isRecurringEvent) {
+        clearPendingDropPreview(drag.eventId);
+        setEventPreviewSynced(null);
+        setPendingScopedUpdate({
+          columnId: drag.columnId,
+          pageId: drag.pageId,
+          occurrenceStart: drag.occurrenceStart,
+          scheduledStart: nextSchedule.start,
+          scheduledEnd: nextSchedule.end,
+          isAllDay: nextSchedule.isAllDay,
+          eventTitle: page.title,
+          fromLabel: formatScheduleLabel(
+            page.scheduledStart,
+            page.scheduledEnd,
+            Boolean(page.isAllDay),
+          ),
+          toLabel: formatScheduleLabel(nextSchedule.start, nextSchedule.end, nextSchedule.isAllDay),
+          thisAndFutureEquivalentToAll: Boolean(page.thisAndFutureEquivalentToAll),
+        });
+        return false;
+      }
+
+      if (nextSchedule.isAllDay) {
+        clearPendingDropPreview(drag.eventId);
+        setEventPreviewSynced(null);
+      } else {
+        const preview = resolveCalendarMovePreview(drag, target);
+        if (preview?.kind === "timed") {
+          setEventPreviewSynced(
+            createCalendarEventPreview(drag.eventId, preview.dayIndex, preview.range),
+          );
+        }
+        armPendingDropPreview(drag.eventId);
+      }
+
+      void onUpdatePageSchedule(
+        drag.columnId,
+        drag.pageId,
+        drag.occurrenceStart,
+        nextSchedule.start,
+        nextSchedule.end,
+        nextSchedule.isAllDay,
+      );
+
+      return !nextSchedule.isAllDay;
+    },
+    [
+      armPendingDropPreview,
+      pageById,
+      clearPendingDropPreview,
+      onUpdatePageSchedule,
+      setEventPreviewSynced,
+      visibleDays,
+    ],
+  );
 
   const updateMoveDragGhost = useCallback(
     (target: CalendarMoveDropTarget | null, pointerX: number, pointerY: number) => {
@@ -1019,98 +1036,105 @@ export function CalendarGrid({
     [visibleDays],
   );
 
-  const startMoveDrag = useCallback((event: React.DragEvent<HTMLElement>, page: ScheduledPage) => {
-    if (eventInteractionRef.current) return;
+  const startMoveDrag = useCallback(
+    (event: React.DragEvent<HTMLElement>, page: ScheduledPage) => {
+      if (eventInteractionRef.current) return;
 
-    const originDayIndex = findDayIndex(page.scheduledStart);
-    if (originDayIndex < 0) return;
+      const originDayIndex = findDayIndex(page.scheduledStart);
+      if (originDayIndex < 0) return;
 
-    const originRange = slotRangeFromDates(page.scheduledStart, page.scheduledEnd);
-    const durationSlots = originRange.endSlot - originRange.startSlot + 1;
-    const dropTarget = resolvePointerDropTarget(event.clientX, event.clientY);
-    const pointerSlot =
-      dropTarget?.region === "timed"
-        ? dropTarget.slot
-        : originRange.startSlot;
-    const grabOffsetSlots = Math.max(
-      0,
-      Math.min(pointerSlot - originRange.startSlot, durationSlots - 1),
-    );
-    const accentColor = columnStyles[page.columnId]?.accentColor ?? "#8E8B86";
-    const defaultScheduleLabel = formatScheduleLabel(
-      page.scheduledStart,
-      page.scheduledEnd,
-      Boolean(page.isAllDay),
-    );
+      const originRange = slotRangeFromDates(page.scheduledStart, page.scheduledEnd);
+      const durationSlots = originRange.endSlot - originRange.startSlot + 1;
+      const dropTarget = resolvePointerDropTarget(event.clientX, event.clientY);
+      const pointerSlot = dropTarget?.region === "timed" ? dropTarget.slot : originRange.startSlot;
+      const grabOffsetSlots = Math.max(
+        0,
+        Math.min(pointerSlot - originRange.startSlot, durationSlots - 1),
+      );
+      const accentColor = columnStyles[page.columnId]?.accentColor ?? "#8E8B86";
+      const defaultScheduleLabel = formatScheduleLabel(
+        page.scheduledStart,
+        page.scheduledEnd,
+        Boolean(page.isAllDay),
+      );
 
-    activeMoveDragRef.current = {
-      eventId: page.id,
-      pageId: page.pageId ?? page.id,
-      occurrenceStart: page.occurrenceStart ?? page.scheduledStart,
-      columnId: page.columnId,
-      originDayIndex,
-      originRange,
-      originIsAllDay: Boolean(page.isAllDay),
-      originalDurationMs: Math.max(60_000, page.scheduledEnd.getTime() - page.scheduledStart.getTime()),
-      originalAllDaySpanDays: resolveAllDaySpanDays(page.scheduledStart, page.scheduledEnd),
-      grabOffsetSlots,
-      accentColor,
-      defaultScheduleLabel,
-    };
+      activeMoveDragRef.current = {
+        eventId: page.id,
+        pageId: page.pageId ?? page.id,
+        occurrenceStart: page.occurrenceStart ?? page.scheduledStart,
+        columnId: page.columnId,
+        originDayIndex,
+        originRange,
+        originIsAllDay: Boolean(page.isAllDay),
+        originalDurationMs: Math.max(
+          60_000,
+          page.scheduledEnd.getTime() - page.scheduledStart.getTime(),
+        ),
+        originalAllDaySpanDays: resolveAllDaySpanDays(page.scheduledStart, page.scheduledEnd),
+        grabOffsetSlots,
+        accentColor,
+        defaultScheduleLabel,
+      };
 
-    completedMoveDropRef.current = null;
-    suppressOpenRef.current = { eventId: page.id, until: Date.now() + 250 };
-    clearPendingDropPreview();
-    setCreatorState(null);
-    setDragState(null);
-    setEventPreviewSynced(null);
-    setAllDayMovePreview(null);
-    setMoveDropRegion(dropTarget?.region ?? "outside");
-    setActiveMoveDragEventId(page.id);
-    clearMoveDragGhost();
-    moveDragGhostRef.current = createCalendarMoveDragGhost({
-      title: page.title,
-      accentColor,
-      scheduleLabel: defaultScheduleLabel,
-    });
-    updateMoveDragGhost(dropTarget, event.clientX, event.clientY);
-
-    const dragImage = createHiddenCalendarEventDragImage();
-
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(CALENDAR_EVENT_DRAG_MIME, page.id);
-    event.dataTransfer.setData("text/plain", page.title);
-    event.dataTransfer.setDragImage(dragImage, 0, 0);
-    requestAnimationFrame(() => dragImage.remove());
-  }, [
-    clearMoveDragGhost,
-    clearPendingDropPreview,
-    findDayIndex,
-    resolvePointerDropTarget,
-    setEventPreviewSynced,
-    updateMoveDragGhost,
-  ]);
-
-  const endMoveDrag = useCallback((pageId: string) => {
-    const drag = activeMoveDragRef.current;
-    if (!drag || drag.eventId !== pageId) return;
-
-    const completed = completedMoveDropRef.current;
-    const preserveTimedPreview = completed?.eventId === drag.eventId && completed.preserveTimedPreview;
-
-    if (!preserveTimedPreview) {
-      clearPendingDropPreview(drag.eventId);
+      completedMoveDropRef.current = null;
+      suppressOpenRef.current = { eventId: page.id, until: Date.now() + 250 };
+      clearPendingDropPreview();
+      setCreatorState(null);
+      setDragState(null);
       setEventPreviewSynced(null);
-    }
+      setAllDayMovePreview(null);
+      setMoveDropRegion(dropTarget?.region ?? "outside");
+      setActiveMoveDragEventId(page.id);
+      clearMoveDragGhost();
+      moveDragGhostRef.current = createCalendarMoveDragGhost({
+        title: page.title,
+        accentColor,
+        scheduleLabel: defaultScheduleLabel,
+      });
+      updateMoveDragGhost(dropTarget, event.clientX, event.clientY);
 
-    suppressOpenRef.current = { eventId: drag.eventId, until: Date.now() + 250 };
-    activeMoveDragRef.current = null;
-    clearMoveDragGhost();
-    completedMoveDropRef.current = null;
-    setActiveMoveDragEventId(null);
-    setMoveDropRegion(null);
-    setAllDayMovePreview(null);
-  }, [clearMoveDragGhost, clearPendingDropPreview, setEventPreviewSynced]);
+      const dragImage = createHiddenCalendarEventDragImage();
+
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(CALENDAR_EVENT_DRAG_MIME, page.id);
+      event.dataTransfer.setData("text/plain", page.title);
+      event.dataTransfer.setDragImage(dragImage, 0, 0);
+      requestAnimationFrame(() => dragImage.remove());
+    },
+    [
+      clearMoveDragGhost,
+      clearPendingDropPreview,
+      findDayIndex,
+      resolvePointerDropTarget,
+      setEventPreviewSynced,
+      updateMoveDragGhost,
+    ],
+  );
+
+  const endMoveDrag = useCallback(
+    (pageId: string) => {
+      const drag = activeMoveDragRef.current;
+      if (!drag || drag.eventId !== pageId) return;
+
+      const completed = completedMoveDropRef.current;
+      const preserveTimedPreview =
+        completed?.eventId === drag.eventId && completed.preserveTimedPreview;
+
+      if (!preserveTimedPreview) {
+        clearPendingDropPreview(drag.eventId);
+        setEventPreviewSynced(null);
+      }
+
+      suppressOpenRef.current = { eventId: drag.eventId, until: Date.now() + 250 };
+      activeMoveDragRef.current = null;
+      clearMoveDragGhost();
+      completedMoveDropRef.current = null;
+      setActiveMoveDragEventId(null);
+      setMoveDropRegion(null);
+      setAllDayMovePreview(null);
+    },
+    [clearMoveDragGhost, clearPendingDropPreview, setEventPreviewSynced],
+  );
 
   useEffect(() => {
     if (!activeMoveDragEventId) return;
@@ -1186,9 +1210,8 @@ export function CalendarGrid({
 
       setScopeDialogBusy(true);
       try {
-        const effectiveScope = pending.thisAndFutureEquivalentToAll && scope === "this-and-future"
-          ? "all"
-          : scope;
+        const effectiveScope =
+          pending.thisAndFutureEquivalentToAll && scope === "this-and-future" ? "all" : scope;
         await onUpdatePageSchedule(
           pending.columnId,
           pending.pageId,
@@ -1212,142 +1235,153 @@ export function CalendarGrid({
     return Math.max(ALL_DAY_LANE_MIN_HEIGHT, Math.min(ALL_DAY_LANE_MAX_HEIGHT, Math.round(height)));
   }, []);
 
-  const handleAllDayResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-
-    const startY = event.clientY;
-    const startHeight = allDayLaneHeight;
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      const delta = moveEvent.clientY - startY;
-      onAllDayLaneHeightChange(clampAllDayLaneHeight(startHeight + delta));
-    };
-    const onPointerUp = () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
-  }, [allDayLaneHeight, clampAllDayLaneHeight, onAllDayLaneHeightChange]);
-
-  const handleAllDaySeparatorKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "ArrowUp") {
+  const handleAllDayResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
       event.preventDefault();
-      onAllDayLaneHeightChange(clampAllDayLaneHeight(allDayLaneHeight - 8));
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      onAllDayLaneHeightChange(clampAllDayLaneHeight(allDayLaneHeight + 8));
-      return;
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      onAllDayLaneHeightChange(ALL_DAY_LANE_MIN_HEIGHT);
-      return;
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      onAllDayLaneHeightChange(ALL_DAY_LANE_MAX_HEIGHT);
-    }
-  }, [allDayLaneHeight, clampAllDayLaneHeight, onAllDayLaneHeightChange]);
 
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!e.shiftKey) return;
-    if (e.ctrlKey || e.metaKey) return;
-
-    const container = scrollRef.current;
-    if (!container) return;
-    const dayW = dayColWidthRef.current;
-    if (dayW <= 0) return;
-
-    const delta = scaleShiftWheelDelta(normalizeShiftWheelDelta({
-      shiftKey: e.shiftKey,
-      deltaX: e.deltaX,
-      deltaY: e.deltaY,
-      deltaMode: e.deltaMode,
-      pageHeight: container.clientHeight,
-    }));
-    if (delta === 0) return;
-
-    e.stopPropagation();
-    if (e.cancelable) e.preventDefault();
-
-    if (shiftWheelSettleRafRef.current !== null) {
-      cancelAnimationFrame(shiftWheelSettleRafRef.current);
-      shiftWheelSettleRafRef.current = null;
-    }
-
-    const nextAccumulatedPx = shiftWheelAccumulatedPxRef.current + delta;
-    shiftWheelAccumulatedPxRef.current = nextAccumulatedPx;
-    setVisualBufferDays(resolveShiftScrollBufferDays(nextAccumulatedPx, dayW));
-    setVisualOffset(nextAccumulatedPx);
-
-    if (shiftWheelSettleTimeoutRef.current !== null) {
-      window.clearTimeout(shiftWheelSettleTimeoutRef.current);
-    }
-
-    shiftWheelSettleTimeoutRef.current = window.setTimeout(() => {
-      const dayWidthAtSettle = dayColWidthRef.current;
-      if (dayWidthAtSettle <= 0) {
-        shiftWheelSettleTimeoutRef.current = null;
-        resetShiftWheelVisualState();
-        return;
-      }
-
-      const settleDays = resolveShiftScrollSettleDays(
-        shiftWheelAccumulatedPxRef.current,
-        dayWidthAtSettle,
-      );
-      const startOffsetPx = visualOffsetPxRef.current;
-      const endOffsetPx = settleDays * dayWidthAtSettle;
-      const startedAt = performance.now();
-
-      const commitNavigation = () => {
-        shiftWheelSettleTimeoutRef.current = null;
-        shiftWheelSettleRafRef.current = null;
-
-        if (settleDays > 0) {
-          for (let i = 0; i < settleDays; i += 1) {
-            onNavigateNext();
-          }
-        } else {
-          for (let i = 0; i < Math.abs(settleDays); i += 1) {
-            onNavigatePrev();
-          }
-        }
-
-        resetShiftWheelVisualState();
+      const startY = event.clientY;
+      const startHeight = allDayLaneHeight;
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        const delta = moveEvent.clientY - startY;
+        onAllDayLaneHeightChange(clampAllDayLaneHeight(startHeight + delta));
+      };
+      const onPointerUp = () => {
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
       };
 
-      if (Math.abs(startOffsetPx - endOffsetPx) < 0.5) {
-        commitNavigation();
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+    },
+    [allDayLaneHeight, clampAllDayLaneHeight, onAllDayLaneHeightChange],
+  );
+
+  const handleAllDaySeparatorKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        onAllDayLaneHeightChange(clampAllDayLaneHeight(allDayLaneHeight - 8));
         return;
       }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        onAllDayLaneHeightChange(clampAllDayLaneHeight(allDayLaneHeight + 8));
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        onAllDayLaneHeightChange(ALL_DAY_LANE_MIN_HEIGHT);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        onAllDayLaneHeightChange(ALL_DAY_LANE_MAX_HEIGHT);
+      }
+    },
+    [allDayLaneHeight, clampAllDayLaneHeight, onAllDayLaneHeightChange],
+  );
 
-      const animateSettle = (nowTs: number) => {
-        const progress = Math.min(1, (nowTs - startedAt) / SHIFT_SCROLL_SETTLE_ANIMATION_MS);
-        const easedProgress = 1 - Math.pow(1 - progress, 3);
-        setVisualOffset(startOffsetPx + (endOffsetPx - startOffsetPx) * easedProgress);
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (!e.shiftKey) return;
+      if (e.ctrlKey || e.metaKey) return;
 
-        if (progress >= 1) {
+      const container = scrollRef.current;
+      if (!container) return;
+      const dayW = dayColWidthRef.current;
+      if (dayW <= 0) return;
+
+      const delta = scaleShiftWheelDelta(
+        normalizeShiftWheelDelta({
+          shiftKey: e.shiftKey,
+          deltaX: e.deltaX,
+          deltaY: e.deltaY,
+          deltaMode: e.deltaMode,
+          pageHeight: container.clientHeight,
+        }),
+      );
+      if (delta === 0) return;
+
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+
+      if (shiftWheelSettleRafRef.current !== null) {
+        cancelAnimationFrame(shiftWheelSettleRafRef.current);
+        shiftWheelSettleRafRef.current = null;
+      }
+
+      const nextAccumulatedPx = shiftWheelAccumulatedPxRef.current + delta;
+      shiftWheelAccumulatedPxRef.current = nextAccumulatedPx;
+      setVisualBufferDays(resolveShiftScrollBufferDays(nextAccumulatedPx, dayW));
+      setVisualOffset(nextAccumulatedPx);
+
+      if (shiftWheelSettleTimeoutRef.current !== null) {
+        window.clearTimeout(shiftWheelSettleTimeoutRef.current);
+      }
+
+      shiftWheelSettleTimeoutRef.current = window.setTimeout(() => {
+        const dayWidthAtSettle = dayColWidthRef.current;
+        if (dayWidthAtSettle <= 0) {
+          shiftWheelSettleTimeoutRef.current = null;
+          resetShiftWheelVisualState();
+          return;
+        }
+
+        const settleDays = resolveShiftScrollSettleDays(
+          shiftWheelAccumulatedPxRef.current,
+          dayWidthAtSettle,
+        );
+        const startOffsetPx = visualOffsetPxRef.current;
+        const endOffsetPx = settleDays * dayWidthAtSettle;
+        const startedAt = performance.now();
+
+        const commitNavigation = () => {
+          shiftWheelSettleTimeoutRef.current = null;
+          shiftWheelSettleRafRef.current = null;
+
+          if (settleDays > 0) {
+            for (let i = 0; i < settleDays; i += 1) {
+              onNavigateNext();
+            }
+          } else {
+            for (let i = 0; i < Math.abs(settleDays); i += 1) {
+              onNavigatePrev();
+            }
+          }
+
+          resetShiftWheelVisualState();
+        };
+
+        if (Math.abs(startOffsetPx - endOffsetPx) < 0.5) {
           commitNavigation();
           return;
         }
 
-        shiftWheelSettleRafRef.current = requestAnimationFrame(animateSettle);
-      };
+        const animateSettle = (nowTs: number) => {
+          const progress = Math.min(1, (nowTs - startedAt) / SHIFT_SCROLL_SETTLE_ANIMATION_MS);
+          const easedProgress = 1 - Math.pow(1 - progress, 3);
+          setVisualOffset(startOffsetPx + (endOffsetPx - startOffsetPx) * easedProgress);
 
-      shiftWheelSettleRafRef.current = requestAnimationFrame(animateSettle);
-    }, SHIFT_SCROLL_IDLE_SETTLE_DELAY_MS);
-  }, [onNavigateNext, onNavigatePrev, resetShiftWheelVisualState, setVisualOffset]);
+          if (progress >= 1) {
+            commitNavigation();
+            return;
+          }
+
+          shiftWheelSettleRafRef.current = requestAnimationFrame(animateSettle);
+        };
+
+        shiftWheelSettleRafRef.current = requestAnimationFrame(animateSettle);
+      }, SHIFT_SCROLL_IDLE_SETTLE_DELAY_MS);
+    },
+    [onNavigateNext, onNavigatePrev, resetShiftWheelVisualState, setVisualOffset],
+  );
 
   const now = new Date();
   const nowY = resolveNowY(now, hourHeight);
@@ -1397,12 +1431,11 @@ export function CalendarGrid({
     return [...beforeDays, ...visibleDays, ...afterDays];
   }, [renderBufferDays, visibleDays]);
   const slideWrapperWidth = renderBufferDays > 0 ? dayColWidth * renderDays.length : undefined;
-  const slideTransform = renderBufferDays > 0
-    ? `translateX(${-(renderBufferDays * dayColWidth + visualOffsetPx)}px)`
-    : undefined;
-  const renderDayStyle = renderBufferDays > 0
-    ? { width: dayColWidth, flexShrink: 0 }
-    : { flex: 1 };
+  const slideTransform =
+    renderBufferDays > 0
+      ? `translateX(${-(renderBufferDays * dayColWidth + visualOffsetPx)}px)`
+      : undefined;
+  const renderDayStyle = renderBufferDays > 0 ? { width: dayColWidth, flexShrink: 0 } : { flex: 1 };
   const timedPagesByRenderDay = useMemo(() => {
     const byDay = new Map<string, GroupedScheduledPage[]>();
     const timedPages = previewedPages.filter((page) => !page.isAllDay);
@@ -1568,7 +1601,8 @@ export function CalendarGrid({
                     const accentColor = styles?.accentColor ?? "#8E8B86";
                     const dayCount = renderDays.length;
                     const leftPct = (segment.startDayIndex / dayCount) * 100;
-                    const widthPct = ((segment.endDayIndex - segment.startDayIndex) / dayCount) * 100;
+                    const widthPct =
+                      ((segment.endDayIndex - segment.startDayIndex) / dayCount) * 100;
                     const top = segment.lane * (ALL_DAY_EVENT_HEIGHT + ALL_DAY_EVENT_GAP) + 4;
                     const isArchivedEvent = event.columnId === ARCHIVED_CARD_OPTION_ID;
                     const isMoveDragSource = activeMoveDragEventId === event.id;
@@ -1588,7 +1622,7 @@ export function CalendarGrid({
                           backgroundColor: isArchivedEvent
                             ? `color-mix(in srgb, ${accentColor} 6%, var(--background))`
                             : `color-mix(in srgb, ${accentColor} 14%, var(--background))`,
-                          opacity: isMoveDragSource ? 0.35 : (isArchivedEvent ? 0.6 : 1),
+                          opacity: isMoveDragSource ? 0.35 : isArchivedEvent ? 0.6 : 1,
                         }}
                         onDragStart={(dragEvent) => startMoveDrag(dragEvent, event)}
                         onDragEnd={() => endMoveDrag(event.id)}
@@ -1611,7 +1645,8 @@ export function CalendarGrid({
                         top: 4,
                         left: `calc(${(allDayMoveOverlay.startDayIndex / renderDays.length) * 100}% + 2px)`,
                         width: `calc(${((allDayMoveOverlay.endDayIndex - allDayMoveOverlay.startDayIndex) / renderDays.length) * 100}% - 4px)`,
-                        borderLeftColor: columnStyles[allDayMoveOverlay.event.columnId]?.accentColor ?? "#8E8B86",
+                        borderLeftColor:
+                          columnStyles[allDayMoveOverlay.event.columnId]?.accentColor ?? "#8E8B86",
                         backgroundColor: `color-mix(in srgb, ${columnStyles[allDayMoveOverlay.event.columnId]?.accentColor ?? "#8E8B86"} 24%, var(--background))`,
                       }}
                     >
@@ -1658,10 +1693,7 @@ export function CalendarGrid({
           }}
         >
           {/* Time gutter — fixed, not affected by slide */}
-          <div
-            className="relative shrink-0"
-            style={{ width: GUTTER_WIDTH }}
-          >
+          <div className="relative shrink-0" style={{ width: GUTTER_WIDTH }}>
             {HOURS.map((h) => (
               <div
                 key={h}
@@ -1691,8 +1723,7 @@ export function CalendarGrid({
                 const isToday = isSameDay(day, now);
                 const events = timedPagesByRenderDay.get(toDayKey(day)) ?? [];
                 const moveOverlayForDay =
-                  movePreviewOverlay &&
-                    isSameDay(movePreviewOverlay.scheduledStart, day)
+                  movePreviewOverlay && isSameDay(movePreviewOverlay.scheduledStart, day)
                     ? movePreviewOverlay
                     : null;
                 const moveOverlayAccentColor = moveOverlayForDay
@@ -1760,7 +1791,9 @@ export function CalendarGrid({
                           lane={event.lane}
                           totalLanes={event.totalLanes}
                           isActive={(event.pageId ?? event.id) === pageStagePageId}
-                          isInteracting={Boolean(eventPreview && eventPreview.eventId === event.id && !isDragSourceGhost)}
+                          isInteracting={Boolean(
+                            eventPreview && eventPreview.eventId === event.id && !isDragSourceGhost,
+                          )}
                           interactive={!isBuffer}
                           priority={event.priority}
                           estimate={event.estimate}
@@ -1771,20 +1804,24 @@ export function CalendarGrid({
                           isSeriesFirstOccurrence={Boolean(event.thisAndFutureEquivalentToAll)}
                           muted={isArchivedEvent}
                           dragVisual={isDragSourceGhost ? "source-ghost" : "default"}
-                          onShip={isArchivedEvent
-                            ? undefined
-                            : () =>
-                              onCompleteOccurrence(
-                                event.pageId ?? event.id,
-                                event.occurrenceStart ?? event.scheduledStart,
-                              )}
-                          onSkip={isArchivedEvent
-                            ? undefined
-                            : () =>
-                              onSkipOccurrence(
-                                event.pageId ?? event.id,
-                                event.occurrenceStart ?? event.scheduledStart,
-                              )}
+                          onShip={
+                            isArchivedEvent
+                              ? undefined
+                              : () =>
+                                  onCompleteOccurrence(
+                                    event.pageId ?? event.id,
+                                    event.occurrenceStart ?? event.scheduledStart,
+                                  )
+                          }
+                          onSkip={
+                            isArchivedEvent
+                              ? undefined
+                              : () =>
+                                  onSkipOccurrence(
+                                    event.pageId ?? event.id,
+                                    event.occurrenceStart ?? event.scheduledStart,
+                                  )
+                          }
                           onOpen={() => handlePageOpen(event)}
                           onDragStartMove={(dragEvent) => {
                             startMoveDrag(dragEvent, event);
@@ -1843,18 +1880,20 @@ export function CalendarGrid({
                         assignee={moveOverlayForDay.assignee}
                         description={moveOverlayForDay.description}
                         isRecurring={moveOverlayForDay.isRecurring}
-                        isSeriesFirstOccurrence={Boolean(moveOverlayForDay.thisAndFutureEquivalentToAll)}
+                        isSeriesFirstOccurrence={Boolean(
+                          moveOverlayForDay.thisAndFutureEquivalentToAll,
+                        )}
                         muted={isMoveOverlayArchived}
                         dragVisual="overlay-ghost"
                         zIndex={40}
-                        onOpen={() => { }}
+                        onOpen={() => {}}
                         onDragStartMove={undefined}
                         onDragEndMove={undefined}
-                        onPointerDownResize={() => { }}
-                        onPointerMove={() => { }}
-                        onPointerUp={() => { }}
-                        onPointerCancel={() => { }}
-                        onLostPointerCapture={() => { }}
+                        onPointerDownResize={() => {}}
+                        onPointerMove={() => {}}
+                        onPointerUp={() => {}}
+                        onPointerCancel={() => {}}
+                        onLostPointerCapture={() => {}}
                       />
                     )}
 

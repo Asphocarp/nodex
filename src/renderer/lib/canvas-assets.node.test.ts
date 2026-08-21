@@ -40,10 +40,9 @@ describe("Canvas managed asset bridge", () => {
     expect(uploadOrder.join(",")).toBe("uploaded");
     expect(Object.keys(durable).join(",")).toBe("new");
     expect(durable.new?.source).toBe("nodex://assets/new.png");
-    expect(
-      [...collectCanvasReferencedFileIds([{ type: "image", fileId: "new" }])]
-        .join(","),
-    ).toBe("new");
+    expect([...collectCanvasReferencedFileIds([{ type: "image", fileId: "new" }])].join(",")).toBe(
+      "new",
+    );
   });
 
   test("single-flights the same staged file across concurrent surface ports", async () => {

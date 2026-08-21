@@ -24,8 +24,8 @@ export const mapRichTitleCompositionIndexToBase = (
   let prefixLength = 0;
   const maximumPrefixLength = Math.min(baseValue.length, draftValue.length);
   while (
-    prefixLength < maximumPrefixLength
-    && baseValue[prefixLength] === draftValue[prefixLength]
+    prefixLength < maximumPrefixLength &&
+    baseValue[prefixLength] === draftValue[prefixLength]
   ) {
     prefixLength += 1;
   }
@@ -36,9 +36,9 @@ export const mapRichTitleCompositionIndexToBase = (
     draftValue.length - prefixLength,
   );
   while (
-    suffixLength < maximumSuffixLength
-    && baseValue[baseValue.length - suffixLength - 1]
-      === draftValue[draftValue.length - suffixLength - 1]
+    suffixLength < maximumSuffixLength &&
+    baseValue[baseValue.length - suffixLength - 1] ===
+      draftValue[draftValue.length - suffixLength - 1]
   ) {
     suffixLength += 1;
   }
@@ -51,52 +51,39 @@ export const mapRichTitleCompositionIndexToBase = (
   return baseValue.length - suffixLength;
 };
 
-const insertionAttributesAt = (
-  title: Y.Text,
-  index: number,
-): Readonly<Record<string, unknown>> => {
+const insertionAttributesAt = (title: Y.Text, index: number): Readonly<Record<string, unknown>> => {
   let offset = 0;
   let previous: Readonly<Record<string, unknown>> = {};
   for (const operation of title.toDelta()) {
     if (typeof operation.insert !== "string") continue;
     const attributes = Object.fromEntries(
-      Object.entries(operation.attributes ?? {})
-        .filter(([key]) => TITLE_ATTRIBUTE_NAMES.has(key)),
+      Object.entries(operation.attributes ?? {}).filter(([key]) => TITLE_ATTRIBUTE_NAMES.has(key)),
     );
     if (index <= offset + operation.insert.length) {
       return operation.insert === PORTABLE_RICH_TEXT_ATOM_CHARACTER ? {} : attributes;
     }
-    previous = operation.insert === PORTABLE_RICH_TEXT_ATOM_CHARACTER
-      ? {}
-      : attributes;
+    previous = operation.insert === PORTABLE_RICH_TEXT_ATOM_CHARACTER ? {} : attributes;
     offset += operation.insert.length;
   }
   return previous;
 };
 
-export const previousRichTitleCodePointIndex = (
-  value: string,
-  index: number,
-): number => {
+export const previousRichTitleCodePointIndex = (value: string, index: number): number => {
   if (index <= 0) return 0;
   const trailingUnit = value.charCodeAt(index - 1);
   const leadingUnit = index > 1 ? value.charCodeAt(index - 2) : 0;
   const isSurrogatePair =
-    trailingUnit >= 0xdc00 && trailingUnit <= 0xdfff
-    && leadingUnit >= 0xd800 && leadingUnit <= 0xdbff;
+    trailingUnit >= 0xdc00 &&
+    trailingUnit <= 0xdfff &&
+    leadingUnit >= 0xd800 &&
+    leadingUnit <= 0xdbff;
   return index - (isSurrogatePair ? 2 : 1);
 };
 
-export const nextRichTitleCodePointIndex = (
-  value: string,
-  index: number,
-): number => {
+export const nextRichTitleCodePointIndex = (value: string, index: number): number => {
   if (index >= value.length) return value.length;
   const next = value.codePointAt(index);
-  return Math.min(
-    value.length,
-    index + (next !== undefined && next > 0xffff ? 2 : 1),
-  );
+  return Math.min(value.length, index + (next !== undefined && next > 0xffff ? 2 : 1));
 };
 
 const insertCanonicalTitleText = (
@@ -135,10 +122,7 @@ export const applyRichTitleTextEdit = ({
 }: ApplyRichTitleTextEditInput): AppliedRichTitleTextEdit => {
   const document = title.doc;
   if (!document) return { changed: false, caret: start };
-  const canonicalInsert = insertText.replaceAll(
-    PORTABLE_RICH_TEXT_ATOM_CHARACTER,
-    "",
-  );
+  const canonicalInsert = insertText.replaceAll(PORTABLE_RICH_TEXT_ATOM_CHARACTER, "");
   const current = title.toString();
   const nextLength = current.length - (end - start) + canonicalInsert.length;
   if (nextLength > MAX_PAGE_TITLE_LENGTH) {
@@ -192,8 +176,10 @@ export const richTitleRangeHasFormat = (
   end: number,
   attribute: RichTitleFormatAttribute,
 ): boolean => {
-  const expected = richTitleFormatRanges(title, start, end)
-    .reduce((length, range) => length + range.length, 0);
+  const expected = richTitleFormatRanges(title, start, end).reduce(
+    (length, range) => length + range.length,
+    0,
+  );
   if (expected === 0) return false;
   let offset = 0;
   let covered = 0;
@@ -224,12 +210,7 @@ export const toggleRichTitleFormat = (input: {
   const document = input.title.doc;
   const ranges = richTitleFormatRanges(input.title, input.start, input.end);
   if (!document || ranges.length === 0) return false;
-  const enabled = richTitleRangeHasFormat(
-    input.title,
-    input.start,
-    input.end,
-    input.attribute,
-  );
+  const enabled = richTitleRangeHasFormat(input.title, input.start, input.end, input.attribute);
   document.transact(() => {
     for (const range of ranges) {
       input.title.format(range.start, range.length, {
@@ -251,9 +232,9 @@ export const setRichTitleLink = (input: {
   const ranges = richTitleFormatRanges(input.title, input.start, input.end);
   const href = input.href?.trim() ?? null;
   if (
-    !document
-    || ranges.length === 0
-    || (href !== null && (href.length === 0 || href.length > 4_096))
+    !document ||
+    ranges.length === 0 ||
+    (href !== null && (href.length === 0 || href.length > 4_096))
   ) {
     return false;
   }

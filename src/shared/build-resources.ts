@@ -21,8 +21,9 @@ export function buildResourcesPathsAtRoot(root: string): BuildResourcesPaths {
 
 export function resolveBuildResources(root: string): BuildResourcesPaths {
   const resolved = path.resolve(root);
-  const resourceRoot = path.basename(resolved) === path.basename(BUILD_RESOURCES_DIRECTORY)
-    ? resolved
-    : path.join(resolved, BUILD_RESOURCES_DIRECTORY);
+  const resourceRoot =
+    path.basename(resolved) === path.basename(BUILD_RESOURCES_DIRECTORY)
+      ? resolved
+      : path.join(resolved, BUILD_RESOURCES_DIRECTORY);
   return buildResourcesPathsAtRoot(resourceRoot);
 }

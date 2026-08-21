@@ -12,15 +12,10 @@ interface ExpandedHunkLayout {
   unifiedLineCount: number;
 }
 
-function areReviewLinesEqual(
-  left: string,
-  right: string,
-  ignoreWhitespace: boolean,
-): boolean {
+function areReviewLinesEqual(left: string, right: string, ignoreWhitespace: boolean): boolean {
   if (!ignoreWhitespace) return left === right;
   return (
-    left.replace(REVIEW_IGNORABLE_WHITESPACE, "")
-    === right.replace(REVIEW_IGNORABLE_WHITESPACE, "")
+    left.replace(REVIEW_IGNORABLE_WHITESPACE, "") === right.replace(REVIEW_IGNORABLE_WHITESPACE, "")
   );
 }
 

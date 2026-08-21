@@ -27,19 +27,15 @@ function runLint(
   paths: readonly string[],
   extraEnvironment: Readonly<Record<string, string>> = {},
 ): { readonly report: LintReport; readonly status: number } {
-  const result = spawnSync(
-    vpExecutable,
-    ["lint", "--quiet", "--format", "json", ...paths],
-    {
-      cwd: projectRoot,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        NODEX_TOOLING_FIXTURE_MODE: "1",
-        ...extraEnvironment,
-      },
+  const result = spawnSync(vpExecutable, ["lint", "--quiet", "--format", "json", ...paths], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODEX_TOOLING_FIXTURE_MODE: "1",
+      ...extraEnvironment,
     },
-  );
+  });
   if (result.error) throw result.error;
   if (result.signal) {
     throw new Error(`Vite+ fixture lint terminated by ${result.signal}`);
@@ -48,11 +44,11 @@ function runLint(
   const marker = '{ "diagnostics"';
   const reportOffset = result.stdout.indexOf(marker);
   if (reportOffset < 0) {
-    throw new Error([
-      "Vite+ fixture lint did not return JSON.",
-      result.stdout,
-      result.stderr,
-    ].filter(Boolean).join("\n"));
+    throw new Error(
+      ["Vite+ fixture lint did not return JSON.", result.stdout, result.stderr]
+        .filter(Boolean)
+        .join("\n"),
+    );
   }
 
   return {
@@ -65,19 +61,20 @@ function verifyInvalidFixtures(
   expected: readonly ExpectedDiagnostic[],
   environment?: Readonly<Record<string, string>>,
 ): void {
-  const result = runLint(expected.map(({ filename }) => filename), environment);
+  const result = runLint(
+    expected.map(({ filename }) => filename),
+    environment,
+  );
   if (result.status === 0) {
     throw new Error("Invalid tooling fixtures unexpectedly passed Oxlint.");
   }
 
-  const actual = result.report.diagnostics.filter(
-    (diagnostic) => diagnostic.severity === "error",
-  );
+  const actual = result.report.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   for (const expectation of expected) {
-    const matched = actual.some((diagnostic) => (
-      diagnostic.code === expectation.code
-      && diagnostic.filename === expectation.filename
-    ));
+    const matched = actual.some(
+      (diagnostic) =>
+        diagnostic.code === expectation.code && diagnostic.filename === expectation.filename,
+    );
     if (!matched) {
       throw new Error(
         `Missing ${expectation.code} for ${expectation.filename}: ${JSON.stringify(actual)}`,
@@ -159,15 +156,16 @@ verifyValidFixtures([
 ]);
 
 const tailwindEnvironment = { ESLINT_BETTER_TAILWIND: "1" };
-verifyInvalidFixtures([
-  {
-    code: "better-tailwindcss(no-unknown-classes)",
-    filename: "scripts/fixtures/tooling/tailwind-invalid.tsx",
-  },
-], tailwindEnvironment);
-verifyValidFixtures([
-  "scripts/fixtures/tooling/tailwind-valid.tsx",
-], tailwindEnvironment);
+verifyInvalidFixtures(
+  [
+    {
+      code: "better-tailwindcss(no-unknown-classes)",
+      filename: "scripts/fixtures/tooling/tailwind-invalid.tsx",
+    },
+  ],
+  tailwindEnvironment,
+);
+verifyValidFixtures(["scripts/fixtures/tooling/tailwind-valid.tsx"], tailwindEnvironment);
 
 verifyWorkspaceTaskGraph();
 

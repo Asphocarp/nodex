@@ -1,13 +1,4 @@
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -36,7 +27,7 @@ describe("isolated scenario Profile", () => {
   test("creates a short owned layout and removes it idempotently", async () => {
     const profile = await createIsolatedProfile({ label: "Board / Dense !!!" });
     const temporaryRoot = await import("node:fs/promises").then(({ realpath }) =>
-      realpath(process.platform === "darwin" ? "/tmp" : os.tmpdir())
+      realpath(process.platform === "darwin" ? "/tmp" : os.tmpdir()),
     );
     expect(path.dirname(profile.runRoot)).toBe(temporaryRoot);
     expect(path.basename(profile.runRoot)).toMatch(/^ndx-scn-/u);
@@ -56,7 +47,7 @@ describe("isolated scenario Profile", () => {
   test("copies Codex credentials only under an explicit policy with private modes", async () => {
     const source = await mkdtemp(path.join(os.tmpdir(), "ndx-codex-source-"));
     await writeFile(path.join(source, "auth.json"), "top-secret", { mode: 0o644 });
-    await writeFile(path.join(source, "config.toml"), "model = \"gpt-test\"\n", {
+    await writeFile(path.join(source, "config.toml"), 'model = "gpt-test"\n', {
       mode: 0o644,
     });
     const empty = await createIsolatedProfile({
@@ -65,8 +56,9 @@ describe("isolated scenario Profile", () => {
       retention: "keep",
     });
     retained.push(empty);
-    await expect(readFile(path.join(empty.codexHome, "auth.json"), "utf8"))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(empty.codexHome, "auth.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
 
     const copied = await createIsolatedProfile({
       label: "copied",
@@ -75,10 +67,8 @@ describe("isolated scenario Profile", () => {
       retention: "keep",
     });
     retained.push(copied);
-    expect(await readFile(path.join(copied.codexHome, "auth.json"), "utf8"))
-      .toBe("top-secret");
-    expect((await stat(path.join(copied.codexHome, "auth.json"))).mode & 0o777)
-      .toBe(0o600);
+    expect(await readFile(path.join(copied.codexHome, "auth.json"), "utf8")).toBe("top-secret");
+    expect((await stat(path.join(copied.codexHome, "auth.json"))).mode & 0o777).toBe(0o600);
     expect(await readFile(copied.manifestPath, "utf8")).not.toContain("top-secret");
 
     const configOnly = await createIsolatedProfile({
@@ -88,29 +78,32 @@ describe("isolated scenario Profile", () => {
       retention: "keep",
     });
     retained.push(configOnly);
-    expect(await readFile(path.join(configOnly.codexHome, "config.toml"), "utf8"))
-      .toContain("gpt-test");
-    expect((await stat(path.join(configOnly.codexHome, "config.toml"))).mode & 0o777)
-      .toBe(0o600);
-    await expect(readFile(path.join(configOnly.codexHome, "auth.json"), "utf8"))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(configOnly.codexHome, "config.toml"), "utf8")).toContain(
+      "gpt-test",
+    );
+    expect((await stat(path.join(configOnly.codexHome, "config.toml"))).mode & 0o777).toBe(0o600);
+    await expect(
+      readFile(path.join(configOnly.codexHome, "auth.json"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("removes its owned root when credential materialization fails", async () => {
     const tempParent = process.platform === "darwin" ? "/tmp" : os.tmpdir();
     const source = await mkdtemp(path.join(os.tmpdir(), "ndx-codex-incomplete-"));
-    await writeFile(path.join(source, "config.toml"), "model = \"gpt-test\"\n");
-    const before = new Set((await readdir(tempParent)).filter((entry) =>
-      entry.startsWith("ndx-scn-")
-    ));
+    await writeFile(path.join(source, "config.toml"), 'model = "gpt-test"\n');
+    const before = new Set(
+      (await readdir(tempParent)).filter((entry) => entry.startsWith("ndx-scn-")),
+    );
     try {
-      await expect(createIsolatedProfile({
-        label: "missing-auth",
-        codex: "copy-auth-and-config",
-        sourceCodexHome: source,
-      })).rejects.toMatchObject({ code: "ENOENT" });
-      const leaked = (await readdir(tempParent)).filter((entry) =>
-        entry.startsWith("ndx-scn-") && !before.has(entry)
+      await expect(
+        createIsolatedProfile({
+          label: "missing-auth",
+          codex: "copy-auth-and-config",
+          sourceCodexHome: source,
+        }),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      const leaked = (await readdir(tempParent)).filter(
+        (entry) => entry.startsWith("ndx-scn-") && !before.has(entry),
       );
       expect(leaked).toEqual([]);
     } finally {
@@ -123,15 +116,17 @@ describe("isolated scenario Profile", () => {
     retained.push(mismatch);
     const raw = JSON.parse(await readFile(mismatch.manifestPath, "utf8")) as object;
     await writeFile(mismatch.manifestPath, JSON.stringify({ ...raw, runId: "other" }));
-    await expect(cleanupIsolatedProfile({ ...mismatch, retention: "dispose" }))
-      .resolves.toMatchObject({ status: "unsafe" });
+    await expect(
+      cleanupIsolatedProfile({ ...mismatch, retention: "dispose" }),
+    ).resolves.toMatchObject({ status: "unsafe" });
 
     const runtime = await createIsolatedProfile({ label: "runtime", retention: "keep" });
     retained.push(runtime);
     await mkdir(path.join(runtime.nodexHome, "run/core"), { recursive: true });
     await writeFile(path.join(runtime.nodexHome, "run/core/core.auth"), "capability");
-    await expect(cleanupIsolatedProfile({ ...runtime, retention: "dispose" }))
-      .resolves.toMatchObject({ status: "unsafe" });
+    await expect(
+      cleanupIsolatedProfile({ ...runtime, retention: "dispose" }),
+    ).resolves.toMatchObject({ status: "unsafe" });
 
     const target = await createIsolatedProfile({ label: "target", retention: "keep" });
     retained.push(target);
@@ -139,13 +134,14 @@ describe("isolated scenario Profile", () => {
     await symlink(target.runRoot, link);
     await expect(resumeIsolatedProfile(link)).rejects.toThrow(/real directory|identity/u);
 
-    await expect(resumeIsolatedProfile("relative-profile"))
-      .rejects.toThrow(/absolute/u);
-    await expect(cleanupIsolatedProfile({
-      ...target,
-      retention: "dispose",
-      runRoot: "relative-profile",
-    })).resolves.toMatchObject({ status: "unsafe" });
+    await expect(resumeIsolatedProfile("relative-profile")).rejects.toThrow(/absolute/u);
+    await expect(
+      cleanupIsolatedProfile({
+        ...target,
+        retention: "dispose",
+        runRoot: "relative-profile",
+      }),
+    ).resolves.toMatchObject({ status: "unsafe" });
   });
 
   test("refuses to resume a Profile while its isolated lease exists", async () => {

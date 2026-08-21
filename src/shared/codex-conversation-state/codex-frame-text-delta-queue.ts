@@ -26,13 +26,8 @@ export interface CodexFrameTextDeltaFlushContext {
   readonly terminalDrainCommit: boolean;
 }
 
-export interface CodexFrameTextDeltaQueueOptions<
-  TUpdate extends CodexFrameTextDeltaUpdate,
-> {
-  readonly onFlush: (
-    updates: readonly TUpdate[],
-    context: CodexFrameTextDeltaFlushContext,
-  ) => void;
+export interface CodexFrameTextDeltaQueueOptions<TUpdate extends CodexFrameTextDeltaUpdate> {
+  readonly onFlush: (updates: readonly TUpdate[], context: CodexFrameTextDeltaFlushContext) => void;
   readonly scheduler?: CodexFrameTextDeltaScheduler;
   readonly fallbackIntervalMs?: number;
   readonly targetCharsPerFrame?: number;
@@ -48,9 +43,7 @@ interface CodexDocumentLike {
   readonly visibilityState?: string;
 }
 
-export function buildCodexFrameTextDeltaKey(
-  update: CodexFrameTextDeltaUpdate,
-): string {
+export function buildCodexFrameTextDeltaKey(update: CodexFrameTextDeltaUpdate): string {
   const targetKey = (() => {
     if (update.target.type === "reasoningSummary") {
       return `${update.target.type}:${update.target.summaryIndex}`;
@@ -141,8 +134,7 @@ export class CodexFrameTextDeltaQueue<
       options.fallbackIntervalMs ?? CODEX_FRAME_TEXT_DELTA_FALLBACK_INTERVAL_MS;
     this.targetCharsPerFrame =
       options.targetCharsPerFrame ?? CODEX_FRAME_TEXT_DELTA_TARGET_CHARS_PER_FRAME;
-    this.maxDrainFrames =
-      options.maxDrainFrames ?? CODEX_FRAME_TEXT_DELTA_MAX_DRAIN_FRAMES;
+    this.maxDrainFrames = options.maxDrainFrames ?? CODEX_FRAME_TEXT_DELTA_MAX_DRAIN_FRAMES;
   }
 
   enqueue(update: TUpdate): void {
@@ -155,9 +147,11 @@ export class CodexFrameTextDeltaQueue<
     this.scheduleFlush();
   }
 
-  flushNow(context: CodexFrameTextDeltaFlushContext = {
-    terminalDrainCommit: this.drainCallbacks.length > 0,
-  }): void {
+  flushNow(
+    context: CodexFrameTextDeltaFlushContext = {
+      terminalDrainCommit: this.drainCallbacks.length > 0,
+    },
+  ): void {
     this.cancelPendingFlush();
     if (this.buffers.size === 0) {
       this.finishDrainCallbacks();
@@ -172,9 +166,9 @@ export class CodexFrameTextDeltaQueue<
 
   drainBefore(callback: () => void, scope?: string): boolean {
     if (
-      this.buffers.size === 0
-      || !this.scheduler.canUseAnimationFrame()
-      || this.getBufferedDeltaLength() <= this.targetCharsPerFrame
+      this.buffers.size === 0 ||
+      !this.scheduler.canUseAnimationFrame() ||
+      this.getBufferedDeltaLength() <= this.targetCharsPerFrame
     ) {
       this.flushNow({ terminalDrainCommit: true });
       return false;
@@ -246,8 +240,7 @@ export class CodexFrameTextDeltaQueue<
     }
 
     this.onFlush(updates, {
-      terminalDrainCommit:
-        this.drainCallbacks.length > 0 && this.buffers.size === 0,
+      terminalDrainCommit: this.drainCallbacks.length > 0 && this.buffers.size === 0,
     });
     if (this.drainFramesRemaining !== null) {
       this.drainFramesRemaining -= 1;
@@ -266,10 +259,7 @@ export class CodexFrameTextDeltaQueue<
       return this.targetCharsPerFrame;
     }
 
-    return Math.max(
-      this.targetCharsPerFrame,
-      Math.ceil(deltaLength / this.drainFramesRemaining),
-    );
+    return Math.max(this.targetCharsPerFrame, Math.ceil(deltaLength / this.drainFramesRemaining));
   }
 
   private getBufferedDeltaLength(): number {

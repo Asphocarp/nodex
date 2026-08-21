@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { NodexCheckbox } from "@/components/ui/settings";
 import { cn } from "@/lib/utils";
 import { dataSourcePropertyIcon } from "./data-source-property-presentation";
@@ -14,18 +8,11 @@ import {
   isCustomDataSourcePropertyId,
   TASK_PARENT_PROPERTY_ID,
 } from "../../../shared/database-identities";
-import type {
-  DatabaseJsonValue,
-} from "../../../shared/database-kernel";
+import type { DatabaseJsonValue } from "../../../shared/database-kernel";
 import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 import { defaultDataSourcePropertyOptionColor } from "@/lib/data-source-property-options";
-import {
-  RelationPropertyEditor,
-} from "./relation-property-editor";
-import {
-  PropertyOptionPicker,
-  type PropertyOptionPickerHost,
-} from "./property-option-picker";
+import { RelationPropertyEditor } from "./relation-property-editor";
+import { PropertyOptionPicker, type PropertyOptionPickerHost } from "./property-option-picker";
 import { SemanticSelectPropertyEditor } from "./semantic-property-editors";
 import { DatePropertyEditor } from "./date-property-editor";
 import type { DataSourcePropertyEditorBinding } from "./data-source-property-editor-binding";
@@ -105,42 +92,42 @@ function ScalarPropertyEditor({
   const dense = presentation === "list" || presentation === "board";
   const input = (
     <input
-        type="text"
-        inputMode={kind === "number" ? "decimal" : "text"}
-        aria-label={`${label} value`}
-        aria-invalid={error !== null}
-        size={presentation === "board" ? Math.max(1, Math.min(draft.length, 18)) : undefined}
-        value={draft}
-        disabled={disabled}
-        placeholder={PROPERTY_EMPTY_VALUE_LABEL}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          if (skipBlurCommitRef.current) {
-            skipBlurCommitRef.current = false;
-            return;
-          }
-          commit();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-          if (event.key !== "Escape") return;
-          skipBlurCommitRef.current = true;
-          setDraft(value);
-          setError(null);
-          event.currentTarget.blur();
-        }}
-        className={cn(
-          valueInputClass,
-          presentation === "page"
-            // The 1px input border plus 3px padding matches the 4px inset of
+      type="text"
+      inputMode={kind === "number" ? "decimal" : "text"}
+      aria-label={`${label} value`}
+      aria-invalid={error !== null}
+      size={presentation === "board" ? Math.max(1, Math.min(draft.length, 18)) : undefined}
+      value={draft}
+      disabled={disabled}
+      placeholder={PROPERTY_EMPTY_VALUE_LABEL}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (skipBlurCommitRef.current) {
+          skipBlurCommitRef.current = false;
+          return;
+        }
+        commit();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key !== "Escape") return;
+        skipBlurCommitRef.current = true;
+        setDraft(value);
+        setError(null);
+        event.currentTarget.blur();
+      }}
+      className={cn(
+        valueInputClass,
+        presentation === "page"
+          ? // The 1px input border plus 3px padding matches the 4px inset of
             // borderless Page Property triggers such as Tags and Due date.
-            ? "w-full max-w-72 px-[3px] text-sm"
-            : presentation === "list"
-              ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[var(--database-property-chip-current-text,var(--database-property-chip-text))] hover:bg-transparent focus:bg-transparent focus:ring-0"
-              : presentation === "board"
-                ? "h-full min-w-[2ch] max-w-40 flex-none border-0 bg-transparent p-0 text-xs text-[var(--database-property-chip-current-text,var(--database-property-chip-text))] hover:bg-transparent focus:bg-transparent focus:ring-0"
+            "w-full max-w-72 px-[3px] text-sm"
+          : presentation === "list"
+            ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[var(--database-property-chip-current-text,var(--database-property-chip-text))] hover:bg-transparent focus:bg-transparent focus:ring-0"
+            : presentation === "board"
+              ? "h-full min-w-[2ch] max-w-40 flex-none border-0 bg-transparent p-0 text-xs text-[var(--database-property-chip-current-text,var(--database-property-chip-text))] hover:bg-transparent focus:bg-transparent focus:ring-0"
               : "w-32 px-1.5 text-[11px]",
-        )}
+      )}
     />
   );
   return (
@@ -150,14 +137,19 @@ function ScalarPropertyEditor({
           {triggerIcon}
           {input}
         </span>
-      ) : input}
-      {error ? <span role="alert" className="px-1.5 text-xs text-token-error-foreground">{error}</span> : null}
+      ) : (
+        input
+      )}
+      {error ? (
+        <span role="alert" className="px-1.5 text-xs text-token-error-foreground">
+          {error}
+        </span>
+      ) : null}
     </span>
   );
 }
 
-export interface DataSourcePropertyValueEditorProps
-  extends DataSourcePropertyEditorBinding {
+export interface DataSourcePropertyValueEditorProps extends DataSourcePropertyEditorBinding {
   readonly showLabel?: boolean;
   readonly presentation?: DatabasePropertyValuePresentation;
   readonly triggerIcon?: ReactNode;
@@ -203,13 +195,12 @@ export function DataSourcePropertyValueEditor({
 }: DataSourcePropertyValueEditorProps) {
   const role = resolveDataSourcePropertyPresentationRole(property);
   const PropertyIcon = dataSourcePropertyIcon(property);
-  const boardIcon = presentation !== "board"
-    ? undefined
-    : role.kind === "due_date"
-      ? <DueDateValueIcon value={value} />
-      : PropertyIcon
-        ? <PropertyIcon className="size-3.5 shrink-0 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]" />
-        : undefined;
+  const boardIcon =
+    presentation !== "board" ? undefined : role.kind === "due_date" ? (
+      <DueDateValueIcon value={value} />
+    ) : PropertyIcon ? (
+      <PropertyIcon className="size-3.5 shrink-0 text-[var(--database-property-chip-current-text,var(--database-property-chip-text))]" />
+    ) : undefined;
   const valueTriggerIcon = presentation === "board" ? boardIcon : triggerIcon;
   const createOption = onCreateOption
     ? (name: string) => {
@@ -234,25 +225,17 @@ export function DataSourcePropertyValueEditor({
         value={value}
         candidates={relationCandidates}
         excludedPageId={
-          property.propertyId === TASK_PARENT_PROPERTY_ID
-            ? relationSourcePageId
-            : undefined
+          property.propertyId === TASK_PARENT_PROPERTY_ID ? relationSourcePageId : undefined
         }
-        cardinality={
-          property.schema.kind === "relation"
-            ? property.schema.cardinality
-            : "many"
-        }
+        cardinality={property.schema.kind === "relation" ? property.schema.cardinality : "many"}
         disabled={disabled}
         pending={pending}
         targetMatchesCurrentSource={
-          property.schema.kind === "relation"
-          && property.schema.targetDataSourceId === property.dataSourceId
+          property.schema.kind === "relation" &&
+          property.schema.targetDataSourceId === property.dataSourceId
         }
         targetDataSourceId={
-          property.schema.kind === "relation"
-            ? property.schema.targetDataSourceId
-            : undefined
+          property.schema.kind === "relation" ? property.schema.targetDataSourceId : undefined
         }
         onPatch={onPatchRelation}
         onReplace={onReplaceOneRelation}
@@ -304,11 +287,10 @@ export function DataSourcePropertyValueEditor({
   }
   if (property.valueType === "select") {
     const selectedId = scalarString(value) || null;
-    const semanticKind = role.kind === "status"
-      || role.kind === "priority"
-      || role.kind === "estimate"
-      ? role.kind
-      : null;
+    const semanticKind =
+      role.kind === "status" || role.kind === "priority" || role.kind === "estimate"
+        ? role.kind
+        : null;
     const editor = semanticKind ? (
       <SemanticSelectPropertyEditor
         host={optionPickerHost}
@@ -320,7 +302,9 @@ export function DataSourcePropertyValueEditor({
         disabled={disabled}
         pending={pending}
         presentation={presentation}
-        triggerPrefix={presentation === "list" ? triggerIcon : presentation === "board" ? boardIcon : undefined}
+        triggerPrefix={
+          presentation === "list" ? triggerIcon : presentation === "board" ? boardIcon : undefined
+        }
         triggerButton={optionPickerTrigger}
         onRequestOptions={onRequestOptions}
         hasMore={optionRegistryHasMore}
@@ -349,16 +333,21 @@ export function DataSourcePropertyValueEditor({
         onLoadMore={onRequestMoreOptions}
         onCommit={onOptionPickerCommit}
         allowCreate={
-          optionRegistryState === "ready"
-          && !optionRegistryHasMore
-          && isCustomDataSourcePropertyId(property.propertyId)
+          optionRegistryState === "ready" &&
+          !optionRegistryHasMore &&
+          isCustomDataSourcePropertyId(property.propertyId)
         }
         onSelectedIdsChange={(ids) => onChange(ids[0] ?? null)}
         onCreateOption={createOption}
       />
     );
     if (optionPickerHost === "embedded") return editor;
-    return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1">
+        {label}
+        {editor}
+      </span>
+    );
   }
   if (property.valueType === "multi_select") {
     const selectedIds = Array.isArray(value)
@@ -378,42 +367,41 @@ export function DataSourcePropertyValueEditor({
     };
     const editor = (
       <PropertyOptionPicker
-          host={optionPickerHost}
-          label={property.name}
-          mode="multiple"
-          options={options}
-          loading={optionRegistryState === "idle" || optionRegistryState === "loading"}
-          registryError={optionRegistryState === "error"}
-          onOpen={onRequestOptions}
-          hasMore={optionRegistryHasMore}
-          loadingMore={optionRegistryLoadingMore}
-          onLoadMore={onRequestMoreOptions}
-          selectedIds={selectedIds}
-          disabled={disabled}
-          pending={pending}
-          presentation={presentation}
-          triggerPrefix={presentation === "list" ? triggerIcon : undefined}
-          triggerButton={optionPickerTrigger}
-          onCommit={onOptionPickerCommit}
-          allowCreate={
-            optionRegistryState === "ready"
-            && !optionRegistryHasMore
-            && (
-              role.kind === "tags"
-              || isCustomDataSourcePropertyId(property.propertyId)
-            )
-          }
-          onSelectedIdsChange={changeSelectedIds}
-          onCreateOption={createOption}
+        host={optionPickerHost}
+        label={property.name}
+        mode="multiple"
+        options={options}
+        loading={optionRegistryState === "idle" || optionRegistryState === "loading"}
+        registryError={optionRegistryState === "error"}
+        onOpen={onRequestOptions}
+        hasMore={optionRegistryHasMore}
+        loadingMore={optionRegistryLoadingMore}
+        onLoadMore={onRequestMoreOptions}
+        selectedIds={selectedIds}
+        disabled={disabled}
+        pending={pending}
+        presentation={presentation}
+        triggerPrefix={presentation === "list" ? triggerIcon : undefined}
+        triggerButton={optionPickerTrigger}
+        onCommit={onOptionPickerCommit}
+        allowCreate={
+          optionRegistryState === "ready" &&
+          !optionRegistryHasMore &&
+          (role.kind === "tags" || isCustomDataSourcePropertyId(property.propertyId))
+        }
+        onSelectedIdsChange={changeSelectedIds}
+        onCreateOption={createOption}
       />
     );
     if (optionPickerHost === "embedded") return editor;
-    return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1">
+        {label}
+        {editor}
+      </span>
+    );
   }
-  if (
-    property.valueType === "date"
-    || property.valueType === "datetime"
-  ) {
+  if (property.valueType === "date" || property.valueType === "datetime") {
     const editor = (
       <DatePropertyEditor
         label={property.name}
@@ -422,32 +410,42 @@ export function DataSourcePropertyValueEditor({
         revision={revision}
         disabled={disabled || pending}
         presentation={presentation}
-        triggerIcon={presentation === "list" || presentation === "board" ? valueTriggerIcon : undefined}
+        triggerIcon={
+          presentation === "list" || presentation === "board" ? valueTriggerIcon : undefined
+        }
         host={overlayHost}
         onRequestClose={onOverlayRequestClose}
         onChange={onChange}
       />
     );
     if (overlayHost === "embedded") return editor;
-    return <span className="inline-flex min-w-0 items-center gap-1">{label}{editor}</span>;
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1">
+        {label}
+        {editor}
+      </span>
+    );
   }
-  if (
-    property.valueType === "text"
-    || property.valueType === "number"
-  ) {
+  if (property.valueType === "text" || property.valueType === "number") {
     return (
       <span className="inline-flex min-w-0 items-center gap-1">
         {label}
         <ScalarPropertyEditor
           label={property.name}
-          value={property.valueType === "number"
-            ? typeof value === "number" ? String(value) : ""
-            : scalarString(value)}
+          value={
+            property.valueType === "number"
+              ? typeof value === "number"
+                ? String(value)
+                : ""
+              : scalarString(value)
+          }
           revision={revision}
           disabled={disabled || pending}
           presentation={presentation}
           kind={property.valueType}
-          triggerIcon={presentation === "list" || presentation === "board" ? valueTriggerIcon : undefined}
+          triggerIcon={
+            presentation === "list" || presentation === "board" ? valueTriggerIcon : undefined
+          }
           onChange={onChange}
         />
       </span>

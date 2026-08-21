@@ -1,7 +1,4 @@
-import {
-  blockHasType,
-  editorHasBlockWithType,
-} from "@blocknote/core";
+import { blockHasType, editorHasBlockWithType } from "@blocknote/core";
 import {
   FormattingToolbarExtension,
   ShowSelectionExtension,
@@ -17,11 +14,7 @@ import {
   useExtensionState,
   type FloatingUIOptions,
 } from "@blocknote/react";
-import {
-  offset,
-  shift,
-  size,
-} from "@floating-ui/react";
+import { offset, shift, size } from "@floating-ui/react";
 
 import {
   Fragment,
@@ -67,10 +60,7 @@ import {
   NfmSideMenuTurnIntoIcon,
   PlusIcon,
 } from "@/components/shared/icons";
-import {
-  NodexPopover,
-  NodexPopoverAnchor,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -79,10 +69,7 @@ import {
   isTypedOwnerBlockType,
 } from "@/lib/typed-owner-blocks";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
-import {
-  NfmFloatingPopover,
-  type NfmPopoverReference,
-} from "./nfm-floating-popover";
+import { NfmFloatingPopover, type NfmPopoverReference } from "./nfm-floating-popover";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import {
@@ -136,7 +123,11 @@ interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   getSelection?: () => { blocks?: SideMenuBlock[] } | undefined;
   getTextCursorPosition?: () => { block?: SideMenuBlock };
   setTextCursorPosition?: (block: SideMenuBlock | string, placement?: "start" | "end") => void;
-  insertBlocks?: (blocks: unknown[], referenceBlock: unknown, placement: "before" | "after" | "nested") => unknown[];
+  insertBlocks?: (
+    blocks: unknown[],
+    referenceBlock: unknown,
+    placement: "before" | "after" | "nested",
+  ) => unknown[];
   removeBlocks?: (blocks: unknown[]) => void;
   updateBlock?: (block: unknown, update: unknown) => void;
   focus?: () => void;
@@ -171,7 +162,11 @@ interface NfmSideMenuOpenState {
   selectionIntent: SideMenuSelectionIntent;
 }
 
-export type NfmSideMenuCloseReason = "action" | "escape" | "editor-outside-pointer" | "outside-pointer";
+export type NfmSideMenuCloseReason =
+  | "action"
+  | "escape"
+  | "editor-outside-pointer"
+  | "outside-pointer";
 
 interface NfmSideMenuOpenBlockInput {
   block: SideMenuBlock;
@@ -313,7 +308,8 @@ const SIDE_MENU_COLOR_LABELS = {
 const SIDE_MENU_COLOR_STYLES = {
   default: "transparent",
   gray: "color-mix(in srgb, var(--color-token-foreground) 42%, transparent)",
-  brown: "color-mix(in srgb, var(--color-token-charts-orange) 70%, var(--color-token-foreground) 18%)",
+  brown:
+    "color-mix(in srgb, var(--color-token-charts-orange) 70%, var(--color-token-foreground) 18%)",
   orange: "var(--color-token-charts-orange)",
   yellow: "var(--color-token-charts-yellow)",
   green: "var(--color-token-charts-green)",
@@ -338,12 +334,42 @@ const SIDE_MENU_BACKGROUND_COLOR_STYLES = {
 
 const SIDE_MENU_TURN_INTO_DEFINITIONS = [
   { key: "paragraph", label: "Text", type: "paragraph" },
-  { key: "heading-1", label: "Heading 1", type: "heading", props: { level: 1, isToggleable: false } },
-  { key: "heading-2", label: "Heading 2", type: "heading", props: { level: 2, isToggleable: false } },
-  { key: "heading-3", label: "Heading 3", type: "heading", props: { level: 3, isToggleable: false } },
-  { key: "toggle-heading-1", label: "Toggle heading 1", type: "heading", props: { level: 1, isToggleable: true } },
-  { key: "toggle-heading-2", label: "Toggle heading 2", type: "heading", props: { level: 2, isToggleable: true } },
-  { key: "toggle-heading-3", label: "Toggle heading 3", type: "heading", props: { level: 3, isToggleable: true } },
+  {
+    key: "heading-1",
+    label: "Heading 1",
+    type: "heading",
+    props: { level: 1, isToggleable: false },
+  },
+  {
+    key: "heading-2",
+    label: "Heading 2",
+    type: "heading",
+    props: { level: 2, isToggleable: false },
+  },
+  {
+    key: "heading-3",
+    label: "Heading 3",
+    type: "heading",
+    props: { level: 3, isToggleable: false },
+  },
+  {
+    key: "toggle-heading-1",
+    label: "Toggle heading 1",
+    type: "heading",
+    props: { level: 1, isToggleable: true },
+  },
+  {
+    key: "toggle-heading-2",
+    label: "Toggle heading 2",
+    type: "heading",
+    props: { level: 2, isToggleable: true },
+  },
+  {
+    key: "toggle-heading-3",
+    label: "Toggle heading 3",
+    type: "heading",
+    props: { level: 3, isToggleable: true },
+  },
   { key: "bullet-list", label: "Bulleted list", type: "bulletListItem" },
   { key: "numbered-list", label: "Numbered list", type: "numberedListItem" },
   { key: "todo-list", label: "To-do list", type: "checkListItem" },
@@ -365,7 +391,7 @@ function toNumberProp(props: Record<string, unknown> | undefined, key: string): 
 
 function normalizeColorValue(value: unknown): NfmSideMenuColorValue {
   return SIDE_MENU_COLOR_VALUES.includes(value as NfmSideMenuColorValue)
-    ? value as NfmSideMenuColorValue
+    ? (value as NfmSideMenuColorValue)
     : "default";
 }
 
@@ -377,7 +403,7 @@ function propsToSchemaShape(props?: Record<string, boolean | number | string>) {
 
 function getSideMenuActionBlocks(openState: NfmSideMenuOpenState, fallbackBlock: SideMenuBlock) {
   return openState.selectionIntent.blocks.length > 0
-    ? openState.selectionIntent.blocks as SideMenuBlock[]
+    ? (openState.selectionIntent.blocks as SideMenuBlock[])
     : [fallbackBlock];
 }
 
@@ -452,9 +478,11 @@ export function shouldKeepNfmSideMenuFormattingToolbarSuppression({
   selectionRange: NfmSideMenuSelectionRange;
   suppressionRange: NfmSideMenuSelectionRange | null;
 }) {
-  return suppressionRange !== null
-    && selectionRange.from === suppressionRange.from
-    && selectionRange.to === suppressionRange.to;
+  return (
+    suppressionRange !== null &&
+    selectionRange.from === suppressionRange.from &&
+    selectionRange.to === suppressionRange.to
+  );
 }
 
 function getTopLevelSideMenuActionBlocks(blocks: SideMenuBlock[]) {
@@ -506,10 +534,7 @@ function getEditorEditable(editor: SideMenuEditorRuntime) {
   return true;
 }
 
-function supportsBlockColor(
-  editor: SideMenuEditorRuntime,
-  block: SideMenuBlock,
-) {
+function supportsBlockColor(editor: SideMenuEditorRuntime, block: SideMenuBlock) {
   if (!block.type) {
     return {
       text: false,
@@ -517,26 +542,26 @@ function supportsBlockColor(
     };
   }
 
-  const text = blockHasType(
-    block as Parameters<typeof blockHasType>[0],
-    editor as Parameters<typeof blockHasType>[1],
-    block.type,
-    { textColor: "string" },
-  ) && editorHasBlockWithType(
-    editor as Parameters<typeof editorHasBlockWithType>[0],
-    block.type,
-    { textColor: "string" },
-  );
-  const background = blockHasType(
-    block as Parameters<typeof blockHasType>[0],
-    editor as Parameters<typeof blockHasType>[1],
-    block.type,
-    { backgroundColor: "string" },
-  ) && editorHasBlockWithType(
-    editor as Parameters<typeof editorHasBlockWithType>[0],
-    block.type,
-    { backgroundColor: "string" },
-  );
+  const text =
+    blockHasType(
+      block as Parameters<typeof blockHasType>[0],
+      editor as Parameters<typeof blockHasType>[1],
+      block.type,
+      { textColor: "string" },
+    ) &&
+    editorHasBlockWithType(editor as Parameters<typeof editorHasBlockWithType>[0], block.type, {
+      textColor: "string",
+    });
+  const background =
+    blockHasType(
+      block as Parameters<typeof blockHasType>[0],
+      editor as Parameters<typeof blockHasType>[1],
+      block.type,
+      { backgroundColor: "string" },
+    ) &&
+    editorHasBlockWithType(editor as Parameters<typeof editorHasBlockWithType>[0], block.type, {
+      backgroundColor: "string",
+    });
 
   return { text, background };
 }
@@ -668,12 +693,15 @@ function NfmAddBlockButton() {
     suggestionMenu.openSuggestionMenu("/");
   }, [block, editor, suggestionMenu]);
 
-  const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType !== "mouse" || event.button !== 0) return;
+  const handlePointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
 
-    lastPointerActivationAtRef.current = performance.now();
-    activateAddBlock();
-  }, [activateAddBlock]);
+      lastPointerActivationAtRef.current = performance.now();
+      activateAddBlock();
+    },
+    [activateAddBlock],
+  );
 
   const handleClick = useCallback(() => {
     const lastPointerActivationAt = lastPointerActivationAtRef.current;
@@ -803,9 +831,7 @@ function NfmSideMenuRow({
         }
       }}
     >
-      <NodexPopoverAnchor asChild>
-        {rowElement}
-      </NodexPopoverAnchor>
+      <NodexPopoverAnchor asChild>{rowElement}</NodexPopoverAnchor>
       <NfmEditorPopoverContent
         side="right"
         align="start"
@@ -827,11 +853,7 @@ function NfmSideMenuRow({
   );
 }
 
-function NfmSideMenuSeparator({
-  kind,
-}: {
-  kind: "group" | "footer";
-}) {
+function NfmSideMenuSeparator({ kind }: { kind: "group" | "footer" }) {
   return (
     <div
       aria-hidden="true"
@@ -875,9 +897,10 @@ function NfmSideMenuSectionView({
         {section.rows.map((row, offset) => {
           const index = startIndex + offset;
           const currentFlatRow = { sectionKey: section.key, row };
-          const previousFlatRow = offset === 0
-            ? previousRow
-            : { sectionKey: section.key, row: section.rows[offset - 1]! };
+          const previousFlatRow =
+            offset === 0
+              ? previousRow
+              : { sectionKey: section.key, row: section.rows[offset - 1]! };
           return (
             <Fragment key={row.key}>
               {shouldRenderNfmSideMenuSeparatorBefore(previousFlatRow, currentFlatRow) ? (
@@ -917,52 +940,57 @@ type NfmSideMenuSubmenuRowProps = Omit<
   ariaExpanded?: boolean;
 };
 
-const NfmSideMenuSubmenuRow = forwardRef<HTMLDivElement, NfmSideMenuSubmenuRowProps>(function NfmSideMenuSubmenuRow({
-  children,
-  disabled = false,
-  selected = false,
-  onClick,
-  onPointerEnter,
-  leftSlot,
-  rightSlot,
-  ariaHaspopup,
-  ariaExpanded,
-  className,
-  ...props
-}, forwardedRef) {
-  return (
-    <div
-      {...props}
-      ref={forwardedRef}
-      role="menuitem"
-      tabIndex={-1}
-      aria-disabled={disabled || undefined}
-      aria-current={selected ? "true" : undefined}
-      aria-haspopup={ariaHaspopup}
-      aria-expanded={ariaExpanded}
-      className={cn(
-        "flex h-7 select-none items-center gap-2 rounded-[7px] px-2 text-[14px] leading-7 outline-hidden",
-        disabled
-          ? "cursor-default text-token-text-secondary opacity-45"
-          : "cursor-interaction text-token-foreground hover:bg-token-list-hover-background",
-        className,
-      )}
-      onPointerDown={keepEditorSelection}
-      onPointerEnter={onPointerEnter}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (disabled) return;
-        onClick?.();
-      }}
-    >
-      <span className="flex size-5 shrink-0 items-center justify-center text-token-description-foreground">
-        {leftSlot}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-      {selected ? <CheckmarkIcon className="size-4 shrink-0" /> : rightSlot}
-    </div>
-  );
-});
+const NfmSideMenuSubmenuRow = forwardRef<HTMLDivElement, NfmSideMenuSubmenuRowProps>(
+  function NfmSideMenuSubmenuRow(
+    {
+      children,
+      disabled = false,
+      selected = false,
+      onClick,
+      onPointerEnter,
+      leftSlot,
+      rightSlot,
+      ariaHaspopup,
+      ariaExpanded,
+      className,
+      ...props
+    },
+    forwardedRef,
+  ) {
+    return (
+      <div
+        {...props}
+        ref={forwardedRef}
+        role="menuitem"
+        tabIndex={-1}
+        aria-disabled={disabled || undefined}
+        aria-current={selected ? "true" : undefined}
+        aria-haspopup={ariaHaspopup}
+        aria-expanded={ariaExpanded}
+        className={cn(
+          "flex h-7 select-none items-center gap-2 rounded-[7px] px-2 text-[14px] leading-7 outline-hidden",
+          disabled
+            ? "cursor-default text-token-text-secondary opacity-45"
+            : "cursor-interaction text-token-foreground hover:bg-token-list-hover-background",
+          className,
+        )}
+        onPointerDown={keepEditorSelection}
+        onPointerEnter={onPointerEnter}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (disabled) return;
+          onClick?.();
+        }}
+      >
+        <span className="flex size-5 shrink-0 items-center justify-center text-token-description-foreground">
+          {leftSlot}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{children}</span>
+        {selected ? <CheckmarkIcon className="size-4 shrink-0" /> : rightSlot}
+      </div>
+    );
+  },
+);
 
 function NfmSideMenuColorDot({
   color,
@@ -973,17 +1001,19 @@ function NfmSideMenuColorDot({
   kind: "text" | "background";
   selected: boolean;
 }) {
-  const style: CSSProperties = kind === "text"
-    ? {
-        color: color === "default" ? "var(--color-token-foreground)" : SIDE_MENU_COLOR_STYLES[color],
-        backgroundColor: "transparent",
-        boxShadow: `inset 0 0 0 ${selected ? 2 : 1}px ${color === "default" ? "var(--color-token-border)" : SIDE_MENU_COLOR_STYLES[color]}`,
-      }
-    : {
-        color: "var(--color-token-foreground)",
-        backgroundColor: SIDE_MENU_BACKGROUND_COLOR_STYLES[color],
-        boxShadow: `inset 0 0 0 ${selected ? 2 : 1}px ${color === "default" ? "var(--color-token-border)" : SIDE_MENU_COLOR_STYLES[color]}`,
-      };
+  const style: CSSProperties =
+    kind === "text"
+      ? {
+          color:
+            color === "default" ? "var(--color-token-foreground)" : SIDE_MENU_COLOR_STYLES[color],
+          backgroundColor: "transparent",
+          boxShadow: `inset 0 0 0 ${selected ? 2 : 1}px ${color === "default" ? "var(--color-token-border)" : SIDE_MENU_COLOR_STYLES[color]}`,
+        }
+      : {
+          color: "var(--color-token-foreground)",
+          backgroundColor: SIDE_MENU_BACKGROUND_COLOR_STYLES[color],
+          boxShadow: `inset 0 0 0 ${selected ? 2 : 1}px ${color === "default" ? "var(--color-token-border)" : SIDE_MENU_COLOR_STYLES[color]}`,
+        };
 
   return (
     <span
@@ -1051,7 +1081,9 @@ function NfmSideMenuSubmenu({
     <>
       {submenu === "turn-into" ? (
         <div role="menu" aria-label="Turn into">
-          <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">Turn into</div>
+          <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">
+            Turn into
+          </div>
           {turnIntoItems.map((item) => (
             <NfmSideMenuSubmenuRow
               key={item.key}
@@ -1078,7 +1110,9 @@ function NfmSideMenuSubmenu({
               <NfmSideMenuSubmenuRow
                 ref={cardInRowRef}
                 leftSlot={<NfmSideMenuPageInIcon />}
-                rightSlot={<NfmSideMenuChevronRightIcon className="text-token-description-foreground" />}
+                rightSlot={
+                  <NfmSideMenuChevronRightIcon className="text-token-description-foreground" />
+                }
                 disabled={!canSendBlocks}
                 ariaHaspopup="dialog"
                 ariaExpanded={cardInOpen}
@@ -1102,9 +1136,7 @@ function NfmSideMenuSubmenu({
               className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
               style={{ width: 330 }}
             >
-              {renderMoveToMenu?.(cardInMenuProps) ?? (
-                <NfmMoveToMenu {...cardInMenuProps} />
-              )}
+              {renderMoveToMenu?.(cardInMenuProps) ?? <NfmMoveToMenu {...cardInMenuProps} />}
             </NfmEditorPopoverContent>
           </NodexPopover>
         </div>
@@ -1113,18 +1145,20 @@ function NfmSideMenuSubmenu({
         <div role="menu" aria-label="Color">
           {canUseTextColor ? (
             <>
-              <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">Text color</div>
+              <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">
+                Text color
+              </div>
               {colorOptions.map((option) => (
                 <NfmSideMenuSubmenuRow
                   key={`text-${option.color}`}
                   selected={normalizeColorValue(textColor) === option.color}
-                  leftSlot={(
+                  leftSlot={
                     <NfmSideMenuColorDot
                       kind="text"
                       color={option.color}
                       selected={normalizeColorValue(textColor) === option.color}
                     />
-                  )}
+                  }
                   onClick={() => onColor("text", option.color)}
                 >
                   {option.label}
@@ -1135,18 +1169,20 @@ function NfmSideMenuSubmenu({
           {canUseBackgroundColor ? (
             <>
               <div className="mx-2 my-1 h-px bg-token-menu-border" />
-              <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">Background color</div>
+              <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">
+                Background color
+              </div>
               {colorOptions.map((option) => (
                 <NfmSideMenuSubmenuRow
                   key={`background-${option.color}`}
                   selected={normalizeColorValue(backgroundColor) === option.color}
-                  leftSlot={(
+                  leftSlot={
                     <NfmSideMenuColorDot
                       kind="background"
                       color={option.color}
                       selected={normalizeColorValue(backgroundColor) === option.color}
                     />
-                  )}
+                  }
                   onClick={() => onColor("background", option.color)}
                 >
                   {option.label}
@@ -1230,13 +1266,15 @@ export function NfmSideMenuSurface({
         onClose: closeSubmenuAndRestoreFocus,
       };
 
-      return renderMoveToMenu?.(moveToMenuProps) ?? (
-        <NfmMoveToMenu
-          sourceProjectId={sourceProjectId}
-          sourcePageId={sourcePageId}
-          onAccept={onMoveBlocksToDestination}
-          onClose={closeSubmenuAndRestoreFocus}
-        />
+      return (
+        renderMoveToMenu?.(moveToMenuProps) ?? (
+          <NfmMoveToMenu
+            sourceProjectId={sourceProjectId}
+            sourcePageId={sourcePageId}
+            onAccept={onMoveBlocksToDestination}
+            onClose={closeSubmenuAndRestoreFocus}
+          />
+        )
       );
     }
 
@@ -1371,9 +1409,7 @@ function NfmSideMenuPopup({
   const selectedTopLevelBlock = topLevelSelectedBlocks[0] ?? block ?? null;
   const currentBlockId = selectedTopLevelBlock ? getCurrentBlockId(selectedTopLevelBlock) : null;
   const colorTargetBlocks = useMemo(
-    () => selectedActionBlocks.length > 0
-      ? selectedActionBlocks
-      : block ? [block] : [],
+    () => (selectedActionBlocks.length > 0 ? selectedActionBlocks : block ? [block] : []),
     [block, selectedActionBlocks],
   );
   const colorSupport = useMemo(() => {
@@ -1396,43 +1432,52 @@ function NfmSideMenuPopup({
     [topLevelSelectedBlocks],
   );
   const isEditable = getEditorEditable(editor);
-  const baseSections = useMemo(() => buildNfmSideMenuSections({
-    currentBlockId,
-    currentBlockType: selectedTopLevelBlock?.type ?? null,
-    selectionTitle,
-    selectedTopLevelBlockCount: topLevelSelectedBlocks.length,
-    isEditable,
-    canUseColor: colorSupport.text || colorSupport.background,
-    canSendBlocks: runtimeSnapshot.canSendBlocks,
-    hasConvertDividerToThreadSection: runtimeSnapshot.hasConvertDividerToThreadSection,
-    isTableBlock: selectedTopLevelBlock?.type === "table",
-    canUseTableHeaders: editor.settings?.tables?.headers === true,
-    showMockActions: import.meta.env.DEV,
-  }), [
-    selectedTopLevelBlock?.type,
-    colorSupport.background,
-    colorSupport.text,
-    currentBlockId,
-    editor.settings?.tables?.headers,
-    runtimeSnapshot.hasConvertDividerToThreadSection,
-    isEditable,
-    runtimeSnapshot.canSendBlocks,
-    selectionTitle,
-    topLevelSelectedBlocks.length,
-  ]);
+  const baseSections = useMemo(
+    () =>
+      buildNfmSideMenuSections({
+        currentBlockId,
+        currentBlockType: selectedTopLevelBlock?.type ?? null,
+        selectionTitle,
+        selectedTopLevelBlockCount: topLevelSelectedBlocks.length,
+        isEditable,
+        canUseColor: colorSupport.text || colorSupport.background,
+        canSendBlocks: runtimeSnapshot.canSendBlocks,
+        hasConvertDividerToThreadSection: runtimeSnapshot.hasConvertDividerToThreadSection,
+        isTableBlock: selectedTopLevelBlock?.type === "table",
+        canUseTableHeaders: editor.settings?.tables?.headers === true,
+        showMockActions: import.meta.env.DEV,
+      }),
+    [
+      selectedTopLevelBlock?.type,
+      colorSupport.background,
+      colorSupport.text,
+      currentBlockId,
+      editor.settings?.tables?.headers,
+      runtimeSnapshot.hasConvertDividerToThreadSection,
+      isEditable,
+      runtimeSnapshot.canSendBlocks,
+      selectionTitle,
+      topLevelSelectedBlocks.length,
+    ],
+  );
   const sections = useMemo(
     () => filterNfmSideMenuSections(baseSections, query),
     [baseSections, query],
   );
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
   const turnIntoItems = useMemo(() => getTurnIntoItems(editor), [editor]);
-  const colorOptions = useMemo(() => SIDE_MENU_COLOR_VALUES.map((color) => ({
-    color,
-    label: SIDE_MENU_COLOR_LABELS[color],
-  })), []);
-  const activeDescendantId = focusedIndex >= 0 && focusedIndex < flatRows.length
-    ? getOptionId(listboxId, focusedIndex)
-    : undefined;
+  const colorOptions = useMemo(
+    () =>
+      SIDE_MENU_COLOR_VALUES.map((color) => ({
+        color,
+        label: SIDE_MENU_COLOR_LABELS[color],
+      })),
+    [],
+  );
+  const activeDescendantId =
+    focusedIndex >= 0 && focusedIndex < flatRows.length
+      ? getOptionId(listboxId, focusedIndex)
+      : undefined;
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current === null) return;
@@ -1450,45 +1495,50 @@ function NfmSideMenuPopup({
     onClose();
   }, [clearCloseTimer, onClose]);
 
-  const close = useCallback((reason: NfmSideMenuCloseReason = "action") => {
-    if (!openState || pendingCloseRef.current) return;
+  const close = useCallback(
+    (reason: NfmSideMenuCloseReason = "action") => {
+      if (!openState || pendingCloseRef.current) return;
 
-    formattingToolbar.store.setState(false);
-    onCloseSelection(reason);
-    pendingCloseRef.current = true;
-    setVisible(false);
-    setActiveSubmenu(null);
-    releaseSideMenuFreeze?.();
-    const returnFocusElement = resolveNfmSideMenuReturnFocusElement({
-      reason,
-      returnFocusElement: openState.returnFocusElement,
-      editorRoot: editor.domElement ?? null,
-    });
-
-    if (shouldReturnFocusAfterNfmSideMenuClose({
-      reason,
-      returnFocusElement,
-    })) {
-      requestAnimationFrame(() => {
-        if (!returnFocusElement) return;
-        focusNfmSideMenuReturnTarget(editor, returnFocusElement);
+      formattingToolbar.store.setState(false);
+      onCloseSelection(reason);
+      pendingCloseRef.current = true;
+      setVisible(false);
+      setActiveSubmenu(null);
+      releaseSideMenuFreeze?.();
+      const returnFocusElement = resolveNfmSideMenuReturnFocusElement({
+        reason,
+        returnFocusElement: openState.returnFocusElement,
+        editorRoot: editor.domElement ?? null,
       });
-    }
 
-    clearCloseTimer();
-    closeTimerRef.current = window.setTimeout(
+      if (
+        shouldReturnFocusAfterNfmSideMenuClose({
+          reason,
+          returnFocusElement,
+        })
+      ) {
+        requestAnimationFrame(() => {
+          if (!returnFocusElement) return;
+          focusNfmSideMenuReturnTarget(editor, returnFocusElement);
+        });
+      }
+
+      clearCloseTimer();
+      closeTimerRef.current = window.setTimeout(
+        finalizeClose,
+        prefersReducedMotion() ? 0 : SIDE_MENU_EXIT_FALLBACK_MS,
+      );
+    },
+    [
+      clearCloseTimer,
+      editor,
       finalizeClose,
-      prefersReducedMotion() ? 0 : SIDE_MENU_EXIT_FALLBACK_MS,
-    );
-  }, [
-    clearCloseTimer,
-    editor,
-    finalizeClose,
-    formattingToolbar.store,
-    onCloseSelection,
-    openState,
-    releaseSideMenuFreeze,
-  ]);
+      formattingToolbar.store,
+      onCloseSelection,
+      openState,
+      releaseSideMenuFreeze,
+    ],
+  );
 
   useEffect(() => {
     if (!openState) {
@@ -1512,9 +1562,12 @@ function NfmSideMenuPopup({
     };
   }, [clearCloseTimer, openState]);
 
-  useEffect(() => () => {
-    clearCloseTimer();
-  }, [clearCloseTimer]);
+  useEffect(
+    () => () => {
+      clearCloseTimer();
+    },
+    [clearCloseTimer],
+  );
 
   useEffect(() => {
     if (!openState || !visible) return;
@@ -1523,131 +1576,141 @@ function NfmSideMenuPopup({
     return () => showSelection(false, NFM_SIDE_MENU_OPEN_SELECTION_KEY);
   }, [formattingToolbar.store, openState, showSelection, visible]);
 
-  const executeAction = useCallback((key: NfmSideMenuActionKey) => {
-    if (!block || !currentBlockId || !openState) return;
+  const executeAction = useCallback(
+    (key: NfmSideMenuActionKey) => {
+      if (!block || !currentBlockId || !openState) return;
 
-    const selectedBlocks = getSideMenuActionBlocks(openState, block);
-    const topLevelSelectedBlocks = getTopLevelSideMenuActionBlocks(selectedBlocks);
-    const selectedCanvasBlocks = topLevelSelectedBlocks.filter(
-      (candidate) => candidate.type === "canvas",
-    );
-    const selectedPageBlocks = topLevelSelectedBlocks.filter(
-      (candidate) => candidate.type === "page",
-    );
-    const selectedDatabaseBlocks = topLevelSelectedBlocks.filter(
-      (candidate) => candidate.type === "database",
-    );
+      const selectedBlocks = getSideMenuActionBlocks(openState, block);
+      const topLevelSelectedBlocks = getTopLevelSideMenuActionBlocks(selectedBlocks);
+      const selectedCanvasBlocks = topLevelSelectedBlocks.filter(
+        (candidate) => candidate.type === "canvas",
+      );
+      const selectedPageBlocks = topLevelSelectedBlocks.filter(
+        (candidate) => candidate.type === "page",
+      );
+      const selectedDatabaseBlocks = topLevelSelectedBlocks.filter(
+        (candidate) => candidate.type === "database",
+      );
 
-    if (!isEditable) return;
+      if (!isEditable) return;
 
-    if (key === "duplicate") {
-      if (topLevelSelectedBlocks.some((candidate) =>
-        isTypedOwnerBlockType(candidate.type) && candidate.type !== "canvas")) {
-        toast.info(
-          "Page and Database blocks must be duplicated through a typed action.",
-        );
-        close("action");
-        return;
-      }
-      if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
-        toast.info(
-          "A Block containing a Page, Canvas, or Database cannot be duplicated as a generic Block.",
-        );
-        close("action");
-        return;
-      }
-      if (selectedCanvasBlocks.length > 0) {
+      if (key === "duplicate") {
         if (
-          selectedCanvasBlocks.length === 1
-          && topLevelSelectedBlocks.length === 1
-          && selectedCanvasBlocks[0]?.id
+          topLevelSelectedBlocks.some(
+            (candidate) => isTypedOwnerBlockType(candidate.type) && candidate.type !== "canvas",
+          )
         ) {
-          void runtimeSnapshot.onDuplicateCanvas(
-            selectedCanvasBlocks[0].id,
+          toast.info("Page and Database blocks must be duplicated through a typed action.");
+          close("action");
+          return;
+        }
+        if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
+          toast.info(
+            "A Block containing a Page, Canvas, or Database cannot be duplicated as a generic Block.",
           );
+          close("action");
+          return;
         }
-        close("action");
-        return;
-      }
-      const referenceBlock = topLevelSelectedBlocks[topLevelSelectedBlocks.length - 1] ?? block;
-      editor.insertBlocks?.(topLevelSelectedBlocks.map(cloneBlockForInsert), referenceBlock, "after");
-      close("action");
-      return;
-    }
-
-    if (key === "delete") {
-      if (selectedPageBlocks.length > 0) {
-        if (
-          selectedPageBlocks.length === 1
-          && topLevelSelectedBlocks.length === 1
-          && selectedPageBlocks[0]?.id
-        ) {
-          void runtimeSnapshot.onDeletePage(selectedPageBlocks[0].id);
-        } else {
-          toast.info("Delete one Page at a time.");
+        if (selectedCanvasBlocks.length > 0) {
+          if (
+            selectedCanvasBlocks.length === 1 &&
+            topLevelSelectedBlocks.length === 1 &&
+            selectedCanvasBlocks[0]?.id
+          ) {
+            void runtimeSnapshot.onDuplicateCanvas(selectedCanvasBlocks[0].id);
+          }
+          close("action");
+          return;
         }
-        close("action");
-        return;
-      }
-      if (selectedCanvasBlocks.length > 0) {
-        if (
-          selectedCanvasBlocks.length === 1
-          && topLevelSelectedBlocks.length === 1
-          && selectedCanvasBlocks[0]?.id
-        ) {
-          void runtimeSnapshot.onDeleteCanvas(selectedCanvasBlocks[0].id);
-        }
-        close("action");
-        return;
-      }
-      if (selectedDatabaseBlocks.length > 0) {
-        toast.info("Database blocks must be removed through a typed Database action.");
-        close("action");
-        return;
-      }
-      if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
-        toast.info(
-          "A Block containing a Page, Canvas, or Database must be removed through a typed action.",
+        const referenceBlock = topLevelSelectedBlocks[topLevelSelectedBlocks.length - 1] ?? block;
+        editor.insertBlocks?.(
+          topLevelSelectedBlocks.map(cloneBlockForInsert),
+          referenceBlock,
+          "after",
         );
         close("action");
         return;
       }
-      editor.removeBlocks?.(topLevelSelectedBlocks);
-      close("action");
-      return;
-    }
 
-    if (key === "convert-divider-to-thread-section") {
-      runtimeSnapshot.onConvertDividerToThreadSection(currentBlockId);
-      close("action");
-      return;
-    }
+      if (key === "delete") {
+        if (selectedPageBlocks.length > 0) {
+          if (
+            selectedPageBlocks.length === 1 &&
+            topLevelSelectedBlocks.length === 1 &&
+            selectedPageBlocks[0]?.id
+          ) {
+            void runtimeSnapshot.onDeletePage(selectedPageBlocks[0].id);
+          } else {
+            toast.info("Delete one Page at a time.");
+          }
+          close("action");
+          return;
+        }
+        if (selectedCanvasBlocks.length > 0) {
+          if (
+            selectedCanvasBlocks.length === 1 &&
+            topLevelSelectedBlocks.length === 1 &&
+            selectedCanvasBlocks[0]?.id
+          ) {
+            void runtimeSnapshot.onDeleteCanvas(selectedCanvasBlocks[0].id);
+          }
+          close("action");
+          return;
+        }
+        if (selectedDatabaseBlocks.length > 0) {
+          toast.info("Database blocks must be removed through a typed Database action.");
+          close("action");
+          return;
+        }
+        if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
+          toast.info(
+            "A Block containing a Page, Canvas, or Database must be removed through a typed action.",
+          );
+          close("action");
+          return;
+        }
+        editor.removeBlocks?.(topLevelSelectedBlocks);
+        close("action");
+        return;
+      }
 
-    if (key === "table-header-row" || key === "table-header-column") {
-      if (block.type !== "table") return;
-      const tableContent = typeof block.content === "object" && block.content !== null
-        ? block.content as { headerRows?: number; headerCols?: number }
-        : {};
-      editor.updateBlock?.(block, {
-        content: {
-          ...tableContent,
-          ...(key === "table-header-row"
-            ? { headerRows: tableContent.headerRows ? undefined : 1 }
-            : { headerCols: tableContent.headerCols ? undefined : 1 }),
-        },
-      });
-      close("action");
-    }
-  }, [block, close, currentBlockId, editor, isEditable, openState, runtimeSnapshot]);
+      if (key === "convert-divider-to-thread-section") {
+        runtimeSnapshot.onConvertDividerToThreadSection(currentBlockId);
+        close("action");
+        return;
+      }
 
-  const activateRow = useCallback((row: NfmSideMenuAction) => {
-    if (!row.enabled) return;
-    if (row.kind === "submenu" && row.submenu) {
-      setActiveSubmenu(row.submenu);
-      return;
-    }
-    executeAction(row.key);
-  }, [executeAction]);
+      if (key === "table-header-row" || key === "table-header-column") {
+        if (block.type !== "table") return;
+        const tableContent =
+          typeof block.content === "object" && block.content !== null
+            ? (block.content as { headerRows?: number; headerCols?: number })
+            : {};
+        editor.updateBlock?.(block, {
+          content: {
+            ...tableContent,
+            ...(key === "table-header-row"
+              ? { headerRows: tableContent.headerRows ? undefined : 1 }
+              : { headerCols: tableContent.headerCols ? undefined : 1 }),
+          },
+        });
+        close("action");
+      }
+    },
+    [block, close, currentBlockId, editor, isEditable, openState, runtimeSnapshot],
+  );
+
+  const activateRow = useCallback(
+    (row: NfmSideMenuAction) => {
+      if (!row.enabled) return;
+      if (row.kind === "submenu" && row.submenu) {
+        setActiveSubmenu(row.submenu);
+        return;
+      }
+      executeAction(row.key);
+    },
+    [executeAction],
+  );
 
   const activateFocusedRow = useCallback(() => {
     const focusedRow = flatRows[focusedIndex]?.row;
@@ -1664,11 +1727,13 @@ function NfmSideMenuPopup({
     if (!openState || !visible) return;
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!shouldCloseNfmSideMenuForPointerTarget({
-        target: event.target,
-        popupElement: popupRef.current,
-        outsidePressIgnoreElement: openState.outsidePressIgnoreElement,
-      })) {
+      if (
+        !shouldCloseNfmSideMenuForPointerTarget({
+          target: event.target,
+          popupElement: popupRef.current,
+          outsidePressIgnoreElement: openState.outsidePressIgnoreElement,
+        })
+      ) {
         return;
       }
       const shouldConsumePointer = shouldConsumeNfmSideMenuOutsidePointerTarget({
@@ -1706,74 +1771,79 @@ function NfmSideMenuPopup({
     });
   }, [openState, visible]);
 
-  const floatingUIOptions = useMemo<FloatingUIOptions>(() => ({
-    useFloatingOptions: {
-      open: Boolean(openState && visible),
-      placement: "left",
-      strategy: "fixed",
-      transform: false,
-      middleware: [
-        offset(NFM_SIDE_MENU_GAP),
-        shift({ padding: NFM_SIDE_MENU_VIEWPORT_MARGIN }),
-        size({
-          padding: NFM_SIDE_MENU_VIEWPORT_MARGIN,
-          apply({ availableHeight, elements }) {
-            const availableMaxHeight = Math.max(0, availableHeight);
-            const viewportMaxHeight = typeof window === "undefined"
-              ? availableMaxHeight
-              : Math.max(0, window.innerHeight * NFM_SIDE_MENU_MAX_HEIGHT_VH);
-            elements.floating.style.maxHeight = `${Math.min(availableMaxHeight, viewportMaxHeight)}px`;
-          },
-        }),
-      ],
-    },
-    focusManagerProps: {
-      disabled: true,
-    },
-    useDismissProps: {
-      enabled: false,
-    },
-    useTransitionStylesProps: {
-      duration: prefersReducedMotion()
-        ? { open: 0, close: 0 }
-        : { open: SIDE_MENU_MOTION_DURATION_MS, close: SIDE_MENU_MOTION_DURATION_MS },
-      initial: {
-        opacity: 0,
-        transform: `scale(${SIDE_MENU_CLOSED_SCALE})`,
+  const floatingUIOptions = useMemo<FloatingUIOptions>(
+    () => ({
+      useFloatingOptions: {
+        open: Boolean(openState && visible),
+        placement: "left",
+        strategy: "fixed",
+        transform: false,
+        middleware: [
+          offset(NFM_SIDE_MENU_GAP),
+          shift({ padding: NFM_SIDE_MENU_VIEWPORT_MARGIN }),
+          size({
+            padding: NFM_SIDE_MENU_VIEWPORT_MARGIN,
+            apply({ availableHeight, elements }) {
+              const availableMaxHeight = Math.max(0, availableHeight);
+              const viewportMaxHeight =
+                typeof window === "undefined"
+                  ? availableMaxHeight
+                  : Math.max(0, window.innerHeight * NFM_SIDE_MENU_MAX_HEIGHT_VH);
+              elements.floating.style.maxHeight = `${Math.min(availableMaxHeight, viewportMaxHeight)}px`;
+            },
+          }),
+        ],
       },
-      open: {
-        opacity: 1,
-        transform: "scale(1)",
+      focusManagerProps: {
+        disabled: true,
       },
-      close: {
-        opacity: 0,
-        transform: `scale(${SIDE_MENU_CLOSED_SCALE})`,
+      useDismissProps: {
+        enabled: false,
       },
-      common: {
-        transformOrigin: "right center",
-        transitionDelay: `${SIDE_MENU_MOTION_DELAY_MS}ms`,
-        transitionTimingFunction: "ease",
+      useTransitionStylesProps: {
+        duration: prefersReducedMotion()
+          ? { open: 0, close: 0 }
+          : { open: SIDE_MENU_MOTION_DURATION_MS, close: SIDE_MENU_MOTION_DURATION_MS },
+        initial: {
+          opacity: 0,
+          transform: `scale(${SIDE_MENU_CLOSED_SCALE})`,
+        },
+        open: {
+          opacity: 1,
+          transform: "scale(1)",
+        },
+        close: {
+          opacity: 0,
+          transform: `scale(${SIDE_MENU_CLOSED_SCALE})`,
+        },
+        common: {
+          transformOrigin: "right center",
+          transitionDelay: `${SIDE_MENU_MOTION_DELAY_MS}ms`,
+          transitionTimingFunction: "ease",
+        },
       },
-    },
-    elementProps: {
-      className: "fixed z-50 opacity-100 transition-[opacity,transform] duration-200 ease-[ease] motion-reduce:transition-none",
-      style: {
-        width: NFM_SIDE_MENU_WIDTH,
-        maxHeight: "70vh",
-        pointerEvents: visible ? "auto" : "none",
-        zIndex: 50,
-      } as CSSProperties,
-      contentEditable: false,
-      "data-nfm-side-menu-popup": "true",
-      "data-state": visible ? "open" : "closed",
-      onTransitionEnd: (event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.propertyName !== "opacity") return;
-        if (visible) return;
-        finalizeClose();
+      elementProps: {
+        className:
+          "fixed z-50 opacity-100 transition-[opacity,transform] duration-200 ease-[ease] motion-reduce:transition-none",
+        style: {
+          width: NFM_SIDE_MENU_WIDTH,
+          maxHeight: "70vh",
+          pointerEvents: visible ? "auto" : "none",
+          zIndex: 50,
+        } as CSSProperties,
+        contentEditable: false,
+        "data-nfm-side-menu-popup": "true",
+        "data-state": visible ? "open" : "closed",
+        onTransitionEnd: (event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.propertyName !== "opacity") return;
+          if (visible) return;
+          finalizeClose();
+        },
       },
-    },
-  }), [finalizeClose, openState, visible]);
+    }),
+    [finalizeClose, openState, visible],
+  );
 
   if (!openState || !block) return null;
 
@@ -1806,7 +1876,9 @@ function NfmSideMenuPopup({
         onQueryChange={setQuery}
         onFocusIndexChange={setFocusedIndex}
         onMoveFocus={(direction) => {
-          setFocusedIndex((currentIndex) => moveNfmSideMenuFocus(currentIndex, direction, flatRows));
+          setFocusedIndex((currentIndex) =>
+            moveNfmSideMenuFocus(currentIndex, direction, flatRows),
+          );
         }}
         onActivateFocused={activateFocusedRow}
         onClose={() => close("escape")}
@@ -1816,9 +1888,7 @@ function NfmSideMenuPopup({
           if (!item.enabled) return;
           const selectedBlocks = getSideMenuActionBlocks(openState, block);
           if (hasTypedOwnerBlock(selectedBlocks)) {
-            toast.info(
-              "Page, Canvas, and Database blocks cannot be reclassified.",
-            );
+            toast.info("Page, Canvas, and Database blocks cannot be reclassified.");
             close("action");
             return;
           }
@@ -1833,9 +1903,7 @@ function NfmSideMenuPopup({
         onColor={(kind, color) => {
           const selectedBlocks = getSideMenuActionBlocks(openState, block);
           if (hasTypedOwnerBlock(selectedBlocks)) {
-            toast.info(
-              "Page, Canvas, and Database blocks do not support generic block colors.",
-            );
+            toast.info("Page, Canvas, and Database blocks do not support generic block colors.");
             close("action");
             return;
           }
@@ -1879,85 +1947,90 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
       to: editor.prosemirrorState.selection.to,
     }),
   });
-  const freezeController = useMemo(
-    () => createSideMenuFreezeController(sideMenu),
-    [sideMenu],
-  );
+  const freezeController = useMemo(() => createSideMenuFreezeController(sideMenu), [sideMenu]);
 
   const close = useCallback(() => {
     setOpenState(null);
     freezeController.release();
   }, [freezeController]);
 
-  const captureFormattingToolbarSuppression = useCallback((reason: NfmSideMenuCloseReason) => {
-    setFormattingToolbarSuppressionRange(resolveNfmSideMenuFormattingToolbarSuppressionRange({
-      reason,
-      selectionRange: getCurrentNfmSideMenuSelectionRange(editor),
-    }));
-  }, [editor]);
+  const captureFormattingToolbarSuppression = useCallback(
+    (reason: NfmSideMenuCloseReason) => {
+      setFormattingToolbarSuppressionRange(
+        resolveNfmSideMenuFormattingToolbarSuppressionRange({
+          reason,
+          selectionRange: getCurrentNfmSideMenuSelectionRange(editor),
+        }),
+      );
+    },
+    [editor],
+  );
 
-  const openForBlock = useCallback(({
-    block,
-    reference,
-    returnFocusElement,
-    outsidePressIgnoreElement = null,
-    selectionIntent,
-    freezeSideMenu = false,
-  }: NfmSideMenuOpenBlockInput) => {
-    const resolvedSelectionIntent = selectionIntent
-      ?? createSideMenuSelectionIntent(editor, block);
-
-    setFormattingToolbarSuppressionRange(null);
-    applySideMenuSelectionIntent(editor, resolvedSelectionIntent);
-
-    if (freezeSideMenu) {
-      freezeController.handleMenuOpenChange(true);
-    } else {
-      freezeController.release();
-    }
-
-    setOpenState({
+  const openForBlock = useCallback(
+    ({
       block,
       reference,
       returnFocusElement,
-      outsidePressIgnoreElement,
-      selectionIntent: resolvedSelectionIntent,
-    });
-    return true;
-  }, [editor, freezeController]);
+      outsidePressIgnoreElement = null,
+      selectionIntent,
+      freezeSideMenu = false,
+    }: NfmSideMenuOpenBlockInput) => {
+      const resolvedSelectionIntent =
+        selectionIntent ?? createSideMenuSelectionIntent(editor, block);
 
-  const openForCurrentSelection = useCallback((input: NfmSideMenuOpenSelectionInput = {}) => {
-    const block = editor.getSelection?.()?.blocks?.[0]
-      ?? editor.getTextCursorPosition?.().block;
-    if (!block) return false;
+      setFormattingToolbarSuppressionRange(null);
+      applySideMenuSelectionIntent(editor, resolvedSelectionIntent);
 
-    const editorRoot = editor.domElement ?? null;
-    const reference = resolveNfmSideMenuReference({
-      root: editorRoot,
-      blockId: getCurrentBlockId(block),
-      fallbackRect: input.anchorRect,
-    });
-    if (!reference) return false;
+      if (freezeSideMenu) {
+        freezeController.handleMenuOpenChange(true);
+      } else {
+        freezeController.release();
+      }
 
-    return openForBlock({
-      block,
-      reference,
-      returnFocusElement: input.returnFocusElement ?? editorRoot,
-      outsidePressIgnoreElement: input.outsidePressIgnoreElement ?? null,
-    });
-  }, [editor, openForBlock]);
+      setOpenState({
+        block,
+        reference,
+        returnFocusElement,
+        outsidePressIgnoreElement,
+        selectionIntent: resolvedSelectionIntent,
+      });
+      return true;
+    },
+    [editor, freezeController],
+  );
 
-  const value = useMemo<NfmSideMenuOpenController>(() => ({
-    acquireSideMenuFreeze: freezeController.acquire,
-    openForBlock,
-    openForCurrentSelection,
-    formattingToolbarSuppressionRange,
-  }), [
-    formattingToolbarSuppressionRange,
-    freezeController,
-    openForBlock,
-    openForCurrentSelection,
-  ]);
+  const openForCurrentSelection = useCallback(
+    (input: NfmSideMenuOpenSelectionInput = {}) => {
+      const block = editor.getSelection?.()?.blocks?.[0] ?? editor.getTextCursorPosition?.().block;
+      if (!block) return false;
+
+      const editorRoot = editor.domElement ?? null;
+      const reference = resolveNfmSideMenuReference({
+        root: editorRoot,
+        blockId: getCurrentBlockId(block),
+        fallbackRect: input.anchorRect,
+      });
+      if (!reference) return false;
+
+      return openForBlock({
+        block,
+        reference,
+        returnFocusElement: input.returnFocusElement ?? editorRoot,
+        outsidePressIgnoreElement: input.outsidePressIgnoreElement ?? null,
+      });
+    },
+    [editor, openForBlock],
+  );
+
+  const value = useMemo<NfmSideMenuOpenController>(
+    () => ({
+      acquireSideMenuFreeze: freezeController.acquire,
+      openForBlock,
+      openForCurrentSelection,
+      formattingToolbarSuppressionRange,
+    }),
+    [formattingToolbarSuppressionRange, freezeController, openForBlock, openForCurrentSelection],
+  );
 
   const shouldKeepSuppressionRange = shouldKeepNfmSideMenuFormattingToolbarSuppression({
     selectionRange,
@@ -1968,14 +2041,14 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
     if (!formattingToolbarSuppressionRange) return;
     if (shouldKeepSuppressionRange) return;
     setFormattingToolbarSuppressionRange(null);
-  }, [
-    formattingToolbarSuppressionRange,
-    shouldKeepSuppressionRange,
-  ]);
+  }, [formattingToolbarSuppressionRange, shouldKeepSuppressionRange]);
 
-  useEffect(() => () => {
-    freezeController.releaseAll();
-  }, [freezeController]);
+  useEffect(
+    () => () => {
+      freezeController.releaseAll();
+    },
+    [freezeController],
+  );
 
   return (
     <NfmSideMenuOpenContext.Provider value={value}>
@@ -2078,8 +2151,8 @@ export function NfmSideMenu() {
     }
 
     if (
-      block.type
-      && runtimeEditor.schema.blockSpecs[block.type]?.implementation?.meta?.fileBlockAccept
+      block.type &&
+      runtimeEditor.schema.blockSpecs[block.type]?.implementation?.meta?.fileBlockAccept
     ) {
       attrs["data-url"] = toStringProp(block.props, "url").length > 0 ? "true" : "false";
     }
@@ -2087,23 +2160,23 @@ export function NfmSideMenu() {
     return attrs;
   }, [block, runtimeEditor.schema.blockSpecs]);
 
-  const openFromHandle = useCallback((
-    returnFocusElement: HTMLElement | null,
-    selectionIntent?: SideMenuSelectionIntent | null,
-  ) => {
-    if (!block) return;
-    const triggerElement = triggerWrapperRef.current;
-    if (!triggerElement) return;
+  const openFromHandle = useCallback(
+    (returnFocusElement: HTMLElement | null, selectionIntent?: SideMenuSelectionIntent | null) => {
+      if (!block) return;
+      const triggerElement = triggerWrapperRef.current;
+      if (!triggerElement) return;
 
-    sideMenuOpenController.openForBlock({
-      block,
-      reference: createNfmSideMenuElementReference(triggerElement),
-      returnFocusElement,
-      outsidePressIgnoreElement: triggerElement,
-      selectionIntent,
-      freezeSideMenu: true,
-    });
-  }, [block, sideMenuOpenController]);
+      sideMenuOpenController.openForBlock({
+        block,
+        reference: createNfmSideMenuElementReference(triggerElement),
+        returnFocusElement,
+        outsidePressIgnoreElement: triggerElement,
+        selectionIntent,
+        freezeSideMenu: true,
+      });
+    },
+    [block, sideMenuOpenController],
+  );
 
   if (!block || !dragTargetBlock) return null;
 
@@ -2168,7 +2241,10 @@ export function NfmSideMenu() {
           }}
           onClick={() => {
             const lastPointerActivationAt = lastPointerActivationAtRef.current;
-            if (lastPointerActivationAt !== null && performance.now() - lastPointerActivationAt < 500) {
+            if (
+              lastPointerActivationAt !== null &&
+              performance.now() - lastPointerActivationAt < 500
+            ) {
               lastPointerActivationAtRef.current = null;
               return;
             }
@@ -2181,18 +2257,14 @@ export function NfmSideMenu() {
             );
           }}
           onDragStart={(event: SideMenuDragStartEvent) => {
-            dragFreezeReleaseRef.current ??=
-              sideMenuOpenController.acquireSideMenuFreeze();
+            dragFreezeReleaseRef.current ??= sideMenuOpenController.acquireSideMenuFreeze();
             dragStartedRef.current = true;
             selectionIntentRef.current = null;
             const dragEvent = {
               ...event,
               ...(dragSelectionSnapshotRef.current ?? {}),
             };
-            const result = sideMenu.blockDragStart(
-              dragEvent,
-              dragTargetBlock as never,
-            );
+            const result = sideMenu.blockDragStart(dragEvent, dragTargetBlock as never);
             if (event.dataTransfer && result?.blockIds.length) {
               runtime.getSnapshot().onBlockDragStart({
                 dataTransfer: event.dataTransfer,

@@ -1,10 +1,7 @@
 import { EventEmitter } from "node:events";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import {
-  NodeFileWatchHost,
-  type NativeFileWatchFactory,
-} from "./file-watch-host";
+import { NodeFileWatchHost, type NativeFileWatchFactory } from "./file-watch-host";
 
 class FakeNativeWatcher extends EventEmitter {
   readonly close = vi.fn();
@@ -12,15 +9,11 @@ class FakeNativeWatcher extends EventEmitter {
 
 function createHarness() {
   const watcher = new FakeNativeWatcher();
-  let listener:
-    | Parameters<NativeFileWatchFactory>[2]
-    | null = null;
-  const watchFactory = vi.fn<NativeFileWatchFactory>(
-    (_watchPath, _options, nextListener) => {
-      listener = nextListener;
-      return watcher;
-    },
-  );
+  let listener: Parameters<NativeFileWatchFactory>[2] | null = null;
+  const watchFactory = vi.fn<NativeFileWatchFactory>((_watchPath, _options, nextListener) => {
+    listener = nextListener;
+    return watcher;
+  });
   return {
     host: new NodeFileWatchHost(watchFactory),
     listener: () => {
@@ -56,10 +49,7 @@ describe("NodeFileWatchHost", () => {
     );
     expect(changes).toEqual([
       [path.join(path.sep, "repo", "src", "example.ts")],
-      [
-        path.join(path.sep, "repo", "src", "renamed.ts"),
-        path.join(path.sep, "repo", "src"),
-      ],
+      [path.join(path.sep, "repo", "src", "renamed.ts"), path.join(path.sep, "repo", "src")],
       [],
     ]);
     expect(session.coverage).toEqual({

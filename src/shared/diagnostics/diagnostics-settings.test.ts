@@ -28,35 +28,45 @@ describe("diagnostics settings guard", () => {
   });
 
   test("rejects incomplete environment override state", () => {
-    expect(isDiagnosticsSettings({
-      ...VALID_SETTINGS,
-      envOverrides: {
-        enabled: false,
-      },
-    })).toBe(false);
+    expect(
+      isDiagnosticsSettings({
+        ...VALID_SETTINGS,
+        envOverrides: {
+          enabled: false,
+        },
+      }),
+    ).toBe(false);
   });
 
   test("rejects invalid trace sample rates", () => {
-    expect(isDiagnosticsSettings({
-      ...VALID_SETTINGS,
-      tracesSampleRate: Number.POSITIVE_INFINITY,
-    })).toBe(false);
+    expect(
+      isDiagnosticsSettings({
+        ...VALID_SETTINGS,
+        tracesSampleRate: Number.POSITIVE_INFINITY,
+      }),
+    ).toBe(false);
 
-    expect(isDiagnosticsSettings({
-      ...VALID_SETTINGS,
-      tracesSampleRate: 1.1,
-    })).toBe(false);
+    expect(
+      isDiagnosticsSettings({
+        ...VALID_SETTINGS,
+        tracesSampleRate: 1.1,
+      }),
+    ).toBe(false);
   });
 
   test("rejects invalid replay sample rates", () => {
-    expect(isDiagnosticsSettings({
-      ...VALID_SETTINGS,
-      replaysSessionSampleRate: Number.POSITIVE_INFINITY,
-    })).toBe(false);
+    expect(
+      isDiagnosticsSettings({
+        ...VALID_SETTINGS,
+        replaysSessionSampleRate: Number.POSITIVE_INFINITY,
+      }),
+    ).toBe(false);
 
-    expect(isDiagnosticsSettings({
-      ...VALID_SETTINGS,
-      replaysOnErrorSampleRate: -0.1,
-    })).toBe(false);
+    expect(
+      isDiagnosticsSettings({
+        ...VALID_SETTINGS,
+        replaysOnErrorSampleRate: -0.1,
+      }),
+    ).toBe(false);
   });
 });

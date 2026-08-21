@@ -3,14 +3,9 @@ import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
-import {
-  ReferenceSurfaceActivationBudget,
-} from "@/lib/reference-surface-state";
+import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
-import {
-  PageOutlinerRow,
-  usePageOutlinerActivation,
-} from "./page-outliner-surface";
+import { PageOutlinerRow, usePageOutlinerActivation } from "./page-outliner-surface";
 import { PortableRichTitle } from "./portable-rich-title";
 
 function ActivationHarness({
@@ -43,9 +38,7 @@ function ActivationHarness({
         targetBlockId="target"
         accessKind="project"
         plainTitle={title}
-        title={titleNode ?? (
-          <PortableRichTitle value={plainTextToPortableRichText(title)} />
-        )}
+        title={titleNode ?? <PortableRichTitle value={plainTextToPortableRichText(title)} />}
         expanded={activation.expanded}
         expandable={expandable}
         active={activation.active}
@@ -55,8 +48,12 @@ function ActivationHarness({
       >
         {activation.active ? renderActive() : null}
       </PageOutlinerRow>
-      <button type="button" onClick={activation.engageTitle}>Edit title</button>
-      <button type="button" onClick={activation.releaseTitle}>Leave title</button>
+      <button type="button" onClick={activation.engageTitle}>
+        Edit title
+      </button>
+      <button type="button" onClick={activation.releaseTitle}>
+        Leave title
+      </button>
     </>
   );
 }
@@ -99,7 +96,7 @@ describe("PageOutlinerRow", () => {
         disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         renderActive={() => <div data-testid="target-runtime" />}
-        titleNode={(
+        titleNode={
           <div
             contentEditable
             suppressContentEditableWarning
@@ -108,7 +105,7 @@ describe("PageOutlinerRow", () => {
           >
             Rich title
           </div>
-        )}
+        }
       />,
     );
     const title = view.getByTestId("live-title");
@@ -117,17 +114,13 @@ describe("PageOutlinerRow", () => {
       fireEvent.keyDown(title, { key: "Enter", metaKey: true });
       await Promise.resolve();
     });
-    expect(
-      view.getByRole("button", { name: "Collapse Rich title" }),
-    ).toBeTruthy();
+    expect(view.getByRole("button", { name: "Collapse Rich title" })).toBeTruthy();
 
     await act(async () => {
       fireEvent.keyDown(title, { key: "Enter", ctrlKey: true });
       await Promise.resolve();
     });
-    expect(
-      view.getByRole("button", { name: "Expand Rich title" }),
-    ).toBeTruthy();
+    expect(view.getByRole("button", { name: "Expand Rich title" })).toBeTruthy();
   });
 
   test("lets a nested Page header toggle without collapsing its parent", async () => {
@@ -141,12 +134,8 @@ describe("PageOutlinerRow", () => {
       await Promise.resolve();
     });
 
-    expect(
-      view.getByRole("button", { name: "Collapse Outer Page" }),
-    ).toBeTruthy();
-    expect(
-      view.getByRole("button", { name: "Collapse Inner Page" }),
-    ).toBeTruthy();
+    expect(view.getByRole("button", { name: "Collapse Outer Page" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Collapse Inner Page" })).toBeTruthy();
   });
 
   test("ignores modified Enter variants reserved for other commands", async () => {
@@ -169,9 +158,7 @@ describe("PageOutlinerRow", () => {
       await Promise.resolve();
     });
 
-    expect(
-      view.getByRole("button", { name: "Expand Rich title" }),
-    ).toBeTruthy();
+    expect(view.getByRole("button", { name: "Expand Rich title" })).toBeTruthy();
   });
 
   test("admits target content only while the local row is expanded", async () => {
@@ -199,9 +186,7 @@ describe("PageOutlinerRow", () => {
     });
 
     await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: "Collapse Rich title" }),
-      );
+      fireEvent.click(view.getByRole("button", { name: "Collapse Rich title" }));
       await Promise.resolve();
     });
     expect(view.queryByTestId("target-runtime")).toBeNull();
@@ -218,9 +203,7 @@ describe("PageOutlinerRow", () => {
         renderActive={renderActive}
       />,
     );
-    const frame = view.container.querySelector<HTMLElement>(
-      "[data-page-outliner-target='target']",
-    );
+    const frame = view.container.querySelector<HTMLElement>("[data-page-outliner-target='target']");
     if (!frame) throw new Error("Missing Page outliner frame");
 
     expect(frame.dataset.pageOutlinerActive).toBe("false");
@@ -292,9 +275,7 @@ describe("PageOutlinerRow", () => {
     );
 
     await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: "Expand First instance" }),
-      );
+      fireEvent.click(view.getByRole("button", { name: "Expand First instance" }));
       await Promise.resolve();
     });
     await waitFor(() => {

@@ -27,17 +27,17 @@ function ActionSubmenu({
 }) {
   return (
     <NodexContextMenuSubmenu
-      trigger={(
+      trigger={
         <NodexContextMenuSubmenuTrigger
           leftSlot={icon}
           rightSlot={<ChevronRightIcon className="size-3.5" />}
         >
           {label}
         </NodexContextMenuSubmenuTrigger>
-      )}
-      renderContent={() => actions.map((action) => (
-        <NodexContextMenuItem key={action}>{action}</NodexContextMenuItem>
-      ))}
+      }
+      renderContent={() =>
+        actions.map((action) => <NodexContextMenuItem key={action}>{action}</NodexContextMenuItem>)
+      }
     />
   );
 }

@@ -27,9 +27,7 @@ function parseOutputPath(argv: readonly string[]): string {
   const outputFlagIndex = argv.indexOf("--out");
   const outputPath = outputFlagIndex < 0 ? null : argv[outputFlagIndex + 1];
   if (!outputPath || outputFlagIndex + 2 !== argv.length) {
-    throw new Error(
-      "usage: build-macos-appshot-helper --out <.generated/path>",
-    );
+    throw new Error("usage: build-macos-appshot-helper --out <.generated/path>");
   }
   return outputPath;
 }
@@ -48,9 +46,11 @@ function readStamp(pathname: string): BuildStamp | null {
 }
 
 function sameStamp(left: BuildStamp | null, right: BuildStamp): boolean {
-  return left?.architecture === right.architecture
-    && left.minimumMacOS === right.minimumMacOS
-    && left.sourceSha256 === right.sourceSha256;
+  return (
+    left?.architecture === right.architecture &&
+    left.minimumMacOS === right.minimumMacOS &&
+    left.sourceSha256 === right.sourceSha256
+  );
 }
 
 function main(): void {
@@ -63,16 +63,9 @@ function main(): void {
     throw new Error("The Appshot helper output must stay beneath .generated");
   }
 
-  const sourcePath = path.join(
-    repositoryRoot,
-    "resources",
-    "macos",
-    "nodex-appshot-helper.swift",
-  );
+  const sourcePath = path.join(repositoryRoot, "resources", "macos", "nodex-appshot-helper.swift");
   const architecture = resolveArchitecture();
-  const sourceSha256 = createHash("sha256")
-    .update(readFileSync(sourcePath))
-    .digest("hex");
+  const sourceSha256 = createHash("sha256").update(readFileSync(sourcePath)).digest("hex");
   const stamp: BuildStamp = {
     architecture,
     minimumMacOS: "12.0",
@@ -85,21 +78,23 @@ function main(): void {
 
   const outputDirectory = path.dirname(outputPath);
   mkdirSync(outputDirectory, { recursive: true, mode: 0o755 });
-  const temporaryDirectory = mkdtempSync(
-    path.join(outputDirectory, ".nodex-appshot-helper-"),
-  );
+  const temporaryDirectory = mkdtempSync(path.join(outputDirectory, ".nodex-appshot-helper-"));
   const temporaryBinary = path.join(temporaryDirectory, "helper");
   try {
-    execFileSync("xcrun", [
-      "swiftc",
-      "-O",
-      "-parse-as-library",
-      "-target",
-      swiftTargetForNativeRuntime(architecture),
-      sourcePath,
-      "-o",
-      temporaryBinary,
-    ], { stdio: "inherit" });
+    execFileSync(
+      "xcrun",
+      [
+        "swiftc",
+        "-O",
+        "-parse-as-library",
+        "-target",
+        swiftTargetForNativeRuntime(architecture),
+        sourcePath,
+        "-o",
+        temporaryBinary,
+      ],
+      { stdio: "inherit" },
+    );
     chmodSync(temporaryBinary, 0o755);
     rmSync(outputPath, { force: true });
     renameSync(temporaryBinary, outputPath);

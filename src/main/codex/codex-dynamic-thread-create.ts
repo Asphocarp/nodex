@@ -94,9 +94,10 @@ function parseTarget(value: unknown): CodexDynamicCreateTarget | null {
     };
   }
   if (value.environment.type !== "worktree") return null;
-  const startingState = value.environment.startingState === undefined
-    ? undefined
-    : parseStartingState(value.environment.startingState);
+  const startingState =
+    value.environment.startingState === undefined
+      ? undefined
+      : parseStartingState(value.environment.startingState);
   if (startingState === null) return null;
   return {
     type: "project",
@@ -163,8 +164,9 @@ export function validateCodexDynamicCreateModelReasoning(
   }
   const supported = selected.supportedReasoningEfforts.map((option) => option.reasoningEffort);
   if (supported.some((effort) => effort === thinking)) return null;
-  const detail = supported.length === 0
-    ? "This model supports no reasoning effort overrides."
-    : `Supported reasoning efforts: ${supported.join(", ")}.`;
+  const detail =
+    supported.length === 0
+      ? "This model supports no reasoning effort overrides."
+      : `Supported reasoning efforts: ${supported.join(", ")}.`;
   return `create_thread rejected unsupported model/reasoning combination: "${selected.model}" does not support "${thinking}". ${detail}`;
 }

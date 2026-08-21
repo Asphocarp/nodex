@@ -3,10 +3,7 @@ import {
   type ModifyShortcutActions,
   type ModifyShortcutEditor,
 } from "./modify-block-shortcut";
-import {
-  resolveShortcutBlockId,
-  type ThreadSectionCursorLookup,
-} from "./thread-section";
+import { resolveShortcutBlockId, type ThreadSectionCursorLookup } from "./thread-section";
 
 export interface NfmEditorModEnterShortcutActions extends ModifyShortcutActions {
   sendThreadSectionByBlockId: (blockId: string) => boolean;

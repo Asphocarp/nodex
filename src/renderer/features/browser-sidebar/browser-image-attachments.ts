@@ -7,13 +7,9 @@ export interface BrowserImageAttachmentIntent {
   source: string;
 }
 
-const pendingByConversation = new Map<
-  string,
-  readonly BrowserImageAttachmentIntent[]
->();
+const pendingByConversation = new Map<string, readonly BrowserImageAttachmentIntent[]>();
 const listeners = new Set<() => void>();
-const EMPTY_ATTACHMENTS: readonly BrowserImageAttachmentIntent[] =
-  Object.freeze([]);
+const EMPTY_ATTACHMENTS: readonly BrowserImageAttachmentIntent[] = Object.freeze([]);
 const MAX_PENDING_BROWSER_IMAGES = 16;
 
 function notify(): void {
@@ -25,11 +21,11 @@ export function publishBrowserImageAttachment(
   attachment: BrowserImageAttachmentIntent,
 ): void {
   if (
-    !conversationId
-    || !attachment.id
-    || !attachment.filename
-    || !attachment.source
-    || !parseAssetSource(attachment.source)
+    !conversationId ||
+    !attachment.id ||
+    !attachment.filename ||
+    !attachment.source ||
+    !parseAssetSource(attachment.source)
   ) {
     throw new Error("Browser image attachment is incomplete");
   }
@@ -63,9 +59,7 @@ export function getBrowserImageAttachmentsSnapshot(
   return pendingByConversation.get(conversationId) ?? EMPTY_ATTACHMENTS;
 }
 
-export function subscribeBrowserImageAttachments(
-  listener: () => void,
-): () => void {
+export function subscribeBrowserImageAttachments(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }

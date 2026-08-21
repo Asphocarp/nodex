@@ -35,9 +35,9 @@ function readAvatarTheme(): SubagentAvatarTheme {
 function subscribeAvatarTheme(listener: () => void): () => void {
   avatarThemeListeners.add(listener);
   if (
-    avatarThemeListeners.size === 1
-    && typeof document !== "undefined"
-    && typeof MutationObserver !== "undefined"
+    avatarThemeListeners.size === 1 &&
+    typeof document !== "undefined" &&
+    typeof MutationObserver !== "undefined"
   ) {
     avatarThemeObserver = new MutationObserver(() => {
       avatarThemeListeners.forEach((currentListener) => currentListener());
@@ -57,11 +57,7 @@ function subscribeAvatarTheme(listener: () => void): () => void {
 }
 
 function useSubagentAvatarTheme(): SubagentAvatarTheme {
-  return useSyncExternalStore(
-    subscribeAvatarTheme,
-    readAvatarTheme,
-    () => "light",
-  );
+  return useSyncExternalStore(subscribeAvatarTheme, readAvatarTheme, () => "light");
 }
 
 export const SUBAGENT_AVATAR_ASSETS = [

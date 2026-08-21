@@ -4,9 +4,9 @@ import { normalizePageCreateSelectionText } from "./page-create-selection";
 
 describe("Page create selection normalization", () => {
   test("collapses Unicode whitespace and trims the selected title", () => {
-    expect(normalizePageCreateSelectionText(
-      "  Fix\t release\n\u00a0notes  ",
-    )).toBe("Fix release notes");
+    expect(normalizePageCreateSelectionText("  Fix\t release\n\u00a0notes  ")).toBe(
+      "Fix release notes",
+    );
     expect(normalizePageCreateSelectionText(" \n\t ")).toBeNull();
   });
 

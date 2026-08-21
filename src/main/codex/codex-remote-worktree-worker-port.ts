@@ -54,7 +54,10 @@ export class CodexRemoteExecutionUnknownStateError extends Error {
   readonly code = "remote-execution-state-unknown" as const;
   readonly hostId: string;
 
-  constructor(hostId: string, message = "Remote execution state is unknown after the SSH connection closed") {
+  constructor(
+    hostId: string,
+    message = "Remote execution state is unknown after the SSH connection closed",
+  ) {
     super(message);
     this.name = "CodexRemoteExecutionUnknownStateError";
     this.hostId = hostId;
@@ -92,88 +95,134 @@ export class CodexRemoteWorktreeWorkerPort implements CodexWorktreeWorkerPort {
     this.#onInfrastructureError = options.onInfrastructureError ?? (() => undefined);
   }
 
-  async create(input: CodexWorktreeWorkerCreateInput, options: CodexWorktreeWorkerRequestOptions): Promise<CodexWorktreeWorkerCreateResult> {
+  async create(
+    input: CodexWorktreeWorkerCreateInput,
+    options: CodexWorktreeWorkerRequestOptions,
+  ): Promise<CodexWorktreeWorkerCreateResult> {
     const result = await this.#request({ operation: "create", input }, options);
     if (result.operation !== "create") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async list(input: CodexWorktreeWorkerListInput, options?: Partial<CodexWorktreeWorkerRequestOptions>): Promise<CodexWorktreeWorkerListResult> {
+  async list(
+    input: CodexWorktreeWorkerListInput,
+    options?: Partial<CodexWorktreeWorkerRequestOptions>,
+  ): Promise<CodexWorktreeWorkerListResult> {
     const result = await this.#request({ operation: "list", input }, requestOptions(options));
     if (result.operation !== "list") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async inspect(input: CodexWorktreeWorkerInspectInput, options?: Partial<CodexWorktreeWorkerRequestOptions>): Promise<CodexWorktreeWorkerInspectResult> {
+  async inspect(
+    input: CodexWorktreeWorkerInspectInput,
+    options?: Partial<CodexWorktreeWorkerRequestOptions>,
+  ): Promise<CodexWorktreeWorkerInspectResult> {
     const result = await this.#request({ operation: "inspect", input }, requestOptions(options));
     if (result.operation !== "inspect") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async snapshot(input: CodexWorktreeWorkerSnapshotInput, options: CodexWorktreeWorkerRequestOptions): Promise<CodexWorktreeWorkerSnapshotResult> {
+  async snapshot(
+    input: CodexWorktreeWorkerSnapshotInput,
+    options: CodexWorktreeWorkerRequestOptions,
+  ): Promise<CodexWorktreeWorkerSnapshotResult> {
     const result = await this.#request({ operation: "snapshot", input }, options);
     if (result.operation !== "snapshot") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async remove(input: CodexWorktreeWorkerRemoveInput, options?: Partial<CodexWorktreeWorkerRequestOptions>): Promise<CodexWorktreeWorkerRemoveResult> {
+  async remove(
+    input: CodexWorktreeWorkerRemoveInput,
+    options?: Partial<CodexWorktreeWorkerRequestOptions>,
+  ): Promise<CodexWorktreeWorkerRemoveResult> {
     const result = await this.#request({ operation: "remove", input }, requestOptions(options));
     if (result.operation !== "remove") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async restore(input: CodexWorktreeWorkerRestoreInput, options: CodexWorktreeWorkerRequestOptions): Promise<CodexWorktreeWorkerRestoreResult> {
+  async restore(
+    input: CodexWorktreeWorkerRestoreInput,
+    options: CodexWorktreeWorkerRequestOptions,
+  ): Promise<CodexWorktreeWorkerRestoreResult> {
     const result = await this.#request({ operation: "restore", input }, options);
     if (result.operation !== "restore") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async setOwner(input: CodexWorktreeWorkerSetOwnerInput, options?: Partial<CodexWorktreeWorkerRequestOptions>): Promise<CodexWorktreeWorkerSetOwnerResult> {
+  async setOwner(
+    input: CodexWorktreeWorkerSetOwnerInput,
+    options?: Partial<CodexWorktreeWorkerRequestOptions>,
+  ): Promise<CodexWorktreeWorkerSetOwnerResult> {
     const result = await this.#request({ operation: "set-owner", input }, requestOptions(options));
     if (result.operation !== "set-owner") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async prepareHandoff(input: CodexWorktreeWorkerPrepareHandoffInput, options: CodexWorktreeWorkerRequestOptions): Promise<CodexWorktreeWorkerPreparedHandoff> {
+  async prepareHandoff(
+    input: CodexWorktreeWorkerPrepareHandoffInput,
+    options: CodexWorktreeWorkerRequestOptions,
+  ): Promise<CodexWorktreeWorkerPreparedHandoff> {
     const result = await this.#request({ operation: "prepare-handoff", input }, options);
     if (result.operation !== "prepare-handoff") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async rollbackHandoff(input: CodexWorktreeWorkerRollbackHandoffInput, options: CodexWorktreeWorkerRequestOptions): Promise<CodexWorktreeWorkerRollbackHandoffResult> {
+  async rollbackHandoff(
+    input: CodexWorktreeWorkerRollbackHandoffInput,
+    options: CodexWorktreeWorkerRequestOptions,
+  ): Promise<CodexWorktreeWorkerRollbackHandoffResult> {
     const result = await this.#request({ operation: "rollback-handoff", input }, options);
     if (result.operation !== "rollback-handoff") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async cleanupHandoff(input: CodexWorktreeWorkerCleanupHandoffInput, options?: Partial<CodexWorktreeWorkerRequestOptions>): Promise<CodexWorktreeWorkerCleanupHandoffResult> {
-    const result = await this.#request({ operation: "cleanup-handoff", input }, requestOptions(options));
+  async cleanupHandoff(
+    input: CodexWorktreeWorkerCleanupHandoffInput,
+    options?: Partial<CodexWorktreeWorkerRequestOptions>,
+  ): Promise<CodexWorktreeWorkerCleanupHandoffResult> {
+    const result = await this.#request(
+      { operation: "cleanup-handoff", input },
+      requestOptions(options),
+    );
     if (result.operation !== "cleanup-handoff") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async exportHandoff(input: CodexWorktreeWorkerExportHandoffInput, options: CodexWorktreeWorkerRequestOptions): Promise<CodexWorktreeWorkerExportHandoffResult> {
+  async exportHandoff(
+    input: CodexWorktreeWorkerExportHandoffInput,
+    options: CodexWorktreeWorkerRequestOptions,
+  ): Promise<CodexWorktreeWorkerExportHandoffResult> {
     const result = await this.#request({ operation: "export-handoff", input }, options);
     if (result.operation !== "export-handoff") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async importHandoff(input: CodexWorktreeWorkerImportHandoffInput, options: CodexWorktreeWorkerRequestOptions): Promise<CodexWorktreeWorkerImportHandoffResult> {
+  async importHandoff(
+    input: CodexWorktreeWorkerImportHandoffInput,
+    options: CodexWorktreeWorkerRequestOptions,
+  ): Promise<CodexWorktreeWorkerImportHandoffResult> {
     const result = await this.#request({ operation: "import-handoff", input }, options);
     if (result.operation !== "import-handoff") throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
-  async cleanupTransferHandoff(input: CodexWorktreeWorkerCleanupTransferHandoffInput, options?: Partial<CodexWorktreeWorkerRequestOptions>): Promise<CodexWorktreeWorkerCleanupTransferHandoffResult> {
-    const result = await this.#request({ operation: "cleanup-transfer-handoff", input }, requestOptions(options));
-    if (result.operation !== "cleanup-transfer-handoff") throw new Error("Worktree worker result mismatch");
+  async cleanupTransferHandoff(
+    input: CodexWorktreeWorkerCleanupTransferHandoffInput,
+    options?: Partial<CodexWorktreeWorkerRequestOptions>,
+  ): Promise<CodexWorktreeWorkerCleanupTransferHandoffResult> {
+    const result = await this.#request(
+      { operation: "cleanup-transfer-handoff", input },
+      requestOptions(options),
+    );
+    if (result.operation !== "cleanup-transfer-handoff")
+      throw new Error("Worktree worker result mismatch");
     return result.value;
   }
 
   async shutdown(): Promise<void> {
     if (this.#shuttingDown) return;
     this.#shuttingDown = true;
-    const child = this.#child ?? await this.#opening?.catch(() => null) ?? null;
+    const child = this.#child ?? (await this.#opening?.catch(() => null)) ?? null;
     this.#child = null;
     this.#opening = null;
     this.#failAll(new Error("Remote worktree worker is shutting down"));
@@ -191,7 +240,9 @@ export class CodexRemoteWorktreeWorkerPort implements CodexWorktreeWorkerPort {
   ): Promise<CodexWorktreeWorkerSuccess> {
     if (this.#shuttingDown) throw new Error("Remote worktree worker is shutting down");
     if (request.input.hostId !== this.hostId) {
-      throw new Error(`Worktree request host ${request.input.hostId} does not match ${this.hostId}`);
+      throw new Error(
+        `Worktree request host ${request.input.hostId} does not match ${this.hostId}`,
+      );
     }
     if (options.signal.aborted) throw new Error("Request canceled");
     const id = `${request.operation}:${randomUUID()}`;
@@ -228,17 +279,19 @@ export class CodexRemoteWorktreeWorkerPort implements CodexWorktreeWorkerPort {
   async #ensureWorker(): Promise<ChildProcessWithoutNullStreams> {
     if (this.#child) return this.#child;
     if (this.#opening) return await this.#opening;
-    const opening = this.#openWorker().then((child) => {
-      if (this.#shuttingDown) {
-        child.kill("SIGTERM");
-        throw new Error("Remote worktree worker is shutting down");
-      }
-      this.#attach(child);
-      this.#child = child;
-      return child;
-    }).finally(() => {
-      if (this.#opening === opening) this.#opening = null;
-    });
+    const opening = this.#openWorker()
+      .then((child) => {
+        if (this.#shuttingDown) {
+          child.kill("SIGTERM");
+          throw new Error("Remote worktree worker is shutting down");
+        }
+        this.#attach(child);
+        this.#child = child;
+        return child;
+      })
+      .finally(() => {
+        if (this.#opening === opening) this.#opening = null;
+      });
     this.#opening = opening;
     return await opening;
   }

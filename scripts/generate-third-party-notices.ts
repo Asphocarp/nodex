@@ -1,12 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -75,10 +69,12 @@ async function readLegalDocuments(directory: string): Promise<string | null> {
 
   if (filenames.length === 0) return null;
 
-  const documents = await Promise.all(filenames.map(async (filename) => {
-    const text = normalizeText(await readFile(join(directory, filename), "utf8"));
-    return `--- ${filename} ---\n\n${text}`;
-  }));
+  const documents = await Promise.all(
+    filenames.map(async (filename) => {
+      const text = normalizeText(await readFile(join(directory, filename), "utf8"));
+      return `--- ${filename} ---\n\n${text}`;
+    }),
+  );
   return documents.join("\n\n");
 }
 
@@ -89,9 +85,7 @@ export function packageSupportsTargetOs(
   if (!supportedOs || supportedOs.length === 0) return true;
 
   const excluded = new Set(
-    supportedOs
-      .filter((value) => value.startsWith("!"))
-      .map((value) => value.slice(1)),
+    supportedOs.filter((value) => value.startsWith("!")).map((value) => value.slice(1)),
   );
   if (excluded.has(targetOs)) return false;
 
@@ -111,35 +105,34 @@ async function packageDirectorySupportsTargetOs(
 
 async function collectPnpmEntries(repositoryRoot: string): Promise<ThirdPartyLegalEntry[]> {
   const pnpmExecutable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  const { stdout } = await execFileAsync(
-    pnpmExecutable,
-    ["licenses", "list", "--json"],
-    {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    },
-  );
+  const { stdout } = await execFileAsync(pnpmExecutable, ["licenses", "list", "--json"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
   const report = JSON.parse(stdout) as PnpmLicenseReport;
   const entries: ThirdPartyLegalEntry[] = [];
 
   for (const [licenseGroup, packages] of Object.entries(report)) {
     for (const packageRecord of packages) {
-      const packageEntries = (await Promise.all(packageRecord.paths.map(async (
-        packageDirectory,
-        index,
-      ): Promise<ThirdPartyLegalEntry | null> => {
-        if (!await packageDirectorySupportsTargetOs(packageDirectory, "darwin")) {
-          return null;
-        }
+      const packageEntries = (
+        await Promise.all(
+          packageRecord.paths.map(
+            async (packageDirectory, index): Promise<ThirdPartyLegalEntry | null> => {
+              if (!(await packageDirectorySupportsTargetOs(packageDirectory, "darwin"))) {
+                return null;
+              }
 
-        return {
-          homepage: packageRecord.homepage?.trim() || null,
-          identity: `${packageRecord.name}@${packageRecord.versions[index] ?? "unknown"}`,
-          legalText: await readLegalDocuments(packageDirectory),
-          license: packageRecord.license?.trim() || licenseGroup,
-        };
-      }))).filter((entry): entry is ThirdPartyLegalEntry => entry !== null);
+              return {
+                homepage: packageRecord.homepage?.trim() || null,
+                identity: `${packageRecord.name}@${packageRecord.versions[index] ?? "unknown"}`,
+                legalText: await readLegalDocuments(packageDirectory),
+                license: packageRecord.license?.trim() || licenseGroup,
+              };
+            },
+          ),
+        )
+      ).filter((entry): entry is ThirdPartyLegalEntry => entry !== null);
 
       if (packageRecord.paths.length > 0) {
         entries.push(...packageEntries);
@@ -169,18 +162,18 @@ async function collectCargoEntries(repositoryRoot: string): Promise<ThirdPartyLe
     },
   );
   const metadata = JSON.parse(stdout) as CargoMetadata;
-  const thirdPartyPackages = metadata.packages.filter((packageRecord) =>
-    packageRecord.source !== null
+  const thirdPartyPackages = metadata.packages.filter(
+    (packageRecord) => packageRecord.source !== null,
   );
 
-  return await Promise.all(thirdPartyPackages.map(async (packageRecord) => ({
-    homepage: packageRecord.homepage?.trim()
-      || packageRecord.repository?.trim()
-      || null,
-    identity: `${packageRecord.name}@${packageRecord.version} (Rust crate)`,
-    legalText: await readLegalDocuments(dirname(packageRecord.manifest_path)),
-    license: packageRecord.license?.trim() || "Not declared",
-  })));
+  return await Promise.all(
+    thirdPartyPackages.map(async (packageRecord) => ({
+      homepage: packageRecord.homepage?.trim() || packageRecord.repository?.trim() || null,
+      identity: `${packageRecord.name}@${packageRecord.version} (Rust crate)`,
+      legalText: await readLegalDocuments(dirname(packageRecord.manifest_path)),
+      license: packageRecord.license?.trim() || "Not declared",
+    })),
+  );
 }
 
 async function readCombinedLegalFiles(paths: string[]): Promise<string | null> {
@@ -199,12 +192,7 @@ async function readCombinedLegalFiles(paths: string[]): Promise<string | null> {
 async function collectBundledRuntimeEntries(
   repositoryRoot: string,
 ): Promise<ThirdPartyLegalEntry[]> {
-  const openInterpreterRoot = join(
-    repositoryRoot,
-    "resources",
-    "third-party",
-    "open-interpreter",
-  );
+  const openInterpreterRoot = join(repositoryRoot, "resources", "third-party", "open-interpreter");
 
   return [
     {
@@ -256,8 +244,9 @@ export function renderThirdPartyNotices(entries: ThirdPartyLegalEntry[]): string
     .sort((left, right) => (left[0]?.identity ?? "").localeCompare(right[0]?.identity ?? ""))
     .map((group) => {
       const packageList = group.map(renderEntry).join("\n");
-      const legalText = group[0]?.legalText
-        ?? "No separate license or notice file was published with these package artifacts. The declared license identifiers are listed above.";
+      const legalText =
+        group[0]?.legalText ??
+        "No separate license or notice file was published with these package artifacts. The declared license identifiers are listed above.";
       return `${DIVIDER}\n${packageList}\n${DIVIDER}\n\n${legalText}`;
     });
 
@@ -280,18 +269,12 @@ export async function generateThirdPartyNotices(
     collectCargoEntries(repositoryRoot),
     collectBundledRuntimeEntries(repositoryRoot),
   ]);
-  return renderThirdPartyNotices([
-    ...pnpmEntries,
-    ...cargoEntries,
-    ...runtimeEntries,
-  ]);
+  return renderThirdPartyNotices([...pnpmEntries, ...cargoEntries, ...runtimeEntries]);
 }
 
 function parseArguments(args: string[]): { outputFile: string; verify: boolean } {
   const outputFileIndex = args.indexOf("--output-file");
-  const outputFile = outputFileIndex >= 0
-    ? args[outputFileIndex + 1]
-    : DEFAULT_OUTPUT_FILE;
+  const outputFile = outputFileIndex >= 0 ? args[outputFileIndex + 1] : DEFAULT_OUTPUT_FILE;
   if (!outputFile) throw new Error("--output-file requires a path");
 
   return {
@@ -307,9 +290,7 @@ async function main(): Promise<void> {
   if (verify) {
     const existing = await readFile(outputFile, "utf8").catch(() => null);
     if (existing !== generated) {
-      throw new Error(
-        `${outputFile} is stale. Run \"pnpm run build-resources:prepare\".`,
-      );
+      throw new Error(`${outputFile} is stale. Run \"pnpm run build-resources:prepare\".`);
     }
     return;
   }
@@ -320,7 +301,7 @@ async function main(): Promise<void> {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });

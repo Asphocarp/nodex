@@ -80,23 +80,25 @@ export class CodexManagedWorktreeLifecycleService {
     const existing = this.#removals.get(key);
     if (existing) return existing;
     const worker = this.#executionHosts.requireWorktreeWorker(input.hostId, "remove");
-    const operation = worker.remove({
-      requestId: `lifecycle:remove:${randomUUID()}`,
-      hostId: input.hostId,
-      managedRoot: this.#executionHosts.resolveManagedRoot(
-        input.hostId,
-        input.worktreeGitRoot,
-      ),
-      worktreeGitRoot: input.worktreeGitRoot,
-      reason: input.reason,
-      snapshotPolicy: snapshotPolicyForManagedWorktreeRemoval(input.reason),
-    }, {
-      signal: input.signal,
-      onEvent: input.onEvent,
-    }).finally(() => {
-      if (this.#removals.get(key) === operation) this.#removals.delete(key);
-      this.#newborns.delete(key);
-    });
+    const operation = worker
+      .remove(
+        {
+          requestId: `lifecycle:remove:${randomUUID()}`,
+          hostId: input.hostId,
+          managedRoot: this.#executionHosts.resolveManagedRoot(input.hostId, input.worktreeGitRoot),
+          worktreeGitRoot: input.worktreeGitRoot,
+          reason: input.reason,
+          snapshotPolicy: snapshotPolicyForManagedWorktreeRemoval(input.reason),
+        },
+        {
+          signal: input.signal,
+          onEvent: input.onEvent,
+        },
+      )
+      .finally(() => {
+        if (this.#removals.get(key) === operation) this.#removals.delete(key);
+        this.#newborns.delete(key);
+      });
     this.#removals.set(key, operation);
     return operation;
   }
@@ -109,28 +111,29 @@ export class CodexManagedWorktreeLifecycleService {
     readonly signal?: AbortSignal;
   }): Promise<CodexWorktreeWorkerInspectResult> {
     const worker = this.#executionHosts.requireWorktreeWorker(input.hostId, "inspect");
-    return await worker.inspect({
-      requestId: `lifecycle:inspect:${randomUUID()}`,
-      hostId: input.hostId,
-      managedRoot: this.#executionHosts.resolveManagedRoot(
-        input.hostId,
-        input.worktreeGitRoot,
-      ),
-      worktreeGitRoot: input.worktreeGitRoot,
-      cwd: input.cwd,
-      candidateRepositoryPaths: input.candidateRepositoryPaths,
-    }, { signal: input.signal });
+    return await worker.inspect(
+      {
+        requestId: `lifecycle:inspect:${randomUUID()}`,
+        hostId: input.hostId,
+        managedRoot: this.#executionHosts.resolveManagedRoot(input.hostId, input.worktreeGitRoot),
+        worktreeGitRoot: input.worktreeGitRoot,
+        cwd: input.cwd,
+        candidateRepositoryPaths: input.candidateRepositoryPaths,
+      },
+      { signal: input.signal },
+    );
   }
 
   async list(hostId: string): Promise<CodexWorktreeWorkerListResult> {
     const worker = this.#executionHosts.requireWorktreeWorker(hostId, "list");
     const inventories = await Promise.all(
-      this.#executionHosts.listManagedRoots(hostId).map(async (managedRoot) =>
-        await worker.list({
-          requestId: `lifecycle:list:${randomUUID()}`,
-          hostId,
-          managedRoot,
-        })
+      this.#executionHosts.listManagedRoots(hostId).map(
+        async (managedRoot) =>
+          await worker.list({
+            requestId: `lifecycle:list:${randomUUID()}`,
+            hostId,
+            managedRoot,
+          }),
       ),
     );
     const entries = new Map<string, CodexWorktreeWorkerListResult["entries"][number]>();
@@ -152,21 +155,21 @@ export class CodexManagedWorktreeLifecycleService {
     readonly onEvent?: (event: CodexWorktreeWorkerEvent) => void;
   }): Promise<CodexWorktreeWorkerRestoreResult> {
     const worker = this.#executionHosts.requireWorktreeWorker(input.hostId, "restore");
-    return await worker.restore({
-      requestId: `lifecycle:restore:${randomUUID()}`,
-      hostId: input.hostId,
-      managedRoot: this.#executionHosts.resolveManagedRoot(
-        input.hostId,
-        input.worktreeGitRoot,
-      ),
-      worktreeGitRoot: input.worktreeGitRoot,
-      cwd: input.cwd,
-      candidateRepositoryPaths: input.candidateRepositoryPaths,
-      ownerThreadId: input.ownerThreadId,
-    }, {
-      signal: input.signal ?? new AbortController().signal,
-      onEvent: input.onEvent ?? (() => undefined),
-    });
+    return await worker.restore(
+      {
+        requestId: `lifecycle:restore:${randomUUID()}`,
+        hostId: input.hostId,
+        managedRoot: this.#executionHosts.resolveManagedRoot(input.hostId, input.worktreeGitRoot),
+        worktreeGitRoot: input.worktreeGitRoot,
+        cwd: input.cwd,
+        candidateRepositoryPaths: input.candidateRepositoryPaths,
+        ownerThreadId: input.ownerThreadId,
+      },
+      {
+        signal: input.signal ?? new AbortController().signal,
+        onEvent: input.onEvent ?? (() => undefined),
+      },
+    );
   }
 
   async setOwner(input: {
@@ -176,16 +179,16 @@ export class CodexManagedWorktreeLifecycleService {
     readonly signal?: AbortSignal;
   }): Promise<void> {
     const worker = this.#executionHosts.requireWorktreeWorker(input.hostId, "set-owner");
-    await worker.setOwner({
-      requestId: `lifecycle:set-owner:${randomUUID()}`,
-      hostId: input.hostId,
-      managedRoot: this.#executionHosts.resolveManagedRoot(
-        input.hostId,
-        input.worktreeGitRoot,
-      ),
-      worktreeGitRoot: input.worktreeGitRoot,
-      ownerThreadId: input.ownerThreadId,
-    }, { signal: input.signal });
+    await worker.setOwner(
+      {
+        requestId: `lifecycle:set-owner:${randomUUID()}`,
+        hostId: input.hostId,
+        managedRoot: this.#executionHosts.resolveManagedRoot(input.hostId, input.worktreeGitRoot),
+        worktreeGitRoot: input.worktreeGitRoot,
+        ownerThreadId: input.ownerThreadId,
+      },
+      { signal: input.signal },
+    );
   }
 
   #key(hostId: string, worktreeGitRoot: string): string {

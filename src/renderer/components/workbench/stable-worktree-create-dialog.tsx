@@ -11,8 +11,7 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 
-const STABLE_WORKTREE_CREATE_ERROR_PREFIX =
-  "Failed to create permanent worktree:";
+const STABLE_WORKTREE_CREATE_ERROR_PREFIX = "Failed to create permanent worktree:";
 
 function createErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -67,10 +66,7 @@ export function StableWorktreeCreateDialog({
         if (!nextOpen) onOpenChange(false);
       }}
     >
-      <NodexDialogContent
-        size="compact"
-        showCloseButton={false}
-      >
+      <NodexDialogContent size="compact" showCloseButton={false}>
         <NodexDialogForm
           onSubmit={(event) => {
             event.preventDefault();
@@ -78,11 +74,10 @@ export function StableWorktreeCreateDialog({
           }}
         >
           <NodexDialogHeader>
-            <NodexDialogTitle>
-              Create worktree and save as a project
-            </NodexDialogTitle>
+            <NodexDialogTitle>Create worktree and save as a project</NodexDialogTitle>
             <NodexDialogDescription>
-              Create a new git worktree from HEAD, add it as a project, and keep it until you remove it
+              Create a new git worktree from HEAD, add it as a project, and keep it until you remove
+              it
             </NodexDialogDescription>
           </NodexDialogHeader>
 
@@ -104,17 +99,10 @@ export function StableWorktreeCreateDialog({
           </NodexDialogBody>
 
           <NodexDialogFooter>
-            <NodexDialogAction
-              disabled={creating}
-              onClick={() => onOpenChange(false)}
-            >
+            <NodexDialogAction disabled={creating} onClick={() => onOpenChange(false)}>
               Cancel
             </NodexDialogAction>
-            <NodexDialogAction
-              type="submit"
-              tone="primary"
-              disabled={createDisabled}
-            >
+            <NodexDialogAction type="submit" tone="primary" disabled={createDisabled}>
               Create
             </NodexDialogAction>
           </NodexDialogFooter>

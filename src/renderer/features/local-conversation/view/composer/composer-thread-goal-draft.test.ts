@@ -84,6 +84,8 @@ describe("buildComposerThreadGoalDraft", () => {
 
     expect(empty.status).toBe("empty");
     expect(attachmentOnly.status).toBe("ready");
-    expect(attachmentOnly.status === "ready" ? attachmentOnly.draft.hasAttachments : false).toBe(true);
+    expect(attachmentOnly.status === "ready" ? attachmentOnly.draft.hasAttachments : false).toBe(
+      true,
+    );
   });
 });

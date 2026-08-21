@@ -3,10 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { parseDatabaseId } from "../../../shared/database-identities";
 import type { LibraryCatalogEntry } from "../../../shared/library-module";
 import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
-import {
-  PagesTabPicker,
-  type PagesTabPickerDataSource,
-} from "./pages-tab-picker";
+import { PagesTabPicker, type PagesTabPickerDataSource } from "./pages-tab-picker";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -51,17 +48,19 @@ const items: LibraryCatalogEntry[] = [
 const dataSource = {
   useCatalog: () => ({
     data: {
-      pages: [{
-        kind: "catalog" as const,
-        libraryId: "library:storybook",
-        storeEpoch: "epoch:storybook",
-        commitSeq: 1,
-        authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
-        items,
-        nextCursor: null,
-        hasMore: false,
-        total: items.length,
-      }],
+      pages: [
+        {
+          kind: "catalog" as const,
+          libraryId: "library:storybook",
+          storeEpoch: "epoch:storybook",
+          commitSeq: 1,
+          authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
+          items,
+          nextCursor: null,
+          hasMore: false,
+          total: items.length,
+        },
+      ],
       pageParams: [undefined],
     },
     isPending: false,
@@ -108,17 +107,19 @@ export const Empty: Story = {
       useCatalog: () => ({
         ...dataSource.useCatalog(),
         data: {
-          pages: [{
-            kind: "catalog" as const,
-            libraryId: "library:storybook",
-            storeEpoch: "epoch:storybook",
-            commitSeq: 1,
-            authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
-            items: [],
-            nextCursor: null,
-            hasMore: false,
-            total: 0,
-          }],
+          pages: [
+            {
+              kind: "catalog" as const,
+              libraryId: "library:storybook",
+              storeEpoch: "epoch:storybook",
+              commitSeq: 1,
+              authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
+              items: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 0,
+            },
+          ],
           pageParams: [undefined],
         },
       }),

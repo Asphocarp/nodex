@@ -54,9 +54,7 @@ export function handleNotionPasteFromClipboard(
   editor: ClipboardEditorLike,
   clipboardData: ClipboardDataLike | null | undefined,
   options: {
-    readonly onBeforeReplaceBlocks?: (
-      blocks: readonly ClipboardEditorBlock[],
-    ) => boolean;
+    readonly onBeforeReplaceBlocks?: (blocks: readonly ClipboardEditorBlock[]) => boolean;
     readonly onBeforeInsertBlocks?: (blocks: readonly PasteBlockLike[]) => boolean;
   } = {},
 ): boolean {
@@ -104,9 +102,7 @@ export function extractNotionNfmBlocksFromPayload(payload: unknown): NfmBlock[] 
   const roots = normalizeNotionRoots(selectionPayload);
   if (roots.length === 0) return null;
 
-  const blocks = roots
-    .map(mapNotionNodeToNfm)
-    .filter((block): block is NfmBlock => block !== null);
+  const blocks = roots.map(mapNotionNodeToNfm).filter((block): block is NfmBlock => block !== null);
 
   return blocks.length > 0 ? blocks : null;
 }
@@ -115,9 +111,7 @@ export function insertNfmBlocksFromPaste(
   editor: ClipboardEditorLike,
   blocks: NfmBlock[],
   options: {
-    readonly onBeforeReplaceBlocks?: (
-      blocks: readonly ClipboardEditorBlock[],
-    ) => boolean;
+    readonly onBeforeReplaceBlocks?: (blocks: readonly ClipboardEditorBlock[]) => boolean;
     readonly onBeforeInsertBlocks?: (blocks: readonly PasteBlockLike[]) => boolean;
   } = {},
 ): boolean {
@@ -178,10 +172,7 @@ function isEmptyParagraphBlock(block: ClipboardEditorBlock): boolean {
   return block.content.length === 0;
 }
 
-function readJsonClipboardData(
-  clipboardData: ClipboardDataLike,
-  mimeType: string,
-): unknown | null {
+function readJsonClipboardData(clipboardData: ClipboardDataLike, mimeType: string): unknown | null {
   if (!hasClipboardType(clipboardData, mimeType)) return null;
   const raw = clipboardData.getData(mimeType);
   if (!raw) return null;
@@ -260,13 +251,14 @@ function normalizeRootFromNormalizedNode(node: unknown): NotionTreeNode | null {
 
   const children = Array.isArray(node.children)
     ? node.children
-      .map(normalizeRootFromNormalizedNode)
-      .filter((child): child is NotionTreeNode => child !== null)
+        .map(normalizeRootFromNormalizedNode)
+        .filter((child): child is NotionTreeNode => child !== null)
     : [];
 
-  const text = type === "text"
-    ? asString(node.text) ?? asString(node.title) ?? ""
-    : asString(node.title) ?? asString(node.text) ?? "";
+  const text =
+    type === "text"
+      ? (asString(node.text) ?? asString(node.title) ?? "")
+      : (asString(node.title) ?? asString(node.text) ?? "");
   const title = node.title ?? node.text;
 
   return {
@@ -460,24 +452,25 @@ function mapNotionTableToNfm(node: NotionTreeNode): NfmTable | null {
   if (rows.length === 0) return null;
 
   const columnOrder = readStringArray(node.format?.table_block_column_order);
-  const derivedColumnIds = columnOrder.length > 0
-    ? columnOrder
-    : deriveTableColumnIds(rows);
+  const derivedColumnIds = columnOrder.length > 0 ? columnOrder : deriveTableColumnIds(rows);
   if (derivedColumnIds.length === 0) return null;
 
   return {
     type: "table",
     rows: rows.map((row) => ({
-      ...(mapNotionColor(asString(row.format?.block_color) ?? "") ? { color: mapNotionColor(asString(row.format?.block_color) ?? "") } : {}),
+      ...(mapNotionColor(asString(row.format?.block_color) ?? "")
+        ? { color: mapNotionColor(asString(row.format?.block_color) ?? "") }
+        : {}),
       cells: derivedColumnIds.map((columnId) => ({
         content: notionRichTextToInlineContent(row.properties?.[columnId]) ?? [],
       })),
     })),
     columns: derivedColumnIds.map((columnId) => {
       const format = resolveNotionTableColumnFormat(node.format, columnId);
-      const width = typeof format?.width === "number" && Number.isFinite(format.width) && format.width > 0
-        ? Math.floor(format.width)
-        : undefined;
+      const width =
+        typeof format?.width === "number" && Number.isFinite(format.width) && format.width > 0
+          ? Math.floor(format.width)
+          : undefined;
       const color = mapNotionColor(asString(format?.color) ?? "");
       return {
         ...(width !== undefined ? { width } : {}),
@@ -575,9 +568,7 @@ function notionRichTextToInlineContent(value: unknown): NfmInlineContent[] | nul
   return content;
 }
 
-function parseNotionAnnotationArray(
-  value: unknown,
-): { styles: NfmStyleSet; href?: string } {
+function parseNotionAnnotationArray(value: unknown): { styles: NfmStyleSet; href?: string } {
   const styles: NfmStyleSet = {};
   if (!Array.isArray(value)) return { styles };
 
@@ -734,10 +725,7 @@ function readU32LE(bytes: Uint8Array, offset: number): number {
   return view.getUint32(offset, true);
 }
 
-function readU16String(
-  bytes: Uint8Array,
-  offset: number,
-): { value: string; nextOffset: number } {
+function readU16String(bytes: Uint8Array, offset: number): { value: string; nextOffset: number } {
   const length = readU32LE(bytes, offset);
   const valueStart = offset + 4;
   const valueEnd = valueStart + length * 2;

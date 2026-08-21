@@ -224,27 +224,27 @@ and [Desktop Notification Behavior](product-specs/desktop-notification-behavior.
 
 ## Failure matrix
 
-| Failure | Required response |
-| --- | --- |
-| Mutation validation/conflict | No state change; preserve authored input and return typed recovery guidance |
-| Response lost after commit | Replay the immutable receipt for the same intent |
-| Projection patch gap or stale read | Fence affected state and coalesce a bounded canonical read |
-| Document update bytes compacted | Canonical Document resync; never fabricate an empty update |
-| Exact resource authorization lost | Revoke/evict before post-state presentation; later operations reauthorize |
-| Core transport generation lost | Single-flight reconnect to the same Profile/Library/Store epoch |
-| Repeated Core losses | Open bounded circuit and show one app-wide Retry/Restart state |
-| Codex app-server session lost | Reject that session's pending requests, retire its child, then reconnect with one bounded supervisor; never carry pending RPC state into the replacement generation |
-| Main shutdown requested repeatedly | Close the one process scope idempotently; report finalizer failures and continue later cleanup |
-| Document/Canvas stream gap | New exact live barrier plus canonical engine sync |
-| Files external edit during local draft | Preserve local and external versions in explicit conflict state |
-| Browser/Terminal surface unmount | Preserve Main-owned runtime unless explicit lifecycle closes it |
-| Managed-worktree removal interrupted | Preserve the snapshot ref or physical worktree; never clear the durable Chat location to hide failure |
-| Chat handoff interrupted | Reconcile the Main journal against Core's canonical execution location; finish commit or compensate while retaining at least one complete checkout. Cross-host cleanup locates an unknown completed import by its operation-scoped destination ref before deleting any destination artifact. |
-| Backup or maintenance authority lost | Stop/defer remaining work; do not publish retention or notification side effects |
-| Restore interrupted | Journal recovery yields the complete old or complete new Store/assets |
-| Store epoch changed | Invalidate every old transport, outbox, checkpoint, lease, and subscription; relaunch |
-| Unsupported/corrupt Store | Fail closed after preserving diagnostic/backup evidence where safe |
-| Packaged runtime missing/tampered | Disable the dependent capability; never fall back to ambient binaries |
+| Failure                                | Required response                                                                                                                                                                                                                                                                            |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mutation validation/conflict           | No state change; preserve authored input and return typed recovery guidance                                                                                                                                                                                                                  |
+| Response lost after commit             | Replay the immutable receipt for the same intent                                                                                                                                                                                                                                             |
+| Projection patch gap or stale read     | Fence affected state and coalesce a bounded canonical read                                                                                                                                                                                                                                   |
+| Document update bytes compacted        | Canonical Document resync; never fabricate an empty update                                                                                                                                                                                                                                   |
+| Exact resource authorization lost      | Revoke/evict before post-state presentation; later operations reauthorize                                                                                                                                                                                                                    |
+| Core transport generation lost         | Single-flight reconnect to the same Profile/Library/Store epoch                                                                                                                                                                                                                              |
+| Repeated Core losses                   | Open bounded circuit and show one app-wide Retry/Restart state                                                                                                                                                                                                                               |
+| Codex app-server session lost          | Reject that session's pending requests, retire its child, then reconnect with one bounded supervisor; never carry pending RPC state into the replacement generation                                                                                                                          |
+| Main shutdown requested repeatedly     | Close the one process scope idempotently; report finalizer failures and continue later cleanup                                                                                                                                                                                               |
+| Document/Canvas stream gap             | New exact live barrier plus canonical engine sync                                                                                                                                                                                                                                            |
+| Files external edit during local draft | Preserve local and external versions in explicit conflict state                                                                                                                                                                                                                              |
+| Browser/Terminal surface unmount       | Preserve Main-owned runtime unless explicit lifecycle closes it                                                                                                                                                                                                                              |
+| Managed-worktree removal interrupted   | Preserve the snapshot ref or physical worktree; never clear the durable Chat location to hide failure                                                                                                                                                                                        |
+| Chat handoff interrupted               | Reconcile the Main journal against Core's canonical execution location; finish commit or compensate while retaining at least one complete checkout. Cross-host cleanup locates an unknown completed import by its operation-scoped destination ref before deleting any destination artifact. |
+| Backup or maintenance authority lost   | Stop/defer remaining work; do not publish retention or notification side effects                                                                                                                                                                                                             |
+| Restore interrupted                    | Journal recovery yields the complete old or complete new Store/assets                                                                                                                                                                                                                        |
+| Store epoch changed                    | Invalidate every old transport, outbox, checkpoint, lease, and subscription; relaunch                                                                                                                                                                                                        |
+| Unsupported/corrupt Store              | Fail closed after preserving diagnostic/backup evidence where safe                                                                                                                                                                                                                           |
+| Packaged runtime missing/tampered      | Disable the dependent capability; never fall back to ambient binaries                                                                                                                                                                                                                        |
 
 ## Operational evidence
 
@@ -276,18 +276,18 @@ here.
 
 ## Documentation ownership
 
-| Information | Owner |
-| --- | --- |
-| Cross-system reliability layers and failure outcomes | This document |
-| Core selection, generation recovery, Store migration policy | [Core lifecycle and Store](reliability/core-lifecycle-and-store.md) |
-| LocalCommit, delivery, projection freshness, visibility | [LocalCommit and projections](reliability/local-commit-and-projections.md) |
-| Document/Canvas sync, semantic history, retention | [Document sync/history](reliability/document-sync-history-and-retention.md) |
-| Backup, restore, Store replacement, maintenance | [Backup/restore](reliability/backup-restore-and-maintenance.md) |
-| User-visible feature failure/recovery behavior | Focused document in [Product Specifications](product-specs/index.md) |
-| Runtime ownership and critical flows | [Architecture](ARCHITECTURE.md) and ADRs |
-| Trust, sandbox, authorization, supply chain | [Security](SECURITY.md) |
-| Exact schema versions, limits, filenames, protocol versions | Source contracts, generated artifacts, and tests |
-| Release procedures and operational recovery | [macOS Release Runbook](release-macos.md) |
+| Information                                                 | Owner                                                                       |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Cross-system reliability layers and failure outcomes        | This document                                                               |
+| Core selection, generation recovery, Store migration policy | [Core lifecycle and Store](reliability/core-lifecycle-and-store.md)         |
+| LocalCommit, delivery, projection freshness, visibility     | [LocalCommit and projections](reliability/local-commit-and-projections.md)  |
+| Document/Canvas sync, semantic history, retention           | [Document sync/history](reliability/document-sync-history-and-retention.md) |
+| Backup, restore, Store replacement, maintenance             | [Backup/restore](reliability/backup-restore-and-maintenance.md)             |
+| User-visible feature failure/recovery behavior              | Focused document in [Product Specifications](product-specs/index.md)        |
+| Runtime ownership and critical flows                        | [Architecture](ARCHITECTURE.md) and ADRs                                    |
+| Trust, sandbox, authorization, supply chain                 | [Security](SECURITY.md)                                                     |
+| Exact schema versions, limits, filenames, protocol versions | Source contracts, generated artifacts, and tests                            |
+| Release procedures and operational recovery                 | [macOS Release Runbook](release-macos.md)                                   |
 
 Replace stale statements at the narrow owner. Do not append migration history,
 per-file behavior, release inventories, or feature acceptance rules to this map.

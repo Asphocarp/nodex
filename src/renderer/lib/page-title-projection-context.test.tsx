@@ -21,15 +21,8 @@ describe("Page title projection context", () => {
     title.insert(0, "Initial title");
     const identity = { libraryId: "library-a", pageId: "page-a" };
     const screen = render(
-      <PageTitleProjectionProvider
-        currentLibraryId="library-a"
-        store={store}
-      >
-        <PageTitleProjectionPublisher
-          identity={identity}
-          publisherId="editor-a"
-          title={title}
-        >
+      <PageTitleProjectionProvider currentLibraryId="library-a" store={store}>
+        <PageTitleProjectionPublisher identity={identity} publisherId="editor-a" title={title}>
           <PresentedTitle fallback="First fallback" />
         </PageTitleProjectionPublisher>
         <PresentedTitle fallback="Second fallback" />
@@ -47,10 +40,7 @@ describe("Page title projection context", () => {
     expect(screen.getAllByText("Remote title")).toHaveLength(2);
 
     screen.rerender(
-      <PageTitleProjectionProvider
-        currentLibraryId="library-a"
-        store={store}
-      >
+      <PageTitleProjectionProvider currentLibraryId="library-a" store={store}>
         <PresentedTitle fallback="Second fallback" />
       </PageTitleProjectionProvider>,
     );

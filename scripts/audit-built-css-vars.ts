@@ -47,9 +47,7 @@ for (const match of css.matchAll(referencePattern)) {
   }
 }
 
-const undefinedReferences = [...references]
-  .filter((name) => !declarations.has(name))
-  .sort();
+const undefinedReferences = [...references].filter((name) => !declarations.has(name)).sort();
 
 console.log(`Build: ${buildCssPath}`);
 console.log(`Prefixes: ${prefixes.join(", ")}`);

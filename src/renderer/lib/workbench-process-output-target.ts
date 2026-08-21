@@ -1,6 +1,4 @@
-import type {
-  CodexBackgroundTerminalProcessRow,
-} from "@/lib/codex-background-terminal-processes";
+import type { CodexBackgroundTerminalProcessRow } from "@/lib/codex-background-terminal-processes";
 import type {
   CodexBackgroundTerminalRow,
   CodexConversationItem,
@@ -20,9 +18,7 @@ export function findProcessOutputCommandItem(
     : conversation.turns;
   for (const turn of candidateTurns) {
     const item = turn.items.find(
-      (candidate) =>
-        candidate.itemId === itemId
-        && candidate.kind === "commandExecution",
+      (candidate) => candidate.itemId === itemId && candidate.kind === "commandExecution",
     );
     if (item) return item;
   }
@@ -34,11 +30,7 @@ export function buildProcessOutputTargetFromManagerRow(
   row: CodexBackgroundTerminalProcessRow,
   conversation: CodexConversationSnapshot | null | undefined,
 ): ProcessOutputPanelTarget {
-  const item = findProcessOutputCommandItem(
-    conversation,
-    row.itemId,
-    row.turnId,
-  );
+  const item = findProcessOutputCommandItem(conversation, row.itemId, row.turnId);
   return {
     threadId: row.threadId,
     turnId: item?.turnId ?? row.turnId,

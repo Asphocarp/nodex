@@ -5,22 +5,18 @@ import type { BoardSummary, DatabasePageSummary } from "./types";
 const valuesEqual = (left: unknown, right: unknown): boolean => {
   if (Object.is(left, right)) return true;
   if (left instanceof Date || right instanceof Date) {
-    return left instanceof Date
-      && right instanceof Date
-      && left.getTime() === right.getTime();
+    return left instanceof Date && right instanceof Date && left.getTime() === right.getTime();
   }
   if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left)
-      && Array.isArray(right)
-      && left.length === right.length
-      && left.every((value, index) => valuesEqual(value, right[index]));
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => valuesEqual(value, right[index]))
+    );
   }
-  if (
-    typeof left !== "object"
-    || left === null
-    || typeof right !== "object"
-    || right === null
-  ) return false;
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null)
+    return false;
 
   const leftRecord = left as Readonly<Record<string, unknown>>;
   const rightRecord = right as Readonly<Record<string, unknown>>;
@@ -30,11 +26,12 @@ const valuesEqual = (left: unknown, right: unknown): boolean => {
   const rightKeys = Object.keys(rightRecord)
     .filter((key) => rightRecord[key] !== undefined)
     .sort();
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key, index) => (
-      key === rightKeys[index]
-      && valuesEqual(leftRecord[key], rightRecord[key])
-    ));
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) => key === rightKeys[index] && valuesEqual(leftRecord[key], rightRecord[key]),
+    )
+  );
 };
 
 export const cardSummariesEqual = (
@@ -50,14 +47,16 @@ export const boardSummariesEqual = (
   if (!left || !right || left.columns.length !== right.columns.length) return false;
   return left.columns.every((column, columnIndex) => {
     const other = right.columns[columnIndex];
-    return Boolean(other)
-      && column.id === other?.id
-      && column.name === other.name
-      && column.cards.length === other.cards.length
-      && column.cards.every((card, cardIndex) => {
+    return (
+      Boolean(other) &&
+      column.id === other?.id &&
+      column.name === other.name &&
+      column.cards.length === other.cards.length &&
+      column.cards.every((card, cardIndex) => {
         const otherCard = other.cards[cardIndex];
         return Boolean(otherCard) && cardSummariesEqual(card, otherCard as DatabasePageSummary);
-      });
+      })
+    );
   });
 };
 
@@ -69,17 +68,14 @@ const reindexCards = (
   return cards.map((card, index) => {
     const orderedCard = card.order === index ? card : { ...card, order: index };
     const previous = previousById.get(orderedCard.id);
-    return previous && cardSummariesEqual(previous, orderedCard)
-      ? previous
-      : orderedCard;
+    return previous && cardSummariesEqual(previous, orderedCard) ? previous : orderedCard;
   });
 };
 
 const cardRunsMatch = (
   left: readonly DatabasePageSummary[],
   right: readonly DatabasePageSummary[],
-): boolean => left.length === right.length
-  && left.every((card, index) => card === right[index]);
+): boolean => left.length === right.length && left.every((card, index) => card === right[index]);
 
 export function removePageSummaryFromBoard(board: BoardSummary, pageId: string): BoardSummary {
   let changed = false;
@@ -94,13 +90,14 @@ export function removePageSummaryFromBoard(board: BoardSummary, pageId: string):
   return changed ? { ...board, columns } : board;
 }
 
-export function upsertCardSummaryInBoard(board: BoardSummary, card: DatabasePageSummary): BoardSummary {
+export function upsertCardSummaryInBoard(
+  board: BoardSummary,
+  card: DatabasePageSummary,
+): BoardSummary {
   const existing = board.columns
     .flatMap((column) => column.cards)
     .find((candidate) => candidate.id === card.id);
-  const canonicalCard = existing && cardSummariesEqual(existing, card)
-    ? existing
-    : card;
+  const canonicalCard = existing && cardSummariesEqual(existing, card) ? existing : card;
   let changed = false;
   const columns = board.columns.map((column) => {
     const remaining = column.cards.filter((candidate) => candidate.id !== card.id);
@@ -111,10 +108,7 @@ export function upsertCardSummaryInBoard(board: BoardSummary, card: DatabasePage
       return { ...column, cards: reindexCards(remaining, column.cards) };
     }
 
-    const insertionIndex = Math.min(
-      Math.max(Math.trunc(card.order), 0),
-      remaining.length,
-    );
+    const insertionIndex = Math.min(Math.max(Math.trunc(card.order), 0), remaining.length);
     const nextCards = [...remaining];
     nextCards.splice(insertionIndex, 0, canonicalCard);
     const cards = reindexCards(nextCards, column.cards);

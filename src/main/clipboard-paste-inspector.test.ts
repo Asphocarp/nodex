@@ -45,18 +45,14 @@ describe("clipboard paste inspector", () => {
 
   test("enforces item, line, path, and symlink budgets", () => {
     const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-clipboard-budget-"));
-    const paths = Array.from(
-      { length: CLIPBOARD_INSPECTION_MAX_ITEMS + 4 },
-      (_, index) => path.join(fixtureRoot, `item-${index}.txt`),
+    const paths = Array.from({ length: CLIPBOARD_INSPECTION_MAX_ITEMS + 4 }, (_, index) =>
+      path.join(fixtureRoot, `item-${index}.txt`),
     );
     for (const filePath of paths) fs.writeFileSync(filePath, "x");
     const symlinkPath = path.join(fixtureRoot, "symlink.txt");
     fs.symlinkSync(paths[0] ?? "", symlinkPath);
     const excessivePath = `/${"x".repeat(CLIPBOARD_INSPECTION_MAX_PATH_LENGTH + 1)}`;
-    const extraLines = Array.from(
-      { length: CLIPBOARD_INSPECTION_MAX_LINES + 4 },
-      () => paths[0],
-    );
+    const extraLines = Array.from({ length: CLIPBOARD_INSPECTION_MAX_LINES + 4 }, () => paths[0]);
 
     const result = inspectClipboardPasteItemsFromStrings([
       [symlinkPath, excessivePath, ...paths, ...extraLines].join("\n"),

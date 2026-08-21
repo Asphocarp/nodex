@@ -7,9 +7,7 @@ import {
   createDetachedPageDocumentFromBlockTree,
   semanticEmptyDocumentRoot,
 } from "../block-documents/block-document-codec";
-import {
-  prepareDocumentOperationUpdate,
-} from "../block-documents/document-operation-engine";
+import { prepareDocumentOperationUpdate } from "../block-documents/document-operation-engine";
 import type { DocumentBlockOperation } from "../block-documents/document-operations";
 import { replacePageDocumentBodyFromNfm } from "../block-documents/legacy-nfm-shadow-translator";
 import { nfmToBlockNoteWithIds } from "../block-documents/nfm-blocknote-adapter";
@@ -22,10 +20,7 @@ import {
 import { parseNfm } from "../nfm/parser";
 import type { DocumentAnchor, TextInput } from "./base-schemas";
 import type { EditDocumentInput, NewBlockDraftInput } from "./write-schemas";
-import {
-  AgentDocumentEditCompilerError,
-  applyExactNfmPatches,
-} from "./exact-nfm-patches";
+import { AgentDocumentEditCompilerError, applyExactNfmPatches } from "./exact-nfm-patches";
 
 export {
   AgentDocumentEditCompilerError,
@@ -74,33 +69,37 @@ function flattenCoordinates(
   blocks: readonly BlockTreeNode[],
   parentBlockId: string | null = null,
 ): readonly Coordinate[] {
-  return blocks.flatMap((block, siblingIndex) => [{
-    block,
-    parentBlockId,
-    siblingIndex,
-  }, ...flattenCoordinates(block.children, block.id)]);
+  return blocks.flatMap((block, siblingIndex) => [
+    {
+      block,
+      parentBlockId,
+      siblingIndex,
+    },
+    ...flattenCoordinates(block.children, block.id),
+  ]);
 }
 
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const record = value as Readonly<Record<string, unknown>>;
-  return `{${Object.keys(record).sort().map((key) =>
-    `${JSON.stringify(key)}:${stableStringify(record[key])}`
-  ).join(",")}}`;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`;
 }
 
 function semanticFieldsEqual(left: BlockTreeNode, right: BlockTreeNode): boolean {
-  return left.type === right.type
-    && stableStringify(left.props) === stableStringify(right.props)
-    && stableStringify(left.content) === stableStringify(right.content);
+  return (
+    left.type === right.type &&
+    stableStringify(left.props) === stableStringify(right.props) &&
+    stableStringify(left.content) === stableStringify(right.content)
+  );
 }
 
 function toRichTitle(title: TextInput | undefined): PortableRichText | undefined {
   if (!title) return undefined;
-  return title.kind === "plain"
-    ? plainTextToPortableRichText(title.text)
-    : title.richText;
+  return title.kind === "plain" ? plainTextToPortableRichText(title.text) : title.richText;
 }
 
 function blockCount(blocks: readonly BlockTreeNode[]): number {
@@ -123,10 +122,7 @@ function toBlockTreeNode(value: {
   readonly children?: readonly unknown[];
 }): BlockTreeNode {
   if (!value.id) {
-    throw new AgentDocumentEditCompilerError(
-      "invalid_nfm",
-      "NFM Block identity allocation failed",
-    );
+    throw new AgentDocumentEditCompilerError("invalid_nfm", "NFM Block identity allocation failed");
   }
   return {
     id: value.id,
@@ -134,7 +130,7 @@ function toBlockTreeNode(value: {
     props: (value.props ?? {}) as Readonly<Record<string, BlockTreeValue>>,
     ...(value.content === undefined ? {} : { content: value.content as BlockTreeValue }),
     children: (value.children ?? []).map((child) =>
-      toBlockTreeNode(child as Parameters<typeof toBlockTreeNode>[0])
+      toBlockTreeNode(child as Parameters<typeof toBlockTreeNode>[0]),
     ),
   };
 }
@@ -151,8 +147,7 @@ function parseNfmFragment(
         "NFM insertion must contain at least one Block; use <empty-block/> to insert an intentional empty Block",
       );
     }
-    const blocks = nfmToBlockNoteWithIds(parsed, allocateBlockId)
-      .map(toBlockTreeNode);
+    const blocks = nfmToBlockNoteWithIds(parsed, allocateBlockId).map(toBlockTreeNode);
     assertBoundedBlockCount(blocks);
     if (flattenCoordinates(blocks).some(({ block }) => block.type === "page")) {
       throw new AgentDocumentEditCompilerError(
@@ -210,10 +205,7 @@ type NfmInsertion = Extract<
   { readonly kind: "nfm.insert" }
 >;
 
-function seedFirstAllocator(
-  seedId: string,
-  allocateBlockId: () => string,
-): () => string {
+function seedFirstAllocator(seedId: string, allocateBlockId: () => string): () => string {
   let reusableSeedId: string | undefined = seedId;
   return () => {
     if (reusableSeedId === undefined) return allocateBlockId();
@@ -229,18 +221,16 @@ function compileNfmInsertion(
   allocateBlockId: () => string,
 ): readonly DocumentBlockOperation[] {
   const seed = semanticEmptyDocumentRoot(current);
-  const isRootEdge = (insertion.at.kind === "start" || insertion.at.kind === "end")
-    && insertion.at.parentBlockId === undefined;
+  const isRootEdge =
+    (insertion.at.kind === "start" || insertion.at.kind === "end") &&
+    insertion.at.parentBlockId === undefined;
   if (!seed || !isRootEdge) {
     const blocks = parseNfmFragment(insertion.content, allocateBlockId);
     const anchor = resolveDocumentAnchor(current, insertion.at);
     return blocks.map((block) => ({ kind: "insert_block", block, ...anchor }));
   }
 
-  const blocks = parseNfmFragment(
-    insertion.content,
-    seedFirstAllocator(seed.id, allocateBlockId),
-  );
+  const blocks = parseNfmFragment(insertion.content, seedFirstAllocator(seed.id, allocateBlockId));
   if (semanticEmptyDocumentRoot(blocks)) return [];
   return promoteEmptySeed(seed.id, blocks);
 }
@@ -250,8 +240,7 @@ function childrenOf(
   parentBlockId: string | undefined,
 ): readonly BlockTreeNode[] {
   if (!parentBlockId) return current;
-  const parent = flattenCoordinates(current)
-    .find(({ block }) => block.id === parentBlockId)?.block;
+  const parent = flattenCoordinates(current).find(({ block }) => block.id === parentBlockId)?.block;
   if (parent) return parent.children;
   throw new AgentDocumentEditCompilerError(
     "invalid_arguments",
@@ -267,9 +256,7 @@ export function resolveDocumentAnchor(
     const siblings = childrenOf(current, anchor.parentBlockId);
     return {
       ...(anchor.parentBlockId ? { parentBlockId: anchor.parentBlockId } : {}),
-      ...(anchor.kind === "start" && siblings[0]
-        ? { beforeBlockId: siblings[0].id }
-        : {}),
+      ...(anchor.kind === "start" && siblings[0] ? { beforeBlockId: siblings[0].id } : {}),
     };
   }
   const coordinates = flattenCoordinates(current);
@@ -315,7 +302,7 @@ function allocateDraft(
     props: (draft.props ?? {}) as Readonly<Record<string, BlockTreeValue>>,
     ...(draft.content === undefined ? {} : { content: draft.content as BlockTreeValue }),
     children: (draft.children ?? []).map((child) =>
-      allocateDraft(child, allocateBlockId, localBlockIds)
+      allocateDraft(child, allocateBlockId, localBlockIds),
     ),
   };
 }
@@ -364,8 +351,12 @@ function deriveEffects(
 ): AgentDocumentEditEffects {
   const currentCoordinates = flattenCoordinates(current.blockTree);
   const targetCoordinates = flattenCoordinates(target.blockTree);
-  const currentById = new Map(currentCoordinates.map((coordinate) => [coordinate.block.id, coordinate]));
-  const targetById = new Map(targetCoordinates.map((coordinate) => [coordinate.block.id, coordinate]));
+  const currentById = new Map(
+    currentCoordinates.map((coordinate) => [coordinate.block.id, coordinate]),
+  );
+  const targetById = new Map(
+    targetCoordinates.map((coordinate) => [coordinate.block.id, coordinate]),
+  );
   const createdBlockIds = targetCoordinates
     .filter(({ block }) => !currentById.has(block.id))
     .map(({ block }) => block.id);
@@ -380,10 +371,11 @@ function deriveEffects(
   });
   const movedBlockIds = targetCoordinates.flatMap((coordinate) => {
     const before = currentById.get(coordinate.block.id);
-    return before && (
-      before.parentBlockId !== coordinate.parentBlockId
-      || before.siblingIndex !== coordinate.siblingIndex
-    ) ? [coordinate.block.id] : [];
+    return before &&
+      (before.parentBlockId !== coordinate.parentBlockId ||
+        before.siblingIndex !== coordinate.siblingIndex)
+      ? [coordinate.block.id]
+      : [];
   });
   return {
     createdBlockIds,
@@ -392,12 +384,12 @@ function deriveEffects(
     updatedBlockIds,
     movedBlockIds,
     deletedBlockIds,
-    deletedOwnerBlockIds: deletedBlockIds.filter((blockId) =>
-      currentById.get(blockId)?.block.type === "page"
+    deletedOwnerBlockIds: deletedBlockIds.filter(
+      (blockId) => currentById.get(blockId)?.block.type === "page",
     ),
     titleChanged:
-      portableRichTextSemanticSource(current.richTitle)
-      !== portableRichTextSemanticSource(target.richTitle),
+      portableRichTextSemanticSource(current.richTitle) !==
+      portableRichTextSemanticSource(target.richTitle),
   };
 }
 
@@ -419,7 +411,10 @@ function compileReplacement(
   nfm: string,
   richTitle: PortableRichText | undefined,
   allocateBlockId: () => string,
-): { readonly materialization: PageDocumentMaterialization; readonly mutation: CompiledAgentDocumentEditMutation } {
+): {
+  readonly materialization: PageDocumentMaterialization;
+  readonly mutation: CompiledAgentDocumentEditMutation;
+} {
   const detached = createDetachedPageDocumentFromBlockTree({
     documentId,
     richTitle: current.richTitle,
@@ -464,9 +459,10 @@ export function compileAgentDocumentEdit(input: {
   let materialization: PageDocumentMaterialization;
 
   if (input.edit.body?.kind === "nfm.replace" || input.edit.body?.kind === "nfm.patch") {
-    const nfm = input.edit.body.kind === "nfm.replace"
-      ? input.edit.body.content
-      : applyExactNfmPatches(input.current.nfm, input.edit.body.patches);
+    const nfm =
+      input.edit.body.kind === "nfm.replace"
+        ? input.edit.body.content
+        : applyExactNfmPatches(input.current.nfm, input.edit.body.patches);
     ({ mutation, materialization } = compileReplacement(
       input.current,
       input.documentId,
@@ -514,8 +510,8 @@ export function compileAgentDocumentEdit(input: {
 
   const effects = deriveEffects(input.current, materialization, localBlockIds);
   if (
-    effects.deletedOwnerBlockIds.length > 0
-    && input.edit.safety?.allowDeletingOwnedBlocks !== true
+    effects.deletedOwnerBlockIds.length > 0 &&
+    input.edit.safety?.allowDeletingOwnedBlocks !== true
   ) {
     throw new AgentDocumentEditCompilerError(
       "protected_owner_deletion",

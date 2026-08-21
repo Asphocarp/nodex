@@ -31,9 +31,10 @@ describe("CanvasPresenceController", () => {
       let now = 1_000;
       const publications: Array<{
         readonly clock: number;
-        readonly state: Parameters<
-          ReturnType<typeof createCanvasPresenceController>["updatePointer"]
-        >[0] | null | object;
+        readonly state:
+          | Parameters<ReturnType<typeof createCanvasPresenceController>["updatePointer"]>[0]
+          | null
+          | object;
       }> = [];
       const controller = createCanvasPresenceController({
         now: () => now,

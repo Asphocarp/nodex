@@ -18,11 +18,7 @@ describe("Page key search", () => {
     { query: "lab-13 polish", explicit: false, kind: null },
     { query: "#lab-13 polish", explicit: true, kind: null },
     { query: "lxb-13", explicit: false, kind: null },
-  ])("treats '$query' as a whole-query Page-key lookup", ({
-    query,
-    explicit,
-    kind,
-  }) => {
+  ])("treats '$query' as a whole-query Page-key lookup", ({ query, explicit, kind }) => {
     const parsed = parsePageKeySearchQuery(query);
     const match = matchPageKeySearchQuery("LAB-13", parsed);
 
@@ -48,15 +44,12 @@ describe("Page key search", () => {
       (page) => page.pageKey,
     );
 
-    expect(searchCurrentPageKeyIndex(
-      index,
-      parsePageKeySearchQuery("#LAB-19999"),
-    ).map((hit) => hit.value.id)).toEqual(["page-10000"]);
-    const prefix = searchCurrentPageKeyIndex(
-      index,
-      parsePageKeySearchQuery("#LAB-1999"),
-      4,
-    );
+    expect(
+      searchCurrentPageKeyIndex(index, parsePageKeySearchQuery("#LAB-19999")).map(
+        (hit) => hit.value.id,
+      ),
+    ).toEqual(["page-10000"]);
+    const prefix = searchCurrentPageKeyIndex(index, parsePageKeySearchQuery("#LAB-1999"), 4);
     expect(prefix).toHaveLength(4);
     expect(prefix.every((hit) => hit.value.pageKey.startsWith("LAB-1999"))).toBe(true);
 
@@ -72,11 +65,7 @@ describe("Page key search", () => {
         },
       }),
     };
-    searchCurrentPageKeyIndex(
-      measured,
-      parsePageKeySearchQuery("#LAB-1999"),
-      4,
-    );
+    searchCurrentPageKeyIndex(measured, parsePageKeySearchQuery("#LAB-1999"), 4);
     expect(candidateReads).toBeLessThan(100);
   });
 });

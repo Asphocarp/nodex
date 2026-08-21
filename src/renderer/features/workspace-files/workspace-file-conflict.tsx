@@ -25,24 +25,29 @@ export function WorkspaceFileConflict({
   onKeepLocal,
 }: WorkspaceFileConflictProps) {
   const { resolved } = useTheme();
-  const fileDiff = useMemo(() => parseDiffFromFile(
-    {
-      name: filename,
-      contents: diskValue,
-      cacheKey: `${filename}:disk:${getSourceContentVersion(diskValue)}`,
-    },
-    {
-      name: filename,
-      contents: localValue,
-      cacheKey: `${filename}:local:${getSourceContentVersion(localValue)}`,
-    },
-  ), [diskValue, filename, localValue]);
+  const fileDiff = useMemo(
+    () =>
+      parseDiffFromFile(
+        {
+          name: filename,
+          contents: diskValue,
+          cacheKey: `${filename}:disk:${getSourceContentVersion(diskValue)}`,
+        },
+        {
+          name: filename,
+          contents: localValue,
+          cacheKey: `${filename}:local:${getSourceContentVersion(localValue)}`,
+        },
+      ),
+    [diskValue, filename, localValue],
+  );
   const options = useMemo(
-    () => getNodexReviewDiffOptions(resolved, true, {
-      diffStyle: "split",
-      wrap: true,
-      collapsed: false,
-    }),
+    () =>
+      getNodexReviewDiffOptions(resolved, true, {
+        diffStyle: "split",
+        wrap: true,
+        collapsed: false,
+      }),
     [resolved],
   );
   const style = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
@@ -51,9 +56,7 @@ export function WorkspaceFileConflict({
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
       <div className="flex min-h-12 shrink-0 items-center gap-3 border-b-[0.5px] border-token-border px-3">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-token-text-primary">
-            File changed on disk
-          </div>
+          <div className="text-sm font-medium text-token-text-primary">File changed on disk</div>
           <div className="truncate text-xs text-token-text-secondary">
             Compare the disk version (left) with your local changes (right).
           </div>

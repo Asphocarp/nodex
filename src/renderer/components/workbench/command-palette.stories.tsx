@@ -28,7 +28,9 @@ function makeStoryPage(overrides: Partial<DatabasePageSummary> = {}): DatabasePa
     created: new Date("2026-06-20T00:00:00.000Z"),
     order: 0,
     revision: 1,
-    descriptionPreview: overrides.descriptionPreview ?? "Replace legacy stage commands with session panel tab actions.",
+    descriptionPreview:
+      overrides.descriptionPreview ??
+      "Replace legacy stage commands with session panel tab actions.",
     descriptionLength: overrides.descriptionLength ?? 84,
     hasDescription: true,
     priority: overrides.priority,
@@ -38,7 +40,9 @@ function makeStoryPage(overrides: Partial<DatabasePageSummary> = {}): DatabasePa
 }
 
 function makePalettePage(
-  overrides: Partial<Omit<CommandPalettePage, "page">> & { page?: Partial<DatabasePageSummary> } = {},
+  overrides: Partial<Omit<CommandPalettePage, "page">> & {
+    page?: Partial<DatabasePageSummary>;
+  } = {},
 ): CommandPalettePage {
   const page = makeStoryPage(overrides.page ?? {});
   const projectId = overrides.projectId ?? "nodex";
@@ -68,7 +72,8 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
     projectId: overrides.projectId === undefined ? "nodex" : overrides.projectId,
     projectName: overrides.projectName === undefined ? "Nodex" : overrides.projectName,
     title: overrides.title ?? "Command palette thread search",
-    preview: overrides.preview ?? "Investigate fuzzy thread search and content snippets in the launcher.",
+    preview:
+      overrides.preview ?? "Investigate fuzzy thread search and content snippets in the launcher.",
     cwd: overrides.cwd ?? "/Users/asc/nodex",
     gitBranch: overrides.gitBranch ?? null,
     projectless: overrides.projectless ?? false,
@@ -98,103 +103,124 @@ function CommandPaletteStory({
   threadSearchBatch?: CommandPaletteThreadSearchBatch;
 }) {
   const [open, setOpen] = useState(true);
-  const pages = useMemo<CommandPalettePage[]>(() => [
-    makePalettePage(),
-    makePalettePage({
-      id: "side-panel-db-view",
-      projectId: "codex",
-      projectName: "Codex app",
-      columnName: "Review",
-      boardIndex: 1,
-      page: {
+  const pages = useMemo<CommandPalettePage[]>(
+    () => [
+      makePalettePage(),
+      makePalettePage({
         id: "side-panel-db-view",
-        title: "DB View command opens as a panel tab",
-        tags: ["db", "tabs"],
-        status: "review",
-        priority: "p1-high",
-        descriptionPreview: "Keep project database work in the current session shell instead of a global view switch.",
+        projectId: "codex",
+        projectName: "Codex app",
+        columnName: "Review",
+        boardIndex: 1,
+        page: {
+          id: "side-panel-db-view",
+          title: "DB View command opens as a panel tab",
+          tags: ["db", "tabs"],
+          status: "review",
+          priority: "p1-high",
+          descriptionPreview:
+            "Keep project database work in the current session shell instead of a global view switch.",
+        },
+      }),
+    ],
+    [],
+  );
+  const commands = useMemo<CommandPaletteCommand[]>(
+    () => [
+      ...buildCommandPaletteCommands({
+        canGoBack: false,
+        canGoForward: true,
+        canStartNewChat: true,
+        canStartNewChatInProject: true,
+        pageCreateUnavailableReason: null,
+        hasActiveSession: true,
+        activeSessionPinned: true,
+        hasAttachedThread: false,
+        panelActionAvailability: {
+          db_view: true,
+          page_stage: true,
+          canvas_stage: true,
+          terminal: true,
+          browser: true,
+          review: true,
+          files: true,
+          side_chat: false,
+        },
+        canOpenSessionInNewWindow: false,
+        isMac: true,
+        showMockCommands: true,
+      }),
+      {
+        kind: "command",
+        id: "storybook-long-command",
+        group: "App",
+        title: "Open a very long command title that still needs to truncate cleanly",
+        subtitle:
+          "Story-only row for scanning title overflow, shortcut alignment, and disabled styling",
+        keywords: ["long", "overflow", "disabled"],
+        shortcut: "⌘⌥⇧L",
+        disabled: true,
+        priority: 100,
       },
-    }),
-  ], []);
-  const commands = useMemo<CommandPaletteCommand[]>(() => [
-    ...buildCommandPaletteCommands({
-      canGoBack: false,
-      canGoForward: true,
-      canStartNewChat: true,
-      canStartNewChatInProject: true,
-      pageCreateUnavailableReason: null,
-      hasActiveSession: true,
-      activeSessionPinned: true,
-      hasAttachedThread: false,
-      panelActionAvailability: {
-        db_view: true,
-        page_stage: true,
-        canvas_stage: true,
-        terminal: true,
-        browser: true,
-        review: true,
-        files: true,
-        side_chat: false,
-      },
-      canOpenSessionInNewWindow: false,
-      isMac: true,
-      showMockCommands: true,
-    }),
-    {
-      kind: "command",
-      id: "storybook-long-command",
-      group: "App",
-      title: "Open a very long command title that still needs to truncate cleanly",
-      subtitle: "Story-only row for scanning title overflow, shortcut alignment, and disabled styling",
-      keywords: ["long", "overflow", "disabled"],
-      shortcut: "⌘⌥⇧L",
-      disabled: true,
-      priority: 100,
-    },
-  ], []);
-  const threads = useMemo<CommandPaletteThread[]>(() => includeThreads ? [
-    makePaletteThread({ pinned: true, pinnedOrder: 0 }),
-    makePaletteThread({
-      id: "thread:thr-content-snippet",
-      threadId: "thr-content-snippet",
-      sessionId: "session-content-snippet",
-      projectId: "codex",
-      projectName: "Codex app",
-      title: "Thread transcript search",
-      preview: "Review how chat history search returns bounded snippets.",
-      cwd: "/Users/asc/codex-app",
-      inActiveProject: false,
-      searchPreview: {
-        source: "content",
-        excerpt: "The launcher should surface transcript matches from previous assistant turns without loading every thread.",
-        segments: [
-          { text: "The launcher should surface ", highlight: false },
-          { text: "transcript matches", highlight: true },
-          { text: " from previous assistant turns without loading every thread.", highlight: false },
-        ],
-      },
-    }),
-    makePaletteThread({
-      id: "thread:thr-projectless",
-      threadId: "thr-projectless",
-      sessionId: null,
-      projectId: null,
-      projectName: null,
-      projectless: true,
-      title: "Projectless packaging notes",
-      preview: "A sidebar chat discovered outside any project source root.",
-      cwd: "/tmp/codex-scratch",
-      inActiveProject: false,
-    }),
-    makePaletteThread({
-      id: "thread:thr-unicode-highlight",
-      threadId: "thr-unicode-highlight",
-      title: "修复 😀 search highlighting",
-      preview: "验证中文、emoji 与 fuzzy command 的连续字符高亮。",
-      gitBranch: "修复/unicode-search",
-    }),
-  ] : [], [includeThreads]);
-  const threadSearchIndex = useMemo(() => createCommandPaletteThreadSearchIndex(threads), [threads]);
+    ],
+    [],
+  );
+  const threads = useMemo<CommandPaletteThread[]>(
+    () =>
+      includeThreads
+        ? [
+            makePaletteThread({ pinned: true, pinnedOrder: 0 }),
+            makePaletteThread({
+              id: "thread:thr-content-snippet",
+              threadId: "thr-content-snippet",
+              sessionId: "session-content-snippet",
+              projectId: "codex",
+              projectName: "Codex app",
+              title: "Thread transcript search",
+              preview: "Review how chat history search returns bounded snippets.",
+              cwd: "/Users/asc/codex-app",
+              inActiveProject: false,
+              searchPreview: {
+                source: "content",
+                excerpt:
+                  "The launcher should surface transcript matches from previous assistant turns without loading every thread.",
+                segments: [
+                  { text: "The launcher should surface ", highlight: false },
+                  { text: "transcript matches", highlight: true },
+                  {
+                    text: " from previous assistant turns without loading every thread.",
+                    highlight: false,
+                  },
+                ],
+              },
+            }),
+            makePaletteThread({
+              id: "thread:thr-projectless",
+              threadId: "thr-projectless",
+              sessionId: null,
+              projectId: null,
+              projectName: null,
+              projectless: true,
+              title: "Projectless packaging notes",
+              preview: "A sidebar chat discovered outside any project source root.",
+              cwd: "/tmp/codex-scratch",
+              inActiveProject: false,
+            }),
+            makePaletteThread({
+              id: "thread:thr-unicode-highlight",
+              threadId: "thr-unicode-highlight",
+              title: "修复 😀 search highlighting",
+              preview: "验证中文、emoji 与 fuzzy command 的连续字符高亮。",
+              gitBranch: "修复/unicode-search",
+            }),
+          ]
+        : [],
+    [includeThreads],
+  );
+  const threadSearchIndex = useMemo(
+    () => createCommandPaletteThreadSearchIndex(threads),
+    [threads],
+  );
 
   return (
     <div className="min-h-screen bg-token-main-surface-primary px-8 py-10">
@@ -269,26 +295,28 @@ export const RootCommandsAndHistory: Story = {
         query: "open",
         loading: false,
         error: null,
-        results: [{
-          thread: {
-            threadId: "thr-server-only-open",
-            sessionId: null,
-            projectId: "nodex",
-            projectName: "Nodex",
-            title: "Open task from history",
-            preview: "This task is not in the current sidebar snapshot.",
-            cwd: "/Users/asc/nodex-archive",
-            gitBranch: "archive/search",
-            projectless: false,
-            pinned: false,
-            pinnedOrder: null,
-            statusType: "notLoaded",
-            statusActiveFlags: [],
-            createdAt: 1_781_000_000,
-            updatedAt: 1_781_990_500,
+        results: [
+          {
+            thread: {
+              threadId: "thr-server-only-open",
+              sessionId: null,
+              projectId: "nodex",
+              projectName: "Nodex",
+              title: "Open task from history",
+              preview: "This task is not in the current sidebar snapshot.",
+              cwd: "/Users/asc/nodex-archive",
+              gitBranch: "archive/search",
+              projectless: false,
+              pinned: false,
+              pinnedOrder: null,
+              statusType: "notLoaded",
+              statusActiveFlags: [],
+              createdAt: 1_781_000_000,
+              updatedAt: 1_781_990_500,
+            },
+            snippet: "Open the archived rollout and compare its search behavior.",
           },
-          snippet: "Open the archived rollout and compare its search behavior.",
-        }],
+        ],
       }}
     />
   ),
@@ -349,28 +377,32 @@ export const HistoricalPageKeyMatch: Story = {
       pageSearchBatch={{
         query: "old-13",
         scopeKey: "codex\nnodex",
-        results: [{
-          projectId: "nodex",
-          pageId: "palette-page",
-          pageKey: "LAB-13",
-          title: "Command palette shell refresh",
-          status: "build",
-          priority: null,
-          tags: [],
-          assignee: null,
-          locationLabel: "Nodex / Build",
-          titleParts: [],
-          excerpt: "Command palette shell refresh",
-          excerptParts: [],
-          matches: [{
-            source: "page_key",
-            quality: "exact",
-            pageKey: "OLD-13",
-            isCurrent: false,
-            parts: [],
-          }],
-          updatedAt: "2026-08-17T00:00:00.000Z",
-        }],
+        results: [
+          {
+            projectId: "nodex",
+            pageId: "palette-page",
+            pageKey: "LAB-13",
+            title: "Command palette shell refresh",
+            status: "build",
+            priority: null,
+            tags: [],
+            assignee: null,
+            locationLabel: "Nodex / Build",
+            titleParts: [],
+            excerpt: "Command palette shell refresh",
+            excerptParts: [],
+            matches: [
+              {
+                source: "page_key",
+                quality: "exact",
+                pageKey: "OLD-13",
+                isCurrent: false,
+                parts: [],
+              },
+            ],
+            updatedAt: "2026-08-17T00:00:00.000Z",
+          },
+        ],
         status: "success",
         error: null,
       }}
@@ -391,7 +423,9 @@ export const UnicodeHighlight: Story = {
 };
 
 export const ChatContentSnippet: Story = {
-  render: () => <CommandPaletteStory mode="chats" initialQuery="transcript matches" includeThreads />,
+  render: () => (
+    <CommandPaletteStory mode="chats" initialQuery="transcript matches" includeThreads />
+  ),
 };
 
 export const FilesMock: Story = {

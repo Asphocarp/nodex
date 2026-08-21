@@ -3,15 +3,9 @@ import { createPortal } from "react-dom";
 import { Check } from "@/components/shared/icons/generic-icons";
 import { EstimateIcon, PriorityValueIcon } from "@/components/shared/icons";
 import { EMPTY_PRIORITY_OPTION_VALUE, BOARD_PRIORITY_SELECT_OPTIONS } from "@/lib/board-options";
-import {
-  NodexDropdownActionRow,
-  NodexDropdownSurface,
-} from "@/components/ui/dropdown";
+import { NodexDropdownActionRow, NodexDropdownSurface } from "@/components/ui/dropdown";
 import { estimateOptions, estimateStyles } from "@/lib/types";
-import {
-  TOGGLE_LIST_STATUS_ORDER,
-  TOGGLE_LIST_STATUS_LABELS,
-} from "@/lib/toggle-list/types";
+import { TOGGLE_LIST_STATUS_ORDER, TOGGLE_LIST_STATUS_LABELS } from "@/lib/toggle-list/types";
 import { cn } from "@/lib/utils";
 import { StatusLabel } from "@/lib/status-presentation";
 import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
@@ -45,9 +39,10 @@ function computePosition(
   const viewportW = window.innerWidth;
 
   const spaceBelow = viewportH - anchorRect.bottom - MENU_GAP;
-  const top = spaceBelow >= menuRect.height
-    ? anchorRect.bottom + MENU_GAP
-    : anchorRect.top - MENU_GAP - menuRect.height;
+  const top =
+    spaceBelow >= menuRect.height
+      ? anchorRect.bottom + MENU_GAP
+      : anchorRect.top - MENU_GAP - menuRect.height;
 
   let left = anchorRect.left;
   if (left + menuRect.width > viewportW - 8) {
@@ -144,7 +139,10 @@ export function ChipPropertyEditor({
   return createPortal(
     <NodexDropdownSurface
       ref={menuRef}
-      className={cn("fixed min-w-36 outline-none", position ? "opacity-100" : "invisible opacity-0")}
+      className={cn(
+        "fixed min-w-36 outline-none",
+        position ? "opacity-100" : "invisible opacity-0",
+      )}
       style={position ? { top: position.top, left: position.left } : undefined}
       role="listbox"
       aria-label={`Edit ${propertyType}`}
@@ -153,9 +151,9 @@ export function ChipPropertyEditor({
         <NodexDropdownActionRow
           key={item.value}
           role="option"
-          aria-selected={propertyType === "tag"
-            ? selectedSet.has(item.value)
-            : item.value === currentValue}
+          aria-selected={
+            propertyType === "tag" ? selectedSet.has(item.value) : item.value === currentValue
+          }
           className={cn(
             "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-none bg-transparent text-left text-inherit",
             index === highlightedIndex && "bg-token-list-hover-background",
@@ -164,12 +162,8 @@ export function ChipPropertyEditor({
           onPointerLeave={() => setHighlightedIndex(-1)}
           onClick={() => handleSelect(item.value)}
         >
-          <span className="min-w-0 truncate">
-            {renderItemContent(propertyType, item)}
-          </span>
-          {(propertyType === "tag"
-            ? selectedSet.has(item.value)
-            : item.value === currentValue) && (
+          <span className="min-w-0 truncate">{renderItemContent(propertyType, item)}</span>
+          {(propertyType === "tag" ? selectedSet.has(item.value) : item.value === currentValue) && (
             <Check className="h-3.5 w-3.5 shrink-0 text-token-foreground" />
           )}
         </NodexDropdownActionRow>
@@ -259,10 +253,9 @@ function renderItemContent(propertyType: string, item: MenuItemData) {
 
   if (propertyType === "tag") {
     return (
-      <span className={cn(
-        "inline-flex h-5 items-center rounded-sm px-1.5 text-sm/5",
-        item.className,
-      )}>
+      <span
+        className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-sm/5", item.className)}
+      >
         {item.label}
       </span>
     );

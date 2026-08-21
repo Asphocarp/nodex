@@ -44,7 +44,9 @@ describe("command palette thread search index", () => {
 
     expect(results.length > 0).toBe(true);
     expect(results[0]?.item.threadId).toBe("thr-target");
-    expect(results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
+    expect(
+      results[0]?.item.searchDecorations?.titleSegments?.some((segment) => segment.highlight),
+    ).toBe(true);
   });
 
   test("builds preview snippets for metadata preview matches", () => {
@@ -62,7 +64,9 @@ describe("command palette thread search index", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-preview");
     expect(results[0]?.item.searchPreview?.source).toBe("metadata");
-    expect(results[0]?.item.searchPreview?.segments.some((segment) => segment.highlight)).toBe(true);
+    expect(results[0]?.item.searchPreview?.segments.some((segment) => segment.highlight)).toBe(
+      true,
+    );
   });
 
   test("matches project and cwd fields without inventing a content preview", () => {
@@ -82,7 +86,9 @@ describe("command palette thread search index", () => {
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-cwd");
     expect(results[0]?.item.searchPreview ?? null).toBe(null);
-    expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
+    expect(
+      results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight),
+    ).toBe(true);
   });
 
   test("matches projectless chats through the Chats context label", () => {
@@ -102,24 +108,42 @@ describe("command palette thread search index", () => {
 
     expect(results.length).toBe(1);
     expect(results[0]?.item.threadId).toBe("thr-projectless");
-    expect(results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
+    expect(
+      results[0]?.item.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight),
+    ).toBe(true);
   });
 
   test("reports title, preview, branch, and project match priority", () => {
     const index = createCommandPaletteThreadSearchIndex([
       makeThread({ id: "thread:title", threadId: "title", title: "Release" }),
       makeThread({ id: "thread:preview", threadId: "preview", title: "Other", preview: "Release" }),
-      makeThread({ id: "thread:branch", threadId: "branch", title: "Other", preview: "Other", gitBranch: "release" }),
-      makeThread({ id: "thread:project", threadId: "project", title: "Other", preview: "Other", projectName: "Release" }),
+      makeThread({
+        id: "thread:branch",
+        threadId: "branch",
+        title: "Other",
+        preview: "Other",
+        gitBranch: "release",
+      }),
+      makeThread({
+        id: "thread:project",
+        threadId: "project",
+        title: "Other",
+        preview: "Other",
+        projectName: "Release",
+      }),
     ]);
 
-    const priorities = new Map(index.search("release").map((hit) => [hit.item.threadId, hit.fieldPriority]));
+    const priorities = new Map(
+      index.search("release").map((hit) => [hit.item.threadId, hit.fieldPriority]),
+    );
 
-    expect(priorities).toEqual(new Map([
-      ["title", 0],
-      ["preview", 1],
-      ["branch", 2],
-      ["project", 3],
-    ]));
+    expect(priorities).toEqual(
+      new Map([
+        ["title", 0],
+        ["preview", 1],
+        ["branch", 2],
+        ["project", 3],
+      ]),
+    );
   });
 });

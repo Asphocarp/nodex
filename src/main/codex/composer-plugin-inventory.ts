@@ -25,22 +25,20 @@ interface ComposerPluginInventoryOptions {
 export type ComposerPluginActivationResolution =
   | { readonly kind: "active" }
   | {
-    readonly kind: "enable";
-    readonly params: ConfigBatchWriteParams;
-  }
+      readonly kind: "enable";
+      readonly params: ConfigBatchWriteParams;
+    }
   | {
-    readonly kind: "install";
-    readonly params: PluginInstallParams;
-  };
+      readonly kind: "install";
+      readonly params: PluginInstallParams;
+    };
 
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized || null;
 }
 
-function normalizeDefaultPrompt(
-  value: readonly string[] | null | undefined,
-): string | null {
+function normalizeDefaultPrompt(value: readonly string[] | null | undefined): string | null {
   for (const candidate of value ?? []) {
     const normalized = normalizeOptionalText(candidate);
     if (normalized) return normalized;
@@ -87,25 +85,20 @@ export function buildComposerPluginInventory(
 ): CodexComposerPlugin[] {
   const plugins: CodexComposerPlugin[] = [];
   const seenPluginIds = new Set<string>();
-  const installSuggestionPluginNames = new Set(
-    options.installSuggestionPluginNames ?? [],
-  );
+  const installSuggestionPluginNames = new Set(options.installSuggestionPluginNames ?? []);
 
   for (const marketplace of response.marketplaces) {
     for (const plugin of marketplace.plugins) {
       const id = plugin.id.trim();
       if (!id || seenPluginIds.has(id)) continue;
       if (plugin.availability === "DISABLED_BY_ADMIN") continue;
-      const isInstallSuggestion = !plugin.installed
-        && installSuggestionPluginNames.has(plugin.name);
-      const isRecordSkillEnableSuggestion = plugin.installed
-        && plugin.name === "record-and-replay"
-        && installSuggestionPluginNames.has(plugin.name);
-      if (
-        !plugin.enabled
-        && !isInstallSuggestion
-        && !isRecordSkillEnableSuggestion
-      ) continue;
+      const isInstallSuggestion =
+        !plugin.installed && installSuggestionPluginNames.has(plugin.name);
+      const isRecordSkillEnableSuggestion =
+        plugin.installed &&
+        plugin.name === "record-and-replay" &&
+        installSuggestionPluginNames.has(plugin.name);
+      if (!plugin.enabled && !isInstallSuggestion && !isRecordSkillEnableSuggestion) continue;
 
       seenPluginIds.add(id);
       const pluginName = normalizeOptionalText(plugin.name) ?? id;
@@ -122,11 +115,13 @@ export function buildComposerPluginInventory(
         installed: plugin.installed,
         enabled: plugin.enabled,
         path: `plugin://${id}`,
-        iconUrl: normalizeRemoteImageUrl(plugin.interface?.composerIconUrl)
-          ?? normalizeRemoteImageUrl(plugin.interface?.logoUrl),
-        iconUrlDark: normalizeRemoteImageUrl(plugin.interface?.logoUrlDark)
-          ?? normalizeRemoteImageUrl(plugin.interface?.composerIconUrl)
-          ?? normalizeRemoteImageUrl(plugin.interface?.logoUrl),
+        iconUrl:
+          normalizeRemoteImageUrl(plugin.interface?.composerIconUrl) ??
+          normalizeRemoteImageUrl(plugin.interface?.logoUrl),
+        iconUrlDark:
+          normalizeRemoteImageUrl(plugin.interface?.logoUrlDark) ??
+          normalizeRemoteImageUrl(plugin.interface?.composerIconUrl) ??
+          normalizeRemoteImageUrl(plugin.interface?.logoUrl),
         brandColor: normalizeOptionalText(plugin.interface?.brandColor),
       });
     }
@@ -143,9 +138,7 @@ export function resolveComposerPluginActivation(
   if (!id) throw new Error("Composer plugin id is required");
 
   for (const marketplace of response.marketplaces) {
-    const plugin = marketplace.plugins.find((candidate) =>
-      candidate.id.trim() === id
-    );
+    const plugin = marketplace.plugins.find((candidate) => candidate.id.trim() === id);
     if (!plugin) continue;
     if (plugin.availability === "DISABLED_BY_ADMIN") {
       throw new Error("Composer plugin is disabled by your administrator");
@@ -160,11 +153,13 @@ export function resolveComposerPluginActivation(
       return {
         kind: "enable",
         params: {
-          edits: [{
-            keyPath: `plugins.${plugin.id}.enabled`,
-            value: true,
-            mergeStrategy: "upsert",
-          }],
+          edits: [
+            {
+              keyPath: `plugins.${plugin.id}.enabled`,
+              value: true,
+              mergeStrategy: "upsert",
+            },
+          ],
           filePath: null,
           expectedVersion: null,
           reloadUserConfig: true,
@@ -201,33 +196,27 @@ export async function hydrateComposerPluginInventoryIcons(
 ): Promise<CodexComposerPlugin[]> {
   const interfacesById = new Map(
     response.marketplaces.flatMap((marketplace) =>
-      marketplace.plugins.map((plugin) => [
-        plugin.id.trim(),
-        plugin.interface,
-      ] as const)
+      marketplace.plugins.map((plugin) => [plugin.id.trim(), plugin.interface] as const),
     ),
   );
 
-  return Promise.all(plugins.map(async (plugin) => {
-    const pluginInterface = interfacesById.get(plugin.id);
-    if (!pluginInterface) return plugin;
-    const lightIconPath = pluginInterface.composerIcon ?? pluginInterface.logo;
-    const darkIconPath = pluginInterface.logoDark ?? lightIconPath;
-    const localIcon = await loadComposerInventoryIconDataUrl(
-      lightIconPath,
-      loadIcon,
-    );
-    const localDarkIcon = darkIconPath === lightIconPath
-      ? localIcon
-      : await loadComposerInventoryIconDataUrl(darkIconPath, loadIcon);
-    if (!localIcon && !localDarkIcon) return plugin;
-    return {
-      ...plugin,
-      iconUrl: localIcon ?? plugin.iconUrl,
-      iconUrlDark:
-        localDarkIcon
-        ?? localIcon
-        ?? plugin.iconUrlDark,
-    };
-  }));
+  return Promise.all(
+    plugins.map(async (plugin) => {
+      const pluginInterface = interfacesById.get(plugin.id);
+      if (!pluginInterface) return plugin;
+      const lightIconPath = pluginInterface.composerIcon ?? pluginInterface.logo;
+      const darkIconPath = pluginInterface.logoDark ?? lightIconPath;
+      const localIcon = await loadComposerInventoryIconDataUrl(lightIconPath, loadIcon);
+      const localDarkIcon =
+        darkIconPath === lightIconPath
+          ? localIcon
+          : await loadComposerInventoryIconDataUrl(darkIconPath, loadIcon);
+      if (!localIcon && !localDarkIcon) return plugin;
+      return {
+        ...plugin,
+        iconUrl: localIcon ?? plugin.iconUrl,
+        iconUrlDark: localDarkIcon ?? localIcon ?? plugin.iconUrlDark,
+      };
+    }),
+  );
 }

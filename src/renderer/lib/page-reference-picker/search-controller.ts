@@ -1,20 +1,12 @@
-import {
-  type LibraryPageReferenceCandidate,
-} from "../../../shared/library-module";
+import { type LibraryPageReferenceCandidate } from "../../../shared/library-module";
 import { readLibraryModule } from "../api";
 import {
   deduplicatePageReferenceCandidates,
   resolvePageReferenceDisabledReason,
 } from "./candidate-model";
-import type {
-  PageReferenceCandidate,
-  PageReferencePickerRequest,
-} from "./types";
+import type { PageReferenceCandidate, PageReferencePickerRequest } from "./types";
 import type { PageSearchResult } from "../../../shared/types";
-import {
-  configuredPageSearchProjectIds,
-  searchPageMetadataSync,
-} from "../interactive-page-search";
+import { configuredPageSearchProjectIds, searchPageMetadataSync } from "../interactive-page-search";
 
 export function resolvePageReferenceSourcePageId(
   request: PageReferencePickerRequest,
@@ -32,9 +24,7 @@ export async function loadPageReferenceCandidates(
       mode: "page_reference_candidates",
       query: request.query,
       limit: Math.max(1, Math.min(60, Math.floor(request.limit))),
-      ...(sourcePageId === undefined
-        ? {}
-        : { sourcePageId }),
+      ...(sourcePageId === undefined ? {} : { sourcePageId }),
     },
   });
   if (!result.ok) throw new Error(result.error.message);
@@ -60,9 +50,10 @@ export async function loadPageReferenceCandidates(
 export function loadPageReferenceCandidatesSync(
   request: PageReferencePickerRequest,
 ): PageReferenceCandidate[] {
-  const projectIds = request.accessContext.kind === "project"
-    ? [request.accessContext.projectId]
-    : configuredPageSearchProjectIds();
+  const projectIds =
+    request.accessContext.kind === "project"
+      ? [request.accessContext.projectId]
+      : configuredPageSearchProjectIds();
   const sourcePageId = resolvePageReferenceSourcePageId(request);
   const rows = searchPageMetadataSync({
     projectIds,
@@ -78,33 +69,36 @@ export function pageSearchResultsToReferenceCandidates(
   request: PageReferencePickerRequest,
   rows: readonly PageSearchResult[],
 ): PageReferenceCandidate[] {
-  return deduplicatePageReferenceCandidates(rows.map((item) => ({
-    pageId: item.pageId,
-    title: item.title,
-    pageKey: item.pageKey,
-    status: item.status,
-    locationLabel: item.locationLabel,
-    lifecycle: "active" as const,
-    matchExcerpt: item.excerpt,
-    matchSource: (() => {
-      const strongest = item.matches[0];
-      if (!strongest) return "recent" as const;
-      if (strongest.source === "page_key") return "page_key" as const;
-      if (strongest.source === "body" || strongest.source === "property") {
-        return "content" as const;
-      }
-      return "title" as const;
-    })(),
-    titleParts: item.titleParts,
-    matchExcerptParts: item.excerptParts,
-    matches: item.matches,
-    disabledReason: resolvePageReferenceDisabledReason({
+  return deduplicatePageReferenceCandidates(
+    rows.map((item) => ({
       pageId: item.pageId,
-      hostPageId: request.hostPageId,
-      ancestorPageIds: request.ancestorPageIds,
-      intent: request.intent,
-    }),
-  })), request.limit);
+      title: item.title,
+      pageKey: item.pageKey,
+      status: item.status,
+      locationLabel: item.locationLabel,
+      lifecycle: "active" as const,
+      matchExcerpt: item.excerpt,
+      matchSource: (() => {
+        const strongest = item.matches[0];
+        if (!strongest) return "recent" as const;
+        if (strongest.source === "page_key") return "page_key" as const;
+        if (strongest.source === "body" || strongest.source === "property") {
+          return "content" as const;
+        }
+        return "title" as const;
+      })(),
+      titleParts: item.titleParts,
+      matchExcerptParts: item.excerptParts,
+      matches: item.matches,
+      disabledReason: resolvePageReferenceDisabledReason({
+        pageId: item.pageId,
+        hostPageId: request.hostPageId,
+        ancestorPageIds: request.ancestorPageIds,
+        intent: request.intent,
+      }),
+    })),
+    request.limit,
+  );
 }
 
 export interface PageReferenceSearchController {

@@ -1,14 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  fireEvent,
-  getByRole,
-  waitFor,
-} from "@testing-library/dom";
-import {
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
+import { useRef, useState, type ReactNode } from "react";
 import type {
   BrowserPageFailure,
   BrowserSidebarBrowserUseStateSnapshot,
@@ -18,17 +10,13 @@ import type {
   BrowserSidebarViewport,
   BrowserUseCursorState,
 } from "../../../shared/browser-sidebar";
-import type {
-  BrowserDownloadsSnapshot,
-} from "../../../shared/browser-download";
+import type { BrowserDownloadsSnapshot } from "../../../shared/browser-download";
 import type {
   BrowserAnnotationAnchor,
   BrowserAnnotationDesignChange,
 } from "../../../shared/browser-annotation";
 import type { WorkbenchTabProjection } from "@/lib/types";
-import type {
-  WorkbenchSessionRenderProjection,
-} from "@/lib/workbench-session-presentation";
+import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import {
   BrowserAnnotationComposer,
   BrowserCommentOverlay,
@@ -80,26 +68,27 @@ function installBrowserStoryApi(): void {
   const api = {
     invoke: async (channel: string, ...args: unknown[]) => {
       if (channel === "browser-sidebar-command") {
-        const command = args[0] as {
-          browserConversationId?: string;
-          browserViewScopeId?: string;
-          browserTabId?: string;
-          type?: string;
-        } | undefined;
-        const fixture = command?.browserConversationId
-          && command.browserViewScopeId
-          && command.browserTabId
-          ? browserStoryFixtures.get(storyFixtureKey({
-              browserConversationId: command.browserConversationId,
-              browserViewScopeId: command.browserViewScopeId,
-              browserTabId: command.browserTabId,
-            }))
-          : undefined;
+        const command = args[0] as
+          | {
+              browserConversationId?: string;
+              browserViewScopeId?: string;
+              browserTabId?: string;
+              type?: string;
+            }
+          | undefined;
+        const fixture =
+          command?.browserConversationId && command.browserViewScopeId && command.browserTabId
+            ? browserStoryFixtures.get(
+                storyFixtureKey({
+                  browserConversationId: command.browserConversationId,
+                  browserViewScopeId: command.browserViewScopeId,
+                  browserTabId: command.browserTabId,
+                }),
+              )
+            : undefined;
         return {
           ok: true,
-          ...(command?.type === "register-tab" && fixture
-            ? { snapshot: fixture.snapshot }
-            : {}),
+          ...(command?.type === "register-tab" && fixture ? { snapshot: fixture.snapshot } : {}),
         };
       }
       if (channel === "browser-local-server-preferences-get") {
@@ -126,18 +115,20 @@ function installBrowserStoryApi(): void {
       if (channel === "browser-credentials-list") return [];
       if (channel === "browser-contact-info-list") return [];
       if (channel === "browser-profile-import-profiles") {
-        return [{
-          source: "chrome",
-          appName: "Google Chrome",
-          profileName: "Default",
-          profileDirectoryName: "Default",
-          profilePath: "/Users/example/Library/Application Support/Google/Chrome/Default",
-          rootPath: "/Users/example/Library/Application Support/Google/Chrome",
-          hasCookies: true,
-          hasPasswords: true,
-          sourceBrowserOpen: false,
-          userName: "design@example.com",
-        }];
+        return [
+          {
+            source: "chrome",
+            appName: "Google Chrome",
+            profileName: "Default",
+            profileDirectoryName: "Default",
+            profilePath: "/Users/example/Library/Application Support/Google/Chrome/Default",
+            rootPath: "/Users/example/Library/Application Support/Google/Chrome",
+            hasCookies: true,
+            hasPasswords: true,
+            sourceBrowserOpen: false,
+            userName: "design@example.com",
+          },
+        ];
       }
       if (channel === "browser-profile-capabilities") {
         const available = {
@@ -172,18 +163,13 @@ function installBrowserStoryApi(): void {
       }
       return { ok: true };
     },
-    on: (
-      channel: string,
-      listener: (payload: unknown) => void,
-    ) => {
+    on: (channel: string, listener: (payload: unknown) => void) => {
       let disposed = false;
       queueMicrotask(() => {
         if (disposed) return;
         if (channel === "browser-sidebar-state") {
           listener({
-            tabs: [...browserStoryFixtures.values()].map(
-              (fixture) => fixture.snapshot,
-            ),
+            tabs: [...browserStoryFixtures.values()].map((fixture) => fixture.snapshot),
           });
           return;
         }
@@ -250,47 +236,25 @@ export const BlankLocalServers: Story = {
 };
 
 export const LoadedRightPanel: Story = {
-  render: () => (
-    <BrowserPanelStory fixtureId="loaded-right" />
-  ),
+  render: () => <BrowserPanelStory fixtureId="loaded-right" />,
 };
 
 export const LoadedBottomPanel: Story = {
   render: () => (
-    <BrowserPanelStory
-      fixtureId="loaded-bottom"
-      panelKind="bottom"
-      width={980}
-      height={420}
-    />
+    <BrowserPanelStory fixtureId="loaded-bottom" panelKind="bottom" width={980} height={420} />
   ),
 };
 
 export const LoadedNarrowRightPanel: Story = {
-  render: () => (
-    <BrowserPanelStory
-      fixtureId="loaded-narrow"
-      width={390}
-    />
-  ),
+  render: () => <BrowserPanelStory fixtureId="loaded-narrow" width={390} />,
 };
 
 export const LoadedDark: Story = {
-  render: () => (
-    <BrowserPanelStory
-      fixtureId="loaded-dark"
-      theme="dark"
-    />
-  ),
+  render: () => <BrowserPanelStory fixtureId="loaded-dark" theme="dark" />,
 };
 
 export const ClosingPanelHost: Story = {
-  render: () => (
-    <BrowserPanelStory
-      fixtureId="closing-panel-host"
-      isVisible={false}
-    />
-  ),
+  render: () => <BrowserPanelStory fixtureId="closing-panel-host" isVisible={false} />,
 };
 
 export const LoadingLongUrl: Story = {
@@ -301,8 +265,7 @@ export const LoadingLongUrl: Story = {
         isLoading: true,
         pendingUrl:
           "https://design.example/research/browser-platform?mode=full-parity&source=runtime-evidence",
-        url:
-          "https://design.example/research/browser-platform?mode=full-parity&source=runtime-evidence",
+        url: "https://design.example/research/browser-platform?mode=full-parity&source=runtime-evidence",
       }}
     />
   ),
@@ -339,34 +302,26 @@ export const FindOpen: Story = {
 };
 
 export const OptionsOpen: Story = {
-  render: () => (
-    <BrowserPanelStory fixtureId="options-open" />
-  ),
+  render: () => <BrowserPanelStory fixtureId="options-open" />,
   play: async ({ canvasElement }) => {
     const trigger = getByRole(canvasElement, "button", {
       name: "Browser options",
     });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(trigger);
-    await waitFor(() =>
-      getByRole(document.body, "menuitem", { name: "Force reload" })
-    );
+    await waitFor(() => getByRole(document.body, "menuitem", { name: "Force reload" }));
   },
 };
 
 export const SiteInfoOpen: Story = {
-  render: () => (
-    <BrowserPanelStory fixtureId="site-info-open" />
-  ),
+  render: () => <BrowserPanelStory fixtureId="site-info-open" />,
   play: async ({ canvasElement }) => {
     const trigger = getByRole(canvasElement, "button", {
       name: "Site information",
     });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(trigger);
-    await waitFor(() =>
-      getByRole(document.body, "menuitem", { name: "Clear site data" })
-    );
+    await waitFor(() => getByRole(document.body, "menuitem", { name: "Clear site data" }));
   },
 };
 
@@ -405,18 +360,11 @@ export const DeviceFixed: Story = {
 };
 
 export const AgentCursor: Story = {
-  render: () => (
-    <BrowserPanelStory fixtureId="agent-cursor" showAgentCursor />
-  ),
+  render: () => <BrowserPanelStory fixtureId="agent-cursor" showAgentCursor />,
 };
 
 export const ActiveDownloadIndicator: Story = {
-  render: () => (
-    <BrowserPanelStory
-      fixtureId="active-download"
-      downloads={downloadsFixture}
-    />
-  ),
+  render: () => <BrowserPanelStory fixtureId="active-download" downloads={downloadsFixture} />,
 };
 
 export const DownloadsHistory: Story = {
@@ -482,43 +430,27 @@ export const ErrorCrashed: Story = failureStory({
 });
 
 export const AnnotationQuick: Story = {
-  render: () => (
-    <AnnotationStory intent="comment" anchors={[]} />
-  ),
+  render: () => <AnnotationStory intent="comment" anchors={[]} />,
 };
 
 export const AnnotationBatch: Story = {
-  render: () => (
-    <AnnotationStory intent="comment" anchors={annotationAnchorsFixture} />
-  ),
+  render: () => <AnnotationStory intent="comment" anchors={annotationAnchorsFixture} />,
 };
 
 export const AnnotationDesign: Story = {
-  render: () => (
-    <AnnotationStory
-      intent="designChange"
-      anchors={annotationAnchorsFixture}
-    />
-  ),
+  render: () => <AnnotationStory intent="designChange" anchors={annotationAnchorsFixture} />,
 };
 
 export const AnnotationOriginalView: Story = {
   render: () => (
-    <AnnotationStory
-      intent="designChange"
-      anchors={annotationAnchorsFixture}
-      originalView
-    />
+    <AnnotationStory intent="designChange" anchors={annotationAnchorsFixture} originalView />
   ),
 };
 
 export const ProfileImportDialog: Story = {
   render: () => (
     <BrowserStoryFrame width={720}>
-      <BrowserProfileImportDialog
-        open
-        onOpenChange={() => undefined}
-      />
+      <BrowserProfileImportDialog open onOpenChange={() => undefined} />
     </BrowserStoryFrame>
   ),
 };
@@ -565,20 +497,14 @@ function BrowserPanelStory({
     snapshot,
     downloads,
     localServers: localServersFixture,
-    ...(showAgentCursor
-      ? makeBrowserUseFixture(snapshot)
-      : {}),
+    ...(showAgentCursor ? makeBrowserUseFixture(snapshot) : {}),
   };
   browserStoryFixtures.set(storyFixtureKey(snapshot), fixture);
   if (downloads) storyProfileDownloads = downloads;
   const tab = makeBrowserTab(snapshot, panelKind);
   const activeSession = makeBrowserSession(snapshot, tab, panelKind);
   return (
-    <BrowserStoryFrame
-      height={height}
-      theme={theme}
-      width={width}
-    >
+    <BrowserStoryFrame height={height} theme={theme} width={width}>
       <BrowserSidebarPanel
         tab={tab}
         activeSession={activeSession}
@@ -739,10 +665,7 @@ function makeBrowserSession(
 
 function makeBrowserUseFixture(
   snapshot: BrowserSidebarTabSnapshot,
-): Pick<
-  BrowserStoryFixture,
-  "browserUseState" | "cursor" | "viewport"
-> {
+): Pick<BrowserStoryFixture, "browserUseState" | "cursor" | "viewport"> {
   const cursor: BrowserUseCursorState = {
     browserConversationId: snapshot.browserConversationId,
     browserViewScopeId: snapshot.browserViewScopeId,
@@ -762,20 +685,22 @@ function makeBrowserUseFixture(
       viewportSize: { width: 390, height: 844 },
     },
     browserUseState: {
-      tabs: [{
-        browserConversationId: snapshot.browserConversationId,
-        browserViewScopeId: snapshot.browserViewScopeId,
-        browserTabId: snapshot.browserTabId,
-        codexSessionId: "thread-1",
-        projectId: "alpha",
-        title: "Browser agent",
-        url: snapshot.url,
-        webContentsId: 42,
-        viewport: snapshot.viewport,
-        captureActive: false,
-        released: false,
-        updatedAt: 100,
-      }],
+      tabs: [
+        {
+          browserConversationId: snapshot.browserConversationId,
+          browserViewScopeId: snapshot.browserViewScopeId,
+          browserTabId: snapshot.browserTabId,
+          codexSessionId: "thread-1",
+          projectId: "alpha",
+          title: "Browser agent",
+          url: snapshot.url,
+          webContentsId: 42,
+          viewport: snapshot.viewport,
+          captureActive: false,
+          released: false,
+          updatedAt: 100,
+        },
+      ],
       activeBrowserTabIdsByConversationScope: {
         [`${snapshot.browserConversationId}\0${snapshot.browserViewScopeId}`]:
           snapshot.browserTabId,
@@ -802,15 +727,13 @@ function AnnotationStory({
       : "This section should explain the Browser security boundary.",
   );
   const [originalView, setOriginalView] = useState(initialOriginalView);
-  const [selectionMode, setSelectionMode] =
-    useState<"inspect" | "region">("inspect");
-  const [designChange, setDesignChange] =
-    useState<BrowserAnnotationDesignChange | null>({
-      anchorId: annotationAnchorsFixture[0]?.id ?? "",
-      property: "backgroundColor",
-      before: "rgb(28, 32, 38)",
-      after: "rgb(34, 111, 219)",
-    });
+  const [selectionMode, setSelectionMode] = useState<"inspect" | "region">("inspect");
+  const [designChange, setDesignChange] = useState<BrowserAnnotationDesignChange | null>({
+    anchorId: annotationAnchorsFixture[0]?.id ?? "",
+    property: "backgroundColor",
+    before: "rgb(28, 32, 38)",
+    after: "rgb(34, 111, 219)",
+  });
   return (
     <BrowserStoryFrame>
       <div className="absolute inset-0 bg-[linear-gradient(145deg,#f8fafc,#dbeafe)] p-8 text-slate-900">
@@ -818,10 +741,7 @@ function AnnotationStory({
         <p className="mt-3 max-w-sm text-sm leading-6 text-slate-600">
           A page fixture under the production annotation overlay.
         </p>
-        <button
-          type="button"
-          className="mt-8 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
-        >
+        <button type="button" className="mt-8 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white">
           Inspect this element
         </button>
       </div>
@@ -834,13 +754,10 @@ function AnnotationStory({
           originalView={originalView}
           selectionMode={selectionMode}
           onDesignChange={(input) => {
-            const anchor = anchors.find(
-              (candidate) => candidate.id === input.anchorId,
-            );
+            const anchor = anchors.find((candidate) => candidate.id === input.anchorId);
             setDesignChange({
               ...input,
-              before:
-                anchor?.computedStyle?.[input.property] ?? "",
+              before: anchor?.computedStyle?.[input.property] ?? "",
             });
           }}
           onIntentChange={setIntent}
@@ -848,9 +765,7 @@ function AnnotationStory({
           onOriginalViewChange={setOriginalView}
           onSelectionModeChange={setSelectionMode}
           onRemoveAnchor={(anchorId) => {
-            setAnchors((current) =>
-              current.filter((anchor) => anchor.id !== anchorId)
-            );
+            setAnchors((current) => current.filter((anchor) => anchor.id !== anchorId));
           }}
           onDiscard={() => setAnchors([])}
           onAddToComposer={() => undefined}
@@ -1060,15 +975,15 @@ const localServersFixture: BrowserSidebarLocalServersSnapshot = {
 };
 
 const LOCAL_SERVER_THUMBNAIL =
-  "data:image/svg+xml;charset=utf-8,"
-  + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360">'
-      + '<defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#eff6ff"/><stop offset="1" stop-color="#dbeafe"/></linearGradient></defs>'
-      + '<rect width="640" height="360" fill="url(#g)"/>'
-      + '<rect x="48" y="48" width="544" height="48" rx="12" fill="#fff" opacity=".95"/>'
-      + '<rect x="48" y="120" width="340" height="26" rx="8" fill="#1e293b" opacity=".88"/>'
-      + '<rect x="48" y="162" width="440" height="14" rx="7" fill="#64748b" opacity=".45"/>'
-      + '<rect x="48" y="192" width="390" height="14" rx="7" fill="#64748b" opacity=".32"/>'
-      + '<rect x="48" y="250" width="120" height="42" rx="12" fill="#2563eb"/>'
-      + "</svg>",
+  "data:image/svg+xml;charset=utf-8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360">' +
+      '<defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#eff6ff"/><stop offset="1" stop-color="#dbeafe"/></linearGradient></defs>' +
+      '<rect width="640" height="360" fill="url(#g)"/>' +
+      '<rect x="48" y="48" width="544" height="48" rx="12" fill="#fff" opacity=".95"/>' +
+      '<rect x="48" y="120" width="340" height="26" rx="8" fill="#1e293b" opacity=".88"/>' +
+      '<rect x="48" y="162" width="440" height="14" rx="7" fill="#64748b" opacity=".45"/>' +
+      '<rect x="48" y="192" width="390" height="14" rx="7" fill="#64748b" opacity=".32"/>' +
+      '<rect x="48" y="250" width="120" height="42" rx="12" fill="#2563eb"/>' +
+      "</svg>",
   );

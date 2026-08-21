@@ -42,9 +42,7 @@ function surfaceFromProjection(
           projectId: tab.config.projectId,
         },
         pageId: tab.config.pageId,
-        ...(tab.config.titleSnapshot
-          ? { titleSnapshot: tab.config.titleSnapshot }
-          : {}),
+        ...(tab.config.titleSnapshot ? { titleSnapshot: tab.config.titleSnapshot } : {}),
       },
     };
   }
@@ -58,9 +56,7 @@ function surfaceFromProjection(
           projectId: tab.config.projectId,
         },
         canvasBlockId: tab.config.canvasBlockId,
-        ...(tab.config.titleSnapshot
-          ? { titleSnapshot: tab.config.titleSnapshot }
-          : {}),
+        ...(tab.config.titleSnapshot ? { titleSnapshot: tab.config.titleSnapshot } : {}),
       },
     };
   }
@@ -75,14 +71,11 @@ function surfaceFromProjection(
           : {}),
         ...(tab.config.url ? { url: tab.config.url } : {}),
         ...(tab.config.title ? { title: tab.config.title } : {}),
-        ...(tab.config.faviconUrl
-          ? { faviconUrl: tab.config.faviconUrl }
-          : {}),
+        ...(tab.config.faviconUrl ? { faviconUrl: tab.config.faviconUrl } : {}),
         ...(tab.config.deviceToolbarVisible === undefined
           ? {}
           : { deviceToolbarVisible: tab.config.deviceToolbarVisible }),
-        ...("deviceToolbarState" in tab.config
-          && tab.config.deviceToolbarState !== undefined
+        ...("deviceToolbarState" in tab.config && tab.config.deviceToolbarState !== undefined
           ? { deviceToolbarState: tab.config.deviceToolbarState }
           : {}),
       },

@@ -10,9 +10,7 @@ import {
   type OwnedDocumentReferenceStateDependencies,
   type OwnedDocumentReferenceRenderer,
 } from "@/components/block-documents/owned-document-reference-surface";
-import {
-  reusableTemplateRefBlockConfig,
-} from "../../../../shared/block-documents/blocknote-schema-config";
+import { reusableTemplateRefBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
 const EmbeddedOwnedBlockDocument = lazy(() =>
   import("./embedded-owned-block-document").then((module) => ({
@@ -20,8 +18,7 @@ const EmbeddedOwnedBlockDocument = lazy(() =>
   })),
 );
 
-export interface DocumentBearingShellVisualProps
-  extends OwnedDocumentReferenceStateDependencies {
+export interface DocumentBearingShellVisualProps extends OwnedDocumentReferenceStateDependencies {
   readonly icon: LucideIcon;
   readonly label: string;
   readonly detail: string;
@@ -60,11 +57,10 @@ export function DocumentBearingShellVisual({
   );
 }
 
-export interface DocumentBearingShellBlockProps
-  extends Omit<
-    DocumentBearingShellVisualProps,
-    "disclosureKey" | "disabledReason" | "renderDocument"
-  > {
+export interface DocumentBearingShellBlockProps extends Omit<
+  DocumentBearingShellVisualProps,
+  "disclosureKey" | "disabledReason" | "renderDocument"
+> {
   readonly shellBlockId: string;
 }
 
@@ -88,10 +84,7 @@ export function DocumentBearingShellBlock({
   const ownerBlockId = identity.trim();
   const cycle =
     ownerBlockId.length > 0 &&
-    isInlineDocumentOwnerCycle(
-      host?.ancestorDocumentOwnerBlockIds ?? [],
-      ownerBlockId,
-    );
+    isInlineDocumentOwnerCycle(host?.ancestorDocumentOwnerBlockIds ?? [], ownerBlockId);
   const disabledReason = resolveShellDisabledReason({
     hasOwner: ownerBlockId.length > 0,
     hasHost: host !== null,

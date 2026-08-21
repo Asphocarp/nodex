@@ -6,10 +6,7 @@ interface PageStageRawContentProps {
   className?: string;
 }
 
-export function PageStageRawContent({
-  content,
-  className,
-}: PageStageRawContentProps) {
+export function PageStageRawContent({ content, className }: PageStageRawContentProps) {
   const hasContent = content.length > 0;
 
   return (
@@ -24,17 +21,11 @@ export function PageStageRawContent({
         <div className="text-xs font-medium tracking-wide text-(--foreground-secondary) uppercase">
           Raw format
         </div>
-        <div className="text-[11px] text-(--foreground-tertiary)">
-          Read-only
-        </div>
+        <div className="text-[11px] text-(--foreground-tertiary)">Read-only</div>
       </div>
 
       {hasContent ? (
-        <LazySourceViewer
-          value={content}
-          ariaLabel="Raw page source"
-          className="min-h-0 flex-1"
-        />
+        <LazySourceViewer value={content} ariaLabel="Raw page source" className="min-h-0 flex-1" />
       ) : (
         <div className="px-3 py-4 font-mono text-[12px]/5 text-(--foreground-tertiary)">
           Description is empty.

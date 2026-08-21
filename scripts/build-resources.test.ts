@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -17,8 +13,7 @@ import {
 
 const temporaryRoots: string[] = [];
 
-const digest = (contents: Buffer): string =>
-  createHash("sha256").update(contents).digest("hex");
+const digest = (contents: Buffer): string => createHash("sha256").update(contents).digest("hex");
 
 const createFixture = (): string => {
   const root = mkdtempSync(path.join(tmpdir(), "nodex-build-resources-"));
@@ -27,15 +22,19 @@ const createFixture = (): string => {
   writeFileSync(path.join(root, "THIRD_PARTY_NOTICES.txt"), notices);
   writeFileSync(
     path.join(root, BUILD_RESOURCES_MANIFEST_FILENAME),
-    `${JSON.stringify({
-      outputs: {
-        "THIRD_PARTY_NOTICES.txt": {
-          sha256: digest(notices),
-          size: notices.byteLength,
+    `${JSON.stringify(
+      {
+        outputs: {
+          "THIRD_PARTY_NOTICES.txt": {
+            sha256: digest(notices),
+            size: notices.byteLength,
+          },
         },
+        schemaVersion: 2,
       },
-      schemaVersion: 2,
-    }, null, 2)}\n`,
+      null,
+      2,
+    )}\n`,
   );
   return root;
 };

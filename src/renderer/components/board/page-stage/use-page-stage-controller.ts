@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   parseBranchSelectorState,
@@ -18,27 +12,19 @@ import {
   writePageStageContentWidthPreference,
   writePageStageShowRawContentPreference,
 } from "@/lib/page-stage-layout";
-import { loadScrollPosition, rememberScrollPosition, saveScrollPosition } from "@/lib/page-stage-scroll";
 import {
-  SCROLL_SAVE_DEBOUNCE_MS,
-} from "@/lib/timing";
-import type {
-  PageInput,
-  PageRunInTarget,
-  WorktreeEnvironmentOption,
-} from "@/lib/types";
-import type {
-  PageStagePageModel,
-  PageStageCorePage,
-} from "@/lib/page-stage-page";
+  loadScrollPosition,
+  rememberScrollPosition,
+  saveScrollPosition,
+} from "@/lib/page-stage-scroll";
+import { SCROLL_SAVE_DEBOUNCE_MS } from "@/lib/timing";
+import type { PageInput, PageRunInTarget, WorktreeEnvironmentOption } from "@/lib/types";
+import type { PageStagePageModel, PageStageCorePage } from "@/lib/page-stage-page";
 import {
   hasPageStageScheduleCapability,
   pageStageSemanticValues,
 } from "@/lib/page-stage-properties";
-import {
-  useScheduleState,
-  type PageScheduleSource,
-} from "@/lib/use-schedule-state";
+import { useScheduleState, type PageScheduleSource } from "@/lib/use-schedule-state";
 import { usePageStageCollapsedProperties } from "@/lib/use-page-stage-collapsed-properties";
 import {
   contentAccessContextKey,
@@ -133,18 +119,15 @@ function readPageStageMetadataSourceVersion(
   return {
     pageId: pageModel.page.id,
     metadataRevision: pageModel.page.revision,
-    databaseMembershipId:
+    databaseMembershipId: databaseContext.kind === "member" ? databaseContext.membership.id : null,
+    propertyVersion:
       databaseContext.kind === "member"
-        ? databaseContext.membership.id
-        : null,
-    propertyVersion: databaseContext.kind === "member"
-      ? databaseContext.properties.map((item) => [
-          item.property.propertyId,
-          item.property.revision,
-          item.valueRevision,
-        ].join(":"))
-        .join("|")
-      : "standalone",
+        ? databaseContext.properties
+            .map((item) =>
+              [item.property.propertyId, item.property.revision, item.valueRevision].join(":"),
+            )
+            .join("|")
+        : "standalone",
   };
 }
 
@@ -155,10 +138,12 @@ function arePageStageMetadataSourceVersionsEqual(
   if (left === right) return true;
   if (!left || !right) return false;
 
-  return left.pageId === right.pageId
-    && left.metadataRevision === right.metadataRevision
-    && left.databaseMembershipId === right.databaseMembershipId
-    && left.propertyVersion === right.propertyVersion;
+  return (
+    left.pageId === right.pageId &&
+    left.metadataRevision === right.metadataRevision &&
+    left.databaseMembershipId === right.databaseMembershipId &&
+    left.propertyVersion === right.propertyVersion
+  );
 }
 
 function parseRunInEnvironmentOptions(value: unknown): WorktreeEnvironmentOption[] {
@@ -168,13 +153,15 @@ function parseRunInEnvironmentOptions(value: unknown): WorktreeEnvironmentOption
     if (!entry || typeof entry !== "object") return [];
     const candidate = entry as Record<string, unknown>;
     if (typeof candidate.path !== "string" || typeof candidate.name !== "string") return [];
-    return [{
-      path: candidate.path,
-      name: candidate.name,
-      hasSetupScript: Boolean(candidate.hasSetupScript),
-      hasCleanupScript: Boolean(candidate.hasCleanupScript),
-      actionCount: typeof candidate.actionCount === "number" ? candidate.actionCount : 0,
-    }];
+    return [
+      {
+        path: candidate.path,
+        name: candidate.name,
+        hasSetupScript: Boolean(candidate.hasSetupScript),
+        hasCleanupScript: Boolean(candidate.hasCleanupScript),
+        actionCount: typeof candidate.actionCount === "number" ? candidate.actionCount : 0,
+      },
+    ];
   });
 }
 
@@ -224,17 +211,14 @@ export function usePageStageController(
     historyPanelActive = false,
     isActivePanelTab = true,
   } = props;
-  const executionProjectId = projectIdFromContentAccessContext(
-    contentAccessContext,
-  );
+  const executionProjectId = projectIdFromContentAccessContext(contentAccessContext);
   const documentScopeKey = contentAccessContextKey(contentAccessContext);
   const page = pageModel?.page ?? null;
-  const databaseSemantic = pageModel?.databaseContext.kind === "member"
-    ? pageModel.databaseContext.semanticProperties
-    : null;
-  const databaseProperties = databaseSemantic
-    ? pageStageSemanticValues(databaseSemantic)
-    : null;
+  const databaseSemantic =
+    pageModel?.databaseContext.kind === "member"
+      ? pageModel.databaseContext.semanticProperties
+      : null;
+  const databaseProperties = databaseSemantic ? pageStageSemanticValues(databaseSemantic) : null;
   const scheduleCapability = databaseSemantic
     ? hasPageStageScheduleCapability(databaseSemantic)
     : false;
@@ -246,9 +230,13 @@ export function usePageStageController(
   const [runInBaseBranch, setRunInBaseBranch] = useState("");
   const [runInWorktreePath, setRunInWorktreePath] = useState("");
   const [runInEnvironmentPath, setRunInEnvironmentPath] = useState("");
-  const [runInBranchState, setRunInBranchState] = useState<BranchSelectorState>(EMPTY_BRANCH_SELECTOR_STATE);
+  const [runInBranchState, setRunInBranchState] = useState<BranchSelectorState>(
+    EMPTY_BRANCH_SELECTOR_STATE,
+  );
   const [runInBranchBusy, setRunInBranchBusy] = useState(false);
-  const [runInEnvironmentOptions, setRunInEnvironmentOptions] = useState<WorktreeEnvironmentOption[]>([]);
+  const [runInEnvironmentOptions, setRunInEnvironmentOptions] = useState<
+    WorktreeEnvironmentOption[]
+  >([]);
   const [runInEnvironmentBusy, setRunInEnvironmentBusy] = useState(false);
   const [savingCount, setSavingCount] = useState(0);
   const saving = savingCount > 0;
@@ -262,8 +250,7 @@ export function usePageStageController(
   const { collapsedProperties } = usePageStageCollapsedProperties();
 
   const currentPageIdRef = useRef<string | null>(null);
-  const appliedMetadataSourceVersionRef =
-    useRef<PageStageMetadataSourceVersion | null>(null);
+  const appliedMetadataSourceVersionRef = useRef<PageStageMetadataSourceVersion | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const lastScrollRestorePageRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -317,9 +304,8 @@ export function usePageStageController(
     [beginSaving, page, runUpdate],
   );
 
-  const schedulePage = page && databaseProperties && scheduleCapability
-    ? { ...page, ...databaseProperties }
-    : null;
+  const schedulePage =
+    page && databaseProperties && scheduleCapability ? { ...page, ...databaseProperties } : null;
   const schedule = useScheduleState({
     page: schedulePage,
     saveProperty,
@@ -329,28 +315,37 @@ export function usePageStageController(
   const applyRecurrenceState = schedule.applyRecurrenceState;
   const applyScheduleState = schedule.applyScheduleState;
 
-  const rememberScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
-    if (!pageId) return;
-    lastKnownScrollTopRef.current = { pageId, scrollTop };
-    rememberScrollPosition(documentScopeKey, pageId, scrollTop, editorSessionKey);
-  }, [documentScopeKey, editorSessionKey]);
+  const rememberScrollTopForPage = useCallback(
+    (pageId: string | null, scrollTop: number) => {
+      if (!pageId) return;
+      lastKnownScrollTopRef.current = { pageId, scrollTop };
+      rememberScrollPosition(documentScopeKey, pageId, scrollTop, editorSessionKey);
+    },
+    [documentScopeKey, editorSessionKey],
+  );
 
-  const saveScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
-    if (!pageId) return;
-    lastKnownScrollTopRef.current = { pageId, scrollTop };
-    saveScrollPosition(documentScopeKey, pageId, scrollTop, editorSessionKey);
-  }, [documentScopeKey, editorSessionKey]);
+  const saveScrollTopForPage = useCallback(
+    (pageId: string | null, scrollTop: number) => {
+      if (!pageId) return;
+      lastKnownScrollTopRef.current = { pageId, scrollTop };
+      saveScrollPosition(documentScopeKey, pageId, scrollTop, editorSessionKey);
+    },
+    [documentScopeKey, editorSessionKey],
+  );
 
-  const readCurrentScrollTopForPage = useCallback((pageId: string, element: HTMLDivElement | null) => {
-    if (element && elementHasLayoutBox(element)) {
-      return element.scrollTop;
-    }
+  const readCurrentScrollTopForPage = useCallback(
+    (pageId: string, element: HTMLDivElement | null) => {
+      if (element && elementHasLayoutBox(element)) {
+        return element.scrollTop;
+      }
 
-    const lastKnown = lastKnownScrollTopRef.current;
-    if (lastKnown?.pageId === pageId) return lastKnown.scrollTop;
-    if (element && element.scrollTop > 0) return element.scrollTop;
-    return null;
-  }, []);
+      const lastKnown = lastKnownScrollTopRef.current;
+      if (lastKnown?.pageId === pageId) return lastKnown.scrollTop;
+      if (element && element.scrollTop > 0) return element.scrollTop;
+      return null;
+    },
+    [],
+  );
 
   const saveCurrentScrollPosition = useCallback(() => {
     const pageId = currentPageIdRef.current;
@@ -361,67 +356,67 @@ export function usePageStageController(
     saveScrollTopForPage(pageId, scrollTop);
   }, [readCurrentScrollTopForPage, saveScrollTopForPage]);
 
-  const restoreScrollPositionForPage = useCallback((
-    pageId: string,
-    options: { resetWhenMissing: boolean },
-  ) => {
-    const element = scrollContainerRef.current;
-    if (!element) return;
+  const restoreScrollPositionForPage = useCallback(
+    (pageId: string, options: { resetWhenMissing: boolean }) => {
+      const element = scrollContainerRef.current;
+      if (!element) return;
 
-    scrollRestoreVersionRef.current += 1;
-    const restoreVersion = scrollRestoreVersionRef.current;
-    const saved = loadScrollPosition(
-      documentScopeKey,
-      pageId,
-      editorSessionKey,
-    );
-    if (saved === null) {
-      if (options.resetWhenMissing) element.scrollTop = 0;
-      return;
-    }
+      scrollRestoreVersionRef.current += 1;
+      const restoreVersion = scrollRestoreVersionRef.current;
+      const saved = loadScrollPosition(documentScopeKey, pageId, editorSessionKey);
+      if (saved === null) {
+        if (options.resetWhenMissing) element.scrollTop = 0;
+        return;
+      }
 
-    element.scrollTop = saved;
-    lastKnownScrollTopRef.current = { pageId, scrollTop: saved };
-
-    if (typeof requestAnimationFrame !== "function") return;
-    let remainingFrames = 2;
-    const retryRestore = () => {
-      if (scrollRestoreVersionRef.current !== restoreVersion) return;
-      const currentPageId = currentPageIdRef.current;
-      if (currentPageId !== null && currentPageId !== pageId) return;
-      const currentElement = scrollContainerRef.current;
-      if (!currentElement) return;
-      currentElement.scrollTop = saved;
+      element.scrollTop = saved;
       lastKnownScrollTopRef.current = { pageId, scrollTop: saved };
-      remainingFrames -= 1;
-      if (remainingFrames > 0) requestAnimationFrame(retryRestore);
-    };
-    requestAnimationFrame(retryRestore);
-  }, [documentScopeKey, editorSessionKey]);
 
-  const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
-    const previousNode = scrollContainerRef.current;
-    if (previousNode && previousNode !== node) {
-      saveCurrentScrollPosition();
-    }
+      if (typeof requestAnimationFrame !== "function") return;
+      let remainingFrames = 2;
+      const retryRestore = () => {
+        if (scrollRestoreVersionRef.current !== restoreVersion) return;
+        const currentPageId = currentPageIdRef.current;
+        if (currentPageId !== null && currentPageId !== pageId) return;
+        const currentElement = scrollContainerRef.current;
+        if (!currentElement) return;
+        currentElement.scrollTop = saved;
+        lastKnownScrollTopRef.current = { pageId, scrollTop: saved };
+        remainingFrames -= 1;
+        if (remainingFrames > 0) requestAnimationFrame(retryRestore);
+      };
+      requestAnimationFrame(retryRestore);
+    },
+    [documentScopeKey, editorSessionKey],
+  );
 
-    scrollContainerRef.current = node;
-    const pageId = currentPageIdRef.current;
-    if (!node || !pageId) return;
-    restoreScrollPositionForPage(pageId, { resetWhenMissing: false });
-  }, [restoreScrollPositionForPage, saveCurrentScrollPosition]);
+  const setScrollContainerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      const previousNode = scrollContainerRef.current;
+      if (previousNode && previousNode !== node) {
+        saveCurrentScrollPosition();
+      }
+
+      scrollContainerRef.current = node;
+      const pageId = currentPageIdRef.current;
+      if (!node || !pageId) return;
+      restoreScrollPositionForPage(pageId, { resetWhenMissing: false });
+    },
+    [restoreScrollPositionForPage, saveCurrentScrollPosition],
+  );
 
   useEffect(() => {
     const pageId = page?.id ?? null;
     const metadataSourceVersion = readPageStageMetadataSourceVersion(pageModel);
     const prevPageId = currentPageIdRef.current;
     if (
-      pageId === prevPageId
-      && arePageStageMetadataSourceVersionsEqual(
+      pageId === prevPageId &&
+      arePageStageMetadataSourceVersionsEqual(
         appliedMetadataSourceVersionRef.current,
         metadataSourceVersion,
       )
-    ) return;
+    )
+      return;
 
     if (prevPageId && prevPageId !== pageId) {
       const scrollTop = readCurrentScrollTopForPage(prevPageId, scrollContainerRef.current);
@@ -504,18 +499,11 @@ export function usePageStageController(
   const handlePersist = useCallback(async () => {
     saveCurrentScrollPosition();
     await (persistDocument?.() ?? Promise.resolve());
-  }, [
-    persistDocument,
-    saveCurrentScrollPosition,
-  ]);
+  }, [persistDocument, saveCurrentScrollPosition]);
 
   const handleClose = useCallback(async () => {
     await handlePersist();
-    const sessionSnapshot = buildPageStageSessionSnapshot(
-      executionProjectId,
-      page,
-      title,
-    );
+    const sessionSnapshot = buildPageStageSessionSnapshot(executionProjectId, page, title);
     if (sessionSnapshot) {
       onLeavePage?.(sessionSnapshot);
     }
@@ -544,11 +532,7 @@ export function usePageStageController(
 
   useEffect(() => {
     if (!sessionSnapshotRef || !isActivePanelTab) return;
-    const snapshot = buildPageStageSessionSnapshot(
-      executionProjectId,
-      page,
-      title,
-    );
+    const snapshot = buildPageStageSessionSnapshot(executionProjectId, page, title);
     sessionSnapshotRef.current = snapshot;
     return () => {
       if (sessionSnapshotRef.current === snapshot) {
@@ -575,15 +559,18 @@ export function usePageStageController(
     }
   }, [beginSaving, page, onDelete, onClose]);
 
-  const handleOpenCodexThread = useCallback(async (threadId: string) => {
-    if (!onOpenCodexThread) return;
-    const endSaving = beginSaving();
-    try {
-      await onOpenCodexThread(threadId);
-    } finally {
-      endSaving();
-    }
-  }, [beginSaving, onOpenCodexThread]);
+  const handleOpenCodexThread = useCallback(
+    async (threadId: string) => {
+      if (!onOpenCodexThread) return;
+      const endSaving = beginSaving();
+      try {
+        await onOpenCodexThread(threadId);
+      } finally {
+        endSaving();
+      }
+    },
+    [beginSaving, onOpenCodexThread],
+  );
 
   const handleToggleContentWidth = useCallback(() => {
     setLimitMainContentWidth((current) => {
@@ -633,10 +620,7 @@ export function usePageStageController(
 
     setRunInEnvironmentBusy(true);
     try {
-      const result = await invoke(
-        "worktrees:environments:list",
-        executionProjectId,
-      );
+      const result = await invoke("worktrees:environments:list", executionProjectId);
       const parsed = parseRunInEnvironmentOptions(result);
       setRunInEnvironmentOptions(parsed);
       return parsed;
@@ -658,17 +642,20 @@ export function usePageStageController(
     void refreshRunInEnvironmentOptions();
   }, [runInTarget, runInWorktreePath, refreshRunInEnvironmentOptions]);
 
-  const handleRunInTargetChange = useCallback(async (nextTarget: PageRunInTarget) => {
-    setRunInTarget(nextTarget);
-    saveProperty({ runInTarget: nextTarget });
+  const handleRunInTargetChange = useCallback(
+    async (nextTarget: PageRunInTarget) => {
+      setRunInTarget(nextTarget);
+      saveProperty({ runInTarget: nextTarget });
 
-    if (nextTarget !== "newWorktree" || runInBaseBranch.trim().length > 0) return;
-    const branchState = await refreshRunInBranchState();
-    const defaultBranch = resolveDefaultRunInBaseBranch(branchState);
-    if (!defaultBranch) return;
-    setRunInBaseBranch(defaultBranch);
-    saveProperty({ runInBaseBranch: defaultBranch });
-  }, [runInBaseBranch, refreshRunInBranchState, saveProperty]);
+      if (nextTarget !== "newWorktree" || runInBaseBranch.trim().length > 0) return;
+      const branchState = await refreshRunInBranchState();
+      const defaultBranch = resolveDefaultRunInBaseBranch(branchState);
+      if (!defaultBranch) return;
+      setRunInBaseBranch(defaultBranch);
+      saveProperty({ runInBaseBranch: defaultBranch });
+    },
+    [runInBaseBranch, refreshRunInBranchState, saveProperty],
+  );
 
   const handlePickRunInLocalPath = useCallback(async () => {
     const selected = (await invoke("workspace:pick-directory", {
@@ -689,20 +676,26 @@ export function usePageStageController(
     saveProperty({ runInWorktreePath: null });
   }, [saveProperty]);
 
-  const handleSelectRunInBaseBranch = useCallback(async (branch: string) => {
-    const normalized = branch.trim();
-    if (!normalized) return false;
-    setRunInBaseBranch(normalized);
-    saveProperty({ runInBaseBranch: normalized });
-    return true;
-  }, [saveProperty]);
+  const handleSelectRunInBaseBranch = useCallback(
+    async (branch: string) => {
+      const normalized = branch.trim();
+      if (!normalized) return false;
+      setRunInBaseBranch(normalized);
+      saveProperty({ runInBaseBranch: normalized });
+      return true;
+    },
+    [saveProperty],
+  );
 
-  const handleSelectRunInEnvironmentPath = useCallback(async (environmentPath: string | null) => {
-    const normalized = environmentPath?.trim() || "";
-    setRunInEnvironmentPath(normalized);
-    saveProperty({ runInEnvironmentPath: normalized || null });
-    return true;
-  }, [saveProperty]);
+  const handleSelectRunInEnvironmentPath = useCallback(
+    async (environmentPath: string | null) => {
+      const normalized = environmentPath?.trim() || "";
+      setRunInEnvironmentPath(normalized);
+      saveProperty({ runInEnvironmentPath: normalized || null });
+      return true;
+    },
+    [saveProperty],
+  );
 
   const handleOpenEnvironmentSettings = useCallback(async () => {
     if (executionProjectId === null || !projectWorkspacePath?.trim()) return;
@@ -718,20 +711,22 @@ export function usePageStageController(
   ]);
 
   const hasThreadsRow = linkedCodexThreads.length > 0 || Boolean(onOpenNewCodexThread);
-  const selectedRunInBaseBranch = runInBaseBranch.trim() || resolveDefaultRunInBaseBranch(runInBranchState);
+  const selectedRunInBaseBranch =
+    runInBaseBranch.trim() || resolveDefaultRunInBaseBranch(runInBranchState);
   const runInLocalPathDisplay = runInLocalPath.trim();
   const runInWorktreePathDisplay = runInWorktreePath.trim();
   const runInEnvironmentPathDisplay = runInEnvironmentPath.trim();
 
-  const collapseTagsByDefault = databaseSemantic?.tags !== null
-    && databaseSemantic?.tags !== undefined
-    && collapsedProperties.includes("tags");
-  const collapseAssigneeByDefault = databaseSemantic?.assignee !== null
-    && databaseSemantic?.assignee !== undefined
-    && collapsedProperties.includes("assignee");
+  const collapseTagsByDefault =
+    databaseSemantic?.tags !== null &&
+    databaseSemantic?.tags !== undefined &&
+    collapsedProperties.includes("tags");
+  const collapseAssigneeByDefault =
+    databaseSemantic?.assignee !== null &&
+    databaseSemantic?.assignee !== undefined &&
+    collapsedProperties.includes("assignee");
   const collapseThreadsByDefault = hasThreadsRow && collapsedProperties.includes("threads");
-  const collapseScheduleByDefault = scheduleCapability
-    && collapsedProperties.includes("schedule");
+  const collapseScheduleByDefault = scheduleCapability && collapsedProperties.includes("schedule");
 
   const collapsedPropertyCount = [
     collapseTagsByDefault,
@@ -745,7 +740,9 @@ export function usePageStageController(
   const contentBodyClassName = [
     "mx-auto w-full px-(--page-stage-body-gutter-inline)",
     limitMainContentWidth ? "max-w-(--page-stage-body-max-width)" : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   const contentShellClassName = "w-full";
 
   const collapsedPropertyLabel = formatPageStageCollapsedPropertyCountLabel(

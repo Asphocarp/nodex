@@ -26,13 +26,13 @@ export interface LocalMacInstallOptions {
   readonly installCli: boolean;
   readonly source:
     | {
-      readonly kind: "fresh";
-      readonly repositoryRoot: string;
-    }
+        readonly kind: "fresh";
+        readonly repositoryRoot: string;
+      }
     | {
-      readonly appPath: string;
-      readonly kind: "artifact";
-    };
+        readonly appPath: string;
+        readonly kind: "artifact";
+      };
   /** Sign with the full release pipeline (Apple timestamps) instead of the fast local mode. */
   readonly strictSign: boolean;
   readonly targetArch: NativeRuntimeArchitecture;
@@ -156,8 +156,8 @@ const assertAppBundle = (appPath: string, label: string): void => {
   }
   if (!existsSync(appPath)) {
     throw new Error(
-      `${label} does not exist: ${appPath}\n`
-      + "Run pnpm run package:mac first, or pass --app-path.",
+      `${label} does not exist: ${appPath}\n` +
+        "Run pnpm run package:mac first, or pass --app-path.",
     );
   }
   const metadata = lstatSync(appPath);
@@ -170,13 +170,9 @@ export function assertLocalInstallDestination(options: LocalMacBuildInstallOptio
   if (!isAbsolute(options.destination) || !options.destination.endsWith(".app")) {
     throw new Error("The local install destination must be an absolute .app path.");
   }
-  if (
-    options.destination === PRODUCTION_DESTINATION
-    && !options.allowProductionDestination
-  ) {
+  if (options.destination === PRODUCTION_DESTINATION && !options.allowProductionDestination) {
     throw new Error(
-      "Refusing to replace /Applications/Nodex.app without "
-      + "--allow-production-destination.",
+      "Refusing to replace /Applications/Nodex.app without " + "--allow-production-destination.",
     );
   }
   if (options.destination === "/" || dirname(options.destination) === "/") {
@@ -234,9 +230,7 @@ const verify = (
   return provenance.provenanceId;
 };
 
-export async function installLocalMacBuild(
-  options: LocalMacBuildInstallOptions,
-): Promise<void> {
+export async function installLocalMacBuild(options: LocalMacBuildInstallOptions): Promise<void> {
   if (process.platform !== "darwin") {
     throw new Error("Local Nodex app deployment is supported only on macOS.");
   }
@@ -393,9 +387,7 @@ export function createFreshLocalMacPackagePlan(
   };
 }
 
-const installFreshLocalMacBuild = async (
-  options: LocalMacInstallOptions,
-): Promise<void> => {
+const installFreshLocalMacBuild = async (options: LocalMacInstallOptions): Promise<void> => {
   if (options.source.kind !== "fresh") {
     throw new Error("Fresh local packaging requires a repository source.");
   }
@@ -413,9 +405,7 @@ const installFreshLocalMacBuild = async (
     for (const command of plan.commands) {
       execFileSync(command.command, command.arguments, {
         cwd: options.source.repositoryRoot,
-        env: command.environment
-          ? { ...process.env, ...command.environment }
-          : process.env,
+        env: command.environment ? { ...process.env, ...command.environment } : process.env,
         stdio: "inherit",
       });
     }
@@ -455,10 +445,7 @@ const main = async (): Promise<void> => {
   await installLocalMac(options);
 };
 
-if (
-  process.argv[1]
-  && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

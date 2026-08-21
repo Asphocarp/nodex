@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot } from "@/components/shared/icons/generic-icons";
 import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
@@ -34,10 +29,7 @@ import type {
   SubagentsPanelTab,
 } from "@/lib/workbench-panel-tab-model";
 import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
-import {
-  SideChatExpiredPanel,
-  SideChatLoadingPanel,
-} from "./workbench-side-chat-panels";
+import { SideChatExpiredPanel, SideChatLoadingPanel } from "./workbench-side-chat-panels";
 
 export function BackgroundAgentSessionTab({
   tab,
@@ -57,39 +49,26 @@ export function BackgroundAgentSessionTab({
   tab: BackgroundAgentPanelTab;
   activeSession: WorkbenchSessionRenderProjection;
   projects: Project[];
-  onRefreshSessions: (
-    projectId: string,
-  ) => Promise<WorkbenchSessionRenderProjection[]>;
+  onRefreshSessions: (projectId: string) => Promise<WorkbenchSessionRenderProjection[]>;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
-  onOpenHooksSettings: NonNullable<
-    ThreadStageActions["onOpenHooksSettings"]
-  >;
+  onOpenHooksSettings: NonNullable<ThreadStageActions["onOpenHooksSettings"]>;
   threadQueueFollowUpsEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
-  onQueueingEnabledChange:
-    ThreadStageActions["onQueueingEnabledChange"];
+  onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
-  onOpenTurnDiffFileInSidePanel: NonNullable<
-    ThreadStageActions["onOpenTurnDiffFileInSidePanel"]
-  >;
+  onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
   turnDiffHoverPreviewDisabled: boolean;
 }) {
-  const project =
-    projects.find((candidate) => candidate.id === tab.projectId) ?? null;
+  const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
   const conversation = useConversation(tab.threadId);
   const codexControl = useCodexAppServerControl(tab.projectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
-  const requestThreadStreamSnapshot =
-    codexControl.requestThreadStreamSnapshot;
-  const [collaborationModes, setCollaborationModes] = useState<
-    CodexCollaborationModePreset[]
-  >([]);
-  const [
-    selectedCollaborationMode,
-    setSelectedCollaborationMode,
-  ] = useState<CodexCollaborationModeKind>("default");
+  const requestThreadStreamSnapshot = codexControl.requestThreadStreamSnapshot;
+  const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
+  const [selectedCollaborationMode, setSelectedCollaborationMode] =
+    useState<CodexCollaborationModeKind>("default");
 
   useEffect(() => {
     void loadModels().catch(() => undefined);
@@ -99,50 +78,50 @@ export function BackgroundAgentSessionTab({
   }, [listCollaborationModes, loadModels]);
 
   useEffect(() => {
-    void requestThreadStreamSnapshot(tab.threadId)
-      .catch(() => undefined);
+    void requestThreadStreamSnapshot(tab.threadId).catch(() => undefined);
   }, [requestThreadStreamSnapshot, tab.threadId]);
 
-  const actions = useMemo(() => createThreadStageActions({
-    activeThreadId: tab.threadId,
-    codexControl,
-    onEnsureDefaultDraftSessionForProject: async () => activeSession,
-    onRefreshProjectSessions: (projectId) =>
-      projectId === null
-        ? Promise.resolve([])
-        : onRefreshSessions(projectId),
-    onQueueingEnabledChange,
-    onOpenThread,
-    onOpenTurnDiffReview,
-    onOpenTurnDiffFileInSidePanel,
-    currentSessionId: activeSession.id,
-    currentSessionProjectId:
-      activeSession.projectId ?? tab.projectId,
-    projectId: tab.projectId,
-    onNewThreadProjectChange: () => undefined,
-    onRequestNewChatProjectCreate: () => undefined,
-    onNewThreadStartInTargetChange: () => undefined,
-    onNewThreadStartInEnvironmentChange: () => undefined,
-    onRefreshNewThreadStartInEnvironments: async () => undefined,
-    onOpenNewThreadLocalEnvironmentsSettings: () => undefined,
-    onOpenMcpAppSidePanel,
-    onOpenHooksSettings,
-    selectedCollaborationMode,
-    setSelectedCollaborationMode,
-  }), [
-    activeSession,
-    codexControl,
-    onOpenMcpAppSidePanel,
-    onOpenHooksSettings,
-    onOpenThread,
-    onOpenTurnDiffReview,
-    onOpenTurnDiffFileInSidePanel,
-    onQueueingEnabledChange,
-    onRefreshSessions,
-    selectedCollaborationMode,
-    tab.projectId,
-    tab.threadId,
-  ]);
+  const actions = useMemo(
+    () =>
+      createThreadStageActions({
+        activeThreadId: tab.threadId,
+        codexControl,
+        onEnsureDefaultDraftSessionForProject: async () => activeSession,
+        onRefreshProjectSessions: (projectId) =>
+          projectId === null ? Promise.resolve([]) : onRefreshSessions(projectId),
+        onQueueingEnabledChange,
+        onOpenThread,
+        onOpenTurnDiffReview,
+        onOpenTurnDiffFileInSidePanel,
+        currentSessionId: activeSession.id,
+        currentSessionProjectId: activeSession.projectId ?? tab.projectId,
+        projectId: tab.projectId,
+        onNewThreadProjectChange: () => undefined,
+        onRequestNewChatProjectCreate: () => undefined,
+        onNewThreadStartInTargetChange: () => undefined,
+        onNewThreadStartInEnvironmentChange: () => undefined,
+        onRefreshNewThreadStartInEnvironments: async () => undefined,
+        onOpenNewThreadLocalEnvironmentsSettings: () => undefined,
+        onOpenMcpAppSidePanel,
+        onOpenHooksSettings,
+        selectedCollaborationMode,
+        setSelectedCollaborationMode,
+      }),
+    [
+      activeSession,
+      codexControl,
+      onOpenMcpAppSidePanel,
+      onOpenHooksSettings,
+      onOpenThread,
+      onOpenTurnDiffReview,
+      onOpenTurnDiffFileInSidePanel,
+      onQueueingEnabledChange,
+      onRefreshSessions,
+      selectedCollaborationMode,
+      tab.projectId,
+      tab.threadId,
+    ],
+  );
 
   if (!conversation) {
     return <BackgroundAgentLoadingPanel title={tab.title} />;
@@ -166,16 +145,12 @@ export function BackgroundAgentSessionTab({
         backgroundAgentDetail={true}
         availableModels={codexControl.availableModels}
         agentProviderCatalog={codexControl.agentProviderCatalog}
-        agentProviderCatalogLoading={
-          codexControl.agentProviderCatalogLoading
-        }
+        agentProviderCatalogLoading={codexControl.agentProviderCatalogLoading}
         selectedExecutionProfile={codexControl.executionProfile}
         collaborationModes={collaborationModes}
         selectedCollaborationMode={selectedCollaborationMode}
         selectedModel={codexControl.threadSettings.model ?? ""}
-        selectedReasoningEffort={
-          codexControl.threadSettings.reasoningEffort ?? "medium"
-        }
+        selectedReasoningEffort={codexControl.threadSettings.reasoningEffort ?? "medium"}
         selectedPersonality={codexControl.personality}
         reasoningEffortOptions={codexControl.reasoningEffortOptions}
         permissionMode={codexControl.permissionMode}
@@ -212,25 +187,16 @@ export function SubagentsPanelSessionTab({
   tab: SubagentsPanelTab;
   activeSession: WorkbenchSessionRenderProjection;
   projects: Project[];
-  onRefreshSessions: (
-    projectId: string,
-  ) => Promise<WorkbenchSessionRenderProjection[]>;
+  onRefreshSessions: (projectId: string) => Promise<WorkbenchSessionRenderProjection[]>;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
-  onOpenHooksSettings: NonNullable<
-    ThreadStageActions["onOpenHooksSettings"]
-  >;
+  onOpenHooksSettings: NonNullable<ThreadStageActions["onOpenHooksSettings"]>;
   threadQueueFollowUpsEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
-  onQueueingEnabledChange:
-    ThreadStageActions["onQueueingEnabledChange"];
+  onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
-  onRouteSubagent: (
-    subagent: ThreadOpenSubagentPayload | null,
-  ) => Promise<boolean>;
+  onRouteSubagent: (subagent: ThreadOpenSubagentPayload | null) => Promise<boolean>;
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
-  onOpenTurnDiffFileInSidePanel: NonNullable<
-    ThreadStageActions["onOpenTurnDiffFileInSidePanel"]
-  >;
+  onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
   turnDiffHoverPreviewDisabled: boolean;
 }) {
   const selectedConversation = useConversation(tab.selectedThreadId);
@@ -240,15 +206,16 @@ export function SubagentsPanelSessionTab({
     },
     [onRouteSubagent],
   );
-  const openFromDetail = useCallback<
-    ThreadStageActions["onOpenThread"]
-  >(async (threadId, context) => {
-    if (context?.subagent?.showInlineActivity === true) {
-      await onRouteSubagent(context.subagent);
-      return;
-    }
-    await onOpenThread(threadId, context);
-  }, [onOpenThread, onRouteSubagent]);
+  const openFromDetail = useCallback<ThreadStageActions["onOpenThread"]>(
+    async (threadId, context) => {
+      if (context?.subagent?.showInlineActivity === true) {
+        await onRouteSubagent(context.subagent);
+        return;
+      }
+      await onOpenThread(threadId, context);
+    },
+    [onOpenThread, onRouteSubagent],
+  );
 
   if (!tab.selectedThreadId) {
     return (
@@ -261,8 +228,7 @@ export function SubagentsPanelSessionTab({
           rootThreadId={tab.rootThreadId}
           onError={(message) => toast.danger(message)}
           onSelect={(row) => {
-            const subagent =
-              buildBackgroundAgentOpenContext(row).subagent;
+            const subagent = buildBackgroundAgentOpenContext(row).subagent;
             if (subagent) routeSelectedSubagent(subagent);
           }}
         />
@@ -270,10 +236,11 @@ export function SubagentsPanelSessionTab({
     );
   }
 
-  const displayName = tab.selectedDisplayName
-    || selectedConversation?.agentNickname?.replace(/^@/u, "")
-    || selectedConversation?.threadName
-    || tab.selectedThreadId;
+  const displayName =
+    tab.selectedDisplayName ||
+    selectedConversation?.agentNickname?.replace(/^@/u, "") ||
+    selectedConversation?.threadName ||
+    tab.selectedThreadId;
   const detailTab: BackgroundAgentPanelTab = {
     backgroundAgent: true,
     id: `${tab.id}:detail:${tab.selectedThreadId}`,
@@ -289,9 +256,7 @@ export function SubagentsPanelSessionTab({
       displayName,
       agentRole: selectedConversation?.agentRole ?? null,
       spawnModel: null,
-      status: selectedConversation?.statusType === "active"
-        ? "active"
-        : "done",
+      status: selectedConversation?.statusType === "active" ? "active" : "done",
       statusSummary: null,
       showInlineActivity: true,
       diffStats: null,
@@ -321,23 +286,15 @@ export function SubagentsPanelSessionTab({
           onQueueingEnabledChange={onQueueingEnabledChange}
           onOpenThread={openFromDetail}
           onOpenTurnDiffReview={onOpenTurnDiffReview}
-          onOpenTurnDiffFileInSidePanel={
-            onOpenTurnDiffFileInSidePanel
-          }
-          turnDiffHoverPreviewDisabled={
-            turnDiffHoverPreviewDisabled
-          }
+          onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         />
       </div>
     </div>
   );
 }
 
-function BackgroundAgentLoadingPanel({
-  title,
-}: {
-  title: string;
-}) {
+function BackgroundAgentLoadingPanel({ title }: { title: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">
       <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
@@ -348,9 +305,7 @@ function BackgroundAgentLoadingPanel({
             containerClassName="absolute"
           />
         </div>
-        <div className="text-base font-semibold text-token-text-primary">
-          {title}
-        </div>
+        <div className="text-base font-semibold text-token-text-primary">{title}</div>
       </div>
     </div>
   );
@@ -375,23 +330,16 @@ export function SideChatSessionTab({
   tab: SideChatPanelTab;
   activeSession: WorkbenchSessionRenderProjection;
   projects: Project[];
-  onRefreshSessions: (
-    projectId: string | null,
-  ) => Promise<WorkbenchSessionRenderProjection[]>;
+  onRefreshSessions: (projectId: string | null) => Promise<WorkbenchSessionRenderProjection[]>;
   onRecreateSideChat: () => void;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
-  onOpenHooksSettings: NonNullable<
-    ThreadStageActions["onOpenHooksSettings"]
-  >;
+  onOpenHooksSettings: NonNullable<ThreadStageActions["onOpenHooksSettings"]>;
   threadQueueFollowUpsEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
-  onQueueingEnabledChange:
-    ThreadStageActions["onQueueingEnabledChange"];
+  onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
-  onOpenTurnDiffFileInSidePanel: NonNullable<
-    ThreadStageActions["onOpenTurnDiffFileInSidePanel"]
-  >;
+  onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
   turnDiffHoverPreviewDisabled: boolean;
 }) {
   const conversation = useConversation(tab.threadId);
@@ -400,18 +348,13 @@ export function SideChatSessionTab({
     conversationProjectId: conversation?.projectId,
     parentProjectId: activeSession.projectId,
   });
-  const project =
-    projects.find((candidate) => candidate.id === projectId) ?? null;
+  const project = projects.find((candidate) => candidate.id === projectId) ?? null;
   const codexControl = useCodexAppServerControl(projectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
-  const [collaborationModes, setCollaborationModes] = useState<
-    CodexCollaborationModePreset[]
-  >([]);
-  const [
-    selectedCollaborationMode,
-    setSelectedCollaborationMode,
-  ] = useState<CodexCollaborationModeKind>("default");
+  const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
+  const [selectedCollaborationMode, setSelectedCollaborationMode] =
+    useState<CodexCollaborationModeKind>("default");
 
   useEffect(() => {
     if (tab.status !== "ready") return;
@@ -421,57 +364,53 @@ export function SideChatSessionTab({
       .catch(() => setCollaborationModes([]));
   }, [listCollaborationModes, loadModels, tab.status]);
 
-  const actions = useMemo(() => createThreadStageActions({
-    activeThreadId: tab.threadId,
-    codexControl,
-    onEnsureDefaultDraftSessionForProject: async () => activeSession,
-    onRefreshProjectSessions: onRefreshSessions,
-    onQueueingEnabledChange,
-    onOpenThread,
-    onOpenTurnDiffReview,
-    onOpenTurnDiffFileInSidePanel,
-    currentSessionId: activeSession.id,
-    currentSessionProjectId: activeSession.projectId,
-    projectId,
-    onNewThreadProjectChange: () => undefined,
-    onRequestNewChatProjectCreate: () => undefined,
-    onNewThreadStartInTargetChange: () => undefined,
-    onNewThreadStartInEnvironmentChange: () => undefined,
-    onRefreshNewThreadStartInEnvironments: async () => undefined,
-    onOpenNewThreadLocalEnvironmentsSettings: () => undefined,
-    onOpenMcpAppSidePanel,
-    onOpenHooksSettings,
-    selectedCollaborationMode,
-    setSelectedCollaborationMode,
-  }), [
-    activeSession,
-    codexControl,
-    onOpenMcpAppSidePanel,
-    onOpenHooksSettings,
-    onOpenThread,
-    onOpenTurnDiffReview,
-    onOpenTurnDiffFileInSidePanel,
-    onQueueingEnabledChange,
-    onRefreshSessions,
-    selectedCollaborationMode,
-    projectId,
-    tab.threadId,
-  ]);
+  const actions = useMemo(
+    () =>
+      createThreadStageActions({
+        activeThreadId: tab.threadId,
+        codexControl,
+        onEnsureDefaultDraftSessionForProject: async () => activeSession,
+        onRefreshProjectSessions: onRefreshSessions,
+        onQueueingEnabledChange,
+        onOpenThread,
+        onOpenTurnDiffReview,
+        onOpenTurnDiffFileInSidePanel,
+        currentSessionId: activeSession.id,
+        currentSessionProjectId: activeSession.projectId,
+        projectId,
+        onNewThreadProjectChange: () => undefined,
+        onRequestNewChatProjectCreate: () => undefined,
+        onNewThreadStartInTargetChange: () => undefined,
+        onNewThreadStartInEnvironmentChange: () => undefined,
+        onRefreshNewThreadStartInEnvironments: async () => undefined,
+        onOpenNewThreadLocalEnvironmentsSettings: () => undefined,
+        onOpenMcpAppSidePanel,
+        onOpenHooksSettings,
+        selectedCollaborationMode,
+        setSelectedCollaborationMode,
+      }),
+    [
+      activeSession,
+      codexControl,
+      onOpenMcpAppSidePanel,
+      onOpenHooksSettings,
+      onOpenThread,
+      onOpenTurnDiffReview,
+      onOpenTurnDiffFileInSidePanel,
+      onQueueingEnabledChange,
+      onRefreshSessions,
+      selectedCollaborationMode,
+      projectId,
+      tab.threadId,
+    ],
+  );
 
   if (tab.status === "loading") {
     return <SideChatLoadingPanel title={tab.title} />;
   }
 
-  if (
-    tab.status === "expired"
-    || !tab.threadId
-    || !conversation
-  ) {
-    return (
-      <SideChatExpiredPanel
-        onRecreateSideChat={onRecreateSideChat}
-      />
-    );
+  if (tab.status === "expired" || !tab.threadId || !conversation) {
+    return <SideChatExpiredPanel onRecreateSideChat={onRecreateSideChat} />;
   }
 
   return (
@@ -489,16 +428,12 @@ export function SideChatSessionTab({
         activeThreadSummary={conversation}
         availableModels={codexControl.availableModels}
         agentProviderCatalog={codexControl.agentProviderCatalog}
-        agentProviderCatalogLoading={
-          codexControl.agentProviderCatalogLoading
-        }
+        agentProviderCatalogLoading={codexControl.agentProviderCatalogLoading}
         selectedExecutionProfile={codexControl.executionProfile}
         collaborationModes={collaborationModes}
         selectedCollaborationMode={selectedCollaborationMode}
         selectedModel={codexControl.threadSettings.model ?? ""}
-        selectedReasoningEffort={
-          codexControl.threadSettings.reasoningEffort ?? "medium"
-        }
+        selectedReasoningEffort={codexControl.threadSettings.reasoningEffort ?? "medium"}
         selectedPersonality={codexControl.personality}
         reasoningEffortOptions={codexControl.reasoningEffortOptions}
         permissionMode={codexControl.permissionMode}
@@ -513,9 +448,7 @@ export function SideChatSessionTab({
           parentThreadId: tab.parentThreadId,
           tabTitle: tab.title,
         }}
-        turnDiffHoverPreviewDisabled={
-          turnDiffHoverPreviewDisabled
-        }
+        turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         actions={actions}
       />
     </div>

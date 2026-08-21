@@ -14,10 +14,6 @@ export interface PlanNodexAgentResourceAccessInput {
 }
 
 export interface NodexAgentResourceAuthorityPort {
-  plan(
-    input: PlanNodexAgentResourceAccessInput,
-  ): Promise<NodexAgentResourceAccessPlan>;
-  persistProjectGrants(
-    input: PersistNodexAgentProjectResourceGrantsInput,
-  ): Promise<void>;
+  plan(input: PlanNodexAgentResourceAccessInput): Promise<NodexAgentResourceAccessPlan>;
+  persistProjectGrants(input: PersistNodexAgentProjectResourceGrantsInput): Promise<void>;
 }

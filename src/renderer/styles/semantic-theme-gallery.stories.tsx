@@ -28,7 +28,10 @@ function SemanticThemeGallery({ scheme }: { scheme: "light" | "dark" }) {
             </div>
           ))}
         </section>
-        <section className="rounded-xl border-[0.5px] border-default p-4" aria-label="Activity composition">
+        <section
+          className="rounded-xl border-[0.5px] border-default p-4"
+          aria-label="Activity composition"
+        >
           <div className="flex items-center gap-2 text-info">
             <span aria-hidden="true" className="size-2 rounded-full bg-text-info" />
             <span>Preparing workspace</span>

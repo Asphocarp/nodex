@@ -13,8 +13,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import { readIsolatedRunLeaseOwner } from
-  "../src/main/core-client/isolated-run-ownership";
+import { readIsolatedRunLeaseOwner } from "../src/main/core-client/isolated-run-ownership";
 import { copyIsolatedCodexConfig } from "./copy-isolated-codex-config";
 
 export const DEVELOPMENT_HOME_MANIFEST_FILE = "dev-home.json" as const;
@@ -61,29 +60,27 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const parseSeed = (value: unknown): DevelopmentSeedProvenance | undefined => {
   if (value === undefined) return undefined;
   if (
-    !isRecord(value)
-    || typeof value.id !== "string"
-    || value.id.length === 0
-    || typeof value.revision !== "number"
-    || !Number.isInteger(value.revision)
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    value.id.length === 0 ||
+    typeof value.revision !== "number" ||
+    !Number.isInteger(value.revision)
   ) {
     throw new Error("Development home seed provenance is invalid");
   }
   return { id: value.id, revision: value.revision };
 };
 
-export const parseDevelopmentHomeManifest = (
-  value: unknown,
-): DevelopmentHomeManifest => {
+export const parseDevelopmentHomeManifest = (value: unknown): DevelopmentHomeManifest => {
   if (
-    !isRecord(value)
-    || value.version !== DEVELOPMENT_HOME_MANIFEST_VERSION
-    || typeof value.environmentId !== "string"
-    || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(value.environmentId)
-    || typeof value.repositoryRealpath !== "string"
-    || !path.isAbsolute(value.repositoryRealpath)
-    || typeof value.createdAt !== "string"
-    || (value.initializedAt !== undefined && typeof value.initializedAt !== "string")
+    !isRecord(value) ||
+    value.version !== DEVELOPMENT_HOME_MANIFEST_VERSION ||
+    typeof value.environmentId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(value.environmentId) ||
+    typeof value.repositoryRealpath !== "string" ||
+    !path.isAbsolute(value.repositoryRealpath) ||
+    typeof value.createdAt !== "string" ||
+    (value.initializedAt !== undefined && typeof value.initializedAt !== "string")
   ) {
     throw new Error("Development home manifest is invalid or unsupported");
   }
@@ -92,9 +89,7 @@ export const parseDevelopmentHomeManifest = (
     environmentId: value.environmentId,
     repositoryRealpath: value.repositoryRealpath,
     createdAt: value.createdAt,
-    ...(value.initializedAt === undefined
-      ? {}
-      : { initializedAt: value.initializedAt }),
+    ...(value.initializedAt === undefined ? {} : { initializedAt: value.initializedAt }),
     ...(value.seed === undefined ? {} : { seed: parseSeed(value.seed) }),
   };
 };
@@ -170,10 +165,7 @@ const assertRealDirectory = async (root: string): Promise<void> => {
 export const resolveDevelopmentHomeRoot = (
   repositoryRoot: string,
   configuredHome?: string,
-): string => path.resolve(
-  repositoryRoot,
-  configuredHome ?? "runs.local/default",
-);
+): string => path.resolve(repositoryRoot, configuredHome ?? "runs.local/default");
 
 export const openDevelopmentEnvironmentHome = async (input: {
   readonly repositoryRoot: string;
@@ -207,9 +199,7 @@ export const openDevelopmentEnvironmentHome = async (input: {
     if (!isMissing(error)) throw error;
     const entries = await readdir(root);
     if (entries.length > 0) {
-      throw new Error(
-        `Development home exists without ${DEVELOPMENT_HOME_MANIFEST_FILE}: ${root}`,
-      );
+      throw new Error(`Development home exists without ${DEVELOPMENT_HOME_MANIFEST_FILE}: ${root}`);
     }
     manifest = {
       version: DEVELOPMENT_HOME_MANIFEST_VERSION,
@@ -252,8 +242,8 @@ export const refreshDevelopmentEnvironmentHome = async (
   await assertRealDirectory(home.root);
   const manifest = await readManifest(home.manifestPath);
   if (
-    manifest.environmentId !== home.manifest.environmentId
-    || manifest.repositoryRealpath !== home.repositoryRealpath
+    manifest.environmentId !== home.manifest.environmentId ||
+    manifest.repositoryRealpath !== home.repositoryRealpath
   ) {
     throw new Error("Development home ownership changed");
   }
@@ -266,12 +256,9 @@ export const markDevelopmentEnvironmentInitialized = async (
 ): Promise<DevelopmentEnvironmentHome> => {
   const current = await refreshDevelopmentEnvironmentHome(home);
   if (
-    seed
-    && current.manifest.seed
-    && (
-      current.manifest.seed.id !== seed.id
-      || current.manifest.seed.revision !== seed.revision
-    )
+    seed &&
+    current.manifest.seed &&
+    (current.manifest.seed.id !== seed.id || current.manifest.seed.revision !== seed.revision)
   ) {
     throw new Error("Development home seed provenance is immutable");
   }
@@ -322,10 +309,7 @@ export const updateDevelopmentAgentFiles = async (
     });
   }
   if (input.agentConfigToml) {
-    const source = await requireRegularSource(
-      input.agentConfigToml,
-      "--agent-config-toml",
-    );
+    const source = await requireRegularSource(input.agentConfigToml, "--agent-config-toml");
     await installPrivateFile(path.join(home.codexHome, "config.toml"), async (target) => {
       await copyIsolatedCodexConfig(source, target);
     });
@@ -351,8 +335,8 @@ export const cleanupDevelopmentEnvironmentHome = async (
   try {
     const manifest = await readManifest(home.manifestPath);
     if (
-      manifest.environmentId !== home.manifest.environmentId
-      || manifest.repositoryRealpath !== home.repositoryRealpath
+      manifest.environmentId !== home.manifest.environmentId ||
+      manifest.repositoryRealpath !== home.repositoryRealpath
     ) {
       return { status: "unsafe", reason: "Development home ownership manifest does not match" };
     }

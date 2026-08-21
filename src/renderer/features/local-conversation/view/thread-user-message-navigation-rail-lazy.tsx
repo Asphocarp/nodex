@@ -1,12 +1,8 @@
 import { lazy, Suspense } from "react";
 import { useMarkerNavigationIdleReady } from "@/components/shared/marker-navigation-rail";
 import type { ThreadUserMessageNavigationItem } from "../thread-stage-types";
-import {
-  MIN_THREAD_USER_MESSAGE_NAVIGATION_ITEMS,
-} from "../projection/thread-user-message-navigation-items";
-import type {
-  ThreadUserMessageNavigationRailProps,
-} from "./thread-user-message-navigation-rail";
+import { MIN_THREAD_USER_MESSAGE_NAVIGATION_ITEMS } from "../projection/thread-user-message-navigation-items";
+import type { ThreadUserMessageNavigationRailProps } from "./thread-user-message-navigation-rail";
 
 export const CODEX_USER_MESSAGE_NAVIGATION_FEATURE_FLAG_ID = 2551582477;
 
@@ -33,10 +29,7 @@ export function ThreadUserMessageNavigationRailLazy({
 
   return (
     <Suspense fallback={null}>
-      <LazyThreadUserMessageNavigationRail
-        items={items}
-        onRevealItem={onRevealItem}
-      />
+      <LazyThreadUserMessageNavigationRail items={items} onRevealItem={onRevealItem} />
     </Suspense>
   );
 }

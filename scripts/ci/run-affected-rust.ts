@@ -27,19 +27,27 @@ export const selectAffectedRustPackageNames = (
   const workspaceIds = new Set(metadata.workspace_members);
   const packages = metadata.packages.filter((candidate) => workspaceIds.has(candidate.id));
   const allNames = packages.map((candidate) => candidate.name).sort();
-  if (changedPaths.some((candidate) => (
-    candidate === "Cargo.toml"
-    || candidate === "Cargo.lock"
-    || candidate === "rust-toolchain.toml"
-  ))) return allNames;
+  if (
+    changedPaths.some(
+      (candidate) =>
+        candidate === "Cargo.toml" ||
+        candidate === "Cargo.lock" ||
+        candidate === "rust-toolchain.toml",
+    )
+  )
+    return allNames;
 
-  const roots = packages.map((candidate) => ({
-    name: candidate.name,
-    root: normalize(path.relative(repositoryRoot, path.dirname(candidate.manifest_path))),
-  })).sort((left, right) => right.root.length - left.root.length);
+  const roots = packages
+    .map((candidate) => ({
+      name: candidate.name,
+      root: normalize(path.relative(repositoryRoot, path.dirname(candidate.manifest_path))),
+    }))
+    .sort((left, right) => right.root.length - left.root.length);
   const directlyAffected = new Set<string>();
   for (const changedPath of changedPaths.filter((candidate) => candidate.startsWith("crates/"))) {
-    const owner = roots.find(({ root }) => changedPath === root || changedPath.startsWith(`${root}/`));
+    const owner = roots.find(
+      ({ root }) => changedPath === root || changedPath.startsWith(`${root}/`),
+    );
     if (!owner) return allNames;
     directlyAffected.add(owner.name);
   }
@@ -71,7 +79,8 @@ const run = (
     stdio: captureOutput ? ["ignore", "pipe", "inherit"] : "inherit",
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed with status ${result.status}.`);
+  if (result.status !== 0)
+    throw new Error(`${command} ${args.join(" ")} failed with status ${result.status}.`);
   return captureOutput ? result.stdout : "";
 };
 
@@ -90,20 +99,26 @@ const main = (): void => {
   if (!Array.isArray(parsed) || !parsed.every((candidate) => typeof candidate === "string")) {
     throw new Error("CI_CHANGED_PATHS_JSON must contain a string array.");
   }
-  const metadata = JSON.parse(run(
-    "cargo",
-    ["metadata", "--format-version", "1", "--no-deps"],
-    cwd,
-    true,
-  )) as CargoMetadata;
-  const packages = process.env.CI_RUST_FULL === "true"
-    ? metadata.packages.filter((candidate) => metadata.workspace_members.includes(candidate.id)).map((candidate) => candidate.name).sort()
-    : selectAffectedRustPackageNames(metadata, cwd, parsed);
-  if (packages.length === 0) throw new Error("Rust lanes were selected without an affected workspace package.");
+  const metadata = JSON.parse(
+    run("cargo", ["metadata", "--format-version", "1", "--no-deps"], cwd, true),
+  ) as CargoMetadata;
+  const packages =
+    process.env.CI_RUST_FULL === "true"
+      ? metadata.packages
+          .filter((candidate) => metadata.workspace_members.includes(candidate.id))
+          .map((candidate) => candidate.name)
+          .sort()
+      : selectAffectedRustPackageNames(metadata, cwd, parsed);
+  if (packages.length === 0)
+    throw new Error("Rust lanes were selected without an affected workspace package.");
   const selected = packageArguments(packages);
 
   if (kind === "clippy") {
-    run("cargo", ["clippy", "--all-targets", "--all-features", ...selected, "--", "-D", "warnings"], cwd);
+    run(
+      "cargo",
+      ["clippy", "--all-targets", "--all-features", ...selected, "--", "-D", "warnings"],
+      cwd,
+    );
     return;
   }
   run("cargo", ["nextest", "run", "--all-features", "--profile", "ci", ...selected], cwd);

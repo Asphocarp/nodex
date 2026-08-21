@@ -1,8 +1,5 @@
 // Notion-flavored Markdown types
-import type {
-  NfmDateMentionDateFormat,
-  NfmDateMentionTimeFormat,
-} from "./date-mention";
+import type { NfmDateMentionDateFormat, NfmDateMentionTimeFormat } from "./date-mention";
 
 export type NfmTextColor =
   | "gray"
@@ -52,10 +49,7 @@ export const NFM_BG_COLORS: NfmBgColor[] = [
   "red_bg",
 ];
 
-export const NFM_COLORS: NfmColor[] = [
-  ...NFM_TEXT_COLORS,
-  ...NFM_BG_COLORS,
-];
+export const NFM_COLORS: NfmColor[] = [...NFM_TEXT_COLORS, ...NFM_BG_COLORS];
 
 export interface NfmStyleSet {
   bold?: boolean;

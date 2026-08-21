@@ -49,9 +49,11 @@ export const RegistryError: Story = {
   args: { registryError: true },
   play: async ({ canvasElement }) => {
     fireEvent.click(getByRole(canvasElement, "button", { name: "Edit Tags" }));
-    await waitFor(() => getByRole(document.body, "button", {
-      name: "Couldn’t load options. Retry",
-    }));
+    await waitFor(() =>
+      getByRole(document.body, "button", {
+        name: "Couldn’t load options. Retry",
+      }),
+    );
   },
 };
 export const CreationError: Story = {
@@ -61,13 +63,19 @@ export const CreationError: Story = {
   },
   play: async ({ canvasElement }) => {
     fireEvent.click(getByRole(canvasElement, "button", { name: "Edit Tags" }));
-    const search = await waitFor(() => getByRole(document.body, "combobox", {
-      name: "Search Tags options",
-    }));
+    const search = await waitFor(() =>
+      getByRole(document.body, "combobox", {
+        name: "Search Tags options",
+      }),
+    );
     fireEvent.change(search, { target: { value: "Fresh" } });
-    fireEvent.click(await waitFor(() => getByRole(document.body, "button", {
-      name: "Create “Fresh”",
-    })));
+    fireEvent.click(
+      await waitFor(() =>
+        getByRole(document.body, "button", {
+          name: "Create “Fresh”",
+        }),
+      ),
+    );
     await waitFor(() => getByText(document.body, "Couldn’t create option. Try again."));
   },
 };
@@ -77,8 +85,10 @@ export const Paginated: Story = {
 export const Open: Story = {
   play: async ({ canvasElement }) => {
     fireEvent.click(getByRole(canvasElement, "button", { name: "Edit Tags" }));
-    await waitFor(() => getByRole(document.body, "combobox", {
-      name: "Search Tags options",
-    }));
+    await waitFor(() =>
+      getByRole(document.body, "combobox", {
+        name: "Search Tags options",
+      }),
+    );
   },
 };

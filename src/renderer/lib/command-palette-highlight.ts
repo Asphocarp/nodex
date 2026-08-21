@@ -13,16 +13,14 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function findCodePointSubstring(
-  text: readonly string[],
-  query: readonly string[],
-): number {
+function findCodePointSubstring(text: readonly string[], query: readonly string[]): number {
   if (query.length === 0 || query.length > text.length) return -1;
 
   for (let start = 0; start <= text.length - query.length; start += 1) {
     let matches = true;
     for (let offset = 0; offset < query.length; offset += 1) {
-      if (text[start + offset]?.toLocaleLowerCase() === query[offset]?.toLocaleLowerCase()) continue;
+      if (text[start + offset]?.toLocaleLowerCase() === query[offset]?.toLocaleLowerCase())
+        continue;
       matches = false;
       break;
     }
@@ -63,9 +61,9 @@ export function buildCommandPaletteCharacterHighlightSegments(
   const substringStart = findCodePointSubstring(characters, queryCharacters);
   if (substringStart >= 0) {
     const matchedIndexes = new Set(
-      queryCharacters.flatMap((character, offset) => (
-        /\s/u.test(character) ? [] : [substringStart + offset]
-      )),
+      queryCharacters.flatMap((character, offset) =>
+        /\s/u.test(character) ? [] : [substringStart + offset],
+      ),
     );
     return buildSegmentsFromMatchedIndexes(characters, matchedIndexes);
   }
@@ -77,8 +75,8 @@ export function buildCommandPaletteCharacterHighlightSegments(
   let queryIndex = 0;
   characters.forEach((character, index) => {
     if (
-      queryIndex < queryCharacters.length
-      && character.toLocaleLowerCase() === queryCharacters[queryIndex]?.toLocaleLowerCase()
+      queryIndex < queryCharacters.length &&
+      character.toLocaleLowerCase() === queryCharacters[queryIndex]?.toLocaleLowerCase()
     ) {
       matchedIndexes.add(index);
       queryIndex += 1;
@@ -118,12 +116,14 @@ export function buildCommandPaletteTokenHighlightSegments(
 }
 
 export function buildCommandPaletteHighlightRegex(terms: string[]): RegExp | null {
-  const normalizedTerms = Array.from(new Set(
-    terms
-      .map((term) => term.trim())
-      .filter(Boolean)
-      .sort((left, right) => right.length - left.length),
-  ));
+  const normalizedTerms = Array.from(
+    new Set(
+      terms
+        .map((term) => term.trim())
+        .filter(Boolean)
+        .sort((left, right) => right.length - left.length),
+    ),
+  );
 
   if (normalizedTerms.length === 0) {
     return null;
@@ -189,7 +189,10 @@ export function buildCommandPaletteHighlightedSegments(
     return null;
   }
 
-  return buildCommandPaletteHighlightSegments(normalizedText, buildCommandPaletteHighlightRegex(terms));
+  return buildCommandPaletteHighlightSegments(
+    normalizedText,
+    buildCommandPaletteHighlightRegex(terms),
+  );
 }
 
 export interface SearchHighlightPreviewOptions {
@@ -202,43 +205,29 @@ function cropSearchHighlightPreview(
   firstMatch: { readonly index: number; readonly length: number } | null,
   options: SearchHighlightPreviewOptions,
 ): string {
-  const maxCharacters = options.maxCharacters === undefined
-    ? null
-    : Math.max(16, Math.floor(options.maxCharacters));
+  const maxCharacters =
+    options.maxCharacters === undefined ? null : Math.max(16, Math.floor(options.maxCharacters));
   if (!maxCharacters) return text;
 
   const characters = Array.from(text);
   const leadingContext = Math.max(
     0,
-    Math.min(
-      options.leadingContextCharacters ?? Math.floor(maxCharacters / 3),
-      maxCharacters - 1,
-    ),
+    Math.min(options.leadingContextCharacters ?? Math.floor(maxCharacters / 3), maxCharacters - 1),
   );
   const matchIndex = firstMatch?.index ?? 0;
   // Reposition even a short source when its match would land beyond the
   // rendered row's ellipsis. The character budget is an upper bound, not a
   // promise that CSS can display every character in a proportional font.
-  const rawStart = matchIndex > leadingContext
-    ? matchIndex - leadingContext
-    : 0;
-  const nextBoundary = rawStart > 0
-    ? characters.findIndex((character, index) => (
-        index >= rawStart
-        && index < matchIndex
-        && /\s/u.test(character)
-      ))
-    : -1;
-  const start = nextBoundary >= rawStart
-    ? nextBoundary + 1
-    : rawStart;
-  const minimumEnd = firstMatch
-    ? matchIndex + Math.max(firstMatch.length, 1)
-    : 0;
-  const end = Math.min(
-    characters.length,
-    Math.max(start + maxCharacters, minimumEnd),
-  );
+  const rawStart = matchIndex > leadingContext ? matchIndex - leadingContext : 0;
+  const nextBoundary =
+    rawStart > 0
+      ? characters.findIndex(
+          (character, index) => index >= rawStart && index < matchIndex && /\s/u.test(character),
+        )
+      : -1;
+  const start = nextBoundary >= rawStart ? nextBoundary + 1 : rawStart;
+  const minimumEnd = firstMatch ? matchIndex + Math.max(firstMatch.length, 1) : 0;
+  const end = Math.min(characters.length, Math.max(start + maxCharacters, minimumEnd));
   if (start === 0 && end === characters.length) return text;
   return `${start > 0 ? "…" : ""}${characters.slice(start, end).join("")}${end < characters.length ? "…" : ""}`;
 }
@@ -294,18 +283,15 @@ export function buildCommandPaletteQueryHighlightPreview(
       length: Array.from(token).length,
     }))
     .filter(({ index }) => index >= 0);
-  const firstMatch = phraseStart >= 0
-    ? { index: phraseStart, length: queryCharacters.length }
-    : tokenMatches.length > 0
-      ? tokenMatches.reduce((earliest, current) => (
-          current.index < earliest.index ? current : earliest
-        ))
-      : null;
-  const normalizedExcerpt = cropSearchHighlightPreview(
-    normalizedText,
-    firstMatch,
-    options,
-  );
+  const firstMatch =
+    phraseStart >= 0
+      ? { index: phraseStart, length: queryCharacters.length }
+      : tokenMatches.length > 0
+        ? tokenMatches.reduce((earliest, current) =>
+            current.index < earliest.index ? current : earliest,
+          )
+        : null;
+  const normalizedExcerpt = cropSearchHighlightPreview(normalizedText, firstMatch, options);
 
   if (!query.trim()) {
     return {

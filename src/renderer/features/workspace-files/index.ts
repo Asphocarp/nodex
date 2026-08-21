@@ -1,8 +1,5 @@
 export { WorkspaceFilesPanel } from "./workspace-files-panel";
-export {
-  decideWorkspaceFileTabOpen,
-  type WorkspaceFileOpenMode,
-} from "./workspace-file-tab-model";
+export { decideWorkspaceFileTabOpen, type WorkspaceFileOpenMode } from "./workspace-file-tab-model";
 export {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,

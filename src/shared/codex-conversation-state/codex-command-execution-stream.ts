@@ -22,10 +22,7 @@ export type CodexTerminalInteractionNotification = Extract<
   { method: "item/commandExecution/terminalInteraction" }
 >;
 
-export type CodexRawCommandExecution = Extract<
-  ThreadItem,
-  { type: "commandExecution" }
->;
+export type CodexRawCommandExecution = Extract<ThreadItem, { type: "commandExecution" }>;
 
 export interface CodexTerminalCommandUpdate {
   readonly conversationId: string;
@@ -104,9 +101,8 @@ function appendRawCommandOutput(
     current: currentPayload,
     delta,
   });
-  const aggregatedOutput = didTruncate || hadTruncationPrefix
-    ? `${CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX}${next}`
-    : next;
+  const aggregatedOutput =
+    didTruncate || hadTruncationPrefix ? `${CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX}${next}` : next;
   if (item.aggregatedOutput === aggregatedOutput) return item;
   return { ...item, aggregatedOutput };
 }
@@ -163,10 +159,8 @@ export function reduceCodexCommandOutputRawTurns(
   turns: readonly CodexCommandExecutionRawTurn[],
   update: CodexCommandOutputUpdate,
 ): CodexCommandExecutionRawMutationResult {
-  return reduceRawCommandExecution(
-    turns,
-    update.itemId,
-    (item) => appendRawCommandOutput(item, update.delta),
+  return reduceRawCommandExecution(turns, update.itemId, (item) =>
+    appendRawCommandOutput(item, update.delta),
   );
 }
 
@@ -174,10 +168,8 @@ export function reduceCodexTerminalCommandsRawTurns(
   turns: readonly CodexCommandExecutionRawTurn[],
   update: CodexTerminalCommandUpdate,
 ): CodexCommandExecutionRawMutationResult {
-  return reduceRawCommandExecution(
-    turns,
-    update.itemId,
-    (item) => appendRawTerminalCommands(item, update.commands),
+  return reduceRawCommandExecution(turns, update.itemId, (item) =>
+    appendRawTerminalCommands(item, update.commands),
   );
 }
 
@@ -228,10 +220,8 @@ export function reduceCodexConversationCommandOutput(
   state: CodexCanonicalConversationState,
   update: CodexCommandOutputUpdate,
 ): CodexCommandExecutionCanonicalMutationResult {
-  return reduceCanonicalCommandExecution(
-    state,
-    update.conversationId,
-    () => reduceCodexCommandOutputRawTurns(state.turns, update),
+  return reduceCanonicalCommandExecution(state, update.conversationId, () =>
+    reduceCodexCommandOutputRawTurns(state.turns, update),
   );
 }
 
@@ -239,10 +229,8 @@ export function reduceCodexConversationTerminalCommands(
   state: CodexCanonicalConversationState,
   update: CodexTerminalCommandUpdate,
 ): CodexCommandExecutionCanonicalMutationResult {
-  return reduceCanonicalCommandExecution(
-    state,
-    update.conversationId,
-    () => reduceCodexTerminalCommandsRawTurns(state.turns, update),
+  return reduceCanonicalCommandExecution(state, update.conversationId, () =>
+    reduceCodexTerminalCommandsRawTurns(state.turns, update),
   );
 }
 

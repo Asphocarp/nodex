@@ -57,9 +57,8 @@ export function startProjectionBlockDrag(
     return false;
   }
 
-  const nextBlock = typeof editor.getBlock === "function"
-    ? (editor.getBlock(block.id) ?? block)
-    : block;
+  const nextBlock =
+    typeof editor.getBlock === "function" ? (editor.getBlock(block.id) ?? block) : block;
   extension.blockDragStart(event, nextBlock);
   return true;
 }

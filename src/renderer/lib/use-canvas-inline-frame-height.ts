@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  type RefCallback,
-} from "react";
+import { useCallback, useLayoutEffect, useRef, type RefCallback } from "react";
 
 import {
   createCanvasInlineFramePersistence,
@@ -38,32 +33,27 @@ export function useCanvasInlineFrameHeight(input: {
           canvasBlockId: input.canvasBlockId,
         }
       : null;
-    const restored = identity
-      ? readCanvasInlineFramePreference(identity)
-      : null;
-    latestHeightRef.current =
-      restored?.heightPx ?? DEFAULT_CANVAS_INLINE_FRAME_HEIGHT_PX;
+    const restored = identity ? readCanvasInlineFramePreference(identity) : null;
+    latestHeightRef.current = restored?.heightPx ?? DEFAULT_CANVAS_INLINE_FRAME_HEIGHT_PX;
     element.style.height = `${latestHeightRef.current}px`;
     if (!identity) return;
 
     const persistence = createCanvasInlineFramePersistence(identity);
-    const observer = typeof ResizeObserver === "function"
-      ? new ResizeObserver((entries) => {
-          const entry = entries.find((candidate) =>
-            candidate.target === element
-          );
-          if (!entry) return;
-          const measuredHeight =
-            readResizeObserverBorderBoxSize(entry).height;
-          if (measuredHeight <= 0) return;
-          const normalized = normalizeCanvasInlineFramePreference({
-            heightPx: measuredHeight,
-          });
-          if (!normalized) return;
-          latestHeightRef.current = normalized.heightPx;
-          persistence.observe(normalized);
-        })
-      : null;
+    const observer =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver((entries) => {
+            const entry = entries.find((candidate) => candidate.target === element);
+            if (!entry) return;
+            const measuredHeight = readResizeObserverBorderBoxSize(entry).height;
+            if (measuredHeight <= 0) return;
+            const normalized = normalizeCanvasInlineFramePreference({
+              heightPx: measuredHeight,
+            });
+            if (!normalized) return;
+            latestHeightRef.current = normalized.heightPx;
+            persistence.observe(normalized);
+          })
+        : null;
     observer?.observe(element, { box: "border-box" });
 
     const flush = (): void => {

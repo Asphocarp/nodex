@@ -4,14 +4,18 @@ import type { WorkbenchReviewConfig } from "../workbench-review-context";
 const idSchema = z.string().min(1).max(512);
 
 export const WorkbenchReviewContextSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("project"),
-    projectId: idSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal("session"),
-    sessionId: idSchema,
-  }).strict(),
+  z
+    .object({
+      kind: z.literal("project"),
+      projectId: idSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("session"),
+      sessionId: idSchema,
+    })
+    .strict(),
 ]);
 
 function migrateWorkbenchReviewConfig(value: unknown): unknown {
@@ -30,16 +34,22 @@ function migrateWorkbenchReviewConfig(value: unknown): unknown {
 export const WorkbenchReviewConfigSchema = z.preprocess(
   migrateWorkbenchReviewConfig,
   z.union([
-    z.object({
-      projectId: idSchema,
-      context: WorkbenchReviewContextSchema.optional(),
-    }).strict(),
-    z.object({
-      projectId: z.null(),
-      context: z.object({
-        kind: z.literal("session"),
-        sessionId: idSchema,
-      }).strict(),
-    }).strict(),
+    z
+      .object({
+        projectId: idSchema,
+        context: WorkbenchReviewContextSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        projectId: z.null(),
+        context: z
+          .object({
+            kind: z.literal("session"),
+            sessionId: idSchema,
+          })
+          .strict(),
+      })
+      .strict(),
   ]),
 ) satisfies z.ZodType<WorkbenchReviewConfig>;

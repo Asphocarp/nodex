@@ -6,15 +6,9 @@ import {
   mapCoreAutomationEvent,
 } from "./desktop-automation-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import {
-  createFakeCoreHandshake,
-  FakeCoreClient,
-} from "./testing/fake-core-client";
+import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
-import type {
-  AutomationApplyResult,
-  AutomationReadSnapshot,
-} from "./types";
+import type { AutomationApplyResult, AutomationReadSnapshot } from "./types";
 
 const definition = (overrides: Record<string, unknown> = {}) => ({
   automation_id: "daily-report",
@@ -63,11 +57,13 @@ const occurrence = (overrides: Record<string, unknown> = {}) => ({
   status_name: "Plan",
   archived: false,
   title: "Planning session",
-  rich_title: [{
-    type: "text",
-    text: "Planning session",
-    styles: {},
-  }],
+  rich_title: [
+    {
+      type: "text",
+      text: "Planning session",
+      styles: {},
+    },
+  ],
   description: "Plan the next milestone.",
   priority: "p1-high",
   estimate: "m",
@@ -99,27 +95,20 @@ const occurrence = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const readSnapshot = (
-  value: AutomationReadSnapshot["value"],
-): AutomationReadSnapshot => ({
+const readSnapshot = (value: AutomationReadSnapshot["value"]): AutomationReadSnapshot => ({
   contract_version: 3,
   store_epoch: "epoch:test",
   commit_head: 7,
   value,
 });
 
-const collectionWindow = <T>(
-  items: readonly T[],
-  nextCursor: string | null = null,
-) => ({
+const collectionWindow = <T>(items: readonly T[], nextCursor: string | null = null) => ({
   items,
   next_cursor: nextCursor,
   authority: { projection_revision: 7 },
 });
 
-const committed = (
-  value: Partial<AutomationApplyResult["outcome"]>,
-): AutomationApplyResult => ({
+const committed = (value: Partial<AutomationApplyResult["outcome"]>): AutomationApplyResult => ({
   status: "committed",
   commit: {
     store_epoch: "epoch:test",
@@ -150,9 +139,7 @@ const committed = (
   },
 });
 
-const noOp = (
-  value: Partial<AutomationApplyResult["outcome"]>,
-): AutomationApplyResult => {
+const noOp = (value: Partial<AutomationApplyResult["outcome"]>): AutomationApplyResult => {
   const committedResult = committed(value);
   if (committedResult.status !== "committed") {
     throw new Error("Committed fixture did not return a commit");
@@ -166,17 +153,18 @@ const noOp = (
   };
 };
 
-const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
-  backend: "rust",
-  rootClient: Object.assign(client, {
-    handshake: createFakeCoreHandshake({
-      libraryId: "library:test",
-      profileId: "profile:test",
-      storeEpoch: "epoch:test",
+const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime =>
+  ({
+    backend: "rust",
+    rootClient: Object.assign(client, {
+      handshake: createFakeCoreHandshake({
+        libraryId: "library:test",
+        profileId: "profile:test",
+        storeEpoch: "epoch:test",
+      }),
     }),
-  }),
-  clientForProject: () => client,
-}) as unknown as RustDataAuthorityRuntime;
+    clientForProject: () => client,
+  }) as unknown as RustDataAuthorityRuntime;
 
 const createInput: CodexScheduledAutomationCreateInput = {
   kind: "cron",
@@ -235,10 +223,7 @@ describe("Desktop Automation Module bridge", () => {
     await bridge.listDefinitions();
     await bridge.listDefinitions("background");
 
-    expect(client.automationReadOptions).toEqual([
-      undefined,
-      { class: "background" },
-    ]);
+    expect(client.automationReadOptions).toEqual([undefined, { class: "background" }]);
   });
 
   test("maps Definition CRUD and preserves slug identities through Core", async () => {
@@ -246,10 +231,12 @@ describe("Desktop Automation Module bridge", () => {
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
     });
-    client.enqueueAutomationRead(readSnapshot({
-      kind: "definition",
-      item: null,
-    }));
+    client.enqueueAutomationRead(
+      readSnapshot({
+        kind: "definition",
+        item: null,
+      }),
+    );
     client.enqueueAutomationApply(committed({ definitions: [definition()] }));
 
     await expect(bridge.createDefinition(createInput)).resolves.toMatchObject({
@@ -258,10 +245,12 @@ describe("Desktop Automation Module bridge", () => {
       reasoningEffort: "medium",
       executionEnvironment: "worktree",
     });
-    expect(client.automationReads).toEqual([{
-      kind: "definition",
-      automation_id: "daily-report",
-    }]);
+    expect(client.automationReads).toEqual([
+      {
+        kind: "definition",
+        automation_id: "daily-report",
+      },
+    ]);
     expect(client.automationApplies[0]?.intent).toEqual({
       kind: "create_definition",
       automation_id: "daily-report",
@@ -282,18 +271,24 @@ describe("Desktop Automation Module bridge", () => {
       },
     });
 
-    client.enqueueAutomationRead(readSnapshot({
-      kind: "definition",
-      item: definition(),
-    }));
-    client.enqueueAutomationApply(committed({
-      definitions: [definition({ definition_revision: 2, status: "PAUSED" })],
-    }));
-    await expect(bridge.updateDefinition({
-      ...createInput,
-      id: "daily-report",
-      status: "PAUSED",
-    })).resolves.toMatchObject({ id: "daily-report", status: "PAUSED" });
+    client.enqueueAutomationRead(
+      readSnapshot({
+        kind: "definition",
+        item: definition(),
+      }),
+    );
+    client.enqueueAutomationApply(
+      committed({
+        definitions: [definition({ definition_revision: 2, status: "PAUSED" })],
+      }),
+    );
+    await expect(
+      bridge.updateDefinition({
+        ...createInput,
+        id: "daily-report",
+        status: "PAUSED",
+      }),
+    ).resolves.toMatchObject({ id: "daily-report", status: "PAUSED" });
     expect(client.automationApplies[1]?.intent).toMatchObject({
       kind: "update_definition",
       automation_id: "daily-report",
@@ -301,14 +296,18 @@ describe("Desktop Automation Module bridge", () => {
       status: "PAUSED",
     });
 
-    client.enqueueAutomationRead(readSnapshot({
-      kind: "definition",
-      item: definition({ definition_revision: 2, status: "PAUSED" }),
-    }));
-    client.enqueueAutomationApply(committed({
-      definitions: [definition({ definition_revision: 3, status: "DELETED" })],
-      deleted_run_ids: ["thread:daily-report"],
-    }));
+    client.enqueueAutomationRead(
+      readSnapshot({
+        kind: "definition",
+        item: definition({ definition_revision: 2, status: "PAUSED" }),
+      }),
+    );
+    client.enqueueAutomationApply(
+      committed({
+        definitions: [definition({ definition_revision: 3, status: "DELETED" })],
+        deleted_run_ids: ["thread:daily-report"],
+      }),
+    );
     await expect(bridge.deleteDefinition("daily-report")).resolves.toMatchObject({
       item: { id: "daily-report", status: "PAUSED" },
       success: true,
@@ -328,17 +327,21 @@ describe("Desktop Automation Module bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
     client.enqueueAutomationRead(readSnapshot({ kind: "run", item: run() }));
-    client.enqueueAutomationApply(committed({
-      runs: [run({ run_revision: 4, status: "ARCHIVED" })],
-    }));
+    client.enqueueAutomationApply(
+      committed({
+        runs: [run({ run_revision: 4, status: "ARCHIVED" })],
+      }),
+    );
 
-    await expect(bridge.archiveRun(
-      { threadId: "thread:daily-report", archivedReason: "manual" },
-      {
-        archivedUserMessage: "Generate the report.",
-        archivedAssistantMessage: "Report complete.",
-      },
-    )).resolves.toBe(true);
+    await expect(
+      bridge.archiveRun(
+        { threadId: "thread:daily-report", archivedReason: "manual" },
+        {
+          archivedUserMessage: "Generate the report.",
+          archivedAssistantMessage: "Report complete.",
+        },
+      ),
+    ).resolves.toBe(true);
     expect(client.automationApplies[0]?.intent).toEqual({
       kind: "archive_run",
       thread_id: "thread:daily-report",
@@ -347,7 +350,6 @@ describe("Desktop Automation Module bridge", () => {
       archived_assistant_message: "Report complete.",
       archived_reason: "manual",
     });
-
   });
 
   test("dispatches and claims definitions before revision-fenced Run lifecycle commits", async () => {
@@ -356,13 +358,17 @@ describe("Desktop Automation Module bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
 
-    client.enqueueAutomationRead(readSnapshot({
-      kind: "definition",
-      item: definition(),
-    }));
-    client.enqueueAutomationApply(committed({
-      definitions: [definition({ last_run_at_ms: 150, next_run_at_ms: 250 })],
-    }));
+    client.enqueueAutomationRead(
+      readSnapshot({
+        kind: "definition",
+        item: definition(),
+      }),
+    );
+    client.enqueueAutomationApply(
+      committed({
+        definitions: [definition({ last_run_at_ms: 150, next_run_at_ms: 250 })],
+      }),
+    );
     await expect(bridge.dispatchDefinitionNow("daily-report")).resolves.toMatchObject({
       id: "daily-report",
       lastRunAt: 150,
@@ -374,14 +380,14 @@ describe("Desktop Automation Module bridge", () => {
     });
     expect(client.automationApplyOptions[0]).toBeUndefined();
 
-    client.enqueueAutomationApply(committed({
-      definitions: [definition({ definition_revision: 2, next_run_at_ms: 275 })],
-    }));
-    await expect(bridge.rescheduleDefinition(
-      "daily-report",
-      1,
-      { notBefore: 275 },
-    )).resolves.toMatchObject({
+    client.enqueueAutomationApply(
+      committed({
+        definitions: [definition({ definition_revision: 2, next_run_at_ms: 275 })],
+      }),
+    );
+    await expect(
+      bridge.rescheduleDefinition("daily-report", 1, { notBefore: 275 }),
+    ).resolves.toMatchObject({
       id: "daily-report",
       nextRunAt: 275,
     });
@@ -394,28 +400,34 @@ describe("Desktop Automation Module bridge", () => {
     });
     expect(client.automationApplyOptions[1]).toEqual({ class: "background" });
 
-    client.enqueueAutomationApply(committed({
-      definitions: [definition({ last_run_at_ms: 200, next_run_at_ms: 300 })],
-      claimed_leases: [{
-        lease_id: "lease:daily-report",
-        automation_id: "daily-report",
-        scheduled_for_ms: 200,
-        claimed_at_ms: 200,
-        expires_at_ms: 60_200,
+    client.enqueueAutomationApply(
+      committed({
+        definitions: [definition({ last_run_at_ms: 200, next_run_at_ms: 300 })],
+        claimed_leases: [
+          {
+            lease_id: "lease:daily-report",
+            automation_id: "daily-report",
+            scheduled_for_ms: 200,
+            claimed_at_ms: 200,
+            expires_at_ms: 60_200,
+            attempt: 1,
+            status: "claimed",
+            settled_at_ms: null,
+            retry_at_ms: null,
+            reason_code: null,
+          },
+        ],
+      }),
+    );
+    await expect(bridge.claimDueDefinitions(3, 60_000)).resolves.toEqual([
+      {
+        leaseId: "lease:daily-report",
+        scheduledFor: 200,
         attempt: 1,
-        status: "claimed",
-        settled_at_ms: null,
-        retry_at_ms: null,
-        reason_code: null,
-      }],
-    }));
-    await expect(bridge.claimDueDefinitions(3, 60_000)).resolves.toEqual([{
-      leaseId: "lease:daily-report",
-      scheduledFor: 200,
-      attempt: 1,
-      expiresAt: 60_200,
-      definition: expect.objectContaining({ id: "daily-report" }),
-    }]);
+        expiresAt: 60_200,
+        definition: expect.objectContaining({ id: "daily-report" }),
+      },
+    ]);
     expect(client.automationApplies[2]?.intent).toEqual({
       kind: "claim_due",
       limit: 3,
@@ -423,15 +435,19 @@ describe("Desktop Automation Module bridge", () => {
     });
     expect(client.automationApplyOptions[2]).toEqual({ class: "background" });
 
-    client.enqueueAutomationApply(committed({
-      runs: [run({ status: "IN_PROGRESS", run_revision: 1 })],
-    }));
-    await expect(bridge.beginRun({
-      threadId: "thread:daily-report",
-      automationId: "daily-report",
-      threadTitle: "Daily Report run",
-      sourceCwd: "/workspace",
-    })).resolves.toBe(true);
+    client.enqueueAutomationApply(
+      committed({
+        runs: [run({ status: "IN_PROGRESS", run_revision: 1 })],
+      }),
+    );
+    await expect(
+      bridge.beginRun({
+        threadId: "thread:daily-report",
+        automationId: "daily-report",
+        threadTitle: "Daily Report run",
+        sourceCwd: "/workspace",
+      }),
+    ).resolves.toBe(true);
     expect(client.automationApplies[3]?.intent).toEqual({
       kind: "begin_run",
       thread_id: "thread:daily-report",
@@ -442,14 +458,18 @@ describe("Desktop Automation Module bridge", () => {
     expect(client.automationApplyOptions[3]).toEqual({ class: "background" });
 
     client.enqueueAutomationRead(readSnapshot({ kind: "run", item: run() }));
-    client.enqueueAutomationApply(committed({
-      runs: [run({ run_revision: 4 })],
-    }));
-    await expect(bridge.completeRunForReview({
-      threadId: "thread:daily-report",
-      inboxTitle: "Report ready",
-      inboxSummary: "Review the report.",
-    })).resolves.toBe(true);
+    client.enqueueAutomationApply(
+      committed({
+        runs: [run({ run_revision: 4 })],
+      }),
+    );
+    await expect(
+      bridge.completeRunForReview({
+        threadId: "thread:daily-report",
+        inboxTitle: "Report ready",
+        inboxSummary: "Review the report.",
+      }),
+    ).resolves.toBe(true);
     expect(client.automationApplies[4]?.intent).toEqual({
       kind: "complete_run_for_review",
       thread_id: "thread:daily-report",
@@ -474,87 +494,98 @@ describe("Desktop Automation Module bridge", () => {
     });
     const windowStart = new Date("2026-07-20T00:00:00.000Z");
     const windowEnd = new Date("2026-07-21T00:00:00.000Z");
-    projectClient.enqueueAutomationRead(readSnapshot({
-      kind: "occurrences",
-      window: collectionWindow([occurrence()], "nxc1.occurrences.next"),
-    }));
+    projectClient.enqueueAutomationRead(
+      readSnapshot({
+        kind: "occurrences",
+        window: collectionWindow([occurrence()], "nxc1.occurrences.next"),
+      }),
+    );
 
-    await expect(bridge.listPageOccurrences(
-      "project:one",
-      windowStart,
-      windowEnd,
-      " planning ",
-    )).resolves.toMatchObject({
-      items: [{
-        id: "page:planning:2026-07-20T01:00:00.000Z",
-        pageId: "page:planning",
-        pageKey: "LAB-13",
-        status: "plan",
-        priority: "p1-high",
-        scheduledStart: new Date("2026-07-20T01:00:00.000Z"),
-        occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
-        recurrence: { frequency: "weekly", byWeekdays: [1] },
-        runInTarget: "localProject",
-      }],
+    await expect(
+      bridge.listPageOccurrences("project:one", windowStart, windowEnd, " planning "),
+    ).resolves.toMatchObject({
+      items: [
+        {
+          id: "page:planning:2026-07-20T01:00:00.000Z",
+          pageId: "page:planning",
+          pageKey: "LAB-13",
+          status: "plan",
+          priority: "p1-high",
+          scheduledStart: new Date("2026-07-20T01:00:00.000Z"),
+          occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
+          recurrence: { frequency: "weekly", byWeekdays: [1] },
+          runInTarget: "localProject",
+        },
+      ],
       nextCursor: "nxc1.occurrences.next",
     });
     expect(resolveProjectClient).toHaveBeenCalledWith("project:one");
-    expect(projectClient.automationReads).toEqual([{
-      kind: "occurrences",
-      window_start_ms: windowStart.getTime(),
-      window_end_ms: windowEnd.getTime(),
-      search_query: "planning",
-      window: { after: null, first: 200 },
-    }]);
-    projectClient.enqueueAutomationRead(readSnapshot({
-      kind: "occurrences",
-      window: collectionWindow([]),
-    }));
-    await expect(bridge.listPageOccurrences(
-      "project:one",
-      windowStart,
-      windowEnd,
-      "planning",
-      "nxc1.occurrences.next",
-    )).resolves.toEqual({ items: [], nextCursor: null });
+    expect(projectClient.automationReads).toEqual([
+      {
+        kind: "occurrences",
+        window_start_ms: windowStart.getTime(),
+        window_end_ms: windowEnd.getTime(),
+        search_query: "planning",
+        window: { after: null, first: 200 },
+      },
+    ]);
+    projectClient.enqueueAutomationRead(
+      readSnapshot({
+        kind: "occurrences",
+        window: collectionWindow([]),
+      }),
+    );
+    await expect(
+      bridge.listPageOccurrences(
+        "project:one",
+        windowStart,
+        windowEnd,
+        "planning",
+        "nxc1.occurrences.next",
+      ),
+    ).resolves.toEqual({ items: [], nextCursor: null });
     expect(projectClient.automationReads[1]).toMatchObject({
       kind: "occurrences",
       window: { after: "nxc1.occurrences.next", first: 200 },
     });
 
-    projectClient.enqueueAutomationRead(readSnapshot({
-      kind: "occurrences",
-      window: collectionWindow([occurrence({ page_key: null })]),
-    }));
-    await expect(bridge.listPageOccurrences(
-      "project:one",
-      windowStart,
-      windowEnd,
-    )).resolves.toMatchObject({
+    projectClient.enqueueAutomationRead(
+      readSnapshot({
+        kind: "occurrences",
+        window: collectionWindow([occurrence({ page_key: null })]),
+      }),
+    );
+    await expect(
+      bridge.listPageOccurrences("project:one", windowStart, windowEnd),
+    ).resolves.toMatchObject({
       items: [{ pageKey: null }],
     });
 
-    projectClient.enqueueAutomationApply(committed({
-      page_occurrence_mutation: {
-        operation_id: "calendar:update:1",
-        duplicate: false,
-        success: true,
-        created_page_id: "page:detached",
-      },
-    }));
-    await expect(bridge.updatePageOccurrence("project:one", {
-      operationId: "calendar:update:1",
-      pageId: "page:planning",
-      occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
-      source: "calendar",
-      scope: "this-and-future",
-      createdPageId: "page:detached",
-      updates: {
-        scheduledStart: new Date("2026-07-20T04:00:00.000Z"),
-        recurrence: null,
-        scheduleTimezone: null,
-      },
-    })).resolves.toEqual({
+    projectClient.enqueueAutomationApply(
+      committed({
+        page_occurrence_mutation: {
+          operation_id: "calendar:update:1",
+          duplicate: false,
+          success: true,
+          created_page_id: "page:detached",
+        },
+      }),
+    );
+    await expect(
+      bridge.updatePageOccurrence("project:one", {
+        operationId: "calendar:update:1",
+        pageId: "page:planning",
+        occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
+        source: "calendar",
+        scope: "this-and-future",
+        createdPageId: "page:detached",
+        updates: {
+          scheduledStart: new Date("2026-07-20T04:00:00.000Z"),
+          recurrence: null,
+          scheduleTimezone: null,
+        },
+      }),
+    ).resolves.toEqual({
       success: true,
       commitCursor: { storeEpoch: "epoch:test", commitSeq: 8 },
     });
@@ -574,20 +605,24 @@ describe("Desktop Automation Module bridge", () => {
       },
     });
 
-    projectClient.enqueueAutomationApply(noOp({
-      page_occurrence_mutation: {
-        operation_id: "calendar:skip:1",
-        duplicate: true,
-        success: true,
-        created_page_id: null,
-      },
-    }));
-    await expect(bridge.skipPageOccurrence("project:one", {
-      operationId: "calendar:skip:1",
-      pageId: "page:planning",
-      occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
-      source: "calendar",
-    })).resolves.toEqual({
+    projectClient.enqueueAutomationApply(
+      noOp({
+        page_occurrence_mutation: {
+          operation_id: "calendar:skip:1",
+          duplicate: true,
+          success: true,
+          created_page_id: null,
+        },
+      }),
+    );
+    await expect(
+      bridge.skipPageOccurrence("project:one", {
+        operationId: "calendar:skip:1",
+        pageId: "page:planning",
+        occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
+        source: "calendar",
+      }),
+    ).resolves.toEqual({
       success: true,
       commitCursor: { storeEpoch: "epoch:observed", commitSeq: 13 },
     });
@@ -598,46 +633,48 @@ describe("Desktop Automation Module bridge", () => {
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
     });
-    client.enqueueAutomationApply(committed({
-      reminder_leases: [{
-        lease_id: "reminder-lease:1",
-        project_id: "project:one",
-        receipt_project_id: "project:owner",
-        page_id: "page:planning",
-        occurrence_start_ms: Date.parse("2026-07-20T01:00:00.000Z"),
-        reminder_offset_minutes: 30,
-        due_at_ms: Date.parse("2026-07-20T00:30:00.000Z"),
-        title: "Planning session",
-        claimed_at_ms: Date.parse("2026-07-20T00:30:01.000Z"),
-        expires_at_ms: Date.parse("2026-07-20T00:32:01.000Z"),
-        attempt: 1,
-        status: "claimed",
-        settled_at_ms: null,
-        retry_at_ms: null,
-        reason_code: null,
-        snooze_id: null,
-      }],
-    }));
+    client.enqueueAutomationApply(
+      committed({
+        reminder_leases: [
+          {
+            lease_id: "reminder-lease:1",
+            project_id: "project:one",
+            receipt_project_id: "project:owner",
+            page_id: "page:planning",
+            occurrence_start_ms: Date.parse("2026-07-20T01:00:00.000Z"),
+            reminder_offset_minutes: 30,
+            due_at_ms: Date.parse("2026-07-20T00:30:00.000Z"),
+            title: "Planning session",
+            claimed_at_ms: Date.parse("2026-07-20T00:30:01.000Z"),
+            expires_at_ms: Date.parse("2026-07-20T00:32:01.000Z"),
+            attempt: 1,
+            status: "claimed",
+            settled_at_ms: null,
+            retry_at_ms: null,
+            reason_code: null,
+            snooze_id: null,
+          },
+        ],
+      }),
+    );
     client.enqueueAutomationApply(committed({}));
     client.enqueueAutomationApply(committed({}));
 
-    await expect(bridge.claimDueReminders(12, 120_000)).resolves.toEqual([{
-      leaseId: "reminder-lease:1",
-      projectId: "project:one",
-      pageId: "page:planning",
-      occurrenceStart: Date.parse("2026-07-20T01:00:00.000Z"),
-      reminderOffsetMinutes: 30,
-      dueAt: Date.parse("2026-07-20T00:30:00.000Z"),
-      title: "Planning session",
-      attempt: 1,
-      expiresAt: Date.parse("2026-07-20T00:32:01.000Z"),
-    }]);
+    await expect(bridge.claimDueReminders(12, 120_000)).resolves.toEqual([
+      {
+        leaseId: "reminder-lease:1",
+        projectId: "project:one",
+        pageId: "page:planning",
+        occurrenceStart: Date.parse("2026-07-20T01:00:00.000Z"),
+        reminderOffsetMinutes: 30,
+        dueAt: Date.parse("2026-07-20T00:30:00.000Z"),
+        title: "Planning session",
+        attempt: 1,
+        expiresAt: Date.parse("2026-07-20T00:32:01.000Z"),
+      },
+    ]);
     await bridge.completeReminderLease("reminder-lease:1");
-    await bridge.failReminderLease(
-      "reminder-lease:2",
-      30_000,
-      "notification_failed",
-    );
+    await bridge.failReminderLease("reminder-lease:2", 30_000, "notification_failed");
 
     expect(client.automationApplyOptions.slice(-3)).toEqual([
       { class: "background" },
@@ -671,20 +708,22 @@ describe("Desktop Automation Module bridge", () => {
     });
     const inboxValue = {
       kind: "inbox" as const,
-      window: collectionWindow([{
-        automation_id: "daily-report",
-        automation_name: "Daily Report",
-        title: "Daily Report",
-        description: "Review the report.",
-        archived_assistant_message: null,
-        archived_user_message: null,
-        archived_reason: null,
-        source_cwd: "/workspace",
-        thread_id: "thread:daily-report",
-        read_at_ms: 140,
-        created_at_ms: 120,
-        status: "PENDING_REVIEW" as const,
-      }]),
+      window: collectionWindow([
+        {
+          automation_id: "daily-report",
+          automation_name: "Daily Report",
+          title: "Daily Report",
+          description: "Review the report.",
+          archived_assistant_message: null,
+          archived_user_message: null,
+          archived_reason: null,
+          source_cwd: "/workspace",
+          thread_id: "thread:daily-report",
+          read_at_ms: 140,
+          created_at_ms: 120,
+          status: "PENDING_REVIEW" as const,
+        },
+      ]),
       unread_counts: {
         total: 0,
       },
@@ -694,6 +733,5 @@ describe("Desktop Automation Module bridge", () => {
       items: [{ threadId: "thread:daily-report", readAt: 140 }],
       unreadRunCounts: { total: 0 },
     });
-
   });
 });

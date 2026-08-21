@@ -24,16 +24,17 @@ describe("direct image edit prompt compilation", () => {
       src: "nodex://assets/original.png",
     };
 
-    expect(compileImageEditPromptInput(buildRemoveSubmissionIntent({
-      entrypoint: "image_click",
-      image: original,
-      mask: MASK,
-    }))).toEqual({
+    expect(
+      compileImageEditPromptInput(
+        buildRemoveSubmissionIntent({
+          entrypoint: "image_click",
+          image: original,
+          mask: MASK,
+        }),
+      ),
+    ).toEqual({
       text: "Remove the area marked in the second image from the first image",
-      images: [
-        { source: "nodex://assets/original.png" },
-        { source: MASK.dataUrl },
-      ],
+      images: [{ source: "nodex://assets/original.png" }, { source: MASK.dataUrl }],
     });
   });
 
@@ -47,11 +48,13 @@ describe("direct image edit prompt compilation", () => {
       src: "nodex://assets/original.png",
     };
 
-    const promptInput = compileImageEditPromptInput(buildRemoveSubmissionIntent({
-      entrypoint: "image_click",
-      image: original,
-      mask: MASK,
-    }));
+    const promptInput = compileImageEditPromptInput(
+      buildRemoveSubmissionIntent({
+        entrypoint: "image_click",
+        image: original,
+        mask: MASK,
+      }),
+    );
 
     expect(promptInput?.images?.[0]).toEqual({
       source: "nodex://assets/original.png",
@@ -69,11 +72,15 @@ describe("direct image edit prompt compilation", () => {
       src: "nodex://assets/original.png",
     };
 
-    expect(compileImageEditPromptInput(buildRemoveSubmissionIntent({
-      entrypoint: "image_click",
-      image: original,
-      mask: MASK,
-    }))).toBeNull();
+    expect(
+      compileImageEditPromptInput(
+        buildRemoveSubmissionIntent({
+          entrypoint: "image_click",
+          image: original,
+          mask: MASK,
+        }),
+      ),
+    ).toBeNull();
   });
 
   test("does not send another host's absolute path through the local fallback", () => {
@@ -87,11 +94,15 @@ describe("direct image edit prompt compilation", () => {
       src: "/remote/original.png",
     };
 
-    expect(compileImageEditPromptInput(buildRemoveSubmissionIntent({
-      entrypoint: "image_click",
-      image: original,
-      mask: MASK,
-    }))).toBeNull();
+    expect(
+      compileImageEditPromptInput(
+        buildRemoveSubmissionIntent({
+          entrypoint: "image_click",
+          image: original,
+          mask: MASK,
+        }),
+      ),
+    ).toBeNull();
   });
 
   test("rejects unresolved renderer pointers before the app-server boundary", () => {
@@ -103,10 +114,14 @@ describe("direct image edit prompt compilation", () => {
       src: "file-service://asset-1",
     };
 
-    expect(compileImageEditPromptInput(buildRemoveSubmissionIntent({
-      entrypoint: "image_click",
-      image: pointer,
-      mask: MASK,
-    }))).toBeNull();
+    expect(
+      compileImageEditPromptInput(
+        buildRemoveSubmissionIntent({
+          entrypoint: "image_click",
+          image: pointer,
+          mask: MASK,
+        }),
+      ),
+    ).toBeNull();
   });
 });

@@ -17,9 +17,7 @@ import {
   type CanvasSceneSyncRequest,
   type CanvasSceneSyncResponse,
 } from "../../shared/block-documents/canvas-scene-sync";
-import {
-  MAX_PAGE_DOCUMENT_STATE_BYTES,
-} from "../../shared/block-documents/contracts";
+import { MAX_PAGE_DOCUMENT_STATE_BYTES } from "../../shared/block-documents/contracts";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   type DocumentAwarenessPublishAck,
@@ -92,9 +90,7 @@ const DOCUMENT_FRAME_OVERHEAD_BYTES = MAX_DOCUMENT_HTTP_METADATA_BYTES + 8;
 type ModuleName = components["schemas"]["ModuleName"];
 
 const contractVersion = (module: ModuleName): number => {
-  const entry = CORE_CLIENT_REQUIREMENTS.modules.find(
-    (candidate) => candidate.module === module,
-  );
+  const entry = CORE_CLIENT_REQUIREMENTS.modules.find((candidate) => candidate.module === module);
   if (entry) return entry.contract_version;
   throw new Error(`Core client requirements omit ${module}`);
 };
@@ -150,22 +146,14 @@ export class CoreClient implements CoreClientPort {
 
   static async connect(input: ConnectCoreClientInput): Promise<CoreClient> {
     const connectionId = input.connectionId ?? randomUUID();
-    if (
-      !connectionId
-      || connectionId !== connectionId.trim()
-      || connectionId.length > 512
-    ) {
+    if (!connectionId || connectionId !== connectionId.trim() || connectionId.length > 512) {
       throw new Error("Core connection identity is invalid");
     }
     const runtime = readCoreRuntimeConnection(input.nodexHome);
-    const transport = new UdsHttpTransport(
-      runtime.descriptor.socket_path,
-      runtime.authCapability,
-      {
-        maximumJsonResponseBytes: input.maximumJsonResponseBytes,
-        requestTimeoutMs: input.requestTimeoutMs,
-      },
-    );
+    const transport = new UdsHttpTransport(runtime.descriptor.socket_path, runtime.authCapability, {
+      maximumJsonResponseBytes: input.maximumJsonResponseBytes,
+      requestTimeoutMs: input.requestTimeoutMs,
+    });
     const handshake = await transport.requestJson<CoreHandshakeResponse>(
       "POST",
       "/core/v1/handshake",
@@ -206,12 +194,7 @@ export class CoreClient implements CoreClientPort {
       throw new Error("Core Project binding is invalid");
     }
     if (normalized === this.#projectId) return this;
-    return new CoreClient(
-      this.#transport,
-      this.handshake,
-      normalized,
-      this.#connectionId,
-    );
+    return new CoreClient(this.#transport, this.handshake, normalized, this.#connectionId);
   }
 
   health(): Promise<HealthResponse> {
@@ -375,14 +358,13 @@ export class CoreClient implements CoreClientPort {
   async administrationRead(
     read: StoreAdministrationRead,
   ): Promise<StoreAdministrationReadSnapshot> {
-    const response =
-      await this.#transport.requestJson<StoreAdministrationReadResponse>(
-        "POST",
-        "/core/v1/modules/administration/read",
-        { contract_version: MODULE_CONTRACT_VERSIONS.storeAdministration, read },
-        this.#moduleHeaders(),
-        { class: "background" },
-      );
+    const response = await this.#transport.requestJson<StoreAdministrationReadResponse>(
+      "POST",
+      "/core/v1/modules/administration/read",
+      { contract_version: MODULE_CONTRACT_VERSIONS.storeAdministration, read },
+      this.#moduleHeaders(),
+      { class: "background" },
+    );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
   }
@@ -390,19 +372,18 @@ export class CoreClient implements CoreClientPort {
   async administrationApply(
     input: StoreAdministrationApplyInput,
   ): Promise<StoreAdministrationApplyResult> {
-    const response =
-      await this.#transport.requestJson<StoreAdministrationApplyResponse>(
-        "POST",
-        "/core/v1/modules/administration/apply",
-        {
-          contract_version: MODULE_CONTRACT_VERSIONS.storeAdministration,
-          operation_id: input.operationId,
-          store_epoch: this.handshake.store_epoch,
-          intent: input.intent,
-        },
-        this.#moduleHeaders(),
-        { class: "maintenance" },
-      );
+    const response = await this.#transport.requestJson<StoreAdministrationApplyResponse>(
+      "POST",
+      "/core/v1/modules/administration/apply",
+      {
+        contract_version: MODULE_CONTRACT_VERSIONS.storeAdministration,
+        operation_id: input.operationId,
+        store_epoch: this.handshake.store_epoch,
+        intent: input.intent,
+      },
+      this.#moduleHeaders(),
+      { class: "maintenance" },
+    );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
   }
@@ -459,9 +440,7 @@ export class CoreClient implements CoreClientPort {
     throw new Error("Core returned JSON for a successful binary Document sync");
   }
 
-  async documentCanvasSync(
-    input: CanvasSceneSyncRequest,
-  ): Promise<CanvasSceneSyncResponse> {
+  async documentCanvasSync(input: CanvasSceneSyncRequest): Promise<CanvasSceneSyncResponse> {
     const response = await this.#transport.requestDocumentFrame<OwnedDocumentReadResponse>(
       "/core/v1/modules/document/read",
       encodeCanvasSceneSyncHttpRequest(input),
@@ -477,9 +456,7 @@ export class CoreClient implements CoreClientPort {
     throw new Error("Core returned JSON for a successful binary Canvas sync");
   }
 
-  async documentApplyUpdate(
-    input: DocumentSyncApplyRequest,
-  ): Promise<DocumentSyncApplyAck> {
+  async documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck> {
     const response = await this.#transport.requestDocumentFrame<OwnedDocumentApplyResponse>(
       "/core/v1/modules/document/apply",
       encodeDocumentApplyHttpRequest(input),
@@ -529,24 +506,26 @@ export class CoreClient implements CoreClientPort {
     onRepair: (repair: DocumentLiveRepair) => void,
     onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
   ): Promise<CoreDocumentEventSubscription> {
-    return this.#transport.openDocumentLiveStream(
-      {
-        ...this.#documentHeaders(input.clientSessionId),
-        "x-nodex-document-id": input.documentId,
-      },
-      onEvent,
-      onRepair,
-      onRealtimeEvent,
-      input.signal,
-    ).then((subscription) => {
-      if (subscription.barrier.document_id !== input.documentId) {
-        subscription.close();
-        throw new CoreEventCompatibilityError(
-          "Core Document live barrier does not match the requested Document",
-        );
-      }
-      return subscription;
-    });
+    return this.#transport
+      .openDocumentLiveStream(
+        {
+          ...this.#documentHeaders(input.clientSessionId),
+          "x-nodex-document-id": input.documentId,
+        },
+        onEvent,
+        onRepair,
+        onRealtimeEvent,
+        input.signal,
+      )
+      .then((subscription) => {
+        if (subscription.barrier.document_id !== input.documentId) {
+          subscription.close();
+          throw new CoreEventCompatibilityError(
+            "Core Document live barrier does not match the requested Document",
+          );
+        }
+        return subscription;
+      });
   }
 
   openEventStream(
@@ -591,10 +570,7 @@ export class CoreClient implements CoreClientPort {
     );
   }
 
-  #documentHeaders(
-    clientSessionId: string,
-    documentId?: string,
-  ): Readonly<Record<string, string>> {
+  #documentHeaders(clientSessionId: string, documentId?: string): Readonly<Record<string, string>> {
     if (!clientSessionId || clientSessionId.length > 512) {
       throw new Error("Owned Document client session identity is invalid");
     }
@@ -637,13 +613,14 @@ const assertHandshake = (
   }
   if (
     handshake.selected_event_version !== CORE_CLIENT_REQUIREMENTS.event_version ||
-    handshake.selected_module_versions.length !==
-      CORE_CLIENT_REQUIREMENTS.modules.length ||
+    handshake.selected_module_versions.length !== CORE_CLIENT_REQUIREMENTS.modules.length ||
     handshake.selected_module_versions.some((selected, index) => {
       const required = CORE_CLIENT_REQUIREMENTS.modules[index];
-      return required === undefined ||
+      return (
+        required === undefined ||
         selected.module !== required.module ||
-        selected.contract_version !== required.contract_version;
+        selected.contract_version !== required.contract_version
+      );
     })
   ) {
     throw new Error("Core selected unsupported event or Module contracts");

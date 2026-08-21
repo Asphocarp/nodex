@@ -51,9 +51,8 @@ export function resetDesktopNotificationPermissionBootstrapForTests(): void {
 
 export function DesktopNotificationPermissionBootstrap(): null {
   useEffect(() => {
-    const notificationApi = typeof globalThis.Notification === "function"
-      ? globalThis.Notification
-      : null;
+    const notificationApi =
+      typeof globalThis.Notification === "function" ? globalThis.Notification : null;
     void bootstrapDesktopNotificationPermission(notificationApi);
   }, []);
   return null;

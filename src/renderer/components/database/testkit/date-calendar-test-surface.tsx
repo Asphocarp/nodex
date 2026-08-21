@@ -15,12 +15,10 @@ export function DateCalendarTestSurface({
 }: ComponentProps<typeof NodexDateCalendar>) {
   return (
     <div data-testid="date-calendar-test-surface">
-      <button type="button" disabled={disabled} onClick={onToday}>Today</button>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onSelect(new Date(2026, 7, 21))}
-      >
+      <button type="button" disabled={disabled} onClick={onToday}>
+        Today
+      </button>
+      <button type="button" disabled={disabled} onClick={() => onSelect(new Date(2026, 7, 21))}>
         Select Aug 21
       </button>
     </div>

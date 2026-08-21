@@ -62,24 +62,22 @@ function toUploadedResourceAssetResponse(
   };
 }
 
-export async function uploadResourceAsset(
-  file: File,
-): Promise<UploadedResourceAssetResponse> {
+export async function uploadResourceAsset(file: File): Promise<UploadedResourceAssetResponse> {
   if (file.size > MAX_MANAGED_RESOURCE_BYTES) {
     throw new Error("Resource exceeds 64MB upload limit");
   }
-  return toUploadedResourceAssetResponse(await invoke(
-    "asset:resource:save",
-    fileToUploadInput(file, new Uint8Array(await file.arrayBuffer())),
-  ));
+  return toUploadedResourceAssetResponse(
+    await invoke(
+      "asset:resource:save",
+      fileToUploadInput(file, new Uint8Array(await file.arrayBuffer())),
+    ),
+  );
 }
 
 export async function materializeLocalResourceAsset(
   localPath: string,
 ): Promise<UploadedResourceAssetResponse> {
-  return toUploadedResourceAssetResponse(
-    await invoke("asset:resource:materialize", localPath),
-  );
+  return toUploadedResourceAssetResponse(await invoke("asset:resource:materialize", localPath));
 }
 
 export async function readManagedAssetPreview(

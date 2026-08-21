@@ -35,9 +35,7 @@ export function isCodexSidebarRootThread(
   return thread?.parentThreadId == null;
 }
 
-export function isCodexSidebarThreadItemVisible(
-  item: CodexSidebarThreadItem,
-): boolean {
+export function isCodexSidebarThreadItemVisible(item: CodexSidebarThreadItem): boolean {
   return item.kind === "remote" || isCodexSidebarRootThread(item);
 }
 
@@ -91,36 +89,38 @@ export function mergePendingWorktreesIntoSidebarSnapshot(
     const isLocalHost = entry.hostId === "local";
     const worktreePath = entry.worktreeWorkspaceRoot ?? entry.worktreeGitRoot;
     const phase = worktreePath === null ? "pending" : "ready";
-    return [{
-      key: codexSidebarLocalThreadKey(entry.clientThreadId),
-      kind: "pending-worktree",
-      runLocation: isLocalHost
-        ? { kind: "local-worktree", path: worktreePath, phase }
-        : { kind: "remote-worktree", hostId: entry.hostId, path: worktreePath, phase },
-      pendingWorktreeId: entry.id,
-      clientThreadId: entry.clientThreadId,
-      pinnedBeforeThreadId: entry.pinnedBeforeThreadId,
-      hostId: entry.hostId,
-      threadId: entry.clientThreadId,
-      parentThreadId: null,
-      sessionId: null,
-      projectId,
-      title: entry.label,
-      preview: entry.prompt,
-      cwd: entry.sourceWorkspaceRoot,
-      updatedAt: entry.createdAt,
-      recencyAt: null,
-      createdAt: entry.createdAt,
-      pinned: entry.isPinned,
-      pinnedOrder: null,
-      unread: entry.needsAttention,
-      needsAttention: entry.needsAttention,
-      archived: false,
-      statusType: pendingWorktreeStatusType(entry),
-      statusActiveFlags: [],
-      projectless: projectId === null,
-      disabled: false,
-    }];
+    return [
+      {
+        key: codexSidebarLocalThreadKey(entry.clientThreadId),
+        kind: "pending-worktree",
+        runLocation: isLocalHost
+          ? { kind: "local-worktree", path: worktreePath, phase }
+          : { kind: "remote-worktree", hostId: entry.hostId, path: worktreePath, phase },
+        pendingWorktreeId: entry.id,
+        clientThreadId: entry.clientThreadId,
+        pinnedBeforeThreadId: entry.pinnedBeforeThreadId,
+        hostId: entry.hostId,
+        threadId: entry.clientThreadId,
+        parentThreadId: null,
+        sessionId: null,
+        projectId,
+        title: entry.label,
+        preview: entry.prompt,
+        cwd: entry.sourceWorkspaceRoot,
+        updatedAt: entry.createdAt,
+        recencyAt: null,
+        createdAt: entry.createdAt,
+        pinned: entry.isPinned,
+        pinnedOrder: null,
+        unread: entry.needsAttention,
+        needsAttention: entry.needsAttention,
+        archived: false,
+        statusType: pendingWorktreeStatusType(entry),
+        statusActiveFlags: [],
+        projectless: projectId === null,
+        disabled: false,
+      },
+    ];
   });
   const items: CodexSidebarThreadItem[] = [];
   const seenKeys = new Set<string>();
@@ -198,7 +198,11 @@ export function listPendingPinnedBeforeThreadUpdates(input: {
     const item = input.itemsByKey.get(threadKey);
     if (!item?.pendingWorktreeId) continue;
     let beforeThreadId: string | null = null;
-    for (let nextIndex = index + 1; nextIndex < input.sortablePinnedThreadKeys.length; nextIndex += 1) {
+    for (
+      let nextIndex = index + 1;
+      nextIndex < input.sortablePinnedThreadKeys.length;
+      nextIndex += 1
+    ) {
       const nextKey = input.sortablePinnedThreadKeys[nextIndex];
       if (!nextKey) continue;
       const nextItem = input.itemsByKey.get(nextKey);
@@ -253,9 +257,7 @@ export function listReorderableCodexSidebarChatKeys(input: {
   visibleThreadKeys: readonly string[];
   getSessionId: (threadKey: string) => string | null;
 }): string[] {
-  return input.visibleThreadKeys.filter((threadKey) => (
-    input.getSessionId(threadKey) !== null
-  ));
+  return input.visibleThreadKeys.filter((threadKey) => input.getSessionId(threadKey) !== null);
 }
 
 /** Exact visible-slot replacement used before persisting the real pinned IDs. */
@@ -332,14 +334,11 @@ function resolveItemPinnedOrder(entry: SidebarThreadSortEntry): number {
 }
 
 function resolveItemRecencyAt(entry: SidebarThreadSortEntry): number {
-  return finiteNumberOrNull(entry.item.recencyAt)
-    ?? 0;
+  return finiteNumberOrNull(entry.item.recencyAt) ?? 0;
 }
 
 function resolveItemCreatedAt(entry: SidebarThreadSortEntry): number {
-  return finiteNumberOrNull(entry.item.createdAt)
-    ?? parseDateMs(entry.session?.createdAt)
-    ?? 0;
+  return finiteNumberOrNull(entry.item.createdAt) ?? parseDateMs(entry.session?.createdAt) ?? 0;
 }
 
 function resolveItemSessionOrder(entry: SidebarThreadSortEntry): number {
@@ -350,7 +349,10 @@ function isLocalNoThreadSessionEntry(entry: SidebarThreadSortEntry): boolean {
   return entry.session !== null && entry.session.thread === null;
 }
 
-function compareSidebarThreadSortEntries(left: SidebarThreadSortEntry, right: SidebarThreadSortEntry): number {
+function compareSidebarThreadSortEntries(
+  left: SidebarThreadSortEntry,
+  right: SidebarThreadSortEntry,
+): number {
   const leftPinned = resolveItemPinned(left);
   const rightPinned = resolveItemPinned(right);
   if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
@@ -384,7 +386,7 @@ export function sortSidebarThreadKeysForDisplay(input: {
     .flatMap((key, sourceIndex): SidebarThreadSortEntry[] => {
       const item = input.itemsByKey.get(key);
       if (!item) return [];
-      const session = item.sessionId ? input.sessionsById.get(item.sessionId) ?? null : null;
+      const session = item.sessionId ? (input.sessionsById.get(item.sessionId) ?? null) : null;
       return [{ key, item, session, sourceIndex }];
     })
     .sort(compareSidebarThreadSortEntries)
@@ -413,9 +415,9 @@ export function buildSidebarThreadSyncModel(input: {
 
   const projectGroups = input.projects.map((project) => ({
     project,
-    pinnedThreadKeys: pinnedThreadKeys.filter((threadKey) => (
-      threadItemsByKey.get(threadKey)?.projectId === project.id
-    )),
+    pinnedThreadKeys: pinnedThreadKeys.filter(
+      (threadKey) => threadItemsByKey.get(threadKey)?.projectId === project.id,
+    ),
     threadKeys: visibleItems
       .filter((item) => item.projectId === project.id && !item.pinned)
       .map((item) => item.key),

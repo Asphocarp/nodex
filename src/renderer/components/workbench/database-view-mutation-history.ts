@@ -40,8 +40,9 @@ export const createDatabaseViewMutationHistory = (
       undoing = false;
     },
     registerListMove: (recipe) => {
-      entries = [...entries, { kind: "list_move" as const, recipe }]
-        .slice(-MAX_DATABASE_VIEW_UNDO_ACTIONS);
+      entries = [...entries, { kind: "list_move" as const, recipe }].slice(
+        -MAX_DATABASE_VIEW_UNDO_ACTIONS,
+      );
     },
     undoListMove: async (undo) => {
       if (undoing) return false;
@@ -57,8 +58,9 @@ export const createDatabaseViewMutationHistory = (
       }
     },
     registerBlockTransfer: (token) => {
-      entries = [...entries, { kind: "block_transfer" as const, token }]
-        .slice(-MAX_DATABASE_VIEW_UNDO_ACTIONS);
+      entries = [...entries, { kind: "block_transfer" as const, token }].slice(
+        -MAX_DATABASE_VIEW_UNDO_ACTIONS,
+      );
     },
     undoLast: async (handlers) => {
       if (undoing) return false;
@@ -66,9 +68,10 @@ export const createDatabaseViewMutationHistory = (
       if (!entry) return false;
       undoing = true;
       try {
-        const undone = entry.kind === "list_move"
-          ? await handlers.listMove(entry.recipe)
-          : await handlers.blockTransfer(entry.token);
+        const undone =
+          entry.kind === "list_move"
+            ? await handlers.listMove(entry.recipe)
+            : await handlers.blockTransfer(entry.token);
         if (undone && entries.at(-1) === entry) entries = entries.slice(0, -1);
         return undone;
       } finally {
@@ -98,34 +101,35 @@ interface UndoKeyboardEvent {
 
 const ownsLocalUndo = (target: EventTarget | null): boolean => {
   if (typeof HTMLElement === "undefined" || !(target instanceof HTMLElement)) return false;
-  return Boolean(target.closest([
-    "input",
-    "textarea",
-    "[contenteditable=true]",
-    "[role=textbox]",
-    "[role=combobox]",
-    "[role=menu]",
-  ].join(",")));
+  return Boolean(
+    target.closest(
+      [
+        "input",
+        "textarea",
+        "[contenteditable=true]",
+        "[role=textbox]",
+        "[role=combobox]",
+        "[role=menu]",
+      ].join(","),
+    ),
+  );
 };
 
 export const handleDatabaseViewMutationHistoryKeyDown = (input: {
   readonly event: UndoKeyboardEvent;
   readonly history: DatabaseViewMutationHistory;
-  readonly undoListMove: (
-    recipe: DatabaseListMoveUndoRecipeV2,
-  ) => Promise<boolean>;
-  readonly undoBlockTransfer?: (
-    token: BlockTransferUndoToken,
-  ) => Promise<boolean>;
+  readonly undoListMove: (recipe: DatabaseListMoveUndoRecipeV2) => Promise<boolean>;
+  readonly undoBlockTransfer?: (token: BlockTransferUndoToken) => Promise<boolean>;
 }): boolean => {
   const { event } = input;
   if (
-    event.key.toLowerCase() !== "z"
-    || (!event.metaKey && !event.ctrlKey)
-    || event.shiftKey
-    || ownsLocalUndo(event.target)
-    || input.history.size() === 0
-  ) return false;
+    event.key.toLowerCase() !== "z" ||
+    (!event.metaKey && !event.ctrlKey) ||
+    event.shiftKey ||
+    ownsLocalUndo(event.target) ||
+    input.history.size() === 0
+  )
+    return false;
   event.preventDefault();
   event.stopPropagation();
   void input.history.undoLast({

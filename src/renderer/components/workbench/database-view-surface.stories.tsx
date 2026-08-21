@@ -159,40 +159,52 @@ const model: DatabaseViewRenderModel = {
         updatedAt: timestamp,
       },
     ],
-    rows: [{
-      pageKey: "LAB-13",
-      membership: {
-        membershipId: "membership-1",
-        dataSourceId,
-        revision: 1,
-        createdAt: timestamp,
+    rows: [
+      {
+        pageKey: "LAB-13",
+        membership: {
+          membershipId: "membership-1",
+          dataSourceId,
+          revision: 1,
+          createdAt: timestamp,
+        },
+        page: {
+          pageId: "page-1",
+          libraryId,
+          parent: { kind: "data_source", dataSourceId },
+          lifecycle: "active",
+          parentRevision: 1,
+          metadataRevision: 1,
+          documentId: "document-1",
+          documentGeneration: 1,
+          documentHeadSeq: 1,
+          title: "Unify Database View rendering",
+          richTitle: plainTextToPortableRichText("Unify Database View rendering"),
+          preview: "",
+          plainText: "",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        values: {
+          [statusPropertyId]: {
+            propertyId: statusPropertyId,
+            valueType: "select",
+            value: "build",
+            revision: 1,
+          },
+          [tagsPropertyId]: {
+            propertyId: tagsPropertyId,
+            valueType: "multi_select",
+            value: ["o_AAAAAAAA"],
+            revision: 1,
+          },
+        },
+        taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
+        position: { rankKey: "a", revision: 1 },
+        effectiveGroupKey: "build",
+        effectiveSubgroupKey: null,
       },
-      page: {
-        pageId: "page-1",
-        libraryId,
-        parent: { kind: "data_source", dataSourceId },
-        lifecycle: "active",
-        parentRevision: 1,
-        metadataRevision: 1,
-        documentId: "document-1",
-        documentGeneration: 1,
-        documentHeadSeq: 1,
-        title: "Unify Database View rendering",
-        richTitle: plainTextToPortableRichText("Unify Database View rendering"),
-        preview: "",
-        plainText: "",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-      values: {
-        [statusPropertyId]: { propertyId: statusPropertyId, valueType: "select", value: "build", revision: 1 },
-        [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select", value: ["o_AAAAAAAA"], revision: 1 },
-      },
-      taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
-      position: { rankKey: "a", revision: 1 },
-      effectiveGroupKey: "build",
-      effectiveSubgroupKey: null,
-    }],
+    ],
   },
   columns: [
     {
@@ -200,20 +212,22 @@ const model: DatabaseViewRenderModel = {
       groupKey: "build",
       scopeKey: "key:build",
       name: "Build",
-      rows: [{
-        pageId: "page-1",
-        pageKey: "LAB-13",
-        groupKey: "build",
-        subgroupKey: null,
-        status: "build",
-        title: "Unify Database View rendering",
-        preview: "",
-        plainText: "",
-        tags: ["page-first"],
-        taskParentValueRevision: 1,
-        metadataRevision: 1,
-        createdAt: new Date(timestamp),
-      }],
+      rows: [
+        {
+          pageId: "page-1",
+          pageKey: "LAB-13",
+          groupKey: "build",
+          subgroupKey: null,
+          status: "build",
+          title: "Unify Database View rendering",
+          preview: "",
+          plainText: "",
+          tags: ["page-first"],
+          taskParentValueRevision: 1,
+          metadataRevision: 1,
+          createdAt: new Date(timestamp),
+        },
+      ],
     },
     { id: "ship", groupKey: "ship", name: "Ship", scopeKey: "key:ship", rows: [] },
   ],
@@ -230,7 +244,13 @@ const meta = {
     commitOperations: async () => null,
     onSelectedPageIdsChange: () => undefined,
   },
-  decorators: [(Story) => <div className="h-[640px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="h-[640px]">
+        <Story />
+      </div>
+    ),
+  ],
 } satisfies Meta<typeof DatabaseViewSurface>;
 
 export default meta;
@@ -339,9 +359,7 @@ export const BoardListSelectionContinuity: Story = {
   render: () => <SelectionPreservingLayoutSwitch />,
 };
 
-const withLayout = (
-  defaultLayout: "board" | "list",
-): DatabaseViewRenderModel => ({
+const withLayout = (defaultLayout: "board" | "list"): DatabaseViewRenderModel => ({
   ...model,
   query: {
     ...model.query,
@@ -357,13 +375,15 @@ const withLayout = (
       },
     },
   },
-  columns: [{
-    id: "all",
-    groupKey: null,
-    scopeKey: "all",
-    name: "Focused work",
-    rows: model.columns.flatMap((column) => column.rows),
-  }],
+  columns: [
+    {
+      id: "all",
+      groupKey: null,
+      scopeKey: "all",
+      name: "Focused work",
+      rows: model.columns.flatMap((column) => column.rows),
+    },
+  ],
 });
 
 const withNestedList = (): DatabaseViewRenderModel => {
@@ -377,7 +397,11 @@ const withNestedList = (): DatabaseViewRenderModel => {
     { id: "page-3", title: "Verify nested keyboard navigation", parentId: "page-2" },
     { id: "page-6", title: "Align the sibling hierarchy guide", parentId: "page-1" },
     { id: "page-4", title: "Polish responsive property columns", parentId: null },
-    { id: "page-5", title: "Exercise a deliberately long task title without disturbing adjacent metadata", parentId: null },
+    {
+      id: "page-5",
+      title: "Exercise a deliberately long task title without disturbing adjacent metadata",
+      parentId: null,
+    },
   ] as const;
   const authorities = pageSpecs.map((page, index) => ({
     ...authority,
@@ -425,16 +449,18 @@ const withNestedList = (): DatabaseViewRenderModel => {
       },
       rows: authorities,
     },
-    columns: [{
-      ...base.columns[0]!,
-      rows: pageSpecs.map((page, index) => ({
-        ...renderRow,
-        pageId: page.id,
-        title: page.title,
-        parentPageId: page.parentId ?? undefined,
-        createdAt: new Date(Date.parse(timestamp) + index * 86_400_000),
-      })),
-    }],
+    columns: [
+      {
+        ...base.columns[0]!,
+        rows: pageSpecs.map((page, index) => ({
+          ...renderRow,
+          pageId: page.id,
+          title: page.title,
+          parentPageId: page.parentId ?? undefined,
+          createdAt: new Date(Date.parse(timestamp) + index * 86_400_000),
+        })),
+      },
+    ],
   };
 };
 
@@ -464,10 +490,12 @@ const withNestedGroupedList = (): DatabaseViewRenderModel => {
       effectiveGroupKey: groupKey,
     };
   });
-  const renderRows = base.columns.flatMap((column) => column.rows).map((row) => {
-    const groupKey = groupKeyByPageId.get(row.pageId) ?? "build";
-    return { ...row, groupKey, status: groupKey };
-  });
+  const renderRows = base.columns
+    .flatMap((column) => column.rows)
+    .map((row) => {
+      const groupKey = groupKeyByPageId.get(row.pageId) ?? "build";
+      return { ...row, groupKey, status: groupKey };
+    });
   return {
     ...base,
     query: {
@@ -543,33 +571,23 @@ export const ListIdentityRhythm: Story = {
 export const ListPageKeyAction: Story = {
   args: { model: withLayout("list") },
   play: async ({ canvasElement }) => {
-    const row = canvasElement.querySelector<HTMLElement>(
-      "[data-database-view-page-id=page-1]",
-    );
+    const row = canvasElement.querySelector<HTMLElement>("[data-database-view-page-id=page-1]");
     if (!row) throw new Error("Expected the keyed List row");
     fireEvent.contextMenu(row);
-    const copyTrigger = await waitFor(() => getByRole(
-      canvasElement.ownerDocument.body,
-      "menuitem",
-      { name: "Copy" },
-    ));
+    const copyTrigger = await waitFor(() =>
+      getByRole(canvasElement.ownerDocument.body, "menuitem", { name: "Copy" }),
+    );
     fireEvent.pointerMove(copyTrigger, { pointerType: "mouse" });
-    await waitFor(() => getByRole(
-      canvasElement.ownerDocument.body,
-      "menuitem",
-      { name: "Copy ID" },
-    ));
+    await waitFor(() =>
+      getByRole(canvasElement.ownerDocument.body, "menuitem", { name: "Copy ID" }),
+    );
   },
 };
 export const NestedListHierarchy: Story = {
   args: { model: withNestedList() },
   play: async ({ canvasElement }) => {
-    const layoutGrid = canvasElement.querySelector<HTMLElement>(
-      "[data-list-layout-grid=true]",
-    );
-    const row = canvasElement.querySelector<HTMLElement>(
-      "[data-database-view-page-id]",
-    );
+    const layoutGrid = canvasElement.querySelector<HTMLElement>("[data-list-layout-grid=true]");
+    const row = canvasElement.querySelector<HTMLElement>("[data-database-view-page-id]");
     if (!layoutGrid || !row) throw new Error("Expected the nested List grid and a Page row");
 
     await waitFor(() => {
@@ -578,9 +596,7 @@ export const NestedListHierarchy: Story = {
       if (view.getComputedStyle(layoutGrid).gridTemplateColumns === "none") {
         throw new Error("Hidden public ID invalidated the List grid template");
       }
-      for (const cell of row.querySelectorAll<HTMLElement>(
-        ":scope > [data-list-grid-column]",
-      )) {
+      for (const cell of row.querySelectorAll<HTMLElement>(":scope > [data-list-grid-column]")) {
         if (view.getComputedStyle(cell).gridColumnStart === "auto") {
           throw new Error(`${cell.dataset.listGridColumn} lost its named grid placement`);
         }
@@ -755,7 +771,7 @@ const withListFieldStress = (): DatabaseViewRenderModel => {
         ...base.query.properties.map((property) =>
           property.propertyId === tagsPropertyId
             ? { ...property, config: { options: labelOptions } }
-            : property
+            : property,
         ),
         ...extraProperties,
       ],
@@ -780,9 +796,10 @@ const withListFieldStress = (): DatabaseViewRenderModel => {
             [tagsPropertyId]: {
               propertyId: tagsPropertyId,
               valueType: "multi_select" as const,
-              value: index === 1
-                ? labelOptions.map((option) => option.id)
-                : [labelOptions[index % labelOptions.length]!.id],
+              value:
+                index === 1
+                  ? labelOptions.map((option) => option.id)
+                  : [labelOptions[index % labelOptions.length]!.id],
               revision: 2,
             },
             [estimatePropertyId]: {
@@ -811,9 +828,7 @@ const withListFieldStress = (): DatabaseViewRenderModel => {
       ...column,
       rows: column.rows.map((row, index) => ({
         ...row,
-        priority: index === 3
-          ? undefined
-          : priorityOptions[index % priorityOptions.length]!.id,
+        priority: index === 3 ? undefined : priorityOptions[index % priorityOptions.length]!.id,
       })),
     })),
   };
@@ -928,9 +943,7 @@ const withBoardPropertyChips = (): DatabaseViewRenderModel => {
         ...row,
         page: {
           ...row.page,
-          createdAt: index === 0
-            ? "2026-02-10T10:00:00.000Z"
-            : "2026-08-12T10:00:00.000Z",
+          createdAt: index === 0 ? "2026-02-10T10:00:00.000Z" : "2026-08-12T10:00:00.000Z",
           updatedAt: "2026-08-17T10:00:00.000Z",
         },
         values: {
@@ -943,14 +956,16 @@ const withBoardPropertyChips = (): DatabaseViewRenderModel => {
               value: {
                 value_revision: 1,
                 total_count: 1,
-                targets: [{
-                  kind: "visible",
-                  edge_id: String(index + 1).repeat(64),
-                  page_id: `related-page-${index + 1}`,
-                  title: index % 2 === 0 ? "Design tokens" : "Keyboard navigation",
-                  lifecycle: "active",
-                  membership_state: "active_in_target_source",
-                }],
+                targets: [
+                  {
+                    kind: "visible",
+                    edge_id: String(index + 1).repeat(64),
+                    page_id: `related-page-${index + 1}`,
+                    title: index % 2 === 0 ? "Design tokens" : "Keyboard navigation",
+                    lifecycle: "active",
+                    membership_state: "active_in_target_source",
+                  },
+                ],
                 restricted_count: 0,
                 has_more: false,
               },
@@ -987,11 +1002,13 @@ export const BoardPropertyChips: Story = {
 
 export const BoardPropertyChipsNarrow: Story = {
   args: { model: withBoardPropertyChips() },
-  decorators: [(Story) => (
-    <div className="h-[640px] w-[520px] border-r-[0.5px] border-token-border/50">
-      <Story />
-    </div>
-  )],
+  decorators: [
+    (Story) => (
+      <div className="h-[640px] w-[520px] border-r-[0.5px] border-token-border/50">
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export const BoardPropertyChipsDarkMode: Story = {
@@ -1031,18 +1048,20 @@ const withLargeListFixture = (count: number): DatabaseViewRenderModel => {
         };
       }),
     },
-    columns: [{
-      id: "all",
-      groupKey: null,
-      scopeKey: "all",
-      name: "Focused work",
-      rows: pageIds.map((pageId, index) => ({
-        ...renderRow,
-        pageId,
-        title: `Large fixture Page ${String(index + 1).padStart(5, "0")}`,
-        createdAt: new Date(Date.parse(timestamp) + index * 1_000),
-      })),
-    }],
+    columns: [
+      {
+        id: "all",
+        groupKey: null,
+        scopeKey: "all",
+        name: "Focused work",
+        rows: pageIds.map((pageId, index) => ({
+          ...renderRow,
+          pageId,
+          title: `Large fixture Page ${String(index + 1).padStart(5, "0")}`,
+          createdAt: new Date(Date.parse(timestamp) + index * 1_000),
+        })),
+      },
+    ],
   };
 };
 
@@ -1065,15 +1084,15 @@ function ListWithOpenContextMenu() {
     let secondFrame = 0;
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
-        const row = hostRef.current?.querySelector<HTMLElement>(
-          "[data-database-view-page-id]",
+        const row = hostRef.current?.querySelector<HTMLElement>("[data-database-view-page-id]");
+        row?.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            button: 2,
+            clientX: 420,
+            clientY: 190,
+          }),
         );
-        row?.dispatchEvent(new MouseEvent("contextmenu", {
-          bubbles: true,
-          button: 2,
-          clientX: 420,
-          clientY: 190,
-        }));
       });
     });
     return () => {
@@ -1102,13 +1121,15 @@ const withEmptyList = (): DatabaseViewRenderModel => {
   return {
     ...base,
     query: { ...base.query, rows: [] },
-    columns: [{
-      id: "all",
-      groupKey: null,
-      scopeKey: "all",
-      name: "Focused work",
-      rows: [],
-    }],
+    columns: [
+      {
+        id: "all",
+        groupKey: null,
+        scopeKey: "all",
+        name: "Focused work",
+        rows: [],
+      },
+    ],
   };
 };
 
@@ -1119,22 +1140,25 @@ export const EmptyList: Story = {
 export const RetainedListBackgroundRefresh: Story = {
   args: {
     model: withNestedList(),
-    groupPagination: new Map([[
-      "all",
-      {
-        scopeKey: "all",
-        loadedRows: 5,
-        totalRows: 28,
-        hasMore: true,
-        loadingMore: true,
-        error: null,
-      },
-    ]]),
+    groupPagination: new Map([
+      [
+        "all",
+        {
+          scopeKey: "all",
+          loadedRows: 5,
+          totalRows: 28,
+          hasMore: true,
+          loadingMore: true,
+          error: null,
+        },
+      ],
+    ]),
   },
   parameters: {
     docs: {
       description: {
-        story: "The admitted List rows remain readable while a background window continues loading.",
+        story:
+          "The admitted List rows remain readable while a background window continues loading.",
       },
     },
   },
@@ -1143,17 +1167,19 @@ export const RetainedListBackgroundRefresh: Story = {
 export const FailedListWindow: Story = {
   args: {
     model: withNestedList(),
-    groupPagination: new Map([[
-      "all",
-      {
-        scopeKey: "all",
-        loadedRows: 5,
-        totalRows: 28,
-        hasMore: true,
-        loadingMore: false,
-        error: "Couldn’t load the next List window.",
-      },
-    ]]),
+    groupPagination: new Map([
+      [
+        "all",
+        {
+          scopeKey: "all",
+          loadedRows: 5,
+          totalRows: 28,
+          hasMore: true,
+          loadingMore: false,
+          error: "Couldn’t load the next List window.",
+        },
+      ],
+    ]),
     onLoadMoreGroup: () => undefined,
   },
 };
@@ -1281,25 +1307,28 @@ const withCustomGrouping = (
   valueType: "select" | "multi_select" | "checkbox",
 ): DatabaseViewRenderModel => {
   const next = withSubgroups("board");
-  const groupValues = valueType === "checkbox"
-    ? [true, false]
-    : valueType === "multi_select"
-      ? [["o_PLATFORM"], []]
-      : ["o_PLATFORM", null];
-  const groupKeys = valueType === "checkbox"
-    ? ["true", "false"]
-    : valueType === "multi_select"
-      ? ['["o_PLATFORM"]', null]
-      : ["o_PLATFORM", null];
+  const groupValues =
+    valueType === "checkbox"
+      ? [true, false]
+      : valueType === "multi_select"
+        ? [["o_PLATFORM"], []]
+        : ["o_PLATFORM", null];
+  const groupKeys =
+    valueType === "checkbox"
+      ? ["true", "false"]
+      : valueType === "multi_select"
+        ? ['["o_PLATFORM"]', null]
+        : ["o_PLATFORM", null];
   const groupProperty: DataSourcePropertyRecordV2 = {
     propertyId: customGroupPropertyId,
     dataSourceId,
     name: valueType === "checkbox" ? "Approved" : "Team",
     ...testPropertySemantics(valueType, 1),
     valueType,
-    config: valueType === "select" || valueType === "multi_select"
-      ? { options: [{ id: "o_PLATFORM", name: "Platform", color: "blue" }] }
-      : {},
+    config:
+      valueType === "select" || valueType === "multi_select"
+        ? { options: [{ id: "o_PLATFORM", name: "Platform", color: "blue" }] }
+        : {},
     rankKey: "d",
     lifecycle: "active",
     revision: 1,
@@ -1399,17 +1428,15 @@ export const GroupCombinationLimit: Story = {
 };
 export const NarrowList: Story = {
   args: { model: withLayout("list") },
-  decorators: [(Story) => (
-    <div className="h-[640px] w-[520px] border-r-[0.5px] border-token-border/50">
-      <Story />
-    </div>
-  )],
+  decorators: [
+    (Story) => (
+      <div className="h-[640px] w-[520px] border-r-[0.5px] border-token-border/50">
+        <Story />
+      </div>
+    ),
+  ],
 };
-function FullDatabaseViewTab({
-  viewModel,
-}: {
-  readonly viewModel: DatabaseViewRenderModel;
-}) {
+function FullDatabaseViewTab({ viewModel }: { readonly viewModel: DatabaseViewRenderModel }) {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1470,45 +1497,47 @@ function ListSubtreeDragFixture() {
           }),
         }}
       >
-        {rows.map((item, index) => item.kind === "page" ? (
-          <DatabaseListRow
-            key={item.key}
-            item={item}
-            libraryId={libraryId}
-            selected={false}
-            selectedBefore={false}
-            selectedAfter={false}
-            active={index === 0}
-            presented={false}
-            inlineProperties={null}
-            trailingCells={null}
-            onSelect={() => undefined}
-            onActivate={() => undefined}
-            onOpen={() => undefined}
-            statusOptions={[
-              { id: "triage", name: "Triage" },
-              { id: "plan", name: "Plan" },
-              { id: "build", name: "Build" },
-              { id: "review", name: "Review" },
-              { id: "ship", name: "Ship" },
-            ]}
-            priorityOptions={[
-              { id: "p0-critical", name: "Urgent" },
-              { id: "p1-high", name: "High" },
-              { id: "p2-medium", name: "Medium" },
-              { id: "p3-low", name: "Low" },
-            ]}
-            onSetStatus={() => undefined}
-            onSetPriority={() => undefined}
-            statusMutationDisabled={false}
-            priorityMutationDisabled={false}
-            showPriority
-            showStatus
-            identity={projectDatabaseListPageIdentity(item.row.pageKey, ["page_key"])}
-            nestingContinuations={continuations.get(item.key) ?? []}
-            ariaRowIndex={index + 1}
-          />
-        ) : null)}
+        {rows.map((item, index) =>
+          item.kind === "page" ? (
+            <DatabaseListRow
+              key={item.key}
+              item={item}
+              libraryId={libraryId}
+              selected={false}
+              selectedBefore={false}
+              selectedAfter={false}
+              active={index === 0}
+              presented={false}
+              inlineProperties={null}
+              trailingCells={null}
+              onSelect={() => undefined}
+              onActivate={() => undefined}
+              onOpen={() => undefined}
+              statusOptions={[
+                { id: "triage", name: "Triage" },
+                { id: "plan", name: "Plan" },
+                { id: "build", name: "Build" },
+                { id: "review", name: "Review" },
+                { id: "ship", name: "Ship" },
+              ]}
+              priorityOptions={[
+                { id: "p0-critical", name: "Urgent" },
+                { id: "p1-high", name: "High" },
+                { id: "p2-medium", name: "Medium" },
+                { id: "p3-low", name: "Low" },
+              ]}
+              onSetStatus={() => undefined}
+              onSetPriority={() => undefined}
+              statusMutationDisabled={false}
+              priorityMutationDisabled={false}
+              showPriority
+              showStatus
+              identity={projectDatabaseListPageIdentity(item.row.pageKey, ["page_key"])}
+              nestingContinuations={continuations.get(item.key) ?? []}
+              ariaRowIndex={index + 1}
+            />
+          ) : null,
+        )}
       </div>
     </DatabaseListDndProvider>
   );
@@ -1519,7 +1548,8 @@ export const ListSubtreeDragPreview: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Interactive nested drag coverage for the canonical insertion pin and visible-column preview.",
+        story:
+          "Interactive nested drag coverage for the canonical insertion pin and visible-column preview.",
       },
     },
   },
@@ -1547,27 +1577,31 @@ function ListFocusRetentionStory() {
               commitSeq: current.commitSeq + 1,
               query: {
                 ...current.query,
-                rows: current.query.rows.map((row) => row.page.pageId === "page-1"
-                  ? {
-                      ...row,
-                      page: {
-                        ...row.page,
-                        title: nextTitle,
-                        richTitle: plainTextToPortableRichText(nextTitle),
-                        metadataRevision: row.page.metadataRevision + 1,
-                      },
-                    }
-                  : row),
+                rows: current.query.rows.map((row) =>
+                  row.page.pageId === "page-1"
+                    ? {
+                        ...row,
+                        page: {
+                          ...row.page,
+                          title: nextTitle,
+                          richTitle: plainTextToPortableRichText(nextTitle),
+                          metadataRevision: row.page.metadataRevision + 1,
+                        },
+                      }
+                    : row,
+                ),
               },
               columns: current.columns.map((column) => ({
                 ...column,
-                rows: column.rows.map((row) => row.pageId === "page-1"
-                  ? {
-                      ...row,
-                      title: nextTitle,
-                      metadataRevision: row.metadataRevision + 1,
-                    }
-                  : row),
+                rows: column.rows.map((row) =>
+                  row.pageId === "page-1"
+                    ? {
+                        ...row,
+                        title: nextTitle,
+                        metadataRevision: row.metadataRevision + 1,
+                      }
+                    : row,
+                ),
               })),
             }));
           }}

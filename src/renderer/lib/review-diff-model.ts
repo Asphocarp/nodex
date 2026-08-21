@@ -21,25 +21,28 @@ const REVIEW_LARGE_DIFF_SINGLE_FILE_CHANGED_LINE_THRESHOLD = 15_000;
 const REVIEW_WORD_DIFF_CHANGED_LINE_THRESHOLD = 2_000;
 export const REVIEW_CAPPED_MATCH_PAGE_SIZE = 20;
 
-export function getReviewTotalChangedLines<TFile extends ReviewDiffModelFile>(files: TFile[]): number {
+export function getReviewTotalChangedLines<TFile extends ReviewDiffModelFile>(
+  files: TFile[],
+): number {
   return files.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0);
 }
 
-export function getReviewTotalChangedBytes<TFile extends ReviewDiffModelFile>(files: TFile[]): number {
+export function getReviewTotalChangedBytes<TFile extends ReviewDiffModelFile>(
+  files: TFile[],
+): number {
   return files.reduce((sum, file) => sum + file.changedBytes, 0);
 }
 
 export function isReviewLargeDiff(stats: ReviewLargeDiffStats): boolean {
-  return stats.fileCount > REVIEW_LARGE_DIFF_FILE_THRESHOLD
-    || stats.totalChangedLines > REVIEW_LARGE_DIFF_LINE_THRESHOLD
-    || stats.totalChangedBytes > REVIEW_LARGE_DIFF_BYTE_THRESHOLD
-    || (stats.largestFileChangedLines ?? 0) > REVIEW_LARGE_DIFF_SINGLE_FILE_CHANGED_LINE_THRESHOLD;
+  return (
+    stats.fileCount > REVIEW_LARGE_DIFF_FILE_THRESHOLD ||
+    stats.totalChangedLines > REVIEW_LARGE_DIFF_LINE_THRESHOLD ||
+    stats.totalChangedBytes > REVIEW_LARGE_DIFF_BYTE_THRESHOLD ||
+    (stats.largestFileChangedLines ?? 0) > REVIEW_LARGE_DIFF_SINGLE_FILE_CHANGED_LINE_THRESHOLD
+  );
 }
 
-export function isReviewWordDiffEnabled(
-  changedLines: number,
-  requested: boolean,
-): boolean {
+export function isReviewWordDiffEnabled(changedLines: number, requested: boolean): boolean {
   return requested && changedLines <= REVIEW_WORD_DIFF_CHANGED_LINE_THRESHOLD;
 }
 
@@ -97,7 +100,9 @@ export function buildReviewVisibleFiles<TFile extends ReviewDiffModelFile>(
   if (selectedPath) {
     const selectedIndex = files.findIndex((file) => file.displayPath === selectedPath);
     if (selectedIndex >= nextVisibleCount) {
-      nextVisibleCount = Math.ceil((selectedIndex + 1) / REVIEW_CAPPED_MATCH_PAGE_SIZE) * REVIEW_CAPPED_MATCH_PAGE_SIZE;
+      nextVisibleCount =
+        Math.ceil((selectedIndex + 1) / REVIEW_CAPPED_MATCH_PAGE_SIZE) *
+        REVIEW_CAPPED_MATCH_PAGE_SIZE;
     }
   }
 

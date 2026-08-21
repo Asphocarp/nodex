@@ -3,10 +3,7 @@ import type { OwnedDocumentDescriptor } from "../../shared/block-documents";
 import { createPageDocumentGenesis } from "../../shared/block-documents/block-document-codec";
 import type { BlockDocumentSurfaceRuntime } from "./block-document-surface-runtime";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
-import {
-  buildPagePromptContext,
-  materializePreparedPageDocument,
-} from "./page-prompt-context";
+import { buildPagePromptContext, materializePreparedPageDocument } from "./page-prompt-context";
 
 const descriptor = (): OwnedDocumentDescriptor => ({
   libraryId: "library-1",
@@ -40,10 +37,12 @@ describe("page prompt context", () => {
     expect(context.promptInput.text).toBe(
       "Page: Release plan\nPage key: LAB-13\nSource: nodex://pages/page-1\n\n[Image #1] (caption: Architecture)\nShip it",
     );
-    expect(context.promptInput.images).toEqual([{
-      source: "nodex://assets/diagram.png",
-      caption: "Architecture",
-    }]);
+    expect(context.promptInput.images).toEqual([
+      {
+        source: "nodex://assets/diagram.png",
+        caption: "Architecture",
+      },
+    ]);
   });
 
   test("uses the stable untitled label when the canonical title is empty", () => {
@@ -80,7 +79,7 @@ describe("page prompt context", () => {
         accessContext: { kind: "project", projectId: "project-a" },
         descriptor: descriptor(),
         createRuntime: () => runtime,
-        createAdapter: () => ({} as DocumentSyncAdapter),
+        createAdapter: () => ({}) as DocumentSyncAdapter,
       });
 
       expect(materialized.title).toBe("Canonical title");
@@ -110,12 +109,14 @@ describe("page prompt context", () => {
     } as unknown as BlockDocumentSurfaceRuntime;
 
     try {
-      await expect(materializePreparedPageDocument({
-        accessContext: { kind: "project", projectId: "project-a" },
-        descriptor: descriptor(),
-        createRuntime: () => runtime,
-        createAdapter: () => ({} as DocumentSyncAdapter),
-      })).rejects.toThrow("sync failed");
+      await expect(
+        materializePreparedPageDocument({
+          accessContext: { kind: "project", projectId: "project-a" },
+          descriptor: descriptor(),
+          createRuntime: () => runtime,
+          createAdapter: () => ({}) as DocumentSyncAdapter,
+        }),
+      ).rejects.toThrow("sync failed");
       expect(close).toHaveBeenCalledOnce();
     } finally {
       genesis.document.destroy();

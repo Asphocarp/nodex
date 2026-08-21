@@ -12,10 +12,7 @@ import {
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
-import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "@/components/ui/dropdown";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
 import { ProjectMarker } from "@/components/workbench/project-marker";
 import type {
   LibraryAccess,
@@ -36,22 +33,20 @@ const accessStrength = (access: LibraryAccess | null): number => {
   return 0;
 };
 
-export const inheritedProjectAccess = (
-  project: LibraryProjectAccessRow,
-): LibraryAccess | null => project.inheritedSources.reduce<LibraryAccess | null>(
-  (strongest, source) =>
-    accessStrength(source.access) > accessStrength(strongest) ? source.access : strongest,
-  null,
-);
+export const inheritedProjectAccess = (project: LibraryProjectAccessRow): LibraryAccess | null =>
+  project.inheritedSources.reduce<LibraryAccess | null>(
+    (strongest, source) =>
+      accessStrength(source.access) > accessStrength(strongest) ? source.access : strongest,
+    null,
+  );
 
 export const effectiveProjectAccess = (
   project: LibraryProjectAccessRow,
   directAccess: LibraryAccess | null,
 ): LibraryAccess | null => {
   const inherited = inheritedProjectAccess(project);
-  const effective = accessStrength(directAccess) >= accessStrength(inherited)
-    ? directAccess
-    : inherited;
+  const effective =
+    accessStrength(directAccess) >= accessStrength(inherited) ? directAccess : inherited;
   if (project.lifecycle !== "active" && effective !== null) return "read";
   return effective;
 };
@@ -59,23 +54,27 @@ export const effectiveProjectAccess = (
 const directAccessForProject = (
   project: LibraryProjectAccessRow,
   draft: LibraryProjectAccessDraft,
-): LibraryAccess | null => Object.hasOwn(draft, project.projectId)
-  ? draft[project.projectId] ?? null
-  : project.directGrant?.access ?? null;
+): LibraryAccess | null =>
+  Object.hasOwn(draft, project.projectId)
+    ? (draft[project.projectId] ?? null)
+    : (project.directGrant?.access ?? null);
 
 export const buildProjectAccessChanges = (
   projects: readonly LibraryProjectAccessRow[],
   draft: LibraryProjectAccessDraft,
-): SetLibraryProjectAccessOperation["changes"] => projects.flatMap((project) => {
-  const initialAccess = project.directGrant?.access ?? null;
-  const draftAccess = directAccessForProject(project, draft);
-  if (initialAccess === draftAccess) return [];
-  return [{
-    projectId: project.projectId,
-    access: draftAccess,
-    expectedRevision: project.directGrant?.revision ?? null,
-  }];
-});
+): SetLibraryProjectAccessOperation["changes"] =>
+  projects.flatMap((project) => {
+    const initialAccess = project.directGrant?.access ?? null;
+    const draftAccess = directAccessForProject(project, draft);
+    if (initialAccess === draftAccess) return [];
+    return [
+      {
+        projectId: project.projectId,
+        access: draftAccess,
+        expectedRevision: project.directGrant?.revision ?? null,
+      },
+    ];
+  });
 
 const sourceDescription = (project: LibraryProjectAccessRow): string | null => {
   const source = project.inheritedSources[0];
@@ -94,9 +93,7 @@ const accessOptions = (
   project: LibraryProjectAccessRow,
 ): { value: string; label: string; disabled?: boolean }[] => {
   const inherited = inheritedProjectAccess(project);
-  const inheritedLabel = inherited
-    ? `Inherited — ${ACCESS_LABELS[inherited]}`
-    : "No access";
+  const inheritedLabel = inherited ? `Inherited — ${ACCESS_LABELS[inherited]}` : "No access";
   const primaryDatabaseAccess = project.inheritedSources.some(
     (source) => source.kind === "primary_database",
   );
@@ -125,11 +122,10 @@ const accessOptions = (
   ];
 };
 
-const initialDraft = (
-  projects: readonly LibraryProjectAccessRow[],
-): LibraryProjectAccessDraft => Object.fromEntries(
-  projects.map((project) => [project.projectId, project.directGrant?.access ?? null]),
-);
+const initialDraft = (projects: readonly LibraryProjectAccessRow[]): LibraryProjectAccessDraft =>
+  Object.fromEntries(
+    projects.map((project) => [project.projectId, project.directGrant?.access ?? null]),
+  );
 
 export function LibraryResourceAccessDialog({
   open,
@@ -150,9 +146,7 @@ export function LibraryResourceAccessDialog({
   readonly isSaving: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly onRetry: () => void;
-  readonly onSave: (
-    changes: SetLibraryProjectAccessOperation["changes"],
-  ) => void | Promise<void>;
+  readonly onSave: (changes: SetLibraryProjectAccessOperation["changes"]) => void | Promise<void>;
 }) {
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
@@ -180,13 +174,13 @@ export function LibraryResourceAccessDialog({
                         Try again
                       </button>
                     </>
-                  ) : "Loading Project access…"}
+                  ) : (
+                    "Loading Project access…"
+                  )}
                 </div>
               </NodexDialogBody>
               <NodexDialogFooter>
-                <NodexDialogAction onClick={() => onOpenChange(false)}>
-                  Cancel
-                </NodexDialogAction>
+                <NodexDialogAction onClick={() => onOpenChange(false)}>Cancel</NodexDialogAction>
                 <NodexDialogAction tone="primary" disabled>
                   Save changes
                 </NodexDialogAction>
@@ -215,9 +209,7 @@ function LibraryResourceAccessEditor({
   readonly projects: readonly LibraryProjectAccessRow[];
   readonly isSaving: boolean;
   readonly onCancel: () => void;
-  readonly onSave: (
-    changes: SetLibraryProjectAccessOperation["changes"],
-  ) => void | Promise<void>;
+  readonly onSave: (changes: SetLibraryProjectAccessOperation["changes"]) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState<LibraryProjectAccessDraft>(() => initialDraft(projects));
   const [query, setQuery] = useState("");
@@ -225,7 +217,7 @@ function LibraryResourceAccessEditor({
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleProjects = normalizedQuery
     ? projects.filter((project) =>
-        project.projectName.toLocaleLowerCase().includes(normalizedQuery)
+        project.projectName.toLocaleLowerCase().includes(normalizedQuery),
       )
     : projects;
 
@@ -258,58 +250,63 @@ function LibraryResourceAccessEditor({
             <div className="py-10 text-center text-sm text-token-description-foreground">
               No matching Projects
             </div>
-          ) : visibleProjects.map((project) => {
-            const directAccess = directAccessForProject(project, draft);
-            const effectiveAccess = effectiveProjectAccess(project, directAccess);
-            const inheritedDescription = sourceDescription(project);
-            const lifecycleLabel = project.lifecycle === "active"
-              ? null
-              : project.lifecycle === "archived" ? "Archived" : "Inactive";
-            const canChange = project.directGrant !== null || (
-              project.lifecycle === "active"
-              && inheritedProjectAccess(project) !== "read_write"
-            );
-            return (
-              <div
-                key={project.projectId}
-                className="flex min-h-14 items-center gap-3 border-b border-token-border/50 py-2 last:border-b-0"
-              >
-                <ProjectMarker appearance={project.appearance} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-token-foreground">
-                    {project.projectName}
-                  </div>
-                  {inheritedDescription || lifecycleLabel ? (
-                    <div className="truncate text-xs text-token-description-foreground">
-                      {[lifecycleLabel, inheritedDescription].filter(Boolean).join(" · ")}
+          ) : (
+            visibleProjects.map((project) => {
+              const directAccess = directAccessForProject(project, draft);
+              const effectiveAccess = effectiveProjectAccess(project, directAccess);
+              const inheritedDescription = sourceDescription(project);
+              const lifecycleLabel =
+                project.lifecycle === "active"
+                  ? null
+                  : project.lifecycle === "archived"
+                    ? "Archived"
+                    : "Inactive";
+              const canChange =
+                project.directGrant !== null ||
+                (project.lifecycle === "active" &&
+                  inheritedProjectAccess(project) !== "read_write");
+              return (
+                <div
+                  key={project.projectId}
+                  className="flex min-h-14 items-center gap-3 border-b border-token-border/50 py-2 last:border-b-0"
+                >
+                  <ProjectMarker appearance={project.appearance} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-token-foreground">
+                      {project.projectName}
                     </div>
-                  ) : null}
+                    {inheritedDescription || lifecycleLabel ? (
+                      <div className="truncate text-xs text-token-description-foreground">
+                        {[lifecycleLabel, inheritedDescription].filter(Boolean).join(" · ")}
+                      </div>
+                    ) : null}
+                  </div>
+                  <NodexOptionPicker
+                    value={directAccess ?? "none"}
+                    onValueChange={(value) =>
+                      setDraft((current) => ({
+                        ...current,
+                        [project.projectId]: value === "none" ? null : (value as LibraryAccess),
+                      }))
+                    }
+                    options={accessOptions(project)}
+                    disabled={!canChange || isSaving}
+                    align="end"
+                    contentWidth="sm"
+                    triggerButton={
+                      <NodexDropdownButtonTrigger
+                        size="sm"
+                        className="w-[132px]"
+                        aria-label={`Access for ${project.projectName}`}
+                      >
+                        {effectiveAccess ? ACCESS_LABELS[effectiveAccess] : "No access"}
+                      </NodexDropdownButtonTrigger>
+                    }
+                  />
                 </div>
-                <NodexOptionPicker
-                  value={directAccess ?? "none"}
-                  onValueChange={(value) => setDraft((current) => ({
-                    ...current,
-                    [project.projectId]: value === "none"
-                      ? null
-                      : value as LibraryAccess,
-                  }))}
-                  options={accessOptions(project)}
-                  disabled={!canChange || isSaving}
-                  align="end"
-                  contentWidth="sm"
-                  triggerButton={(
-                    <NodexDropdownButtonTrigger
-                      size="sm"
-                      className="w-[132px]"
-                      aria-label={`Access for ${project.projectName}`}
-                    >
-                      {effectiveAccess ? ACCESS_LABELS[effectiveAccess] : "No access"}
-                    </NodexDropdownButtonTrigger>
-                  )}
-                />
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </NodexDialogBody>
 

@@ -1,10 +1,4 @@
-import {
-  applyPatches,
-  enablePatches,
-  produceWithPatches,
-  type Draft,
-  type Patch,
-} from "immer";
+import { applyPatches, enablePatches, produceWithPatches, type Draft, type Patch } from "immer";
 import type {
   CodexConversationPatchPathSegment,
   CodexConversationSnapshot,
@@ -139,13 +133,16 @@ export function buildCodexConversationStateUpdates(
   previous: CodexConversationSnapshot,
   next: CodexConversationSnapshot,
 ): CodexConversationStateUpdate[] {
-  const [, patches] = produceWithPatches(previous as unknown as Record<string, unknown>, (draft) => {
-    const reconciledRoot = reconcileDraftValue(draft, next as unknown as Record<string, unknown>);
-    if (reconciledRoot !== KEEP_DRAFT_VALUE) {
-      return reconciledRoot as Record<string, unknown>;
-    }
-    return undefined;
-  });
+  const [, patches] = produceWithPatches(
+    previous as unknown as Record<string, unknown>,
+    (draft) => {
+      const reconciledRoot = reconcileDraftValue(draft, next as unknown as Record<string, unknown>);
+      if (reconciledRoot !== KEEP_DRAFT_VALUE) {
+        return reconciledRoot as Record<string, unknown>;
+      }
+      return undefined;
+    },
+  );
 
   return convertImmerPatchesToCodexConversationStateUpdates(patches);
 }
@@ -154,8 +151,5 @@ export function applyCodexConversationStateUpdates(
   conversation: CodexConversationSnapshot,
   patches: readonly CodexConversationStateUpdate[],
 ): CodexConversationSnapshot {
-  return applyPatches(
-    conversation,
-    patches.map(toImmerPatch),
-  );
+  return applyPatches(conversation, patches.map(toImmerPatch));
 }

@@ -70,7 +70,9 @@ export function HeaderActionProvider({
   );
 }
 
-export function useHeaderActions(slotPosition?: HeaderActionSlotPosition): readonly HeaderActionEntry[] {
+export function useHeaderActions(
+  slotPosition?: HeaderActionSlotPosition,
+): readonly HeaderActionEntry[] {
   const entries = useContext(HeaderActionsContext);
   if (!slotPosition) return entries;
 
@@ -138,11 +140,7 @@ function CollectedHeaderActionProvider({
 }) {
   const entries = collector.getEntries();
 
-  return (
-    <HeaderActionsContext.Provider value={entries}>
-      {children}
-    </HeaderActionsContext.Provider>
-  );
+  return <HeaderActionsContext.Provider value={entries}>{children}</HeaderActionsContext.Provider>;
 }
 
 function createHeaderActionCollector(): HeaderActionCollector {
@@ -176,7 +174,9 @@ export function HeaderShellSlot({
   const entries = useHeaderActions(side);
   const probeRef = useRef<HTMLDivElement | null>(null);
   const railProbeRef = useRef<HTMLDivElement | null>(null);
-  const measurementKey = entries.map((entry) => `${entry.actionId}:${entry.align}:${entry.order}`).join("|");
+  const measurementKey = entries
+    .map((entry) => `${entry.actionId}:${entry.align}:${entry.order}`)
+    .join("|");
   const paddingClassName = resolveHeaderSlotPaddingClassName(side, entries.length);
 
   useEffect(() => {

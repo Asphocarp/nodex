@@ -20,17 +20,19 @@ const page: LibraryCatalogEntry = {
 const dataSource = {
   useCatalog: () => ({
     data: {
-      pages: [{
-        kind: "catalog" as const,
-        libraryId: "library:test",
-        storeEpoch: "epoch:test",
-        commitSeq: 1,
-        authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
-        items: [page],
-        nextCursor: null,
-        hasMore: false,
-        total: 1,
-      }],
+      pages: [
+        {
+          kind: "catalog" as const,
+          libraryId: "library:test",
+          storeEpoch: "epoch:test",
+          commitSeq: 1,
+          authorization: AUTHORIZED_READ_STAMP_EXAMPLE,
+          items: [page],
+          nextCursor: null,
+          hasMore: false,
+          total: 1,
+        },
+      ],
       pageParams: [undefined],
     },
     isPending: false,
@@ -51,16 +53,15 @@ describe("PagesTabPicker", () => {
     const onOpenTarget = vi.fn();
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <PagesTabPicker
-          dataSource={dataSource}
-          onOpenTarget={onOpenTarget}
-        />
+        <PagesTabPicker dataSource={dataSource} onOpenTarget={onOpenTarget} />
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", {
-      name: "Open Page, Database, or Canvas",
-    }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open Page, Database, or Canvas",
+      }),
+    );
     const input = await screen.findByRole("combobox", { name: "Search Pages" });
     expect(screen.getByRole("option", { name: /Page One/ })).toBeDefined();
     expect(screen.getByRole("button", { name: "New Page" })).toBeDefined();
@@ -75,25 +76,26 @@ describe("PagesTabPicker", () => {
         <PagesTabPicker dataSource={dataSource} onOpenTarget={() => undefined} />
       </QueryClientProvider>,
     );
-    fireEvent.click(screen.getByRole("button", {
-      name: "Open Page, Database, or Canvas",
-    }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open Page, Database, or Canvas",
+      }),
+    );
     const input = await screen.findByRole("combobox", { name: "Search Pages" });
     fireEvent.change(input, { target: { value: "x".repeat(300) } });
     expect((input as HTMLInputElement).value).toHaveLength(256);
 
     fireEvent.keyDown(input, { key: "Escape" });
-    expect(screen.queryByRole("dialog", {
-      name: "Open Page, Database, or Canvas",
-    })).toBeNull();
+    expect(
+      screen.queryByRole("dialog", {
+        name: "Open Page, Database, or Canvas",
+      }),
+    ).toBeNull();
   });
 
   test("keeps the keyboard-active option visible while navigating", async () => {
     const scrollIntoView = vi.fn();
-    const original = Object.getOwnPropertyDescriptor(
-      HTMLElement.prototype,
-      "scrollIntoView",
-    );
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
       value: scrollIntoView,
@@ -109,11 +111,13 @@ describe("PagesTabPicker", () => {
         ...dataSource.useCatalog(),
         data: {
           ...dataSource.useCatalog().data!,
-          pages: [{
-            ...dataSource.useCatalog().data!.pages[0]!,
-            items: [page, secondPage],
-            total: 2,
-          }],
+          pages: [
+            {
+              ...dataSource.useCatalog().data!.pages[0]!,
+              items: [page, secondPage],
+              total: 2,
+            },
+          ],
         },
       }),
     } satisfies PagesTabPickerDataSource;
@@ -121,22 +125,23 @@ describe("PagesTabPicker", () => {
     try {
       render(
         <QueryClientProvider client={new QueryClient()}>
-          <PagesTabPicker
-            dataSource={multiDataSource}
-            onOpenTarget={() => undefined}
-          />
+          <PagesTabPicker dataSource={multiDataSource} onOpenTarget={() => undefined} />
         </QueryClientProvider>,
       );
-      fireEvent.click(screen.getByRole("button", {
-        name: "Open Page, Database, or Canvas",
-      }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Open Page, Database, or Canvas",
+        }),
+      );
       const input = await screen.findByRole("combobox", { name: "Search Pages" });
       scrollIntoView.mockClear();
       fireEvent.keyDown(input, { key: "ArrowDown" });
 
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
-        block: "nearest",
-      }));
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "nearest",
+        }),
+      );
       expect(input.getAttribute("aria-activedescendant")).toContain("option-1");
     } finally {
       if (original) {

@@ -64,9 +64,7 @@ describe("resolveSendBlockSelection", () => {
   });
 
   test("falls back to drag-handle block when no selection exists", () => {
-    const editor = createEditor([
-      { id: "fallback", type: "paragraph" },
-    ]);
+    const editor = createEditor([{ id: "fallback", type: "paragraph" }]);
 
     const result = resolveSendBlockSelection(editor, createContainer(), "fallback");
 

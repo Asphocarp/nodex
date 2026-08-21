@@ -256,7 +256,7 @@ export class PastedTextAttachmentManager {
     const registry = parsePastedTextAttachmentRegistry(JSON.parse(bytes.toString("utf8")));
     const attachmentPaths = new Set(
       registry.attachmentPaths.filter((path) =>
-        isManagedPastedTextAttachmentFilePath(path, this.#attachmentsRoot)
+        isManagedPastedTextAttachmentFilePath(path, this.#attachmentsRoot),
       ),
     );
     return {
@@ -273,7 +273,7 @@ export class PastedTextAttachmentManager {
   async #retryPendingRemovals(state: PastedTextAttachmentRegistryState): Promise<void> {
     await Promise.allSettled(
       Array.from(state.pendingRemovalPaths).map((path) =>
-        this.#removePendingAttachment(state, path)
+        this.#removePendingAttachment(state, path),
       ),
     );
   }
@@ -457,9 +457,7 @@ export class ThreadGoalAttachmentDirectoryManager {
       objective = appendThreadGoalReferenceSection(
         objective,
         "Referenced image URLs:",
-        remoteImageUrls.map((attachment) =>
-          `- [Image #${attachment.position}]: ${attachment.url}`
-        ),
+        remoteImageUrls.map((attachment) => `- [Image #${attachment.position}]: ${attachment.url}`),
       );
 
       if (Array.from(objective).length <= THREAD_GOAL_INLINE_OBJECTIVE_MAX_CODE_POINTS) {
@@ -651,9 +649,10 @@ async function readImageAttachmentBase64(
   }
 
   const rawPath = attachment.localPath ?? source.replace(/^file:\/\//i, "");
-  const filePath = attachment.localPath === undefined || attachment.localPath === null
-    ? decodeURIComponent(rawPath)
-    : rawPath;
+  const filePath =
+    attachment.localPath === undefined || attachment.localPath === null
+      ? decodeURIComponent(rawPath)
+      : rawPath;
   return (await fileSystem.readFile(filePath)).toString("base64");
 }
 
@@ -661,8 +660,9 @@ function inferImageAttachmentExtension(
   attachment: CodexThreadGoalImageAttachmentInput,
   source: string,
 ): string {
-  const namedExtension = (attachment.filename ?? attachment.localPath ?? "")
-    .match(/\.([a-z0-9]{1,8})$/i)?.[1];
+  const namedExtension = (attachment.filename ?? attachment.localPath ?? "").match(
+    /\.([a-z0-9]{1,8})$/i,
+  )?.[1];
   if (namedExtension) return namedExtension.toLowerCase();
 
   const mimeExtension = source.match(/^data:image\/([a-z0-9.+-]+);/i)?.[1];

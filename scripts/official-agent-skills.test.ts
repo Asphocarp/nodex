@@ -18,11 +18,7 @@ const REPOSITORY_ROOT = join(import.meta.dirname, "..");
 
 async function makeFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "nodex-official-skills-"));
-  await cp(
-    join(REPOSITORY_ROOT, "agent-skills"),
-    join(root, "agent-skills"),
-    { recursive: true },
-  );
+  await cp(join(REPOSITORY_ROOT, "agent-skills"), join(root, "agent-skills"), { recursive: true });
   await cp(join(REPOSITORY_ROOT, "LICENSE"), join(root, "LICENSE"));
   await writeFile(
     join(root, "package.json"),
@@ -66,13 +62,12 @@ describe("official Agent Skills artifact", () => {
 
   test("rejects unknown files and symlinks from the authoring tree", async () => {
     const unknownRoot = await makeFixture();
-    await writeFile(
-      join(unknownRoot, "agent-skills", "nodex", "README.md"),
-      "not publishable\n",
-    );
-    await expect(generateOfficialAgentSkills({
-      repositoryRoot: unknownRoot,
-    })).rejects.toThrow("unknown file");
+    await writeFile(join(unknownRoot, "agent-skills", "nodex", "README.md"), "not publishable\n");
+    await expect(
+      generateOfficialAgentSkills({
+        repositoryRoot: unknownRoot,
+      }),
+    ).rejects.toThrow("unknown file");
 
     const symlinkRoot = await makeFixture();
     const reference = join(
@@ -85,9 +80,11 @@ describe("official Agent Skills artifact", () => {
     await writeFile(join(symlinkRoot, "outside.md"), "outside\n");
     await import("node:fs/promises").then(({ rm }) => rm(reference));
     await symlink(join(symlinkRoot, "outside.md"), reference);
-    await expect(generateOfficialAgentSkills({
-      repositoryRoot: symlinkRoot,
-    })).rejects.toThrow("symlink");
+    await expect(
+      generateOfficialAgentSkills({
+        repositoryRoot: symlinkRoot,
+      }),
+    ).rejects.toThrow("symlink");
   });
 
   test("renders production Nested Markdown examples through the real codec", () => {

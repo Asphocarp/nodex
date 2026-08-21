@@ -17,9 +17,7 @@ export function findToggleButtonForBlock(
   return findBlockDescendantById<HTMLButtonElement>(editorDom, blockId, ".bn-toggle-button");
 }
 
-export function toggleCurrentToggleBlock(
-  editor: EditorWithToggleShortcut,
-): boolean {
+export function toggleCurrentToggleBlock(editor: EditorWithToggleShortcut): boolean {
   const cursor = editor.getTextCursorPosition();
   const toggleButton = findToggleButtonForBlock(editor.domElement, cursor.block.id);
   if (!toggleButton) return false;

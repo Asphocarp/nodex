@@ -9,10 +9,13 @@ import type { CodexUserInputAutoResolutionChange } from "../../shared/codex-user
 function createManualClock() {
   let now = 1_000;
   let nextId = 0;
-  const timers = new Map<number, {
-    callback: () => void;
-    deadline: number;
-  }>();
+  const timers = new Map<
+    number,
+    {
+      callback: () => void;
+      deadline: number;
+    }
+  >();
 
   return {
     now: () => now,
@@ -120,10 +123,7 @@ describe("CodexUserInputAutoResolutionController", () => {
     expect(controller.snapshot()[0]?.phase.type).toBe("waitingForInactivity");
 
     controller.observeResponse("thread-1", "7");
-    clock.advanceBy(
-      USER_INPUT_FOREGROUND_INACTIVITY_MS
-        + USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,
-    );
+    clock.advanceBy(USER_INPUT_FOREGROUND_INACTIVITY_MS + USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS);
     expect(resolved).toEqual([]);
     expect(controller.snapshot()).toEqual([]);
   });

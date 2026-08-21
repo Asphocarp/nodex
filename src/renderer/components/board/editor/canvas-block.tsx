@@ -37,8 +37,7 @@ const CanvasDocumentSurface = lazy(async () => {
   return { default: module.CanvasDocumentSurface };
 });
 
-export const canvasInlineSurfaceActivationBudget =
-  new ReferenceSurfaceActivationBudget(2);
+export const canvasInlineSurfaceActivationBudget = new ReferenceSurfaceActivationBudget(2);
 
 export interface CanvasBlockFrameProps {
   readonly canvasBlockId: string;
@@ -143,9 +142,7 @@ export function CanvasBlockFrame({
           </span>
         )}
         {loading ? (
-          <span className="text-xs text-token-description-foreground">
-            Loading…
-          </span>
+          <span className="text-xs text-token-description-foreground">Loading…</span>
         ) : null}
         {onRename ? (
           <button
@@ -173,9 +170,11 @@ export function CanvasBlockFrame({
       <div
         ref={viewportRef}
         data-canvas-inline-frame=""
-        className={expanded
-          ? "max-h-[1600px] min-h-56 w-full min-w-0 resize-y overflow-hidden"
-          : "h-24 w-full min-w-0 overflow-hidden"}
+        className={
+          expanded
+            ? "max-h-[1600px] min-h-56 w-full min-w-0 resize-y overflow-hidden"
+            : "h-24 w-full min-w-0 overflow-hidden"
+        }
       >
         {children}
       </div>
@@ -200,23 +199,10 @@ export function CanvasBlock({
     canvasBlockId,
     instanceId,
   ].join(":");
-  const target = useLibraryCanvasTarget(
-    canvasBlockId,
-    host !== null,
-  );
-  const summary = target.data?.value.status === "available"
-    ? target.data.value.summary
-    : null;
-  const canAutoAdmit = Boolean(
-    host?.isActiveSurface
-    && summary
-    && visibility.visible,
-  );
-  const eligible = Boolean(
-    host?.isActiveSurface
-    && summary
-    && (visibility.visible || engaged),
-  );
+  const target = useLibraryCanvasTarget(canvasBlockId, host !== null);
+  const summary = target.data?.value.status === "available" ? target.data.value.summary : null;
+  const canAutoAdmit = Boolean(host?.isActiveSurface && summary && visibility.visible);
+  const eligible = Boolean(host?.isActiveSurface && summary && (visibility.visible || engaged));
   const active = useReferenceSurfaceActivation(
     activationKey,
     eligible,
@@ -225,13 +211,9 @@ export function CanvasBlock({
       ? ReferenceSurfaceActivationPriority.editing
       : ReferenceSurfaceActivationPriority.visibility,
     {
-      visibility: (visibility.intersecting ?? visibility.visible)
-        ? "visible"
-        : "prewarm",
-      viewportCenterDistance:
-        visibility.viewportCenterDistance ?? Number.POSITIVE_INFINITY,
-      documentOrder:
-        visibility.documentOrder ?? Number.POSITIVE_INFINITY,
+      visibility: (visibility.intersecting ?? visibility.visible) ? "visible" : "prewarm",
+      viewportCenterDistance: visibility.viewportCenterDistance ?? Number.POSITIVE_INFINITY,
+      documentOrder: visibility.documentOrder ?? Number.POSITIVE_INFINITY,
     },
   );
   const touch = useCallback(() => {
@@ -252,19 +234,20 @@ export function CanvasBlock({
     });
   }, [canvasBlockId, host, summary]);
   const title = summary?.title.trim() || "Canvas";
-  const rename = useCallback(async (nextTitle: string) => {
-    if (!host?.renameCanvas || !summary) return;
-    try {
-      await host.renameCanvas({
-        canvasBlockId,
-        displayName: nextTitle,
-      });
-    } catch (error) {
-      toast.danger(
-        error instanceof Error ? error.message : "Could not rename Canvas",
-      );
-    }
-  }, [canvasBlockId, host, summary]);
+  const rename = useCallback(
+    async (nextTitle: string) => {
+      if (!host?.renameCanvas || !summary) return;
+      try {
+        await host.renameCanvas({
+          canvasBlockId,
+          displayName: nextTitle,
+        });
+      } catch (error) {
+        toast.danger(error instanceof Error ? error.message : "Could not rename Canvas");
+      }
+    },
+    [canvasBlockId, host, summary],
+  );
   const selectHostShell = useCallback(() => {
     if (!hostEditor) return false;
     return selectEmbeddedSurfaceShell(hostEditor, canvasBlockId);
@@ -278,10 +261,13 @@ export function CanvasBlock({
   useEffect(() => {
     if (targetStatus !== "deleted" || !targetLibraryId || !host) return;
     void canvasDocumentSessionRegistry
-      .retireOwner({
-        libraryId: targetLibraryId,
-        accessContext: host.contentAccessContext,
-      }, canvasBlockId)
+      .retireOwner(
+        {
+          libraryId: targetLibraryId,
+          accessContext: host.contentAccessContext,
+        },
+        canvasBlockId,
+      )
       .catch(() => undefined);
   }, [canvasBlockId, host, targetLibraryId, targetStatus]);
   const surfaceKey = host
@@ -311,9 +297,7 @@ export function CanvasBlock({
         <CanvasDocumentState
           status="error"
           message={
-            target.error instanceof Error
-              ? target.error.message
-              : "Canvas could not be opened"
+            target.error instanceof Error ? target.error.message : "Canvas could not be opened"
           }
           onRetry={() => void target.refetch()}
         />
@@ -324,11 +308,7 @@ export function CanvasBlock({
             : "This Canvas is no longer available."}
         </div>
       ) : active && host && surfaceKey && summary ? (
-        <Suspense
-          fallback={
-            <CanvasDocumentState status="loading" label="Opening Canvas…" />
-          }
-        >
+        <Suspense fallback={<CanvasDocumentState status="loading" label="Opening Canvas…" />}>
           <CanvasDocumentSurface
             accessContext={host.contentAccessContext}
             canvasBlockId={canvasBlockId}

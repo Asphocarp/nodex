@@ -21,9 +21,7 @@ export function buildCodexPromptInputFromBlockNoteBlocks(
   return buildCodexPromptInputFromNfmBlocks(nfmBlocks);
 }
 
-export function buildCodexPromptInputFromNfmBlocks(
-  nfmBlocks: NfmBlock[],
-): CodexPromptInput {
+export function buildCodexPromptInputFromNfmBlocks(nfmBlocks: NfmBlock[]): CodexPromptInput {
   const images: CodexPromptImageInput[] = [];
   const agentConfigs: CodexPromptAgentConfigInput[] = [];
   const textBlocks = stripPromptSideEffectsFromBlocks(nfmBlocks, images, agentConfigs);

@@ -77,11 +77,7 @@ function RenameChatDialogContent({
             />
           </NodexDialogBody>
           <NodexDialogFooter>
-            <NodexDialogAction
-              onClick={onClose}
-            >
-              Cancel
-            </NodexDialogAction>
+            <NodexDialogAction onClick={onClose}>Cancel</NodexDialogAction>
             <NodexDialogAction tone="primary" type="submit" disabled={saveDisabled}>
               Save
             </NodexDialogAction>

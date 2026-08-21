@@ -3,13 +3,9 @@ import type {
   CodexCanonicalTurnState,
 } from "./codex-conversation-state";
 
-function interruptRunningCommands(
-  turn: CodexCanonicalTurnState,
-): CodexCanonicalTurnState {
+function interruptRunningCommands(turn: CodexCanonicalTurnState): CodexCanonicalTurnState {
   const runningIds = turn.items.flatMap((item) =>
-    item.type === "commandExecution" && item.status === "inProgress"
-      ? [item.id]
-      : []
+    item.type === "commandExecution" && item.status === "inProgress" ? [item.id] : [],
   );
   if (runningIds.length === 0) return turn;
   const interrupted = new Set(turn.sidecar.interruptedCommandExecutionItemIds ?? []);
@@ -29,7 +25,5 @@ export function reduceCodexBackgroundTerminalCleanup(
   state: CodexCanonicalConversationState,
 ): CodexCanonicalConversationState {
   const turns = state.turns.map(interruptRunningCommands);
-  return turns.some((turn, index) => turn !== state.turns[index])
-    ? { ...state, turns }
-    : state;
+  return turns.some((turn, index) => turn !== state.turns[index]) ? { ...state, turns } : state;
 }

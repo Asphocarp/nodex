@@ -12,11 +12,16 @@ describe("readExactWorkspaceTextFile", () => {
     }));
     const readText = vi.fn(async () => ({ contents: "outside root" }));
 
-    await expect(readExactWorkspaceTextFile({
-      path: "/tmp/worktree/README.md",
-      maxBytes: 1_000,
-      contentSampleByteLimit: 128,
-    }, { readMetadata, readText })).resolves.toBe("outside root");
+    await expect(
+      readExactWorkspaceTextFile(
+        {
+          path: "/tmp/worktree/README.md",
+          maxBytes: 1_000,
+          contentSampleByteLimit: 128,
+        },
+        { readMetadata, readText },
+      ),
+    ).resolves.toBe("outside root");
 
     expect(readMetadata).toHaveBeenCalledWith({
       path: "/tmp/worktree/README.md",
@@ -35,19 +40,22 @@ describe("readExactWorkspaceTextFile", () => {
     { contentKind: undefined, sizeBytes: null },
   ])("does not read unsupported content: %o", async (metadata) => {
     const readText = vi.fn(async () => ({ contents: "unexpected" }));
-    const result = await readExactWorkspaceTextFile({
-      path: "/tmp/file.bin",
-      maxBytes: 1_000,
-      contentSampleByteLimit: 128,
-    }, {
-      readMetadata: async () => ({
-        isFile: true,
-        createdAtMs: 1,
-        mtimeMs: 2,
-        ...metadata,
-      }),
-      readText,
-    });
+    const result = await readExactWorkspaceTextFile(
+      {
+        path: "/tmp/file.bin",
+        maxBytes: 1_000,
+        contentSampleByteLimit: 128,
+      },
+      {
+        readMetadata: async () => ({
+          isFile: true,
+          createdAtMs: 1,
+          mtimeMs: 2,
+          ...metadata,
+        }),
+        readText,
+      },
+    );
 
     expect(result).toBeNull();
     expect(readText).not.toHaveBeenCalled();

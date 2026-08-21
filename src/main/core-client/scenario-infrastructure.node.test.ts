@@ -20,13 +20,9 @@ describe("authoritative isolated scenarios over CoreClient", () => {
           documentReadiness: "ready",
         },
       });
-      const primaryPageId =
-        context.manifest.pageIdsByKey[BOARD_DENSE_PRIMARY_PAGE_KEY];
+      const primaryPageId = context.manifest.pageIdsByKey[BOARD_DENSE_PRIMARY_PAGE_KEY];
       if (!primaryPageId) throw new Error("Scenario manifest has no primary Page");
-      const before = await context.seed.readPage(
-        context.manifest.projectId,
-        primaryPageId,
-      );
+      const before = await context.seed.readPage(context.manifest.projectId, primaryPageId);
       const mutation = await context.seed.replaceOwnedDocument({
         operationId: createUuidV7(),
         mutationId: createUuidV7(),

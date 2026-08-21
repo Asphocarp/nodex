@@ -1,13 +1,5 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type MouseEvent,
-  type PointerEvent,
-} from "react";
-import {
-  LoaderCircleIcon,
-} from "@/components/shared/icons/generic-icons";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { LoaderCircleIcon } from "@/components/shared/icons/generic-icons";
 import {
   BrowserBackIcon,
   ImageZoomMinusIcon,
@@ -23,22 +15,18 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import {
-  trackImageView,
-  type ImageViewAnalytics,
-} from "../analytics/image-editor-analytics";
+import { trackImageView, type ImageViewAnalytics } from "../analytics/image-editor-analytics";
 import { useResolvedImageAsset } from "../adapters/use-resolved-image-asset";
 import {
   createImageDownloadFilename,
   downloadImageDataUrl,
 } from "../adapters/resolved-image-asset";
-import {
-  computeFitZoomPercent,
-  computeManualImageSize,
-} from "../model/image-geometry";
+import { computeFitZoomPercent, computeManualImageSize } from "../model/image-geometry";
 import type { ImageSize } from "../model/types";
 
-const ZOOM_RAMP = [25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500] as const;
+const ZOOM_RAMP = [
+  25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500,
+] as const;
 
 export interface ImagePreviewDialogProps {
   analytics?: ImageViewAnalytics;
@@ -67,8 +55,10 @@ function nextZoom(currentZoom: number, direction: "in" | "out"): number {
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable
-    || target.closest("input, textarea, select, [contenteditable='true']") !== null;
+  return (
+    target.isContentEditable ||
+    target.closest("input, textarea, select, [contenteditable='true']") !== null
+  );
 }
 
 export function ImagePreviewDialog({
@@ -112,16 +102,18 @@ export function ImagePreviewDialog({
   const fitZoomPercent = computeFitZoomPercent({ naturalImageSize, viewportSize });
   const zoomPercent = manualZoomPercent ?? fitZoomPercent ?? 100;
   const imageSize = computeManualImageSize({ naturalImageSize, zoomPercent });
-  const zoomRamp = fitZoomPercent === null || ZOOM_RAMP.some((value) => value === fitZoomPercent)
-    ? ZOOM_RAMP
-    : [...ZOOM_RAMP, fitZoomPercent].sort((left, right) => left - right);
+  const zoomRamp =
+    fitZoomPercent === null || ZOOM_RAMP.some((value) => value === fitZoomPercent)
+      ? ZOOM_RAMP
+      : [...ZOOM_RAMP, fitZoomPercent].sort((left, right) => left - right);
   const minimumZoom = zoomRamp[0] ?? zoomPercent;
   const maximumZoom = zoomRamp.at(-1) ?? zoomPercent;
   const canZoomOut = zoomPercent > minimumZoom;
   const canZoomIn = zoomPercent < maximumZoom;
-  const imageOverflows = imageSize !== null
-    && viewportSize !== null
-    && (imageSize.width > viewportSize.width || imageSize.height > viewportSize.height);
+  const imageOverflows =
+    imageSize !== null &&
+    viewportSize !== null &&
+    (imageSize.width > viewportSize.width || imageSize.height > viewportSize.height);
 
   useEffect(() => {
     if (!open) return;
@@ -132,23 +124,19 @@ export function ImagePreviewDialog({
 
   useEffect(() => {
     if (
-      !open
-      || analyticsAvailableImageCount === undefined
-      || analyticsEntrypoint === undefined
-      || analyticsImageSource === undefined
-    ) return;
+      !open ||
+      analyticsAvailableImageCount === undefined ||
+      analyticsEntrypoint === undefined ||
+      analyticsImageSource === undefined
+    )
+      return;
     trackImageView({
       availableImageCount: analyticsAvailableImageCount,
       entrypoint: analyticsEntrypoint,
       imageSource: analyticsImageSource,
       view: "preview_dialog",
     });
-  }, [
-    analyticsAvailableImageCount,
-    analyticsEntrypoint,
-    analyticsImageSource,
-    open,
-  ]);
+  }, [analyticsAvailableImageCount, analyticsEntrypoint, analyticsImageSource, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -164,9 +152,9 @@ export function ImagePreviewDialog({
       const width = viewportNode.clientWidth;
       const height = viewportNode.clientHeight;
       if (width <= 0 || height <= 0) return;
-      setViewportSize((current) => current?.width === width && current.height === height
-        ? current
-        : { width, height });
+      setViewportSize((current) =>
+        current?.width === width && current.height === height ? current : { width, height },
+      );
     };
     updateSize();
     if (typeof ResizeObserver === "undefined") return;
@@ -192,7 +180,13 @@ export function ImagePreviewDialog({
         onNextImage();
         return;
       }
-      if (closeOnSpace && !event.metaKey && !event.ctrlKey && !event.altKey && (event.code === "Space" || event.key === " " || event.key === "Spacebar")) {
+      if (
+        closeOnSpace &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        (event.code === "Space" || event.key === " " || event.key === "Spacebar")
+      ) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) onOpenChange(false);
@@ -217,17 +211,22 @@ export function ImagePreviewDialog({
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [closeOnSpace, onNextImage, onOpenChange, onPreviousImage, open, showZoomControls, zoomPercent]);
+  }, [
+    closeOnSpace,
+    onNextImage,
+    onOpenChange,
+    onPreviousImage,
+    open,
+    showZoomControls,
+    zoomPercent,
+  ]);
 
   const handleDownload = async () => {
     if (isDownloading) return;
     setIsDownloading(true);
     try {
       const dataUrl = await downloadAsset.materialize();
-      downloadImageDataUrl(
-        dataUrl,
-        createImageDownloadFilename(downloadSrc, downloadFileName),
-      );
+      downloadImageDataUrl(dataUrl, createImageDownloadFilename(downloadSrc, downloadFileName));
     } catch {
       toast.danger("Could not download image");
     } finally {
@@ -269,7 +268,8 @@ export function ImagePreviewDialog({
     if (event.target === event.currentTarget) onOpenChange(false);
   };
 
-  const controlClassName = "pointer-events-auto flex size-10 cursor-interaction items-center justify-center rounded-full bg-token-editor-background/95 text-token-foreground shadow-md ring-1 ring-black/5 backdrop-blur-sm transition-transform hover:bg-token-menu-background hover:ring-token-focus-border focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border active:scale-95 disabled:cursor-not-allowed disabled:opacity-50";
+  const controlClassName =
+    "pointer-events-auto flex size-10 cursor-interaction items-center justify-center rounded-full bg-token-editor-background/95 text-token-foreground shadow-md ring-1 ring-black/5 backdrop-blur-sm transition-transform hover:bg-token-menu-background hover:ring-token-focus-border focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border active:scale-95 disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <NodexDialog open={open} onOpenChange={onOpenChange}>
@@ -318,9 +318,11 @@ export function ImagePreviewDialog({
               disabled={isDownloading}
               onClick={() => void handleDownload()}
             >
-              {isDownloading
-                ? <LoaderCircleIcon className="icon-xs animate-spin" aria-hidden="true" />
-                : <PlanDownloadIcon className="icon-xs" />}
+              {isDownloading ? (
+                <LoaderCircleIcon className="icon-xs animate-spin" aria-hidden="true" />
+              ) : (
+                <PlanDownloadIcon className="icon-xs" />
+              )}
             </button>
           </div>
 
@@ -357,7 +359,10 @@ export function ImagePreviewDialog({
                 Loading image…
               </div>
             ) : previewAsset.isError || loadFailed ? (
-              <div className="m-auto flex flex-col items-center gap-3 text-sm text-white/70" role="alert">
+              <div
+                className="m-auto flex flex-col items-center gap-3 text-sm text-white/70"
+                role="alert"
+              >
                 <span>Image unavailable</span>
                 <button
                   type="button"
@@ -380,10 +385,14 @@ export function ImagePreviewDialog({
                   "m-auto block max-w-none rounded-lg object-contain select-none",
                   imageOverflows ? "cursor-grab active:cursor-grabbing" : "max-h-full max-w-full",
                 )}
-                style={imageSize === null ? undefined : {
-                  height: imageSize.height,
-                  width: imageSize.width,
-                }}
+                style={
+                  imageSize === null
+                    ? undefined
+                    : {
+                        height: imageSize.height,
+                        width: imageSize.width,
+                      }
+                }
                 onError={() => setLoadFailed(true)}
                 onLoad={(event) => {
                   const { naturalHeight, naturalWidth } = event.currentTarget;

@@ -1,13 +1,16 @@
 # Auto-review Behavior
 
 ## Intent
+
 This document is the source of truth for Auto-review behavior in Nodex.
 It defines the config-backed permission model, visible preset semantics, approval request lifecycle, and required transport literals.
 
 Other product specs should link here instead of restating Auto-review behavior in detail.
 
 ## Scope
+
 This spec covers:
+
 - preset resolution from Codex app-server config and config requirements
 - Auto-review availability behavior and reviewer fallback
 - visible Thread-stage and Settings UI for permission modes
@@ -16,11 +19,13 @@ This spec covers:
 - transcript effects that are specific to Auto-review
 
 This spec does not cover:
+
 - general thread transcript rendering outside approval-specific rows
 - worktree creation, account/auth, or model selection
 - backend automatic-review implementation beyond the confirmed frontend contract
 
 ## Canonical Model
+
 - Auto-review is a permissions feature, not a cosmetic UI label.
 - Permission state is main-owned and config-backed.
 - Renderer does not keep a per-project localStorage source of truth for permission mode.
@@ -31,13 +36,16 @@ This spec does not cover:
 - New thread start, turn start, queued follow-ups, and thread resume all inherit their effective permission fields from that resolved state.
 
 ## Internal Presets
+
 The resolver understands these internal preset ids:
+
 - `read-only`
 - `auto`
 - `guardian-approvals`
 - `full-access`
 
 The normal visible picker exposes these visible modes:
+
 - `auto`
 - `guardian-approvals`
 - `full-access`
@@ -46,6 +54,7 @@ The normal visible picker exposes these visible modes:
 `read-only` remains an internal fallback preset for requirements-constrained environments and is not part of the normal footer picker.
 
 ## Exact Preset Semantics
+
 - `auto`
   - `sandbox_mode=workspace-write`
   - `approval_policy=on-request`
@@ -67,7 +76,9 @@ The only behavioral difference between `auto` and `guardian-approvals` is the re
 They intentionally share the same sandbox and approval policy.
 
 ## Required Literals
+
 These exact literals must exist in the implementation:
+
 - `guardian_approval`
 - `approvals_reviewer`
 - `auto_review`
@@ -79,6 +90,7 @@ These exact literals must exist in the implementation:
 - `automatic-approval-review`
 
 ## Auto-review Gate
+
 - `features.guardian_approval` may arrive as either `features.guardian_approval`, `features["guardian_approval"]`, or `configRequirements/read.featureRequirements.guardian_approval`.
 - Only an explicit `guardian_approval=false` disables Auto-review. A missing value means the app should fall back to requirement-based availability, not treat Auto-review as unavailable.
 - If `guardian_approval` is explicitly disabled, automatic reviewers collapse back to `user`.
@@ -93,6 +105,7 @@ This fallback is behavioral, not cosmetic.
 The resolver must not surface an effective Auto-review reviewer when the gate is off.
 
 ## Requirements Filtering
+
 - Available presets are filtered by `configRequirements/read`.
 - Permission profile allow-lists constrain fixed presets:
   - `auto` and `guardian-approvals` require `:workspace`
@@ -106,10 +119,12 @@ The resolver must not surface an effective Auto-review reviewer when the gate is
 - If no explicit config matches, the resolver chooses the nearest allowed fallback preset.
 
 Preferred fallback order is:
+
 - when Auto-review is enabled: `auto` -> `guardian-approvals` -> `full-access` -> `read-only`
 - when Auto-review is disabled: `auto` -> `full-access` -> `read-only`
 
 ## Custom Escape Hatch
+
 - `custom` is a visible mode, not an internal preset.
 - It exists for raw config states that are explicit and representable enough to describe.
 - `custom` must remain visible when the current raw config is outside the fixed preset set, and must also remain available when an explicit config.toml permission state happens to be equivalent to a fixed preset.
@@ -119,7 +134,9 @@ Preferred fallback order is:
 The tooltip/description for `custom` should reflect the resolved config source, file path, `sandbox_mode`, `approval_policy`, and `approvals_reviewer` when available.
 
 ## Config Keys
+
 Permission resolution depends on these raw config keys:
+
 - `approval_policy`
 - `sandbox_mode`
 - `approvals_reviewer`
@@ -129,6 +146,7 @@ Permission resolution depends on these raw config keys:
 - `configRequirements/read.featureRequirements.guardian_approval`
 
 ## Write Behavior
+
 - Reads use app-server config APIs, not manual TOML parsing as the source of truth.
 - Writes use app-server config write APIs, not renderer-local persistence.
 - The writable target is the current key-origin layer when present.
@@ -136,7 +154,9 @@ Permission resolution depends on these raw config keys:
 - The thread footer must not silently create a project config override just because the user changed the mode there.
 
 ## Effective State Shape
+
 The resolved permission state should carry:
+
 - selected visible `mode`
 - effective internal preset
 - available visible modes
@@ -149,21 +169,26 @@ The resolved permission state should carry:
 - the `custom` description when relevant
 
 Thread summaries/snapshots should also carry the effective permission fields needed to preserve behavior across resume and projection:
+
 - `approvalPolicy`
 - `sandbox`
 - `approvalsReviewer`
 
 ## UI Surfaces
+
 Auto-review is split across multiple surfaces.
 
 ### Thread Footer Picker
+
 The Thread-stage permission dropdown must use these exact visible labels:
+
 - `Ask for approval`
 - `Approve for me`
 - `Full access`
 - `Custom (config.toml)`
 
 Dropdown copy:
+
 - Title row: `How should Nodex actions be approved?`
 - Learn-more affordance: `Learn more`
 - `Ask for approval`: `Always ask to edit external files and use the internet`
@@ -178,9 +203,11 @@ The selector trigger accents the selected mode consistently on every surface: `F
 Selecting `Full access` writes the preset immediately when it is available. The permission selector does not show an extra confirmation dialog.
 
 ### Settings -> Agent
+
 The settings shell exposes a dedicated `Agent` section.
 
 It uses this split:
+
 - `Permissions modes`
   - `Default permissions mode`
 - `Custom config.toml settings`
@@ -192,7 +219,9 @@ It uses this split:
 These settings are config-backed views into the same resolved permission state, not a second preference model.
 
 ## Start/Resume Propagation
+
 The resolved permission state must be applied consistently in all main-owned thread lifecycle paths:
+
 - `thread/start`
 - initial `turn/start`
 - later `turn/start`
@@ -201,11 +230,13 @@ The resolved permission state must be applied consistently in all main-owned thr
 - main-owned fallback or prewarm start-turn helper paths
 
 All of those paths must carry the same effective:
+
 - `approvalPolicy`
 - `sandbox`
 - `approvalsReviewer`
 
 ## Approval Request Attachment
+
 - Approval requests remain part of the canonical conversation request plane.
 - They do not open a standalone approval screen.
 - Command approvals attach to existing exec rows.
@@ -215,13 +246,16 @@ All of those paths must carry the same effective:
 This attachment behavior is required for the item-attached transcript model.
 
 ## Request Types
+
 The relevant request ingress literals are:
+
 - `item/commandExecution/requestApproval`
 - `item/fileChange/requestApproval`
 
 Renderer and main-process request handling must treat these as item-attached requests tied to the originating transcript row.
 
 ## Automatic Approval Review Rows
+
 - Automatic approval review uses the canonical synthetic id form:
   - `automatic-approval-review:{targetItemId}`
 - The item type literal is:
@@ -230,13 +264,16 @@ Renderer and main-process request handling must treat these as item-attached req
 - Compatibility shims may still accept older camelCase incoming item types, but the canonical literal remains hyphenated.
 
 ## Approval Decision Flow
+
 There are two distinct decision paths.
 
 ### Owner Thread
+
 - The owner-thread path resolves pending approval requests locally in the main conversation manager.
 - Request cleanup and transcript updates happen against the canonical owner conversation state.
 
 ### Follower Thread
+
 - Follower/child-thread forwarding matters.
 - Follower decisions must not reuse only the owner-thread local-resolve path.
 - When the stream role is follower, Nodex forwards the decision using these exact methods:
@@ -246,17 +283,20 @@ There are two distinct decision paths.
 Payloads should include the conversation/thread identity, request identity, and decision.
 
 ## Child and Background Approval Behavior
+
 - Background child approval cards remain part of the composer shell ordering.
 - Their transport must still be follower-aware when the request belongs to a follower conversation.
 - Child approvals are not owner-only special cases.
 - The first background child approval renders before the active-thread request card when both are present.
 
 ## Auto-Accept Behavior
+
 - Automatic acceptance is allowed only when the effective preset is `full-access`.
 - `auto` and `guardian-approvals` still require approval handling because both use `approval_policy=on-request`.
 - Auto-review changes who reviews an elevated action, not whether approval is bypassed.
 
 ## Non-Goals
+
 - Nodex does not implement a local automatic-review adjudicator.
 - Nodex forwards `approvalsReviewer=auto_review` as the current app-server contract.
 - Nodex accepts `guardian_subagent` only as a legacy/internal alias when reading config or requirements; it does not write that literal back to config.

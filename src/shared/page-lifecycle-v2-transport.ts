@@ -22,9 +22,7 @@ export type TrustedPageLifecycleMutationBindingV2 =
   | { readonly ok: true; readonly value: PageLifecycleMutationRequestV2 }
   | { readonly ok: false; readonly error: PageLifecycleMutationCommandErrorV2 };
 
-const readRecord = (
-  value: unknown,
-): Readonly<Record<string, unknown>> | null =>
+const readRecord = (value: unknown): Readonly<Record<string, unknown>> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
     : null;
@@ -64,9 +62,7 @@ const assertExactKeys = (
   required: readonly string[],
 ): void => {
   const allowed = new Set(required);
-  const missing = required.filter(
-    (key) => !Object.prototype.hasOwnProperty.call(value, key),
-  );
+  const missing = required.filter((key) => !Object.prototype.hasOwnProperty.call(value, key));
   if (missing.length > 0) {
     throw new TypeError(`${label} is missing ${missing.join(", ")}`);
   }
@@ -94,11 +90,7 @@ export const parsePageLifecyclePreflightResultV2 = (
     ) {
       throw new TypeError("Page lifecycle v2 preflight error is invalid");
     }
-    assertExactKeys(error, "Page lifecycle v2 preflight error", [
-      "code",
-      "message",
-      "retryable",
-    ]);
+    assertExactKeys(error, "Page lifecycle v2 preflight error", ["code", "message", "retryable"]);
     return value as PageLifecyclePreflightResultV2;
   }
   if (result.ok !== true) {
@@ -162,14 +154,9 @@ export const parsePageLifecyclePreflightResultV2 = (
     tags.lifecycle !== "active" ||
     tags.revision !== canonicalTags.revision
   ) {
-    throw new TypeError(
-      "Page lifecycle v2 tags Property diverges from the default View query",
-    );
+    throw new TypeError("Page lifecycle v2 tags Property diverges from the default View query");
   }
-  if (
-    preflight.reservedBlockType !== null &&
-    typeof preflight.reservedBlockType !== "string"
-  ) {
+  if (preflight.reservedBlockType !== null && typeof preflight.reservedBlockType !== "string") {
     throw new TypeError("Page lifecycle v2 reserved Block type is invalid");
   }
   if (preflight.page !== null && !readRecord(preflight.page)) {
@@ -178,10 +165,7 @@ export const parsePageLifecyclePreflightResultV2 = (
   return value as PageLifecyclePreflightResultV2;
 };
 
-const readBoundedHint = (
-  value: unknown,
-  key: string,
-): string | undefined => {
+const readBoundedHint = (value: unknown, key: string): string | undefined => {
   const candidate = readRecord(value)?.[key];
   if (
     typeof candidate === "string" &&
@@ -209,9 +193,7 @@ export const pageLifecycleMutationFailureV2 = (
   ...(readBoundedHint(rawRequest, "operationId") === undefined
     ? {}
     : { operationId: readBoundedHint(rawRequest, "operationId") }),
-  ...(readPageIdHint(rawRequest) === undefined
-    ? {}
-    : { pageId: readPageIdHint(rawRequest) }),
+  ...(readPageIdHint(rawRequest) === undefined ? {} : { pageId: readPageIdHint(rawRequest) }),
 });
 
 /**
@@ -319,9 +301,7 @@ export const pageLifecycleTransportFailureV2 = (
   ok: false,
   error: pageLifecycleMutationFailureV2(
     "unknown",
-    error instanceof Error
-      ? error.message
-      : "The durable Page lifecycle v2 writer is unavailable",
+    error instanceof Error ? error.message : "The durable Page lifecycle v2 writer is unavailable",
     request,
     { retryable: true },
   ),

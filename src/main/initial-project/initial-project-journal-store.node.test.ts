@@ -74,8 +74,9 @@ describe("InitialProjectRecoveryJournal", () => {
       filePath: resolveInitialProjectJournalPath(join(root, ".nodex")),
     });
 
-    await expect(journal.save(makeAttempt("workspace/My Project")))
-      .rejects.toThrow("sources must be absolute");
+    await expect(journal.save(makeAttempt("workspace/My Project"))).rejects.toThrow(
+      "sources must be absolute",
+    );
   });
 
   test("quarantines a symlink instead of following untrusted recovery data", async () => {
@@ -94,33 +95,39 @@ describe("InitialProjectRecoveryJournal", () => {
 
     expect(await journal.load()).toBeNull();
     expect(JSON.parse(readFileSync(target, "utf8"))).toEqual(attempt);
-    expect(readdirSync(recoveryDirectory)).toEqual([
-      "initial-project-v2.json.corrupt-123",
-    ]);
+    expect(readdirSync(recoveryDirectory)).toEqual(["initial-project-v2.json.corrupt-123"]);
   });
 });
 
 describe("resolveInitialProjectProjectsDirectory", () => {
   test("defaults to Documents/Nodex and accepts an absolute isolation override", () => {
-    expect(resolveInitialProjectProjectsDirectory({
-      documentsDirectory: "/Users/alex/Documents",
-    })).toBe("/Users/alex/Documents/Nodex");
-    expect(resolveInitialProjectProjectsDirectory({
-      configuredDirectory: "/tmp/nodex-profile/workspace",
-      documentsDirectory: "/Users/alex/Documents",
-    })).toBe("/tmp/nodex-profile/workspace");
+    expect(
+      resolveInitialProjectProjectsDirectory({
+        documentsDirectory: "/Users/alex/Documents",
+      }),
+    ).toBe("/Users/alex/Documents/Nodex");
+    expect(
+      resolveInitialProjectProjectsDirectory({
+        configuredDirectory: "/tmp/nodex-profile/workspace",
+        documentsDirectory: "/Users/alex/Documents",
+      }),
+    ).toBe("/tmp/nodex-profile/workspace");
   });
 
   test("rejects a relative isolation override", () => {
-    expect(() => resolveInitialProjectProjectsDirectory({
-      configuredDirectory: "../workspace",
-      documentsDirectory: "/Users/alex/Documents",
-    })).toThrow("must be an absolute path");
+    expect(() =>
+      resolveInitialProjectProjectsDirectory({
+        configuredDirectory: "../workspace",
+        documentsDirectory: "/Users/alex/Documents",
+      }),
+    ).toThrow("must be an absolute path");
   });
 
   test("rejects a relative Electron Documents directory", () => {
-    expect(() => resolveInitialProjectProjectsDirectory({
-      documentsDirectory: "Documents",
-    })).toThrow("Electron Documents directory must be absolute");
+    expect(() =>
+      resolveInitialProjectProjectsDirectory({
+        documentsDirectory: "Documents",
+      }),
+    ).toThrow("Electron Documents directory must be absolute");
   });
 });

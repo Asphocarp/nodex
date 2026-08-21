@@ -22,8 +22,7 @@ describe("Canvas document identity", () => {
     expect(assertExistingCanvasBlockId(uuidV7)).toBe(uuidV7);
     expect(assertExistingCanvasBlockId(primaryBlockId)).toBe(primaryBlockId);
     expect(assertExistingCanvasDocumentId(uuidV7)).toBe(uuidV7);
-    expect(assertExistingCanvasDocumentId(primaryDocumentId))
-      .toBe(primaryDocumentId);
+    expect(assertExistingCanvasDocumentId(primaryDocumentId)).toBe(primaryDocumentId);
   });
 
   test("rejects malformed primary identities and non-v7 UUIDs", () => {
@@ -37,17 +36,15 @@ describe("Canvas document identity", () => {
     ];
     for (const value of malformed) {
       expect(isPrimaryCanvasBlockId(value)).toBe(false);
-      expect(() => assertExistingCanvasBlockId(value)).toThrow(
-        "primary Canvas Block ID",
-      );
+      expect(() => assertExistingCanvasBlockId(value)).toThrow("primary Canvas Block ID");
     }
 
     expect(isPrimaryCanvasDocumentId("document:canvas:primary:")).toBe(false);
-    expect(() =>
-      assertExistingCanvasDocumentId("document:canvas:primary: project-1")
-    ).toThrow("primary Canvas Document ID");
-    expect(() =>
-      assertExistingCanvasBlockId("550e8400-e29b-41d4-a716-446655440000")
-    ).toThrow("UUID-v7");
+    expect(() => assertExistingCanvasDocumentId("document:canvas:primary: project-1")).toThrow(
+      "primary Canvas Document ID",
+    );
+    expect(() => assertExistingCanvasBlockId("550e8400-e29b-41d4-a716-446655440000")).toThrow(
+      "UUID-v7",
+    );
   });
 });

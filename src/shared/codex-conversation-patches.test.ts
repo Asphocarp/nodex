@@ -44,13 +44,15 @@ describe("codex-conversation-patches", () => {
   test("builds add patches for appended array entries and replays them", () => {
     const previous = buildConversation();
     const next = buildConversation({
-      turns: [{
-        threadId: "thread-1",
-        turnId: "turn-1",
-        status: "inProgress",
-        itemIds: [],
-        items: [],
-      }],
+      turns: [
+        {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        },
+      ],
     });
 
     const patches = buildCodexConversationStateUpdates(previous, next);
@@ -70,11 +72,13 @@ describe("codex-conversation-patches", () => {
       projectId: "project-2",
     });
 
-    const replayed = applyCodexConversationStateUpdates(previous, [{
-      op: "replace",
-      path: [],
-      value: replacement,
-    }]);
+    const replayed = applyCodexConversationStateUpdates(previous, [
+      {
+        op: "replace",
+        path: [],
+        value: replacement,
+      },
+    ]);
 
     expect(replayed.threadId).toBe("thread-2");
     expect(replayed.projectId).toBe("project-2");
@@ -82,26 +86,30 @@ describe("codex-conversation-patches", () => {
 
   test("applies array append patches that use the dash path segment", () => {
     const previous = buildConversation({
-      turns: [{
-        threadId: "thread-1",
-        turnId: "turn-1",
-        status: "completed",
-        itemIds: [],
-        items: [],
-      }],
+      turns: [
+        {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "completed",
+          itemIds: [],
+          items: [],
+        },
+      ],
     });
 
-    const replayed = applyCodexConversationStateUpdates(previous, [{
-      op: "add",
-      path: ["turns", "-"],
-      value: {
-        threadId: "thread-1",
-        turnId: "turn-2",
-        status: "inProgress",
-        itemIds: [],
-        items: [],
+    const replayed = applyCodexConversationStateUpdates(previous, [
+      {
+        op: "add",
+        path: ["turns", "-"],
+        value: {
+          threadId: "thread-1",
+          turnId: "turn-2",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+        },
       },
-    }]);
+    ]);
 
     expect(String(replayed.turns.length)).toBe("2");
     expect(replayed.turns[1]?.turnId).toBe("turn-2");

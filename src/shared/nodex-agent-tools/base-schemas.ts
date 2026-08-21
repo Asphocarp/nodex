@@ -4,10 +4,7 @@ import {
   type PortableRichText,
 } from "../block-documents/portable-rich-text";
 import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
-import {
-  NFM_DATE_MENTION_DATE_FORMATS,
-  NFM_DATE_MENTION_TIME_FORMATS,
-} from "../nfm/date-mention";
+import { NFM_DATE_MENTION_DATE_FORMATS, NFM_DATE_MENTION_TIME_FORMATS } from "../nfm/date-mention";
 import { NFM_COLORS } from "../nfm/types";
 export {
   NODEX_APP_TOOLS,
@@ -19,22 +16,30 @@ export {
 const boundedIdentity = (description: string) =>
   z.string().trim().min(1).max(512).describe(description);
 
-export const ProjectIdSchema = boundedIdentity("Stable Nodex Project identity")
-  .brand<"ProjectId">();
+export const ProjectIdSchema = boundedIdentity(
+  "Stable Nodex Project identity",
+).brand<"ProjectId">();
 export const LibraryIdSchema = boundedIdentity("Stable Nodex Library identity");
 export const DataSourceIdSchema = boundedIdentity("Stable Nodex Data Source identity");
-export const BlockIdSchema = boundedIdentity("Stable Nodex Block identity")
-  .brand<"BlockId">();
-export const DocumentIdSchema = boundedIdentity("Stable Nodex Document identity")
-  .brand<"DocumentId">();
-export const ViewIdSchema = boundedIdentity("Stable Nodex Database View identity")
-  .brand<"ViewId">();
-export const PropertyIdSchema = boundedIdentity("Stable Nodex Database Property identity")
-  .brand<"PropertyId">();
-export const CursorSchema = z.string().min(1).max(16_384)
+export const BlockIdSchema = boundedIdentity("Stable Nodex Block identity").brand<"BlockId">();
+export const DocumentIdSchema = boundedIdentity(
+  "Stable Nodex Document identity",
+).brand<"DocumentId">();
+export const ViewIdSchema = boundedIdentity(
+  "Stable Nodex Database View identity",
+).brand<"ViewId">();
+export const PropertyIdSchema = boundedIdentity(
+  "Stable Nodex Database Property identity",
+).brand<"PropertyId">();
+export const CursorSchema = z
+  .string()
+  .min(1)
+  .max(16_384)
   .describe("Opaque cursor bound to the captured Project snapshot")
   .brand<"Cursor">();
-export const ETagSchema = z.string().regex(/^nxe1\.[A-Za-z0-9_-]{43}$/u)
+export const ETagSchema = z
+  .string()
+  .regex(/^nxe1\.[A-Za-z0-9_-]{43}$/u)
   .describe("Opaque validator for one observed semantic state")
   .brand<"ETag">();
 
@@ -81,7 +86,8 @@ const PortableRichTextItemSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export const PortableRichTextSchema = z.array(PortableRichTextItemSchema)
+export const PortableRichTextSchema = z
+  .array(PortableRichTextItemSchema)
   .max(MAX_PORTABLE_RICH_TEXT_SEGMENTS) satisfies z.ZodType<PortableRichText>;
 
 export const TextInputSchema = z.discriminatedUnion("kind", [
@@ -183,10 +189,12 @@ export const ToolFailureSchema = z.strictObject({
     message: z.string().min(1).max(4_096),
     retryable: z.boolean(),
     recovery: RecoveryActionSchema,
-    details: z.strictObject({
-      resourceId: z.string().min(1).max(512).optional(),
-      domainCode: z.string().min(1).max(256).optional(),
-    }).optional(),
+    details: z
+      .strictObject({
+        resourceId: z.string().min(1).max(512).optional(),
+        domainCode: z.string().min(1).max(256).optional(),
+      })
+      .optional(),
   }),
 });
 

@@ -147,8 +147,10 @@ describe("captureCodexOrdinaryBrowserTransfer", () => {
   });
 
   test("uses the last eligible runtime tab when no remembered tab exists", () => {
-    expect(capture({
-      browserTabs: [makeBrowserSnapshot("first"), makeBrowserSnapshot("last")],
-    })?.browserTransferSourceBrowserTabId).toBe("last");
+    expect(
+      capture({
+        browserTabs: [makeBrowserSnapshot("first"), makeBrowserSnapshot("last")],
+      })?.browserTransferSourceBrowserTabId,
+    ).toBe("last");
   });
 });

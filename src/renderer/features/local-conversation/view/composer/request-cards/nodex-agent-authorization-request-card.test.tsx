@@ -1,16 +1,11 @@
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import type {
-  NodexAgentAuthorizationRequest,
-  NodexAgentAuthorizationResponse,
-} from "@/lib/types";
+import type { NodexAgentAuthorizationRequest, NodexAgentAuthorizationResponse } from "@/lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexAgentAuthorizationRequestCard } from "./nodex-agent-authorization-request-card";
 
-function request(
-  effect: NodexAgentAuthorizationRequest["effect"],
-): NodexAgentAuthorizationRequest {
+function request(effect: NodexAgentAuthorizationRequest["effect"]): NodexAgentAuthorizationRequest {
   return {
     type: "nodexAgentAuthorization",
     requestId: `nodex-auth-${effect}`,
@@ -124,10 +119,7 @@ describe("NodexAgentAuthorizationRequestCard", () => {
     };
     const { getByText } = render(
       <TooltipProvider>
-        <NodexAgentAuthorizationRequestCard
-          request={v3Request}
-          onRespond={async () => {}}
-        />
+        <NodexAgentAuthorizationRequestCard request={v3Request} onRespond={async () => {}} />
       </TooltipProvider>,
     );
     await settleAsyncRender();

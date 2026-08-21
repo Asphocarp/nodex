@@ -12,8 +12,9 @@ type SearchRequest = Extract<NodexAgentV3ReadRequest, { readonly tool: "search" 
 type CoreSearchResult = components["schemas"]["LibraryAgentSearchResult"];
 type CorePageMatch = components["schemas"]["LibraryAgentPageSearchMatch"];
 
-const mapScope = (scope: SearchRequest["input"]["scope"]):
-  components["schemas"]["LibraryAgentSearchScope"] => {
+const mapScope = (
+  scope: SearchRequest["input"]["scope"],
+): components["schemas"]["LibraryAgentSearchScope"] => {
   if (!scope || scope.kind === "library") return { kind: "library" };
   if (scope.kind === "database") {
     return { kind: scope.kind, database_id: scope.databaseId };
@@ -89,7 +90,7 @@ const mapResult = (result: CoreSearchResult) => {
     id: result.id,
     blockType: result.block_type,
     ownerPageId: result.owner_page_id,
-    source: result.source === "document_title" ? "title" as const : "body" as const,
+    source: result.source === "document_title" ? ("title" as const) : ("body" as const),
     quality: result.quality,
     excerpt: result.excerpt,
   } as const;
@@ -138,9 +139,7 @@ export async function readNativeSearch(
         data: { results: snapshot.value.items.map(mapResult) },
         page: {
           hasMore: snapshot.value.has_more,
-          ...(snapshot.value.next_cursor
-            ? { nextCursor: snapshot.value.next_cursor }
-            : {}),
+          ...(snapshot.value.next_cursor ? { nextCursor: snapshot.value.next_cursor } : {}),
         },
       }),
     };

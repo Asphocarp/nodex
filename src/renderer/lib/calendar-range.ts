@@ -29,7 +29,9 @@ export function clampCalendarMultiWeekCount(value: number): number {
   return Math.max(MIN_MULTI_WEEK_COUNT, Math.min(Math.round(value), MAX_MULTI_WEEK_COUNT));
 }
 
-export function normalizeCalendarRangeState(input: Partial<CalendarRangeState> | null | undefined): CalendarRangeState {
+export function normalizeCalendarRangeState(
+  input: Partial<CalendarRangeState> | null | undefined,
+): CalendarRangeState {
   const mode = isCalendarRangeMode(input?.mode) ? input.mode : DEFAULT_CALENDAR_RANGE_MODE;
 
   return {
@@ -67,7 +69,10 @@ export function migrateCalendarRangePrefs(input: unknown): CalendarRangeState {
 
   return normalizeCalendarRangeState({
     mode:
-      candidate.mode === "day" || candidate.mode === "week" || candidate.mode === "multi-day" || candidate.mode === "multi-week"
+      candidate.mode === "day" ||
+      candidate.mode === "week" ||
+      candidate.mode === "multi-day" ||
+      candidate.mode === "multi-week"
         ? candidate.mode
         : undefined,
     multiDayCount: Number(candidate.multiDayCount),
@@ -95,7 +100,10 @@ export function formatCalendarRangeLabel(range: CalendarRangeState): string {
   return `${count} ${count === 1 ? "Week" : "Weeks"}`;
 }
 
-export function formatCalendarRangeStaticValue(mode: CalendarRangeMode, range: CalendarRangeState): string {
+export function formatCalendarRangeStaticValue(
+  mode: CalendarRangeMode,
+  range: CalendarRangeState,
+): string {
   if (mode === "day") return "1 Day";
   if (mode === "week") return "1 Week";
   if (mode === "multi-day") {

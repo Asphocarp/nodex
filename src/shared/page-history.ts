@@ -40,8 +40,7 @@ export type PageHistoryEvidence =
   | { readonly status: "verified" }
   | {
       readonly status: "unavailable";
-      readonly reason:
-        "missing_ledger" | "malformed_evidence" | "unsupported_evidence";
+      readonly reason: "missing_ledger" | "malformed_evidence" | "unsupported_evidence";
     };
 
 export type PageHistoryRecovery =
@@ -79,12 +78,7 @@ export interface PageDocumentVersionHistoryEntry extends PageHistoryEntryBase {
     readonly schemaVersion: number;
     readonly cause: string;
     readonly label: string | null;
-    readonly revisionKind:
-      | "automatic"
-      | "manual"
-      | "operation"
-      | "restore"
-      | "safety";
+    readonly revisionKind: "automatic" | "manual" | "operation" | "restore" | "safety";
     readonly sourceMutationId: string | null;
     readonly sourceChangeSeq: number | null;
     readonly pinned: boolean;

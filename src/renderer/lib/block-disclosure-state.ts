@@ -1,8 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import {
-  readPersistedToggledState,
-  writePersistedToggledState,
-} from "@blocknote/core";
+import { readPersistedToggledState, writePersistedToggledState } from "@blocknote/core";
 
 type Listener = () => void;
 
@@ -11,9 +8,7 @@ export interface BlockDisclosurePersistence {
   write: (blockId: string, expanded: boolean) => void;
 }
 
-export class MemoryBlockDisclosurePersistence
-  implements BlockDisclosurePersistence
-{
+export class MemoryBlockDisclosurePersistence implements BlockDisclosurePersistence {
   private readonly values = new Map<string, boolean>();
 
   read = (blockId: string): boolean | undefined => this.values.get(blockId);
@@ -43,8 +38,7 @@ export class BlockDisclosureStateStore {
   private readonly listenersByKey = new Map<string, Set<Listener>>();
 
   constructor(
-    private readonly persistence: BlockDisclosurePersistence =
-      new MemoryBlockDisclosurePersistence(),
+    private readonly persistence: BlockDisclosurePersistence = new MemoryBlockDisclosurePersistence(),
   ) {}
 
   isExpanded = (blockId: string): boolean => {
@@ -114,10 +108,7 @@ export const useBlockDisclosure = (
     (listener: Listener) => store.subscribe(blockId, listener),
     [blockId, store],
   );
-  const getSnapshot = useCallback(
-    () => store.isExpanded(blockId),
-    [blockId, store],
-  );
+  const getSnapshot = useCallback(() => store.isExpanded(blockId), [blockId, store]);
   const expanded = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const setExpanded = useCallback(
     (nextExpanded: boolean) => store.setExpanded(blockId, nextExpanded),

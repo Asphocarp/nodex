@@ -48,10 +48,7 @@ function createDocument(type: "pageMention" | "threadMention" = "pageMention") {
   ]);
 }
 
-function createView(
-  state: EditorState,
-  nodeDOM: Node,
-) {
+function createView(state: EditorState, nodeDOM: Node) {
   return {
     state,
     dispatch: vi.fn(),
@@ -135,9 +132,8 @@ describe("mention chip keyboard navigation", () => {
         doc,
         selection: TextSelection.create(doc, 7, 8),
       });
-      const action = type === "pageMention"
-        ? document.createElement("a")
-        : document.createElement("button");
+      const action =
+        type === "pageMention" ? document.createElement("a") : document.createElement("button");
       if (type === "pageMention") {
         action.dataset.pageMentionInlineAnchor = "true";
       } else {
@@ -179,11 +175,7 @@ describe("mention chip keyboard navigation", () => {
       key: "ArrowLeft",
       cancelable: true,
     });
-    expect(plugin.props.handleKeyDown?.call(
-      plugin,
-      view,
-      arrowLeft,
-    )).toBe(true);
+    expect(plugin.props.handleKeyDown?.call(plugin, view, arrowLeft)).toBe(true);
     const transaction = view.dispatch.mock.calls[0]?.[0];
     expect(transaction.selection.from).toBe(7);
     expect(transaction.selection.to).toBe(8);
@@ -201,11 +193,7 @@ describe("mention chip keyboard navigation", () => {
       key: "Enter",
       cancelable: true,
     });
-    expect(plugin.props.handleKeyDown?.call(
-      plugin,
-      selectedView,
-      enter,
-    )).toBe(true);
+    expect(plugin.props.handleKeyDown?.call(plugin, selectedView, enter)).toBe(true);
     expect(click).toHaveBeenCalledTimes(1);
   });
 

@@ -22,9 +22,10 @@ describe("Database property mapping", () => {
       },
     };
 
-    expect(
-      mapCompatibleDatabasePropertyValue({ source, target, value: "stable" }),
-    ).toEqual({ compatible: true, value: "stable" });
+    expect(mapCompatibleDatabasePropertyValue({ source, target, value: "stable" })).toEqual({
+      compatible: true,
+      value: "stable",
+    });
     expect(
       mapCompatibleDatabasePropertyValue({
         source,

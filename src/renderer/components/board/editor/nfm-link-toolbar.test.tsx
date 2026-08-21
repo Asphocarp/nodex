@@ -81,8 +81,12 @@ vi.mock("./nfm-link-toolbar-deps", () => ({
     onEditLink: () => void;
   }) => (
     <div data-testid="nfm-compact-link-toolbar">
-      <button type="button" onClick={onEditLink}>{editLabel}</button>
-      <button type="button" onClick={onClearLink}>Clear</button>
+      <button type="button" onClick={onEditLink}>
+        {editLabel}
+      </button>
+      <button type="button" onClick={onClearLink}>
+        Clear
+      </button>
     </div>
   ),
   NfmCreateLinkDialogSurface: () => <div data-testid="nfm-create-link-dialog" />,
@@ -213,18 +217,16 @@ describe("NfmLinkToolbar", () => {
 
     function Host() {
       const [tick, setTick] = useState(0);
-      const ToolbarComponent = useCallback((toolbarProps: {
-        url: string;
-        text: string;
-        range: { from: number; to: number };
-        setToolbarOpen: () => void;
-        setToolbarPositionFrozen: () => void;
-      }) => (
-        <NfmLinkToolbar
-          {...toolbarProps}
-          projectWorkspacePath={null}
-        />
-      ), []);
+      const ToolbarComponent = useCallback(
+        (toolbarProps: {
+          url: string;
+          text: string;
+          range: { from: number; to: number };
+          setToolbarOpen: () => void;
+          setToolbarPositionFrozen: () => void;
+        }) => <NfmLinkToolbar {...toolbarProps} projectWorkspacePath={null} />,
+        [],
+      );
 
       return (
         <NodexTooltipProvider>

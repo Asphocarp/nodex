@@ -2,9 +2,7 @@ import { useMemo } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageStage } from "./workbench-page-stage";
-import {
-  prepareLibraryOwnedBlockDocument,
-} from "../../lib/api";
+import { prepareLibraryOwnedBlockDocument } from "../../lib/api";
 import {
   type ReadyPageBlockDocumentDescriptor,
   unwrapLibraryOwnedBlockDocumentPreparationResult,
@@ -32,9 +30,11 @@ import {
 } from "../../lib/resource-authority-query-cache";
 
 const resolveLibraryPageAuthority = (_queryKey: readonly unknown[], data: unknown) => {
-  const authorization = (data as {
-    readonly authorization?: AuthorizedReadStamp | null;
-  } | null)?.authorization;
+  const authorization = (
+    data as {
+      readonly authorization?: AuthorizedReadStamp | null;
+    } | null
+  )?.authorization;
   return authorization ? { authorizations: [authorization] } : null;
 };
 
@@ -52,24 +52,12 @@ export function WorkbenchLibraryPageSurface({
   readonly isActivePanelTab?: boolean;
   readonly onClose?: () => void;
   readonly onOpenDatabase: (databaseId: DatabaseId) => void;
-  readonly onOpenPage?: (
-    pageId: string,
-    titleSnapshot?: string,
-  ) => void;
-  readonly onOpenCanvas?: (
-    canvasBlockId: string,
-    titleSnapshot?: string,
-  ) => void;
+  readonly onOpenPage?: (pageId: string, titleSnapshot?: string) => void;
+  readonly onOpenCanvas?: (canvasBlockId: string, titleSnapshot?: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const detailQueryKey = useMemo(
-    () => queryKeys.library.pageDetail(pageId),
-    [pageId],
-  );
-  const documentQueryKey = useMemo(
-    () => queryKeys.library.pageDocument(pageId),
-    [pageId],
-  );
+  const detailQueryKey = useMemo(() => queryKeys.library.pageDetail(pageId), [pageId]);
+  const documentQueryKey = useMemo(() => queryKeys.library.pageDocument(pageId), [pageId]);
   const detail = useQuery({
     ...libraryPageDetailQueryOptions(pageId, [documentQueryKey]),
   });
@@ -79,14 +67,8 @@ export function WorkbenchLibraryPageSurface({
       const prepared = unwrapLibraryOwnedBlockDocumentPreparationResult(
         await prepareLibraryOwnedBlockDocument(pageId),
       );
-      const descriptor = validateLibraryOwnedBlockDocumentDescriptor(
-        pageId,
-        prepared,
-      );
-      return await admitResourceAuthorityQuery(
-        descriptor,
-        resolveLibraryPageAuthority,
-      );
+      const descriptor = validateLibraryOwnedBlockDocumentDescriptor(pageId, prepared);
+      return await admitResourceAuthorityQuery(descriptor, resolveLibraryPageAuthority);
     },
     meta: resourceAuthorityQueryMeta(resolveLibraryPageAuthority),
   });
@@ -102,45 +84,49 @@ export function WorkbenchLibraryPageSurface({
       queryClient.getQueryData<ReadyPageBlockDocumentDescriptor>(documentQueryKey);
     if (!currentDetail || !currentDocument) return null;
     if (
-      currentDetail.storeEpoch !== currentDocument.storeEpoch
-      || currentDetail.page.documentGeneration !== currentDocument.generation
-      || currentDetail.page.documentHeadSeq !== currentDocument.headSeq
-    ) return null;
+      currentDetail.storeEpoch !== currentDocument.storeEpoch ||
+      currentDetail.page.documentGeneration !== currentDocument.generation ||
+      currentDetail.page.documentHeadSeq !== currentDocument.headSeq
+    )
+      return null;
     return {
       storeEpoch: currentDetail.storeEpoch,
       commitSeq: currentDetail.commitSeq,
     };
   };
-  useProjectionRegistration(authority
-    ? {
-      scope: { kind: "library", libraryId: authority.libraryId },
-      consumerKey: hashKey(["projection", detailQueryKey]),
-      getDependencies: () => {
-        const currentDetail = queryClient.getQueryData<typeof authority>(
-          detailQueryKey,
-        );
-        return pageDetailDataDependencies(currentDetail ?? null, pageId);
-      },
-      getCursor,
-      invalidate: async () => {
-        await invalidateExactQuery(queryClient, detailQueryKey);
-      },
-    }
-    : null);
-  useProjectionRegistration(authority
-    ? {
-      scope: { kind: "library", libraryId: authority.libraryId },
-      consumerKey: hashKey(["projection", documentQueryKey]),
-      getDependencies: () => pageDetailDocumentDependencies(
-        queryClient.getQueryData<typeof authority>(detailQueryKey) ?? null,
-        pageId,
-      ),
-      getCursor,
-      invalidate: async () => {
-        await invalidateExactQuery(queryClient, documentQueryKey);
-      },
-    }
-    : null);
+  useProjectionRegistration(
+    authority
+      ? {
+          scope: { kind: "library", libraryId: authority.libraryId },
+          consumerKey: hashKey(["projection", detailQueryKey]),
+          getDependencies: () => {
+            const currentDetail = queryClient.getQueryData<typeof authority>(detailQueryKey);
+            return pageDetailDataDependencies(currentDetail ?? null, pageId);
+          },
+          getCursor,
+          invalidate: async () => {
+            await invalidateExactQuery(queryClient, detailQueryKey);
+          },
+        }
+      : null,
+  );
+  useProjectionRegistration(
+    authority
+      ? {
+          scope: { kind: "library", libraryId: authority.libraryId },
+          consumerKey: hashKey(["projection", documentQueryKey]),
+          getDependencies: () =>
+            pageDetailDocumentDependencies(
+              queryClient.getQueryData<typeof authority>(detailQueryKey) ?? null,
+              pageId,
+            ),
+          getCursor,
+          invalidate: async () => {
+            await invalidateExactQuery(queryClient, documentQueryKey);
+          },
+        }
+      : null,
+  );
 
   if (detail.isPending || document.isPending) {
     return (
@@ -191,16 +177,20 @@ export function WorkbenchLibraryPageSurface({
         },
       }}
       onOpenDatabase={onOpenDatabase}
-      onOpenPage={onOpenPage
-        ? ({ pageId: nextPageId, titleSnapshot }) => {
-            onOpenPage(nextPageId, titleSnapshot);
-          }
-        : undefined}
-      onOpenCanvas={onOpenCanvas
-        ? ({ canvasBlockId, titleSnapshot }) => {
-            onOpenCanvas(canvasBlockId, titleSnapshot);
-          }
-        : undefined}
+      onOpenPage={
+        onOpenPage
+          ? ({ pageId: nextPageId, titleSnapshot }) => {
+              onOpenPage(nextPageId, titleSnapshot);
+            }
+          : undefined
+      }
+      onOpenCanvas={
+        onOpenCanvas
+          ? ({ canvasBlockId, titleSnapshot }) => {
+              onOpenCanvas(canvasBlockId, titleSnapshot);
+            }
+          : undefined
+      }
       toolbarPlacement={{ kind: "surface" }}
       onClose={onClose}
       isActivePanelTab={isActivePanelTab}

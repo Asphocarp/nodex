@@ -1,9 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useMemo,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import {
   FILE_LINK_OPENER_OPTIONS,
   type FileLinkOpenerId,
@@ -65,7 +60,7 @@ export async function openFileReferenceExternally(
   invokeImpl: typeof invoke = invoke,
 ): Promise<boolean> {
   try {
-    const opened = await invokeImpl("shell:open-file-link", target, opener) as boolean;
+    const opened = (await invokeImpl("shell:open-file-link", target, opener)) as boolean;
     if (opened) return true;
   } catch {
     // Try the deterministic file-manager fallback below.
@@ -74,7 +69,7 @@ export async function openFileReferenceExternally(
   if (opener === "fileManager") return false;
 
   try {
-    return await invokeImpl("shell:open-file-link", target, "fileManager") as boolean;
+    return (await invokeImpl("shell:open-file-link", target, "fileManager")) as boolean;
   } catch {
     return false;
   }
@@ -132,14 +127,14 @@ export function FileReferenceRouterProvider({
     if (!openWorkspaceFileTab) return null;
     return { openWorkspaceFileTab };
   }, [openWorkspaceFileTab]);
-  const router = useMemo(
-    () => createFileReferenceRouter({ opener, port }),
-    [opener, port],
+  const router = useMemo(() => createFileReferenceRouter({ opener, port }), [opener, port]);
+  const value = useMemo<FileReferenceRouterContextValue>(
+    () => ({
+      ...router,
+      workspaceRoot: workspaceRoot?.trim() || null,
+    }),
+    [router, workspaceRoot],
   );
-  const value = useMemo<FileReferenceRouterContextValue>(() => ({
-    ...router,
-    workspaceRoot: workspaceRoot?.trim() || null,
-  }), [router, workspaceRoot]);
 
   return (
     <FileReferenceRouterContext.Provider value={value}>
@@ -151,10 +146,7 @@ export function FileReferenceRouterProvider({
 export function useFileReferenceRouter(): FileReferenceRouterContextValue {
   const context = useContext(FileReferenceRouterContext);
   const { opener } = useFileLinkOpener();
-  const fallbackRouter = useMemo(
-    () => createFileReferenceRouter({ opener }),
-    [opener],
-  );
+  const fallbackRouter = useMemo(() => createFileReferenceRouter({ opener }), [opener]);
   return context ?? { ...fallbackRouter, workspaceRoot: null };
 }
 
@@ -166,13 +158,11 @@ export function getFileReferenceOpenWithMenuItems() {
   }));
 }
 
-export function parseFileReferenceOpenWithMenuId(
-  id: string | null,
-): FileLinkOpenerId | null {
+export function parseFileReferenceOpenWithMenuId(id: string | null): FileLinkOpenerId | null {
   const prefix = "file-reference:open-with:";
   if (!id?.startsWith(prefix)) return null;
   const candidate = id.slice(prefix.length);
   return FILE_LINK_OPENER_OPTIONS.some((option) => option.id === candidate)
-    ? candidate as FileLinkOpenerId
+    ? (candidate as FileLinkOpenerId)
     : null;
 }

@@ -13,13 +13,11 @@ import {
   type TrustedBlockPropertyMutationIdentityV2,
 } from "../shared/block-property-mutation-v2-transport";
 
-export const BLOCK_PROPERTY_MUTATION_IPC_CHANNEL =
-  "block-properties:mutate" as const;
+export const BLOCK_PROPERTY_MUTATION_IPC_CHANNEL = "block-properties:mutate" as const;
 export const LIBRARY_BLOCK_PROPERTY_MUTATION_IPC_CHANNEL =
   "library-block-properties:mutate" as const;
 
-export type BlockPropertyMutationIpcEvent =
-  Parameters<BlockPropertyMutationIpcHandler>[0];
+export type BlockPropertyMutationIpcEvent = Parameters<BlockPropertyMutationIpcHandler>[0];
 
 export type BlockPropertyMutationIpcHandler = (
   event: unknown,
@@ -57,11 +55,7 @@ export const registerBlockPropertyMutationIpcHandler = (
         };
       }
 
-      const bound = bindTrustedBlockPropertyMutationV2(
-        rawRequest,
-        projectId,
-        identity,
-      );
+      const bound = bindTrustedBlockPropertyMutationV2(rawRequest, projectId, identity);
       if (!bound.ok) return bound;
 
       try {
@@ -110,10 +104,7 @@ export const registerLibraryBlockPropertyMutationIpcHandler = (
         };
       }
 
-      const bound = bindTrustedLibraryBlockPropertyMutationV2(
-        rawRequest,
-        identity,
-      );
+      const bound = bindTrustedLibraryBlockPropertyMutationV2(rawRequest, identity);
       if (!bound.ok) return bound;
 
       try {
@@ -123,10 +114,7 @@ export const registerLibraryBlockPropertyMutationIpcHandler = (
           accessActor: "app_window",
         });
       } catch (error) {
-        return libraryBlockPropertyMutationTransportFailureV2(
-          bound.value,
-          error,
-        );
+        return libraryBlockPropertyMutationTransportFailureV2(bound.value, error);
       }
     },
   );

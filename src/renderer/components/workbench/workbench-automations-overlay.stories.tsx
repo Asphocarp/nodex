@@ -253,28 +253,32 @@ const AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
       isDefault: true,
       credentialEnvKey: null,
       recommendedHarnessId: null,
-      models: [{
-        providerId: "openai",
-        modelId: "gpt-5.5",
-        displayName: "GPT-5.5",
-        description: "Default Codex coding model.",
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: null,
-        supportedReasoningEfforts: [{
-          value: "high",
-          displayName: "High",
-          description: "Deep reasoning.",
-        }],
-        defaultReasoningEffort: "high",
-        supportedServiceTiers: [
-          { value: null, displayName: "Standard", description: "Default speed, normal usage" },
-          { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
-        ],
-        defaultServiceTier: null,
-        inputCapabilities: ["text", "image"],
-        switchPolicy: "same-thread",
-      }],
+      models: [
+        {
+          providerId: "openai",
+          modelId: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: "Default Codex coding model.",
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: null,
+          supportedReasoningEfforts: [
+            {
+              value: "high",
+              displayName: "High",
+              description: "Deep reasoning.",
+            },
+          ],
+          defaultReasoningEffort: "high",
+          supportedServiceTiers: [
+            { value: null, displayName: "Standard", description: "Default speed, normal usage" },
+            { value: "fast", displayName: "Fast", description: "Faster responses, higher usage" },
+          ],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "same-thread",
+        },
+      ],
     },
     {
       id: "anthropic",
@@ -286,25 +290,29 @@ const AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
       isDefault: false,
       credentialEnvKey: "ANTHROPIC_API_KEY",
       recommendedHarnessId: "claude-code",
-      models: [{
-        providerId: "anthropic",
-        modelId: "claude-fable-5",
-        displayName: "Claude Fable 5",
-        description: "Claude coding model exposed by the pinned runtime.",
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: "claude-code",
-        supportedReasoningEfforts: [{
-          value: "high",
-          displayName: "High",
-          description: "Extended thinking.",
-        }],
-        defaultReasoningEffort: "high",
-        supportedServiceTiers: [],
-        defaultServiceTier: null,
-        inputCapabilities: ["text", "image"],
-        switchPolicy: "new-thread",
-      }],
+      models: [
+        {
+          providerId: "anthropic",
+          modelId: "claude-fable-5",
+          displayName: "Claude Fable 5",
+          description: "Claude coding model exposed by the pinned runtime.",
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: "claude-code",
+          supportedReasoningEfforts: [
+            {
+              value: "high",
+              displayName: "High",
+              description: "Extended thinking.",
+            },
+          ],
+          defaultReasoningEffort: "high",
+          supportedServiceTiers: [],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "new-thread",
+        },
+      ],
     },
     {
       id: "kimi-for-coding",
@@ -316,24 +324,30 @@ const AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
       isDefault: false,
       credentialEnvKey: "KIMI_API_KEY",
       recommendedHarnessId: "kimi-code",
-      models: [{
-        providerId: "kimi-for-coding",
-        modelId: "kimi-k3",
-        displayName: "Kimi K3",
-        description: "Kimi coding agent model.",
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: "kimi-code",
-        supportedReasoningEfforts: [
-          { value: "Thinking", displayName: "Thinking", description: "Reason before responding." },
-          { value: "Instant", displayName: "Instant", description: "Respond directly." },
-        ],
-        defaultReasoningEffort: "Thinking",
-        supportedServiceTiers: [],
-        defaultServiceTier: null,
-        inputCapabilities: ["text"],
-        switchPolicy: "new-thread",
-      }],
+      models: [
+        {
+          providerId: "kimi-for-coding",
+          modelId: "kimi-k3",
+          displayName: "Kimi K3",
+          description: "Kimi coding agent model.",
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: "kimi-code",
+          supportedReasoningEfforts: [
+            {
+              value: "Thinking",
+              displayName: "Thinking",
+              description: "Reason before responding.",
+            },
+            { value: "Instant", displayName: "Instant", description: "Respond directly." },
+          ],
+          defaultReasoningEffort: "Thinking",
+          supportedServiceTiers: [],
+          defaultServiceTier: null,
+          inputCapabilities: ["text"],
+          switchPolicy: "new-thread",
+        },
+      ],
     },
   ],
 };
@@ -441,20 +455,34 @@ function installAutomationsStoryApi({
       }
       if (channel === "codex:automation-runs:archive") {
         const threadId = String((args[0] as { threadId?: string } | undefined)?.threadId ?? "");
-        setAutomationRuns(automationRuns.map((item) =>
-          item.threadId === threadId
-            ? { ...item, status: "ARCHIVED", readAt: item.readAt ?? Date.now(), archivedReason: "manual" }
-            : item
-        ));
+        setAutomationRuns(
+          automationRuns.map((item) =>
+            item.threadId === threadId
+              ? {
+                  ...item,
+                  status: "ARCHIVED",
+                  readAt: item.readAt ?? Date.now(),
+                  archivedReason: "manual",
+                }
+              : item,
+          ),
+        );
         return { success: automationRuns.some((item) => item.threadId === threadId) };
       }
       if (channel === "codex:automation-runs:unarchive") {
         const threadId = String((args[0] as { threadId?: string } | undefined)?.threadId ?? "");
-        setAutomationRuns(automationRuns.map((item) =>
-          item.threadId === threadId
-            ? { ...item, status: "ACCEPTED", readAt: item.readAt ?? Date.now(), archivedReason: null }
-            : item
-        ));
+        setAutomationRuns(
+          automationRuns.map((item) =>
+            item.threadId === threadId
+              ? {
+                  ...item,
+                  status: "ACCEPTED",
+                  readAt: item.readAt ?? Date.now(),
+                  archivedReason: null,
+                }
+              : item,
+          ),
+        );
         return { success: automationRuns.some((item) => item.threadId === threadId) };
       }
       if (channel === "codex:automation-runs:delete") {
@@ -465,11 +493,13 @@ function installAutomationsStoryApi({
       if (channel === "codex:automation-runs:set-read-state") {
         const input = args[0] as { threadId?: string; readAt?: number | null };
         let updated: CodexAutomationInboxItem | null = null;
-        setAutomationRuns(automationRuns.map((item) => {
-          if (item.threadId !== input.threadId) return item;
-          updated = { ...item, readAt: input.readAt ?? null };
-          return updated;
-        }));
+        setAutomationRuns(
+          automationRuns.map((item) => {
+            if (item.threadId !== input.threadId) return item;
+            updated = { ...item, readAt: input.readAt ?? null };
+            return updated;
+          }),
+        );
         return updated;
       }
       if (channel === "codex:scheduled-automations:run-now") return { success: true };
@@ -507,9 +537,10 @@ function dispatchPointerDown(element: HTMLElement): void {
     buttons: 1,
     ctrlKey: false,
   };
-  const pointerEvent = typeof window.PointerEvent === "function"
-    ? new window.PointerEvent("pointerdown", { ...eventInit, pointerType: "mouse" })
-    : new MouseEvent("pointerdown", eventInit);
+  const pointerEvent =
+    typeof window.PointerEvent === "function"
+      ? new window.PointerEvent("pointerdown", { ...eventInit, pointerType: "mouse" })
+      : new MouseEvent("pointerdown", eventInit);
   element.dispatchEvent(pointerEvent);
 }
 
@@ -521,7 +552,10 @@ function activateStoryTrigger(root: HTMLElement | null, selector: string): void 
 
 function setStoryInputValue(input: HTMLInputElement | null, value: string): void {
   if (!input) return;
-  const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )?.set;
   valueSetter?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
@@ -594,8 +628,12 @@ function AutomationsRouteShellStory({
     let timeout: number | undefined;
     const openDiscardDialog = () => {
       attempts += 1;
-      const nameInput = rootRef.current?.querySelector<HTMLInputElement>('input[aria-label="Name"]');
-      const collapseButton = rootRef.current?.querySelector<HTMLButtonElement>('button[aria-label="Collapse details"]');
+      const nameInput = rootRef.current?.querySelector<HTMLInputElement>(
+        'input[aria-label="Name"]',
+      );
+      const collapseButton = rootRef.current?.querySelector<HTMLButtonElement>(
+        'button[aria-label="Collapse details"]',
+      );
       if (!nameInput || !collapseButton) {
         if (attempts < 6) timeout = window.setTimeout(openDiscardDialog, 100);
         return;
@@ -612,7 +650,9 @@ function AutomationsRouteShellStory({
   useEffect(() => {
     if (!autoOpenSchedulePopover) return;
     const timeout = window.setTimeout(() => {
-      const scheduleButton = rootRef.current?.querySelector<HTMLButtonElement>('button[aria-label="Schedule"]');
+      const scheduleButton = rootRef.current?.querySelector<HTMLButtonElement>(
+        'button[aria-label="Schedule"]',
+      );
       scheduleButton?.click();
     }, 100);
     return () => window.clearTimeout(timeout);
@@ -645,7 +685,9 @@ function AutomationsRouteShellStory({
   useEffect(() => {
     if (!autoOpenModelDropdown) return;
     const timeout = window.setTimeout(() => {
-      const trigger = rootRef.current?.querySelector<HTMLButtonElement>('button[aria-label="Model and reasoning"]');
+      const trigger = rootRef.current?.querySelector<HTMLButtonElement>(
+        'button[aria-label="Model and reasoning"]',
+      );
       if (!trigger || trigger.disabled) return;
       dispatchPointerDown(trigger);
     }, 200);
@@ -655,7 +697,10 @@ function AutomationsRouteShellStory({
   useEffect(() => {
     if (!autoSearchTasksQuery) return;
     const timeout = window.setTimeout(() => {
-      const input = rootRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search scheduled tasks"]') ?? null;
+      const input =
+        rootRef.current?.querySelector<HTMLInputElement>(
+          'input[aria-label="Search scheduled tasks"]',
+        ) ?? null;
       setStoryInputValue(input, autoSearchTasksQuery);
     }, 100);
     return () => window.clearTimeout(timeout);
@@ -664,7 +709,9 @@ function AutomationsRouteShellStory({
   useEffect(() => {
     if (!autoSearchTemplatesQuery) return;
     const timeout = window.setTimeout(() => {
-      const input = rootRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search templates"]') ?? null;
+      const input =
+        rootRef.current?.querySelector<HTMLInputElement>('input[aria-label="Search templates"]') ??
+        null;
       setStoryInputValue(input, autoSearchTemplatesQuery);
     }, 100);
     return () => window.clearTimeout(timeout);
@@ -673,7 +720,9 @@ function AutomationsRouteShellStory({
   useEffect(() => {
     if (!autoSelectTemplateId) return;
     const timeout = window.setTimeout(() => {
-      const template = rootRef.current?.querySelector<HTMLButtonElement>(`[data-testid="automation-template-${autoSelectTemplateId}"]`);
+      const template = rootRef.current?.querySelector<HTMLButtonElement>(
+        `[data-testid="automation-template-${autoSelectTemplateId}"]`,
+      );
       template?.click();
     }, 150);
     return () => window.clearTimeout(timeout);
@@ -682,11 +731,7 @@ function AutomationsRouteShellStory({
   return (
     <QueryClientProvider client={queryClient}>
       <div ref={rootRef} className="h-screen w-screen bg-token-main-surface-primary">
-        <WorkbenchAutomationsRouteShell
-          path={path}
-          projects={PROJECTS}
-          onPathChange={setPath}
-        />
+        <WorkbenchAutomationsRouteShell path={path} projects={PROJECTS} onPathChange={setPath} />
       </div>
     </QueryClientProvider>
   );

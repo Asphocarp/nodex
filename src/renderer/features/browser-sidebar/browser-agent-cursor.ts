@@ -9,8 +9,8 @@ const CURSOR_ASSET_OFFSET_Y = -2.5;
 const CURSOR_ASSET_ROTATION = 44;
 const CURSOR_GLOW_PROPERTY = "--browser-agent-cursor-glow-color";
 const CURSOR_GLOW_FILTER =
-  `drop-shadow(0 0 6px color-mix(in srgb, var(${CURSOR_GLOW_PROPERTY}) 90%, transparent)) `
-  + `drop-shadow(0 0 15px color-mix(in srgb, var(${CURSOR_GLOW_PROPERTY}) 48%, transparent))`;
+  `drop-shadow(0 0 6px color-mix(in srgb, var(${CURSOR_GLOW_PROPERTY}) 90%, transparent)) ` +
+  `drop-shadow(0 0 15px color-mix(in srgb, var(${CURSOR_GLOW_PROPERTY}) 48%, transparent))`;
 const CURSOR_HIDDEN_BLUR = 5;
 const CURSOR_HIDDEN_SCALE = 0.4;
 const CURSOR_IDLE_DELAY_SECONDS = 0;
@@ -180,16 +180,8 @@ export function clampBrowserAgentCursorPoint({
   viewportWidth: number;
 }): Point {
   return {
-    x: clamp(
-      cursorX ?? Math.round(viewportWidth * DEFAULT_CURSOR_X_RATIO),
-      0,
-      viewportWidth,
-    ),
-    y: clamp(
-      cursorY ?? Math.round(viewportHeight * DEFAULT_CURSOR_Y_RATIO),
-      0,
-      viewportHeight,
-    ),
+    x: clamp(cursorX ?? Math.round(viewportWidth * DEFAULT_CURSOR_X_RATIO), 0, viewportWidth),
+    y: clamp(cursorY ?? Math.round(viewportHeight * DEFAULT_CURSOR_Y_RATIO), 0, viewportHeight),
   };
 }
 
@@ -205,12 +197,7 @@ export function createBrowserAgentCursorController(
     onArrived?: (moveSequence: number) => void;
   } = {},
 ): BrowserAgentCursorController {
-  const elements = createCursorElements(
-    host,
-    CURSOR_ASSET_URL,
-    dataTestId,
-    glowColor,
-  );
+  const elements = createCursorElements(host, CURSOR_ASSET_URL, dataTestId, glowColor);
   let animationFrame: number | null = null;
   let previousFrameTime = now();
   let motionState: CursorMotionState | null = null;
@@ -223,11 +210,7 @@ export function createBrowserAgentCursorController(
   let destroyed = false;
 
   const notifyArrived = () => {
-    if (
-      moveSequence === null
-      || arrivalKey === null
-      || notifiedArrivalKey === arrivalKey
-    ) {
+    if (moveSequence === null || arrivalKey === null || notifiedArrivalKey === arrivalKey) {
       return;
     }
     notifiedArrivalKey = arrivalKey;
@@ -235,11 +218,7 @@ export function createBrowserAgentCursorController(
   };
 
   const scheduleFrame = () => {
-    if (
-      animationFrame !== null
-      || motionState === null
-      || destroyed
-    ) {
+    if (animationFrame !== null || motionState === null || destroyed) {
       return;
     }
     animationFrame = requestFrame((timestamp) => {
@@ -274,8 +253,7 @@ export function createBrowserAgentCursorController(
         viewportHeight: state.viewportSize.height,
         viewportWidth: state.viewportSize.width,
       });
-      const visible = state.isVisible !== false
-        && state.cursor?.visible !== false;
+      const visible = state.isVisible !== false && state.cursor?.visible !== false;
       const animateMovement = state.cursor?.animateMovement !== false;
       const showingDefaultCursor = visible && !hasCursor;
       moveSequence = state.cursor?.moveSequence ?? null;
@@ -296,10 +274,11 @@ export function createBrowserAgentCursorController(
         return;
       }
 
-      const firstVisibleMove = state.cursor?.moveSequence !== undefined
-        && visible
-        && motionState.visibilitySpring.value <= 0.001
-        && lastFirstMoveTurnKey !== turnKey;
+      const firstVisibleMove =
+        state.cursor?.moveSequence !== undefined &&
+        visible &&
+        motionState.visibilitySpring.value <= 0.001 &&
+        lastFirstMoveTurnKey !== turnKey;
       motionState.thinkStartedAt = null;
       const distance = distanceBetween(motionState.point, point);
       if (!animateMovement || firstVisibleMove || distance < 0.5) {
@@ -356,8 +335,7 @@ function createCursorElements(
   });
 
   const assetOffset = document.createElement("div");
-  assetOffset.style.transform =
-    `translate3d(${CURSOR_ASSET_OFFSET_X}px, ${CURSOR_ASSET_OFFSET_Y}px, 0)`;
+  assetOffset.style.transform = `translate3d(${CURSOR_ASSET_OFFSET_X}px, ${CURSOR_ASSET_OFFSET_Y}px, 0)`;
 
   const image = document.createElement("img");
   image.alt = "";
@@ -396,19 +374,11 @@ function createCursorMotionState(point: Point, visible: boolean): CursorMotionSt
     scootStretchSpring: createSpring(1, 1, SCOOT_STRETCH_SPRING),
     stretchSpring: createSpring(1, 1, STRETCH_SPRING),
     thinkStartedAt: null,
-    visibilitySpring: createSpring(
-      visibility,
-      visibility,
-      VISIBILITY_SPRING,
-    ),
+    visibilitySpring: createSpring(visibility, visibility, VISIBILITY_SPRING),
   };
 }
 
-function startCursorMotion(
-  state: CursorMotionState,
-  target: Point,
-  viewportSize: Size,
-): void {
+function startCursorMotion(state: CursorMotionState, target: Point, viewportSize: Size): void {
   state.thinkStartedAt = null;
   const start = { ...state.point };
   if (distanceBetween(start, target) <= CURVED_PATH_DISTANCE) {
@@ -421,11 +391,7 @@ function startCursorMotion(
     start,
   });
   const springConfig = responseForPath(path);
-  setPositionSpringConfig(
-    state,
-    springConfig.response,
-    springConfig.dampingFraction,
-  );
+  setPositionSpringConfig(state, springConfig.response, springConfig.dampingFraction);
   state.motion = {
     mode: "bezier",
     path,
@@ -433,26 +399,15 @@ function startCursorMotion(
   };
 }
 
-function startScootMotion(
-  state: CursorMotionState,
-  start: Point,
-  end: Point,
-): void {
+function startScootMotion(state: CursorMotionState, start: Point, end: Point): void {
   const direction = normalizePoint({
     x: end.x - start.x,
     y: end.y - start.y,
   });
   const axisRotation = pointAngleDegrees(direction);
-  const rotationTarget = clamp(
-    direction.x * 0.75 + -direction.y * 0.62,
-    -1,
-    1,
-  ) * MAX_SCOOT_ROTATION;
-  setPositionSpringConfig(
-    state,
-    POSITION_SPRING.response,
-    POSITION_SPRING.dampingFraction,
-  );
+  const rotationTarget =
+    clamp(direction.x * 0.75 + -direction.y * 0.62, -1, 1) * MAX_SCOOT_ROTATION;
+  setPositionSpringConfig(state, POSITION_SPRING.response, POSITION_SPRING.dampingFraction);
   state.positionXSpring.target = end.x;
   state.positionYSpring.target = end.y;
   setAngularSpringTarget(state.rotationSpring, wrapDegrees(-44));
@@ -511,18 +466,15 @@ function advanceBezierMotion(
   const sample = sampleCursorMotionPath(motion.path, progress);
   state.positionXSpring.target = sample.point.x;
   state.positionYSpring.target = sample.point.y;
-  setAngularSpringTarget(
-    state.rotationSpring,
-    cursorRotationForTangent(sample.tangent),
-  );
+  setAngularSpringTarget(state.rotationSpring, cursorRotationForTangent(sample.tangent));
   setAngularSpringTarget(state.scootAxisSpring, 0);
   const current = advanceCursorPositionSprings(state, deltaSeconds);
   state.stretchSpring.target = stretchForSpeed(current.speed);
 
   if (
-    progress < 0.999
-    || Math.abs(motion.progressSpring.velocity) >= 0.01
-    || !hasCursorArrived(state, sample.point)
+    progress < 0.999 ||
+    Math.abs(motion.progressSpring.velocity) >= 0.01 ||
+    !hasCursorArrived(state, sample.point)
   ) {
     return false;
   }
@@ -560,9 +512,9 @@ function advanceScootMotion(
   state.scootRotationSpring.target = motion.rotationTarget * arc;
 
   if (
-    progress < 0.999
-    || Math.abs(motion.progressSpring.velocity) >= 0.01
-    || !hasCursorArrived(state, motion.end)
+    progress < 0.999 ||
+    Math.abs(motion.progressSpring.velocity) >= 0.01 ||
+    !hasCursorArrived(state, motion.end)
   ) {
     return false;
   }
@@ -578,22 +530,21 @@ function advanceScootMotion(
 }
 
 function isCursorAnimating(state: CursorMotionState): boolean {
-  return state.motion !== null
-    || state.thinkStartedAt !== null
-    || !isSpringSettled(state.positionXSpring)
-    || !isSpringSettled(state.positionYSpring)
-    || !isSpringSettled(state.rotationSpring)
-    || !isSpringSettled(state.scootAxisSpring)
-    || !isSpringSettled(state.scootRotationSpring)
-    || !isSpringSettled(state.scootStretchSpring)
-    || !isSpringSettled(state.stretchSpring)
-    || !isSpringSettled(state.visibilitySpring);
+  return (
+    state.motion !== null ||
+    state.thinkStartedAt !== null ||
+    !isSpringSettled(state.positionXSpring) ||
+    !isSpringSettled(state.positionYSpring) ||
+    !isSpringSettled(state.rotationSpring) ||
+    !isSpringSettled(state.scootAxisSpring) ||
+    !isSpringSettled(state.scootRotationSpring) ||
+    !isSpringSettled(state.scootStretchSpring) ||
+    !isSpringSettled(state.stretchSpring) ||
+    !isSpringSettled(state.visibilitySpring)
+  );
 }
 
-function renderCursor(
-  elements: CursorElements,
-  state: CursorMotionState,
-): void {
+function renderCursor(elements: CursorElements, state: CursorMotionState): void {
   const rotation = readIdleRotation(state, now());
   const presentation = makeCursorPresentation({
     point: state.point,
@@ -638,8 +589,8 @@ function makeCursorPresentation({
     `translate3d(${round(point.x - CURSOR_LAYER_CENTER)}px, ${round(point.y - CURSOR_LAYER_CENTER)}px, 0)`,
   ];
   if (
-    Math.abs(shortestAngleDifference(0, scootAxisRotation)) > 0.001
-    || Math.abs(scootScale - 1) > 0.001
+    Math.abs(shortestAngleDifference(0, scootAxisRotation)) > 0.001 ||
+    Math.abs(scootScale - 1) > 0.001
   ) {
     transforms.push(
       `rotate(${round(scootAxisRotation)}deg)`,
@@ -660,14 +611,11 @@ function makeCursorPresentation({
 
 function readIdleRotation(state: CursorMotionState, timestamp: number): number {
   if (state.thinkStartedAt === null) return state.rotation;
-  const elapsed = (timestamp - state.thinkStartedAt) / 1_000
-    - CURSOR_IDLE_DELAY_SECONDS;
+  const elapsed = (timestamp - state.thinkStartedAt) / 1_000 - CURSOR_IDLE_DELAY_SECONDS;
   if (elapsed < 0) return state.rotation;
   const progress = Math.min(1, elapsed / CURSOR_IDLE_DURATION_SECONDS);
   const envelope = Math.sin(progress * Math.PI);
-  const oscillation =
-    Math.sin((elapsed / CURSOR_IDLE_CYCLE_SECONDS) * Math.PI * 2)
-    * envelope;
+  const oscillation = Math.sin((elapsed / CURSOR_IDLE_CYCLE_SECONDS) * Math.PI * 2) * envelope;
   if (progress >= 1) {
     state.thinkStartedAt = null;
     return state.rotation;
@@ -711,8 +659,7 @@ function advanceCursorPositionSprings(
     x: state.positionXSpring.value,
     y: state.positionYSpring.value,
   };
-  const speed = distanceBetween(previousPoint, point)
-    / Math.max(deltaSeconds, SPRING_STEP_SECONDS);
+  const speed = distanceBetween(previousPoint, point) / Math.max(deltaSeconds, SPRING_STEP_SECONDS);
   state.point = point;
   state.rotation = state.rotationSpring.value;
   state.scootAxisRotation = state.scootAxisSpring.value;
@@ -720,24 +667,20 @@ function advanceCursorPositionSprings(
 }
 
 function hasCursorArrived(state: CursorMotionState, target: Point): boolean {
-  return distanceBetween(state.point, target) <= ARRIVAL_DISTANCE
-    && Math.abs(state.positionXSpring.velocity) <= ARRIVAL_VELOCITY
-    && Math.abs(state.positionYSpring.velocity) <= ARRIVAL_VELOCITY;
+  return (
+    distanceBetween(state.point, target) <= ARRIVAL_DISTANCE &&
+    Math.abs(state.positionXSpring.velocity) <= ARRIVAL_VELOCITY &&
+    Math.abs(state.positionYSpring.velocity) <= ARRIVAL_VELOCITY
+  );
 }
 
-function setCursorPointImmediately(
-  state: CursorMotionState,
-  point: Point,
-): void {
+function setCursorPointImmediately(state: CursorMotionState, point: Point): void {
   state.point = point;
   setSpringImmediately(state.positionXSpring, point.x);
   setSpringImmediately(state.positionYSpring, point.y);
 }
 
-function moveCursorImmediately(
-  state: CursorMotionState,
-  point: Point,
-): void {
+function moveCursorImmediately(state: CursorMotionState, point: Point): void {
   state.motion = null;
   setCursorPointImmediately(state, point);
   setSpringImmediately(state.rotationSpring, wrapDegrees(-44));
@@ -761,10 +704,7 @@ function projectedProgress(point: Point, start: Point, end: Point): number {
   const lengthSquared = direction.x * direction.x + direction.y * direction.y;
   if (lengthSquared < 0.001) return 1;
   return clamp(
-    (
-      (point.x - start.x) * direction.x
-      + (point.y - start.y) * direction.y
-    ) / lengthSquared,
+    ((point.x - start.x) * direction.x + (point.y - start.y) * direction.y) / lengthSquared,
     0,
     1,
   );
@@ -781,11 +721,7 @@ function shortestAngleDifference(start: number, end: number): number {
   return difference;
 }
 
-function createSpring(
-  value: number,
-  target: number,
-  config: SpringConfig,
-): Spring {
+function createSpring(value: number, target: number, config: SpringConfig): Spring {
   return {
     ...config,
     force: 0,
@@ -809,10 +745,7 @@ function setSpringImmediately(spring: Spring, target: number): void {
 function advanceSpring(spring: Spring, deltaSeconds: number): void {
   const response = Math.max(0.001, spring.response);
   const maxStiffness = 1 / (2 * SPRING_STEP_SECONDS ** 2);
-  const stiffness = Math.min(
-    (Math.PI * 2) ** 2 / response ** 2,
-    maxStiffness,
-  );
+  const stiffness = Math.min((Math.PI * 2) ** 2 / response ** 2, maxStiffness);
   const damping = Math.sqrt(stiffness) * 2 * spring.dampingFraction;
   spring.scriptTime += Math.max(0, deltaSeconds);
   if (spring.scriptTime - spring.simulationTime > MAX_SPRING_CATCHUP_SECONDS) {
@@ -825,17 +758,11 @@ function advanceSpring(spring: Spring, deltaSeconds: number): void {
   if (isSpringNearTarget(spring)) spring.value = spring.target;
 }
 
-function integrateSpring(
-  spring: Spring,
-  stiffness: number,
-  damping: number,
-): void {
+function integrateSpring(spring: Spring, stiffness: number, damping: number): void {
   const halfStep = SPRING_STEP_SECONDS / 2;
   const midpointVelocity = spring.velocity + spring.force * halfStep;
   spring.value += midpointVelocity * SPRING_STEP_SECONDS;
-  spring.force =
-    midpointVelocity * -damping
-    + (spring.target - spring.value) * stiffness;
+  spring.force = midpointVelocity * -damping + (spring.target - spring.value) * stiffness;
   spring.velocity = midpointVelocity + spring.force * halfStep;
 }
 
@@ -845,17 +772,14 @@ function isSpringSettled(spring: Spring): boolean {
 
 function isSpringNearTarget(spring: Spring): boolean {
   if (
-    Math.max(
-      spring.velocity * spring.velocity,
-      spring.force * spring.force,
-    ) > SPRING_SETTLED_THRESHOLD * SPRING_SETTLED_THRESHOLD
+    Math.max(spring.velocity * spring.velocity, spring.force * spring.force) >
+    SPRING_SETTLED_THRESHOLD * SPRING_SETTLED_THRESHOLD
   ) {
     return false;
   }
   const relativeThreshold = spring.target * 0.01;
   const delta = spring.target - spring.value;
-  return relativeThreshold === 0
-    || delta * delta <= relativeThreshold * relativeThreshold;
+  return relativeThreshold === 0 || delta * delta <= relativeThreshold * relativeThreshold;
 }
 
 function chooseCursorMotionPath({
@@ -886,9 +810,7 @@ function chooseCursorMotionPath({
       bestInBoundsScore = score;
     }
   }
-  return bestInBoundsScore === Number.POSITIVE_INFINITY
-    ? bestOverall
-    : bestInBounds;
+  return bestInBoundsScore === Number.POSITIVE_INFINITY ? bestOverall : bestInBounds;
 }
 
 function generateCursorPathCandidates({
@@ -919,51 +841,23 @@ function generateCursorPathCandidates({
     x: -clickTangent.x,
     y: -clickTangent.y,
   };
-  const startControl = boundRay(
-    bounds,
-    start,
-    clickTangent,
-    startHandleDistance,
-  );
-  const endControl = boundRay(
-    bounds,
-    end,
-    reverseClickTangent,
-    endHandleDistance,
-  );
+  const startControl = boundRay(bounds, start, clickTangent, startHandleDistance);
+  const endControl = boundRay(bounds, end, reverseClickTangent, endHandleDistance);
   const perpendicular = {
     x: -normalizedDirection.y,
     y: normalizedDirection.x,
   };
   const naturalSide =
-    perpendicular.x * clickTangent.x + perpendicular.y * clickTangent.y >= 0
-      ? 1
-      : -1;
+    perpendicular.x * clickTangent.x + perpendicular.y * clickTangent.y >= 0 ? 1 : -1;
   const naturalArcNormal = {
     x: perpendicular.x * naturalSide,
     y: perpendicular.y * naturalSide,
   };
   const midpoint = midpointBetween(start, end);
-  const shorterStartControl = boundRay(
-    bounds,
-    start,
-    clickTangent,
-    startHandleDistance * 0.65,
-  );
-  const shorterEndControl = boundRay(
-    bounds,
-    end,
-    reverseClickTangent,
-    endHandleDistance * 0.65,
-  );
-  const arcDistance = Math.max(
-    50,
-    Math.min(520, distance * PATH_CONFIG.arcSize),
-  );
-  const arcHandleDistance = Math.max(
-    38,
-    Math.min(440, distance * PATH_CONFIG.arcFlow),
-  );
+  const shorterStartControl = boundRay(bounds, start, clickTangent, startHandleDistance * 0.65);
+  const shorterEndControl = boundRay(bounds, end, reverseClickTangent, endHandleDistance * 0.65);
+  const arcDistance = Math.max(50, Math.min(520, distance * PATH_CONFIG.arcSize));
+  const arcHandleDistance = Math.max(38, Math.min(440, distance * PATH_CONFIG.arcFlow));
   const candidates = [
     makeDirectPath(start, end, startControl, endControl),
     makeDirectPath(start, end, shorterStartControl, shorterEndControl),
@@ -1041,14 +935,8 @@ function addArcPath({
   startHandleDistance: number;
 }): void {
   const arc = {
-    x:
-      midpoint.x
-      + naturalArcNormal.x * arcDistance
-      + clickTangent.x * startHandleDistance * 0.16,
-    y:
-      midpoint.y
-      + naturalArcNormal.y * arcDistance
-      + clickTangent.y * startHandleDistance * 0.16,
+    x: midpoint.x + naturalArcNormal.x * arcDistance + clickTangent.x * startHandleDistance * 0.16,
+    y: midpoint.y + naturalArcNormal.y * arcDistance + clickTangent.y * startHandleDistance * 0.16,
   };
   const arcIn = {
     x: arc.x - arcTangent.x * arcHandleDistance,
@@ -1131,9 +1019,8 @@ function measureCursorPath(
   let maxAngleChange = 0;
   let totalTurn = 0;
   let previousAngle: number | null = null;
-  let staysInBounds = !bounds
-    || boundsMargin === undefined
-    || pointWithinBounds(path.start, bounds, boundsMargin);
+  let staysInBounds =
+    !bounds || boundsMargin === undefined || pointWithinBounds(path.start, bounds, boundsMargin);
   let segmentStart = path.start;
   let previousPoint = path.start;
 
@@ -1179,21 +1066,20 @@ function measureCursorPath(
   };
 }
 
-function scoreCursorPath(
-  path: MotionPath,
-  metrics: CursorPathMetrics,
-): number {
+function scoreCursorPath(path: MotionPath, metrics: CursorPathMetrics): number {
   const directDistance = Math.max(1, distanceBetween(path.start, path.end));
   const excessLength = Math.max(0, metrics.length / directDistance - 1);
   const arcPenalty = path.arc === null ? 0 : 45;
   const reversePenalty = cursorPathReversePenalty(path);
-  return metrics.length
-    + excessLength * 320
-    + metrics.angleChangeEnergy * 140
-    + metrics.maxAngleChange * 180
-    + metrics.totalTurn * 18
-    + reversePenalty * 90
-    + arcPenalty;
+  return (
+    metrics.length +
+    excessLength * 320 +
+    metrics.angleChangeEnergy * 140 +
+    metrics.maxAngleChange * 180 +
+    metrics.totalTurn * 18 +
+    reversePenalty * 90 +
+    arcPenalty
+  );
 }
 
 function cursorPathReversePenalty(path: MotionPath): number {
@@ -1203,10 +1089,7 @@ function cursorPathReversePenalty(path: MotionPath): number {
     y: path.end.y - path.start.y,
   });
   return clamp(
-    (
-      -(direction.x * clickDirection.x + direction.y * clickDirection.y)
-      - 0.08
-    ) / 0.92,
+    (-(direction.x * clickDirection.x + direction.y * clickDirection.y) - 0.08) / 0.92,
     0,
     1,
   );
@@ -1220,13 +1103,7 @@ function responseForPath(path: MotionPath): SpringConfig {
   const excessProgress = clamp(excessLength / 0.55, 0, 1);
   const turnProgress = clamp(metrics.totalTurn / (Math.PI * 1.4), 0, 1);
   const energyProgress = clamp(metrics.angleChangeEnergy / 1.25, 0, 1);
-  const curvature = clamp(
-    excessProgress * 0.42
-      + turnProgress * 0.38
-      + energyProgress * 0.2,
-    0,
-    1,
-  );
+  const curvature = clamp(excessProgress * 0.42 + turnProgress * 0.38 + energyProgress * 0.2, 0, 1);
   const reversePenalty = cursorPathReversePenalty(path);
   const arcAdjustment = path.arc === null ? 0 : 0.04;
   const reverseAdjustment = reversePenalty * 0.28;
@@ -1234,13 +1111,9 @@ function responseForPath(path: MotionPath): SpringConfig {
   return {
     dampingFraction: 0.9,
     response: clamp(
-      (
-        0.42
-        + lengthProgress * 0.22
-        + curvature * 0.12
-        + reverseAdjustment
-        + arcAdjustment
-      ) * 0.7 * directAdjustment,
+      (0.42 + lengthProgress * 0.22 + curvature * 0.12 + reverseAdjustment + arcAdjustment) *
+        0.7 *
+        directAdjustment,
       0.12,
       2.2,
     ),
@@ -1255,24 +1128,19 @@ function sampleCursorMotionPath(
   tangent: Point;
 } {
   const clampedProgress = clamp(progress, 0, 1);
-  const rawSegmentIndex = clampedProgress === 1
-    ? path.segments.length - 1
-    : clampedProgress * path.segments.length;
+  const rawSegmentIndex =
+    clampedProgress === 1 ? path.segments.length - 1 : clampedProgress * path.segments.length;
   const segmentIndex = Math.floor(rawSegmentIndex);
   const segment = path.segments[segmentIndex];
   if (!segment) {
     throw new Error("Cursor motion path has no segment for progress");
   }
   const previousSegment = path.segments[segmentIndex - 1];
-  const segmentStart = segmentIndex === 0
-    ? path.start
-    : previousSegment?.end;
+  const segmentStart = segmentIndex === 0 ? path.start : previousSegment?.end;
   if (!segmentStart) {
     throw new Error("Cursor motion path segment is missing its start point");
   }
-  const segmentProgress = clampedProgress === 1
-    ? 1
-    : rawSegmentIndex - segmentIndex;
+  const segmentProgress = clampedProgress === 1 ? 1 : rawSegmentIndex - segmentIndex;
   return {
     point: cubicBezierPoint(
       segmentStart,
@@ -1296,35 +1164,22 @@ function cursorRotationForTangent(tangent: Point): number {
     return wrapDegrees(-44);
   }
   const normalized = normalizePoint(tangent);
-  return wrapDegrees(
-    Math.atan2(normalized.y, normalized.x) * (180 / Math.PI) + 90,
-  );
+  return wrapDegrees(Math.atan2(normalized.y, normalized.x) * (180 / Math.PI) + 90);
 }
 
-function boundRay(
-  bounds: Size,
-  start: Point,
-  direction: Point,
-  distance: number,
-): Point {
+function boundRay(bounds: Size, start: Point, direction: Point, distance: number): Point {
   let boundedDistance = distance;
   if (direction.x < 0) {
     boundedDistance = Math.min(boundedDistance, start.x / -direction.x);
   }
   if (direction.x > 0) {
-    boundedDistance = Math.min(
-      boundedDistance,
-      (bounds.width - start.x) / direction.x,
-    );
+    boundedDistance = Math.min(boundedDistance, (bounds.width - start.x) / direction.x);
   }
   if (direction.y < 0) {
     boundedDistance = Math.min(boundedDistance, start.y / -direction.y);
   }
   if (direction.y > 0) {
-    boundedDistance = Math.min(
-      boundedDistance,
-      (bounds.height - start.y) / direction.y,
-    );
+    boundedDistance = Math.min(boundedDistance, (bounds.height - start.y) / direction.y);
   }
   return {
     x: start.x + direction.x * Math.max(0, boundedDistance),
@@ -1354,15 +1209,15 @@ function cubicBezierPoint(
   const endWeight = progress * progress * progress;
   return {
     x:
-      start.x * startWeight
-      + control1.x * control1Weight
-      + control2.x * control2Weight
-      + end.x * endWeight,
+      start.x * startWeight +
+      control1.x * control1Weight +
+      control2.x * control2Weight +
+      end.x * endWeight,
     y:
-      start.y * startWeight
-      + control1.y * control1Weight
-      + control2.y * control2Weight
-      + end.y * endWeight,
+      start.y * startWeight +
+      control1.y * control1Weight +
+      control2.y * control2Weight +
+      end.y * endWeight,
   };
 }
 
@@ -1376,13 +1231,13 @@ function cubicBezierTangent(
   const inverse = 1 - progress;
   return {
     x:
-      3 * inverse * inverse * (control1.x - start.x)
-      + 6 * inverse * progress * (control2.x - control1.x)
-      + 3 * progress * progress * (end.x - control2.x),
+      3 * inverse * inverse * (control1.x - start.x) +
+      6 * inverse * progress * (control2.x - control1.x) +
+      3 * progress * progress * (end.x - control2.x),
     y:
-      3 * inverse * inverse * (control1.y - start.y)
-      + 6 * inverse * progress * (control2.y - control1.y)
-      + 3 * progress * progress * (end.y - control2.y),
+      3 * inverse * inverse * (control1.y - start.y) +
+      6 * inverse * progress * (control2.y - control1.y) +
+      3 * progress * progress * (end.y - control2.y),
   };
 }
 
@@ -1407,15 +1262,13 @@ function midpointBetween(start: Point, end: Point): Point {
   };
 }
 
-function pointWithinBounds(
-  point: Point,
-  bounds: Size,
-  margin: number,
-): boolean {
-  return point.x >= margin
-    && point.x <= bounds.width - margin
-    && point.y >= margin
-    && point.y <= bounds.height - margin;
+function pointWithinBounds(point: Point, bounds: Size, margin: number): boolean {
+  return (
+    point.x >= margin &&
+    point.x <= bounds.width - margin &&
+    point.y >= margin &&
+    point.y <= bounds.height - margin
+  );
 }
 
 function shortestRadiansDifference(start: number, end: number): number {
@@ -1460,10 +1313,7 @@ function requestFrame(callback: FrameRequestCallback): number {
   if (window.requestAnimationFrame) {
     return window.requestAnimationFrame(callback);
   }
-  return window.setTimeout(
-    () => callback(now()),
-    FRAME_DURATION_SECONDS * 1_000,
-  );
+  return window.setTimeout(() => callback(now()), FRAME_DURATION_SECONDS * 1_000);
 }
 
 function cancelFrame(frame: number): void {

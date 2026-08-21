@@ -104,12 +104,14 @@ describe("buildThreadSummaryPanelOutputRows", () => {
           semanticKind: "patch",
           fileChange: {
             label: "src/app.ts",
-            changes: buildCodexFileChangeMap([{
-              type: "update",
-              path: "src/app.ts",
-              movePath: null,
-              unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-            }]),
+            changes: buildCodexFileChangeMap([
+              {
+                type: "update",
+                path: "src/app.ts",
+                movePath: null,
+                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+              },
+            ]),
           },
         }),
       ]),
@@ -148,18 +150,21 @@ describe("buildThreadSummaryPanelOutputRows", () => {
   });
 
   test("collects file outputs from assistant file references", () => {
-    const rows = buildThreadSummaryPanelOutputRows([
-      buildTurn([
-        buildItem("assistant-1", "agentMessage", {
-          kind: "assistantMessage",
-          semanticKind: "assistantMessage",
-          markdownText:
-            "Updated \u3010F:src/renderer/app.tsx\u2020L10-L12\u3011 and reviewed \u3010F:src/renderer/app.tsx\u2020L40\u3011.",
-        }),
-      ]),
-    ], {
-      cwd: "/repo/project",
-    });
+    const rows = buildThreadSummaryPanelOutputRows(
+      [
+        buildTurn([
+          buildItem("assistant-1", "agentMessage", {
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            markdownText:
+              "Updated \u3010F:src/renderer/app.tsx\u2020L10-L12\u3011 and reviewed \u3010F:src/renderer/app.tsx\u2020L40\u3011.",
+          }),
+        ]),
+      ],
+      {
+        cwd: "/repo/project",
+      },
+    );
 
     expect(rows.length).toBe(1);
     expect(rows[0]?.kind ?? "").toBe("file");
@@ -260,15 +265,17 @@ describe("buildThreadSummaryPanelOutputRows", () => {
 
   test("limits summary outputs to the first five rows", () => {
     const rows = buildThreadSummaryPanelOutputRows([
-      buildTurn(Array.from({ length: 7 }, (_, index) =>
-        buildItem(`image-${index}`, "imageView", {
-          rawItem: {
-            id: `image-${index}`,
-            type: "imageView",
-            path: `/tmp/nodex/image-${index}.png`,
-          },
-        })
-      )),
+      buildTurn(
+        Array.from({ length: 7 }, (_, index) =>
+          buildItem(`image-${index}`, "imageView", {
+            rawItem: {
+              id: `image-${index}`,
+              type: "imageView",
+              path: `/tmp/nodex/image-${index}.png`,
+            },
+          }),
+        ),
+      ),
     ]);
 
     expect(rows.length).toBe(5);
@@ -344,23 +351,26 @@ describe("buildThreadSummaryPanelOutputRows", () => {
   });
 
   test("collects markdown file links outside fenced code blocks", () => {
-    const rows = buildThreadSummaryPanelOutputRows([
-      buildTurn([
-        buildItem("assistant-1", "agentMessage", {
-          kind: "assistantMessage",
-          semanticKind: "assistantMessage",
-          markdownText: [
-            "Saved [report](docs/report.pdf).",
-            "```",
-            "[ignored](docs/ignored.pdf)",
-            "```",
-            "Also saved `[deck](slides/deck.pptx)`.",
-          ].join("\n"),
-        }),
-      ]),
-    ], {
-      cwd: "/repo/project",
-    });
+    const rows = buildThreadSummaryPanelOutputRows(
+      [
+        buildTurn([
+          buildItem("assistant-1", "agentMessage", {
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            markdownText: [
+              "Saved [report](docs/report.pdf).",
+              "```",
+              "[ignored](docs/ignored.pdf)",
+              "```",
+              "Also saved `[deck](slides/deck.pptx)`.",
+            ].join("\n"),
+          }),
+        ]),
+      ],
+      {
+        cwd: "/repo/project",
+      },
+    );
 
     expect(rows.length).toBe(2);
     expect(rows.map(outputPath).join(",")).toBe(
@@ -369,34 +379,37 @@ describe("buildThreadSummaryPanelOutputRows", () => {
   });
 
   test("collects completed edited resource artifacts without treating ordinary source patches as outputs", () => {
-    const rows = buildThreadSummaryPanelOutputRows([
-      buildTurn([
-        buildItem("file-change", "fileChange", {
-          kind: "fileChange",
-          semanticKind: "patch",
-          fileChange: {
-            label: "artifacts",
-            changes: buildCodexFileChangeMap([
-              { type: "add", path: "reports/summary.pdf", content: "%PDF" },
-              {
-                type: "update",
-                path: "reports/draft.pdf",
-                movePath: "reports/final.pdf",
-                unifiedDiff: "@@ -1 +1 @@\n-draft\n+final",
-              },
-              {
-                type: "update",
-                path: "src/app.ts",
-                movePath: null,
-                unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
-              },
-            ]),
-          },
-        }),
-      ]),
-    ], {
-      cwd: "/repo/project",
-    });
+    const rows = buildThreadSummaryPanelOutputRows(
+      [
+        buildTurn([
+          buildItem("file-change", "fileChange", {
+            kind: "fileChange",
+            semanticKind: "patch",
+            fileChange: {
+              label: "artifacts",
+              changes: buildCodexFileChangeMap([
+                { type: "add", path: "reports/summary.pdf", content: "%PDF" },
+                {
+                  type: "update",
+                  path: "reports/draft.pdf",
+                  movePath: "reports/final.pdf",
+                  unifiedDiff: "@@ -1 +1 @@\n-draft\n+final",
+                },
+                {
+                  type: "update",
+                  path: "src/app.ts",
+                  movePath: null,
+                  unifiedDiff: "@@ -1 +1 @@\n-old\n+new",
+                },
+              ]),
+            },
+          }),
+        ]),
+      ],
+      {
+        cwd: "/repo/project",
+      },
+    );
 
     expect(rows.length).toBe(2);
     expect(rows.map(outputPath).join(",")).toBe(
@@ -405,71 +418,80 @@ describe("buildThreadSummaryPanelOutputRows", () => {
   });
 
   test("does not collect edited resource artifacts before a turn completes", () => {
-    const rows = buildThreadSummaryPanelOutputRows([
-      buildTurnWithStatus([
-        buildItem("file-change", "fileChange", {
-          kind: "fileChange",
-          semanticKind: "patch",
-          fileChange: {
-            label: "report.pdf",
-            changes: buildCodexFileChangeMap([
-              { type: "add", path: "reports/summary.pdf", content: "%PDF" },
-            ]),
-          },
-        }),
-      ], "inProgress"),
-    ], {
-      cwd: "/repo/project",
-    });
+    const rows = buildThreadSummaryPanelOutputRows(
+      [
+        buildTurnWithStatus(
+          [
+            buildItem("file-change", "fileChange", {
+              kind: "fileChange",
+              semanticKind: "patch",
+              fileChange: {
+                label: "report.pdf",
+                changes: buildCodexFileChangeMap([
+                  { type: "add", path: "reports/summary.pdf", content: "%PDF" },
+                ]),
+              },
+            }),
+          ],
+          "inProgress",
+        ),
+      ],
+      {
+        cwd: "/repo/project",
+      },
+    );
 
     expect(rows.length).toBe(0);
   });
 
   test("filters artifact resources through the projectless output directory", () => {
-    const rows = buildThreadSummaryPanelOutputRows([
-      buildTurn([
-        buildItem("assistant-1", "agentMessage", {
-          kind: "assistantMessage",
-          semanticKind: "assistantMessage",
-          markdownText: [
-            "Saved \u3010F:output/inside.pdf\u2020L1\u3011.",
-            "Also saved \u3010F:outside/outside.pdf\u2020L1\u3011.",
-          ].join("\n"),
-        }),
-        buildItem("generated-1", "imageGeneration", {
-          rawItem: {
-            id: "generated-1",
-            type: "imageGeneration",
-            status: "completed",
-            result: "",
-            savedPath: "output/chart.png",
-          },
-        }),
-        buildItem("generated-2", "imageGeneration", {
-          rawItem: {
-            id: "generated-2",
-            type: "imageGeneration",
-            status: "completed",
-            result: "",
-            savedPath: "outside/chart.png",
-          },
-        }),
-        buildItem("file-change", "fileChange", {
-          kind: "fileChange",
-          semanticKind: "patch",
-          fileChange: {
-            label: "reports",
-            changes: buildCodexFileChangeMap([
-              { type: "add", path: "output/report.pdf", content: "%PDF" },
-              { type: "add", path: "outside/report.pdf", content: "%PDF" },
-            ]),
-          },
-        }),
-      ]),
-    ], {
-      cwd: "/repo/project",
-      projectlessOutputDirectory: "output",
-    });
+    const rows = buildThreadSummaryPanelOutputRows(
+      [
+        buildTurn([
+          buildItem("assistant-1", "agentMessage", {
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            markdownText: [
+              "Saved \u3010F:output/inside.pdf\u2020L1\u3011.",
+              "Also saved \u3010F:outside/outside.pdf\u2020L1\u3011.",
+            ].join("\n"),
+          }),
+          buildItem("generated-1", "imageGeneration", {
+            rawItem: {
+              id: "generated-1",
+              type: "imageGeneration",
+              status: "completed",
+              result: "",
+              savedPath: "output/chart.png",
+            },
+          }),
+          buildItem("generated-2", "imageGeneration", {
+            rawItem: {
+              id: "generated-2",
+              type: "imageGeneration",
+              status: "completed",
+              result: "",
+              savedPath: "outside/chart.png",
+            },
+          }),
+          buildItem("file-change", "fileChange", {
+            kind: "fileChange",
+            semanticKind: "patch",
+            fileChange: {
+              label: "reports",
+              changes: buildCodexFileChangeMap([
+                { type: "add", path: "output/report.pdf", content: "%PDF" },
+                { type: "add", path: "outside/report.pdf", content: "%PDF" },
+              ]),
+            },
+          }),
+        ]),
+      ],
+      {
+        cwd: "/repo/project",
+        projectlessOutputDirectory: "output",
+      },
+    );
 
     expect(rows.length).toBe(3);
     expect(rows.map(outputPath).join(",")).toBe(
@@ -478,22 +500,25 @@ describe("buildThreadSummaryPanelOutputRows", () => {
   });
 
   test("uses a single completed edited HTML artifact as a local website output", () => {
-    const rows = buildThreadSummaryPanelOutputRows([
-      buildTurn([
-        buildItem("file-change", "fileChange", {
-          kind: "fileChange",
-          semanticKind: "patch",
-          fileChange: {
-            label: "dist/index.html",
-            changes: buildCodexFileChangeMap([
-              { type: "add", path: "dist/index.html", content: "<!doctype html>" },
-            ]),
-          },
-        }),
-      ]),
-    ], {
-      cwd: "/repo/project",
-    });
+    const rows = buildThreadSummaryPanelOutputRows(
+      [
+        buildTurn([
+          buildItem("file-change", "fileChange", {
+            kind: "fileChange",
+            semanticKind: "patch",
+            fileChange: {
+              label: "dist/index.html",
+              changes: buildCodexFileChangeMap([
+                { type: "add", path: "dist/index.html", content: "<!doctype html>" },
+              ]),
+            },
+          }),
+        ]),
+      ],
+      {
+        cwd: "/repo/project",
+      },
+    );
 
     expect(rows.length).toBe(1);
     expect(rows[0]?.kind ?? "").toBe("website");
@@ -506,40 +531,44 @@ describe("buildThreadSummaryPanelOutputRows", () => {
 
 describe("collectTurnEndResourcePaths", () => {
   test("collects linked presentation outputs while excluding fenced-code examples", () => {
-    const paths = collectTurnEndResourcePaths(buildTurn([
-      buildItem("assistant-1", "agentMessage", {
-        kind: "assistantMessage",
-        semanticKind: "assistantMessage",
-        markdownText: [
-          "Download [the completed deck](slides/final.pptx).",
-          "```md",
-          "[example only](slides/not-created.pptx)",
-          "```",
-        ].join("\n"),
-      }),
-    ]));
+    const paths = collectTurnEndResourcePaths(
+      buildTurn([
+        buildItem("assistant-1", "agentMessage", {
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          markdownText: [
+            "Download [the completed deck](slides/final.pptx).",
+            "```md",
+            "[example only](slides/not-created.pptx)",
+            "```",
+          ].join("\n"),
+        }),
+      ]),
+    );
 
     expect(paths).toEqual(["slides/final.pptx"]);
   });
 
   test("collects edited and referenced presentation artifacts once", () => {
-    const paths = collectTurnEndResourcePaths(buildTurn([
-      buildItem("file-change", "fileChange", {
-        kind: "fileChange",
-        semanticKind: "patch",
-        fileChange: {
-          label: "slides",
-          changes: buildCodexFileChangeMap([
-            { type: "add", path: "slides/review.pptx", content: "presentation" },
-          ]),
-        },
-      }),
-      buildItem("assistant-1", "agentMessage", {
-        kind: "assistantMessage",
-        semanticKind: "assistantMessage",
-        markdownText: "Created \u3010slides/review.pptx\u2020L1\u3011.",
-      }),
-    ]));
+    const paths = collectTurnEndResourcePaths(
+      buildTurn([
+        buildItem("file-change", "fileChange", {
+          kind: "fileChange",
+          semanticKind: "patch",
+          fileChange: {
+            label: "slides",
+            changes: buildCodexFileChangeMap([
+              { type: "add", path: "slides/review.pptx", content: "presentation" },
+            ]),
+          },
+        }),
+        buildItem("assistant-1", "agentMessage", {
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          markdownText: "Created \u3010slides/review.pptx\u2020L1\u3011.",
+        }),
+      ]),
+    );
 
     expect(paths).toEqual(["slides/review.pptx"]);
   });

@@ -11,10 +11,10 @@ export type CodexPermissionRequestFileSystemAccess = "read" | "write" | "readWri
 export type CodexPermissionRequestDetail =
   | { kind: "network" }
   | {
-    kind: "fileSystem";
-    access: CodexPermissionRequestFileSystemAccess;
-    paths: string[];
-  };
+      kind: "fileSystem";
+      access: CodexPermissionRequestFileSystemAccess;
+      paths: string[];
+    };
 
 export type CodexPermissionRequestTitleModel =
   | { kind: "network" }
@@ -49,9 +49,10 @@ export function formatCodexPermissionPath(path: FileSystemPath): string {
   }
 }
 
-function collectFileSystemPathSets(
-  fileSystem: AdditionalFileSystemPermissions,
-): { read: Set<string>; write: Set<string> } {
+function collectFileSystemPathSets(fileSystem: AdditionalFileSystemPermissions): {
+  read: Set<string>;
+  write: Set<string>;
+} {
   const read = new Set<string>();
   const write = new Set<string>();
 
@@ -117,7 +118,9 @@ export function resolveCodexPermissionRequestTitleModel(
   return { kind: "additional" };
 }
 
-export function formatCodexPermissionAccessLabel(access: CodexPermissionRequestFileSystemAccess): string {
+export function formatCodexPermissionAccessLabel(
+  access: CodexPermissionRequestFileSystemAccess,
+): string {
   if (access === "read") return "Read";
   if (access === "write") return "Write";
   return "Read and write";

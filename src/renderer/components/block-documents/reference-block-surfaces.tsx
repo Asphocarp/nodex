@@ -32,9 +32,7 @@ export interface ReferencedPageDocumentInput {
   readonly isActive: boolean;
 }
 
-export type ReferencedPageDocumentRenderer = (
-  input: ReferencedPageDocumentInput,
-) => ReactNode;
+export type ReferencedPageDocumentRenderer = (input: ReferencedPageDocumentInput) => ReactNode;
 
 interface ReferenceSurfaceStateDependencies {
   readonly disclosureStore?: BlockDisclosureStateStore;
@@ -75,9 +73,7 @@ function CardRowMetadata({
           {priority.shortLabel.split(" - ")[0]}
         </span>
       ) : null}
-      {card.estimate ? (
-        <span className={META_CHIP}>{card.estimate.toUpperCase()}</span>
-      ) : null}
+      {card.estimate ? <span className={META_CHIP}>{card.estimate.toUpperCase()}</span> : null}
       <span
         className="inline-flex min-w-0 items-center gap-1 text-xs text-token-description-foreground"
         title={archived ? "Archived" : card.status}
@@ -110,10 +106,7 @@ export function ReferencedCardRow({
 }: ReferencedCardRowProps) {
   const surfaceInstanceId = useId();
   const surfaceInstanceKey = `referenced-card:${disclosureKey}:mount:${surfaceInstanceId}`;
-  const [preferredExpanded, setExpanded] = useBlockDisclosure(
-    disclosureKey,
-    disclosureStore,
-  );
+  const [preferredExpanded, setExpanded] = useBlockDisclosure(disclosureKey, disclosureStore);
   const visibility = useElementVisibility();
   const visible = visibilityOverride ?? visibility.visible;
   const expandable = canEdit && typeof renderDocument === "function";
@@ -169,9 +162,7 @@ export function ReferencedCardRow({
           <span className="min-w-0 truncate">{title}</span>
         </span>
         {legacy ? (
-          <span className="shrink-0 text-[11px] text-token-description-foreground">
-            Migrating
-          </span>
+          <span className="shrink-0 text-[11px] text-token-description-foreground">Migrating</span>
         ) : null}
         {inlineEditingDisabledReason ? (
           <span className="shrink-0 text-[11px] text-token-description-foreground">
@@ -229,9 +220,7 @@ const ReferenceMessage = ({
   <div
     className={cn(
       "flex min-h-8 items-center gap-2 py-1 text-sm",
-      tone === "danger"
-        ? "text-token-error-foreground"
-        : "text-token-description-foreground",
+      tone === "danger" ? "text-token-error-foreground" : "text-token-description-foreground",
     )}
   >
     {icon}
@@ -269,9 +258,7 @@ export function DatabaseViewReferenceSurface({
 }: DatabaseViewReferenceSurfaceProps) {
   if (loading) {
     return (
-      <ReferenceMessage
-        icon={<Rows3 aria-hidden="true" className="size-3.5 shrink-0" />}
-      >
+      <ReferenceMessage icon={<Rows3 aria-hidden="true" className="size-3.5 shrink-0" />}>
         Loading Database view…
       </ReferenceMessage>
     );
@@ -280,9 +267,7 @@ export function DatabaseViewReferenceSurface({
     return (
       <ReferenceMessage
         tone="danger"
-        icon={
-          <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-        }
+        icon={<TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />}
       >
         {error.message || "Couldn’t load this Database view"}
       </ReferenceMessage>
@@ -290,33 +275,21 @@ export function DatabaseViewReferenceSurface({
   }
   if (!model) {
     return (
-      <ReferenceMessage
-        icon={<Rows3 aria-hidden="true" className="size-3.5 shrink-0" />}
-      >
+      <ReferenceMessage icon={<Rows3 aria-hidden="true" className="size-3.5 shrink-0" />}>
         {displayHint.trim() || "Database view unavailable"}
       </ReferenceMessage>
     );
   }
 
   const name = model.view.name.trim() || displayHint.trim() || "Database view";
-  const rowAccessContext = accessContext
-    ?? (model.view.projectId
-      ? projectContentAccess(model.view.projectId)
-      : libraryContentAccess);
+  const rowAccessContext =
+    accessContext ??
+    (model.view.projectId ? projectContentAccess(model.view.projectId) : libraryContentAccess);
   return (
-    <section
-      contentEditable={false}
-      data-database-view={model.view.id}
-      className="min-w-0 py-1"
-    >
+    <section contentEditable={false} data-database-view={model.view.id} className="min-w-0 py-1">
       <header className="flex min-h-8 items-center gap-2 px-1 text-sm">
-        <Rows3
-          aria-hidden="true"
-          className="size-3.5 shrink-0 text-token-description-foreground"
-        />
-        <span className="min-w-0 flex-1 truncate font-medium text-token-text-primary">
-          {name}
-        </span>
+        <Rows3 aria-hidden="true" className="size-3.5 shrink-0 text-token-description-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium text-token-text-primary">{name}</span>
         <span className="shrink-0 text-xs tabular-nums text-token-description-foreground">
           {model.rows.length}
         </span>
@@ -324,27 +297,17 @@ export function DatabaseViewReferenceSurface({
       <div className="min-w-0" style={{ contentVisibility: "auto" }}>
         {model.rows.map((row) => {
           const referencesHost = row.page.id === hostPageId;
-          const referencesAncestor = isInlineCardCycle(
-            ancestorPageIds,
-            row.page.id,
-          );
+          const referencesAncestor = isInlineCardCycle(ancestorPageIds, row.page.id);
           return (
             <ReferencedCardRow
               key={row.page.id}
               disclosureKey={`${referenceKey}:${row.page.id}`}
               accessContext={rowAccessContext}
               card={row.page}
-              canEdit={
-                !row.page.archived &&
-                !referencesAncestor
-              }
+              canEdit={!row.page.archived && !referencesAncestor}
               archived={row.page.archived}
               inlineEditingDisabledReason={
-                referencesHost
-                  ? "Self"
-                  : referencesAncestor
-                    ? "Cycle"
-                    : undefined
+                referencesHost ? "Self" : referencesAncestor ? "Cycle" : undefined
               }
               renderDocument={renderDocument}
               onOpenPage={onOpenPage}

@@ -19,21 +19,26 @@ describe("NFM image formatting toolbar in Chromium", () => {
   test("opens supported image actions and downloads through the app asset path", async () => {
     const editor = BlockNoteEditor.create({
       schema: nfmSchema,
-      initialContent: [{
-        id: "image-1",
-        type: "image",
-        props: {
-          url: "data:image/png;base64,YQ==",
-          caption: "",
-          name: "diagram.png",
-          showPreview: true,
+      initialContent: [
+        {
+          id: "image-1",
+          type: "image",
+          props: {
+            url: "data:image/png;base64,YQ==",
+            caption: "",
+            name: "diagram.png",
+            showPreview: true,
+          },
         },
-      }],
+      ],
     });
-    const getImageProps = () => editor.getBlock("image-1")?.props as {
-      caption?: string;
-      url?: string;
-    } | undefined;
+    const getImageProps = () =>
+      editor.getBlock("image-1")?.props as
+        | {
+            caption?: string;
+            url?: string;
+          }
+        | undefined;
     const view = render(
       <NodexTooltipProvider>
         <BlockNoteView
@@ -46,16 +51,16 @@ describe("NFM image formatting toolbar in Chromium", () => {
           tableHandles={false}
         >
           <NfmSideMenuOpenProvider>
-            <NfmFormattingToolbarController
-              formattingToolbar={NfmFormattingToolbar}
-            />
+            <NfmFormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
           </NfmSideMenuOpenProvider>
         </BlockNoteView>
       </NodexTooltipProvider>,
     );
     const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:download");
     const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
-    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
 
     try {
       await act(settleEditor);
@@ -197,9 +202,7 @@ describe("NFM image formatting toolbar in Chromium", () => {
           tableHandles={false}
         >
           <NfmSideMenuOpenProvider>
-            <NfmFormattingToolbarController
-              formattingToolbar={NfmFormattingToolbar}
-            />
+            <NfmFormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
           </NfmSideMenuOpenProvider>
         </BlockNoteView>
       </NodexTooltipProvider>,

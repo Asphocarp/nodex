@@ -1,14 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-} from "react";
-import {
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Project,
   ProjectSession,
@@ -52,16 +43,12 @@ const PROJECTLESS_SCOPE_KEY = "__projectless__";
 
 export interface WorkbenchSessionCatalogWindowPort {
   readonly location: WorkbenchLocation;
-  readonly scenesByOwnerKey: Readonly<
-    Record<string, WorkbenchSceneSnapshot>
-  >;
+  readonly scenesByOwnerKey: Readonly<Record<string, WorkbenchSceneSnapshot>>;
   readonly setScene: (
     owner: WorkbenchSceneOwner,
     update:
       | WorkbenchSceneSnapshot
-      | ((
-          previous: WorkbenchSceneSnapshot | undefined,
-        ) => WorkbenchSceneSnapshot),
+      | ((previous: WorkbenchSceneSnapshot | undefined) => WorkbenchSceneSnapshot),
   ) => void;
   readonly selectSession: (session: WorkbenchSessionCatalogEntry) => void;
   readonly selectProject: (projectId: string | null) => void;
@@ -115,31 +102,19 @@ export interface WorkbenchSessionCatalog {
   readonly activeSessionId: string | null;
   readonly active: WorkbenchSessionPresentation | null;
   readonly activeProjection: WorkbenchSessionRenderProjection | null;
-  readonly collectionsByProject: Readonly<
-    Record<string, WorkbenchSessionCollection>
-  >;
+  readonly collectionsByProject: Readonly<Record<string, WorkbenchSessionCollection>>;
   readonly projectlessCollection: WorkbenchSessionCollection;
   readonly selectedDetailReady: boolean;
   readonly selectedDetailError: string | null;
   readonly resolveScene: (
     session: ProjectSession | ProjectSessionSummary,
   ) => WorkbenchSceneSnapshot;
-  readonly resolveDefaultDatabaseViewId: (
-    projectId: string | null,
-  ) => string | null;
-  readonly findById: (
-    sessionId: string,
-  ) => WorkbenchSessionPresentation | null;
-  readonly findByThreadId: (
-    threadId: string,
-  ) => WorkbenchSessionPresentation | null;
-  readonly select: (
-    session: ProjectSession | WorkbenchSessionPresentation,
-  ) => void;
+  readonly resolveDefaultDatabaseViewId: (projectId: string | null) => string | null;
+  readonly findById: (sessionId: string) => WorkbenchSessionPresentation | null;
+  readonly findByThreadId: (threadId: string) => WorkbenchSessionPresentation | null;
+  readonly select: (session: ProjectSession | WorkbenchSessionPresentation) => void;
   readonly selectProject: (projectId: string | null) => void;
-  readonly refresh: (
-    projectId: string | null,
-  ) => Promise<readonly WorkbenchSessionPresentation[]>;
+  readonly refresh: (projectId: string | null) => Promise<readonly WorkbenchSessionPresentation[]>;
   readonly refreshThrough: (
     projectId: string | null,
     projectionRevision: number,
@@ -152,27 +127,12 @@ export interface WorkbenchSessionCatalog {
     projectId: string | null,
     orderedSessionIds: readonly string[],
   ) => Promise<void>;
-  readonly markUnread: (
-    session: ProjectSession,
-    unread: boolean,
-  ) => Promise<ProjectSession | null>;
-  readonly setPinned: (
-    session: ProjectSession,
-    pinned: boolean,
-  ) => Promise<ProjectSession | null>;
-  readonly rename: (
-    session: ProjectSession,
-    title: string,
-  ) => Promise<ProjectSession>;
-  readonly archive: (
-    session: ProjectSession,
-  ) => Promise<readonly WorkbenchSessionPresentation[]>;
-  readonly ensureThreadSession: (
-    threadId: string,
-  ) => Promise<ProjectSession | null>;
-  readonly ensureDefaultDraft: (
-    projectId: string | null,
-  ) => Promise<WorkbenchSessionPresentation>;
+  readonly markUnread: (session: ProjectSession, unread: boolean) => Promise<ProjectSession | null>;
+  readonly setPinned: (session: ProjectSession, pinned: boolean) => Promise<ProjectSession | null>;
+  readonly rename: (session: ProjectSession, title: string) => Promise<ProjectSession>;
+  readonly archive: (session: ProjectSession) => Promise<readonly WorkbenchSessionPresentation[]>;
+  readonly ensureThreadSession: (threadId: string) => Promise<ProjectSession | null>;
+  readonly ensureDefaultDraft: (projectId: string | null) => Promise<WorkbenchSessionPresentation>;
   readonly createOrdinarySession: (
     projectId: string | null,
     noThreadFallbackTitle?: string,
@@ -201,20 +161,17 @@ export function useWorkbenchSessionCatalog({
 }: UseWorkbenchSessionCatalogInput): WorkbenchSessionCatalog {
   const queryClient = useQueryClient();
   const sceneLocation = getWorkbenchSceneReturnLocation(window.location);
-  const activeProjectId = sceneLocation.kind === "project"
-    ? sceneLocation.projectId
-    : sceneLocation.kind === "session"
-      ? sceneLocation.projectContextId
-      : null;
-  const activeSessionId =
-    sceneLocation.kind === "session" ? sceneLocation.sessionId : null;
+  const activeProjectId =
+    sceneLocation.kind === "project"
+      ? sceneLocation.projectId
+      : sceneLocation.kind === "session"
+        ? sceneLocation.projectContextId
+        : null;
+  const activeSessionId = sceneLocation.kind === "session" ? sceneLocation.sessionId : null;
   const projectScopeIds = useMemo(
     () => [
       ...projects
-        .filter((project) =>
-          expandedProjectIds.has(project.id)
-          || project.id === activeProjectId
-        )
+        .filter((project) => expandedProjectIds.has(project.id) || project.id === activeProjectId)
         .map((project) => project.id),
       null,
     ],
@@ -224,125 +181,129 @@ export function useWorkbenchSessionCatalog({
   const summaryState = useQueries({
     queries: projectScopeIds.map(projectSessionSummariesQueryOptions),
     combine: (results) => ({
-      queriesByScope: Object.fromEntries(results.map((result, index) => [
-        scopeKey(projectScopeIds[index] ?? null),
-        {
-          data: result.data,
-          error: result.error,
-          isFetching: result.isFetching,
-        },
-      ])) as Record<string, WorkbenchSessionSummaryQueryState>,
+      queriesByScope: Object.fromEntries(
+        results.map((result, index) => [
+          scopeKey(projectScopeIds[index] ?? null),
+          {
+            data: result.data,
+            error: result.error,
+            isFetching: result.isFetching,
+          },
+        ]),
+      ) as Record<string, WorkbenchSessionSummaryQueryState>,
     }),
   });
   const loadInFlightRef = useRef<Set<string>>(new Set());
 
   const resolveProjectDefaultDatabaseViewId = useCallback(
-    (projectId: string | null): string | null => projectId === null
-      ? null
-      : projects.find((project) => project.id === projectId)
-        ?.defaultDatabaseViewId ?? null,
+    (projectId: string | null): string | null =>
+      projectId === null
+        ? null
+        : (projects.find((project) => project.id === projectId)?.defaultDatabaseViewId ?? null),
     [projects],
   );
-  const resolveScene = useCallback((
-    session: ProjectSession | ProjectSessionSummary,
-  ): WorkbenchSceneSnapshot => {
-    const owner = { kind: "session", sessionId: session.id } as const;
-    const persisted = window.scenesByOwnerKey[makeWorkbenchSceneKey({
-      kind: "session",
-      sessionId: session.id,
-    })];
-    return persisted ?? materializeInitialWorkbenchScene(owner);
-  }, [
-    window.scenesByOwnerKey,
-  ]);
+  const resolveScene = useCallback(
+    (session: ProjectSession | ProjectSessionSummary): WorkbenchSceneSnapshot => {
+      const owner = { kind: "session", sessionId: session.id } as const;
+      const persisted =
+        window.scenesByOwnerKey[
+          makeWorkbenchSceneKey({
+            kind: "session",
+            sessionId: session.id,
+          })
+        ];
+      return persisted ?? materializeInitialWorkbenchScene(owner);
+    },
+    [window.scenesByOwnerKey],
+  );
 
-  const presentSummary = useCallback((
-    summary: ProjectSessionSummary,
-  ): WorkbenchSessionPresentation => {
-    const detail = getCachedProjectSessionDetail(queryClient, summary.id);
-    const domain = projectSessionSummaryToDomain(summary, detail ?? undefined);
-    return {
-      domain,
-      scene: resolveScene(domain),
-    };
-  }, [queryClient, resolveScene]);
+  const presentSummary = useCallback(
+    (summary: ProjectSessionSummary): WorkbenchSessionPresentation => {
+      const detail = getCachedProjectSessionDetail(queryClient, summary.id);
+      const domain = projectSessionSummaryToDomain(summary, detail ?? undefined);
+      return {
+        domain,
+        scene: resolveScene(domain),
+      };
+    },
+    [queryClient, resolveScene],
+  );
 
-  const buildCollection = useCallback((
-    query: WorkbenchSessionSummaryQueryState | undefined,
-  ): WorkbenchSessionCollection => {
-    const presentations = (query?.data?.items ?? []).map(presentSummary);
-    const projections = presentations.map(presentWorkbenchSession);
+  const buildCollection = useCallback(
+    (query: WorkbenchSessionSummaryQueryState | undefined): WorkbenchSessionCollection => {
+      const presentations = (query?.data?.items ?? []).map(presentSummary);
+      const projections = presentations.map(presentWorkbenchSession);
 
-    if (!query) {
+      if (!query) {
+        return {
+          presentations,
+          projections,
+          projectionRevision: null,
+          state: { kind: "idle" },
+          hasMore: false,
+        };
+      }
+
+      if (query.data !== undefined) {
+        return {
+          presentations,
+          projections,
+          projectionRevision: query.data.projectionRevision,
+          state: {
+            kind: "ready",
+            refreshing: query.isFetching,
+            refreshError: query.error ? sessionCollectionErrorMessage(query.error) : null,
+          },
+          hasMore: query.data.hasMore,
+        };
+      }
+
+      if (query.error) {
+        return {
+          presentations,
+          projections,
+          projectionRevision: null,
+          state: {
+            kind: "error",
+            message: sessionCollectionErrorMessage(query.error),
+          },
+          hasMore: false,
+        };
+      }
+
       return {
         presentations,
         projections,
         projectionRevision: null,
-        state: { kind: "idle" },
+        state: { kind: "loading" },
         hasMore: false,
       };
-    }
-
-    if (query.data !== undefined) {
-      return {
-        presentations,
-        projections,
-        projectionRevision: query.data.projectionRevision,
-        state: {
-          kind: "ready",
-          refreshing: query.isFetching,
-          refreshError: query.error
-            ? sessionCollectionErrorMessage(query.error)
-            : null,
-        },
-        hasMore: query.data.hasMore,
-      };
-    }
-
-    if (query.error) {
-      return {
-        presentations,
-        projections,
-        projectionRevision: null,
-        state: {
-          kind: "error",
-          message: sessionCollectionErrorMessage(query.error),
-        },
-        hasMore: false,
-      };
-    }
-
-    return {
-      presentations,
-      projections,
-      projectionRevision: null,
-      state: { kind: "loading" },
-      hasMore: false,
-    };
-  }, [presentSummary]);
-  const collectionsByProject = useMemo<
-    Record<string, WorkbenchSessionCollection>
-  >(() => Object.fromEntries(projects.map((project) => [
-    project.id,
-    buildCollection(summaryState.queriesByScope[project.id]),
-  ])), [buildCollection, projects, summaryState.queriesByScope]);
+    },
+    [presentSummary],
+  );
+  const collectionsByProject = useMemo<Record<string, WorkbenchSessionCollection>>(
+    () =>
+      Object.fromEntries(
+        projects.map((project) => [
+          project.id,
+          buildCollection(summaryState.queriesByScope[project.id]),
+        ]),
+      ),
+    [buildCollection, projects, summaryState.queriesByScope],
+  );
   const projectlessCollection = useMemo(
-    () => buildCollection(
-      summaryState.queriesByScope[PROJECTLESS_SCOPE_KEY],
-    ),
+    () => buildCollection(summaryState.queriesByScope[PROJECTLESS_SCOPE_KEY]),
     [buildCollection, summaryState.queriesByScope],
   );
   const known = useMemo(
     () => [
-      ...Object.values(collectionsByProject).flatMap(
-        (collection) => collection.presentations,
-      ),
+      ...Object.values(collectionsByProject).flatMap((collection) => collection.presentations),
       ...projectlessCollection.presentations,
     ],
     [collectionsByProject, projectlessCollection.presentations],
   );
   const selectedSummaryPresentation = activeSessionId
-    ? known.find((candidate) => candidate.domain.id === activeSessionId) ?? null
+    ? (known.find((candidate) => candidate.domain.id === activeSessionId) ?? null)
     : null;
   const selectedDetailQuery = useQuery({
     ...projectSessionDetailQueryOptions(activeSessionId ?? ""),
@@ -354,10 +315,7 @@ export function useWorkbenchSessionCatalog({
     if (detail === undefined) return selectedSummaryPresentation;
     return {
       domain: selectedSummaryPresentation
-        ? projectSessionSummaryToDomain(
-            selectedSummaryPresentation.domain,
-            detail,
-          )
+        ? projectSessionSummaryToDomain(selectedSummaryPresentation.domain, detail)
         : detail,
       scene: resolveScene(detail),
     };
@@ -379,323 +337,309 @@ export function useWorkbenchSessionCatalog({
     window.setScene(owner, materializeInitialWorkbenchScene(owner));
   }, [active, window]);
 
-  const refresh = useCallback(async (
-    projectId: string | null,
-  ): Promise<readonly WorkbenchSessionPresentation[]> => {
-    const result = await invoke("workspace:tasks:list", projectId, {
-      first: 50,
-    }) as ProjectSessionSummaryWindow;
-    const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(
-      queryKeys.projectSessions.summaries(projectId),
-      (current) => preferNewestProjectSessionSummaryWindow(current, result),
-    );
-    return (installed ?? result).items.map(presentSummary);
-  }, [presentSummary, queryClient]);
-  const refreshThrough = useCallback(async (
-    projectId: string | null,
-    projectionRevision: number,
-  ): Promise<ProjectSessionSummaryWindow> => {
-    const queryKey = queryKeys.projectSessions.summaries(projectId);
-    const previous = queryClient.getQueryData<ProjectSessionSummaryWindow>(queryKey);
-    const canonical = await readProjectSessionSummaryWindowThrough({
-      previousItemCount: previous?.items.length ?? 0,
-      projectionRevision,
-      read: async (after, first) => await invoke(
-        "workspace:tasks:list",
-        projectId,
-        after === null ? { first } : { after, first },
-      ) as ProjectSessionSummaryWindow,
-    });
-    const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(
-      queryKey,
-      (current) => preferNewestProjectSessionSummaryWindow(current, canonical),
-    );
-    return installed ?? canonical;
-  }, [queryClient]);
-  const retryCollection = useCallback(async (
-    projectId: string | null,
-  ): Promise<void> => {
-    await queryClient.refetchQueries({
-      queryKey: queryKeys.projectSessions.summaries(projectId),
-      exact: true,
-    });
-  }, [queryClient]);
-
-  const loadMore = useCallback(async (
-    projectId: string | null,
-  ): Promise<void> => {
-    const key = scopeKey(projectId);
-    if (loadInFlightRef.current.has(key)) return;
-
-    const queryKey = queryKeys.projectSessions.summaries(projectId);
-    const current =
-      queryClient.getQueryData<ProjectSessionSummaryWindow>(queryKey);
-    if (!current?.nextCursor) return;
-
-    loadInFlightRef.current.add(key);
-    try {
-      const next = await invoke("workspace:tasks:list", projectId, {
-        after: current.nextCursor,
+  const refresh = useCallback(
+    async (projectId: string | null): Promise<readonly WorkbenchSessionPresentation[]> => {
+      const result = (await invoke("workspace:tasks:list", projectId, {
         first: 50,
-      }) as ProjectSessionSummaryWindow;
-      queryClient.setQueryData<ProjectSessionSummaryWindow>(
-        queryKey,
-        (latest) => {
+      })) as ProjectSessionSummaryWindow;
+      const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(
+        queryKeys.projectSessions.summaries(projectId),
+        (current) => preferNewestProjectSessionSummaryWindow(current, result),
+      );
+      return (installed ?? result).items.map(presentSummary);
+    },
+    [presentSummary, queryClient],
+  );
+  const refreshThrough = useCallback(
+    async (
+      projectId: string | null,
+      projectionRevision: number,
+    ): Promise<ProjectSessionSummaryWindow> => {
+      const queryKey = queryKeys.projectSessions.summaries(projectId);
+      const previous = queryClient.getQueryData<ProjectSessionSummaryWindow>(queryKey);
+      const canonical = await readProjectSessionSummaryWindowThrough({
+        previousItemCount: previous?.items.length ?? 0,
+        projectionRevision,
+        read: async (after, first) =>
+          (await invoke(
+            "workspace:tasks:list",
+            projectId,
+            after === null ? { first } : { after, first },
+          )) as ProjectSessionSummaryWindow,
+      });
+      const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(queryKey, (current) =>
+        preferNewestProjectSessionSummaryWindow(current, canonical),
+      );
+      return installed ?? canonical;
+    },
+    [queryClient],
+  );
+  const retryCollection = useCallback(
+    async (projectId: string | null): Promise<void> => {
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.projectSessions.summaries(projectId),
+        exact: true,
+      });
+    },
+    [queryClient],
+  );
+
+  const loadMore = useCallback(
+    async (projectId: string | null): Promise<void> => {
+      const key = scopeKey(projectId);
+      if (loadInFlightRef.current.has(key)) return;
+
+      const queryKey = queryKeys.projectSessions.summaries(projectId);
+      const current = queryClient.getQueryData<ProjectSessionSummaryWindow>(queryKey);
+      if (!current?.nextCursor) return;
+
+      loadInFlightRef.current.add(key);
+      try {
+        const next = (await invoke("workspace:tasks:list", projectId, {
+          after: current.nextCursor,
+          first: 50,
+        })) as ProjectSessionSummaryWindow;
+        queryClient.setQueryData<ProjectSessionSummaryWindow>(queryKey, (latest) => {
           if (!latest || latest.nextCursor !== current.nextCursor) {
             return latest;
           }
           if (
-            latest.projectionRevision !== current.projectionRevision
-            || next.projectionRevision !== current.projectionRevision
+            latest.projectionRevision !== current.projectionRevision ||
+            next.projectionRevision !== current.projectionRevision
           ) {
             return latest;
           }
           const knownIds = new Set(latest.items.map((item) => item.id));
           return {
             ...next,
-            items: [
-              ...latest.items,
-              ...next.items.filter((item) => !knownIds.has(item.id)),
-            ],
+            items: [...latest.items, ...next.items.filter((item) => !knownIds.has(item.id))],
           };
-        },
-      );
-    } finally {
-      loadInFlightRef.current.delete(key);
-    }
-  }, [queryClient]);
-
-  const seed = useCallback((
-    session: ProjectSession | null | undefined,
-  ) => {
-    seedProjectSessionDetail(queryClient, session);
-  }, [queryClient]);
-  const prefetch = useCallback(
-    async (sessionId: string) =>
-      await prefetchProjectSessionDetail(queryClient, sessionId),
+        });
+      } finally {
+        loadInFlightRef.current.delete(key);
+      }
+    },
     [queryClient],
   );
-  const markUnread = useCallback(async (
-    session: ProjectSession,
-    unread: boolean,
-  ): Promise<ProjectSession | null> => {
-    const updated = await invoke(
-      "project-sessions:mark-unread",
-      session.id,
-      { unread },
-    ) as ProjectSession | null;
-    seedProjectSessionDetail(queryClient, updated);
-    return updated;
-  }, [queryClient]);
-  const setPinned = useCallback(async (
-    session: ProjectSession,
-    pinned: boolean,
-  ): Promise<ProjectSession | null> => {
-    if (session.projectId === null) return null;
-    const projectId = session.projectId;
-    const previousWindow =
-      queryClient.getQueryData<ProjectSessionSummaryWindow>(
+
+  const seed = useCallback(
+    (session: ProjectSession | null | undefined) => {
+      seedProjectSessionDetail(queryClient, session);
+    },
+    [queryClient],
+  );
+  const prefetch = useCallback(
+    async (sessionId: string) => await prefetchProjectSessionDetail(queryClient, sessionId),
+    [queryClient],
+  );
+  const markUnread = useCallback(
+    async (session: ProjectSession, unread: boolean): Promise<ProjectSession | null> => {
+      const updated = (await invoke("project-sessions:mark-unread", session.id, {
+        unread,
+      })) as ProjectSession | null;
+      seedProjectSessionDetail(queryClient, updated);
+      return updated;
+    },
+    [queryClient],
+  );
+  const setPinned = useCallback(
+    async (session: ProjectSession, pinned: boolean): Promise<ProjectSession | null> => {
+      if (session.projectId === null) return null;
+      const projectId = session.projectId;
+      const previousWindow = queryClient.getQueryData<ProjectSessionSummaryWindow>(
         queryKeys.projectSessions.summaries(projectId),
       );
-    const previousSummaries = previousWindow?.items ?? [];
-    const nextPinnedOrder = pinned
-      ? Math.max(
-          -1,
-          ...previousSummaries.map(
-            (candidate) => candidate.pinnedOrder ?? -1,
-          ),
-        ) + 1
-      : null;
-    const optimistic = {
-      ...session,
-      pinned,
-      pinnedOrder: nextPinnedOrder,
-    };
-    const optimisticDetail = seedProjectSessionDetail(queryClient, optimistic);
-    const optimisticWindow = setProjectSessionSummaries(
-      queryClient,
-      projectId,
-      previousSummaries.map((candidate) =>
-        candidate.id === session.id
-          ? projectSessionToSummary(optimistic)
-          : candidate
-      ),
-    );
-
-    try {
-      const updated = await invoke(
-        "project-sessions:set-pinned",
-        session.id,
-        { pinned },
-      ) as ProjectSession | null;
-      seedProjectSessionDetail(queryClient, updated);
-      await refresh(projectId);
-      return updated;
-    } catch (error) {
-      queryClient.setQueryData<ProjectSession | null | undefined>(
-        queryKeys.projectSessions.detail(session.id),
-        (current) => current === optimisticDetail ? session : current,
+      const previousSummaries = previousWindow?.items ?? [];
+      const nextPinnedOrder = pinned
+        ? Math.max(-1, ...previousSummaries.map((candidate) => candidate.pinnedOrder ?? -1)) + 1
+        : null;
+      const optimistic = {
+        ...session,
+        pinned,
+        pinnedOrder: nextPinnedOrder,
+      };
+      const optimisticDetail = seedProjectSessionDetail(queryClient, optimistic);
+      const optimisticWindow = setProjectSessionSummaries(
+        queryClient,
+        projectId,
+        previousSummaries.map((candidate) =>
+          candidate.id === session.id ? projectSessionToSummary(optimistic) : candidate,
+        ),
       );
-      if (previousWindow) {
-        queryClient.setQueryData<ProjectSessionSummaryWindow>(
-          queryKeys.projectSessions.summaries(projectId),
-          (current) => current === optimisticWindow ? previousWindow : current,
+
+      try {
+        const updated = (await invoke("project-sessions:set-pinned", session.id, {
+          pinned,
+        })) as ProjectSession | null;
+        seedProjectSessionDetail(queryClient, updated);
+        await refresh(projectId);
+        return updated;
+      } catch (error) {
+        queryClient.setQueryData<ProjectSession | null | undefined>(
+          queryKeys.projectSessions.detail(session.id),
+          (current) => (current === optimisticDetail ? session : current),
         );
+        if (previousWindow) {
+          queryClient.setQueryData<ProjectSessionSummaryWindow>(
+            queryKeys.projectSessions.summaries(projectId),
+            (current) => (current === optimisticWindow ? previousWindow : current),
+          );
+        }
+        throw error;
       }
-      throw error;
-    }
-  }, [queryClient, refresh]);
-  const rename = useCallback(async (
-    session: ProjectSession,
-    title: string,
-  ): Promise<ProjectSession> => {
-    const updated = await invoke(
-      "project-sessions:rename",
-      session.id,
-      { title },
-    ) as ProjectSession | null;
-    if (!updated) throw new Error("Session was not found");
-    seedProjectSessionDetail(queryClient, updated);
-    await refresh(updated.projectId);
-    return updated;
-  }, [queryClient, refresh]);
-  const archive = useCallback(async (
-    session: ProjectSession,
-  ): Promise<readonly WorkbenchSessionPresentation[]> => {
-    await invoke("project-sessions:archive", session.id);
-    queryClient.removeQueries({
-      queryKey: queryKeys.projectSessions.detail(session.id),
-      exact: true,
-    });
-    return await refresh(session.projectId);
-  }, [queryClient, refresh]);
-  const ensureThreadSession = useCallback(async (
-    threadId: string,
-  ): Promise<ProjectSession | null> => {
-    const ensured = await invoke(
-      "codex:thread:ensure-session",
-      threadId,
-    ) as ProjectSession | null;
-    if (!ensured) return null;
-    seedProjectSessionDetail(queryClient, ensured);
-    await refresh(ensured.projectId);
-    return ensured;
-  }, [queryClient, refresh]);
-  const ensureDefaultDraft = useCallback(async (
-    projectId: string | null,
-  ): Promise<WorkbenchSessionPresentation> => {
-    const domain = await invoke(
-      "project-sessions:ensure-default-draft",
-      projectId,
-    ) as ProjectSession;
-    seedProjectSessionDetail(queryClient, domain);
-    await refresh(projectId);
-    return {
-      domain,
-      scene: resolveScene(domain),
-    };
-  }, [queryClient, refresh, resolveScene]);
-  const createOrdinarySession = useCallback(async (
-    projectId: string | null,
-    noThreadFallbackTitle = "New chat",
-  ): Promise<WorkbenchSessionPresentation> => {
-    const domain = await invoke("project-sessions:create", {
-      projectId,
-      noThreadFallbackTitle,
-    }) as ProjectSession;
-    seedProjectSessionDetail(queryClient, domain);
-    await refresh(projectId);
-    return {
-      domain,
-      scene: resolveScene(domain),
-    };
-  }, [queryClient, refresh, resolveScene]);
-  const fork = useCallback(async (
-    session: ProjectSession,
-    input: ProjectSessionForkInput & {
-      readonly browserViewScopeId: string;
     },
-  ): Promise<ProjectSessionForkResult> => {
-    const result = await invoke(
-      "project-sessions:fork",
-      session.id,
-      {
-        target: input.target,
-        ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
-        ...(input.message === undefined ? {} : { message: input.message }),
-        ...(input.collaborationMode === undefined
-          ? {}
-          : { collaborationMode: input.collaborationMode }),
-        ...(input.target === "newWorktree"
-          ? {
-              localEnvironmentConfigPath:
-                input.localEnvironmentConfigPath ?? null,
-            }
-          : {}),
+    [queryClient, refresh],
+  );
+  const rename = useCallback(
+    async (session: ProjectSession, title: string): Promise<ProjectSession> => {
+      const updated = (await invoke("project-sessions:rename", session.id, {
+        title,
+      })) as ProjectSession | null;
+      if (!updated) throw new Error("Session was not found");
+      seedProjectSessionDetail(queryClient, updated);
+      await refresh(updated.projectId);
+      return updated;
+    },
+    [queryClient, refresh],
+  );
+  const archive = useCallback(
+    async (session: ProjectSession): Promise<readonly WorkbenchSessionPresentation[]> => {
+      await invoke("project-sessions:archive", session.id);
+      queryClient.removeQueries({
+        queryKey: queryKeys.projectSessions.detail(session.id),
+        exact: true,
+      });
+      return await refresh(session.projectId);
+    },
+    [queryClient, refresh],
+  );
+  const ensureThreadSession = useCallback(
+    async (threadId: string): Promise<ProjectSession | null> => {
+      const ensured = (await invoke(
+        "codex:thread:ensure-session",
+        threadId,
+      )) as ProjectSession | null;
+      if (!ensured) return null;
+      seedProjectSessionDetail(queryClient, ensured);
+      await refresh(ensured.projectId);
+      return ensured;
+    },
+    [queryClient, refresh],
+  );
+  const ensureDefaultDraft = useCallback(
+    async (projectId: string | null): Promise<WorkbenchSessionPresentation> => {
+      const domain = (await invoke(
+        "project-sessions:ensure-default-draft",
+        projectId,
+      )) as ProjectSession;
+      seedProjectSessionDetail(queryClient, domain);
+      await refresh(projectId);
+      return {
+        domain,
+        scene: resolveScene(domain),
+      };
+    },
+    [queryClient, refresh, resolveScene],
+  );
+  const createOrdinarySession = useCallback(
+    async (
+      projectId: string | null,
+      noThreadFallbackTitle = "New chat",
+    ): Promise<WorkbenchSessionPresentation> => {
+      const domain = (await invoke("project-sessions:create", {
+        projectId,
+        noThreadFallbackTitle,
+      })) as ProjectSession;
+      seedProjectSessionDetail(queryClient, domain);
+      await refresh(projectId);
+      return {
+        domain,
+        scene: resolveScene(domain),
+      };
+    },
+    [queryClient, refresh, resolveScene],
+  );
+  const fork = useCallback(
+    async (
+      session: ProjectSession,
+      input: ProjectSessionForkInput & {
+        readonly browserViewScopeId: string;
       },
-      {
-        browserViewScopeId: input.browserViewScopeId,
-        scene: resolveScene(session),
-      },
-    ) as ProjectSessionForkResult;
-    if ("pendingWorktreeId" in result) return result;
-    seedProjectSessionDetail(queryClient, result.session);
-    await refresh(result.session.projectId);
-    return result;
-  }, [queryClient, refresh, resolveScene]);
+    ): Promise<ProjectSessionForkResult> => {
+      const result = (await invoke(
+        "project-sessions:fork",
+        session.id,
+        {
+          target: input.target,
+          ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+          ...(input.message === undefined ? {} : { message: input.message }),
+          ...(input.collaborationMode === undefined
+            ? {}
+            : { collaborationMode: input.collaborationMode }),
+          ...(input.target === "newWorktree"
+            ? {
+                localEnvironmentConfigPath: input.localEnvironmentConfigPath ?? null,
+              }
+            : {}),
+        },
+        {
+          browserViewScopeId: input.browserViewScopeId,
+          scene: resolveScene(session),
+        },
+      )) as ProjectSessionForkResult;
+      if ("pendingWorktreeId" in result) return result;
+      seedProjectSessionDetail(queryClient, result.session);
+      await refresh(result.session.projectId);
+      return result;
+    },
+    [queryClient, refresh, resolveScene],
+  );
   const findById = useCallback(
-    (sessionId: string) =>
-      known.find((candidate) => candidate.domain.id === sessionId) ?? null,
+    (sessionId: string) => known.find((candidate) => candidate.domain.id === sessionId) ?? null,
     [known],
   );
-  const reorder = useCallback(async (
-    projectId: string | null,
-    orderedSessionIds: readonly string[],
-  ): Promise<void> => {
-    await invoke(
-      "project-sessions:reorder",
-      projectId,
-      [...orderedSessionIds],
-    );
-    await refresh(projectId);
-  }, [refresh]);
+  const reorder = useCallback(
+    async (projectId: string | null, orderedSessionIds: readonly string[]): Promise<void> => {
+      await invoke("project-sessions:reorder", projectId, [...orderedSessionIds]);
+      await refresh(projectId);
+    },
+    [refresh],
+  );
   const findByThreadId = useCallback(
     (threadId: string) =>
-      known.find(
-        (candidate) => candidate.domain.thread?.threadId === threadId,
-      ) ?? null,
+      known.find((candidate) => candidate.domain.thread?.threadId === threadId) ?? null,
     [known],
   );
-  const select = useCallback((
-    session: ProjectSession | WorkbenchSessionPresentation,
-  ) => {
-    const domain = "domain" in session ? session.domain : session;
-    window.selectSession({
-      id: domain.id,
-      projectId: domain.projectId,
-    });
-  }, [window]);
+  const select = useCallback(
+    (session: ProjectSession | WorkbenchSessionPresentation) => {
+      const domain = "domain" in session ? session.domain : session;
+      window.selectSession({
+        id: domain.id,
+        projectId: domain.projectId,
+      });
+    },
+    [window],
+  );
   const selectProject = useCallback(
     (projectId: string | null) => window.selectProject(projectId),
     [window],
   );
 
   const activeProjection = useMemo(
-    () => active ? presentWorkbenchSession(active) : null,
+    () => (active ? presentWorkbenchSession(active) : null),
     [active],
   );
   const selectedDetailQueryError = selectedDetailQuery.error;
-  const selectedDetailError = selectedDetailQueryError instanceof Error
-    ? selectedDetailQueryError.message
-    : selectedDetailQueryError
-      ? "Unable to load the selected session"
-      : null;
-  const selectedDetailReady = activeSessionId === null
-    || !selectedDetailQuery.isPending;
+  const selectedDetailError =
+    selectedDetailQueryError instanceof Error
+      ? selectedDetailQueryError.message
+      : selectedDetailQueryError
+        ? "Unable to load the selected session"
+        : null;
+  const selectedDetailReady = activeSessionId === null || !selectedDetailQuery.isPending;
 
   return {
-    activeProject:
-      projects.find((project) => project.id === activeProjectId) ?? null,
+    activeProject: projects.find((project) => project.id === activeProjectId) ?? null,
     activeProjectId,
     activeSessionId,
     active,

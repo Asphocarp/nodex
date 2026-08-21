@@ -164,18 +164,14 @@
   --blue-900: var(--color-blue-900);
   --purple-300: var(--color-purple-300);
   --purple-400: var(--color-purple-400);
-  --font-system:
-    -apple-system, "system-ui", "Segoe UI", sans-serif;
+  --font-system: -apple-system, "system-ui", "Segoe UI", sans-serif;
   --font-sans-default: var(--font-system);
   --font-mono-stack:
-    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+    ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --font-mono-default: var(--font-mono-stack);
   --sans-font-size-default: 15px;
   --sans-font-size: var(--vscode-font-size, var(--sans-font-size-default));
-  --sans-font-scale: calc(
-    var(--sans-font-size) / var(--sans-font-size-default)
-  );
+  --sans-font-scale: calc(var(--sans-font-size) / var(--sans-font-size-default));
   --corner-radius-scale: 1.25;
   --radius-2xs-base: 0.125rem;
   --radius-xs-base: 0.25rem;
@@ -197,27 +193,19 @@
   --page-stage-body-gutter-inline: calc(var(--spacing) * 18);
   --page-stage-body-content-max-width: 48rem;
   --page-stage-body-max-width: calc(
-    var(--page-stage-body-content-max-width) +
-      var(--page-stage-body-gutter-inline) * 2
+    var(--page-stage-body-content-max-width) + var(--page-stage-body-gutter-inline) * 2
   );
   --pane-content-max-width: var(--page-stage-body-content-max-width);
   --diffs-font-family: var(--font-mono);
   --diffs-font-size: var(--vscode-editor-font-size, 14px);
   --diffs-line-height: calc(var(--diffs-font-size, 14px) * 1.8);
-  --diffs-deletion-color-override: var(
-    --color-token-git-decoration-deleted-resource-foreground
-  );
-  --diffs-addition-color-override: var(
-    --color-token-git-decoration-added-resource-foreground
-  );
+  --diffs-deletion-color-override: var(--color-token-git-decoration-deleted-resource-foreground);
+  --diffs-addition-color-override: var(--color-token-git-decoration-added-resource-foreground);
   --diffs-gap-block: 0;
   --diffs-min-number-column-width: 4ch;
   --safe-area-left: 0px;
   --safe-area-right: 0px;
-  --codex-chat-font-size: var(
-    --vscode-chat-font-size,
-    var(--vscode-font-size, 15px)
-  );
+  --codex-chat-font-size: var(--vscode-chat-font-size, var(--vscode-font-size, 15px));
   --codex-chat-code-font-size: var(
     --vscode-chat-editor-font-size,
     var(--vscode-editor-font-size, 14px)
@@ -501,9 +489,7 @@
     var(--color-background-surface)
   );
   --color-background-control: var(--color-background-elevated-primary);
-  --color-background-control-opaque: var(
-    --color-background-elevated-primary-opaque
-  );
+  --color-background-control-opaque: var(--color-background-elevated-primary-opaque);
   --color-token-bg-fog: var(--color-background-elevated-secondary);
   overscroll-behavior: none;
 }
@@ -523,10 +509,7 @@
   overflow: hidden;
 }
 
-[data-codex-window-type="electron"]:not(
-    [data-codex-window-chrome="application-menu"]
-  )
-  body {
+[data-codex-window-type="electron"]:not([data-codex-window-chrome="application-menu"]) body {
   background: transparent;
 }
 
@@ -537,17 +520,12 @@
 
 [data-codex-window-type="electron"].electron-opaque body {
   background-color: var(--color-background-surface-under);
-  --color-background-elevated-primary: var(
-    --color-background-elevated-primary-opaque
-  );
-  --color-background-elevated-secondary: var(
-    --color-background-elevated-secondary-opaque
-  );
+  --color-background-elevated-primary: var(--color-background-elevated-primary-opaque);
+  --color-background-elevated-secondary: var(--color-background-elevated-secondary-opaque);
   background-image: none;
 }
 
-[data-codex-window-type="electron"][data-codex-os="win32"].electron-opaque
-  body {
+[data-codex-window-type="electron"][data-codex-os="win32"].electron-opaque body {
   background-color: transparent;
   background-image: none;
 }
@@ -649,26 +627,14 @@
 
 @supports (color: color-mix(in lab, red, red)) {
   [data-codex-window-type="browser"] {
-    --color-background-elevated-primary: color-mix(
-      in oklab,
-      var(--gray-0) 70%,
-      transparent
-    );
-    --color-background-elevated-secondary: color-mix(
-      in oklab,
-      var(--gray-1000) 2%,
-      transparent
-    );
+    --color-background-elevated-primary: color-mix(in oklab, var(--gray-0) 70%, transparent);
+    --color-background-elevated-secondary: color-mix(in oklab, var(--gray-1000) 2%, transparent);
     --color-background-elevated-secondary-opaque: color-mix(
       in oklab,
       var(--gray-100) 40%,
       transparent
     );
-    --color-background-button-primary-hover: color-mix(
-      in oklab,
-      var(--gray-1000) 8%,
-      transparent
-    );
+    --color-background-button-primary-hover: color-mix(in oklab, var(--gray-1000) 8%, transparent);
     --color-background-button-primary-active: color-mix(
       in oklab,
       var(--gray-1000) 16%,
@@ -679,11 +645,7 @@
       var(--gray-1000) 24%,
       transparent
     );
-    --color-background-button-secondary: color-mix(
-      in oklab,
-      var(--gray-1000) 5%,
-      transparent
-    );
+    --color-background-button-secondary: color-mix(in oklab, var(--gray-1000) 5%, transparent);
     --color-background-button-secondary-hover: color-mix(
       in oklab,
       var(--gray-1000) 7%,
@@ -699,11 +661,7 @@
       var(--gray-1000) 2%,
       transparent
     );
-    --color-background-button-tertiary: color-mix(
-      in oklab,
-      var(--gray-1000) 0%,
-      transparent
-    );
+    --color-background-button-tertiary: color-mix(in oklab, var(--gray-1000) 0%, transparent);
     --color-background-button-tertiary-hover: color-mix(
       in oklab,
       var(--gray-1000) 10%,
@@ -714,84 +672,24 @@
       var(--gray-1000) 20%,
       transparent
     );
-    --color-background-status-success: color-mix(
-      in oklab,
-      var(--green-500) 7%,
-      transparent
-    );
-    --color-background-danger: color-mix(
-      in oklab,
-      var(--red-500) 0%,
-      transparent
-    );
-    --color-background-danger-hover: color-mix(
-      in oklab,
-      var(--red-500) 80%,
-      transparent
-    );
-    --color-background-danger-active: color-mix(
-      in oklab,
-      var(--red-500) 90%,
-      transparent
-    );
-    --color-background-danger-inactive: color-mix(
-      in oklab,
-      var(--red-500) 50%,
-      transparent
-    );
-    --color-text-foreground-secondary: color-mix(
-      in oklab,
-      var(--gray-1000) 70%,
-      transparent
-    );
-    --color-text-foreground-tertiary: color-mix(
-      in oklab,
-      var(--gray-1000) 50%,
-      transparent
-    );
-    --color-icon-secondary: color-mix(
-      in oklab,
-      var(--gray-1000) 70%,
-      transparent
-    );
-    --color-icon-tertiary: color-mix(
-      in oklab,
-      var(--gray-1000) 50%,
-      transparent
-    );
+    --color-background-status-success: color-mix(in oklab, var(--green-500) 7%, transparent);
+    --color-background-danger: color-mix(in oklab, var(--red-500) 0%, transparent);
+    --color-background-danger-hover: color-mix(in oklab, var(--red-500) 80%, transparent);
+    --color-background-danger-active: color-mix(in oklab, var(--red-500) 90%, transparent);
+    --color-background-danger-inactive: color-mix(in oklab, var(--red-500) 50%, transparent);
+    --color-text-foreground-secondary: color-mix(in oklab, var(--gray-1000) 70%, transparent);
+    --color-text-foreground-tertiary: color-mix(in oklab, var(--gray-1000) 50%, transparent);
+    --color-icon-secondary: color-mix(in oklab, var(--gray-1000) 70%, transparent);
+    --color-icon-tertiary: color-mix(in oklab, var(--gray-1000) 50%, transparent);
     --color-border: color-mix(in oklab, var(--gray-1000) 8%, transparent);
-    --color-border-heavy: color-mix(
-      in oklab,
-      var(--gray-1000) 12%,
-      transparent
-    );
+    --color-border-heavy: color-mix(in oklab, var(--gray-1000) 12%, transparent);
     --color-border-light: color-mix(in oklab, var(--gray-1000) 5%, transparent);
-    --color-border-warning: color-mix(
-      in oklab,
-      var(--orange-500) 15%,
-      transparent
-    );
+    --color-border-warning: color-mix(in oklab, var(--orange-500) 15%, transparent);
     --color-border-error: color-mix(in oklab, var(--red-500) 15%, transparent);
-    --color-editor-added: color-mix(
-      in oklab,
-      var(--green-500) 15%,
-      transparent
-    );
-    --color-editor-modified: color-mix(
-      in oklab,
-      var(--orange-700) 15%,
-      transparent
-    );
-    --color-editor-deleted: color-mix(
-      in oklab,
-      var(--red-600) 15%,
-      transparent
-    );
-    --color-editor-unchanged: color-mix(
-      in oklab,
-      var(--gray-300) 15%,
-      transparent
-    );
+    --color-editor-added: color-mix(in oklab, var(--green-500) 15%, transparent);
+    --color-editor-modified: color-mix(in oklab, var(--orange-700) 15%, transparent);
+    --color-editor-deleted: color-mix(in oklab, var(--red-600) 15%, transparent);
+    --color-editor-unchanged: color-mix(in oklab, var(--gray-300) 15%, transparent);
   }
 }
 
@@ -883,21 +781,9 @@
 
 @supports (color: color-mix(in lab, red, red)) {
   :root.dark[data-codex-window-type="browser"] {
-    --color-background-elevated-primary: color-mix(
-      in oklab,
-      var(--gray-800) 96%,
-      transparent
-    );
-    --color-background-elevated-secondary: color-mix(
-      in oklab,
-      var(--gray-0) 3%,
-      transparent
-    );
-    --color-background-button-primary-hover: color-mix(
-      in oklab,
-      var(--gray-1000) 6%,
-      transparent
-    );
+    --color-background-elevated-primary: color-mix(in oklab, var(--gray-800) 96%, transparent);
+    --color-background-elevated-secondary: color-mix(in oklab, var(--gray-0) 3%, transparent);
+    --color-background-button-primary-hover: color-mix(in oklab, var(--gray-1000) 6%, transparent);
     --color-background-button-primary-active: color-mix(
       in oklab,
       var(--gray-1000) 10%,
@@ -908,108 +794,36 @@
       var(--gray-1000) 3%,
       transparent
     );
-    --color-background-button-secondary: color-mix(
-      in oklab,
-      var(--gray-0) 5%,
-      transparent
-    );
-    --color-background-button-secondary-hover: color-mix(
-      in oklab,
-      var(--gray-0) 8%,
-      transparent
-    );
-    --color-background-button-secondary-active: color-mix(
-      in oklab,
-      var(--gray-0) 12%,
-      transparent
-    );
+    --color-background-button-secondary: color-mix(in oklab, var(--gray-0) 5%, transparent);
+    --color-background-button-secondary-hover: color-mix(in oklab, var(--gray-0) 8%, transparent);
+    --color-background-button-secondary-active: color-mix(in oklab, var(--gray-0) 12%, transparent);
     --color-background-button-secondary-inactive: color-mix(
       in oklab,
       var(--gray-0) 4%,
       transparent
     );
-    --color-background-button-tertiary: color-mix(
-      in oklab,
-      var(--gray-0) 3%,
-      transparent
-    );
-    --color-background-button-tertiary-hover: color-mix(
-      in oklab,
-      var(--gray-0) 7%,
-      transparent
-    );
-    --color-background-button-tertiary-active: color-mix(
-      in oklab,
-      var(--gray-0) 10%,
-      transparent
-    );
-    --color-background-status-success: color-mix(
-      in oklab,
-      var(--green-400) 16%,
-      transparent
-    );
-    --color-background-danger: color-mix(
-      in oklab,
-      var(--red-400) 14%,
-      transparent
-    );
-    --color-background-danger-hover: color-mix(
-      in oklab,
-      var(--red-400) 28%,
-      transparent
-    );
-    --color-background-danger-active: color-mix(
-      in oklab,
-      var(--red-400) 36%,
-      transparent
-    );
-    --color-background-danger-inactive: color-mix(
-      in oklab,
-      var(--red-400) 20%,
-      transparent
-    );
-    --color-text-foreground-secondary: color-mix(
-      in oklab,
-      var(--gray-0) 70%,
-      transparent
-    );
-    --color-text-foreground-tertiary: color-mix(
-      in oklab,
-      var(--gray-0) 50%,
-      transparent
-    );
+    --color-background-button-tertiary: color-mix(in oklab, var(--gray-0) 3%, transparent);
+    --color-background-button-tertiary-hover: color-mix(in oklab, var(--gray-0) 7%, transparent);
+    --color-background-button-tertiary-active: color-mix(in oklab, var(--gray-0) 10%, transparent);
+    --color-background-status-success: color-mix(in oklab, var(--green-400) 16%, transparent);
+    --color-background-danger: color-mix(in oklab, var(--red-400) 14%, transparent);
+    --color-background-danger-hover: color-mix(in oklab, var(--red-400) 28%, transparent);
+    --color-background-danger-active: color-mix(in oklab, var(--red-400) 36%, transparent);
+    --color-background-danger-inactive: color-mix(in oklab, var(--red-400) 20%, transparent);
+    --color-text-foreground-secondary: color-mix(in oklab, var(--gray-0) 70%, transparent);
+    --color-text-foreground-tertiary: color-mix(in oklab, var(--gray-0) 50%, transparent);
     --color-icon-primary: color-mix(in oklab, var(--white) 90%, transparent);
     --color-icon-secondary: color-mix(in oklab, var(--white) 70%, transparent);
     --color-icon-tertiary: color-mix(in oklab, var(--white) 50%, transparent);
     --color-border: color-mix(in oklab, var(--white) 8%, transparent);
     --color-border-heavy: color-mix(in oklab, var(--white) 16%, transparent);
     --color-border-light: color-mix(in oklab, var(--white) 4%, transparent);
-    --color-border-warning: color-mix(
-      in oklab,
-      var(--orange-300) 40%,
-      transparent
-    );
+    --color-border-warning: color-mix(in oklab, var(--orange-300) 40%, transparent);
     --color-border-error: color-mix(in oklab, var(--red-400) 40%, transparent);
     --color-border-focus: color-mix(in oklab, var(--accent-blue) 70%, transparent);
-    --color-editor-added: color-mix(
-      in oklab,
-      var(--green-300) 23%,
-      transparent
-    );
-    --color-editor-modified: color-mix(
-      in oklab,
-      var(--orange-300) 23%,
-      transparent
-    );
-    --color-editor-deleted: color-mix(
-      in oklab,
-      var(--red-400) 23%,
-      transparent
-    );
-    --color-editor-unchanged: color-mix(
-      in oklab,
-      var(--gray-600) 20%,
-      transparent
-    );
+    --color-editor-added: color-mix(in oklab, var(--green-300) 23%, transparent);
+    --color-editor-modified: color-mix(in oklab, var(--orange-300) 23%, transparent);
+    --color-editor-deleted: color-mix(in oklab, var(--red-400) 23%, transparent);
+    --color-editor-unchanged: color-mix(in oklab, var(--gray-600) 20%, transparent);
   }
 }

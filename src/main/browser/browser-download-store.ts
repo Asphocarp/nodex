@@ -6,34 +6,31 @@ import type { BrowserDownloadRecord } from "../../shared/browser-download";
 const MAX_DOWNLOAD_RECORDS = 1_000;
 const MAX_DOWNLOAD_STORE_BYTES = 16 * 1024 * 1024;
 
-const BrowserDownloadRecordSchema = z.object({
-  id: z.string().min(1).max(512),
-  browserConversationId: z.string().min(1).max(512),
-  browserViewScopeId: z.string().min(1).max(512),
-  browserTabId: z.string().min(1).max(512),
-  fileName: z.string().min(1).max(2_048),
-  savePath: z.string().min(1).max(16_384),
-  sourceOrigin: z.string().min(1).max(16_384),
-  status: z.enum([
-    "starting",
-    "progressing",
-    "paused",
-    "completed",
-    "cancelled",
-    "interrupted",
-  ]),
-  receivedBytes: z.number().finite().nonnegative(),
-  totalBytes: z.number().finite().nonnegative(),
-  startedAt: z.number().finite().nonnegative(),
-  updatedAt: z.number().finite().nonnegative(),
-  completedAt: z.number().finite().nonnegative().optional(),
-  interruptReason: z.string().max(2_048).optional(),
-}).strict();
+const BrowserDownloadRecordSchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    browserConversationId: z.string().min(1).max(512),
+    browserViewScopeId: z.string().min(1).max(512),
+    browserTabId: z.string().min(1).max(512),
+    fileName: z.string().min(1).max(2_048),
+    savePath: z.string().min(1).max(16_384),
+    sourceOrigin: z.string().min(1).max(16_384),
+    status: z.enum(["starting", "progressing", "paused", "completed", "cancelled", "interrupted"]),
+    receivedBytes: z.number().finite().nonnegative(),
+    totalBytes: z.number().finite().nonnegative(),
+    startedAt: z.number().finite().nonnegative(),
+    updatedAt: z.number().finite().nonnegative(),
+    completedAt: z.number().finite().nonnegative().optional(),
+    interruptReason: z.string().max(2_048).optional(),
+  })
+  .strict();
 
-const BrowserDownloadStoreFileSchema = z.object({
-  schemaVersion: z.literal(1),
-  downloads: z.array(BrowserDownloadRecordSchema).max(MAX_DOWNLOAD_RECORDS),
-}).strict();
+const BrowserDownloadStoreFileSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    downloads: z.array(BrowserDownloadRecordSchema).max(MAX_DOWNLOAD_RECORDS),
+  })
+  .strict();
 
 export interface BrowserDownloadStore {
   list(): Promise<BrowserDownloadRecord[]>;
@@ -54,8 +51,7 @@ export class FileBrowserDownloadStore implements BrowserDownloadStore {
 
   async list(): Promise<BrowserDownloadRecord[]> {
     await this.ensureLoaded();
-    return [...this.records.values()]
-      .sort((left, right) => right.startedAt - left.startedAt);
+    return [...this.records.values()].sort((left, right) => right.startedAt - left.startedAt);
   }
 
   async upsert(record: BrowserDownloadRecord): Promise<void> {
@@ -110,12 +106,12 @@ export class FileBrowserDownloadStore implements BrowserDownloadStore {
     this.records.clear();
     for (const record of records) this.records.set(record.id, record);
     while (
-      this.records.size > 0
-      && Buffer.byteLength(JSON.stringify([...this.records.values()]))
-        > MAX_DOWNLOAD_STORE_BYTES
+      this.records.size > 0 &&
+      Buffer.byteLength(JSON.stringify([...this.records.values()])) > MAX_DOWNLOAD_STORE_BYTES
     ) {
-      const oldest = [...this.records.values()]
-        .sort((left, right) => left.updatedAt - right.updatedAt)[0];
+      const oldest = [...this.records.values()].sort(
+        (left, right) => left.updatedAt - right.updatedAt,
+      )[0];
       if (!oldest) return;
       this.records.delete(oldest.id);
     }
@@ -128,10 +124,14 @@ export class FileBrowserDownloadStore implements BrowserDownloadStore {
         dirname(this.filePath),
         `.${basename(this.filePath)}.${process.pid}.${this.now()}.tmp`,
       );
-      const payload = `${JSON.stringify({
-        schemaVersion: 1,
-        downloads: [...this.records.values()],
-      }, null, 2)}\n`;
+      const payload = `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          downloads: [...this.records.values()],
+        },
+        null,
+        2,
+      )}\n`;
       const handle = await open(temporaryPath, "wx", 0o600);
       try {
         await handle.writeFile(payload, "utf8");
@@ -165,7 +165,5 @@ export class FileBrowserDownloadStore implements BrowserDownloadStore {
 }
 
 function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error
-    && "code" in error
-    && error.code === "ENOENT";
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }

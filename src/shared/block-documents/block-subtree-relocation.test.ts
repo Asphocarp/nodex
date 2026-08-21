@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import {
-  createPageDocumentGenesis,
-  materializePageDocument,
-} from "./block-document-codec";
+import { createPageDocumentGenesis, materializePageDocument } from "./block-document-codec";
 import {
   BlockSubtreeOperationError,
   captureBlockSubtreeForest,
@@ -13,11 +10,7 @@ import {
   type BlockSubtreeOperationErrorCode,
 } from "./block-subtree-relocation";
 
-const createDocument = (
-  documentId: string,
-  nfm: string,
-  blockIds: readonly string[],
-) => {
+const createDocument = (documentId: string, nfm: string, blockIds: readonly string[]) => {
   let index = 0;
   const genesis = createPageDocumentGenesis({
     documentId,
@@ -34,9 +27,7 @@ const createDocument = (
   return genesis.document;
 };
 
-const readOperationErrorCode = (
-  operation: () => unknown,
-): BlockSubtreeOperationErrorCode | "" => {
+const readOperationErrorCode = (operation: () => unknown): BlockSubtreeOperationErrorCode | "" => {
   try {
     operation();
   } catch (error) {
@@ -61,15 +52,11 @@ describe("Block subtree tree index", () => {
     const parent = locateBlockContainer(body, "parent");
     const child = index.blocks.get("child");
 
-    expect(index.blockIdsInDocumentOrder.join(",")).toBe(
-      "parent,child,grandchild,sibling,tail",
-    );
+    expect(index.blockIdsInDocumentOrder.join(",")).toBe("parent,child,grandchild,sibling,tail");
     expect(index.rootBlockIds.join(",")).toBe("parent,tail");
     expect(parent.path.join(",")).toBe("0,0");
     expect(parent.directChildBlockIds.join(",")).toBe("child,sibling");
-    expect(parent.descendantBlockIds.join(",")).toBe(
-      "child,grandchild,sibling",
-    );
+    expect(parent.descendantBlockIds.join(",")).toBe("child,grandchild,sibling");
     expect(child?.parentBlockId).toBe("parent");
     expect(child?.path.join(",")).toBe("0,0,1,0");
     document.destroy();
@@ -82,10 +69,7 @@ describe("Block subtree tree index", () => {
       ["a", "a-child", "b", "c", "c-child"],
     );
 
-    const forest = captureBlockSubtreeForest(document.getXmlFragment("body"), [
-      "c",
-      "a",
-    ]);
+    const forest = captureBlockSubtreeForest(document.getXmlFragment("body"), ["c", "a"]);
 
     expect(forest.rootBlockIds.join(",")).toBe("a,c");
     expect(forest.blockIds.join(",")).toBe("a,a-child,c,c-child");
@@ -103,11 +87,11 @@ describe("Block subtree relocation", () => {
       ["A **bold**", "\tA child", "B", "C", "\tC child"].join("\n"),
       ["a", "a-child", "b", "c", "c-child"],
     );
-    const target = createDocument(
-      "relocation-target",
-      ["Parent", "\tX", "\tY"].join("\n"),
-      ["parent", "x", "y"],
-    );
+    const target = createDocument("relocation-target", ["Parent", "\tX", "\tY"].join("\n"), [
+      "parent",
+      "x",
+      "y",
+    ]);
     const sourceInitialUpdate = Y.encodeStateAsUpdate(source);
     const targetInitialUpdate = Y.encodeStateAsUpdate(target);
     const sourceVector = Y.encodeStateVector(source);
@@ -123,9 +107,7 @@ describe("Block subtree relocation", () => {
     expect(result.sameDocument).toBe(false);
     expect(result.forest.rootBlockIds.join(",")).toBe("a,c");
     expect(result.sourceBlockIdsAfter.join(",")).toBe("b");
-    expect(result.targetBlockIdsAfter.join(",")).toBe(
-      "parent,x,a,a-child,c,c-child,y",
-    );
+    expect(result.targetBlockIdsAfter.join(",")).toBe("parent,x,a,a-child,c,c-child,y");
     expect(
       indexBlockDocumentTree(target.getXmlFragment("body"))
         .blocks.get("parent")
@@ -133,15 +115,7 @@ describe("Block subtree relocation", () => {
     ).toBe("x,a,c,y");
     expect(materializePageDocument(source).nfm).toBe("B");
     expect(materializePageDocument(target).nfm).toBe(
-      [
-        "Parent",
-        "\tX",
-        "\tA **bold**",
-        "\t\tA child",
-        "\tC",
-        "\t\tC child",
-        "\tY",
-      ].join("\n"),
+      ["Parent", "\tX", "\tA **bold**", "\t\tA child", "\tC", "\t\tC child", "\tY"].join("\n"),
     );
 
     const sourceReplica = new Y.Doc({ guid: source.guid });
@@ -151,9 +125,7 @@ describe("Block subtree relocation", () => {
     Y.applyUpdate(sourceReplica, Y.encodeStateAsUpdate(source, sourceVector));
     Y.applyUpdate(targetReplica, Y.encodeStateAsUpdate(target, targetVector));
     expect(materializePageDocument(sourceReplica).nfm).toBe("B");
-    expect(materializePageDocument(targetReplica).nfm).toBe(
-      materializePageDocument(target).nfm,
-    );
+    expect(materializePageDocument(targetReplica).nfm).toBe(materializePageDocument(target).nfm);
 
     sourceReplica.destroy();
     targetReplica.destroy();
@@ -176,12 +148,8 @@ describe("Block subtree relocation", () => {
     });
 
     expect(result.sameDocument).toBe(true);
-    expect(result.sourceBlockIdsBefore.join(",")).toBe(
-      "destination,first,second",
-    );
-    expect(result.sourceBlockIdsAfter.join(",")).toBe(
-      "destination,first,second",
-    );
+    expect(result.sourceBlockIdsBefore.join(",")).toBe("destination,first,second");
+    expect(result.sourceBlockIdsAfter.join(",")).toBe("destination,first,second");
     expect(materializePageDocument(document).nfm).toBe(
       ["Destination", "\tFirst", "\tSecond"].join("\n"),
     );
@@ -189,27 +157,20 @@ describe("Block subtree relocation", () => {
   });
 
   test("rejects duplicate and overlapping roots before mutation", () => {
-    const duplicateDocument = createDocument(
-      "duplicate-roots",
-      "Parent\n\tChild",
-      ["parent", "child"],
-    );
+    const duplicateDocument = createDocument("duplicate-roots", "Parent\n\tChild", [
+      "parent",
+      "child",
+    ]);
     const duplicateBefore = encodedState(duplicateDocument);
     expect(
       readOperationErrorCode(() =>
-        captureBlockSubtreeForest(duplicateDocument.getXmlFragment("body"), [
-          "parent",
-          "parent",
-        ]),
+        captureBlockSubtreeForest(duplicateDocument.getXmlFragment("body"), ["parent", "parent"]),
       ),
     ).toBe("duplicate_root");
     expect(encodedState(duplicateDocument)).toBe(duplicateBefore);
     expect(
       readOperationErrorCode(() =>
-        captureBlockSubtreeForest(duplicateDocument.getXmlFragment("body"), [
-          "child",
-          "parent",
-        ]),
+        captureBlockSubtreeForest(duplicateDocument.getXmlFragment("body"), ["child", "parent"]),
       ),
     ).toBe("overlapping_roots");
     expect(encodedState(duplicateDocument)).toBe(duplicateBefore);
@@ -217,11 +178,11 @@ describe("Block subtree relocation", () => {
   });
 
   test("rejects ancestor cycles and anchors inside the moved subtree", () => {
-    const cycleDocument = createDocument(
-      "cycle-relocation",
-      "Parent\n\tChild\nSibling",
-      ["parent", "child", "sibling"],
-    );
+    const cycleDocument = createDocument("cycle-relocation", "Parent\n\tChild\nSibling", [
+      "parent",
+      "child",
+      "sibling",
+    ]);
     const before = encodedState(cycleDocument);
 
     expect(
@@ -251,11 +212,11 @@ describe("Block subtree relocation", () => {
 
   test("rejects missing or non-sibling target anchors before mutation", () => {
     const source = createDocument("anchor-source", "Move", ["move"]);
-    const target = createDocument(
-      "anchor-target",
-      "Parent\n\tNested\nRoot anchor",
-      ["parent", "nested", "root-anchor"],
-    );
+    const target = createDocument("anchor-target", "Parent\n\tNested\nRoot anchor", [
+      "parent",
+      "nested",
+      "root-anchor",
+    ]);
     const sourceBefore = encodedState(source);
     const targetBefore = encodedState(target);
 
@@ -306,10 +267,7 @@ describe("Block subtree relocation", () => {
   });
 
   test("rejects global identity collisions across Documents", () => {
-    const source = createDocument("identity-source", "Move\nRemain", [
-      "shared",
-      "source-only",
-    ]);
+    const source = createDocument("identity-source", "Move\nRemain", ["shared", "source-only"]);
     const target = createDocument("identity-target", "Existing", ["shared"]);
     const sourceBefore = encodedState(source);
     const targetBefore = encodedState(target);
@@ -357,12 +315,8 @@ describe("Block subtree relocation", () => {
     }
     expect(encodedState(source)).toBe(sourceBefore);
     expect(encodedState(target)).toBe(targetBefore);
-    expect(materializePageDocument(target).blockTree[0]?.children.length).toBe(
-      0,
-    );
-    expect(materializePageDocument(target).blockTree[1]?.children.length).toBe(
-      0,
-    );
+    expect(materializePageDocument(target).blockTree[0]?.children.length).toBe(0);
+    expect(materializePageDocument(target).blockTree[1]?.children.length).toBe(0);
     source.destroy();
     target.destroy();
   });

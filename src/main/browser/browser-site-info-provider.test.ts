@@ -10,11 +10,14 @@ const identity = {
 describe("BrowserSiteInfoProvider", () => {
   test("returns Main-owned origin, cookie count, and fail-closed permissions", async () => {
     const cookies = { get: vi.fn(async () => [{}, {}]) };
-    const provider = new BrowserSiteInfoProvider({
-      getTabSnapshot: () => ({
-        url: "https://example.com/path?private=1",
-      }),
-    }, cookies);
+    const provider = new BrowserSiteInfoProvider(
+      {
+        getTabSnapshot: () => ({
+          url: "https://example.com/path?private=1",
+        }),
+      },
+      cookies,
+    );
 
     expect(await provider.get(identity)).toMatchObject({
       ...identity,
@@ -33,12 +36,18 @@ describe("BrowserSiteInfoProvider", () => {
 
   test("classifies localhost separately from insecure remote HTTP", async () => {
     const cookieStore = { get: async () => [] };
-    const local = new BrowserSiteInfoProvider({
-      getTabSnapshot: () => ({ url: "http://localhost:3000/" }),
-    }, cookieStore);
-    const remote = new BrowserSiteInfoProvider({
-      getTabSnapshot: () => ({ url: "http://example.com/" }),
-    }, cookieStore);
+    const local = new BrowserSiteInfoProvider(
+      {
+        getTabSnapshot: () => ({ url: "http://localhost:3000/" }),
+      },
+      cookieStore,
+    );
+    const remote = new BrowserSiteInfoProvider(
+      {
+        getTabSnapshot: () => ({ url: "http://example.com/" }),
+      },
+      cookieStore,
+    );
 
     expect((await local.get(identity)).connection).toBe("local");
     expect((await remote.get(identity)).connection).toBe("insecure");

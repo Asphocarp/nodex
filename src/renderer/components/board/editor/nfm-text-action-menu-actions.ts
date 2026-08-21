@@ -132,11 +132,7 @@ export function applyTextActionClearFormat(
     canUseBackgroundColor: boolean;
   },
 ) {
-  const stylesToRemove = buildTextActionClearFormatStyles(
-    editor,
-    basicStyles,
-    options,
-  );
+  const stylesToRemove = buildTextActionClearFormatStyles(editor, basicStyles, options);
 
   if (Object.keys(stylesToRemove).length === 0) return false;
 

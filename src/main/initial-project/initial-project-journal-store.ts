@@ -1,47 +1,42 @@
-import {
-  lstat,
-  readFile,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { lstat, readFile, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { ProjectAppearanceSchema } from "../../shared/schemas/projects";
-import {
-  isMissingPathError,
-  syncDirectory,
-  writeDurableJson,
-} from "../durable-json-file";
+import { isMissingPathError, syncDirectory, writeDurableJson } from "../durable-json-file";
 
 const JOURNAL_FILE_NAME = "initial-project-v2.json";
 const JOURNAL_MAX_BYTES = 64 * 1024;
 
-const InitialProjectStarterPageSchema = z.object({
-  pageId: z.string().uuid(),
-  documentId: z.string().uuid(),
-  titleMarkdown: z.string().min(1).max(10_000),
-  nfm: z.string().max(48 * 1024),
-}).strict();
+const InitialProjectStarterPageSchema = z
+  .object({
+    pageId: z.string().uuid(),
+    documentId: z.string().uuid(),
+    titleMarkdown: z.string().min(1).max(10_000),
+    nfm: z.string().max(48 * 1024),
+  })
+  .strict();
 
-const InitialProjectPayloadSchema = z.object({
-  projectId: z.string().uuid(),
-  name: z.string().min(1).max(256),
-  description: z.string().max(100_000),
-  appearance: ProjectAppearanceSchema,
-  sources: z.array(z.string().min(1).max(4_096)).length(1),
-  starterPage: InitialProjectStarterPageSchema,
-}).strict();
+const InitialProjectPayloadSchema = z
+  .object({
+    projectId: z.string().uuid(),
+    name: z.string().min(1).max(256),
+    description: z.string().max(100_000),
+    appearance: ProjectAppearanceSchema,
+    sources: z.array(z.string().min(1).max(4_096)).length(1),
+    starterPage: InitialProjectStarterPageSchema,
+  })
+  .strict();
 
-const InitialProjectJournalSchema = z.object({
-  schemaVersion: z.literal(2),
-  attemptId: z.string().uuid(),
-  operationId: z.string().uuid(),
-  payload: InitialProjectPayloadSchema,
-}).strict();
+const InitialProjectJournalSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    attemptId: z.string().uuid(),
+    operationId: z.string().uuid(),
+    payload: InitialProjectPayloadSchema,
+  })
+  .strict();
 
-export type InitialProjectJournal = z.infer<
-  typeof InitialProjectJournalSchema
->;
+export type InitialProjectJournal = z.infer<typeof InitialProjectJournalSchema>;
 
 interface InitialProjectRecoveryJournalOptions {
   readonly filePath: string;
@@ -59,11 +54,7 @@ export class InitialProjectRecoveryJournal {
   async load(): Promise<InitialProjectJournal | null> {
     try {
       const metadata = await lstat(this.options.filePath);
-      if (
-        metadata.isSymbolicLink()
-        || !metadata.isFile()
-        || metadata.size > JOURNAL_MAX_BYTES
-      ) {
+      if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > JOURNAL_MAX_BYTES) {
         await this.quarantine();
         return null;
       }
@@ -72,13 +63,8 @@ export class InitialProjectRecoveryJournal {
         await this.quarantine();
         return null;
       }
-      const parsed = InitialProjectJournalSchema.safeParse(
-        JSON.parse(raw) as unknown,
-      );
-      if (
-        !parsed.success
-        || parsed.data.payload.sources.some((source) => !isAbsolute(source))
-      ) {
+      const parsed = InitialProjectJournalSchema.safeParse(JSON.parse(raw) as unknown);
+      if (!parsed.success || parsed.data.payload.sources.some((source) => !isAbsolute(source))) {
         await this.quarantine();
         return null;
       }

@@ -6,10 +6,7 @@ import {
   selectCommandPaletteChatResults,
 } from "./command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
-import type {
-  CommandPaletteThreadSearchResult,
-  CommandPaletteThreadSummary,
-} from "./types";
+import type { CommandPaletteThreadSearchResult, CommandPaletteThreadSummary } from "./types";
 
 function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
   return {
@@ -106,7 +103,9 @@ describe("command palette chat result selection", () => {
     });
 
     expect(results[0]?.threadId).toBe("thr-projectless");
-    expect(results[0]?.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight)).toBe(true);
+    expect(
+      results[0]?.searchDecorations?.projectNameSegments?.some((segment) => segment.highlight),
+    ).toBe(true);
   });
 
   test("includes content matches that have not been materialized in Nodex", () => {
@@ -114,12 +113,15 @@ describe("command palette chat result selection", () => {
       query: "approval heuristic",
       threads: [],
       threadSearchBatch: makeSearchBatch("approval heuristic", [
-        makeSearchResult({
-          threadId: "thr-server-only",
-          sessionId: null,
-          title: "Server-only chat",
-          projectId: "project-1",
-        }, "Tune the approval heuristic before merging."),
+        makeSearchResult(
+          {
+            threadId: "thr-server-only",
+            sessionId: null,
+            title: "Server-only chat",
+            projectId: "project-1",
+          },
+          "Tune the approval heuristic before merging.",
+        ),
       ]),
       activeProjectId: "project-1",
     });
@@ -137,10 +139,13 @@ describe("command palette chat result selection", () => {
       query: "server",
       threads: [],
       threadSearchBatch: makeSearchBatch("server", [
-        makeSearchResult({
-          threadId: "thr-server-title",
-          title: "Server-only chat",
-        }, "Server-only chat"),
+        makeSearchResult(
+          {
+            threadId: "thr-server-title",
+            title: "Server-only chat",
+          },
+          "Server-only chat",
+        ),
       ]),
     });
 
@@ -164,12 +169,15 @@ describe("command palette chat result selection", () => {
     });
     const threads = [otherProjectThread];
     const batch = makeSearchBatch("approval heuristic", [
-      makeSearchResult({
-        threadId: "thr-active-content",
-        projectId: "project-1",
-        title: "General chat",
-        updatedAt: 100,
-      }, "Approval heuristic appears only in the active transcript."),
+      makeSearchResult(
+        {
+          threadId: "thr-active-content",
+          projectId: "project-1",
+          title: "General chat",
+          updatedAt: 100,
+        },
+        "Approval heuristic appears only in the active transcript.",
+      ),
     ]);
 
     const results = selectCommandPaletteChatResults({

@@ -10,7 +10,7 @@ describe("loading motion diagnostics", () => {
       tagName: "SECTION",
     } as unknown as Element;
     const target = {
-      getAttribute: (name: string) => name === "role" ? "status" : null,
+      getAttribute: (name: string) => (name === "role" ? "status" : null),
       parentElement: ancestor,
       tagName: "SPAN",
     } as unknown as Element;
@@ -48,7 +48,7 @@ describe("loading motion diagnostics", () => {
       iterationCount: 1,
       playState: "running",
       pseudoElement: "::before",
-      target: "span[role=\"status\"]",
+      target: 'span[role="status"]',
     });
   });
 });

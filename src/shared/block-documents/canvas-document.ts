@@ -12,9 +12,7 @@ export {
   primaryCanvasBlockId,
   primaryCanvasDocumentId,
 } from "./canvas-document-identity";
-import {
-  CANVAS_DOCUMENT_SCHEMA_VERSION,
-} from "./canvas-document-identity";
+import { CANVAS_DOCUMENT_SCHEMA_VERSION } from "./canvas-document-identity";
 
 export const CANVAS_DOCUMENT_KIND = "canvas_scene";
 
@@ -51,18 +49,14 @@ const DURABLE_CANVAS_APP_STATE_KEYS = new Set([
 ]);
 
 export type CanvasJsonValue = BlockPropertyJsonValue;
-export type CanvasElementSnapshot = Readonly<
-  Record<string, CanvasJsonValue>
->;
+export type CanvasElementSnapshot = Readonly<Record<string, CanvasJsonValue>>;
 export interface CanvasFileSnapshot {
   readonly id: string;
   readonly mimeType: string;
   readonly source: string;
   readonly created?: number;
 }
-export type CanvasSharedAppState = Readonly<
-  Record<string, CanvasJsonValue>
->;
+export type CanvasSharedAppState = Readonly<Record<string, CanvasJsonValue>>;
 
 export interface CanvasPageReference {
   readonly sourceElementId: string;
@@ -125,22 +119,14 @@ const requireIdentity = (value: unknown, field: string): string => {
   ) {
     return value;
   }
-  throw new CanvasDocumentSchemaError(
-    `${field} must be a canonical non-empty identity`,
-  );
+  throw new CanvasDocumentSchemaError(`${field} must be a canonical non-empty identity`);
 };
 
-const requireSafeInteger = (
-  value: unknown,
-  field: string,
-  minimum: number,
-): number => {
+const requireSafeInteger = (value: unknown, field: string, minimum: number): number => {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
-  throw new CanvasDocumentSchemaError(
-    `${field} must be a safe integer >= ${minimum}`,
-  );
+  throw new CanvasDocumentSchemaError(`${field} must be a safe integer >= ${minimum}`);
 };
 
 const canonicalJsonRecord = (
@@ -157,16 +143,14 @@ const canonicalJsonRecord = (
       return parsed as Readonly<Record<string, CanvasJsonValue>>;
     }
   } catch (error) {
-    throw new CanvasDocumentSchemaError(
-      `${field} must contain bounded portable JSON`,
-      { cause: error },
-    );
+    throw new CanvasDocumentSchemaError(`${field} must contain bounded portable JSON`, {
+      cause: error,
+    });
   }
   throw new CanvasDocumentSchemaError(`${field} must be a JSON object`);
 };
 
-const canonicalString = (value: unknown): string =>
-  stableStringifyBlockPropertyJson(value);
+const canonicalString = (value: unknown): string => stableStringifyBlockPropertyJson(value);
 
 /**
  * Canvas state may legitimately exceed the public 2 MiB mutation envelope.
@@ -180,14 +164,10 @@ const stableStringifyCanvasProjection = (value: unknown): string => {
   const visit = (candidate: unknown, depth: number): string => {
     nodes += 1;
     if (nodes > MAX_CANVAS_PROJECTION_JSON_NODES) {
-      throw new CanvasDocumentSchemaError(
-        "Canvas projection exceeds the JSON node limit",
-      );
+      throw new CanvasDocumentSchemaError("Canvas projection exceeds the JSON node limit");
     }
     if (depth > MAX_CANVAS_PROJECTION_JSON_DEPTH) {
-      throw new CanvasDocumentSchemaError(
-        "Canvas projection exceeds the JSON depth limit",
-      );
+      throw new CanvasDocumentSchemaError("Canvas projection exceeds the JSON depth limit");
     }
     if (candidate === null || typeof candidate === "boolean") {
       return JSON.stringify(candidate);
@@ -197,9 +177,7 @@ const stableStringifyCanvasProjection = (value: unknown): string => {
     }
     if (typeof candidate === "string") return JSON.stringify(candidate);
     if (typeof candidate !== "object" || candidate === null) {
-      throw new CanvasDocumentSchemaError(
-        "Canvas projection must contain only JSON values",
-      );
+      throw new CanvasDocumentSchemaError("Canvas projection must contain only JSON values");
     }
     if (seen.has(candidate)) {
       throw new CanvasDocumentSchemaError("Canvas projection must not be cyclic");
@@ -240,14 +218,8 @@ const hashString32 = (value: string, seed: number): string => {
   return hash.toString(16).padStart(8, "0");
 };
 
-const deterministicVersionNonce = (
-  restoreIdentity: string,
-  elementId: string,
-): number =>
-  Number.parseInt(
-    hashString32(`${restoreIdentity}\0${elementId}`, 0x811c9dc5),
-    16,
-  );
+const deterministicVersionNonce = (restoreIdentity: string, elementId: string): number =>
+  Number.parseInt(hashString32(`${restoreIdentity}\0${elementId}`, 0x811c9dc5), 16);
 
 const revisionPayloadHash = (value: CanvasElementSnapshot): string => {
   const canonical = canonicalString(value);
@@ -294,9 +266,7 @@ export const chooseCanvasElementWinner = (
 };
 
 /** A unique register key keeps concurrent contenders visible after Yjs merge. */
-export const canvasElementRevisionKey = (
-  element: CanvasElementSnapshot,
-): string => {
+export const canvasElementRevisionKey = (element: CanvasElementSnapshot): string => {
   const elementId = requireIdentity(element.id, "Canvas element.id");
   const { version, versionNonce } = canvasElementVersion(element);
   return `${elementId}@${version.toString(36)}:${versionNonce.toString(36)}:${revisionPayloadHash(element)}`;
@@ -319,10 +289,7 @@ const canonicalizePageReference = (
 ): Readonly<Record<string, CanvasJsonValue>> => {
   const customData = element.customData;
   if (!isRecord(customData)) return element;
-  if (
-    customData.type !== "nodex-card" &&
-    customData.type !== "nodex-card-reference"
-  ) {
+  if (customData.type !== "nodex-card" && customData.type !== "nodex-card-reference") {
     return element;
   }
   const targetBlockId = requireIdentity(
@@ -330,9 +297,7 @@ const canonicalizePageReference = (
     `Canvas element ${String(element.id)}.customData.targetBlockId`,
   );
   const titleHint =
-    typeof customData.titleHint === "string"
-      ? customData.titleHint.slice(0, 512)
-      : undefined;
+    typeof customData.titleHint === "string" ? customData.titleHint.slice(0, 512) : undefined;
   return {
     ...element,
     customData: {
@@ -356,9 +321,7 @@ export const canonicalizeCanvasElement = (
   }
   canvasElementVersion(record);
   if (typeof record.isDeleted !== "boolean") {
-    throw new CanvasDocumentSchemaError(
-      `Canvas element ${id}.isDeleted must be boolean`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas element ${id}.isDeleted must be boolean`);
   }
   if (
     record.index !== undefined &&
@@ -393,14 +356,10 @@ const normalizeObservedCanvasJson = (
 ): unknown => {
   state.nodes += 1;
   if (state.nodes > MAX_CANVAS_ELEMENT_JSON_NODES) {
-    throw new CanvasDocumentSchemaError(
-      `${field} exceeds the JSON node limit`,
-    );
+    throw new CanvasDocumentSchemaError(`${field} exceeds the JSON node limit`);
   }
   if (depth > MAX_CANVAS_ELEMENT_JSON_DEPTH) {
-    throw new CanvasDocumentSchemaError(
-      `${field} exceeds the JSON depth limit`,
-    );
+    throw new CanvasDocumentSchemaError(`${field} exceeds the JSON depth limit`);
   }
   if (value === null || typeof value !== "object") return value;
   if (state.seen.has(value)) {
@@ -410,29 +369,17 @@ const normalizeObservedCanvasJson = (
   try {
     if (Array.isArray(value)) {
       return value.map((entry, index) =>
-        normalizeObservedCanvasJson(
-          entry,
-          `${field}[${index}]`,
-          depth + 1,
-          state,
-        ),
+        normalizeObservedCanvasJson(entry, `${field}[${index}]`, depth + 1, state),
       );
     }
     const prototype = Object.getPrototypeOf(value) as unknown;
     if (prototype !== Object.prototype && prototype !== null) {
-      throw new CanvasDocumentSchemaError(
-        `${field} must contain only plain JSON objects`,
-      );
+      throw new CanvasDocumentSchemaError(`${field} must contain only plain JSON objects`);
     }
     const normalized: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
       if (entry === undefined) continue;
-      normalized[key] = normalizeObservedCanvasJson(
-        entry,
-        `${field}.${key}`,
-        depth + 1,
-        state,
-      );
+      normalized[key] = normalizeObservedCanvasJson(entry, `${field}.${key}`, depth + 1, state);
     }
     return normalized;
   } finally {
@@ -440,9 +387,7 @@ const normalizeObservedCanvasJson = (
   }
 };
 
-const canonicalizeObservedCanvasElement = (
-  value: unknown,
-): CanvasElementSnapshot =>
+const canonicalizeObservedCanvasElement = (value: unknown): CanvasElementSnapshot =>
   canonicalizeCanvasElement(
     normalizeObservedCanvasJson(value, "Canvas element", 0, {
       seen: new WeakSet<object>(),
@@ -450,15 +395,10 @@ const canonicalizeObservedCanvasElement = (
     }),
   );
 
-const canonicalizeCanvasFile = (
-  value: unknown,
-  expectedId: string,
-): CanvasFileSnapshot => {
+const canonicalizeCanvasFile = (value: unknown, expectedId: string): CanvasFileSnapshot => {
   const record = canonicalJsonRecord(value, `Canvas file ${expectedId}`);
   const allowedKeys = new Set(["id", "mimeType", "source", "created"]);
-  const unsupportedKey = Object.keys(record).find(
-    (key) => !allowedKeys.has(key),
-  );
+  const unsupportedKey = Object.keys(record).find((key) => !allowedKeys.has(key));
   if (unsupportedKey) {
     throw new CanvasDocumentSchemaError(
       `Canvas file ${expectedId} contains unsupported field ${unsupportedKey}`,
@@ -479,12 +419,8 @@ const canonicalizeCanvasFile = (
       `Canvas file ${expectedId}.mimeType must be a bounded string`,
     );
   }
-  const parsedSource =
-    typeof record.source === "string" ? parseAssetSource(record.source) : null;
-  if (
-    !parsedSource ||
-    record.source !== getAssetSource(parsedSource.fileName)
-  ) {
+  const parsedSource = typeof record.source === "string" ? parseAssetSource(record.source) : null;
+  if (!parsedSource || record.source !== getAssetSource(parsedSource.fileName)) {
     throw new CanvasDocumentSchemaError(
       `Canvas file ${expectedId}.source must be a managed asset URI`,
     );
@@ -516,13 +452,8 @@ export const pickDurableCanvasAppState = (
     if (value[key] !== undefined) candidate[key] = value[key];
   }
   const durable = canonicalJsonRecord(candidate, "Canvas appState");
-  if (
-    durable.gridModeEnabled !== undefined &&
-    typeof durable.gridModeEnabled !== "boolean"
-  ) {
-    throw new CanvasDocumentSchemaError(
-      "Canvas appState.gridModeEnabled must be boolean",
-    );
+  if (durable.gridModeEnabled !== undefined && typeof durable.gridModeEnabled !== "boolean") {
+    throw new CanvasDocumentSchemaError("Canvas appState.gridModeEnabled must be boolean");
   }
   for (const key of ["gridSize", "gridStep"] as const) {
     const entry = durable[key];
@@ -538,8 +469,7 @@ export const pickDurableCanvasAppState = (
   }
   if (
     durable.viewBackgroundColor !== undefined &&
-    (typeof durable.viewBackgroundColor !== "string" ||
-      durable.viewBackgroundColor.length > 128)
+    (typeof durable.viewBackgroundColor !== "string" || durable.viewBackgroundColor.length > 128)
   ) {
     throw new CanvasDocumentSchemaError(
       "Canvas appState.viewBackgroundColor must be a bounded string",
@@ -551,10 +481,7 @@ export const pickDurableCanvasAppState = (
 const fallbackOrderKey = (ordinal: number): string =>
   `legacy:${ordinal.toString(16).padStart(16, "0")}`;
 
-const orderKeyForElement = (
-  element: CanvasElementSnapshot,
-  ordinal: number,
-): string =>
+const orderKeyForElement = (element: CanvasElementSnapshot, ordinal: number): string =>
   typeof element.index === "string" && element.index.length > 0
     ? element.index
     : fallbackOrderKey(ordinal);
@@ -595,9 +522,7 @@ const canonicalCanvasElements = (
   source: "stored" | "observation" = "stored",
 ): readonly CanvasElementSnapshot[] => {
   if (elements.length > MAX_CANVAS_ELEMENTS) {
-    throw new CanvasDocumentSchemaError(
-      `Canvas scene exceeds ${MAX_CANVAS_ELEMENTS} elements`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas scene exceeds ${MAX_CANVAS_ELEMENTS} elements`);
   }
   const canonical = elements.map((element) =>
     source === "observation"
@@ -613,19 +538,13 @@ const canonicalCanvasElements = (
 
 const readCanvasElementRevisionGroups = (
   envelope: CanvasDocumentEnvelope,
-): ReadonlyMap<
-  string,
-  readonly (readonly [string, CanvasElementSnapshot])[]
-> => {
+): ReadonlyMap<string, readonly (readonly [string, CanvasElementSnapshot])[]> => {
   if (envelope.elements.size > MAX_CANVAS_ELEMENT_REVISIONS) {
     throw new CanvasDocumentSchemaError(
       `Canvas scene exceeds ${MAX_CANVAS_ELEMENT_REVISIONS} element revisions`,
     );
   }
-  const groups = new Map<
-    string,
-    Array<readonly [string, CanvasElementSnapshot]>
-  >();
+  const groups = new Map<string, Array<readonly [string, CanvasElementSnapshot]>>();
   for (const [revisionKey, candidateValue] of envelope.elements) {
     const candidate = canonicalizeCanvasElement(candidateValue);
     if (canvasElementRevisionKey(candidate) !== revisionKey) {
@@ -647,18 +566,14 @@ const winnerFromRevisions = (
   revisions
     .map(([, candidate]) => candidate)
     .reduce<CanvasElementSnapshot | null>(
-      (winner, candidate) =>
-        winner ? chooseCanvasElementWinner(winner, candidate) : candidate,
+      (winner, candidate) => (winner ? chooseCanvasElementWinner(winner, candidate) : candidate),
       null,
     );
 
 const applyCanvasElementCandidates = (
   envelope: CanvasDocumentEnvelope,
   canonicalElements: readonly CanvasElementSnapshot[],
-  revisionGroups: ReadonlyMap<
-    string,
-    readonly (readonly [string, CanvasElementSnapshot])[]
-  >,
+  revisionGroups: ReadonlyMap<string, readonly (readonly [string, CanvasElementSnapshot])[]>,
 ): void => {
   canonicalElements.forEach((element, ordinal) => {
     const elementId = element.id as string;
@@ -667,12 +582,10 @@ const applyCanvasElementCandidates = (
     const winner = current ? chooseCanvasElementWinner(current, element) : element;
     const candidateCanonical = canonicalString(element);
     const winnerIsCandidate = canonicalString(winner) === candidateCanonical;
-    const currentIsCandidate =
-      current !== null && canonicalString(current) === candidateCanonical;
+    const currentIsCandidate = current !== null && canonicalString(current) === candidateCanonical;
     const candidateRevisionKey = canvasElementRevisionKey(element);
     const registerIsCanonical =
-      knownRevisions.length === 1 &&
-      knownRevisions[0]?.[0] === candidateRevisionKey;
+      knownRevisions.length === 1 && knownRevisions[0]?.[0] === candidateRevisionKey;
     if (winnerIsCandidate && (!currentIsCandidate || !registerIsCanonical)) {
       for (const [revisionKey] of knownRevisions) {
         envelope.elements.delete(revisionKey);
@@ -706,9 +619,7 @@ export const applyCanvasSceneSnapshot = (
   const appState = pickDurableCanvasAppState(snapshot.appState);
   const files = snapshot.files ?? {};
   if (Object.keys(files).length > MAX_CANVAS_FILES) {
-    throw new CanvasDocumentSchemaError(
-      `Canvas scene exceeds ${MAX_CANVAS_FILES} files`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas scene exceeds ${MAX_CANVAS_FILES} files`);
   }
   const canonicalElements = canonicalCanvasElements(snapshot.elements);
   const canonicalFiles = new Map(
@@ -726,10 +637,7 @@ export const applyCanvasSceneSnapshot = (
     }
     for (const [key, value] of Object.entries(appState)) {
       const current = envelope.appState.get(key);
-      if (
-        current !== undefined &&
-        canonicalString(current) === canonicalString(value)
-      ) {
+      if (current !== undefined && canonicalString(current) === canonicalString(value)) {
         continue;
       }
       envelope.appState.set(key, value);
@@ -752,9 +660,7 @@ export interface CanvasSharedAppStateFieldPatch {
   readonly value: CanvasJsonValue | undefined;
 }
 
-export type CanvasSharedAppStatePatch = Readonly<
-  Record<string, CanvasSharedAppStateFieldPatch>
->;
+export type CanvasSharedAppStatePatch = Readonly<Record<string, CanvasSharedAppStateFieldPatch>>;
 
 const sameOptionalCanvasJsonValue = (
   left: CanvasJsonValue | undefined,
@@ -770,17 +676,13 @@ const canonicalizeCanvasAppStatePatchValue = (
   field: "expected" | "value",
 ): CanvasJsonValue | undefined => {
   if (!DURABLE_CANVAS_APP_STATE_KEYS.has(key)) {
-    throw new CanvasDocumentSchemaError(
-      `Canvas appState patch contains non-durable key ${key}`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas appState patch contains non-durable key ${key}`);
   }
   if (value === undefined) return undefined;
   const validated = pickDurableCanvasAppState({ [key]: value });
   const canonical = validated[key];
   if (canonical !== undefined) return canonical;
-  throw new CanvasDocumentSchemaError(
-    `Canvas appState patch ${key}.${field} is invalid`,
-  );
+  throw new CanvasDocumentSchemaError(`Canvas appState patch ${key}.${field} is invalid`);
 };
 
 /**
@@ -797,14 +699,9 @@ export const applyRebasedCanvasSceneObservation = (
   },
   origin: unknown = "canvas-local-rebased-scene",
 ): void => {
-  const canonicalElements = canonicalCanvasElements(
-    input.elementsIncludingDeleted,
-    "observation",
-  );
+  const canonicalElements = canonicalCanvasElements(input.elementsIncludingDeleted, "observation");
   if (Object.keys(input.fileAdditions).length > MAX_CANVAS_FILES) {
-    throw new CanvasDocumentSchemaError(
-      `Canvas scene exceeds ${MAX_CANVAS_FILES} file additions`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas scene exceeds ${MAX_CANVAS_FILES} file additions`);
   }
   const canonicalFileAdditions = new Map<string, CanvasFileSnapshot>();
   for (const [fileId, file] of Object.entries(input.fileAdditions)) {
@@ -815,9 +712,7 @@ export const applyRebasedCanvasSceneObservation = (
   const appStatePatch: Record<string, CanvasSharedAppStateFieldPatch> = {};
   for (const [key, patch] of Object.entries(input.appStatePatch)) {
     if (!isRecord(patch)) {
-      throw new CanvasDocumentSchemaError(
-        `Canvas appState patch ${key} must be an intent object`,
-      );
+      throw new CanvasDocumentSchemaError(`Canvas appState patch ${key} must be an intent object`);
     }
     const unsupportedKey = Object.keys(patch).find(
       (candidate) => candidate !== "expected" && candidate !== "value",
@@ -833,20 +728,14 @@ export const applyRebasedCanvasSceneObservation = (
       );
     }
     appStatePatch[key] = {
-      expected: canonicalizeCanvasAppStatePatchValue(
-        key,
-        patch.expected,
-        "expected",
-      ),
+      expected: canonicalizeCanvasAppStatePatchValue(key, patch.expected, "expected"),
       value: canonicalizeCanvasAppStatePatchValue(key, patch.value, "value"),
     };
   }
 
   envelope.document.transact(() => {
     if (envelope.files.size > MAX_CANVAS_FILES) {
-      throw new CanvasDocumentSchemaError(
-        `Canvas scene exceeds ${MAX_CANVAS_FILES} files`,
-      );
+      throw new CanvasDocumentSchemaError(`Canvas scene exceeds ${MAX_CANVAS_FILES} files`);
     }
     const revisionGroups = readCanvasElementRevisionGroups(envelope);
     const winners = new Map<string, CanvasElementSnapshot>();
@@ -857,10 +746,7 @@ export const applyRebasedCanvasSceneObservation = (
     for (const candidate of canonicalElements) {
       const elementId = candidate.id as string;
       const current = winners.get(elementId);
-      winners.set(
-        elementId,
-        current ? chooseCanvasElementWinner(current, candidate) : candidate,
-      );
+      winners.set(elementId, current ? chooseCanvasElementWinner(current, candidate) : candidate);
     }
     const referencedFileIds = new Set<string>();
     for (const winner of winners.values()) {
@@ -873,9 +759,7 @@ export const applyRebasedCanvasSceneObservation = (
       }
     }
     if (referencedFileIds.size > MAX_CANVAS_FILES) {
-      throw new CanvasDocumentSchemaError(
-        `Canvas scene exceeds ${MAX_CANVAS_FILES} files`,
-      );
+      throw new CanvasDocumentSchemaError(`Canvas scene exceeds ${MAX_CANVAS_FILES} files`);
     }
     const combinedFiles = new Map<string, CanvasFileSnapshot>();
     for (const [fileId, file] of envelope.files) {
@@ -884,17 +768,13 @@ export const applyRebasedCanvasSceneObservation = (
     for (const [fileId, addition] of canonicalFileAdditions) {
       const current = combinedFiles.get(fileId);
       if (current && canonicalString(current) !== canonicalString(addition)) {
-        throw new CanvasDocumentSchemaError(
-          `Canvas managed file ${fileId} cannot be redefined`,
-        );
+        throw new CanvasDocumentSchemaError(`Canvas managed file ${fileId} cannot be redefined`);
       }
       combinedFiles.set(fileId, addition);
     }
     for (const fileId of referencedFileIds) {
       if (combinedFiles.has(fileId)) continue;
-      throw new CanvasDocumentSchemaError(
-        `Canvas image references missing managed file ${fileId}`,
-      );
+      throw new CanvasDocumentSchemaError(`Canvas image references missing managed file ${fileId}`);
     }
 
     applyCanvasElementCandidates(envelope, canonicalElements, revisionGroups);
@@ -903,18 +783,13 @@ export const applyRebasedCanvasSceneObservation = (
       if (!sameOptionalCanvasJsonValue(current, patch.expected)) continue;
       if (patch.value === undefined) {
         envelope.appState.delete(key);
-      } else if (
-        !sameOptionalCanvasJsonValue(current, patch.value)
-      ) {
+      } else if (!sameOptionalCanvasJsonValue(current, patch.value)) {
         envelope.appState.set(key, patch.value);
       }
     }
     for (const [fileId, file] of combinedFiles) {
       if (referencedFileIds.has(fileId)) {
-        if (
-          canonicalString(envelope.files.get(fileId) ?? null) !==
-          canonicalString(file)
-        ) {
+        if (canonicalString(envelope.files.get(fileId) ?? null) !== canonicalString(file)) {
           envelope.files.set(fileId, file);
         }
       } else if (envelope.files.has(fileId)) {
@@ -927,7 +802,10 @@ export const applyRebasedCanvasSceneObservation = (
 const assertExactCanvasRoots = (document: Y.Doc): void => {
   const actual = [...document.share.keys()].sort();
   const expected = [...CANVAS_ROOT_NAMES].sort();
-  if (actual.length === expected.length && actual.every((name, index) => name === expected[index])) {
+  if (
+    actual.length === expected.length &&
+    actual.every((name, index) => name === expected[index])
+  ) {
     return;
   }
   throw new CanvasDocumentSchemaError(
@@ -935,9 +813,7 @@ const assertExactCanvasRoots = (document: Y.Doc): void => {
   );
 };
 
-const readCanvasPageReference = (
-  element: CanvasElementSnapshot,
-): CanvasPageReference | null => {
+const readCanvasPageReference = (element: CanvasElementSnapshot): CanvasPageReference | null => {
   if (element.isDeleted === true) return null;
   const customData = element.customData;
   if (!isRecord(customData) || customData.type !== "nodex-card-reference") {
@@ -950,9 +826,7 @@ const readCanvasPageReference = (
   return {
     sourceElementId: element.id as string,
     targetBlockId,
-    ...(canonicalTitleHint(element)
-      ? { titleHint: canonicalTitleHint(element) }
-      : {}),
+    ...(canonicalTitleHint(element) ? { titleHint: canonicalTitleHint(element) } : {}),
   };
 };
 
@@ -979,9 +853,7 @@ export const inspectCanvasDocument = (
     );
   }
   if (roots.files.size > MAX_CANVAS_FILES) {
-    throw new CanvasDocumentSchemaError(
-      `Canvas scene exceeds ${MAX_CANVAS_FILES} files`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas scene exceeds ${MAX_CANVAS_FILES} files`);
   }
   const winnerByElementId = new Map<string, CanvasElementSnapshot>();
   for (const [revisionKey, value] of roots.elements) {
@@ -1000,16 +872,12 @@ export const inspectCanvasDocument = (
     );
   }
   if (winnerByElementId.size > MAX_CANVAS_ELEMENTS) {
-    throw new CanvasDocumentSchemaError(
-      `Canvas scene exceeds ${MAX_CANVAS_ELEMENTS} elements`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas scene exceeds ${MAX_CANVAS_ELEMENTS} elements`);
   }
   const elements = [...winnerByElementId.values()].map((element) => {
     const elementId = element.id as string;
     const indexedOrder =
-      typeof element.index === "string" && element.index.length > 0
-        ? element.index
-        : null;
+      typeof element.index === "string" && element.index.length > 0 ? element.index : null;
     const fallback = roots.order.get(elementId);
     if (
       indexedOrder === null &&
@@ -1025,9 +893,7 @@ export const inspectCanvasDocument = (
   });
   for (const elementId of roots.order.keys()) {
     if (winnerByElementId.has(elementId)) continue;
-    throw new CanvasDocumentSchemaError(
-      `Canvas order contains unknown element ${elementId}`,
-    );
+    throw new CanvasDocumentSchemaError(`Canvas order contains unknown element ${elementId}`);
   }
   elements.sort((left, right) =>
     left.orderKey === right.orderKey
@@ -1037,9 +903,7 @@ export const inspectCanvasDocument = (
   const appStateRecord: Record<string, unknown> = {};
   for (const [key, value] of roots.appState) {
     if (!DURABLE_CANVAS_APP_STATE_KEYS.has(key)) {
-      throw new CanvasDocumentSchemaError(
-        `Canvas appState contains non-durable key ${key}`,
-      );
+      throw new CanvasDocumentSchemaError(`Canvas appState contains non-durable key ${key}`);
     }
     appStateRecord[key] = value;
   }
@@ -1087,13 +951,9 @@ export const canonicalCanvasSceneFingerprint = (
     pageReferences: materialization.pageReferences,
   });
 
-const canvasElementSemanticValue = (
-  element: CanvasElementSnapshot,
-): CanvasElementSnapshot =>
+const canvasElementSemanticValue = (element: CanvasElementSnapshot): CanvasElementSnapshot =>
   Object.fromEntries(
-    Object.entries(element).filter(
-      ([key]) => key !== "version" && key !== "versionNonce",
-    ),
+    Object.entries(element).filter(([key]) => key !== "version" && key !== "versionNonce"),
   ) as CanvasElementSnapshot;
 
 /**
@@ -1119,9 +979,7 @@ export const parseCanvasSceneMaterialization = (input: {
   readonly value: unknown;
 }): CanvasSceneMaterialization => {
   if (!isRecord(input.value)) {
-    throw new CanvasDocumentSchemaError(
-      "Canvas materialization must be an object",
-    );
+    throw new CanvasDocumentSchemaError("Canvas materialization must be an object");
   }
   const value = input.value;
   if (
@@ -1134,9 +992,7 @@ export const parseCanvasSceneMaterialization = (input: {
     typeof value.plainText !== "string" ||
     typeof value.preview !== "string"
   ) {
-    throw new CanvasDocumentSchemaError(
-      "Canvas materialization has invalid field shapes",
-    );
+    throw new CanvasDocumentSchemaError("Canvas materialization has invalid field shapes");
   }
   const envelope = createCanvasDocument({
     documentId: input.documentId,
@@ -1193,26 +1049,21 @@ export const compileCanvasForwardRestorePlan = (input: {
   readonly target: CanvasSceneMaterialization;
   readonly restoreIdentity: string;
 }): CanvasForwardRestorePlan => {
-  const restoreIdentity = requireIdentity(
-    input.restoreIdentity,
-    "Canvas restore identity",
-  );
+  const restoreIdentity = requireIdentity(input.restoreIdentity, "Canvas restore identity");
   const currentById = new Map(
     input.current.elements.map((element) => [element.id as string, element]),
   );
   const targetById = new Map(
     input.target.elements.map((element) => [element.id as string, element]),
   );
-  const elements: CanvasElementSnapshot[] = input.target.elements.map(
-    (target) => {
-      const elementId = target.id as string;
-      return canonicalizeCanvasElement({
-        ...target,
-        version: nextCanvasElementVersion(currentById.get(elementId), target),
-        versionNonce: deterministicVersionNonce(restoreIdentity, elementId),
-      });
-    },
-  );
+  const elements: CanvasElementSnapshot[] = input.target.elements.map((target) => {
+    const elementId = target.id as string;
+    return canonicalizeCanvasElement({
+      ...target,
+      version: nextCanvasElementVersion(currentById.get(elementId), target),
+      versionNonce: deterministicVersionNonce(restoreIdentity, elementId),
+    });
+  });
   for (const current of input.current.elements) {
     const elementId = current.id as string;
     if (targetById.has(elementId)) continue;
@@ -1234,8 +1085,7 @@ export const compileCanvasForwardRestorePlan = (input: {
   return {
     kind: "canvas_forward_restore",
     restoreIdentity,
-    targetSemanticFingerprint:
-      canonicalCanvasSceneSemanticFingerprint(input.target),
+    targetSemanticFingerprint: canonicalCanvasSceneSemanticFingerprint(input.target),
     elements,
     appState,
     files,
@@ -1291,10 +1141,7 @@ export const applyCanvasForwardRestorePlan = (
     }
   }, origin);
   const restored = inspectCanvasDocument(envelope.document).materialization;
-  if (
-    canonicalCanvasSceneSemanticFingerprint(restored) !==
-    plan.targetSemanticFingerprint
-  ) {
+  if (canonicalCanvasSceneSemanticFingerprint(restored) !== plan.targetSemanticFingerprint) {
     throw new CanvasDocumentSchemaError(
       "Canvas forward restore did not reproduce the checkpoint semantics",
     );

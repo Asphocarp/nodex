@@ -10,7 +10,5 @@ export function shouldGrantAppRendererPermission({
   isMainFrame,
 }: AppRendererPermissionRequest): boolean {
   if (permission === "media") return true;
-  return permission === "clipboard-sanitized-write"
-    && webContentsType === "window"
-    && isMainFrame;
+  return permission === "clipboard-sanitized-write" && webContentsType === "window" && isMainFrame;
 }

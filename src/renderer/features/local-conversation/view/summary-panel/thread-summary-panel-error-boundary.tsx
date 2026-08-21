@@ -78,7 +78,9 @@ export function ThreadSummaryPanelRenderErrorFallback({
             className="pointer-events-auto rounded-lg border border-token-border bg-token-main-surface-primary px-4 py-3 text-sm text-token-text-secondary shadow-lg"
             style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}
           >
-            <div className="mb-2 font-medium text-token-text-primary">Summary panel couldn&apos;t render</div>
+            <div className="mb-2 font-medium text-token-text-primary">
+              Summary panel couldn&apos;t render
+            </div>
             <button
               className="inline-flex h-8 items-center justify-center rounded-md border border-token-border px-2 text-sm text-token-text-secondary transition-colors hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
               onClick={onRetry}

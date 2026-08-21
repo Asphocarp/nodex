@@ -98,10 +98,7 @@ function collectSearchableText(blocks: ThreadBlockModel[]): string {
           ? collectSearchableText(block.assistantAfterBlocks)
           : "";
       if (block.type === "agentActivityGroup") {
-        return [
-          block.searchableText,
-          nestedAssistantAfter,
-        ];
+        return [block.searchableText, nestedAssistantAfter];
       }
       if ("entry" in block) {
         return [block.searchableText, nestedAssistantAfter];
@@ -118,10 +115,7 @@ function withSearchUnitKey<TBlock extends ThreadBlockModel | null>(
   searchUnitKey: string,
 ): TBlock {
   if (!block) return block;
-  if (
-    block.type === "agentActivityGroup"
-    || block.type === "assistantActions"
-  ) return block;
+  if (block.type === "agentActivityGroup" || block.type === "assistantActions") return block;
   if (block.type !== "userMessage" && block.type !== "assistantMessage") return block;
 
   const nextBlock = {
@@ -143,10 +137,7 @@ function collectUserMessageSearchBlocks(
 ): ThreadTranscriptBlockModel[] {
   const seenBlockIds = new Set<string>();
   const blocks: ThreadTranscriptBlockModel[] = [];
-  const candidates = [
-    ...buckets.userItems,
-    ...buckets.agentItems.filter(isUserMessageBlock),
-  ];
+  const candidates = [...buckets.userItems, ...buckets.agentItems.filter(isUserMessageBlock)];
 
   for (const block of candidates) {
     if (seenBlockIds.has(block.id)) continue;
@@ -161,14 +152,15 @@ function resolveTimestampMs(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function resolveUserMessageSentAt(turn: CodexConversationTurn | null, index: number): number | null {
+function resolveUserMessageSentAt(
+  turn: CodexConversationTurn | null,
+  index: number,
+): number | null {
   if (index !== 0) return null;
   return resolveTimestampMs(turn?.turnStartedAtMs);
 }
 
-function resolveAssistantMessageSentAt(
-  turn: CodexConversationTurn | null,
-): number | null {
+function resolveAssistantMessageSentAt(turn: CodexConversationTurn | null): number | null {
   return resolveTimestampMs(turn?.finalAssistantStartedAtMs);
 }
 
@@ -189,12 +181,14 @@ function applyUserMessageActions(
         }
       : {}),
     userMessageActions: {
-      canEdit: Boolean(input.canEditTurnUserPrefix)
-        && block.entry.hookFeedback !== true
-        && index === userItems.length - 1,
-      sentAtMs: block.entry.deliveryStatus === "not-sent"
-        ? null
-        : resolveUserMessageSentAt(input.turn, index),
+      canEdit:
+        Boolean(input.canEditTurnUserPrefix) &&
+        block.entry.hookFeedback !== true &&
+        index === userItems.length - 1,
+      sentAtMs:
+        block.entry.deliveryStatus === "not-sent"
+          ? null
+          : resolveUserMessageSentAt(input.turn, index),
     },
   }));
 }
@@ -216,10 +210,7 @@ function buildGeneratedImageGalleryBlock(
     const src = item.generatedImage?.src;
     return src == null ? [] : [{ id: item.itemId, src }];
   });
-  const timestamps = buckets.toolOutputItems.flatMap((item) => [
-    item.createdAt,
-    item.updatedAt,
-  ]);
+  const timestamps = buckets.toolOutputItems.flatMap((item) => [item.createdAt, item.updatedAt]);
   const createdAt = timestamps.length === 0 ? Date.now() : Math.min(...timestamps);
   const updatedAt = timestamps.length === 0 ? createdAt : Math.max(...timestamps);
 
@@ -349,24 +340,24 @@ function buildSearchUnits(input: {
     blockType: "userMessage" as const,
   }));
 
-  const assistantUnits =
-    input.buckets.latestAssistantMessage
-      ? [{
+  const assistantUnits = input.buckets.latestAssistantMessage
+    ? [
+        {
           key: `${input.turnKey}:assistant`,
           turnId: input.turnId,
           turnKey: input.turnKey,
           text: input.buckets.latestAssistantMessage.searchableText.trim(),
           blockType: "assistantMessage" as const,
-        }].filter((unit) => unit.text.length > 0)
-      : [];
+        },
+      ].filter((unit) => unit.text.length > 0)
+    : [];
 
   return [...userUnits, ...assistantUnits];
 }
 
 function hasRenderableAssistantContent(block: ThreadTranscriptBlockModel | null): boolean {
   if (!block || block.type !== "assistantMessage") return false;
-  return block.status === "completed"
-    || (block.entry.markdownText ?? "").trim().length > 0;
+  return block.status === "completed" || (block.entry.markdownText ?? "").trim().length > 0;
 }
 
 function applySubagentCommentaryOwnership(
@@ -400,7 +391,9 @@ function decorateAssistantBlock(
   if (latestAssistantId === null || block.id !== latestAssistantId) return block;
 
   const blockWithSearchKey = withSearchUnitKey(block, assistantSearchUnitKey);
-  const blockWithAfter = applyAssistantAfterBlocks(blockWithSearchKey, input.assistantAfterBlocks ?? []) ?? blockWithSearchKey;
+  const blockWithAfter =
+    applyAssistantAfterBlocks(blockWithSearchKey, input.assistantAfterBlocks ?? []) ??
+    blockWithSearchKey;
   if (!input.includeActions) return blockWithSearchKey;
 
   return applyAssistantMessageActions(blockWithAfter, input) ?? blockWithAfter;
@@ -415,10 +408,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const workedForTiming = input.workedForTiming ?? null;
   const workedDurationMs = input.workedDurationMs ?? null;
   const subagentActivityState = input.subagentActivityState ?? EMPTY_SUBAGENT_ACTIVITY_STATE;
-  const initialBuckets = applySubagentCommentaryOwnership(
-    input.buckets,
-    subagentActivityState,
-  );
+  const initialBuckets = applySubagentCommentaryOwnership(input.buckets, subagentActivityState);
   const isCancelledTurn = input.turn?.status === "interrupted";
   const shouldRenderWorkedForInAgentBody = input.turn?.status === "inProgress";
   let buckets: ThreadTurnRenderBuckets = { ...initialBuckets };
@@ -431,19 +421,14 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     userMessageBlocks: userMessageSearchBlocks,
   });
   const userSearchUnitKeyByBlockId = new Map(
-    userMessageSearchBlocks.map((block, index) => [
-      block.id,
-      `${turnKey}:user:${index}`,
-    ] as const),
+    userMessageSearchBlocks.map((block, index) => [block.id, `${turnKey}:user:${index}`] as const),
   );
-  const assistantSearchUnitKey = searchUnits.find((unit) => unit.blockType === "assistantMessage")?.key
-    ?? `${turnKey}:assistant`;
+  const assistantSearchUnitKey =
+    searchUnits.find((unit) => unit.blockType === "assistantMessage")?.key ??
+    `${turnKey}:assistant`;
   const latestAssistantId = buckets.latestAssistantMessage?.id ?? null;
   const aboveComposerBlocks = resolveAboveComposerBlocks(buckets, input);
-  const turnOwnerHiddenBlockIds = resolveTurnOwnerHiddenBlockIds(
-    buckets,
-    input.isStreamingTurn,
-  );
+  const turnOwnerHiddenBlockIds = resolveTurnOwnerHiddenBlockIds(buckets, input.isStreamingTurn);
   const generatedImageGalleryBlock = buildGeneratedImageGalleryBlock(
     input.turnId,
     turnKey,
@@ -465,8 +450,8 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const nextAgentItems = buckets.agentItems.map((block): ThreadAgentItemModel => {
     if (block.type === "assistantMessage") {
       return decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, {
-          ...input,
-          includeActions: false,
+        ...input,
+        includeActions: false,
       });
     }
     if (block.type === "userMessage") {
@@ -480,9 +465,10 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const nextLatestAssistantMessage =
     nextAssistantItem?.id === latestAssistantId
       ? nextAssistantItem
-      : nextAgentItems.find((block): block is ThreadTranscriptBlockModel =>
-          block.type === "assistantMessage" && block.id === latestAssistantId
-        ) ?? buckets.latestAssistantMessage;
+      : (nextAgentItems.find(
+          (block): block is ThreadTranscriptBlockModel =>
+            block.type === "assistantMessage" && block.id === latestAssistantId,
+        ) ?? buckets.latestAssistantMessage);
   const deferredAssistantActionsBlock =
     nextAssistantItem === null
       ? buildDeferredAssistantActionsBlock(nextLatestAssistantMessage, input)
@@ -495,7 +481,8 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
         withSearchUnitKey(
           block,
           userSearchUnitKeyByBlockId.get(block.id) ?? `${turnKey}:user:${index}`,
-        )),
+        ),
+      ),
       input,
     ),
     assistantItem: nextAssistantItem,
@@ -536,9 +523,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const trailingBlocks: ThreadBlockModel[] = [
     ...(buckets.systemEventItem ? [buckets.systemEventItem] : []),
     ...(buckets.assistantItem ? [buckets.assistantItem] : []),
-    ...(!buckets.assistantItem && generatedImageGalleryBlock
-      ? [generatedImageGalleryBlock]
-      : []),
+    ...(!buckets.assistantItem && generatedImageGalleryBlock ? [generatedImageGalleryBlock] : []),
     ...(deferredAssistantActionsBlock ? [deferredAssistantActionsBlock] : []),
     ...buckets.postAssistantItems,
     ...buckets.mcpServerElicitationItems,
@@ -547,16 +532,19 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     ...buckets.remoteTaskCreatedItems,
     ...buckets.personalityChangedItems,
     ...buckets.forkedFromConversationItems,
-  ].filter((block) => !turnOwnerHiddenBlockIds.has(block.id) && !assistantAfterBlockIds.has(block.id));
+  ].filter(
+    (block) => !turnOwnerHiddenBlockIds.has(block.id) && !assistantAfterBlockIds.has(block.id),
+  );
   const resolvedBlocks = flattenBlocks(leadingBlocks, agentBodyUnits, trailingBlocks);
-  const hasFinalAssistantStarted = (
-    buckets.assistantItem?.type === "assistantMessage"
-    && buckets.assistantItem.entry.assistantPhase === "final_answer"
-    && hasRenderableAssistantContent(buckets.assistantItem)
-  ) || (!input.isStreamingTurn && subagentActivityState.hasActivity);
-  const hasRenderableAgentBodyUnits = hasFinalAssistantStarted
-    && !isCancelledTurn
-    && (agentBodyUnits.length > 0 || subagentActivityState.hasActivity);
+  const hasFinalAssistantStarted =
+    (buckets.assistantItem?.type === "assistantMessage" &&
+      buckets.assistantItem.entry.assistantPhase === "final_answer" &&
+      hasRenderableAssistantContent(buckets.assistantItem)) ||
+    (!input.isStreamingTurn && subagentActivityState.hasActivity);
+  const hasRenderableAgentBodyUnits =
+    hasFinalAssistantStarted &&
+    !isCancelledTurn &&
+    (agentBodyUnits.length > 0 || subagentActivityState.hasActivity);
 
   return {
     turnId: input.turnId,
@@ -580,8 +568,6 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     hasRenderableAgentBodyUnits,
     defaultAgentBodyCollapsed:
       hasRenderableAgentBodyUnits && !subagentActivityState.hasActiveActivity,
-    collapsedMessageCount: countAgentBodyUnits(
-      agentBodyCollapsePresentation.collapsibleUnits,
-    ),
+    collapsedMessageCount: countAgentBodyUnits(agentBodyCollapsePresentation.collapsibleUnits),
   };
 }

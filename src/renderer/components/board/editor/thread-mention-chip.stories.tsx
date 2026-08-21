@@ -41,7 +41,7 @@ function ThreadMentionChipStorySurface({
           value={{
             threads: thread ? { [thread.threadId]: thread } : {},
             resolvingIds: resolving ? new Set([uuid]) : new Set(),
-            resolveThread: async () => (missing ? null : thread ?? null),
+            resolveThread: async () => (missing ? null : (thread ?? null)),
             openThread: () => undefined,
           }}
         >
@@ -60,7 +60,8 @@ const meta = {
     layout: "centered",
     docs: {
       description: {
-        component: "Focused coverage for minimalist NFM thread mentions rendered from `<mention-thread uuid=\"...\" />`.",
+        component:
+          'Focused coverage for minimalist NFM thread mentions rendered from `<mention-thread uuid="..." />`.',
       },
     },
   },
@@ -124,7 +125,8 @@ export const LongTitle: Story = {
     uuid: BASE_THREAD.threadId,
     thread: {
       ...BASE_THREAD,
-      threadName: "A very long thread title that should truncate cleanly inside a minimalist inline mention without shifting surrounding editor text",
+      threadName:
+        "A very long thread title that should truncate cleanly inside a minimalist inline mention without shifting surrounding editor text",
     },
   },
 };

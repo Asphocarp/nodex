@@ -27,23 +27,32 @@ const NIGHTLY_FEEDS = [
   "https://nodex.jyu.app/updates/nightly/x64/appcast.xml",
 ] as const;
 
-const gh = (args: readonly string[]): string => execFileSync("gh", [...args], {
-  encoding: "utf8",
-  stdio: ["ignore", "pipe", "pipe"],
-}).trim();
+const gh = (args: readonly string[]): string =>
+  execFileSync("gh", [...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
-const fetchText = (url: string): string => execFileSync("curl", [
-  "--fail",
-  "--silent",
-  "--show-error",
-  "--connect-timeout", "10",
-  "--max-time", "60",
-  "--retry", "2",
-  url,
-], {
-  encoding: "utf8",
-  stdio: ["ignore", "pipe", "pipe"],
-});
+const fetchText = (url: string): string =>
+  execFileSync(
+    "curl",
+    [
+      "--fail",
+      "--silent",
+      "--show-error",
+      "--connect-timeout",
+      "10",
+      "--max-time",
+      "60",
+      "--retry",
+      "2",
+      url,
+    ],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
 const publishedAtMs = (release: RemoteRelease): number => {
   if (!release.published_at) return Number.NaN;
@@ -86,8 +95,10 @@ export function planNightlyRetention(
 ): NightlyRetentionPlan {
   const keepCount = options.keepCount ?? 20;
   const minAgeDays = options.minAgeDays ?? 14;
-  if (!Number.isSafeInteger(keepCount) || keepCount < 1) throw new Error("keepCount must be positive.");
-  if (!Number.isSafeInteger(minAgeDays) || minAgeDays < 1) throw new Error("minAgeDays must be positive.");
+  if (!Number.isSafeInteger(keepCount) || keepCount < 1)
+    throw new Error("keepCount must be positive.");
+  if (!Number.isSafeInteger(minAgeDays) || minAgeDays < 1)
+    throw new Error("minAgeDays must be positive.");
   const now = options.now ?? new Date();
   if (Number.isNaN(now.valueOf())) throw new Error("Retention clock must be valid.");
   const protectedTags = options.protectedTags ?? new Set<string>();
@@ -139,21 +150,33 @@ const verifyReleaseBundleIndex = (repo: string, release: RemoteRelease): boolean
   const directory = mkdtempSync(join(tmpdir(), "nodex-nightly-retention-"));
   try {
     for (const pattern of ["release-bundle.json", "SHA256SUMS"]) {
-      gh(["release", "download", release.tag_name, "--repo", repo, "--pattern", pattern, "--dir", directory]);
+      gh([
+        "release",
+        "download",
+        release.tag_name,
+        "--repo",
+        repo,
+        "--pattern",
+        pattern,
+        "--dir",
+        directory,
+      ]);
     }
     const bundlePath = join(directory, "release-bundle.json");
     const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
-    if (bundle.releaseIdentity.channel !== "nightly" || bundle.tag !== release.tag_name) return false;
+    if (bundle.releaseIdentity.channel !== "nightly" || bundle.tag !== release.tag_name)
+      return false;
     const expected = remoteReleaseAssetIdentities(bundlePath);
     const actual = new Map((release.assets ?? []).map((asset) => [asset.name, asset]));
     if (actual.size !== expected.size) return false;
     for (const [name, identity] of expected) {
       const asset = actual.get(name);
       if (
-        !asset
-        || asset.size !== identity.bytes
-        || asset.digest?.replace(/^sha256:/u, "") !== identity.sha256
-      ) return false;
+        !asset ||
+        asset.size !== identity.bytes ||
+        asset.digest?.replace(/^sha256:/u, "") !== identity.sha256
+      )
+        return false;
     }
     return true;
   } catch {
@@ -169,9 +192,11 @@ export function runNightlyRetention(options: {
   readonly minAgeDays: number;
   readonly repo: string;
 }): NightlyRetentionPlan {
-  const releases = (JSON.parse(gh([
-    "api", `repos/${options.repo}/releases?per_page=100`, "--paginate", "--slurp",
-  ])) as RemoteRelease[][]).flat();
+  const releases = (
+    JSON.parse(
+      gh(["api", `repos/${options.repo}/releases?per_page=100`, "--paginate", "--slurp"]),
+    ) as RemoteRelease[][]
+  ).flat();
   const nightlies = releases.filter(isStrictNightly);
   if (nightlies.length === 0) {
     return planNightlyRetention([], {
@@ -187,10 +212,12 @@ export function runNightlyRetention(options: {
     verifiedTags: new Set(nightlies.map(({ tag_name }) => tag_name)),
   });
   const candidateTags = new Set(preliminary.delete.map(({ tag }) => tag));
-  const verifiedTags = new Set(nightlies
-    .filter((release) => candidateTags.has(release.tag_name))
-    .filter((release) => verifyReleaseBundleIndex(options.repo, release))
-    .map(({ tag_name }) => tag_name));
+  const verifiedTags = new Set(
+    nightlies
+      .filter((release) => candidateTags.has(release.tag_name))
+      .filter((release) => verifyReleaseBundleIndex(options.repo, release))
+      .map(({ tag_name }) => tag_name),
+  );
   const plan = planNightlyRetention(releases, {
     keepCount: options.keepCount,
     minAgeDays: options.minAgeDays,

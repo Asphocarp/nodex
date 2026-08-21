@@ -4,9 +4,7 @@ import type {
 } from "@/lib/database-view-render-model";
 import { projectDataSourcePageRowToDatabaseViewRenderRow } from "@/lib/database-view-render-model";
 import type { DataSourcePropertyRecordV2 } from "../../../../shared/database-module-v2";
-import type {
-  DatabaseListProjectionRowSnapshot,
-} from "../../../../shared/database-views";
+import type { DatabaseListProjectionRowSnapshot } from "../../../../shared/database-views";
 
 export const DATABASE_LIST_GROUP_HEIGHT = 38;
 export const DATABASE_LIST_SUBGROUP_HEIGHT = 32;
@@ -22,9 +20,8 @@ export const resolveDatabaseListAuthority = (input: {
   readonly coreAuthorized: boolean;
   readonly coreRows: readonly DatabaseListProjectionRow[];
   readonly clientRows: readonly DatabaseListProjectionRow[];
-}): readonly DatabaseListProjectionRow[] => input.coreAuthorized
-  ? input.coreRows
-  : input.clientRows;
+}): readonly DatabaseListProjectionRow[] =>
+  input.coreAuthorized ? input.coreRows : input.clientRows;
 
 export const databaseListMountedActiveOccurrenceKey = (input: {
   readonly rows: readonly DatabaseListProjectionRow[];
@@ -33,9 +30,7 @@ export const databaseListMountedActiveOccurrenceKey = (input: {
   readonly activeOccurrenceKey: string | null;
 }): string | null => {
   const mountedRows = input.rows.slice(input.startIndex, input.endIndex);
-  if (mountedRows.some((row) =>
-    row.kind === "page" && row.key === input.activeOccurrenceKey
-  )) {
+  if (mountedRows.some((row) => row.kind === "page" && row.key === input.activeOccurrenceKey)) {
     return input.activeOccurrenceKey;
   }
   return mountedRows.find((row) => row.kind === "page")?.key ?? null;
@@ -98,10 +93,9 @@ export const databaseListOccurrenceKey = (input: {
   readonly ancestorPageIds: readonly string[];
   readonly pageId: string;
 }): string =>
-  `ITEM_${pathKey([input.groupKey, input.subgroupKey])}_${[
-    ...input.ancestorPageIds,
-    input.pageId,
-  ].map(encodeURIComponent).join("/")}`;
+  `ITEM_${pathKey([input.groupKey, input.subgroupKey])}_${[...input.ancestorPageIds, input.pageId]
+    .map(encodeURIComponent)
+    .join("/")}`;
 
 interface NestedRow {
   readonly key: string;
@@ -121,9 +115,7 @@ const nestedRows = (
   groupKey: string | null,
   subgroupKey: string | null,
 ): readonly NestedRow[] => {
-  const visibleRows = showSubPages
-    ? rows
-    : rows.filter((row) => !row.parentPageId);
+  const visibleRows = showSubPages ? rows : rows.filter((row) => !row.parentPageId);
   if (!nested) {
     return visibleRows.map((row) => ({
       key: databaseListOccurrenceKey({
@@ -310,15 +302,14 @@ export const buildDatabaseListProjection = (input: {
   return projection;
 };
 
-const coreGroupPathKey = (groupPath: readonly (string | null)[]): string =>
-  pathKey(groupPath);
+const coreGroupPathKey = (groupPath: readonly (string | null)[]): string => pathKey(groupPath);
 
 export interface CoreDatabaseListProjection {
   readonly rows: readonly DatabaseListProjectionRow[];
-  readonly authorityByPageId: ReadonlyMap<string, Extract<
-    DatabaseListProjectionRowSnapshot,
-    { readonly kind: "page" }
-  >["row"]>;
+  readonly authorityByPageId: ReadonlyMap<
+    string,
+    Extract<DatabaseListProjectionRowSnapshot, { readonly kind: "page" }>["row"]
+  >;
 }
 
 /**
@@ -336,30 +327,32 @@ export const projectCoreDatabaseListRows = (input: {
     authority: Extract<DatabaseListProjectionRowSnapshot, { readonly kind: "page" }>["row"],
   ) => boolean;
 }): CoreDatabaseListProjection => {
-  const pageSnapshots = input.rows.filter((row): row is Extract<
-    DatabaseListProjectionRowSnapshot,
-    { readonly kind: "page" }
-  > => row.kind === "page");
-  const renderRows = new Map(pageSnapshots.map((snapshot) => [
-    snapshot.occurrenceKey,
-    projectDataSourcePageRowToDatabaseViewRenderRow(
-      snapshot.row,
-      input.properties,
+  const pageSnapshots = input.rows.filter(
+    (row): row is Extract<DatabaseListProjectionRowSnapshot, { readonly kind: "page" }> =>
+      row.kind === "page",
+  );
+  const renderRows = new Map(
+    pageSnapshots.map(
+      (snapshot) =>
+        [
+          snapshot.occurrenceKey,
+          projectDataSourcePageRowToDatabaseViewRenderRow(snapshot.row, input.properties),
+        ] as const,
     ),
-  ] as const));
-  const authorityByPageId = new Map(pageSnapshots.map((snapshot) => [
-    snapshot.row.page.pageId,
-    snapshot.row,
-  ] as const));
+  );
+  const authorityByPageId = new Map(
+    pageSnapshots.map((snapshot) => [snapshot.row.page.pageId, snapshot.row] as const),
+  );
 
   const visiblePageKeys = new Set<string>();
   if (!input.matchesPage) {
     for (const page of pageSnapshots) visiblePageKeys.add(page.occurrenceKey);
   } else {
-    const pageByPathAndId = new Map(pageSnapshots.map((page) => [
-      `${coreGroupPathKey(page.groupPath)}:${page.row.page.pageId}`,
-      page,
-    ] as const));
+    const pageByPathAndId = new Map(
+      pageSnapshots.map(
+        (page) => [`${coreGroupPathKey(page.groupPath)}:${page.row.page.pageId}`, page] as const,
+      ),
+    );
     for (const page of pageSnapshots) {
       const renderRow = renderRows.get(page.occurrenceKey)!;
       if (!input.matchesPage(renderRow, page.row)) continue;
@@ -373,25 +366,22 @@ export const projectCoreDatabaseListRows = (input: {
     }
   }
 
-  const visiblePathKeys = new Set(pageSnapshots.flatMap((page) =>
-    visiblePageKeys.has(page.occurrenceKey)
-      ? [coreGroupPathKey(page.groupPath)]
-      : []
-  ));
-  const visibleGroupKeys = new Set(pageSnapshots.flatMap((page) =>
-    visiblePageKeys.has(page.occurrenceKey)
-      ? [pathKey([page.groupPath[0] ?? null])]
-      : []
-  ));
+  const visiblePathKeys = new Set(
+    pageSnapshots.flatMap((page) =>
+      visiblePageKeys.has(page.occurrenceKey) ? [coreGroupPathKey(page.groupPath)] : [],
+    ),
+  );
+  const visibleGroupKeys = new Set(
+    pageSnapshots.flatMap((page) =>
+      visiblePageKeys.has(page.occurrenceKey) ? [pathKey([page.groupPath[0] ?? null])] : [],
+    ),
+  );
   const projected: DatabaseListProjectionRow[] = [];
   let currentGroupCollapsed = false;
   for (const snapshot of input.rows) {
     if (snapshot.kind === "group") {
       currentGroupCollapsed = input.collapsedOccurrenceKeys.has(snapshot.occurrenceKey);
-      if (
-        input.matchesPage
-        && !visibleGroupKeys.has(pathKey([snapshot.groupKey]))
-      ) {
+      if (input.matchesPage && !visibleGroupKeys.has(pathKey([snapshot.groupKey]))) {
         continue;
       }
       projected.push({
@@ -408,11 +398,8 @@ export const projectCoreDatabaseListRows = (input: {
     if (currentGroupCollapsed) continue;
     if (snapshot.kind === "subgroup") {
       if (
-        input.matchesPage
-        && !visiblePathKeys.has(coreGroupPathKey([
-          snapshot.groupKey,
-          snapshot.subgroupKey,
-        ]))
+        input.matchesPage &&
+        !visiblePathKeys.has(coreGroupPathKey([snapshot.groupKey, snapshot.subgroupKey]))
       ) {
         continue;
       }
@@ -500,31 +487,34 @@ export const applyOptimisticDatabaseListDrop = (input: {
 }): readonly DatabaseListProjectionRow[] => {
   const target = input.rows.find((row) => row.key === input.targetOccurrenceKey);
   if (!target) return input.rows;
-  const movedRootRows = input.rows.filter((row): row is DatabaseListPageRow =>
-    row.kind === "page" && input.occurrenceKeys.has(row.key)
+  const movedRootRows = input.rows.filter(
+    (row): row is DatabaseListPageRow => row.kind === "page" && input.occurrenceKeys.has(row.key),
   );
   if (movedRootRows.length === 0) return input.rows;
-  const movedEntries = movedRootRows.flatMap((root) => {
-    const rootIndex = input.rows.findIndex((row) => row.key === root.key);
-    if (rootIndex < 0) return [];
-    return input.rows
-      .slice(rootIndex, rootIndex + root.subtreeOccurrenceCount)
-      .flatMap((row) => row.kind === "page" ? [{ row, root }] : []);
-  }).filter((entry, index, entries) =>
-    entries.findIndex((candidate) => candidate.row.key === entry.row.key) === index
-  );
+  const movedEntries = movedRootRows
+    .flatMap((root) => {
+      const rootIndex = input.rows.findIndex((row) => row.key === root.key);
+      if (rootIndex < 0) return [];
+      return input.rows
+        .slice(rootIndex, rootIndex + root.subtreeOccurrenceCount)
+        .flatMap((row) => (row.kind === "page" ? [{ row, root }] : []));
+    })
+    .filter(
+      (entry, index, entries) =>
+        entries.findIndex((candidate) => candidate.row.key === entry.row.key) === index,
+    );
   const movedRows = movedEntries.map((entry) => entry.row);
   const movedKeys = new Set(movedRows.map((row) => row.key));
   const remaining = input.rows.filter((row) => !movedKeys.has(row.key));
 
   const targetPage = target.kind === "page" ? target : null;
-  const normalizedParentAfter = input.position === "after"
-    && targetPage?.hasChildren === true;
-  const nextAncestors = (input.position === "nest" || normalizedParentAfter) && targetPage
-    ? [...targetPage.ancestorPageIds, targetPage.pageId]
-    : input.position === "before" || input.position === "after"
-      ? targetPage?.ancestorPageIds ?? []
-      : [];
+  const normalizedParentAfter = input.position === "after" && targetPage?.hasChildren === true;
+  const nextAncestors =
+    (input.position === "nest" || normalizedParentAfter) && targetPage
+      ? [...targetPage.ancestorPageIds, targetPage.pageId]
+      : input.position === "before" || input.position === "after"
+        ? (targetPage?.ancestorPageIds ?? [])
+        : [];
   const rootDepth = Math.min(nextAncestors.length, DATABASE_LIST_MAX_NESTING_DEPTH);
   const adjustedRows = movedEntries.map(({ row, root }): DatabaseListPageRow => {
     const originalRootDepth = root.depth;
@@ -535,10 +525,7 @@ export const applyOptimisticDatabaseListDrop = (input: {
       groupKey: input.groupKey,
       subgroupKey: input.subgroupKey,
       ancestorPageIds: [...nextAncestors, ...relativeAncestors],
-      depth: Math.min(
-        rootDepth + relativeDepth,
-        DATABASE_LIST_MAX_NESTING_DEPTH,
-      ),
+      depth: Math.min(rootDepth + relativeDepth, DATABASE_LIST_MAX_NESTING_DEPTH),
       firstInGroup: false,
       lastInGroup: false,
     };
@@ -552,10 +539,7 @@ export const applyOptimisticDatabaseListDrop = (input: {
     insertionIndex += 1;
     while (insertionIndex < remaining.length) {
       const candidate = remaining[insertionIndex];
-      if (
-        candidate?.kind !== "page"
-        || !candidate.ancestorPageIds.includes(targetPage.pageId)
-      ) {
+      if (candidate?.kind !== "page" || !candidate.ancestorPageIds.includes(targetPage.pageId)) {
         break;
       }
       insertionIndex += 1;
@@ -564,10 +548,7 @@ export const applyOptimisticDatabaseListDrop = (input: {
     insertionIndex += 1;
     while (insertionIndex < remaining.length) {
       const candidate = remaining[insertionIndex];
-      if (
-        candidate?.kind !== "page"
-        || !candidate.ancestorPageIds.includes(targetPage.pageId)
-      ) {
+      if (candidate?.kind !== "page" || !candidate.ancestorPageIds.includes(targetPage.pageId)) {
         break;
       }
       insertionIndex += 1;
@@ -578,9 +559,8 @@ export const applyOptimisticDatabaseListDrop = (input: {
       const candidate = remaining[insertionIndex];
       if (candidate?.kind === "group") break;
       if (
-        candidate?.kind === "subgroup"
-        && (candidate.groupKey !== input.groupKey
-          || candidate.subgroupKey !== input.subgroupKey)
+        candidate?.kind === "subgroup" &&
+        (candidate.groupKey !== input.groupKey || candidate.subgroupKey !== input.subgroupKey)
       ) {
         break;
       }
@@ -607,13 +587,15 @@ export const databaseListProjectionPlacementEquals = (
     const candidate = right[index];
     if (!candidate || row.kind !== candidate.kind || row.key !== candidate.key) return false;
     if (row.kind !== "page" || candidate.kind !== "page") return true;
-    return row.groupKey === candidate.groupKey
-      && row.subgroupKey === candidate.subgroupKey
-      && row.depth === candidate.depth
-      && row.ancestorPageIds.length === candidate.ancestorPageIds.length
-      && row.ancestorPageIds.every(
+    return (
+      row.groupKey === candidate.groupKey &&
+      row.subgroupKey === candidate.subgroupKey &&
+      row.depth === candidate.depth &&
+      row.ancestorPageIds.length === candidate.ancestorPageIds.length &&
+      row.ancestorPageIds.every(
         (pageId, ancestorIndex) => pageId === candidate.ancestorPageIds[ancestorIndex],
-      );
+      )
+    );
   });
 };
 
@@ -709,10 +691,7 @@ export const computeDatabaseListVirtualWindow = (
   }
   const totalHeight = offsets.at(-1) ?? 0;
   const startOffset = Math.max(0, scrollTop - overscan);
-  const endOffset = Math.min(
-    totalHeight,
-    scrollTop + Math.max(0, viewportHeight) + overscan,
-  );
+  const endOffset = Math.min(totalHeight, scrollTop + Math.max(0, viewportHeight) + overscan);
   const startIndex = Math.max(0, lowerBound(offsets, startOffset) - 1);
   const endIndex = Math.min(rows.length, lowerBound(offsets, endOffset) + 1);
   return {
@@ -740,9 +719,8 @@ export const emptyDatabaseListSelection = (): DatabaseListSelectionState => ({
   activeOccurrenceKey: null,
 });
 
-const selectableKeys = (
-  rows: readonly DatabaseListProjectionRow[],
-): readonly string[] => rows.flatMap((row) => row.kind === "page" ? [row.key] : []);
+const selectableKeys = (rows: readonly DatabaseListProjectionRow[]): readonly string[] =>
+  rows.flatMap((row) => (row.kind === "page" ? [row.key] : []));
 
 export const selectDatabaseListOccurrence = (input: {
   readonly state: DatabaseListSelectionState;
@@ -810,9 +788,12 @@ export const moveDatabaseListActiveOccurrence = (input: {
   const activeIndex = input.state.activeOccurrenceKey
     ? keys.indexOf(input.state.activeOccurrenceKey)
     : -1;
-  const nextIndex = activeIndex < 0
-    ? input.direction > 0 ? 0 : keys.length - 1
-    : Math.max(0, Math.min(keys.length - 1, activeIndex + input.direction));
+  const nextIndex =
+    activeIndex < 0
+      ? input.direction > 0
+        ? 0
+        : keys.length - 1
+      : Math.max(0, Math.min(keys.length - 1, activeIndex + input.direction));
   const occurrenceKey = keys[nextIndex]!;
   if (input.extendSelection) {
     return selectDatabaseListOccurrence({
@@ -861,21 +842,20 @@ export const moveDatabaseListActiveOccurrenceToBoundary = (input: {
 export const isDatabaseListOccurrenceSelected = (
   state: DatabaseListSelectionState,
   occurrenceKey: string,
-): boolean => state.allMatching
-  ? !state.excludedOccurrenceKeys.has(occurrenceKey)
-  : state.selectedOccurrenceKeys.has(occurrenceKey);
+): boolean =>
+  state.allMatching
+    ? !state.excludedOccurrenceKeys.has(occurrenceKey)
+    : state.selectedOccurrenceKeys.has(occurrenceKey);
 
-export const selectAllDatabaseListOccurrences = (
-  input: {
-    readonly state: DatabaseListSelectionState;
-    readonly rows: readonly DatabaseListProjectionRow[];
-  },
-): DatabaseListSelectionState => {
+export const selectAllDatabaseListOccurrences = (input: {
+  readonly state: DatabaseListSelectionState;
+  readonly rows: readonly DatabaseListProjectionRow[];
+}): DatabaseListSelectionState => {
   const keys = selectableKeys(input.rows);
-  const activeOccurrenceKey = input.state.activeOccurrenceKey
-    && keys.includes(input.state.activeOccurrenceKey)
-    ? input.state.activeOccurrenceKey
-    : keys[0] ?? null;
+  const activeOccurrenceKey =
+    input.state.activeOccurrenceKey && keys.includes(input.state.activeOccurrenceKey)
+      ? input.state.activeOccurrenceKey
+      : (keys[0] ?? null);
   return {
     selectedOccurrenceKeys: new Set(),
     allMatching: true,
@@ -888,10 +868,12 @@ export const selectAllDatabaseListOccurrences = (
 export const selectedDatabaseListPageIds = (
   rows: readonly DatabaseListProjectionRow[],
   state: DatabaseListSelectionState,
-): ReadonlySet<string> => new Set(rows.flatMap((row) =>
-  row.kind === "page" && isDatabaseListOccurrenceSelected(state, row.key)
-    ? [row.pageId]
-    : []));
+): ReadonlySet<string> =>
+  new Set(
+    rows.flatMap((row) =>
+      row.kind === "page" && isDatabaseListOccurrenceSelected(state, row.key) ? [row.pageId] : [],
+    ),
+  );
 
 export const syncDatabaseListSelection = (
   state: DatabaseListSelectionState,
@@ -901,18 +883,16 @@ export const syncDatabaseListSelection = (
   const valid = new Set(selectableKeys(rows));
   const nextKeys = selectableKeys(rows);
   const previousKeys = selectableKeys(previousRows);
-  const selected = new Set(
-    [...state.selectedOccurrenceKeys].filter((key) => valid.has(key)),
-  );
+  const selected = new Set([...state.selectedOccurrenceKeys].filter((key) => valid.has(key)));
   const previousActiveIndex = state.activeOccurrenceKey
     ? previousKeys.indexOf(state.activeOccurrenceKey)
     : -1;
-  const fallbackActiveKey = state.activeOccurrenceKey && nextKeys.length > 0
-    ? nextKeys[Math.min(
-        previousActiveIndex < 0 ? 0 : previousActiveIndex,
-        nextKeys.length - 1,
-      )] ?? null
-    : null;
+  const fallbackActiveKey =
+    state.activeOccurrenceKey && nextKeys.length > 0
+      ? (nextKeys[
+          Math.min(previousActiveIndex < 0 ? 0 : previousActiveIndex, nextKeys.length - 1)
+        ] ?? null)
+      : null;
   const anchorOccurrenceKey =
     state.anchorOccurrenceKey && valid.has(state.anchorOccurrenceKey)
       ? state.anchorOccurrenceKey
@@ -921,12 +901,13 @@ export const syncDatabaseListSelection = (
     state.activeOccurrenceKey && valid.has(state.activeOccurrenceKey)
       ? state.activeOccurrenceKey
       : fallbackActiveKey;
-  const selectionUnchanged = selected.size === state.selectedOccurrenceKeys.size
-    && [...selected].every((key) => state.selectedOccurrenceKeys.has(key));
+  const selectionUnchanged =
+    selected.size === state.selectedOccurrenceKeys.size &&
+    [...selected].every((key) => state.selectedOccurrenceKeys.has(key));
   if (
-    selectionUnchanged
-    && anchorOccurrenceKey === state.anchorOccurrenceKey
-    && activeOccurrenceKey === state.activeOccurrenceKey
+    selectionUnchanged &&
+    anchorOccurrenceKey === state.anchorOccurrenceKey &&
+    activeOccurrenceKey === state.activeOccurrenceKey
   ) {
     return state;
   }

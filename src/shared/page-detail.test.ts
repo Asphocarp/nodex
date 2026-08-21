@@ -92,30 +92,27 @@ const memberResult = (): PageDetailResult => ({
         createdAt: timestamp,
         updatedAt: timestamp,
       },
-      properties: [{
-        propertyId: statusPropertyId,
-        dataSourceId,
-        name: "Status",
-        schema: { kind: "select" },
-        capabilities: {
-          filterOperators: [
-            "equals",
-            "not_equals",
-            "is_empty",
-            "is_not_empty",
-          ],
-          sortable: true,
-          groupable: true,
+      properties: [
+        {
+          propertyId: statusPropertyId,
+          dataSourceId,
+          name: "Status",
+          schema: { kind: "select" },
+          capabilities: {
+            filterOperators: ["equals", "not_equals", "is_empty", "is_not_empty"],
+            sortable: true,
+            groupable: true,
+          },
+          valueType: "select",
+          config: {},
+          optionCount: 1,
+          rankKey: "a0",
+          lifecycle: "active",
+          revision: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
         },
-        valueType: "select",
-        config: {},
-        optionCount: 1,
-        rankKey: "a0",
-        lifecycle: "active",
-        revision: 1,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      }],
+      ],
       values: {
         status: {
           propertyId: statusPropertyId,
@@ -207,8 +204,6 @@ describe("Page Detail contract", () => {
       revision: 1,
     };
 
-    expect(() => parsePageDetailResult(result)).toThrow(
-      PageDetailContractError,
-    );
+    expect(() => parsePageDetailResult(result)).toThrow(PageDetailContractError);
   });
 });

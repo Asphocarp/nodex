@@ -34,19 +34,21 @@ describe("packaged native runtime verification", () => {
 
     expect(() => assertContentAddressedStoreMigrationBackup(backupPath)).not.toThrow();
     fs.appendFileSync(backupPath, "tampered");
-    expect(() => assertContentAddressedStoreMigrationBackup(backupPath))
-      .toThrow("digest does not match its filename");
+    expect(() => assertContentAddressedStoreMigrationBackup(backupPath)).toThrow(
+      "digest does not match its filename",
+    );
   });
 
   test("uses the one Project returned by fresh-Profile bootstrap", () => {
-    expect(selectPackagedSmokeProjectId([{ id: "019c-generated-project" }]))
-      .toBe("019c-generated-project");
-    expect(() => selectPackagedSmokeProjectId([]))
-      .toThrow("expected one bootstrapped Project, found 0");
-    expect(() => selectPackagedSmokeProjectId([
-      { id: "project-one" },
-      { id: "project-two" },
-    ])).toThrow("expected one bootstrapped Project, found 2");
+    expect(selectPackagedSmokeProjectId([{ id: "019c-generated-project" }])).toBe(
+      "019c-generated-project",
+    );
+    expect(() => selectPackagedSmokeProjectId([])).toThrow(
+      "expected one bootstrapped Project, found 0",
+    );
+    expect(() =>
+      selectPackagedSmokeProjectId([{ id: "project-one" }, { id: "project-two" }]),
+    ).toThrow("expected one bootstrapped Project, found 2");
   });
 
   test("explicitly drains the Core held by the bootstrap client", async () => {
@@ -56,18 +58,28 @@ describe("packaged native runtime verification", () => {
     fs.writeFileSync(descriptor, "{}\n");
     let shutdownCalls = 0;
 
-    await expect(shutdownPackagedCore({
-      shutdown: async () => {
-        shutdownCalls += 1;
-        fs.rmSync(descriptor);
-        return { status: "draining" };
-      },
-    }, descriptor)).resolves.toBeUndefined();
+    await expect(
+      shutdownPackagedCore(
+        {
+          shutdown: async () => {
+            shutdownCalls += 1;
+            fs.rmSync(descriptor);
+            return { status: "draining" };
+          },
+        },
+        descriptor,
+      ),
+    ).resolves.toBeUndefined();
 
     expect(shutdownCalls).toBe(1);
-    await expect(shutdownPackagedCore({
-      shutdown: async () => ({ status: "busy" }),
-    }, descriptor)).rejects.toThrow("rejected smoke-test shutdown with busy");
+    await expect(
+      shutdownPackagedCore(
+        {
+          shutdown: async () => ({ status: "busy" }),
+        },
+        descriptor,
+      ),
+    ).rejects.toThrow("rejected smoke-test shutdown with busy");
   });
 
   test("rejects the obsolete nested Agent runtime even when canonical resources exist", () => {
@@ -75,8 +87,9 @@ describe("packaged native runtime verification", () => {
     temporaryDirectories.push(directory);
     fs.mkdirSync(path.join(directory, "Resources", "agent-runtime"), { recursive: true });
 
-    expect(() => assertLegacyPackagedRuntimePathsAbsent(directory))
-      .toThrow("obsolete duplicate path");
+    expect(() => assertLegacyPackagedRuntimePathsAbsent(directory)).toThrow(
+      "obsolete duplicate path",
+    );
   });
 
   test("removes Core search caches with read-only directories", () => {

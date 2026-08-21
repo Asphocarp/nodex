@@ -5,11 +5,7 @@ export const MCP_APP_DEFAULT_HEIGHT = 240;
 export const MCP_APP_MIN_HEIGHT = 200;
 export const MCP_APP_MAX_HEIGHT = 720;
 
-const HTML_MIME_TYPES = new Set([
-  "text/html",
-  "text/html;profile=mcp-app",
-  "text/html+skybridge",
-]);
+const HTML_MIME_TYPES = new Set(["text/html", "text/html;profile=mcp-app", "text/html+skybridge"]);
 const DIL_MIME_TYPES = new Set(["text/x-dil;profile=mcp-app"]);
 const UNSAFE_CSP_DOMAIN_CHARACTER_PATTERN = /[\s"';]/u;
 
@@ -106,9 +102,7 @@ function readBooleanMeta(meta: unknown, keys: readonly string[]): boolean | null
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost"
-    || hostname === "127.0.0.1"
-    || hostname === "[::1]";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
 export function normalizeMcpCspDomain(
@@ -121,21 +115,18 @@ export function normalizeMcpCspDomain(
   if (value === "blob:" || value === "data:") return value;
 
   try {
-    const wildcardNormalized = value.replace(
-      /^([a-z][a-z0-9+.-]*:\/\/)?%2a(?=\.)/iu,
-      "$1*",
-    );
+    const wildcardNormalized = value.replace(/^([a-z][a-z0-9+.-]*:\/\/)?%2a(?=\.)/iu, "$1*");
     const url = new URL(
       /^[a-z][a-z0-9+.-]*:\/\//iu.test(wildcardNormalized)
         ? wildcardNormalized
         : `https://${wildcardNormalized}`,
     );
-    const isSecureWeb = url.protocol === "https:"
-      || (options.kind === "connect" && url.protocol === "wss:");
-    const isLocalDevelopment = options.allowLocalDevelopment === true
-      && isLoopbackHostname(url.hostname)
-      && (url.protocol === "http:"
-        || (options.kind === "connect" && url.protocol === "ws:"));
+    const isSecureWeb =
+      url.protocol === "https:" || (options.kind === "connect" && url.protocol === "wss:");
+    const isLocalDevelopment =
+      options.allowLocalDevelopment === true &&
+      isLoopbackHostname(url.hostname) &&
+      (url.protocol === "http:" || (options.kind === "connect" && url.protocol === "ws:"));
 
     if (!isSecureWeb && !isLocalDevelopment) return null;
     if (url.username || url.password) return null;
@@ -151,10 +142,7 @@ export function normalizeMcpCspDomain(
   }
 }
 
-function normalizeDomainList(
-  value: unknown,
-  options: NormalizeMcpCspDomainOptions,
-): string[] {
+function normalizeDomainList(value: unknown, options: NormalizeMcpCspDomainOptions): string[] {
   if (!Array.isArray(value)) return [];
   const result: string[] = [];
   const seen = new Set<string>();
@@ -176,8 +164,7 @@ function readCspDefinitions(meta: unknown): {
 } {
   const record = asRecord(meta);
   return {
-    mcpAppCsp: asRecord(record?.["ui.csp"])
-      ?? asRecord(asRecord(record?.ui)?.csp),
+    mcpAppCsp: asRecord(record?.["ui.csp"]) ?? asRecord(asRecord(record?.ui)?.csp),
     openAiWidgetCsp: asRecord(record?.["openai/widgetCSP"]),
   };
 }
@@ -185,40 +172,33 @@ function readCspDefinitions(meta: unknown): {
 function resolveCspMeta(meta: unknown, fallbackMeta?: unknown): McpWidgetCsp {
   const primary = readCspDefinitions(meta);
   const fallback = readCspDefinitions(fallbackMeta);
-  const definitions = primary.mcpAppCsp || primary.openAiWidgetCsp
-    ? primary
-    : fallback;
+  const definitions = primary.mcpAppCsp || primary.openAiWidgetCsp ? primary : fallback;
   const mcpAppCsp = definitions.mcpAppCsp;
   const openAiWidgetCsp = definitions.openAiWidgetCsp;
 
   const connectDomains = normalizeDomainList(
-    mcpAppCsp?.connectDomains
-      ?? openAiWidgetCsp?.connectDomains
-      ?? openAiWidgetCsp?.connect_domains,
+    mcpAppCsp?.connectDomains ??
+      openAiWidgetCsp?.connectDomains ??
+      openAiWidgetCsp?.connect_domains,
     { kind: "connect" },
   );
   const declaredResourceDomains = normalizeDomainList(
-    mcpAppCsp?.resourceDomains
-      ?? openAiWidgetCsp?.resourceDomains
-      ?? openAiWidgetCsp?.resource_domains,
+    mcpAppCsp?.resourceDomains ??
+      openAiWidgetCsp?.resourceDomains ??
+      openAiWidgetCsp?.resource_domains,
     { kind: "resource" },
   );
   const frameDomains = normalizeDomainList(
-    mcpAppCsp?.frameDomains
-      ?? openAiWidgetCsp?.frameDomains
-      ?? openAiWidgetCsp?.frame_domains,
+    mcpAppCsp?.frameDomains ?? openAiWidgetCsp?.frameDomains ?? openAiWidgetCsp?.frame_domains,
     { kind: "frame" },
   );
   const baseUriDomains = normalizeDomainList(
-    mcpAppCsp?.baseUriDomains
-      ?? openAiWidgetCsp?.baseUriDomains
-      ?? openAiWidgetCsp?.base_uri_domains,
+    mcpAppCsp?.baseUriDomains ??
+      openAiWidgetCsp?.baseUriDomains ??
+      openAiWidgetCsp?.base_uri_domains,
     { kind: "base" },
   );
-  const combinedConnectDomains = [
-    ...connectDomains,
-    ...declaredResourceDomains,
-  ];
+  const combinedConnectDomains = [...connectDomains, ...declaredResourceDomains];
 
   return {
     baseUriDomains,
@@ -232,8 +212,7 @@ function resolveCspMeta(meta: unknown, fallbackMeta?: unknown): McpWidgetCsp {
 
 function permissionRecord(meta: unknown): Record<string, unknown> | null {
   const record = asRecord(meta);
-  return asRecord(record?.["ui.permissions"])
-    ?? asRecord(asRecord(record?.ui)?.permissions);
+  return asRecord(record?.["ui.permissions"]) ?? asRecord(asRecord(record?.ui)?.permissions);
 }
 
 function readRequestedPermissions(
@@ -242,12 +221,11 @@ function readRequestedPermissions(
 ): McpWidgetRequestedPermissions {
   const permissions = permissionRecord(meta);
   const fallback = permissionRecord(fallbackMeta);
-  const read = (camelCase: string, snakeCase = camelCase): boolean => (
-    permissions?.[camelCase] === true
-    || permissions?.[snakeCase] === true
-    || fallback?.[camelCase] === true
-    || fallback?.[snakeCase] === true
-  );
+  const read = (camelCase: string, snakeCase = camelCase): boolean =>
+    permissions?.[camelCase] === true ||
+    permissions?.[snakeCase] === true ||
+    fallback?.[camelCase] === true ||
+    fallback?.[snakeCase] === true;
 
   return {
     camera: read("camera"),
@@ -257,10 +235,7 @@ function readRequestedPermissions(
   };
 }
 
-export function resolveMcpWidgetMetadata(
-  meta: unknown,
-  fallbackMeta?: unknown,
-): McpWidgetMetadata {
+export function resolveMcpWidgetMetadata(meta: unknown, fallbackMeta?: unknown): McpWidgetMetadata {
   const primary = asRecord(meta);
   const fallback = asRecord(fallbackMeta);
   const readFromPrimaryOrFallback = <Value>(
@@ -269,26 +244,37 @@ export function resolveMcpWidgetMetadata(
 
   return {
     domain: readFromPrimaryOrFallback((value) =>
-      readStringMeta(value, ["ui.domain", "ui/widgetDomain", "openai/widgetDomain"])
+      readStringMeta(value, ["ui.domain", "ui/widgetDomain", "openai/widgetDomain"]),
     ),
     csp: resolveCspMeta(primary, fallback),
     requestedPermissions: readRequestedPermissions(primary, fallback),
     heightHint: readFromPrimaryOrFallback((value) =>
-      readNumberMeta(value, ["ui.heightHint", "ui/widgetHeightHint", "openai/widgetHeightHint"])
+      readNumberMeta(value, ["ui.heightHint", "ui/widgetHeightHint", "openai/widgetHeightHint"]),
     ),
     minFrameHeight: readFromPrimaryOrFallback((value) =>
-      readNumberMeta(value, ["ui.minFrameHeight", "ui/widgetMinFrameHeight", "openai/widgetMinFrameHeight"])
+      readNumberMeta(value, [
+        "ui.minFrameHeight",
+        "ui/widgetMinFrameHeight",
+        "openai/widgetMinFrameHeight",
+      ]),
     ),
-    prefersBorder: readFromPrimaryOrFallback((value) =>
-      readBooleanMeta(value, ["ui.prefersBorder", "ui/widgetPrefersBorder", "openai/widgetPrefersBorder"])
-    ) ?? false,
-    isCollapsible: !(readFromPrimaryOrFallback((value) =>
-      readBooleanMeta(value, [
-        "ui.showCodexWidgetInline",
-        "ui/widgetShowCodexWidgetInline",
-        "openai/widgetShowCodexWidgetInline",
-      ])
-    ) ?? false),
+    prefersBorder:
+      readFromPrimaryOrFallback((value) =>
+        readBooleanMeta(value, [
+          "ui.prefersBorder",
+          "ui/widgetPrefersBorder",
+          "openai/widgetPrefersBorder",
+        ]),
+      ) ?? false,
+    isCollapsible: !(
+      readFromPrimaryOrFallback((value) =>
+        readBooleanMeta(value, [
+          "ui.showCodexWidgetInline",
+          "ui/widgetShowCodexWidgetInline",
+          "openai/widgetShowCodexWidgetInline",
+        ]),
+      ) ?? false
+    ),
   };
 }
 

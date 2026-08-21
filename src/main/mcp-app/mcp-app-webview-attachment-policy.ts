@@ -19,18 +19,15 @@ export interface McpAppPendingAttachment {
 
 export type McpAppAttachmentDecision =
   | {
-    ok: true;
-    initId: string;
-    sandboxId: string;
-    source: ParsedMcpAppSandboxSource;
-  }
+      ok: true;
+      initId: string;
+      sandboxId: string;
+      source: ParsedMcpAppSandboxSource;
+    }
   | {
-    ok: false;
-    reason:
-      | "invalid-init-id"
-      | "invalid-partition"
-      | "invalid-source";
-  };
+      ok: false;
+      reason: "invalid-init-id" | "invalid-partition" | "invalid-source";
+    };
 
 export function isMcpAppSandboxPartition(value: string | null | undefined): boolean {
   return value?.startsWith(MCP_APP_SANDBOX_PARTITION_PREFIX) === true;

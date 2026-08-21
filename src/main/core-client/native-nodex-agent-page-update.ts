@@ -99,10 +99,10 @@ export const mapNativeNodexAgentCoreError = (error: unknown): ToolError => {
     };
   }
   if (
-    code === "revision_conflict"
-    || code === "stale_store_epoch"
-    || code === "generation_conflict"
-    || code === "head_conflict"
+    code === "revision_conflict" ||
+    code === "stale_store_epoch" ||
+    code === "generation_conflict" ||
+    code === "head_conflict"
   ) {
     return {
       code: "conflict",
@@ -131,16 +131,11 @@ export const mapNativeNodexAgentCoreError = (error: unknown): ToolError => {
 };
 
 const operationIdFor = (
-  request: Pick<
-    PrepareNodexAgentPageUpdateRequest,
-    "threadId" | "callId" | "tool"
-  >,
+  request: Pick<PrepareNodexAgentPageUpdateRequest, "threadId" | "callId" | "tool">,
 ): string =>
-  `nodex-agent-edit:${createHash("sha256").update(JSON.stringify([
-    request.threadId,
-    request.callId,
-    request.tool,
-  ])).digest("hex")}`;
+  `nodex-agent-edit:${createHash("sha256")
+    .update(JSON.stringify([request.threadId, request.callId, request.tool]))
+    .digest("hex")}`;
 
 const emptyEffects = (): AgentDocumentEditEffects => ({
   createdBlockIds: [],
@@ -165,8 +160,8 @@ const effectsFromPreparation = (
   return {
     ...emptyEffects(),
     createdBlockIds: [...preparation.footprint.created_roots],
-    updatedBlockIds: preparation.footprint.updated_roots.filter((id) =>
-      id !== pageId && !moved.has(id) && !deleted.has(id)
+    updatedBlockIds: preparation.footprint.updated_roots.filter(
+      (id) => id !== pageId && !moved.has(id) && !deleted.has(id),
     ),
     movedBlockIds: [...moved],
     deletedBlockIds: [...deleted],
@@ -176,19 +171,23 @@ const effectsFromPreparation = (
 };
 
 const semanticAnchor = (
-  anchor: {
-    readonly kind: "start";
-    readonly parentBlockId?: string;
-  } | {
-    readonly kind: "end";
-    readonly parentBlockId?: string;
-  } | {
-    readonly kind: "before";
-    readonly blockId: string;
-  } | {
-    readonly kind: "after";
-    readonly blockId: string;
-  },
+  anchor:
+    | {
+        readonly kind: "start";
+        readonly parentBlockId?: string;
+      }
+    | {
+        readonly kind: "end";
+        readonly parentBlockId?: string;
+      }
+    | {
+        readonly kind: "before";
+        readonly blockId: string;
+      }
+    | {
+        readonly kind: "after";
+        readonly blockId: string;
+      },
 ): components["schemas"]["DocumentSemanticAnchor"] => {
   if (anchor.kind === "start" || anchor.kind === "end") {
     return {
@@ -208,9 +207,8 @@ const semanticBlockDraft = (
   local_id: block.localId,
   block_type: block.type,
   props: block.props ?? {},
-  content: block.content === undefined
-    ? { kind: "absent" }
-    : { kind: "value", value: block.content },
+  content:
+    block.content === undefined ? { kind: "absent" } : { kind: "value", value: block.content },
   children: (block.children ?? []).map(semanticBlockDraft),
 });
 
@@ -229,11 +227,12 @@ const toDocumentOperationResult = (
     throw new Error("Core Agent Page update omitted its commit timestamp");
   }
   return {
-    mutationKind: pending.request.tool === "update_page"
-      && (pending.request.input.body?.kind === "replace"
-        || pending.request.input.body?.kind === "patch")
-      ? "replace_document_from_nfm"
-      : "document_operation_batch",
+    mutationKind:
+      pending.request.tool === "update_page" &&
+      (pending.request.input.body?.kind === "replace" ||
+        pending.request.input.body?.kind === "patch")
+        ? "replace_document_from_nfm"
+        : "document_operation_batch",
     mutationId: pending.operationId,
     projectId: pending.request.projectId,
     storeEpoch: applyResultStoreEpoch(committed),
@@ -273,15 +272,12 @@ const mutationCommands = (
           block_id: edit.blockId,
           expected_etag: edit.ifMatch,
           patch: {
-            ...(edit.patch.type === undefined
-              ? {}
-              : { block_type: edit.patch.type }),
-            ...(edit.patch.props === undefined
-              ? {}
-              : { props: edit.patch.props }),
-            content: edit.patch.content === undefined
-              ? { kind: "absent" }
-              : { kind: "value", value: edit.patch.content },
+            ...(edit.patch.type === undefined ? {} : { block_type: edit.patch.type }),
+            ...(edit.patch.props === undefined ? {} : { props: edit.patch.props }),
+            content:
+              edit.patch.content === undefined
+                ? { kind: "absent" }
+                : { kind: "value", value: edit.patch.content },
             unset_content: edit.patch.unsetContent === true,
           },
         };
@@ -302,11 +298,13 @@ const mutationCommands = (
   }
   return [
     ...(request.input.title
-      ? [{
-          kind: "set_title" as const,
-          inline_markdown: request.input.title.markdown,
-          expected_etag: request.input.title.ifMatch,
-        }]
+      ? [
+          {
+            kind: "set_title" as const,
+            inline_markdown: request.input.title.markdown,
+            expected_etag: request.input.title.ifMatch,
+          },
+        ]
       : []),
     ...(request.input.body?.kind === "patch"
       ? request.input.body.patches.map((patch) => ({
@@ -316,24 +314,27 @@ const mutationCommands = (
           expected_matches: patch.expectedMatches ?? null,
         }))
       : request.input.body?.kind === "replace"
-        ? [{
-            kind: "replace_body" as const,
-            nested_markdown: request.input.body.markdown,
-            expected_etag: request.input.body.ifMatch,
-          }]
-        : request.input.body?.kind === "insert"
-          ? [{
-              kind: "insert_body" as const,
-              anchor: semanticAnchor(request.input.body.at),
+        ? [
+            {
+              kind: "replace_body" as const,
               nested_markdown: request.input.body.markdown,
-            }]
-        : []),
+              expected_etag: request.input.body.ifMatch,
+            },
+          ]
+        : request.input.body?.kind === "insert"
+          ? [
+              {
+                kind: "insert_body" as const,
+                anchor: semanticAnchor(request.input.body.at),
+                nested_markdown: request.input.body.markdown,
+              },
+            ]
+          : []),
   ];
 };
 
-const isToolError = (
-  value: CoreAgentMutation["commands"] | ToolError,
-): value is ToolError => !Array.isArray(value);
+const isToolError = (value: CoreAgentMutation["commands"] | ToolError): value is ToolError =>
+  !Array.isArray(value);
 
 export class NativeNodexAgentPageUpdateRuntime {
   private readonly pending = new Map<string, PendingNativePageUpdate>();
@@ -346,15 +347,18 @@ export class NativeNodexAgentPageUpdateRuntime {
     const operationId = operationIdFor(request);
     try {
       if (!request.authority) {
-        return envelope({
-          ok: false,
-          error: {
-            code: "authorization_denied",
-            message: "Native Agent Page updates require exact Turn authority",
-            retryable: false,
-            recovery: "start_new_task",
+        return envelope(
+          {
+            ok: false,
+            error: {
+              code: "authorization_denied",
+              message: "Native Agent Page updates require exact Turn authority",
+              retryable: false,
+              recovery: "start_new_task",
+            },
           },
-        }, operationId);
+          operationId,
+        );
       }
       const commands = mutationCommands(request);
       if (isToolError(commands)) {
@@ -371,27 +375,26 @@ export class NativeNodexAgentPageUpdateRuntime {
         throw new Error("Core returned the wrong Agent Page content variant");
       }
       const content = contentSnapshot.value.value;
-      const targetMarkdown = request.tool === "update_page"
-        && request.input.body?.kind === "patch"
-        ? applyExactNfmPatches(
-            content.body_nfm,
-            request.input.body.patches.map((patch) => ({
-              oldNfm: patch.oldMarkdown,
-              newNfm: patch.newMarkdown,
-              ...(patch.expectedMatches !== undefined
-                ? { expectedMatches: patch.expectedMatches }
-                : {}),
-            })),
-          )
-        : request.tool === "update_page" && request.input.body?.kind === "replace"
-          ? request.input.body.markdown
-          : content.body_nfm;
+      const targetMarkdown =
+        request.tool === "update_page" && request.input.body?.kind === "patch"
+          ? applyExactNfmPatches(
+              content.body_nfm,
+              request.input.body.patches.map((patch) => ({
+                oldNfm: patch.oldMarkdown,
+                newNfm: patch.newMarkdown,
+                ...(patch.expectedMatches !== undefined
+                  ? { expectedMatches: patch.expectedMatches }
+                  : {}),
+              })),
+            )
+          : request.tool === "update_page" && request.input.body?.kind === "replace"
+            ? request.input.body.markdown
+            : content.body_nfm;
       const mutation: CoreAgentMutation = {
         document_id: content.document_id,
         generation: content.document_generation,
         expected_head_seq: content.document_head_seq,
-        allow_deleting_owned_blocks:
-          request.input.safety?.allowDeletingOwnedBlocks === true,
+        allow_deleting_owned_blocks: request.input.safety?.allowDeletingOwnedBlocks === true,
         commands,
       };
       const authorization = toCoreAgentExecutionAuthorization(
@@ -430,8 +433,7 @@ export class NativeNodexAgentPageUpdateRuntime {
         snapshot.value.preparation,
         request.tool === "update_page" && request.input.title !== undefined,
       );
-      const canonicalTargetMarkdown =
-        snapshot.value.preparation.preview_markdown ?? targetMarkdown;
+      const canonicalTargetMarkdown = snapshot.value.preparation.preview_markdown ?? targetMarkdown;
       const pending: PendingNativePageUpdate = {
         request,
         operationId,
@@ -455,52 +457,53 @@ export class NativeNodexAgentPageUpdateRuntime {
         expectedHeadSeq: content.document_head_seq,
         operations: [],
       };
-      return envelope({
-        ok: true,
-        value: {
-          kind: "prepared",
-          mutation: fakeMutation,
-          effects,
-          targetMarkdown: canonicalTargetMarkdown,
-          ...(request.resourceAccess
-            ? { resourceAccess: request.resourceAccess }
-            : {}),
+      return envelope(
+        {
+          ok: true,
+          value: {
+            kind: "prepared",
+            mutation: fakeMutation,
+            effects,
+            targetMarkdown: canonicalTargetMarkdown,
+            ...(request.resourceAccess ? { resourceAccess: request.resourceAccess } : {}),
+          },
         },
-      }, operationId);
+        operationId,
+      );
     } catch (error) {
-      const mapped = error instanceof AgentDocumentEditCompilerError
-        ? {
-            code: error.code,
-            message: error.message,
-            retryable: false,
-            recovery: error.code === "nfm_patch_mismatch"
-              || error.code === "nfm_patch_overlap"
-              ? "fetch_again" as const
-              : "none" as const,
-          }
-        : mapNativeNodexAgentCoreError(error);
+      const mapped =
+        error instanceof AgentDocumentEditCompilerError
+          ? {
+              code: error.code,
+              message: error.message,
+              retryable: false,
+              recovery:
+                error.code === "nfm_patch_mismatch" || error.code === "nfm_patch_overlap"
+                  ? ("fetch_again" as const)
+                  : ("none" as const),
+            }
+          : mapNativeNodexAgentCoreError(error);
       return envelope({ ok: false, error: mapped }, operationId);
     }
   }
 
-  async apply(
-    request: DocumentMutationRequest,
-  ): Promise<DocumentOperationCommandResult> {
+  async apply(request: DocumentMutationRequest): Promise<DocumentOperationCommandResult> {
     const pending = this.pending.get(request.mutationId);
     const authority = pending?.request.authority;
-    const matchesPreparation = pending
-      && authority
-      && request.projectId === pending.request.projectId
-      && request.storeEpoch === authority.storeEpoch
-      && request.clientSessionId === pending.clientSessionId
-      && request.documentId === pending.mutation.document_id
-      && request.generation === pending.mutation.generation
-      && request.expectedHeadSeq === pending.mutation.expected_head_seq
-      && "operations" in request
-      && request.operations.length === 0
-      && request.actor.kind === "nodex_agent"
-      && request.actor.threadId === pending.request.threadId
-      && request.actor.callId === pending.request.callId;
+    const matchesPreparation =
+      pending &&
+      authority &&
+      request.projectId === pending.request.projectId &&
+      request.storeEpoch === authority.storeEpoch &&
+      request.clientSessionId === pending.clientSessionId &&
+      request.documentId === pending.mutation.document_id &&
+      request.generation === pending.mutation.generation &&
+      request.expectedHeadSeq === pending.mutation.expected_head_seq &&
+      "operations" in request &&
+      request.operations.length === 0 &&
+      request.actor.kind === "nodex_agent" &&
+      request.actor.threadId === pending.request.threadId &&
+      request.actor.callId === pending.request.callId;
     if (!matchesPreparation) {
       return {
         ok: false,
@@ -513,24 +516,28 @@ export class NativeNodexAgentPageUpdateRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
-        .documentApply({
-          operationId: pending.operationId,
-          clientSessionId: pending.clientSessionId,
-          intent: {
-            kind: "execute_prepared_agent_semantic_mutation",
-            authorization: {
-              authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.identity.profileId,
-                authority,
-                pending.request.callId,
-                pending.request.resourceAccess,
-              ),
-              token: pending.token,
+      const committed = await this.runtime
+        .clientForProject(pending.request.projectId)
+        .documentApply(
+          {
+            operationId: pending.operationId,
+            clientSessionId: pending.clientSessionId,
+            intent: {
+              kind: "execute_prepared_agent_semantic_mutation",
+              authorization: {
+                authorization: toCoreAgentExecutionAuthorization(
+                  this.runtime.identity.profileId,
+                  authority,
+                  pending.request.callId,
+                  pending.request.resourceAccess,
+                ),
+                token: pending.token,
+              },
+              mutation: pending.mutation,
             },
-            mutation: pending.mutation,
           },
-        }, { class: "background" });
+          { class: "background" },
+        );
       pending.committed = committed;
       return {
         ok: true,
@@ -543,11 +550,12 @@ export class NativeNodexAgentPageUpdateRuntime {
       return {
         ok: false,
         error: {
-          code: mapped.code === "conflict"
-            ? "document_head_conflict"
-            : mapped.code === "not_found"
-              ? "document_not_found"
-              : "unknown",
+          code:
+            mapped.code === "conflict"
+              ? "document_head_conflict"
+              : mapped.code === "not_found"
+                ? "document_not_found"
+                : "unknown",
           message: mapped.message,
           retryable: mapped.retryable,
           mutationId: pending.operationId,
@@ -562,36 +570,43 @@ export class NativeNodexAgentPageUpdateRuntime {
     const operationId = operationIdFor(request);
     const pending = this.pending.get(operationId);
     const committed = pending?.committed;
-    const matchesCommit = pending
-      && committed
-      && request.projectId === pending.request.projectId
-      && request.pageId === pending.request.input.pageId
-      && request.result.mutationId === operationId
-      && request.result.projectId === pending.request.projectId
-      && request.result.storeEpoch === applyResultStoreEpoch(committed)
-      && request.result.documentId === committed.outcome.document_id
-      && request.result.generation === committed.outcome.generation
-      && request.result.headSeq === committed.outcome.head_seq;
+    const matchesCommit =
+      pending &&
+      committed &&
+      request.projectId === pending.request.projectId &&
+      request.pageId === pending.request.input.pageId &&
+      request.result.mutationId === operationId &&
+      request.result.projectId === pending.request.projectId &&
+      request.result.storeEpoch === applyResultStoreEpoch(committed) &&
+      request.result.documentId === committed.outcome.document_id &&
+      request.result.generation === committed.outcome.generation &&
+      request.result.headSeq === committed.outcome.head_seq;
     if (!matchesCommit) {
-      return envelope({
-        ok: false,
-        error: {
-          code: "idempotency_collision",
-          message: "Native Agent Page update has no matching committed preparation",
-          retryable: false,
-          recovery: "retry_same",
+      return envelope(
+        {
+          ok: false,
+          error: {
+            code: "idempotency_collision",
+            message: "Native Agent Page update has no matching committed preparation",
+            retryable: false,
+            recovery: "retry_same",
+          },
         },
-      }, operationId);
+        operationId,
+      );
     }
     try {
       const output = await this.output(pending.request, committed);
       this.pending.delete(operationId);
       return envelope({ ok: true, output }, operationId);
     } catch (error) {
-      return envelope({
-        ok: false,
-        error: mapNativeNodexAgentCoreError(error),
-      }, operationId);
+      return envelope(
+        {
+          ok: false,
+          error: mapNativeNodexAgentCoreError(error),
+        },
+        operationId,
+      );
     }
   }
 
@@ -627,11 +642,12 @@ export class NativeNodexAgentPageUpdateRuntime {
           { class: "background" },
         )
       : null;
-    const content = contentSnapshot?.value.kind === "page_content"
-      && contentSnapshot.value.value.document_generation === committed.outcome.generation
-      && contentSnapshot.value.value.document_head_seq === committed.outcome.head_seq
-      ? contentSnapshot.value.value
-      : null;
+    const content =
+      contentSnapshot?.value.kind === "page_content" &&
+      contentSnapshot.value.value.document_generation === committed.outcome.generation &&
+      contentSnapshot.value.value.document_head_seq === committed.outcome.head_seq
+        ? contentSnapshot.value.value
+        : null;
     const created = effect?.created_block_ids ?? [];
     const updated = effect?.updated_block_ids ?? [];
     const moved = effect?.moved_block_ids ?? [];
@@ -670,9 +686,7 @@ export class NativeNodexAgentPageUpdateRuntime {
               body: {
                 format: "markdown",
                 markdown: content.body_nfm,
-                contentHash: createHash("sha256")
-                  .update(content.body_nfm)
-                  .digest("hex"),
+                contentHash: createHash("sha256").update(content.body_nfm).digest("hex"),
               },
             }
           : {}),

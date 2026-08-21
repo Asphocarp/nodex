@@ -1,13 +1,8 @@
 import { resolveCodexMcpResourceUriFromMetadata } from "../codex-mcp-tool-call";
-import type {
-  ProtocolListMcpServerStatusResponse,
-  ProtocolMcpServerStatus,
-} from "../types";
+import type { ProtocolListMcpServerStatusResponse, ProtocolMcpServerStatus } from "../types";
 import type { McpAppSandboxOriginScope } from "./mcp-app-sandbox-contract";
 
-export type McpAppToolDefinition = NonNullable<
-  ProtocolMcpServerStatus["tools"][string]
->;
+export type McpAppToolDefinition = NonNullable<ProtocolMcpServerStatus["tools"][string]>;
 
 export interface McpAppScopeSnapshot {
   allowedTools: ReadonlyMap<string, McpAppToolDefinition>;
@@ -48,9 +43,7 @@ function readCodexAppsResourceScope(meta: unknown): {
   };
 }
 
-export function mcpAppToolAcceptsFileParameters(
-  tool: McpAppToolDefinition,
-): boolean {
+export function mcpAppToolAcceptsFileParameters(tool: McpAppToolDefinition): boolean {
   const meta = asRecord(tool._meta);
   return meta ? Object.hasOwn(meta, "openai/fileParams") : false;
 }
@@ -94,8 +87,7 @@ function toolMatchesCodexAppsScope(
   if (readConnectorId(tool._meta) !== scope.connectorId) return false;
   if (scope.kind === "connector") return true;
   const resource = readCodexAppsResourceScope(tool._meta);
-  return resource?.connectorId === scope.connectorId
-    && resource.targetId === scope.targetId;
+  return resource?.connectorId === scope.connectorId && resource.targetId === scope.targetId;
 }
 
 export function resolveMcpAppSandboxOriginScope(input: {
@@ -126,12 +118,12 @@ export function createMcpAppScopeSnapshot(input: {
   const status = input.statuses.data.find((entry) => entry.name === input.server);
   if (!status) throw new Error(`MCP server is unavailable: ${input.server}`);
 
-  const tools = Object.values(status.tools).filter(
-    (tool): tool is McpAppToolDefinition => Boolean(tool),
+  const tools = Object.values(status.tools).filter((tool): tool is McpAppToolDefinition =>
+    Boolean(tool),
   );
   const currentTool = findServerTool(status, input.currentToolName);
-  const linkedTools = tools.filter((tool) =>
-    resolveCodexMcpResourceUriFromMetadata(tool._meta) === input.originResourceUri
+  const linkedTools = tools.filter(
+    (tool) => resolveCodexMcpResourceUriFromMetadata(tool._meta) === input.originResourceUri,
   );
 
   let scopedTools = linkedTools.length > 0 ? linkedTools : currentTool ? [currentTool] : [];
@@ -175,9 +167,9 @@ export function requireMcpAppScopedTool(
   }
   const trustedScope = scope.codexAppsToolScope;
   if (
-    trustedScope?.kind === "target"
-    && toolArguments?.link_id !== undefined
-    && toolArguments.link_id !== trustedScope.targetId
+    trustedScope?.kind === "target" &&
+    toolArguments?.link_id !== undefined &&
+    toolArguments.link_id !== trustedScope.targetId
   ) {
     const meta = asRecord(tool._meta);
     const codexApps = asRecord(meta?._codex_apps);
@@ -188,10 +180,7 @@ export function requireMcpAppScopedTool(
   return tool;
 }
 
-export function requireMcpAppScopedResource(
-  scope: McpAppScopeSnapshot,
-  uri: string,
-): void {
+export function requireMcpAppScopedResource(scope: McpAppScopeSnapshot, uri: string): void {
   if (scope.server !== "codex_apps") return;
   if (uri !== scope.originResourceUri) {
     throw new Error(`MCP App cannot read resource outside its widget scope: ${uri}`);

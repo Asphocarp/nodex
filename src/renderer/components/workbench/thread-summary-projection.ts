@@ -1,7 +1,4 @@
-import type {
-  CodexThreadSummary,
-  ProjectSessionThreadLink,
-} from "@/lib/types";
+import type { CodexThreadSummary, ProjectSessionThreadLink } from "@/lib/types";
 
 export function projectSessionThreadLinkToSummary(
   thread: ProjectSessionThreadLink,

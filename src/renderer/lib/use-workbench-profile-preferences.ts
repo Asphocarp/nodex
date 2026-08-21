@@ -1,16 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from "react";
-import {
-  WorkbenchRecentPageSessionSchema,
-} from "../../shared/schemas/workbench";
-import type {
-  WorkbenchRecentPageSession,
-} from "./types";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { WorkbenchRecentPageSessionSchema } from "../../shared/schemas/workbench";
+import type { WorkbenchRecentPageSession } from "./types";
 import {
   CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
   clampCodexSidebarWidth,
@@ -20,11 +10,7 @@ import {
   type SidebarCollapsibleSectionId,
   type SidebarCollapsibleSectionsState,
 } from "./sidebar-section-prefs";
-import {
-  appScope,
-  scopedAtom,
-  useScopedAtom,
-} from "./maitai";
+import { appScope, scopedAtom, useScopedAtom } from "./maitai";
 import { WORKBENCH_PERSIST_DEBOUNCE_MS } from "./timing";
 
 export type RecentPageSession = WorkbenchRecentPageSession;
@@ -44,26 +30,21 @@ export interface WorkbenchProfilePreferences {
   readonly recentPageSessions: RecentPageSession[];
 }
 
-const WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY =
-  "nodex-workbench-profile-preferences-v2";
-const LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY =
-  "nodex-workbench-profile-preferences-v1";
+const WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY = "nodex-workbench-profile-preferences-v2";
+const LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY = "nodex-workbench-profile-preferences-v1";
 const MAX_RECENT_PAGE_SESSIONS = 10;
-const workbenchProfilePreferencesAtom =
-  scopedAtom<WorkbenchProfilePreferences | null>(
-    appScope,
-    null,
-    { debugLabel: "workbench-profile-preferences" },
-  );
+const workbenchProfilePreferencesAtom = scopedAtom<WorkbenchProfilePreferences | null>(
+  appScope,
+  null,
+  { debugLabel: "workbench-profile-preferences" },
+);
 
-function makeDefaultWorkbenchProfilePreferences():
-  WorkbenchProfilePreferences {
+function makeDefaultWorkbenchProfilePreferences(): WorkbenchProfilePreferences {
   return {
     sidebar: {
       collapsed: false,
       width: CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
-      collapsibleSections:
-        normalizeSidebarCollapsibleSectionsState(undefined),
+      collapsibleSections: normalizeSidebarCollapsibleSectionsState(undefined),
     },
     recentPageSessions: [],
   };
@@ -76,19 +57,17 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function normalizeRecentPageSessions(
-  value: unknown,
-): RecentPageSession[] {
+function normalizeRecentPageSessions(value: unknown): RecentPageSession[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((candidate) => {
-    const parsed = WorkbenchRecentPageSessionSchema.safeParse(candidate);
-    return parsed.success ? [parsed.data] : [];
-  }).slice(0, MAX_RECENT_PAGE_SESSIONS);
+  return value
+    .flatMap((candidate) => {
+      const parsed = WorkbenchRecentPageSessionSchema.safeParse(candidate);
+      return parsed.success ? [parsed.data] : [];
+    })
+    .slice(0, MAX_RECENT_PAGE_SESSIONS);
 }
 
-export function normalizeWorkbenchProfilePreferences(
-  value: unknown,
-): WorkbenchProfilePreferences {
+export function normalizeWorkbenchProfilePreferences(value: unknown): WorkbenchProfilePreferences {
   return normalizeWorkbenchProfilePreferencesAtBoundary(value);
 }
 
@@ -109,45 +88,28 @@ function normalizeWorkbenchProfilePreferencesAtBoundary(
   return {
     sidebar: {
       collapsed:
-        typeof sidebar?.collapsed === "boolean"
-          ? sidebar.collapsed
-          : defaults.sidebar.collapsed,
+        typeof sidebar?.collapsed === "boolean" ? sidebar.collapsed : defaults.sidebar.collapsed,
       width: clampCodexSidebarWidth(
-        typeof sidebar?.width === "number"
-          ? sidebar.width
-          : defaults.sidebar.width,
+        typeof sidebar?.width === "number" ? sidebar.width : defaults.sidebar.width,
       ),
-      collapsibleSections:
-        normalizeSidebarCollapsibleSectionsState(
-          sidebar?.collapsibleSections,
-        ),
+      collapsibleSections: normalizeSidebarCollapsibleSectionsState(sidebar?.collapsibleSections),
     },
-    recentPageSessions:
-      normalizeRecentPageSessions(record.recentPageSessions),
+    recentPageSessions: normalizeRecentPageSessions(record.recentPageSessions),
   };
 }
 
-type WorkbenchPreferenceStorage = Pick<
-  Storage,
-  "getItem" | "setItem" | "removeItem"
->;
+type WorkbenchPreferenceStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export function loadWorkbenchProfilePreferencesFromStorage(
   storage: WorkbenchPreferenceStorage,
 ): WorkbenchProfilePreferences {
   try {
-    const raw = storage.getItem(
-      WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY,
-    );
+    const raw = storage.getItem(WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY);
     if (raw) return normalizeWorkbenchProfilePreferences(JSON.parse(raw));
 
-    const legacyRaw = storage.getItem(
-      LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY,
-    );
+    const legacyRaw = storage.getItem(LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY);
     if (!legacyRaw) return makeDefaultWorkbenchProfilePreferences();
-    const migrated = normalizeLegacyWorkbenchProfilePreferences(
-      JSON.parse(legacyRaw),
-    );
+    const migrated = normalizeLegacyWorkbenchProfilePreferences(JSON.parse(legacyRaw));
     if (persistWorkbenchProfilePreferences(migrated, storage)) {
       try {
         storage.removeItem(LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY);
@@ -170,10 +132,7 @@ function persistWorkbenchProfilePreferences(
   storage: Pick<Storage, "setItem"> = localStorage,
 ): boolean {
   try {
-    storage.setItem(
-      WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY,
-      JSON.stringify(preferences),
-    );
+    storage.setItem(WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
     return true;
   } catch {
     // Preferences remain valid for the current renderer lifetime.
@@ -192,9 +151,7 @@ export function recordRecentPageLeaveInPreferences(
   },
 ): RecentPageSession[] {
   const existing = recentPageSessions.find(
-    (session) =>
-      session.projectId === input.projectId
-      && session.pageId === input.pageId,
+    (session) => session.projectId === input.projectId && session.pageId === input.pageId,
   );
   if (existing) {
     return recentPageSessions.map((session) =>
@@ -204,24 +161,25 @@ export function recordRecentPageLeaveInPreferences(
             titleSnapshot: input.titleSnapshot,
             lastOpenedAt: input.lastOpenedAt,
           }
-        : session);
+        : session,
+    );
   }
 
-  return [{
-    id: input.id,
-    projectId: input.projectId,
-    pageId: input.pageId,
-    titleSnapshot: input.titleSnapshot,
-    lastOpenedAt: input.lastOpenedAt,
-  }, ...recentPageSessions].slice(0, MAX_RECENT_PAGE_SESSIONS);
+  return [
+    {
+      id: input.id,
+      projectId: input.projectId,
+      pageId: input.pageId,
+      titleSnapshot: input.titleSnapshot,
+      lastOpenedAt: input.lastOpenedAt,
+    },
+    ...recentPageSessions,
+  ].slice(0, MAX_RECENT_PAGE_SESSIONS);
 }
 
 export function useWorkbenchProfilePreferences() {
-  const [storedPreferences, setStoredPreferences] = useScopedAtom(
-    workbenchProfilePreferencesAtom,
-  );
-  const initialPreferencesRef =
-    useRef<WorkbenchProfilePreferences | null>(null);
+  const [storedPreferences, setStoredPreferences] = useScopedAtom(workbenchProfilePreferencesAtom);
+  const initialPreferencesRef = useRef<WorkbenchProfilePreferences | null>(null);
   if (!initialPreferencesRef.current) {
     initialPreferencesRef.current = loadWorkbenchProfilePreferences();
   }
@@ -232,8 +190,7 @@ export function useWorkbenchProfilePreferences() {
     setStoredPreferences((current) => current ?? initialPreferences);
   }, [initialPreferences, setStoredPreferences]);
 
-  const pendingPersistRef =
-    useRef<WorkbenchProfilePreferences | null>(null);
+  const pendingPersistRef = useRef<WorkbenchProfilePreferences | null>(null);
   const persistTimerRef = useRef<number | null>(null);
   const flush = useCallback(() => {
     if (persistTimerRef.current !== null) {
@@ -251,10 +208,7 @@ export function useWorkbenchProfilePreferences() {
     if (persistTimerRef.current !== null) {
       window.clearTimeout(persistTimerRef.current);
     }
-    persistTimerRef.current = window.setTimeout(
-      flush,
-      WORKBENCH_PERSIST_DEBOUNCE_MS,
-    );
+    persistTimerRef.current = window.setTimeout(flush, WORKBENCH_PERSIST_DEBOUNCE_MS);
   }, [flush, preferences]);
 
   useEffect(() => {
@@ -265,111 +219,108 @@ export function useWorkbenchProfilePreferences() {
     };
   }, [flush]);
 
-  const update = useCallback((
-    transform: (
-      current: WorkbenchProfilePreferences,
-    ) => WorkbenchProfilePreferences,
-  ) => {
-    setStoredPreferences((current) =>
-      transform(current ?? initialPreferences));
-  }, [initialPreferences, setStoredPreferences]);
+  const update = useCallback(
+    (transform: (current: WorkbenchProfilePreferences) => WorkbenchProfilePreferences) => {
+      setStoredPreferences((current) => transform(current ?? initialPreferences));
+    },
+    [initialPreferences, setStoredPreferences],
+  );
 
-  const setSidebarCollapsed = useCallback((collapsed: boolean) => {
-    update((current) => {
-      if (current.sidebar.collapsed === collapsed) return current;
-      return {
-        ...current,
-        sidebar: { ...current.sidebar, collapsed },
-      };
-    });
-  }, [update]);
+  const setSidebarCollapsed = useCallback(
+    (collapsed: boolean) => {
+      update((current) => {
+        if (current.sidebar.collapsed === collapsed) return current;
+        return {
+          ...current,
+          sidebar: { ...current.sidebar, collapsed },
+        };
+      });
+    },
+    [update],
+  );
 
-  const setSidebarWidth = useCallback((width: number) => {
-    const next = clampCodexSidebarWidth(width);
-    update((current) => {
-      if (current.sidebar.width === next) return current;
-      return {
-        ...current,
-        sidebar: { ...current.sidebar, width: next },
-      };
-    });
-  }, [update]);
+  const setSidebarWidth = useCallback(
+    (width: number) => {
+      const next = clampCodexSidebarWidth(width);
+      update((current) => {
+        if (current.sidebar.width === next) return current;
+        return {
+          ...current,
+          sidebar: { ...current.sidebar, width: next },
+        };
+      });
+    },
+    [update],
+  );
 
-  const setSidebarCollapsibleSectionCollapsed = useCallback((
-    sectionId: SidebarCollapsibleSectionId,
-    collapsed: boolean,
-  ) => {
-    update((current) => {
-      if (
-        current.sidebar.collapsibleSections[sectionId]
-        === collapsed
-      ) {
-        return current;
-      }
-      return {
-        ...current,
-        sidebar: {
-          ...current.sidebar,
-          collapsibleSections: {
-            ...current.sidebar.collapsibleSections,
-            [sectionId]: collapsed,
+  const setSidebarCollapsibleSectionCollapsed = useCallback(
+    (sectionId: SidebarCollapsibleSectionId, collapsed: boolean) => {
+      update((current) => {
+        if (current.sidebar.collapsibleSections[sectionId] === collapsed) {
+          return current;
+        }
+        return {
+          ...current,
+          sidebar: {
+            ...current.sidebar,
+            collapsibleSections: {
+              ...current.sidebar.collapsibleSections,
+              [sectionId]: collapsed,
+            },
           },
-        },
-      };
-    });
-  }, [update]);
+        };
+      });
+    },
+    [update],
+  );
 
-  const recordRecentPageLeave = useCallback((
-    projectId: string,
-    pageId: string,
-    titleSnapshot: string,
-  ): string => {
-    const id = crypto.randomUUID();
-    const lastOpenedAt = new Date().toISOString();
-    let selectedId: string = id;
-    update((current) => {
-      const existing = current.recentPageSessions.find(
-        (session) =>
-          session.projectId === projectId
-          && session.pageId === pageId,
-      );
-      selectedId = existing?.id ?? id;
-      return {
-        ...current,
-        recentPageSessions: recordRecentPageLeaveInPreferences(
-          current.recentPageSessions,
-          {
+  const recordRecentPageLeave = useCallback(
+    (projectId: string, pageId: string, titleSnapshot: string): string => {
+      const id = crypto.randomUUID();
+      const lastOpenedAt = new Date().toISOString();
+      let selectedId: string = id;
+      update((current) => {
+        const existing = current.recentPageSessions.find(
+          (session) => session.projectId === projectId && session.pageId === pageId,
+        );
+        selectedId = existing?.id ?? id;
+        return {
+          ...current,
+          recentPageSessions: recordRecentPageLeaveInPreferences(current.recentPageSessions, {
             id,
             projectId,
             pageId,
             titleSnapshot,
             lastOpenedAt,
-          },
-        ),
-      };
-    });
-    return selectedId;
-  }, [update]);
+          }),
+        };
+      });
+      return selectedId;
+    },
+    [update],
+  );
 
-  return useMemo(() => ({
-    sidebar: preferences.sidebar,
-    recentPageSessions: preferences.recentPageSessions,
-    setSidebarCollapsed,
-    setSidebarWidth,
-    setSidebarCollapsibleSectionCollapsed,
-    recordRecentPageLeave,
-    flush,
-  }), [
-    flush,
-    preferences,
-    recordRecentPageLeave,
-    setSidebarCollapsed,
-    setSidebarCollapsibleSectionCollapsed,
-    setSidebarWidth,
-  ]);
+  return useMemo(
+    () => ({
+      sidebar: preferences.sidebar,
+      recentPageSessions: preferences.recentPageSessions,
+      setSidebarCollapsed,
+      setSidebarWidth,
+      setSidebarCollapsibleSectionCollapsed,
+      recordRecentPageLeave,
+      flush,
+    }),
+    [
+      flush,
+      preferences,
+      recordRecentPageLeave,
+      setSidebarCollapsed,
+      setSidebarCollapsibleSectionCollapsed,
+      setSidebarWidth,
+    ],
+  );
 }
 
-export const workbenchProfilePreferencesStorageKey =
-  WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY;
+export const workbenchProfilePreferencesStorageKey = WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY;
 export const legacyWorkbenchProfilePreferencesStorageKey =
   LEGACY_WORKBENCH_PROFILE_PREFERENCES_STORAGE_KEY;

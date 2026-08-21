@@ -1,8 +1,5 @@
 import type { ComponentType } from "react";
-import {
-  FileTabIconSvg,
-  type FileTabIconName,
-} from "@/components/shared/icons";
+import { FileTabIconSvg, type FileTabIconName } from "@/components/shared/icons";
 
 export type WorkspaceFileTabIconKey = FileTabIconName;
 
@@ -155,18 +152,16 @@ export function resolveWorkspaceFileTabIconKey(
 
   const normalizedMimeType = mimeType?.toLowerCase();
   if (normalizedMimeType) {
-    const match = ICON_KEY_BY_MIME_PREFIX.find(({ prefix }) => (
-      normalizedMimeType.startsWith(prefix)
-    ));
+    const match = ICON_KEY_BY_MIME_PREFIX.find(({ prefix }) =>
+      normalizedMimeType.startsWith(prefix),
+    );
     if (match) return match.key;
   }
 
   return "file";
 }
 
-function makeWorkspaceFileTabIcon(
-  iconKey: WorkspaceFileTabIconKey,
-): WorkspaceFileTabIconComponent {
+function makeWorkspaceFileTabIcon(iconKey: WorkspaceFileTabIconKey): WorkspaceFileTabIconComponent {
   const WorkspaceFileTabIcon = ({ className }: { className?: string }) => (
     <FileTabIconSvg className={className} icon={iconKey} />
   );
@@ -175,37 +170,38 @@ function makeWorkspaceFileTabIcon(
 }
 
 const COMPONENT_BY_ICON_KEY = Object.fromEntries(
-  (Object.keys({
-    artifactDocument: true,
-    build: true,
-    code: true,
-    cplusplus: true,
-    css: true,
-    document: true,
-    file: true,
-    folder: true,
-    hashes: true,
-    html: true,
-    image: true,
-    java: true,
-    javascript: true,
-    json: true,
-    notebook: true,
-    pdf: true,
-    php: true,
-    presentation: true,
-    python: true,
-    react: true,
-    rust: true,
-    shell: true,
-    skill: true,
-    spreadsheet: true,
-    terminal: true,
-    toml: true,
-    typescript: true,
-    yaml: true,
-  } satisfies Record<WorkspaceFileTabIconKey, true>) as WorkspaceFileTabIconKey[])
-    .map((iconKey) => [iconKey, makeWorkspaceFileTabIcon(iconKey)]),
+  (
+    Object.keys({
+      artifactDocument: true,
+      build: true,
+      code: true,
+      cplusplus: true,
+      css: true,
+      document: true,
+      file: true,
+      folder: true,
+      hashes: true,
+      html: true,
+      image: true,
+      java: true,
+      javascript: true,
+      json: true,
+      notebook: true,
+      pdf: true,
+      php: true,
+      presentation: true,
+      python: true,
+      react: true,
+      rust: true,
+      shell: true,
+      skill: true,
+      spreadsheet: true,
+      terminal: true,
+      toml: true,
+      typescript: true,
+      yaml: true,
+    } satisfies Record<WorkspaceFileTabIconKey, true>) as WorkspaceFileTabIconKey[]
+  ).map((iconKey) => [iconKey, makeWorkspaceFileTabIcon(iconKey)]),
 ) as Record<WorkspaceFileTabIconKey, WorkspaceFileTabIconComponent>;
 
 export function resolveWorkspaceFileTabIcon(

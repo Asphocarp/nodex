@@ -32,13 +32,17 @@ describe("review diff annotations", () => {
     expect(buildReviewDiffAnnotationKey("deletions", 8)).toBe("deletions:8");
     expect(mapReviewDiffAnnotationSideToPositionSide("additions")).toBe("right");
     expect(mapReviewDiffAnnotationSideToPositionSide("deletions")).toBe("left");
-    expect(formatReviewDiffCommentLineLabel({ side: "deletions", line: 40 })).toBe("Comment on line L40");
-    expect(formatReviewDiffCommentLineLabel({
-      side: "additions",
-      line: 12,
-      startSide: "deletions",
-      startLine: 10,
-    })).toBe("Comment on lines L10 to R12");
+    expect(formatReviewDiffCommentLineLabel({ side: "deletions", line: 40 })).toBe(
+      "Comment on line L40",
+    );
+    expect(
+      formatReviewDiffCommentLineLabel({
+        side: "additions",
+        line: 12,
+        startSide: "deletions",
+        startLine: 10,
+      }),
+    ).toBe("Comment on lines L10 to R12");
   });
 
   test("captures the local unified diff hunk for the annotated side", () => {
@@ -73,13 +77,15 @@ describe("review diff annotations", () => {
       createdAt: 123,
     });
 
-    expect(JSON.stringify(attachment.position)).toBe(JSON.stringify({
-      side: "right",
-      path: "src/example.ts",
-      line: 11,
-      start_line: 9,
-      start_side: "left",
-    }));
+    expect(JSON.stringify(attachment.position)).toBe(
+      JSON.stringify({
+        side: "right",
+        path: "src/example.ts",
+        line: 11,
+        start_line: 9,
+        start_side: "left",
+      }),
+    );
     expect(attachment.content[0]?.text).toBe("Please adjust this");
     expect(attachment.source?.label).toBe("Comment on lines L9 to R11");
   });
@@ -110,20 +116,26 @@ describe("review diff annotations", () => {
   });
 
   test("blocks duplicate drafts against existing comments and drafts", () => {
-    expect(shouldBlockReviewDiffDraft({
-      key: "additions:2",
-      existingKeys: new Set(["additions:2"]),
-      draftKeys: new Set(),
-    })).toBe(true);
-    expect(shouldBlockReviewDiffDraft({
-      key: "deletions:3",
-      existingKeys: new Set(),
-      draftKeys: new Set(["deletions:3"]),
-    })).toBe(true);
-    expect(shouldBlockReviewDiffDraft({
-      key: "additions:4",
-      existingKeys: new Set(),
-      draftKeys: new Set(),
-    })).toBe(false);
+    expect(
+      shouldBlockReviewDiffDraft({
+        key: "additions:2",
+        existingKeys: new Set(["additions:2"]),
+        draftKeys: new Set(),
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockReviewDiffDraft({
+        key: "deletions:3",
+        existingKeys: new Set(),
+        draftKeys: new Set(["deletions:3"]),
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockReviewDiffDraft({
+        key: "additions:4",
+        existingKeys: new Set(),
+        draftKeys: new Set(),
+      }),
+    ).toBe(false);
   });
 });

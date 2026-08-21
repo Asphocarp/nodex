@@ -6,7 +6,7 @@ describe("codex remark directives", () => {
     const value = [
       "Summary complete.",
       "",
-      "::inbox-item{title=\"Ready\" summary=\"Review it\"}",
+      '::inbox-item{title="Ready" summary="Review it"}',
       "",
       "",
       "::archive-thread{}",
@@ -17,8 +17,8 @@ describe("codex remark directives", () => {
   });
 
   test("keeps inline directive-looking text visible", () => {
-    expect(stripCodexRemarkDirectiveLines("Done. ::inbox-item{title=\"Inline\"}")).toBe(
-      "Done. ::inbox-item{title=\"Inline\"}",
+    expect(stripCodexRemarkDirectiveLines('Done. ::inbox-item{title="Inline"}')).toBe(
+      'Done. ::inbox-item{title="Inline"}',
     );
   });
 });

@@ -55,14 +55,17 @@ describe("text action color recents", () => {
   test("persists up to five app-wide recent slots for text and background colors", () => {
     const storage = createStorage();
 
-    writeTextActionRecentColors([
-      { kind: "text", color: "green" },
-      { kind: "background", color: "red" },
-      { kind: "text", color: "blue" },
-      { kind: "background", color: "yellow" },
-      { kind: "text", color: "pink" },
-      { kind: "background", color: "purple" },
-    ], storage);
+    writeTextActionRecentColors(
+      [
+        { kind: "text", color: "green" },
+        { kind: "background", color: "red" },
+        { kind: "text", color: "blue" },
+        { kind: "background", color: "yellow" },
+        { kind: "text", color: "pink" },
+        { kind: "background", color: "purple" },
+      ],
+      storage,
+    );
 
     expect(
       readTextActionRecentColors(storage)

@@ -10,15 +10,21 @@ describe("resolveCompletedMcpServerElicitationView", () => {
       ["urlAction", null, "Completed request", "Completed"],
     ] as const;
 
-    const actual = cases.map(([kind, action]) => resolveCompletedMcpServerElicitationView({
-      completed: true,
-      requestId: `request-${kind}`,
-      action,
-      elicitation: { kind, message: `Question for ${kind}` },
-    }));
+    const actual = cases.map(([kind, action]) =>
+      resolveCompletedMcpServerElicitationView({
+        completed: true,
+        requestId: `request-${kind}`,
+        action,
+        elicitation: { kind, message: `Question for ${kind}` },
+      }),
+    );
 
-    expect(actual.map((view) => view?.summary).join(",")).toBe(cases.map((entry) => entry[2]).join(","));
-    expect(actual.map((view) => view?.answer).join(",")).toBe(cases.map((entry) => entry[3]).join(","));
+    expect(actual.map((view) => view?.summary).join(",")).toBe(
+      cases.map((entry) => entry[2]).join(","),
+    );
+    expect(actual.map((view) => view?.answer).join(",")).toBe(
+      cases.map((entry) => entry[3]).join(","),
+    );
   });
 
   test("uses suggestion reason and hides incomplete or unsupported requests", () => {

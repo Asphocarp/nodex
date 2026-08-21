@@ -106,11 +106,12 @@ const extractFromCandidates = (
   selectors: readonly string[],
   properties: readonly string[],
   contextPredicate = contextWithoutConditions,
-): Map<string, string> => mergeMaps(
-  ...selectors.map((selector) =>
-    extractDeclarations(sourceCss, [selector], properties, contextPredicate)
-  ),
-);
+): Map<string, string> =>
+  mergeMaps(
+    ...selectors.map((selector) =>
+      extractDeclarations(sourceCss, [selector], properties, contextPredicate),
+    ),
+  );
 
 const renderFoundation = (sourceCss: string, refVersion: string): string => {
   const theme = extractFromCandidates(
@@ -133,17 +134,14 @@ const renderFoundation = (sourceCss: string, refVersion: string): string => {
     ELECTRON_BODY_PROPERTIES,
   );
   applyValues(electronBody, FOUNDATION_ELECTRON_OVERRIDES);
-  const browser = extractFromCandidates(
-    sourceCss,
-    FOUNDATION_SOURCE_SELECTORS.browser,
-    ["--height-toolbar"],
-  );
+  const browser = extractFromCandidates(sourceCss, FOUNDATION_SOURCE_SELECTORS.browser, [
+    "--height-toolbar",
+  ]);
   applyValues(browser, FOUNDATION_BROWSER_OVERRIDES);
-  const extension = extractFromCandidates(
-    sourceCss,
-    FOUNDATION_SOURCE_SELECTORS.extension,
-    ["--diffs-font-size", "--text-heading-md"],
-  );
+  const extension = extractFromCandidates(sourceCss, FOUNDATION_SOURCE_SELECTORS.extension, [
+    "--diffs-font-size",
+    "--text-heading-md",
+  ]);
 
   return [
     HEADER(refVersion),
@@ -152,7 +150,10 @@ const renderFoundation = (sourceCss: string, refVersion: string): string => {
     formatBlock('[data-codex-window-type="electron"] body', electronBody),
     formatBlock('[data-codex-window-type="browser"]', browser),
     formatBlock(':root[data-codex-window-type="extension"]', extension),
-  ].filter(Boolean).join("\n\n").concat("\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .concat("\n");
 };
 
 const renderContract = (sourceCss: string, refVersion: string): string => {
@@ -163,12 +164,7 @@ const renderContract = (sourceCss: string, refVersion: string): string => {
     contextWithoutConditions,
   );
   const electronVscode = mergeMaps(
-    extractDeclarationsByPrefix(
-      sourceCss,
-      [".app-theme"],
-      ["--vscode-"],
-      contextWithoutConditions,
-    ),
+    extractDeclarationsByPrefix(sourceCss, [".app-theme"], ["--vscode-"], contextWithoutConditions),
     extractDeclarationsByPrefix(
       sourceCss,
       ['[data-codex-window-type="electron"]'],
@@ -193,9 +189,11 @@ const renderContract = (sourceCss: string, refVersion: string): string => {
     styleContextPredicate: contextWithinSupports,
     declarationPredicate: (declaration) => {
       const name = customPropertyName(declaration);
-      return name !== null
-        && CONTRACT_DECLARATION_PREFIXES.some((prefix) => name.startsWith(prefix))
-        && !CONTRACT_NODEX_OWNED_PROPERTIES.has(name);
+      return (
+        name !== null &&
+        CONTRACT_DECLARATION_PREFIXES.some((prefix) => name.startsWith(prefix)) &&
+        !CONTRACT_NODEX_OWNED_PROPERTIES.has(name)
+      );
     },
   });
   const lightDarkControls = filterCss(sourceCss, {
@@ -217,7 +215,10 @@ const renderContract = (sourceCss: string, refVersion: string): string => {
     formatThemeBlock(theme),
     lightDarkControls,
     conditional,
-  ].filter(Boolean).join("\n\n").concat("\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .concat("\n");
 };
 
 const UTILITY_PROPERTY_RULES = new Set([
@@ -299,9 +300,9 @@ const renderManifest = (
   refVersion: string,
   artifacts: readonly SemanticThemeArtifact[],
 ): string => {
-  const contractCss = artifacts.find(
-    (artifact) => artifact.path === SEMANTIC_THEME_ARTIFACT_PATHS.contract,
-  )?.content ?? "";
+  const contractCss =
+    artifacts.find((artifact) => artifact.path === SEMANTIC_THEME_ARTIFACT_PATHS.contract)
+      ?.content ?? "";
   const manifest: SemanticThemeGeneratedContract = {
     schemaVersion: 1,
     refVersion,
@@ -314,25 +315,35 @@ const renderManifest = (
       selector: utility.outputSelector ?? utility.selector,
       dependencies: [...utility.tokenDependencies],
     })),
-    variables: [...artifacts
-      .filter((artifact) => artifact.path.endsWith(".css"))
-      .flatMap((artifact) => collectSemanticThemeCssFacts(artifact.content, artifact.path).definitions)
-      .reduce((variables, definition) => {
-        const current = variables.get(definition.name) ?? {
-          dependencies: new Set<string>(),
-          owners: new Set<string>(),
-          scopes: new Set<SemanticThemeTarget>(),
-        };
-        for (const reference of definition.references) current.dependencies.add(reference.name);
-        current.owners.add(definition.artifactPath);
-        for (const target of definition.targets) current.scopes.add(target);
-        variables.set(definition.name, current);
-        return variables;
-      }, new Map<string, {
-        dependencies: Set<string>;
-        owners: Set<string>;
-        scopes: Set<SemanticThemeTarget>;
-      }>())]
+    variables: [
+      ...artifacts
+        .filter((artifact) => artifact.path.endsWith(".css"))
+        .flatMap(
+          (artifact) => collectSemanticThemeCssFacts(artifact.content, artifact.path).definitions,
+        )
+        .reduce(
+          (variables, definition) => {
+            const current = variables.get(definition.name) ?? {
+              dependencies: new Set<string>(),
+              owners: new Set<string>(),
+              scopes: new Set<SemanticThemeTarget>(),
+            };
+            for (const reference of definition.references) current.dependencies.add(reference.name);
+            current.owners.add(definition.artifactPath);
+            for (const target of definition.targets) current.scopes.add(target);
+            variables.set(definition.name, current);
+            return variables;
+          },
+          new Map<
+            string,
+            {
+              dependencies: Set<string>;
+              owners: Set<string>;
+              scopes: Set<SemanticThemeTarget>;
+            }
+          >(),
+        ),
+    ]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, value]) => ({
         name,

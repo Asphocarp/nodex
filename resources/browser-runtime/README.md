@@ -54,6 +54,7 @@ Updating the runtime is an explicit maintainer workflow:
    This Interface always passes `--latest=false` and verifies that GitHub
    Latest remains the stable Nodex app release. Never use a bare
    `gh release create` for a Browser runtime release.
+
 6. Replace this lock atomically with the printed archive metadata and the
    versions from both generated Browser runtime manifests.
 7. Run the Browser runtime conformance test for both release artifacts before

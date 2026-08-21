@@ -61,11 +61,11 @@ export function projectsListQueryOptions(options: ProjectListOptions = {}) {
     queryKey: queryKeys.projects.list(includeArchived),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }): Promise<ProjectWindow> =>
-      await invoke("projects:list", {
+      (await invoke("projects:list", {
         includeArchived,
         after: pageParam,
         first: 100,
-      }) as ProjectWindow,
+      })) as ProjectWindow,
     getNextPageParam: (window) => window.nextCursor ?? undefined,
   });
 }
@@ -78,15 +78,13 @@ export function projectDetailQueryOptions(projectId: string) {
   });
 }
 
-export function projectActivitySummariesQueryOptions(
-  projectIds: readonly string[],
-) {
+export function projectActivitySummariesQueryOptions(projectIds: readonly string[]) {
   return queryOptions({
     queryKey: queryKeys.projectActivity.summaries(projectIds),
-    queryFn: () => invoke(
-      "projects:activity-summaries",
-      [...projectIds],
-    ) as Promise<ProjectActivitySummaryResult>,
+    queryFn: () =>
+      invoke("projects:activity-summaries", [
+        ...projectIds,
+      ]) as Promise<ProjectActivitySummaryResult>,
     enabled: projectIds.length > 0,
     staleTime: 30_000,
   });
@@ -95,10 +93,11 @@ export function projectActivitySummariesQueryOptions(
 export function boardByProjectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.boards.byProject(projectId),
-    queryFn: async () => admitResourceAuthorityQuery(
-      await readDatabaseViewWindow(projectId, { first: 50 }),
-      resolveBoardAuthority,
-    ),
+    queryFn: async () =>
+      admitResourceAuthorityQuery(
+        await readDatabaseViewWindow(projectId, { first: 50 }),
+        resolveBoardAuthority,
+      ),
     meta: resourceAuthorityQueryMeta(resolveBoardAuthority),
   });
 }
@@ -108,9 +107,9 @@ export function projectSessionSummariesQueryOptions(projectId: string | null) {
   return queryOptions({
     queryKey,
     queryFn: async ({ client, queryKey: activeQueryKey }): Promise<ProjectSessionSummaryWindow> => {
-      const incoming = await invoke("workspace:tasks:list", projectId, {
+      const incoming = (await invoke("workspace:tasks:list", projectId, {
         first: 50,
-      }) as ProjectSessionSummaryWindow;
+      })) as ProjectSessionSummaryWindow;
       return preferNewestProjectSessionSummaryWindow(
         client.getQueryData<ProjectSessionSummaryWindow>(activeQueryKey),
         incoming,
@@ -138,7 +137,8 @@ export function windowRestoreSettingsQueryOptions() {
 export function threadNotificationSettingsQueryOptions() {
   return queryOptions({
     queryKey: queryKeys.settings.threadNotifications(),
-    queryFn: () => invoke("settings:thread-notifications:get") as Promise<ThreadNotificationSettings>,
+    queryFn: () =>
+      invoke("settings:thread-notifications:get") as Promise<ThreadNotificationSettings>,
   });
 }
 
@@ -154,7 +154,9 @@ export function codexScheduledAutomationsListQueryOptions() {
   return queryOptions({
     queryKey: queryKeys.codexScheduledAutomations.list(),
     queryFn: async () => {
-      const response = await invoke("codex:scheduled-automations:list") as CodexScheduledAutomationListResponse;
+      const response = (await invoke(
+        "codex:scheduled-automations:list",
+      )) as CodexScheduledAutomationListResponse;
       return response.items;
     },
     staleTime: 30_000,
@@ -164,7 +166,11 @@ export function codexScheduledAutomationsListQueryOptions() {
 export function codexAutomationRunsInboxQueryOptions(limit = 200) {
   return queryOptions({
     queryKey: queryKeys.codexAutomationRuns.inbox(limit),
-    queryFn: () => invoke("codex:automation-runs:inbox-items", limit) as Promise<CodexAutomationRunsInboxResponse>,
+    queryFn: () =>
+      invoke(
+        "codex:automation-runs:inbox-items",
+        limit,
+      ) as Promise<CodexAutomationRunsInboxResponse>,
     staleTime: 30_000,
   });
 }
@@ -178,16 +184,14 @@ export function codexModelsListQueryOptions() {
 }
 
 export function codexComposerPluginsListQueryOptions(cwds: readonly string[]) {
-  const normalizedCwds = Array.from(new Set(
-    cwds.map((cwd) => cwd.trim()).filter(Boolean),
-  )).sort();
+  const normalizedCwds = Array.from(new Set(cwds.map((cwd) => cwd.trim()).filter(Boolean))).sort();
 
   return queryOptions({
     queryKey: queryKeys.codexComposerPlugins.list(normalizedCwds),
-    queryFn: () => invoke(
-      "codex:composer-plugins:list",
-      { cwds: normalizedCwds },
-    ) as Promise<CodexComposerPlugin[]>,
+    queryFn: () =>
+      invoke("codex:composer-plugins:list", { cwds: normalizedCwds }) as Promise<
+        CodexComposerPlugin[]
+      >,
     retry: false,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -195,16 +199,14 @@ export function codexComposerPluginsListQueryOptions(cwds: readonly string[]) {
 }
 
 export function codexComposerSkillsListQueryOptions(cwds: readonly string[]) {
-  const normalizedCwds = Array.from(new Set(
-    cwds.map((cwd) => cwd.trim()).filter(Boolean),
-  )).sort();
+  const normalizedCwds = Array.from(new Set(cwds.map((cwd) => cwd.trim()).filter(Boolean))).sort();
 
   return queryOptions({
     queryKey: queryKeys.codexComposerSkills.list(normalizedCwds),
-    queryFn: () => invoke(
-      "codex:composer-skills:list",
-      { cwds: normalizedCwds },
-    ) as Promise<CodexComposerSkill[]>,
+    queryFn: () =>
+      invoke("codex:composer-skills:list", { cwds: normalizedCwds }) as Promise<
+        CodexComposerSkill[]
+      >,
     retry: false,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -214,25 +216,21 @@ export function codexComposerSkillsListQueryOptions(cwds: readonly string[]) {
 export function codexComposerSitesListQueryOptions() {
   return queryOptions({
     queryKey: queryKeys.codexComposerSites.list(),
-    queryFn: () => invoke(
-      "codex:composer-sites:list",
-    ) as Promise<CodexComposerSiteListResult>,
+    queryFn: () => invoke("codex:composer-sites:list") as Promise<CodexComposerSiteListResult>,
     retry: false,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: true,
   });
 }
 
-export function codexComposerChatGptConversationsListQueryOptions(
-  query: string,
-) {
+export function codexComposerChatGptConversationsListQueryOptions(query: string) {
   const normalizedQuery = query.trim();
   return queryOptions({
     queryKey: queryKeys.codexComposerChatGptConversations.list(normalizedQuery),
-    queryFn: () => invoke(
-      "codex:composer-chatgpt-conversations:list",
-      { query: normalizedQuery },
-    ) as Promise<CodexComposerChatGptConversationListResult>,
+    queryFn: () =>
+      invoke("codex:composer-chatgpt-conversations:list", {
+        query: normalizedQuery,
+      }) as Promise<CodexComposerChatGptConversationListResult>,
     retry: false,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -252,7 +250,7 @@ export function codexExperimentalFeaturesListQueryOptions() {
     queryKey: queryKeys.codexExperimentalFeatures.list(),
     queryFn: async () => {
       try {
-        return await invoke("codex:experimental-features:list") as ProtocolExperimentalFeature[];
+        return (await invoke("codex:experimental-features:list")) as ProtocolExperimentalFeature[];
       } catch {
         return [];
       }
@@ -293,7 +291,10 @@ export function localPathPresentationContextQueryOptions() {
 export function localEnvironmentConfigsQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.localEnvironments.configs(projectId),
-    queryFn: () => invoke("worktrees:environments:configs:list", projectId) as Promise<WorktreeEnvironmentConfigRecord[]>,
+    queryFn: () =>
+      invoke("worktrees:environments:configs:list", projectId) as Promise<
+        WorktreeEnvironmentConfigRecord[]
+      >,
     enabled: projectId.trim().length > 0,
   });
 }
@@ -301,15 +302,24 @@ export function localEnvironmentConfigsQueryOptions(projectId: string) {
 export function localEnvironmentOptionsQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.localEnvironments.options(projectId),
-    queryFn: () => invoke("worktrees:environments:list", projectId) as Promise<WorktreeEnvironmentOption[]>,
+    queryFn: () =>
+      invoke("worktrees:environments:list", projectId) as Promise<WorktreeEnvironmentOption[]>,
     enabled: projectId.trim().length > 0,
   });
 }
 
-export function localEnvironmentSnapshotQueryOptions(projectId: string, configPath?: string | null) {
+export function localEnvironmentSnapshotQueryOptions(
+  projectId: string,
+  configPath?: string | null,
+) {
   return queryOptions({
     queryKey: queryKeys.localEnvironments.config(projectId, configPath),
-    queryFn: () => invoke("worktrees:environments:config:read", projectId, configPath) as Promise<WorktreeEnvironmentSettingsSnapshot>,
+    queryFn: () =>
+      invoke(
+        "worktrees:environments:config:read",
+        projectId,
+        configPath,
+      ) as Promise<WorktreeEnvironmentSettingsSnapshot>,
     enabled: projectId.trim().length > 0,
   });
 }
@@ -317,7 +327,8 @@ export function localEnvironmentSnapshotQueryOptions(projectId: string, configPa
 export function mcpServerStatusesQueryOptions() {
   return queryOptions({
     queryKey: queryKeys.mcp.statuses(),
-    queryFn: () => invoke("codex:mcp-server-statuses:list") as Promise<ProtocolListMcpServerStatusResponse>,
+    queryFn: () =>
+      invoke("codex:mcp-server-statuses:list") as Promise<ProtocolListMcpServerStatusResponse>,
     staleTime: MCP_CATALOG_STALE_TIME_MS,
   });
 }
@@ -334,7 +345,8 @@ export function mcpAppsQueryOptions() {
 export function mcpResourceQueryOptions(params: ProtocolMcpResourceReadParams) {
   return queryOptions({
     queryKey: queryKeys.mcp.resource(params),
-    queryFn: () => invoke("codex:mcp-resource:read", params) as Promise<ProtocolMcpResourceReadResponse>,
+    queryFn: () =>
+      invoke("codex:mcp-resource:read", params) as Promise<ProtocolMcpResourceReadResponse>,
     enabled: params.server.trim().length > 0 && params.uri.trim().length > 0,
   });
 }
@@ -342,7 +354,8 @@ export function mcpResourceQueryOptions(params: ProtocolMcpResourceReadParams) {
 export function workspaceDirectoryQueryOptions(input: WorkspaceDirectoryEntriesInput) {
   return queryOptions({
     queryKey: queryKeys.workspaceFiles.directory(input),
-    queryFn: () => invoke("workspace-directory-entries", input) as Promise<WorkspaceDirectoryEntriesResult>,
+    queryFn: () =>
+      invoke("workspace-directory-entries", input) as Promise<WorkspaceDirectoryEntriesResult>,
   });
 }
 

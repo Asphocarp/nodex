@@ -81,24 +81,16 @@ export function useProjectPageCreateTarget({
       clientSessionId,
     });
   }, [board, clientSessionId, databaseView, project]);
-  const capability = useMemo(() => project
-    ? resolveProjectDefaultPageCreateCapability({ project, target, error })
-    : null, [error, project, target]);
+  const capability = useMemo(
+    () => (project ? resolveProjectDefaultPageCreateCapability({ project, target, error }) : null),
+    [error, project, target],
+  );
 
   useEffect(() => {
     if (!project || !capability) return undefined;
-    registerProjectDefaultPageCreateTarget(
-      appHandle,
-      project.id,
-      registrationToken,
-      capability,
-    );
+    registerProjectDefaultPageCreateTarget(appHandle, project.id, registrationToken, capability);
     return () => {
-      unregisterProjectDefaultPageCreateTarget(
-        appHandle,
-        project.id,
-        registrationToken,
-      );
+      unregisterProjectDefaultPageCreateTarget(appHandle, project.id, registrationToken);
     };
   }, [appHandle, capability, project, registrationToken]);
 }

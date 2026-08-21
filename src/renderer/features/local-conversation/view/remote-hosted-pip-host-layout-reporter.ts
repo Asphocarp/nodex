@@ -10,11 +10,9 @@ import {
   type RemoteHostedPipViewportRect,
 } from "../../../../shared/remote-hosted-pip";
 
-const REMOTE_HOSTED_PIP_ANCHOR_SELECTOR =
-  `[${REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE}="${REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID}"]`;
+const REMOTE_HOSTED_PIP_ANCHOR_SELECTOR = `[${REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE}="${REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID}"]`;
 const REMOTE_HOSTED_PIP_OBSTACLE_SELECTOR = `[${REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE}]`;
-const REMOTE_HOSTED_PIP_OBSERVED_SELECTOR =
-  `${REMOTE_HOSTED_PIP_ANCHOR_SELECTOR},${REMOTE_HOSTED_PIP_OBSTACLE_SELECTOR}`;
+const REMOTE_HOSTED_PIP_OBSERVED_SELECTOR = `${REMOTE_HOSTED_PIP_ANCHOR_SELECTOR},${REMOTE_HOSTED_PIP_OBSTACLE_SELECTOR}`;
 
 export function useRemoteHostedPipHostLayoutReporter(scale = 1): void {
   useEffect(() => {
@@ -70,18 +68,21 @@ export function useRemoteHostedPipHostLayoutReporter(scale = 1): void {
         return;
       }
 
-      const obstacleRects = Array.from(document.querySelectorAll(REMOTE_HOSTED_PIP_OBSTACLE_SELECTOR))
-        .flatMap((element) => {
-          if (!(element instanceof HTMLElement)) return [];
+      const obstacleRects = Array.from(
+        document.querySelectorAll(REMOTE_HOSTED_PIP_OBSTACLE_SELECTOR),
+      ).flatMap((element) => {
+        if (!(element instanceof HTMLElement)) return [];
 
-          const rect = readElementViewportRect(element, effectiveScale);
-          return rect === null ? [] : [rect];
-        });
+        const rect = readElementViewportRect(element, effectiveScale);
+        return rect === null ? [] : [rect];
+      });
 
-      publishLayout(buildRemoteHostedPipHostLayout({
-        hostRect,
-        obstacleRects,
-      }));
+      publishLayout(
+        buildRemoteHostedPipHostLayout({
+          hostRect,
+          obstacleRects,
+        }),
+      );
     }
 
     function refreshObservedElements() {
@@ -98,7 +99,10 @@ export function useRemoteHostedPipHostLayoutReporter(scale = 1): void {
     }
 
     treeObserver?.observe(document.body, {
-      attributeFilter: [REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE, REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE],
+      attributeFilter: [
+        REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE,
+        REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE,
+      ],
       attributes: true,
       childList: true,
       subtree: true,
@@ -123,7 +127,10 @@ export function useRemoteHostedPipHostLayoutReporter(scale = 1): void {
   }, [scale]);
 }
 
-function readElementViewportRect(element: HTMLElement, scale: number): RemoteHostedPipViewportRect | null {
+function readElementViewportRect(
+  element: HTMLElement,
+  scale: number,
+): RemoteHostedPipViewportRect | null {
   if (element.hidden) return null;
 
   const rect = element.getBoundingClientRect();
@@ -151,9 +158,11 @@ function isRemoteHostedPipObservedMutation(record: MutationRecord): boolean {
 }
 
 function containsRemoteHostedPipObservedElement(node: Node): boolean {
-  return node instanceof HTMLElement
-    && (node.matches(REMOTE_HOSTED_PIP_OBSERVED_SELECTOR)
-      || node.querySelector(REMOTE_HOSTED_PIP_OBSERVED_SELECTOR) !== null);
+  return (
+    node instanceof HTMLElement &&
+    (node.matches(REMOTE_HOSTED_PIP_OBSERVED_SELECTOR) ||
+      node.querySelector(REMOTE_HOSTED_PIP_OBSERVED_SELECTOR) !== null)
+  );
 }
 
 function createResizeObserver(callback: ResizeObserverCallback): ResizeObserver | null {

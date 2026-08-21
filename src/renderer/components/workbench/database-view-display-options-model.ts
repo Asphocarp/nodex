@@ -26,17 +26,14 @@ export interface DatabaseViewDisplayOptionCapabilities {
 }
 
 export const databaseViewDisplayFieldKey = (field: DatabaseViewField): string =>
-  field.kind === "property"
-    ? `property:${field.propertyId}`
-    : `intrinsic:${field.field}`;
+  field.kind === "property" ? `property:${field.propertyId}` : `intrinsic:${field.field}`;
 
-const primarySort = (
-  effective: EffectiveDatabaseViewPresentation,
-): DatabaseViewSort => effective.presentation.sort[0] ?? {
-  field: { kind: "manual" },
-  direction: "asc",
-  nulls: "last",
-};
+const primarySort = (effective: EffectiveDatabaseViewPresentation): DatabaseViewSort =>
+  effective.presentation.sort[0] ?? {
+    field: { kind: "manual" },
+    direction: "asc",
+    nulls: "last",
+  };
 
 export const displayFieldForcedByOrdering = (
   field: DatabaseViewSort["field"],
@@ -69,10 +66,10 @@ export const reduceDisplayOptionChange = (
       presentation: {
         ...presentation,
         group: propertyId === null ? null : { propertyId },
-        subgroup: propertyId !== null
-            && presentation.subgroup?.propertyId === propertyId
-          ? null
-          : presentation.subgroup,
+        subgroup:
+          propertyId !== null && presentation.subgroup?.propertyId === propertyId
+            ? null
+            : presentation.subgroup,
       },
     };
   }
@@ -81,9 +78,11 @@ export const reduceDisplayOptionChange = (
     if (propertyId === null) {
       return { ...effective, presentation: { ...presentation, subgroup: null } };
     }
-    if (presentation.group === null
-      || presentation.group.propertyId === propertyId
-      || !capabilities.groupablePropertyIds.has(propertyId)) {
+    if (
+      presentation.group === null ||
+      presentation.group.propertyId === propertyId ||
+      !capabilities.groupablePropertyIds.has(propertyId)
+    ) {
       return effective;
     }
     return {
@@ -107,9 +106,10 @@ export const reduceDisplayOptionChange = (
       ...effective,
       presentation: {
         ...presentation,
-        sort: presentation.sort.length === 0
-          ? [nextPrimary]
-          : presentation.sort.map((sort, index) => index === 0 ? nextPrimary : sort),
+        sort:
+          presentation.sort.length === 0
+            ? [nextPrimary]
+            : presentation.sort.map((sort, index) => (index === 0 ? nextPrimary : sort)),
       },
     };
   }
@@ -117,15 +117,16 @@ export const reduceDisplayOptionChange = (
     const current = primarySort(effective);
     const nextPrimary = {
       ...current,
-      direction: current.direction === "asc" ? "desc" as const : "asc" as const,
+      direction: current.direction === "asc" ? ("desc" as const) : ("asc" as const),
     };
     return {
       ...effective,
       presentation: {
         ...presentation,
-        sort: presentation.sort.length === 0
-          ? [nextPrimary]
-          : presentation.sort.map((sort, index) => index === 0 ? nextPrimary : sort),
+        sort:
+          presentation.sort.length === 0
+            ? [nextPrimary]
+            : presentation.sort.map((sort, index) => (index === 0 ? nextPrimary : sort)),
       },
     };
   }
@@ -157,9 +158,7 @@ export const reduceDisplayOptionChange = (
         ...presentation,
         hierarchy: {
           showSubPages: action.enabled,
-          nestedSubPages: action.enabled
-            ? presentation.hierarchy.nestedSubPages
-            : false,
+          nestedSubPages: action.enabled ? presentation.hierarchy.nestedSubPages : false,
         },
       },
     };
@@ -203,9 +202,7 @@ export const reduceDisplayOptionChange = (
     };
   }
   const key = databaseViewDisplayFieldKey(action.field);
-  const visible = layoutConfig.fields.some(
-    (field) => databaseViewDisplayFieldKey(field) === key,
-  );
+  const visible = layoutConfig.fields.some((field) => databaseViewDisplayFieldKey(field) === key);
   return {
     ...effective,
     presentation: {
@@ -215,9 +212,7 @@ export const reduceDisplayOptionChange = (
         [layout]: {
           ...layoutConfig,
           fields: visible
-            ? layoutConfig.fields.filter(
-                (field) => databaseViewDisplayFieldKey(field) !== key,
-              )
+            ? layoutConfig.fields.filter((field) => databaseViewDisplayFieldKey(field) !== key)
             : [...layoutConfig.fields, action.field],
         },
       },

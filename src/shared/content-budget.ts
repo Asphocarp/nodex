@@ -48,9 +48,7 @@ export function classifyContentBudget(input: {
     if (value.length > maxChars) return { kind: "tooLarge", reason: "characters" };
   }
 
-  const lineResult = maxLines === undefined
-    ? undefined
-    : countLinesUpTo(value, maxLines);
+  const lineResult = maxLines === undefined ? undefined : countLinesUpTo(value, maxLines);
   if (lineResult?.didExceedLimit) {
     return {
       kind: "tooLarge",

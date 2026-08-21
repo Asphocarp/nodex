@@ -1,24 +1,13 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createElement, useEffect, useRef, type ComponentProps } from "react";
-import {
-  act,
-  fireEvent,
-  type RenderResult,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, type RenderResult, waitFor } from "@testing-library/react";
 import { renderWithMaitai as render, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
-import {
-  __resetNodexToastStoreForTests,
-  NodexToastProvider,
-} from "../ui/toast";
+import { __resetNodexToastStoreForTests, NodexToastProvider } from "../ui/toast";
 import { NodexTooltipProvider } from "../ui/tooltip";
 import { FileReferenceRouterProvider } from "@/lib/file-reference-router";
 import { NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT } from "../../lib/diff-presentation";
-import type {
-  CodexConversationSnapshot,
-  GitReviewLiveEvent,
-} from "@/lib/types";
+import type { CodexConversationSnapshot, GitReviewLiveEvent } from "@/lib/types";
 import { buildReviewFileSafety } from "../../../shared/review-file-safety";
 import { ReviewDiffPanel } from "./review-diff-panel";
 import { parsePatchFiles } from "@pierre/diffs";
@@ -34,10 +23,7 @@ import {
   type ReviewConversationProjection,
 } from "@/features/review/model/review-conversation-projection";
 import { installReviewRuntimeProbe } from "@/features/review/testing/review-runtime-probe";
-import type {
-  FileDiffMetadata,
-  FileDiffProps,
-} from "@pierre/diffs/react";
+import type { FileDiffMetadata, FileDiffProps } from "@pierre/diffs/react";
 import { useSetScopedAtom } from "@/lib/maitai";
 import {
   prepareReviewOpenAtom,
@@ -159,9 +145,7 @@ function isDomElement(value: unknown): value is HTMLElement {
   );
 }
 
-function parsePatchFilesForTest(
-  patch: string,
-): Array<{ files: FileDiffMetadata[] }> {
+function parsePatchFilesForTest(patch: string): Array<{ files: FileDiffMetadata[] }> {
   const normalizedPatch = patch.trim();
   if (normalizedPatch.length === 0) return [];
 
@@ -173,8 +157,7 @@ function parsePatchFilesForTest(
 
   return filePatches.map((filePatch) => {
     const lines = filePatch.split("\n");
-    const previousHeader =
-      lines.find((line) => line.startsWith("--- ")) ?? null;
+    const previousHeader = lines.find((line) => line.startsWith("--- ")) ?? null;
     const nextHeader = lines.find((line) => line.startsWith("+++ ")) ?? null;
     const previousPath = previousHeader
       ? stripPatchPath(
@@ -238,21 +221,10 @@ function parsePatchFilesForTest(
       ({
         name: nextPath || previousPath || "file.ts",
         prevName: previousPath || null,
-        type:
-          previousPath.length === 0
-            ? "add"
-            : nextPath.length === 0
-              ? "delete"
-              : "modify",
+        type: previousPath.length === 0 ? "add" : nextPath.length === 0 ? "delete" : "modify",
         hunks,
-        additionLines: hunks.reduce(
-          (sum, hunk) => sum + hunk.additionLines,
-          0,
-        ),
-        deletionLines: hunks.reduce(
-          (sum, hunk) => sum + hunk.deletionLines,
-          0,
-        ),
+        additionLines: hunks.reduce((sum, hunk) => sum + hunk.additionLines, 0),
+        deletionLines: hunks.reduce((sum, hunk) => sum + hunk.deletionLines, 0),
       } as unknown as FileDiffMetadata);
 
     return { files: [fileDiff] };
@@ -282,10 +254,7 @@ function parseAddedPatchFileWithLineArraysForTest(): Array<{
               additionLineIndex: 0,
             },
           ],
-          additionLines: [
-            "export const created = true;\n",
-            'export const source = "patch";\n',
-          ],
+          additionLines: ["export const created = true;\n", 'export const source = "patch";\n'],
           deletionLines: [],
         } as unknown as FileDiffMetadata,
       ],
@@ -302,88 +271,79 @@ function countTestFileDiffLines(value: unknown): string {
 function testDiffOptionValue(options: unknown, key: string): string {
   if (typeof options !== "object" || options === null) return "";
   const value = (options as Record<string, unknown>)[key];
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
   return "";
 }
 
 const reviewDiffPanelTestInvoke = async (...args: unknown[]) => {
-    invokeCalls.push(args);
-    if (!mockInvokeImpl) return null;
-    const result = await mockInvokeImpl(...args);
-    if (result !== null) {
-      if (
-        args[0] !== "review-diff" ||
-        typeof result !== "object" ||
-        result === null
-      ) {
-        return result;
-      }
-      const diffResult = result as {
-        cwd?: string;
-        source?: "unstaged" | "staged" | "branch" | "commit";
-        patch?: string;
-        files?: ReturnType<typeof buildGitSummary>[];
-      };
-      if (
-        typeof diffResult.patch !== "string" ||
-        diffResult.files?.some((file) => "diff" in file) === true
-      ) {
-        return result;
-      }
-      return buildGitDiffResultForTest({
-        cwd: diffResult.cwd,
-        source: diffResult.source,
-        patch: diffResult.patch,
-        files: diffResult.files,
-      });
-    }
-
-    if (args[0] !== "review-summary") {
+  invokeCalls.push(args);
+  if (!mockInvokeImpl) return null;
+  const result = await mockInvokeImpl(...args);
+  if (result !== null) {
+    if (args[0] !== "review-diff" || typeof result !== "object" || result === null) {
       return result;
     }
-    const legacyResult = await mockInvokeImpl("review-diff", args[1]);
-    if (typeof legacyResult !== "object" || legacyResult === null)
-      return result;
-
-    const legacySnapshot = legacyResult as {
+    const diffResult = result as {
       cwd?: string;
       source?: "unstaged" | "staged" | "branch" | "commit";
       patch?: string;
       files?: ReturnType<typeof buildGitSummary>[];
-      isGitRepository?: boolean;
-      baseRef?: string | null;
-      currentBranch?: string | null;
-      defaultBranch?: string | null;
-      errorMessage?: string | null;
     };
-    return {
-      cwd: legacySnapshot.cwd ?? "/tmp/codex",
-      source: legacySnapshot.source ?? "unstaged",
-      patch: "",
-      files:
-        legacySnapshot.files && legacySnapshot.files.length > 0
-          ? legacySnapshot.files
-          : buildGitSummariesFromPatch(legacySnapshot.patch ?? ""),
-      isGitRepository: legacySnapshot.isGitRepository ?? true,
-      baseRef: legacySnapshot.baseRef ?? null,
-      currentBranch: legacySnapshot.currentBranch ?? "feature",
-      defaultBranch: legacySnapshot.defaultBranch ?? "main",
-      errorMessage: legacySnapshot.errorMessage ?? null,
-      snapshotGeneration: 1,
-      additions: 0,
-      deletions: 0,
-      stageCounts: {
-        stagedFileCount: 0,
-        unstagedFileCount: 0,
-        untrackedFileCount: 0,
-      },
-    };
+    if (
+      typeof diffResult.patch !== "string" ||
+      diffResult.files?.some((file) => "diff" in file) === true
+    ) {
+      return result;
+    }
+    return buildGitDiffResultForTest({
+      cwd: diffResult.cwd,
+      source: diffResult.source,
+      patch: diffResult.patch,
+      files: diffResult.files,
+    });
+  }
+
+  if (args[0] !== "review-summary") {
+    return result;
+  }
+  const legacyResult = await mockInvokeImpl("review-diff", args[1]);
+  if (typeof legacyResult !== "object" || legacyResult === null) return result;
+
+  const legacySnapshot = legacyResult as {
+    cwd?: string;
+    source?: "unstaged" | "staged" | "branch" | "commit";
+    patch?: string;
+    files?: ReturnType<typeof buildGitSummary>[];
+    isGitRepository?: boolean;
+    baseRef?: string | null;
+    currentBranch?: string | null;
+    defaultBranch?: string | null;
+    errorMessage?: string | null;
+  };
+  return {
+    cwd: legacySnapshot.cwd ?? "/tmp/codex",
+    source: legacySnapshot.source ?? "unstaged",
+    patch: "",
+    files:
+      legacySnapshot.files && legacySnapshot.files.length > 0
+        ? legacySnapshot.files
+        : buildGitSummariesFromPatch(legacySnapshot.patch ?? ""),
+    isGitRepository: legacySnapshot.isGitRepository ?? true,
+    baseRef: legacySnapshot.baseRef ?? null,
+    currentBranch: legacySnapshot.currentBranch ?? "feature",
+    defaultBranch: legacySnapshot.defaultBranch ?? "main",
+    errorMessage: legacySnapshot.errorMessage ?? null,
+    snapshotGeneration: 1,
+    additions: 0,
+    deletions: 0,
+    stageCounts: {
+      stagedFileCount: 0,
+      unstagedFileCount: 0,
+      untrackedFileCount: 0,
+    },
+  };
 };
 
 function createReviewGitWorkerTestClient(): GitWorkerQueryClient {
@@ -392,10 +352,7 @@ function createReviewGitWorkerTestClient(): GitWorkerQueryClient {
       switch (input.method) {
         case "stable-metadata": {
           const params = input.params as { cwd: string };
-          const result = await reviewDiffPanelTestInvoke(
-            "stable-metadata",
-            input.params,
-          );
+          const result = await reviewDiffPanelTestInvoke("stable-metadata", input.params);
           if (typeof result === "object" && result !== null && "cwd" in result) {
             const metadata = result as Record<string, unknown> & { cwd: string };
             if (metadata.isGitRepository === false) return result as never;
@@ -429,10 +386,7 @@ function createReviewGitWorkerTestClient(): GitWorkerQueryClient {
         }
         case "review-summary": {
           const params = input.params as { source: string };
-          const result = await reviewDiffPanelTestInvoke(
-            "review-summary",
-            input.params,
-          );
+          const result = await reviewDiffPanelTestInvoke("review-summary", input.params);
           if (typeof result === "object" && result !== null && "type" in result) {
             return result as never;
           }
@@ -453,32 +407,17 @@ function createReviewGitWorkerTestClient(): GitWorkerQueryClient {
           } as never;
         }
         case "branch-commits":
-          return await reviewDiffPanelTestInvoke(
-            "branch-commits",
-            input.params,
-          ) as never;
+          return (await reviewDiffPanelTestInvoke("branch-commits", input.params)) as never;
         case "review-diff":
-          return await reviewDiffPanelTestInvoke(
-            "review-diff",
-            input.params,
-          ) as never;
+          return (await reviewDiffPanelTestInvoke("review-diff", input.params)) as never;
         case "review-cat-file": {
-          const value = await reviewDiffPanelTestInvoke(
-            "review-cat-file",
-            input.params,
-          );
+          const value = await reviewDiffPanelTestInvoke("review-cat-file", input.params);
           return { type: "success", value } as never;
         }
         case "review-search":
-          return await reviewDiffPanelTestInvoke(
-            "review-search",
-            input.params,
-          ) as never;
+          return (await reviewDiffPanelTestInvoke("review-search", input.params)) as never;
         case "review-patch":
-          return await reviewDiffPanelTestInvoke(
-            "review-patch",
-            input.params,
-          ) as never;
+          return (await reviewDiffPanelTestInvoke("review-patch", input.params)) as never;
         case "subscribe-live-query":
           await reviewDiffPanelTestInvoke("subscribe-live-query", input.params);
           return { subscribed: true } as never;
@@ -489,14 +428,11 @@ function createReviewGitWorkerTestClient(): GitWorkerQueryClient {
           await reviewDiffPanelTestInvoke("recover-live-query", input.params);
           return { recovered: true } as never;
         case "refresh-live-query":
-          await reviewDiffPanelTestInvoke(
-            "refresh-live-query",
-            input.params,
-          );
+          await reviewDiffPanelTestInvoke("refresh-live-query", input.params);
           return { refreshed: true } as never;
         case "git-init-repo": {
           const params = input.params as { cwd: string };
-          return await reviewDiffPanelTestInvoke("git-init-repo", params.cwd) as never;
+          return (await reviewDiffPanelTestInvoke("git-init-repo", params.cwd)) as never;
         }
         default:
           throw new Error(`Unsupported test Git worker method: ${input.method}`);
@@ -513,11 +449,13 @@ function createReviewGitWorkerTestClientWithLiveEvents(
   return {
     ...client,
     subscribe: (listener) => {
-      setPublish((event) => listener({
-        type: "git-live-query-event",
-        workerId: "git",
-        event,
-      }));
+      setPublish((event) =>
+        listener({
+          type: "git-live-query-event",
+          workerId: "git",
+          event,
+        }),
+      );
       return () => setPublish(null);
     },
   };
@@ -534,14 +472,8 @@ const reviewDiffPanelTestDeps = {
     setTheme: () => {},
   }),
   FileDiff: <LAnnotation,>(props: FileDiffProps<LAnnotation>) => {
-    const {
-      className,
-      fileDiff,
-      options,
-      lineAnnotations,
-      renderAnnotation,
-      selectedLines,
-    } = props;
+    const { className, fileDiff, options, lineAnnotations, renderAnnotation, selectedLines } =
+      props;
     lastFileDiffProps = props as unknown as FileDiffProps<unknown>;
     return createElement(
       "div",
@@ -563,10 +495,7 @@ const reviewDiffPanelTestDeps = {
           options,
           "collapsedContextThreshold",
         ),
-        "data-expansion-line-count": testDiffOptionValue(
-          options,
-          "expansionLineCount",
-        ),
+        "data-expansion-line-count": testDiffOptionValue(options, "expansionLineCount"),
         "data-collapsed": testDiffOptionValue(options, "collapsed"),
         "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
         "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
@@ -669,12 +598,7 @@ function buildRepeatedFilePatch(pathName = "src/example.ts"): string {
 
 function buildGitSummary(
   path: string,
-  status:
-    | "modified"
-    | "added"
-    | "deleted"
-    | "renamed"
-    | "untracked" = "modified",
+  status: "modified" | "added" | "deleted" | "renamed" | "untracked" = "modified",
 ) {
   return {
     path,
@@ -786,21 +710,15 @@ async function loadReviewDiffPanelModule() {
     conversationProjection?: ReviewConversationProjection;
   };
 
-  function TestReviewDiffPanel(
-    props: TestReviewDiffPanelProps,
-  ) {
-    const { conversation = null, conversationProjection, deps, ...panelProps } =
-      props;
+  function TestReviewDiffPanel(props: TestReviewDiffPanelProps) {
+    const { conversation = null, conversationProjection, deps, ...panelProps } = props;
     return (
       <TestQueryProvider>
-        <FileReferenceRouterProvider
-          openWorkspaceFileTab={openWorkspaceFileTab}
-        >
+        <FileReferenceRouterProvider openWorkspaceFileTab={openWorkspaceFileTab}>
           <ReviewDiffPanel
             {...panelProps}
             conversationProjection={
-              conversationProjection ??
-              buildReviewConversationProjection(conversation)
+              conversationProjection ?? buildReviewConversationProjection(conversation)
             }
             deps={{ ...reviewDiffPanelTestDeps, ...deps }}
             onStartThreadPrompt={recordStartThreadPrompt}
@@ -821,10 +739,7 @@ async function waitForReviewTree(container: HTMLElement): Promise<void> {
   });
 }
 
-async function waitForReviewTreePath(
-  container: HTMLElement,
-  path: string,
-): Promise<HTMLElement> {
+async function waitForReviewTreePath(container: HTMLElement, path: string): Promise<HTMLElement> {
   let row: Element | null = null;
   await waitFor(() => {
     row = container.querySelector(`[data-review-tree-path="${path}"]`);
@@ -838,16 +753,13 @@ async function waitForReviewTreePath(
   return row;
 }
 
-async function waitForMenuItem(
-  baseElement: HTMLElement,
-  text: string,
-): Promise<HTMLElement> {
+async function waitForMenuItem(baseElement: HTMLElement, text: string): Promise<HTMLElement> {
   let item: Element | null = null;
   await waitFor(() => {
     item =
-      Array.from(
-        baseElement.ownerDocument.querySelectorAll('[role="menuitem"]'),
-      ).find((node) => node.textContent?.includes(text) === true) ?? null;
+      Array.from(baseElement.ownerDocument.querySelectorAll('[role="menuitem"]')).find(
+        (node) => node.textContent?.includes(text) === true,
+      ) ?? null;
     if (!item) {
       throw new Error(`Expected menu item containing ${text}.`);
     }
@@ -940,10 +852,7 @@ describe("review diff panel", () => {
 
     const { container, getByText } = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
@@ -951,19 +860,14 @@ describe("review diff panel", () => {
 
     expect(getByText("Last turn").textContent).toBe("Last turn");
     expect(textContent(container).includes("example.ts")).toBe(true);
-    expect(
-      container.querySelector('[data-file-diff="src/example.ts"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[data-file-diff="src/example.ts"]')).not.toBeNull();
   });
 
   test("routes review filenames to Files and preserves durable activation", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
@@ -1002,31 +906,20 @@ describe("review diff panel", () => {
 
     const { container } = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
     await settleAsyncRender();
 
-    const renderedFileDiff = container.querySelector(
-      '[data-file-diff="src/example.ts"]',
-    );
+    const renderedFileDiff = container.querySelector('[data-file-diff="src/example.ts"]');
     expect(renderedFileDiff).not.toBeNull();
-    expect(renderedFileDiff?.getAttribute("data-hunk-separators")).toBe(
-      "line-info",
-    );
-    expect(
-      renderedFileDiff?.getAttribute("data-collapsed-context-threshold"),
-    ).toBe("1");
+    expect(renderedFileDiff?.getAttribute("data-hunk-separators")).toBe("line-info");
+    expect(renderedFileDiff?.getAttribute("data-collapsed-context-threshold")).toBe("1");
     expect(renderedFileDiff?.getAttribute("data-expansion-line-count")).toBe(
       String(NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT),
     );
-    expect(renderedFileDiff?.getAttribute("data-line-diff-type")).toBe(
-      "word-alt",
-    );
+    expect(renderedFileDiff?.getAttribute("data-line-diff-type")).toBe("word-alt");
     expect(renderedFileDiff?.getAttribute("data-diff-indicators")).toBe("bars");
   });
 
@@ -1054,12 +947,8 @@ describe("review diff panel", () => {
     const treeRows = view.container.querySelectorAll(
       '[data-item-type="file"][data-review-tree-path="src/example.ts"]',
     );
-    const renderedFileDiffs = view.container.querySelectorAll(
-      '[data-file-diff="src/example.ts"]',
-    );
-    const rowStats = reviewRows[0]?.querySelector(
-      'span[data-thread-find-skip="true"]',
-    );
+    const renderedFileDiffs = view.container.querySelectorAll('[data-file-diff="src/example.ts"]');
+    const rowStats = reviewRows[0]?.querySelector('span[data-thread-find-skip="true"]');
 
     expect(reviewRows.length).toBe(1);
     expect(treeRows.length).toBe(1);
@@ -1098,21 +987,14 @@ describe("review diff panel", () => {
 
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={conversation} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
     await settleAsyncRender();
 
-    expect(
-      view.container.querySelector('[data-file-diff="src/raw-canonical.ts"]'),
-    ).not.toBeNull();
-    expect(
-      view.container.querySelector('[data-file-diff="src/stale.ts"]'),
-    ).toBe(null);
+    expect(view.container.querySelector('[data-file-diff="src/raw-canonical.ts"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-file-diff="src/stale.ts"]')).toBe(null);
   });
 
   test("prefers the explicitly selected turn diff when provided", async () => {
@@ -1120,14 +1002,16 @@ describe("review diff panel", () => {
 
     const { container, getByText } = render(
       <NodexTooltipProvider>
-        <PrepareReviewOpen intent={{
-          source: {
-            kind: "selected-turn",
-            threadId: "thr_review",
-            turnId: "turn_selected",
-            entryId: "turn-diff:turn_selected",
-          },
-        }} />
+        <PrepareReviewOpen
+          intent={{
+            source: {
+              kind: "selected-turn",
+              threadId: "thr_review",
+              turnId: "turn_selected",
+              entryId: "turn-diff:turn_selected",
+            },
+          }}
+        />
         <ReviewDiffPanel
           conversation={buildConversation()}
           projectWorkspacePath="/tmp/codex"
@@ -1148,9 +1032,7 @@ describe("review diff panel", () => {
 
     expect(getByText("Last turn").textContent).toBe("Last turn");
     expect(textContent(container).includes("selected.ts")).toBe(true);
-    expect(
-      container.querySelector('[data-file-diff="src/selected.ts"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[data-file-diff="src/selected.ts"]')).not.toBeNull();
   });
 
   test("uses selected turn diff source and focuses the target path", async () => {
@@ -1165,15 +1047,17 @@ describe("review diff panel", () => {
     try {
       const { container, getByText } = render(
         <NodexTooltipProvider>
-          <ReviewOpenButton intent={{
-            source: {
-              kind: "selected-turn",
-              threadId: "thr_review",
-              turnId: "turn_1",
-              entryId: "turn-diff:turn_1",
-            },
-            targetPath: canonicalizeReviewPath("src/selected.ts"),
-          }} />
+          <ReviewOpenButton
+            intent={{
+              source: {
+                kind: "selected-turn",
+                threadId: "thr_review",
+                turnId: "turn_1",
+                entryId: "turn-diff:turn_1",
+              },
+              targetPath: canonicalizeReviewPath("src/selected.ts"),
+            }}
+          />
           <ReviewDiffPanel
             conversation={buildConversation()}
             projectWorkspacePath="/tmp/codex"
@@ -1198,9 +1082,7 @@ describe("review diff panel", () => {
       await waitFor(() => {
         expect(scrollTargets.filter((path) => path === "src/selected.ts").length).toBe(2);
       });
-      expect(
-        container.querySelector('[data-review-path="src/selected.ts"]'),
-      ).not.toBeNull();
+      expect(container.querySelector('[data-review-path="src/selected.ts"]')).not.toBeNull();
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
@@ -1211,14 +1093,13 @@ describe("review diff panel", () => {
 
     const { container } = render(
       <NodexTooltipProvider>
-        <PrepareReviewOpen intent={{
-          source: { kind: "last-turn", threadId: "thr_review" },
-          targetPath: canonicalizeReviewPath("src/example.ts"),
-        }} />
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
+        <PrepareReviewOpen
+          intent={{
+            source: { kind: "last-turn", threadId: "thr_review" },
+            targetPath: canonicalizeReviewPath("src/example.ts"),
+          }}
         />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
@@ -1226,9 +1107,7 @@ describe("review diff panel", () => {
 
     expect(textContent(container).includes("example.ts")).toBe(true);
     expect(textContent(container).includes("selected.ts")).toBe(false);
-    expect(
-      container.querySelector('[data-review-path="src/example.ts"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[data-review-path="src/example.ts"]')).not.toBeNull();
   });
 
   test("opens the file tree when requested", async () => {
@@ -1236,10 +1115,7 @@ describe("review diff panel", () => {
 
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
@@ -1248,21 +1124,15 @@ describe("review diff panel", () => {
       fireEvent.click(view.getByLabelText("Show files"));
     });
 
-    expect(
-      view.getByPlaceholderText("Filter files…").getAttribute("placeholder"),
-    ).toBe("Filter files…");
+    expect(view.getByPlaceholderText("Filter files…").getAttribute("placeholder")).toBe(
+      "Filter files…",
+    );
     expect(textContent(view.container).includes("src")).toBe(true);
     expect(textContent(view.container).includes("example.ts")).toBe(true);
+    expect(view.container.querySelector('[data-item-type="folder"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-item-type="file"]')).not.toBeNull();
     expect(
-      view.container.querySelector('[data-item-type="folder"]'),
-    ).not.toBeNull();
-    expect(
-      view.container.querySelector('[data-item-type="file"]'),
-    ).not.toBeNull();
-    expect(
-      view.container.querySelector(
-        '[data-item-type="file"] [data-icon-token="typescript"]',
-      ),
+      view.container.querySelector('[data-item-type="file"] [data-icon-token="typescript"]'),
     ).not.toBeNull();
     const separator = view.container.querySelector(
       '[role="separator"][aria-orientation="vertical"]',
@@ -1293,10 +1163,7 @@ describe("review diff panel", () => {
       );
 
       await settleAsyncRender();
-      const fileRow = await waitForReviewTreePath(
-        view.container,
-        "src/file-002.ts",
-      );
+      const fileRow = await waitForReviewTreePath(view.container, "src/file-002.ts");
       fireEvent.click(fileRow);
 
       await waitFor(() => {
@@ -1328,9 +1195,7 @@ describe("review diff panel", () => {
     });
 
     expect(view.queryByPlaceholderText("Filter files…")).toBe(null);
-    expect(
-      view.container.querySelector('[data-file-diff="src/example.ts"]'),
-    ).not.toBeNull();
+    expect(view.container.querySelector('[data-file-diff="src/example.ts"]')).not.toBeNull();
   });
 
   test("virtualizes the review file tree with codex-style host attrs", async () => {
@@ -1365,14 +1230,8 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitForReviewTree(view.container);
     await waitFor(() => {
-      if (
-        !view.container.querySelector(
-          '[data-file-tree-virtualized-root="true"]',
-        )
-      ) {
-        throw new Error(
-          "Expected the review file tree to render the virtualized shell.",
-        );
+      if (!view.container.querySelector('[data-file-tree-virtualized-root="true"]')) {
+        throw new Error("Expected the review file tree to render the virtualized shell.");
       }
     });
 
@@ -1386,14 +1245,10 @@ describe("review diff panel", () => {
       '[data-file-tree-virtualized-list="true"]',
     );
     if (!virtualizedRoot || !virtualizedScroll || !virtualizedList) {
-      throw new Error(
-        "Expected the review file tree to render the virtualized shell.",
-      );
+      throw new Error("Expected the review file tree to render the virtualized shell.");
     }
 
-    const renderedTreeRows = view.container.querySelectorAll(
-      '[data-review-tree-item="true"]',
-    );
+    const renderedTreeRows = view.container.querySelectorAll('[data-review-tree-item="true"]');
     expect(renderedTreeRows.length < 24).toBe(true);
   });
 
@@ -1421,8 +1276,7 @@ describe("review diff panel", () => {
     );
     expect(
       collapsedTreeRows.some(
-        (node) =>
-          node.getAttribute("data-review-tree-path") === "src/example.ts",
+        (node) => node.getAttribute("data-review-tree-path") === "src/example.ts",
       ),
     ).toBe(false);
 
@@ -1434,8 +1288,7 @@ describe("review diff panel", () => {
     );
     expect(
       expandedTreeRows.some(
-        (node) =>
-          node.getAttribute("data-review-tree-path") === "src/example.ts",
+        (node) => node.getAttribute("data-review-tree-path") === "src/example.ts",
       ),
     ).toBe(true);
   });
@@ -1498,14 +1351,9 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     const folderRow = await waitForReviewTreePath(view.container, "src");
-    const fileRow = await waitForReviewTreePath(
-      view.container,
-      "src/workbench.tsx",
-    );
+    const fileRow = await waitForReviewTreePath(view.container, "src/workbench.tsx");
 
-    expect(folderRow.getAttribute("data-item-contains-git-change")).toBe(
-      "true",
-    );
+    expect(folderRow.getAttribute("data-item-contains-git-change")).toBe("true");
     expect(folderRow.querySelector('[data-item-section="git"]')).toBe(null);
     expect(fileRow.querySelector('[data-item-section="git"]')).toBe(null);
   });
@@ -1553,20 +1401,14 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitForGitReviewSnapshotCall();
     await waitFor(() => {
-      if (
-        !view.container.querySelector('[data-review-diff-placeholder="binary"]')
-      ) {
+      if (!view.container.querySelector('[data-review-diff-placeholder="binary"]')) {
         throw new Error("Expected binary placeholder to render.");
       }
     });
 
-    expect(
-      textContent(view.container).includes("Binary file changed"),
-    ).toBe(true);
+    expect(textContent(view.container).includes("Binary file changed")).toBe(true);
     expect(view.container.querySelector("[data-file-diff]")).toBe(null);
-    expect(view.container.querySelector('[data-multi-file-diff="true"]')).toBe(
-      null,
-    );
+    expect(view.container.querySelector('[data-multi-file-diff="true"]')).toBe(null);
   });
 
   test("renders A/D markers for added and deleted files", async () => {
@@ -1654,10 +1496,7 @@ describe("review diff panel", () => {
 
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
@@ -1677,19 +1516,12 @@ describe("review diff panel", () => {
     expect(menuText.includes("Branch")).toBe(true);
     expect(menuText.includes("Last turn")).toBe(true);
     expect(menuText.includes("Review uncommitted changes")).toBe(false);
-    const unstagedItem = await waitForMenuItem(
-      view.baseElement as HTMLElement,
-      "Unstaged",
-    );
+    const unstagedItem = await waitForMenuItem(view.baseElement as HTMLElement, "Unstaged");
     await clickReviewMenuItem(unstagedItem);
 
     await waitForGitReviewSnapshotCall();
-    expect(
-      invokeCalls.some((call) => call[0] === "review-diff"),
-    ).toBe(true);
-    expect(
-      invokeCalls.some((call) => call[0] === "codex:review:start"),
-    ).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "review-diff")).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "codex:review:start")).toBe(false);
     await unmountReviewView(view);
   });
 
@@ -1728,19 +1560,13 @@ describe("review diff panel", () => {
     await waitForGitReviewSnapshotCall();
     await settleAsyncRender();
 
-    expect(
-      textContent(view.container).includes("No staged changes"),
-    ).toBe(true);
-    expect(
-      textContent(view.container).includes("Accept edits to stage them"),
-    ).toBe(true);
+    expect(textContent(view.container).includes("No staged changes")).toBe(true);
+    expect(textContent(view.container).includes("Accept edits to stage them")).toBe(true);
     expect(textContent(view.container).includes("View branch diff")).toBe(true);
-    expect(
-      view.getByPlaceholderText("Filter files…").getAttribute("placeholder"),
-    ).toBe("Filter files…");
-    expect(
-      textContent(view.container).includes("No matching files"),
-    ).toBe(true);
+    expect(view.getByPlaceholderText("Filter files…").getAttribute("placeholder")).toBe(
+      "Filter files…",
+    );
+    expect(textContent(view.container).includes("No matching files")).toBe(true);
 
     await dispatchReviewEvent(() => {
       fireEvent.click(view.getByText("View branch diff"));
@@ -1761,9 +1587,7 @@ describe("review diff panel", () => {
       }
     });
 
-    expect(
-      invokeCalls.some((call) => call[0] === "codex:review:start"),
-    ).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "codex:review:start")).toBe(false);
   });
 
   test("renders Codex unstaged empty state copy", async () => {
@@ -1800,32 +1624,23 @@ describe("review diff panel", () => {
     await waitForGitReviewSnapshotCall();
     await settleAsyncRender();
 
-    expect(
-      textContent(view.container).includes("No unstaged changes"),
-    ).toBe(true);
-    expect(
-      textContent(view.container).includes("Code changes will appear here"),
-    ).toBe(true);
+    expect(textContent(view.container).includes("No unstaged changes")).toBe(true);
+    expect(textContent(view.container).includes("Code changes will appear here")).toBe(true);
     expect(textContent(view.container).includes("View branch diff")).toBe(true);
-    expect(
-      textContent(view.container).includes(
-        "The latest diffs are no longer available.",
-      ),
-    ).toBe(false);
+    expect(textContent(view.container).includes("The latest diffs are no longer available.")).toBe(
+      false,
+    );
   });
 
   test("renders Codex last-turn committed-or-reverted empty state when a stale diff has no files", async () => {
     const conversation = buildConversation();
-    conversation.turns[0]!.diff =
-      "diff payload retained but no renderable file entries";
+    conversation.turns[0]!.diff = "diff payload retained but no renderable file entries";
 
     const view = render(
       <TestQueryProvider>
         <NodexTooltipProvider>
           <ReviewDiffPanel
-            conversationProjection={
-              buildReviewConversationProjection(conversation)
-            }
+            conversationProjection={buildReviewConversationProjection(conversation)}
             onStartThreadPrompt={recordStartThreadPrompt}
             projectWorkspacePath="/tmp/codex"
             deps={{
@@ -1839,24 +1654,16 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
 
-    expect(
-      textContent(view.container).includes("No file changes yet"),
-    ).toBe(true);
-    expect(
-      textContent(view.container).includes(
-        "The last turn was committed or reverted.",
-      ),
-    ).toBe(true);
-    expect(
-      textContent(view.container).includes(
-        "The latest diffs are no longer available.",
-      ),
-    ).toBe(false);
-    expect(
-      textContent(view.container).includes(
-        "Changes in this project will appear here.",
-      ),
-    ).toBe(false);
+    expect(textContent(view.container).includes("No file changes yet")).toBe(true);
+    expect(textContent(view.container).includes("The last turn was committed or reverted.")).toBe(
+      true,
+    );
+    expect(textContent(view.container).includes("The latest diffs are no longer available.")).toBe(
+      false,
+    );
+    expect(textContent(view.container).includes("Changes in this project will appear here.")).toBe(
+      false,
+    );
     expect(textContent(view.container).includes("View branch diff")).toBe(true);
   });
 
@@ -1867,28 +1674,19 @@ describe("review diff panel", () => {
 
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={conversation} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
     await settleAsyncRender();
 
-    expect(
-      textContent(view.container).includes("No file changes yet"),
-    ).toBe(true);
-    expect(
-      textContent(view.container).includes(
-        "The latest diffs are no longer available.",
-      ),
-    ).toBe(true);
-    expect(
-      textContent(view.container).includes(
-        "The last turn was committed or reverted.",
-      ),
-    ).toBe(false);
+    expect(textContent(view.container).includes("No file changes yet")).toBe(true);
+    expect(textContent(view.container).includes("The latest diffs are no longer available.")).toBe(
+      true,
+    );
+    expect(textContent(view.container).includes("The last turn was committed or reverted.")).toBe(
+      false,
+    );
   });
 
   test("prefers the explicit project workspace path for git-backed review sources", async () => {
@@ -1925,9 +1723,7 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitForGitReviewSnapshotCall();
 
-    const snapshotCall = invokeCalls.find(
-      (call) => call[0] === "review-summary",
-    );
+    const snapshotCall = invokeCalls.find((call) => call[0] === "review-summary");
     if (!snapshotCall) {
       throw new Error("Expected git-backed review to request a snapshot.");
     }
@@ -1967,10 +1763,7 @@ describe("review diff panel", () => {
             },
             {
               type: "success",
-              lines: [
-                "export const git = 1;\n",
-                "export const diff = true;\n",
-              ],
+              lines: ["export const git = 1;\n", "export const diff = true;\n"],
             },
           ],
         };
@@ -1996,22 +1789,16 @@ describe("review diff panel", () => {
       await settleAsyncRender();
       await waitForGitReviewDiffCall();
       const row = await waitFor(() => {
-        const candidate = view.container.querySelector(
-          'section[data-review-path="src/git.ts"]',
-        );
+        const candidate = view.container.querySelector('section[data-review-path="src/git.ts"]');
         if (!candidate) throw new Error("Expected the git review row.");
         return candidate;
       });
       await waitFor(() => {
-        expect(
-          view.container.querySelector('[data-file-diff="src/git.ts"]'),
-        ).not.toBeNull();
+        expect(view.container.querySelector('[data-file-diff="src/git.ts"]')).not.toBeNull();
       });
       expect(lastFileDiffProps?.fileDiff.isPartial).toBe(true);
 
-      expect(
-        invokeCalls.some((call) => call[0] === "review-cat-file"),
-      ).toBe(false);
+      expect(invokeCalls.some((call) => call[0] === "review-cat-file")).toBe(false);
       await waitFor(() => {
         expect(intersectionObserver.isObserved(row)).toBe(true);
       });
@@ -2022,28 +1809,18 @@ describe("review diff panel", () => {
       });
 
       await waitFor(() => {
-        if (
-          !invokeCalls.some(
-            (call) => call[0] === "review-cat-file",
-          )
-        ) {
+        if (!invokeCalls.some((call) => call[0] === "review-cat-file")) {
           throw new Error("Expected visible row contents to load.");
         }
       });
       await waitFor(() => {
-        const fileDiff = view.container.querySelector(
-          '[data-file-diff="src/git.ts"]',
-        );
+        const fileDiff = view.container.querySelector('[data-file-diff="src/git.ts"]');
         expect(fileDiff?.getAttribute("data-file-additions")).toBe("2");
         expect(fileDiff?.getAttribute("data-file-deletions")).toBe("1");
       });
-      expect(view.container.querySelector("[data-multi-file-diff]")).toBe(
-        null,
-      );
+      expect(view.container.querySelector("[data-multi-file-diff]")).toBe(null);
       await openReviewOptionsMenu(view);
-      expect(
-        Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
-      ).toBe(true);
+      expect(Boolean(view.baseElement.textContent?.includes("Enable rich preview"))).toBe(true);
     } finally {
       intersectionObserver.restore();
     }
@@ -2126,9 +1903,7 @@ describe("review diff panel", () => {
     );
 
     await waitFor(() => {
-      expect(
-        view.container.querySelector('[data-file-diff="src/loaded.ts"]'),
-      ).not.toBeNull();
+      expect(view.container.querySelector('[data-file-diff="src/loaded.ts"]')).not.toBeNull();
       expect(
         view.container.querySelector(
           '[data-review-path="src/failed.ts"] [data-review-diff-placeholder="load-failed"]',
@@ -2136,9 +1911,7 @@ describe("review diff panel", () => {
       ).not.toBeNull();
     });
 
-    const diffCalls = invokeCalls.filter(
-      (call) => call[0] === "review-diff",
-    );
+    const diffCalls = invokeCalls.filter((call) => call[0] === "review-diff");
     expect(diffCalls).toHaveLength(1);
     expect(
       (
@@ -2169,11 +1942,11 @@ describe("review diff panel", () => {
         };
       }
       if (
-        channel === "subscribe-live-query"
-        && typeof payload === "object"
-        && payload !== null
-        && "subscriptionId" in payload
-        && "query" in payload
+        channel === "subscribe-live-query" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "subscriptionId" in payload &&
+        "query" in payload
       ) {
         subscriptions.push(payload as (typeof subscriptions)[number]);
       }
@@ -2198,8 +1971,7 @@ describe("review diff panel", () => {
         "stable-metadata",
       ]);
     });
-    expect(subscriptions.every(({ query }) => query.params.cwd === "/tmp/codex"))
-      .toBe(true);
+    expect(subscriptions.every(({ query }) => query.params.cwd === "/tmp/codex")).toBe(true);
     await unmountReviewView(view);
   });
 
@@ -2227,11 +1999,11 @@ describe("review diff panel", () => {
         };
       }
       if (
-        channel === "subscribe-live-query"
-        && typeof payload === "object"
-        && payload !== null
-        && "subscriptionId" in payload
-        && "query" in payload
+        channel === "subscribe-live-query" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "subscriptionId" in payload &&
+        "query" in payload
       ) {
         subscriptions.push(payload as (typeof subscriptions)[number]);
       }
@@ -2246,11 +2018,9 @@ describe("review diff panel", () => {
           initialSource="branch"
           deps={{
             initialSummaryQuery: false,
-            gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents(
-              (listener) => {
-                publish = listener;
-              },
-            ),
+            gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents((listener) => {
+              publish = listener;
+            }),
           }}
         />
       </NodexTooltipProvider>,
@@ -2258,16 +2028,12 @@ describe("review diff panel", () => {
 
     let baseSubscriptionId = "";
     await waitFor(() => {
-      const baseSubscription = subscriptions.find(
-        ({ query }) => query.method === "base-branch",
-      );
+      const baseSubscription = subscriptions.find(({ query }) => query.method === "base-branch");
       if (!baseSubscription || !publish) {
         throw new Error("Expected the live base-branch subscription.");
       }
       baseSubscriptionId = baseSubscription.subscriptionId;
-      expect(
-        subscriptions.some(({ query }) => query.method === "review-summary"),
-      ).toBe(false);
+      expect(subscriptions.some(({ query }) => query.method === "review-summary")).toBe(false);
     });
 
     await act(async () => {
@@ -2322,10 +2088,7 @@ describe("review diff panel", () => {
       "",
     ].join("\n");
     const trackedSummary = buildGitSummary("src/tracked-pending.ts");
-    const untrackedSummary = buildGitSummary(
-      "src/untracked-complete.ts",
-      "untracked",
-    );
+    const untrackedSummary = buildGitSummary("src/untracked-complete.ts", "untracked");
     const trackedResult = buildGitDiffResultForTest({
       patch: trackedPatch,
       files: [trackedSummary],
@@ -2336,8 +2099,7 @@ describe("review diff panel", () => {
     });
     let publish: ((event: GitReviewLiveEvent) => void) | null = null;
     let subscriptionId = "";
-    let resolveTrackedDiff: ((result: typeof trackedResult) => void) | null =
-      null;
+    let resolveTrackedDiff: ((result: typeof trackedResult) => void) | null = null;
 
     mockInvokeImpl = async (channel: unknown, payload: unknown) => {
       if (
@@ -2357,9 +2119,7 @@ describe("review diff panel", () => {
       if (channel !== "review-diff") return null;
       const requestedPaths =
         typeof payload === "object" && payload !== null && "files" in payload
-          ? (payload as { files: Array<{ path: string }> }).files.map(
-              (file) => file.path,
-            )
+          ? (payload as { files: Array<{ path: string }> }).files.map((file) => file.path)
           : [];
       if (requestedPaths.includes(trackedSummary.path)) {
         return new Promise<typeof trackedResult>((resolve) => {
@@ -2377,11 +2137,9 @@ describe("review diff panel", () => {
           initialSource="unstaged"
           deps={{
             initialSummaryQuery: false,
-            gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents(
-              (listener) => {
-                publish = listener;
-              },
-            ),
+            gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents((listener) => {
+              publish = listener;
+            }),
           }}
         />
       </NodexTooltipProvider>,
@@ -2445,9 +2203,7 @@ describe("review diff panel", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      const diffCalls = invokeCalls.filter(
-        (call) => call[0] === "review-diff",
-      );
+      const diffCalls = invokeCalls.filter((call) => call[0] === "review-diff");
       if (diffCalls.length < 2) {
         throw new Error("Expected the complete-phase untracked request.");
       }
@@ -2455,14 +2211,12 @@ describe("review diff panel", () => {
 
     const trackedRequests = invokeCalls.filter((call) => {
       if (call[0] !== "review-diff") return false;
-      return (
-        call[1] as { files?: Array<{ path: string }> }
-      ).files?.some((file) => file.path === trackedSummary.path);
+      return (call[1] as { files?: Array<{ path: string }> }).files?.some(
+        (file) => file.path === trackedSummary.path,
+      );
     });
     expect(trackedRequests).toHaveLength(1);
-    expect(
-      invokeCalls.filter((call) => call[0] === "worker-request-cancel"),
-    ).toHaveLength(0);
+    expect(invokeCalls.filter((call) => call[0] === "worker-request-cancel")).toHaveLength(0);
 
     await act(async () => {
       resolveTrackedDiff?.(trackedResult);
@@ -2470,14 +2224,10 @@ describe("review diff panel", () => {
     });
     await waitFor(() => {
       expect(
-        view.container.querySelector(
-          '[data-file-diff="src/tracked-pending.ts"]',
-        ),
+        view.container.querySelector('[data-file-diff="src/tracked-pending.ts"]'),
       ).not.toBeNull();
       expect(
-        view.container.querySelector(
-          '[data-file-diff="src/untracked-complete.ts"]',
-        ),
+        view.container.querySelector('[data-file-diff="src/untracked-complete.ts"]'),
       ).not.toBeNull();
     });
   });
@@ -2515,8 +2265,7 @@ describe("review diff panel", () => {
     let publish: ((event: GitReviewLiveEvent) => void) | null = null;
     let subscriptionId = "";
     const events: Array<
-      | { type: "row-render"; path: string }
-      | { type: "partial-parse"; path: string }
+      { type: "row-render"; path: string } | { type: "partial-parse"; path: string }
     > = [];
     const uninstallProbe = installReviewRuntimeProbe((event) => {
       if (event.type === "row-render" || event.type === "partial-parse") {
@@ -2542,9 +2291,7 @@ describe("review diff panel", () => {
       if (channel !== "review-diff") return null;
       const requestedPaths =
         typeof payload === "object" && payload !== null && "files" in payload
-          ? (payload as { files: Array<{ path: string }> }).files.map(
-              (file) => file.path,
-            )
+          ? (payload as { files: Array<{ path: string }> }).files.map((file) => file.path)
           : [];
       const patch = requestedPaths
         .flatMap((path) => {
@@ -2572,11 +2319,9 @@ describe("review diff panel", () => {
             initialSource="unstaged"
             deps={{
               initialSummaryQuery: false,
-              gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents(
-                (listener) => {
-                  publish = listener;
-                },
-              ),
+              gitWorkerClient: createReviewGitWorkerTestClientWithLiveEvents((listener) => {
+                publish = listener;
+              }),
             }}
           />
         </NodexTooltipProvider>,
@@ -2611,19 +2356,15 @@ describe("review diff panel", () => {
         await Promise.resolve();
       });
       await waitFor(() => {
-        expect(
-          view.container.querySelector('[data-file-diff="src/tracked.ts"]'),
-        ).not.toBeNull();
+        expect(view.container.querySelector('[data-file-diff="src/tracked.ts"]')).not.toBeNull();
       });
       await settleAsyncRender();
 
       const trackedRenderCount = events.filter(
-        (event) =>
-          event.type === "row-render" && event.path === trackedSummary.path,
+        (event) => event.type === "row-render" && event.path === trackedSummary.path,
       ).length;
       const trackedParseCount = events.filter(
-        (event) =>
-          event.type === "partial-parse" && event.path === trackedSummary.path,
+        (event) => event.type === "partial-parse" && event.path === trackedSummary.path,
       ).length;
 
       await act(async () => {
@@ -2650,33 +2391,22 @@ describe("review diff panel", () => {
         await Promise.resolve();
       });
       await waitFor(() => {
-        expect(
-          view.container.querySelector('[data-file-diff="src/untracked.ts"]'),
-        ).not.toBeNull();
+        expect(view.container.querySelector('[data-file-diff="src/untracked.ts"]')).not.toBeNull();
       });
       await settleAsyncRender();
 
       expect(
-        events.filter(
-          (event) =>
-            event.type === "row-render" && event.path === trackedSummary.path,
-        ),
+        events.filter((event) => event.type === "row-render" && event.path === trackedSummary.path),
       ).toHaveLength(trackedRenderCount);
       expect(
         events.filter(
-          (event) =>
-            event.type === "partial-parse" &&
-            event.path === trackedSummary.path,
+          (event) => event.type === "partial-parse" && event.path === trackedSummary.path,
         ),
       ).toHaveLength(trackedParseCount);
       expect(trackedParseCount).toBe(1);
 
-      const diffCallCount = invokeCalls.filter(
-        ([channel]) => channel === "review-diff",
-      ).length;
-      const totalParseCount = events.filter(
-        (event) => event.type === "partial-parse",
-      ).length;
+      const diffCallCount = invokeCalls.filter(([channel]) => channel === "review-diff").length;
+      const totalParseCount = events.filter((event) => event.type === "partial-parse").length;
       await act(async () => {
         publish?.({
           type: "git-live-query-updated",
@@ -2702,12 +2432,12 @@ describe("review diff panel", () => {
       });
       await settleAsyncRender();
 
-      expect(
-        invokeCalls.filter(([channel]) => channel === "review-diff"),
-      ).toHaveLength(diffCallCount);
-      expect(
-        events.filter((event) => event.type === "partial-parse"),
-      ).toHaveLength(totalParseCount);
+      expect(invokeCalls.filter(([channel]) => channel === "review-diff")).toHaveLength(
+        diffCallCount,
+      );
+      expect(events.filter((event) => event.type === "partial-parse")).toHaveLength(
+        totalParseCount,
+      );
     } finally {
       uninstallProbe();
       intersectionObserver.restore();
@@ -2785,9 +2515,7 @@ describe("review diff panel", () => {
       <TestQueryProvider>
         <NodexTooltipProvider>
           <ReviewDiffPanel
-            conversationProjection={
-              buildReviewConversationProjection(conversation)
-            }
+            conversationProjection={buildReviewConversationProjection(conversation)}
             onStartThreadPrompt={recordStartThreadPrompt}
             projectWorkspacePath="/tmp/codex"
             deps={{
@@ -2801,9 +2529,7 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
     const fileDiff = await waitFor(() => {
-      const candidate = view.container.querySelector(
-        '[data-file-diff="src/created.ts"]',
-      );
+      const candidate = view.container.querySelector('[data-file-diff="src/created.ts"]');
       if (!candidate) throw new Error("Expected the added file diff.");
       return candidate;
     });
@@ -2811,9 +2537,7 @@ describe("review diff panel", () => {
     expect(fileDiff.getAttribute("data-file-additions")).toBe("2");
     expect(fileDiff.getAttribute("data-file-deletions")).toBe("0");
     expect(invokeCalls.some((call) => call[0] === "read-file")).toBe(false);
-    expect(
-      invokeCalls.some((call) => call[0] === "review-cat-file"),
-    ).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "review-cat-file")).toBe(false);
   });
 
   test("cancels an in-flight Git review summary after unmount", async () => {
@@ -2843,7 +2567,7 @@ describe("review diff panel", () => {
               ...baseClient,
               request: async (input) => {
                 if (input.method !== "review-summary") {
-                  return await baseClient.request(input as never) as never;
+                  return (await baseClient.request(input as never)) as never;
                 }
                 summarySignal = input.signal;
                 return await new Promise<never>(() => {});
@@ -2906,9 +2630,7 @@ describe("review diff panel", () => {
       fireEvent.click(view.getByLabelText("Commit or push"));
     });
     await waitFor(() => {
-      if (!startThreadPromptCalls.some((call) =>
-        call.prompt.includes("Commit or push")
-      )) {
+      if (!startThreadPromptCalls.some((call) => call.prompt.includes("Commit or push"))) {
         throw new Error("Expected commit prompt turn to start.");
       }
     });
@@ -2917,9 +2639,7 @@ describe("review diff panel", () => {
       fireEvent.click(view.getByLabelText("Create PR"));
     });
     await waitFor(() => {
-      if (!startThreadPromptCalls.some((call) =>
-        call.prompt.includes("pull request")
-      )) {
+      if (!startThreadPromptCalls.some((call) => call.prompt.includes("pull request"))) {
         throw new Error("Expected pull request prompt turn to start.");
       }
     });
@@ -2974,32 +2694,20 @@ describe("review diff panel", () => {
     const menuItems = Array.from(
       view.baseElement.ownerDocument.querySelectorAll('[role="menuitem"]'),
     ) as HTMLElement[];
-    const optionLabels = menuItems.map((node) =>
-      (node.textContent ?? "").trim(),
-    );
+    const optionLabels = menuItems.map((node) => (node.textContent ?? "").trim());
 
     expect(optionLabels.join("|")).toBe(
       "Refresh|Enable word wrap|Don't load full files|Enable rich preview|Disable word diffs|Hide white space|Copy git apply command",
     );
+    expect(menuItems.some((node) => node.textContent?.includes("Review uncommitted changes"))).toBe(
+      false,
+    );
     expect(
-      menuItems.some((node) =>
-        node.textContent?.includes("Review uncommitted changes"),
-      ),
+      menuItems.some((node) => node.textContent?.includes("Review against a base branch")),
     ).toBe(false);
-    expect(
-      menuItems.some((node) =>
-        node.textContent?.includes("Review against a base branch"),
-      ),
-    ).toBe(false);
-    expect(
-      menuItems.some((node) => node.textContent?.includes("Wrap lines")),
-    ).toBe(false);
-    expect(
-      menuItems.some((node) => node.textContent?.includes("Hide whitespace")),
-    ).toBe(false);
-    expect(
-      menuItems.some((node) => node.textContent?.includes("Unified")),
-    ).toBe(false);
+    expect(menuItems.some((node) => node.textContent?.includes("Wrap lines"))).toBe(false);
+    expect(menuItems.some((node) => node.textContent?.includes("Hide whitespace"))).toBe(false);
+    expect(menuItems.some((node) => node.textContent?.includes("Unified"))).toBe(false);
     expect(view.getByLabelText("Switch to split diff").tagName).toBe("BUTTON");
     expect(view.getByLabelText("Collapse all diffs").tagName).toBe("BUTTON");
     await unmountReviewView(view);
@@ -3011,10 +2719,7 @@ describe("review diff panel", () => {
     conversation.turns[0]!.diff = buildMultiFilePatch(3);
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={conversation} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
@@ -3043,11 +2748,12 @@ describe("review diff panel", () => {
       fireEvent.click(view.getAllByLabelText("Toggle file diff")[0]!);
     });
     await waitFor(() => {
-      const diffHosts = Array.from(
-        view.container.querySelectorAll("[data-file-diff]"),
-      );
-      expect(diffHosts.map((node) => node.getAttribute("data-collapsed")))
-        .toEqual(["false", "true", "true"]);
+      const diffHosts = Array.from(view.container.querySelectorAll("[data-file-diff]"));
+      expect(diffHosts.map((node) => node.getAttribute("data-collapsed"))).toEqual([
+        "false",
+        "true",
+        "true",
+      ]);
       expect(view.getByLabelText("Expand all diffs").tagName).toBe("BUTTON");
     });
 
@@ -3058,17 +2764,14 @@ describe("review diff panel", () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
     await settleAsyncRender();
-    expect(
-      (lastFileDiffProps?.options as { overflow?: string } | undefined)?.overflow,
-    ).toBe("scroll");
+    expect((lastFileDiffProps?.options as { overflow?: string } | undefined)?.overflow).toBe(
+      "scroll",
+    );
     await openReviewOptionsMenu(view);
     const wrapItem = Array.from(
       view.baseElement.ownerDocument.querySelectorAll<HTMLElement>('[role="menuitem"]'),
@@ -3077,9 +2780,7 @@ describe("review diff panel", () => {
     await clickReviewMenuItem(wrapItem);
 
     await waitFor(() => {
-      const overflow = (
-        lastFileDiffProps?.options as { overflow?: string } | undefined
-      )?.overflow;
+      const overflow = (lastFileDiffProps?.options as { overflow?: string } | undefined)?.overflow;
       if (overflow !== "wrap") {
         throw new Error("Expected Review to pass native wrap overflow to FileDiff.");
       }
@@ -3137,9 +2838,7 @@ describe("review diff panel", () => {
     await settleAsyncRender();
     await waitForGitReviewSnapshotCall();
     await openReviewOptionsMenu(view);
-    await clickReviewMenuItem(
-      await waitForMenuItem(view.baseElement, "Copy git apply command"),
-    );
+    await clickReviewMenuItem(await waitForMenuItem(view.baseElement, "Copy git apply command"));
     await waitForGitReviewPatchCall();
 
     expect(clipboardWrites.length).toBe(1);
@@ -3149,9 +2848,7 @@ describe("review diff panel", () => {
         " (cd \"$(git rev-parse --show-toplevel)\" && git apply --3way <<'EOF'",
       ),
     ).toBe(true);
-    expect(
-      copiedCommand.includes("diff --git a/src/git.ts b/src/git.ts"),
-    ).toBe(true);
+    expect(copiedCommand.includes("diff --git a/src/git.ts b/src/git.ts")).toBe(true);
     expect(copiedCommand.endsWith("EOF\n)")).toBe(true);
     await unmountReviewView(view);
   });
@@ -3206,23 +2903,16 @@ describe("review diff panel", () => {
         target: { value: "file-003" },
       });
     });
-    const fileItem = await waitForMenuItem(
-      view.baseElement as HTMLElement,
-      "file-003.ts",
-    );
+    const fileItem = await waitForMenuItem(view.baseElement as HTMLElement, "file-003.ts");
     const fileItemText = textContent(fileItem);
     expect(fileItemText.includes("file-003.ts")).toBe(true);
     expect(fileItemText.includes("src")).toBe(true);
-    expect(
-      fileItem.querySelector(".text-token-description-foreground")?.textContent,
-    ).toBe("src");
+    expect(fileItem.querySelector(".text-token-description-foreground")?.textContent).toBe("src");
     await dispatchReviewEvent(() => {
       fireEvent.click(fileItem);
     });
 
-    expect(
-      view.container.querySelector('[data-review-path="src/file-003.ts"]'),
-    ).not.toBeNull();
+    expect(view.container.querySelector('[data-review-path="src/file-003.ts"]')).not.toBeNull();
     await settleAsyncRender();
     await settleAsyncRender();
     await unmountReviewView(view);
@@ -3231,10 +2921,7 @@ describe("review diff panel", () => {
   test("shows the codex large-diff banner in capped mode", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
 
-    const manyDiffLines = Array.from(
-      { length: 9_100 },
-      (_, index) => `+line ${index}`,
-    ).join("\n");
+    const manyDiffLines = Array.from({ length: 9_100 }, (_, index) => `+line ${index}`).join("\n");
     const conversation = {
       ...buildConversation(),
       turns: [
@@ -3247,19 +2934,14 @@ describe("review diff panel", () => {
 
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={conversation} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
     await settleAsyncRender();
 
     expect(
-      textContent(view.container).includes(
-        "This diff is large, showing one file at a time",
-      ),
+      textContent(view.container).includes("This diff is large, showing one file at a time"),
     ).toBe(true);
   });
 
@@ -3283,27 +2965,17 @@ describe("review diff panel", () => {
 
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={conversation} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Check value")).toBe(true);
+    expect(textContent(view.container).includes("Comment on line R2")).toBe(true);
+    expect(view.container.querySelector('[data-review-code-comments="true"]') === null).toBe(true);
     expect(
-      textContent(view.container).includes("Comment on line R2"),
-    ).toBe(true);
-    expect(
-      view.container.querySelector('[data-review-code-comments="true"]') ===
-        null,
-    ).toBe(true);
-    expect(
-      view.container.querySelector(
-        '[data-rendered-line-annotation="additions:2"]',
-      ),
+      view.container.querySelector('[data-rendered-line-annotation="additions:2"]'),
     ).not.toBeNull();
   });
 
@@ -3312,10 +2984,7 @@ describe("review diff panel", () => {
 
     const view = render(
       <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-        />
+        <ReviewDiffPanel conversation={buildConversation()} projectWorkspacePath="/tmp/codex" />
       </NodexTooltipProvider>,
     );
 
@@ -3337,19 +3006,13 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     expect(
-      view.container
-        .querySelector("[data-file-diff]")
-        ?.getAttribute("data-selected-lines"),
+      view.container.querySelector("[data-file-diff]")?.getAttribute("data-selected-lines"),
     ).toBe("additions:2-:2");
 
     await act(async () => {
       (
         lastFileDiffProps?.options as {
-          onGutterUtilityClick?: (range: {
-            side: "additions";
-            start: number;
-            end: number;
-          }) => void;
+          onGutterUtilityClick?: (range: { side: "additions"; start: number; end: number }) => void;
         }
       )?.onGutterUtilityClick?.({ side: "additions", start: 2, end: 2 });
       await Promise.resolve();
@@ -3357,18 +3020,12 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Local comment")).toBe(true);
-    expect(
-      textContent(view.container).includes("Comment on line R2"),
-    ).toBe(true);
-    expect(
-      view.container.querySelector('[data-placeholder="Request change"]'),
-    ).not.toBeNull();
+    expect(textContent(view.container).includes("Comment on line R2")).toBe(true);
+    expect(view.container.querySelector('[data-placeholder="Request change"]')).not.toBeNull();
     expect(textContent(view.container).includes("Cancel")).toBe(true);
     expect(textContent(view.container).includes("Comment")).toBe(true);
     expect(
-      view.container
-        .querySelector("[data-file-diff]")
-        ?.getAttribute("data-selected-lines"),
+      view.container.querySelector("[data-file-diff]")?.getAttribute("data-selected-lines"),
     ).toBe("");
   });
 });

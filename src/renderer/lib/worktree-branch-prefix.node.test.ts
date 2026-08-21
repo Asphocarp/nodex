@@ -11,7 +11,7 @@ const storageMap = new Map<string, string>();
 
 const mockStorage = {
   getItem(key: string): string | null {
-    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+    return storageMap.has(key) ? (storageMap.get(key) ?? null) : null;
   },
   setItem(key: string, value: string): void {
     storageMap.set(key, value);
@@ -38,29 +38,21 @@ function withMockLocalStorage(run: () => void): void {
 
 describe("worktree auto-branch prefix setting", () => {
   test("normalizes known values and falls back to default", () => {
-    expect(normalizeWorktreeAutoBranchPrefix(undefined)).toBe(
-      DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX,
-    );
+    expect(normalizeWorktreeAutoBranchPrefix(undefined)).toBe(DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX);
     expect(normalizeWorktreeAutoBranchPrefix("NODEX")).toBe("nodex/");
     expect(normalizeWorktreeAutoBranchPrefix(" feature/team ")).toBe("feature/team/");
     expect(normalizeWorktreeAutoBranchPrefix("feature // API v2")).toBe("feature/api-v2/");
-    expect(normalizeWorktreeAutoBranchPrefix("///")).toBe(
-      DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX,
-    );
+    expect(normalizeWorktreeAutoBranchPrefix("///")).toBe(DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX);
   });
 
   test("reads and writes persisted prefix values", () => {
     withMockLocalStorage(() => {
       mockStorage.clear();
-      expect(readWorktreeAutoBranchPrefix()).toBe(
-        DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX,
-      );
+      expect(readWorktreeAutoBranchPrefix()).toBe(DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX);
 
       const next = writeWorktreeAutoBranchPrefix("team");
       expect(next).toBe("team");
-      expect(mockStorage.getItem(WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY)).toBe(
-        "team",
-      );
+      expect(mockStorage.getItem(WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY)).toBe("team");
       expect(readWorktreeAutoBranchPrefix()).toBe("team");
     });
   });

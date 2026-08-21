@@ -9,17 +9,12 @@ import {
   type BlockTransferUndoIntent,
 } from "./block-transfer";
 import type { DatabaseJsonValue } from "./database-kernel";
-import {
-  parseLocalCommitApply,
-  type LocalCommitApply,
-} from "./local-commit-delivery";
+import { parseLocalCommitApply, type LocalCommitApply } from "./local-commit-delivery";
 
 const MAX_ID_LENGTH = 512;
 const MAX_MESSAGE_LENGTH = 4_096;
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const readIdentityHint = (value: unknown, key: string): string | undefined => {
@@ -36,10 +31,7 @@ const readIdentityHint = (value: unknown, key: string): string | undefined => {
   return candidate;
 };
 
-export type PublicBlockTransferIntent = Omit<
-  BlockTransferIntent,
-  "clientSessionId" | "actor"
->;
+export type PublicBlockTransferIntent = Omit<BlockTransferIntent, "clientSessionId" | "actor">;
 export type PublicBlockTransferUndoIntent = BlockTransferUndoIntent;
 
 export interface TrustedBlockTransferIdentity {
@@ -65,9 +57,7 @@ export const blockTransferFailure = (
 ): BlockTransferCommandError => ({
   code,
   message:
-    message.length <= MAX_MESSAGE_LENGTH
-      ? message
-      : `${message.slice(0, MAX_MESSAGE_LENGTH - 1)}…`,
+    message.length <= MAX_MESSAGE_LENGTH ? message : `${message.slice(0, MAX_MESSAGE_LENGTH - 1)}…`,
   retryable: options.retryable ?? false,
   reloadRequired: options.reloadRequired ?? false,
   ...(options.operationId ? { operationId: options.operationId } : {}),
@@ -78,9 +68,7 @@ const parsePublicIntent = (
   identity: TrustedBlockTransferIdentity,
 ): BlockTransferIntent => {
   if (!isRecord(value)) {
-    throw new BlockTransferContractError(
-      "blockTransferIntent must be an object",
-    );
+    throw new BlockTransferContractError("blockTransferIntent must be an object");
   }
   const allowed = new Set([
     "version",
@@ -96,9 +84,7 @@ const parsePublicIntent = (
   ]);
   for (const key of Object.keys(value)) {
     if (allowed.has(key)) continue;
-    throw new BlockTransferContractError(
-      `blockTransferIntent.${key} is not supported`,
-    );
+    throw new BlockTransferContractError(`blockTransferIntent.${key} is not supported`);
   }
   return parseBlockTransferIntent({
     ...value,
@@ -215,9 +201,7 @@ export const blockTransferTransportFailure = (
   ok: false,
   error: blockTransferFailure(
     "unknown",
-    error instanceof Error
-      ? error.message
-      : "The durable Block transfer writer is unavailable",
+    error instanceof Error ? error.message : "The durable Block transfer writer is unavailable",
     { operationId: intent.operationId, retryable: true },
   ),
 });
@@ -249,8 +233,7 @@ export const blockTransferHttpStatus = (
   return 400;
 };
 
-interface BlockTransferReceiptWire
-  extends Omit<BlockTransferReceipt, "documentCommits"> {
+interface BlockTransferReceiptWire extends Omit<BlockTransferReceipt, "documentCommits"> {
   readonly documentCommits: readonly (Omit<
     BlockTransferReceipt["documentCommits"][number],
     "update" | "stateVector"
@@ -303,26 +286,18 @@ export const encodeBlockTransferHttpResult = (
   };
 };
 
-export const decodeBlockTransferHttpResult = (
-  value: unknown,
-): BlockTransferCommandResult => {
+export const decodeBlockTransferHttpResult = (value: unknown): BlockTransferCommandResult => {
   if (!isRecord(value) || typeof value.ok !== "boolean") {
-    throw new BlockTransferContractError(
-      "Block transfer response must be a command result",
-    );
+    throw new BlockTransferContractError("Block transfer response must be a command result");
   }
   if (!value.ok) {
     if (!isRecord(value.error)) {
-      throw new BlockTransferContractError(
-        "Block transfer error response is invalid",
-      );
+      throw new BlockTransferContractError("Block transfer error response is invalid");
     }
     return value as unknown as BlockTransferCommandResult;
   }
   if (!isRecord(value.value) || !Array.isArray(value.value.documentCommits)) {
-    throw new BlockTransferContractError(
-      "Block transfer receipt is invalid",
-    );
+    throw new BlockTransferContractError("Block transfer receipt is invalid");
   }
   const receipt = value.value as unknown as BlockTransferReceiptWire;
   return {
@@ -336,10 +311,7 @@ export const decodeBlockTransferHttpResult = (
         baseHeadSeq: commit.baseHeadSeq,
         headSeq: commit.headSeq,
         updateId: commit.updateId,
-        update:
-          commit.updateBase64 === null
-            ? null
-            : base64ToBytes(commit.updateBase64),
+        update: commit.updateBase64 === null ? null : base64ToBytes(commit.updateBase64),
         stateVector: base64ToBytes(commit.stateVectorBase64),
       })),
     },

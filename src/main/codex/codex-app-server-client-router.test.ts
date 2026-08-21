@@ -15,9 +15,11 @@ function fakeClient(label: string): CodexAppServerClientPort & {
   emitter.getState = vi.fn((): CodexConnectionState => ({ status: "connected", retries: 0 }));
   emitter.notify = vi.fn(async () => undefined);
   emitter.request = vi.fn(async (method: string) => `${label}:${method}`);
-  emitter.setServerRequestHandler = vi.fn((handler: (request: CodexServerRequest) => Promise<unknown>) => {
-    void handler;
-  });
+  emitter.setServerRequestHandler = vi.fn(
+    (handler: (request: CodexServerRequest) => Promise<unknown>) => {
+      void handler;
+    },
+  );
   emitter.start = vi.fn(async () => undefined);
   emitter.stop = vi.fn(async () => undefined);
   return emitter;
@@ -30,14 +32,16 @@ describe("CodexAppServerClientRouter", () => {
     const router = new CodexAppServerClientRouter({
       localHostId: "local",
       localClient: local,
-      resolveThreadHostId: (threadId) => threadId === "remote-thread" ? "ssh:build" : "local",
+      resolveThreadHostId: (threadId) => (threadId === "remote-thread" ? "ssh:build" : "local"),
     });
     router.register("ssh:build", remote);
 
-    await expect(router.request("thread/read", { threadId: "remote-thread", includeTurns: false }))
-      .resolves.toBe("remote:thread/read");
-    await expect(router.request("config/read", { cwd: "/remote-looking/path" }))
-      .resolves.toBe("local:config/read");
+    await expect(
+      router.request("thread/read", { threadId: "remote-thread", includeTurns: false }),
+    ).resolves.toBe("remote:thread/read");
+    await expect(router.request("config/read", { cwd: "/remote-looking/path" })).resolves.toBe(
+      "local:config/read",
+    );
     expect(remote.request).toHaveBeenCalledTimes(1);
     expect(local.request).toHaveBeenCalledTimes(1);
   });
@@ -52,8 +56,9 @@ describe("CodexAppServerClientRouter", () => {
     });
     router.register("ssh:build", remote);
 
-    await expect(router.requestOnHost("ssh:build", "thread/resume", { threadId: "task" }))
-      .resolves.toBe("remote:thread/resume");
+    await expect(
+      router.requestOnHost("ssh:build", "thread/resume", { threadId: "task" }),
+    ).resolves.toBe("remote:thread/resume");
     expect(local.request).not.toHaveBeenCalled();
   });
 

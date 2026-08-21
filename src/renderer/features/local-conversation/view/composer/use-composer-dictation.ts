@@ -198,81 +198,82 @@ function useComposerDictationWaveform(): DictationWaveformController {
     context.restore();
   }, [resetWaveformDimensions]);
 
-  const startWaveformCapture = useCallback((stream: MediaStream) => {
-    stopWaveformCapture();
-    resetWaveformDisplay();
-    resetWaveformDimensions(waveformCanvasRef.current);
-    drawWaveform();
+  const startWaveformCapture = useCallback(
+    (stream: MediaStream) => {
+      stopWaveformCapture();
+      resetWaveformDisplay();
+      resetWaveformDimensions(waveformCanvasRef.current);
+      drawWaveform();
 
-    if (typeof AudioContext === "undefined") {
-      return;
-    }
-
-    const audioContext = new AudioContext();
-    audioContextRef.current = audioContext;
-    waveformSampleRateRef.current = audioContext.sampleRate
-      || COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
-    resetWaveformDimensions(waveformCanvasRef.current);
-    drawWaveform();
-
-    const mediaStreamSource = audioContext.createMediaStreamSource(stream);
-    mediaStreamSourceRef.current = mediaStreamSource;
-
-    const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
-    scriptProcessorRef.current = scriptProcessor;
-    recordingStartedAtRef.current = performance.now();
-
-    scriptProcessor.onaudioprocess = (event) => {
-      const input = event.inputBuffer.getChannelData(0);
-      normalizeComposerDictationWaveformSamples(input);
-
-      if (waveformLevelsRef.current.length === 0) {
-        resetWaveformDimensions(waveformCanvasRef.current);
-      }
-
-      const maxBuckets = waveformLevelsRef.current.length;
-      const bucketSize = waveformBucketSizeRef.current;
-      if (maxBuckets > 0) {
-        const result = consumeComposerDictationWaveformSamples({
-          bucketSize,
-          levels: waveformLevelsRef.current,
-          maxLevelCount: maxBuckets,
-          pendingSamples: pendingSamplesRef.current,
-          samples: input,
-        });
-        pendingSamplesRef.current = result.pendingSamples;
-
-        if (result.appendedLevelCount > 0) {
-          drawWaveform();
-        }
-      }
-
-      if (recordingStartedAtRef.current === null) {
+      if (typeof AudioContext === "undefined") {
         return;
       }
 
-      const elapsedSeconds = Math.max(
-        0,
-        Math.floor((performance.now() - recordingStartedAtRef.current) / 1000),
-      );
-      if (elapsedSeconds !== lastDurationSecondRef.current) {
-        lastDurationSecondRef.current = elapsedSeconds;
-        setRecordingDurationMs(elapsedSeconds * 1000);
-      }
-    };
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      waveformSampleRateRef.current =
+        audioContext.sampleRate || COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
+      resetWaveformDimensions(waveformCanvasRef.current);
+      drawWaveform();
 
-    mediaStreamSource.connect(scriptProcessor);
-    scriptProcessor.connect(audioContext.destination);
-  }, [
-    drawWaveform,
-    resetWaveformDimensions,
-    resetWaveformDisplay,
-    stopWaveformCapture,
-  ]);
+      const mediaStreamSource = audioContext.createMediaStreamSource(stream);
+      mediaStreamSourceRef.current = mediaStreamSource;
 
-  useEffect(() => () => {
-    stopWaveformCapture();
-  }, [stopWaveformCapture]);
+      const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
+      scriptProcessorRef.current = scriptProcessor;
+      recordingStartedAtRef.current = performance.now();
+
+      scriptProcessor.onaudioprocess = (event) => {
+        const input = event.inputBuffer.getChannelData(0);
+        normalizeComposerDictationWaveformSamples(input);
+
+        if (waveformLevelsRef.current.length === 0) {
+          resetWaveformDimensions(waveformCanvasRef.current);
+        }
+
+        const maxBuckets = waveformLevelsRef.current.length;
+        const bucketSize = waveformBucketSizeRef.current;
+        if (maxBuckets > 0) {
+          const result = consumeComposerDictationWaveformSamples({
+            bucketSize,
+            levels: waveformLevelsRef.current,
+            maxLevelCount: maxBuckets,
+            pendingSamples: pendingSamplesRef.current,
+            samples: input,
+          });
+          pendingSamplesRef.current = result.pendingSamples;
+
+          if (result.appendedLevelCount > 0) {
+            drawWaveform();
+          }
+        }
+
+        if (recordingStartedAtRef.current === null) {
+          return;
+        }
+
+        const elapsedSeconds = Math.max(
+          0,
+          Math.floor((performance.now() - recordingStartedAtRef.current) / 1000),
+        );
+        if (elapsedSeconds !== lastDurationSecondRef.current) {
+          lastDurationSecondRef.current = elapsedSeconds;
+          setRecordingDurationMs(elapsedSeconds * 1000);
+        }
+      };
+
+      mediaStreamSource.connect(scriptProcessor);
+      scriptProcessor.connect(audioContext.destination);
+    },
+    [drawWaveform, resetWaveformDimensions, resetWaveformDisplay, stopWaveformCapture],
+  );
+
+  useEffect(
+    () => () => {
+      stopWaveformCapture();
+    },
+    [stopWaveformCapture],
+  );
 
   return {
     getCurrentRecordingDurationMs: () =>
@@ -287,7 +288,9 @@ function useComposerDictationWaveform(): DictationWaveformController {
   };
 }
 
-export function useComposerDictation(input: UseComposerDictationInput): ComposerDictationController {
+export function useComposerDictation(
+  input: UseComposerDictationInput,
+): ComposerDictationController {
   const [isDictating, setIsDictating] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -406,10 +409,10 @@ export function useComposerDictation(input: UseComposerDictationInput): Composer
     }
 
     if (
-      !input.enabled
-      || typeof navigator === "undefined"
-      || typeof navigator.mediaDevices?.getUserMedia !== "function"
-      || typeof MediaRecorder === "undefined"
+      !input.enabled ||
+      typeof navigator === "undefined" ||
+      typeof navigator.mediaDevices?.getUserMedia !== "function" ||
+      typeof MediaRecorder === "undefined"
     ) {
       callbacksRef.current.onUnsupported();
       return;
@@ -479,21 +482,24 @@ export function useComposerDictation(input: UseComposerDictationInput): Composer
     stopWaveformCapture,
   ]);
 
-  const stopDictation = useCallback((mode: DictationStopMode) => {
-    stopModeRef.current = mode;
-    const recorder = recorderRef.current;
-    if (!recorder) {
-      void finalizeDictation();
-      return;
-    }
+  const stopDictation = useCallback(
+    (mode: DictationStopMode) => {
+      stopModeRef.current = mode;
+      const recorder = recorderRef.current;
+      if (!recorder) {
+        void finalizeDictation();
+        return;
+      }
 
-    if (recorder.state === "inactive") {
-      void finalizeDictation();
-      return;
-    }
+      if (recorder.state === "inactive") {
+        void finalizeDictation();
+        return;
+      }
 
-    recorder.stop();
-  }, [finalizeDictation]);
+      recorder.stop();
+    },
+    [finalizeDictation],
+  );
 
   return {
     isDictating,

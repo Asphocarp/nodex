@@ -55,11 +55,15 @@ type MessagesApprovalsFile = {
 
 function normalizedUniqueStrings(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
-  return [...new Set(values.flatMap((value) => {
-    if (typeof value !== "string") return [];
-    const normalized = value.trim();
-    return normalized ? [normalized] : [];
-  }))];
+  return [
+    ...new Set(
+      values.flatMap((value) => {
+        if (typeof value !== "string") return [];
+        const normalized = value.trim();
+        return normalized ? [normalized] : [];
+      }),
+    ),
+  ];
 }
 
 function parseAppApprovals(value: unknown): AppApprovalsFile {
@@ -84,9 +88,7 @@ function parseMessagesApprovals(value: unknown): MessagesApprovalsFile {
   const approvedChats: Record<string, string> = {};
   for (const [rawGuid, rawDisplayName] of Object.entries(candidate)) {
     const chatGuid = rawGuid.trim();
-    const displayName = typeof rawDisplayName === "string"
-      ? rawDisplayName.trim()
-      : "";
+    const displayName = typeof rawDisplayName === "string" ? rawDisplayName.trim() : "";
     if (!chatGuid || !displayName) continue;
     approvedChats[chatGuid] = displayName;
   }
@@ -140,29 +142,29 @@ export class ComputerUseSettingsService {
   async getSnapshot(): Promise<ComputerUseSettingsSnapshot> {
     const runtime = await this.options.getRuntimeResult();
     const available = runtime?.status === "available";
-    const [approvedApps, approvedMessageThreads, soundMode, lockedUseAllowed] =
-      await Promise.all([
-        this.readApprovedApps(),
-        this.readApprovedMessageThreads(),
-        this.readSoundMode(),
-        available ? this.readLockedUseAllowed() : Promise.resolve(false),
-      ]);
-    const lockedUseEnabled = lockedUseAllowed && runtime?.status === "available"
-      ? await this.readLockedUseEnabled(runtime.appPath)
-      : null;
+    const [approvedApps, approvedMessageThreads, soundMode, lockedUseAllowed] = await Promise.all([
+      this.readApprovedApps(),
+      this.readApprovedMessageThreads(),
+      this.readSoundMode(),
+      available ? this.readLockedUseAllowed() : Promise.resolve(false),
+    ]);
+    const lockedUseEnabled =
+      lockedUseAllowed && runtime?.status === "available"
+        ? await this.readLockedUseEnabled(runtime.appPath)
+        : null;
     return {
-      alwaysHidePictureInPicture:
-        this.options.alwaysHidePictureInPicture.get(),
+      alwaysHidePictureInPicture: this.options.alwaysHidePictureInPicture.get(),
       approvedApps,
       approvedMessageThreads,
       available,
       lockedUseAllowed,
       lockedUseEnabled,
-      message: runtime?.status === "unavailable"
-        ? runtime.message
-        : runtime === null
-          ? "Computer Use runtime is still starting"
-          : null,
+      message:
+        runtime?.status === "unavailable"
+          ? runtime.message
+          : runtime === null
+            ? "Computer Use runtime is still starting"
+            : null,
       soundMode,
     };
   }
@@ -205,7 +207,7 @@ export class ComputerUseSettingsService {
       if (runtime?.status !== "available") {
         throw new Error("Computer Use is unavailable");
       }
-      if (!await this.readLockedUseAllowed()) {
+      if (!(await this.readLockedUseAllowed())) {
         throw new Error("Locked use is disabled by configuration requirements");
       }
       await this.exec(
@@ -281,10 +283,11 @@ export class ComputerUseSettingsService {
     const approvals = parseMessagesApprovals(await readJsonFile(this.messagesApprovalsPath));
     return Object.entries(approvals.approvedChats)
       .map(([chatGuid, displayName]) => ({ chatGuid, displayName }))
-      .sort((left, right) => (
-        left.displayName.localeCompare(right.displayName)
-        || left.chatGuid.localeCompare(right.chatGuid)
-      ));
+      .sort(
+        (left, right) =>
+          left.displayName.localeCompare(right.displayName) ||
+          left.chatGuid.localeCompare(right.chatGuid),
+      );
   }
 
   private async readSoundMode(): Promise<ComputerUseSoundMode> {
@@ -314,11 +317,9 @@ export class ComputerUseSettingsService {
   private async readLockedUseEnabled(appPath: string): Promise<boolean> {
     if (this.platform !== "darwin") return false;
     try {
-      const { stdout } = await this.exec(
-        this.resolveLockedUseInstallerPath(appPath),
-        ["status"],
-        { timeout: 120_000 },
-      );
+      const { stdout } = await this.exec(this.resolveLockedUseInstallerPath(appPath), ["status"], {
+        timeout: 120_000,
+      });
       return stdout.trim() === "OK: installed";
     } catch {
       return false;

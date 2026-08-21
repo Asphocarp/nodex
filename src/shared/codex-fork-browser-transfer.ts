@@ -1,7 +1,5 @@
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
-import type {
-  WorkbenchPanelId,
-} from "./workbench-session-view";
+import type { WorkbenchPanelId } from "./workbench-session-view";
 import type { WorkbenchSceneSnapshot } from "./workbench-scene";
 
 export interface CodexForkBrowserSceneContext {

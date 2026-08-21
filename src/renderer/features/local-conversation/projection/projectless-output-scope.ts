@@ -25,19 +25,17 @@ export function normalizeTurnDiffPatchBatches(
     if (typeof batch !== "object" || batch === null) return [];
     const batchCwd = (batch as { cwd?: unknown }).cwd;
     const changes = (batch as { changes?: unknown }).changes;
-    return [{
-      cwd: typeof batchCwd === "string" && batchCwd.trim().length > 0
-        ? batchCwd
-        : null,
-      changes: Array.isArray(changes) ? changes : [],
-    }];
+    return [
+      {
+        cwd: typeof batchCwd === "string" && batchCwd.trim().length > 0 ? batchCwd : null,
+        changes: Array.isArray(changes) ? changes : [],
+      },
+    ];
   });
 }
 
 function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/")
-    || path.startsWith("~/")
-    || /^[A-Za-z]:[\\/]/u.test(path);
+  return path.startsWith("/") || path.startsWith("~/") || /^[A-Za-z]:[\\/]/u.test(path);
 }
 
 export function normalizePathSegments(path: string): string {
@@ -61,10 +59,7 @@ export function normalizePathSegments(path: string): string {
   return `${prefix}${segments.join("/")}` || prefix || ".";
 }
 
-export function resolveOutputPath(
-  path: string,
-  cwd: string | null | undefined,
-): string {
+export function resolveOutputPath(path: string, cwd: string | null | undefined): string {
   const normalizedPath = normalizePathSegments(path);
   if (isAbsolutePath(normalizedPath) || !cwd) return normalizedPath;
   return normalizePathSegments(`${cwd}/${normalizedPath}`);
@@ -84,10 +79,7 @@ export function isResourceInsideProjectlessOutputDirectory(input: {
 }): boolean {
   if (!input.projectlessOutputDirectory) return true;
 
-  const root = normalizeComparableResourcePath(
-    input.projectlessOutputDirectory,
-    input.cwd,
-  );
+  const root = normalizeComparableResourcePath(input.projectlessOutputDirectory, input.cwd);
   if (!root) return false;
 
   const resource = normalizeComparableResourcePath(input.resourcePath, input.cwd);
@@ -189,29 +181,30 @@ function splitUnifiedDiffBlocks(diff: string): string[] {
   return blocks;
 }
 
-function filterUnifiedDiff(
-  unifiedDiff: string,
-  scope: ProjectlessOutputScope,
-): string {
+function filterUnifiedDiff(unifiedDiff: string, scope: ProjectlessOutputScope): string {
   if (!scope.projectlessOutputDirectory) return unifiedDiff;
 
   return splitUnifiedDiffBlocks(unifiedDiff)
     .filter((block) => {
       const paths = extractDiffBlockPaths(block);
-      return paths.length > 0 && paths.every((path) => isResourceInsideProjectlessOutputDirectory({
-        cwd: scope.cwd,
-        projectlessOutputDirectory: scope.projectlessOutputDirectory,
-        resourcePath: path,
-      }));
+      return (
+        paths.length > 0 &&
+        paths.every((path) =>
+          isResourceInsideProjectlessOutputDirectory({
+            cwd: scope.cwd,
+            projectlessOutputDirectory: scope.projectlessOutputDirectory,
+            resourcePath: path,
+          }),
+        )
+      );
     })
     .join("\n");
 }
 
 function getPatchChangePaths(change: unknown): string[] {
   if (!isCodexFileChange(change)) return [];
-  const movePath = change.type === "update" || change.type === "nonRenderable"
-    ? change.movePath
-    : null;
+  const movePath =
+    change.type === "update" || change.type === "nonRenderable" ? change.movePath : null;
   return [change.path, movePath].filter(
     (path): path is string => typeof path === "string" && path.trim().length > 0,
   );
@@ -228,21 +221,29 @@ function filterPatchBatches(
     const cwd = batch.cwd ?? scope.cwd ?? null;
     const changes = batch.changes.filter((change) => {
       const paths = getPatchChangePaths(change);
-      return paths.length > 0 && paths.every((path) => isResourceInsideProjectlessOutputDirectory({
-        cwd,
-        projectlessOutputDirectory: scope.projectlessOutputDirectory,
-        resourcePath: path,
-      }));
+      return (
+        paths.length > 0 &&
+        paths.every((path) =>
+          isResourceInsideProjectlessOutputDirectory({
+            cwd,
+            projectlessOutputDirectory: scope.projectlessOutputDirectory,
+            resourcePath: path,
+          }),
+        )
+      );
     });
     return changes.length > 0 ? [{ cwd: batch.cwd, changes }] : [];
   });
 }
 
 function hasUnifiedDiffChanges(unifiedDiff: string): boolean {
-  return unifiedDiff.split(/\r?\n/u).some((line) => (
-    (line.startsWith("+") && !line.startsWith("+++"))
-    || (line.startsWith("-") && !line.startsWith("---"))
-  ));
+  return unifiedDiff
+    .split(/\r?\n/u)
+    .some(
+      (line) =>
+        (line.startsWith("+") && !line.startsWith("+++")) ||
+        (line.startsWith("-") && !line.startsWith("---")),
+    );
 }
 
 function hasPatchBatchChanges(
@@ -271,9 +272,7 @@ export function filterTurnDiffPayload(
   const normalizedPayload: TurnDiffPayload = {
     ...payload,
     unifiedDiff: filteredUnifiedDiff,
-    ...(filteredPatchBatches === undefined
-      ? {}
-      : { patchBatches: filteredPatchBatches }),
+    ...(filteredPatchBatches === undefined ? {} : { patchBatches: filteredPatchBatches }),
   };
   if (hasPatchBatchChanges(filteredPatchBatches)) {
     const synthesizedDiff = buildCodexTurnDiffFromPatchBatches(filteredPatchBatches ?? []);
@@ -283,7 +282,10 @@ export function filterTurnDiffPayload(
   }
 
   if (!scope.projectlessOutputDirectory) {
-    if (normalizedPayload.unifiedDiff.trim().length > 0 || hasPatchBatchChanges(filteredPatchBatches)) {
+    if (
+      normalizedPayload.unifiedDiff.trim().length > 0 ||
+      hasPatchBatchChanges(filteredPatchBatches)
+    ) {
       return normalizedPayload;
     }
     return null;
@@ -307,10 +309,7 @@ export function collectTurnDiffChangedPaths(
   for (const block of splitUnifiedDiffBlocks(payload.unifiedDiff)) {
     const path = extractDestinationPathFromDiffBlock(block);
     if (!path) continue;
-    paths.add(normalizeComparableResourcePath(
-      path,
-      payload.cwd ?? scope.cwd,
-    ).toLowerCase());
+    paths.add(normalizeComparableResourcePath(path, payload.cwd ?? scope.cwd).toLowerCase());
   }
   for (const batch of payload.patchBatches ?? []) {
     const cwd = batch.cwd ?? payload.cwd ?? scope.cwd;
@@ -333,10 +332,9 @@ export function shouldSuppressTurnDiffByEndResources(input: {
   const changedPaths = collectTurnDiffChangedPaths(input.payload, input.scope);
   if (changedPaths.length === 0) return false;
   const endPaths = new Set(
-    input.endResourcePaths.map((path) => normalizeComparableResourcePath(
-      path,
-      input.scope?.cwd,
-    ).toLowerCase()),
+    input.endResourcePaths.map((path) =>
+      normalizeComparableResourcePath(path, input.scope?.cwd).toLowerCase(),
+    ),
   );
   return changedPaths.every((path) => endPaths.has(path));
 }

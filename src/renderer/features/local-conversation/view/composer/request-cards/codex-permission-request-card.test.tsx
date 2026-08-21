@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
-import type {
-  CodexPermissionRequest,
-  CodexPermissionRequestResponse,
-} from "@/lib/types";
+import type { CodexPermissionRequest, CodexPermissionRequestResponse } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
 import { CodexPermissionRequestCard } from "./codex-permission-request-card";
 
@@ -57,9 +54,11 @@ describe("CodexPermissionRequestCard", () => {
       await settleAsyncRender();
     });
     expect(responses[0]?.scope).toBe("turn");
-    expect(JSON.stringify(responses[0]?.permissions)).toBe(JSON.stringify({
-      fileSystem: permissionRequest.permissions.fileSystem,
-    }));
+    expect(JSON.stringify(responses[0]?.permissions)).toBe(
+      JSON.stringify({
+        fileSystem: permissionRequest.permissions.fileSystem,
+      }),
+    );
 
     await act(async () => {
       fireEvent.click(getByLabelText("Yes, allow for this session"));

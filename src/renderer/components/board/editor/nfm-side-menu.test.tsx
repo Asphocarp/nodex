@@ -25,22 +25,27 @@ import {
 
 vi.mock("@/lib/interactive-page-search", () => ({
   useInteractivePageSearch: ({ query }: { readonly query: string }) => ({
-    rows: query === "targt car" ? [{
-      projectId: "default",
-      pageId: "target-card",
-      pageKey: null,
-      title: "Target card",
-      status: "triage",
-      priority: null,
-      tags: [],
-      assignee: null,
-      locationLabel: "Default / Triage",
-      titleParts: [],
-      excerpt: null,
-      excerptParts: [],
-      matches: [],
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    }] : [],
+    rows:
+      query === "targt car"
+        ? [
+            {
+              projectId: "default",
+              pageId: "target-card",
+              pageKey: null,
+              title: "Target card",
+              status: "triage",
+              priority: null,
+              tags: [],
+              assignee: null,
+              locationLabel: "Default / Triage",
+              titleParts: [],
+              excerpt: null,
+              excerptParts: [],
+              matches: [],
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+          ]
+        : [],
     enrichment: "loading",
     queryRevision: query,
   }),
@@ -49,11 +54,7 @@ vi.mock("@/lib/interactive-page-search", () => ({
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
 function renderWithQuery(children: ReactNode) {
-  return render(
-    <TestQueryProvider>
-      {children}
-    </TestQueryProvider>,
-  );
+  return render(<TestQueryProvider>{children}</TestQueryProvider>);
 }
 
 function makeProject(id: string, name: string, icon?: string): Project {
@@ -78,7 +79,12 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
+function makeCard(
+  id: string,
+  title: string,
+  status: DatabasePageSummary["status"],
+  order: number,
+): DatabasePageSummary {
   return {
     id,
     pageKey: null,
@@ -181,10 +187,10 @@ function renderSideMenuSurface({
         activeSubmenu={activeSubmenu}
         listboxId="side-menu-listbox"
         comboboxId="side-menu-combobox"
-        activeDescendantId={focusedIndex >= 0 ? `side-menu-listbox-option-${focusedIndex}` : undefined}
-        turnIntoItems={[
-          { key: "paragraph", label: "Text", type: "paragraph", enabled: true },
-        ]}
+        activeDescendantId={
+          focusedIndex >= 0 ? `side-menu-listbox-option-${focusedIndex}` : undefined
+        }
+        turnIntoItems={[{ key: "paragraph", label: "Text", type: "paragraph", enabled: true }]}
         colorOptions={[
           { color: "default", label: "Default" },
           { color: "blue", label: "Blue" },
@@ -246,20 +252,27 @@ function StatefulSideMenuSurface({
   const [query, setQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [activeSubmenu, setActiveSubmenu] = useState<NfmSideMenuSubmenuKey | null>(null);
-  const baseSections = useMemo(() => buildNfmSideMenuSections({
-    currentBlockId: "block-1",
-    currentBlockType: "paragraph",
-    selectionTitle: "Text",
-    selectedTopLevelBlockCount: 1,
-    isEditable: true,
-    canUseColor: true,
-    canSendBlocks: true,
-    hasConvertDividerToThreadSection: false,
-    isTableBlock: false,
-    canUseTableHeaders: false,
-    showMockActions: true,
-  }), []);
-  const sections = useMemo(() => filterNfmSideMenuSections(baseSections, query), [baseSections, query]);
+  const baseSections = useMemo(
+    () =>
+      buildNfmSideMenuSections({
+        currentBlockId: "block-1",
+        currentBlockType: "paragraph",
+        selectionTitle: "Text",
+        selectedTopLevelBlockCount: 1,
+        isEditable: true,
+        canUseColor: true,
+        canSendBlocks: true,
+        hasConvertDividerToThreadSection: false,
+        isTableBlock: false,
+        canUseTableHeaders: false,
+        showMockActions: true,
+      }),
+    [],
+  );
+  const sections = useMemo(
+    () => filterNfmSideMenuSections(baseSections, query),
+    [baseSections, query],
+  );
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
 
   return (
@@ -270,10 +283,10 @@ function StatefulSideMenuSurface({
       activeSubmenu={activeSubmenu}
       listboxId="stateful-side-menu-listbox"
       comboboxId="stateful-side-menu-combobox"
-      activeDescendantId={focusedIndex >= 0 ? `stateful-side-menu-listbox-option-${focusedIndex}` : undefined}
-      turnIntoItems={[
-        { key: "paragraph", label: "Text", type: "paragraph", enabled: true },
-      ]}
+      activeDescendantId={
+        focusedIndex >= 0 ? `stateful-side-menu-listbox-option-${focusedIndex}` : undefined
+      }
+      turnIntoItems={[{ key: "paragraph", label: "Text", type: "paragraph", enabled: true }]}
       colorOptions={[
         { color: "default", label: "Default" },
         { color: "blue", label: "Blue" },
@@ -294,7 +307,8 @@ function StatefulSideMenuSurface({
       onFocusIndexChange={setFocusedIndex}
       onMoveFocus={(direction) => {
         setFocusedIndex((currentIndex) => {
-          if (direction > 0) return currentIndex < 0 ? 0 : Math.min(currentIndex + 1, flatRows.length - 1);
+          if (direction > 0)
+            return currentIndex < 0 ? 0 : Math.min(currentIndex + 1, flatRows.length - 1);
           return currentIndex <= 0 ? flatRows.length - 1 : currentIndex - 1;
         });
       }}
@@ -345,26 +359,34 @@ describe("nfm side menu surface", () => {
     document.body.append(submenuElement);
 
     try {
-      expect(shouldCloseNfmSideMenuForPointerTarget({
-        target: popupChild,
-        popupElement,
-        outsidePressIgnoreElement: triggerElement,
-      })).toBe(false);
-      expect(shouldCloseNfmSideMenuForPointerTarget({
-        target: triggerChild,
-        popupElement,
-        outsidePressIgnoreElement: triggerElement,
-      })).toBe(false);
-      expect(shouldCloseNfmSideMenuForPointerTarget({
-        target: submenuChild,
-        popupElement,
-        outsidePressIgnoreElement: triggerElement,
-      })).toBe(false);
-      expect(shouldCloseNfmSideMenuForPointerTarget({
-        target: editorBlank,
-        popupElement,
-        outsidePressIgnoreElement: triggerElement,
-      })).toBe(true);
+      expect(
+        shouldCloseNfmSideMenuForPointerTarget({
+          target: popupChild,
+          popupElement,
+          outsidePressIgnoreElement: triggerElement,
+        }),
+      ).toBe(false);
+      expect(
+        shouldCloseNfmSideMenuForPointerTarget({
+          target: triggerChild,
+          popupElement,
+          outsidePressIgnoreElement: triggerElement,
+        }),
+      ).toBe(false);
+      expect(
+        shouldCloseNfmSideMenuForPointerTarget({
+          target: submenuChild,
+          popupElement,
+          outsidePressIgnoreElement: triggerElement,
+        }),
+      ).toBe(false);
+      expect(
+        shouldCloseNfmSideMenuForPointerTarget({
+          target: editorBlank,
+          popupElement,
+          outsidePressIgnoreElement: triggerElement,
+        }),
+      ).toBe(true);
     } finally {
       submenuElement.remove();
     }
@@ -377,44 +399,62 @@ describe("nfm side menu surface", () => {
     const outsideElement = document.createElement("button");
     editorRoot.append(editorBlank);
 
-    expect(shouldReturnFocusAfterNfmSideMenuClose({
-      reason: "outside-pointer",
-      returnFocusElement,
-    })).toBe(false);
-    expect(shouldReturnFocusAfterNfmSideMenuClose({
-      reason: "editor-outside-pointer",
-      returnFocusElement,
-    })).toBe(true);
-    expect(shouldReturnFocusAfterNfmSideMenuClose({
-      reason: "escape",
-      returnFocusElement,
-    })).toBe(true);
-    expect(shouldReturnFocusAfterNfmSideMenuClose({
-      reason: "action",
-      returnFocusElement,
-    })).toBe(true);
-    expect(resolveNfmSideMenuReturnFocusElement({
-      reason: "editor-outside-pointer",
-      returnFocusElement,
-      editorRoot,
-    })).toBe(editorRoot);
-    expect(resolveNfmSideMenuReturnFocusElement({
-      reason: "escape",
-      returnFocusElement,
-      editorRoot,
-    })).toBe(returnFocusElement);
-    expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
-      target: editorBlank,
-      editorRoot,
-    })).toBe(true);
-    expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
-      target: outsideElement,
-      editorRoot,
-    })).toBe(false);
-    expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
-      target: editorBlank,
-      editorRoot: null,
-    })).toBe(false);
+    expect(
+      shouldReturnFocusAfterNfmSideMenuClose({
+        reason: "outside-pointer",
+        returnFocusElement,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReturnFocusAfterNfmSideMenuClose({
+        reason: "editor-outside-pointer",
+        returnFocusElement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReturnFocusAfterNfmSideMenuClose({
+        reason: "escape",
+        returnFocusElement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReturnFocusAfterNfmSideMenuClose({
+        reason: "action",
+        returnFocusElement,
+      }),
+    ).toBe(true);
+    expect(
+      resolveNfmSideMenuReturnFocusElement({
+        reason: "editor-outside-pointer",
+        returnFocusElement,
+        editorRoot,
+      }),
+    ).toBe(editorRoot);
+    expect(
+      resolveNfmSideMenuReturnFocusElement({
+        reason: "escape",
+        returnFocusElement,
+        editorRoot,
+      }),
+    ).toBe(returnFocusElement);
+    expect(
+      shouldConsumeNfmSideMenuOutsidePointerTarget({
+        target: editorBlank,
+        editorRoot,
+      }),
+    ).toBe(true);
+    expect(
+      shouldConsumeNfmSideMenuOutsidePointerTarget({
+        target: outsideElement,
+        editorRoot,
+      }),
+    ).toBe(false);
+    expect(
+      shouldConsumeNfmSideMenuOutsidePointerTarget({
+        target: editorBlank,
+        editorRoot: null,
+      }),
+    ).toBe(false);
   });
 
   test("preserves dismissed toolbar suppression only for non-mutating close reasons", () => {
@@ -446,18 +486,24 @@ describe("nfm side menu surface", () => {
   });
 
   test("keeps dismissed toolbar suppression only while the current selection range matches", () => {
-    expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
-      selectionRange: { from: 4, to: 10 },
-      suppressionRange: { from: 4, to: 10 },
-    })).toBe(true);
-    expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
-      selectionRange: { from: 4, to: 11 },
-      suppressionRange: { from: 4, to: 10 },
-    })).toBe(false);
-    expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
-      selectionRange: { from: 4, to: 10 },
-      suppressionRange: null,
-    })).toBe(false);
+    expect(
+      shouldKeepNfmSideMenuFormattingToolbarSuppression({
+        selectionRange: { from: 4, to: 10 },
+        suppressionRange: { from: 4, to: 10 },
+      }),
+    ).toBe(true);
+    expect(
+      shouldKeepNfmSideMenuFormattingToolbarSuppression({
+        selectionRange: { from: 4, to: 11 },
+        suppressionRange: { from: 4, to: 10 },
+      }),
+    ).toBe(false);
+    expect(
+      shouldKeepNfmSideMenuFormattingToolbarSuppression({
+        selectionRange: { from: 4, to: 10 },
+        suppressionRange: null,
+      }),
+    ).toBe(false);
   });
 
   test("renders dialog, combobox, listbox, and disabled reference mocks in dev contexts", () => {
@@ -466,8 +512,12 @@ describe("nfm side menu surface", () => {
     expect(view.getByRole("dialog", { name: "Block actions" })).not.toBeNull();
     expect(view.getByRole("combobox")).not.toBeNull();
     expect(view.getByRole("listbox")).not.toBeNull();
-    expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='group']").length).toBe(4);
-    expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='footer']").length).toBe(1);
+    expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='group']").length).toBe(
+      4,
+    );
+    expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='footer']").length).toBe(
+      1,
+    );
 
     const askAi = view.getByRole("option", { name: /Ask AI/ });
     expect(askAi.getAttribute("aria-disabled")).toBe("true");
@@ -504,7 +554,9 @@ describe("nfm side menu surface", () => {
       footerSecondary: null,
     });
 
-    expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='footer']").length).toBe(0);
+    expect(view.container.querySelectorAll("[data-nfm-side-menu-separator='footer']").length).toBe(
+      0,
+    );
   });
 
   test("hides reference mock rows in production contexts", () => {
@@ -704,9 +756,12 @@ describe("nfm side menu surface", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(loadingView.getByText("Loading…")).not.toBeNull();
-    }, { timeout: 650 });
+    await waitFor(
+      () => {
+        expect(loadingView.getByText("Loading…")).not.toBeNull();
+      },
+      { timeout: 650 },
+    );
     loadingView.unmount();
 
     const emptyView = renderWithQuery(

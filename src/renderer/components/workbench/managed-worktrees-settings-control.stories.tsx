@@ -1,9 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
-import type {
-  ManagedWorktreeRecord,
-  ManagedWorktreeSettings,
-} from "@/lib/types";
+import type { ManagedWorktreeRecord, ManagedWorktreeSettings } from "@/lib/types";
 import { NodexSettingsPageSurface } from "@/components/ui/settings";
 import {
   ManagedWorktreesSettingControl,
@@ -16,39 +13,45 @@ const DEFAULT_SETTINGS: ManagedWorktreeSettings = {
   autoDeleteLimit: 15,
 };
 
-const WORKTREES: ManagedWorktreeRecord[] = [{
-  hostId: "local",
-  path: "/Users/asc/.codex/worktrees/a1b2/nodex",
-  exists: true,
-  repositoryPath: "/Users/asc/repo/nodex",
-  createdAtMs: Date.now() - 60_000,
-  conversations: [{
-    threadId: "thread-one",
-    projectId: "project-one",
-    projectName: "Nodex",
-    sessionId: "session-one",
-    sessionTitle: "Fix worktree restore",
-    threadName: "Fix worktree restore",
-    archived: false,
-    updatedAt: Date.now(),
-  }, {
-    threadId: "thread-two",
-    projectId: "project-one",
-    projectName: "Nodex",
-    sessionId: "session-two",
-    sessionTitle: "Audit cleanup",
-    threadName: "Audit cleanup",
-    archived: true,
-    updatedAt: Date.now() - 5_000,
-  }],
-}, {
-  hostId: "ssh:build-box",
-  path: "/srv/codex/worktrees/c3d4/api",
-  exists: true,
-  repositoryPath: "/srv/repos/api",
-  createdAtMs: Date.now() - 120_000,
-  conversations: [],
-}];
+const WORKTREES: ManagedWorktreeRecord[] = [
+  {
+    hostId: "local",
+    path: "/Users/asc/.codex/worktrees/a1b2/nodex",
+    exists: true,
+    repositoryPath: "/Users/asc/repo/nodex",
+    createdAtMs: Date.now() - 60_000,
+    conversations: [
+      {
+        threadId: "thread-one",
+        projectId: "project-one",
+        projectName: "Nodex",
+        sessionId: "session-one",
+        sessionTitle: "Fix worktree restore",
+        threadName: "Fix worktree restore",
+        archived: false,
+        updatedAt: Date.now(),
+      },
+      {
+        threadId: "thread-two",
+        projectId: "project-one",
+        projectName: "Nodex",
+        sessionId: "session-two",
+        sessionTitle: "Audit cleanup",
+        threadName: "Audit cleanup",
+        archived: true,
+        updatedAt: Date.now() - 5_000,
+      },
+    ],
+  },
+  {
+    hostId: "ssh:build-box",
+    path: "/srv/codex/worktrees/c3d4/api",
+    exists: true,
+    repositoryPath: "/srv/repos/api",
+    createdAtMs: Date.now() - 120_000,
+    conversations: [],
+  },
+];
 
 function service(input?: {
   settings?: ManagedWorktreeSettings;
@@ -128,12 +131,16 @@ export const LoadError: Story = {
 export const DisableConfirmation: Story = {
   args: { service: service() },
   play: async ({ canvasElement }) => {
-    const toggle = await waitFor(() => getByRole(canvasElement, "switch", {
+    const toggle = await waitFor(() =>
+      getByRole(canvasElement, "switch", {
         name: "Automatically delete old worktrees",
-    }));
+      }),
+    );
     fireEvent.click(toggle);
-    await waitFor(() => getByRole(document.body, "dialog", {
-      name: "Disable automatic worktree deletion?",
-    }));
+    await waitFor(() =>
+      getByRole(document.body, "dialog", {
+        name: "Disable automatic worktree deletion?",
+      }),
+    );
   },
 };

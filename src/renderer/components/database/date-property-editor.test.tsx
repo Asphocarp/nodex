@@ -3,10 +3,7 @@ import { act } from "react";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { render } from "@/test/dom";
 import { todayAsIsoDate } from "@/lib/data-source-property-date";
-import {
-  DatePropertyEditor,
-  preloadDatePropertyCalendar,
-} from "./date-property-editor";
+import { DatePropertyEditor, preloadDatePropertyCalendar } from "./date-property-editor";
 
 vi.mock("@/components/ui/date-calendar", async () => {
   const { DateCalendarTestSurface } = await import("./testkit/date-calendar-test-surface");

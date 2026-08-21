@@ -1,9 +1,4 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   CloseIcon,
   ImageRedoIcon,
@@ -11,14 +6,8 @@ import {
   ImageUndoIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
-import {
-  NodexSlider,
-  NodexSliderThumb,
-  NodexSliderTrack,
-} from "@/components/ui/slider";
-import {
-  normalizeImagePoint,
-} from "../model/image-geometry";
+import { NodexSlider, NodexSliderThumb, NodexSliderTrack } from "@/components/ui/slider";
+import { normalizeImagePoint } from "../model/image-geometry";
 import {
   appendRemoveStrokePoint,
   buildRemoveMaskDrawingPlan,
@@ -127,13 +116,7 @@ function rasterizeRemoveMask(
   for (const command of plan.commands) {
     if (command.kind === "circle") {
       context.beginPath();
-      context.arc(
-        command.center.x,
-        command.center.y,
-        command.diameter / 2,
-        0,
-        Math.PI * 2,
-      );
+      context.arc(command.center.x, command.center.y, command.diameter / 2, 0, Math.PI * 2);
       context.fill();
       continue;
     }
@@ -148,9 +131,7 @@ function rasterizeRemoveMask(
   return canvas.toDataURL(plan.mimeType);
 }
 
-function pointFromCanvasEvent(
-  event: ReactPointerEvent<HTMLCanvasElement>,
-): ImagePoint | null {
+function pointFromCanvasEvent(event: ReactPointerEvent<HTMLCanvasElement>): ImagePoint | null {
   const rect = event.currentTarget.getBoundingClientRect();
   return normalizeImagePoint({
     clientPoint: { x: event.clientX, y: event.clientY },
@@ -192,10 +173,7 @@ export function ImageRemoveEditor({
     if (cursorRef.current) cursorRef.current.style.display = "none";
   };
 
-  const updateCursor = (
-    canvas: HTMLCanvasElement,
-    point: ImagePoint | null,
-  ) => {
+  const updateCursor = (canvas: HTMLCanvasElement, point: ImagePoint | null) => {
     const cursor = cursorRef.current;
     if (!cursor || !point || !naturalImageSize) {
       hideCursor();
@@ -218,8 +196,8 @@ export function ImageRemoveEditor({
     if (activePointerIdRef.current !== event.pointerId) return;
     activePointerIdRef.current = null;
     if (
-      typeof event.currentTarget.hasPointerCapture === "function"
-      && event.currentTarget.hasPointerCapture(event.pointerId)
+      typeof event.currentTarget.hasPointerCapture === "function" &&
+      event.currentTarget.hasPointerCapture(event.pointerId)
     ) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }

@@ -18,9 +18,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Opening: Story = {
-  render: () => (
-    <CanvasDocumentState status="loading" label="Opening canvas…" />
-  ),
+  render: () => <CanvasDocumentState status="loading" label="Opening canvas…" />,
 };
 
 export const ResyncRequired: Story = {

@@ -53,11 +53,12 @@ const taskFilterProperty = (
   const role = matchBuiltInDataSourceProperty(property);
   if (role !== "status" && role !== "priority" && role !== "tags") return null;
   const authoredOptions = readDatabasePropertyOptions(property);
-  const fallbackOptions = role === "status"
-    ? WORKFLOW_STATUS_COLUMNS
-    : role === "priority"
-      ? PRIORITY_VALUES.map((id) => ({ id, name: getPriorityLabel(id) }))
-      : observedOptions;
+  const fallbackOptions =
+    role === "status"
+      ? WORKFLOW_STATUS_COLUMNS
+      : role === "priority"
+        ? PRIORITY_VALUES.map((id) => ({ id, name: getPriorityLabel(id) }))
+        : observedOptions;
   return {
     role,
     propertyId: property.propertyId,
@@ -76,13 +77,8 @@ export const resolveDatabaseTaskFilterCapabilities = (
     .filter((property) => property.lifecycle === "active")
     .map((property) => {
       const role = matchBuiltInDataSourceProperty(property);
-      const taskRole = role === "status" || role === "priority" || role === "tags"
-        ? role
-        : null;
-      return taskFilterProperty(
-        property,
-        taskRole ? observedOptions[taskRole] ?? [] : [],
-      );
+      const taskRole = role === "status" || role === "priority" || role === "tags" ? role : null;
+      return taskFilterProperty(property, taskRole ? (observedOptions[taskRole] ?? []) : []);
     })
     .filter((property): property is DatabaseTaskFilterProperty => property !== null);
   const find = (role: DatabaseTaskFilterRole) =>
@@ -113,9 +109,7 @@ export const createDefaultDatabaseTaskFilterGroup = (
         },
       }
     : {}),
-  ...(capabilities.tags
-    ? { tags: { selectedOptionIds: [], mode: "any" } }
-    : {}),
+  ...(capabilities.tags ? { tags: { selectedOptionIds: [], mode: "any" } } : {}),
 });
 
 const roleForProperty = (
@@ -151,20 +145,19 @@ const tagsFromNodes = (
   propertyId: string,
   operator: "and" | "or",
 ): DatabaseTaskTagFilter | null => {
-  const clauses = nodes.flatMap((node) => node.kind === "clause" ? [node] : []);
+  const clauses = nodes.flatMap((node) => (node.kind === "clause" ? [node] : []));
   if (clauses.length !== nodes.length) return null;
-  if (clauses.some((clause) =>
-    clause.propertyId !== propertyId || typeof clause.value !== "string"
-  )) return null;
+  if (
+    clauses.some((clause) => clause.propertyId !== propertyId || typeof clause.value !== "string")
+  )
+    return null;
   const filterOperators = new Set(clauses.map((clause) => clause.operator));
   if (filterOperators.size > 1) return null;
   const filterOperator = clauses[0]?.operator;
   if (filterOperator !== "contains" && filterOperator !== "not_contains") return null;
   return {
     selectedOptionIds: clauses.map((clause) => clause.value as string),
-    mode: filterOperator === "not_contains"
-      ? "none"
-      : operator === "and" ? "all" : "any",
+    mode: filterOperator === "not_contains" ? "none" : operator === "and" ? "all" : "any",
   };
 };
 
@@ -201,11 +194,12 @@ const decodeCriterion = (
       const operators = node.children.flatMap((child) =>
         child.kind === "clause" && child.propertyId === firstClause.propertyId
           ? [child.operator]
-          : []);
+          : [],
+      );
       if (
-        operators.length === 2
-        && operators.includes("is_empty")
-        && operators.includes("is_not_empty")
+        operators.length === 2 &&
+        operators.includes("is_empty") &&
+        operators.includes("is_not_empty")
       ) {
         return {
           role,
@@ -229,9 +223,7 @@ const decodeGroup = (
   capabilities: DatabaseTaskFilterCapabilities,
 ): DatabaseTaskFilterGroup | null => {
   const defaultGroup = createDefaultDatabaseTaskFilterGroup(capabilities);
-  const criteria = node.kind === "group" && node.operator === "and"
-    ? node.children
-    : [node];
+  const criteria = node.kind === "group" && node.operator === "and" ? node.children : [node];
   let decoded: DatabaseTaskFilterGroup = {};
   for (const criterion of criteria) {
     const result = decodeCriterion(criterion, capabilities);
@@ -252,9 +244,8 @@ export const decodeDatabaseTaskFilter = (
   if (filter.kind === "group" && filter.children.length === 0) {
     return { groups: [createDefaultDatabaseTaskFilterGroup(capabilities)] };
   }
-  const groupNodes = filter.kind === "group" && filter.operator === "or"
-    ? filter.children
-    : [filter];
+  const groupNodes =
+    filter.kind === "group" && filter.operator === "or" ? filter.children : [filter];
   const groups = groupNodes.map((node) => decodeGroup(node, capabilities));
   if (groups.some((group) => group === null)) return null;
   return { groups: groups as DatabaseTaskFilterGroup[] };
@@ -265,7 +256,7 @@ const choiceCriterion = (
   value: DatabaseTaskChoiceFilter,
 ): DatabaseViewFilterNode | null => {
   const allSelected = property.options.every((option) =>
-    value.selectedOptionIds.includes(option.id)
+    value.selectedOptionIds.includes(option.id),
   );
   if (allSelected && value.includeEmpty) return null;
   const children: DatabaseViewFilterNode[] = value.selectedOptionIds.map((optionId) => ({
@@ -330,15 +321,11 @@ const encodeGroup = (
   capabilities: DatabaseTaskFilterCapabilities,
 ): DatabaseViewFilterNode => {
   const children = [
-    capabilities.status && group.status
-      ? choiceCriterion(capabilities.status, group.status)
-      : null,
+    capabilities.status && group.status ? choiceCriterion(capabilities.status, group.status) : null,
     capabilities.priority && group.priority
       ? choiceCriterion(capabilities.priority, group.priority)
       : null,
-    capabilities.tags && group.tags
-      ? tagsCriterion(capabilities.tags, group.tags)
-      : null,
+    capabilities.tags && group.tags ? tagsCriterion(capabilities.tags, group.tags) : null,
   ].filter((node): node is DatabaseViewFilterNode => node !== null);
   return { kind: "group", operator: "and", children };
 };

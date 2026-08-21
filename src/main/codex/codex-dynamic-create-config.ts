@@ -6,9 +6,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 /** Exact bundle `m$e`: overlay non-null values from the selected config profile. */
-export function expandCodexDynamicCreateConfigProfile<
-  T extends Readonly<Partial<Config>>,
->(config: T): T {
+export function expandCodexDynamicCreateConfigProfile<T extends Readonly<Partial<Config>>>(
+  config: T,
+): T {
   const record = config as T & {
     readonly profile?: unknown;
     readonly profiles?: unknown;

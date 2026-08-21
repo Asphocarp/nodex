@@ -109,7 +109,8 @@ export const CONTRACT_NODEX_OWNED_PROPERTIES = new Set([
 export const CONTRACT_VALUE_NORMALIZATIONS = {
   "--color-background-danger-surface": "var(--vscode-inputValidation-errorBackground)",
   "--color-background-success-solid": "var(--vscode-charts-green)",
-  "--color-background-success-surface": "color-mix(in oklab, var(--vscode-charts-green) 12%, transparent)",
+  "--color-background-success-surface":
+    "color-mix(in oklab, var(--vscode-charts-green) 12%, transparent)",
   "--color-background-warning-surface": "var(--vscode-inputValidation-warningBackground)",
 } as const;
 
@@ -334,7 +335,8 @@ export const SURFACE_SELECTORS = [
 export const COLLISION_RESOLUTIONS = {
   "--color-border": {
     kind: "nodex-owner",
-    reason: "The product theme owns the canonical hairline border; generated semantic utilities consume it.",
+    reason:
+      "The product theme owns the canonical hairline border; generated semantic utilities consume it.",
   },
   "--diffs-font-size": {
     kind: "generated-owner",

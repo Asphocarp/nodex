@@ -1,24 +1,14 @@
-import {
-  MAX_PAGE_DESCRIPTION_LENGTH,
-  MAX_PAGE_TITLE_LENGTH,
-} from "../page-limits";
+import { MAX_PAGE_DESCRIPTION_LENGTH, MAX_PAGE_TITLE_LENGTH } from "../page-limits";
 import type { BlockTreeNode, BlockTreeValue } from "./block-document-codec";
 import type { PrepareDocumentVersionRestore } from "./document-history";
-import {
-  MAX_BLOCK_ID_LENGTH,
-  type BlockId,
-  type DocumentId,
-} from "./contracts";
+import { MAX_BLOCK_ID_LENGTH, type BlockId, type DocumentId } from "./contracts";
 import {
   canonicalizePortableRichText,
   PortableRichTextError,
   portableRichTextSemanticSource,
   type PortableRichText,
 } from "./portable-rich-text";
-import {
-  parseLocalCommitApply,
-  type LocalCommitCommandSuccess,
-} from "../local-commit-delivery";
+import { parseLocalCommitApply, type LocalCommitCommandSuccess } from "../local-commit-delivery";
 
 export const MAX_DOCUMENT_OPERATION_BATCH_SIZE = 512;
 
@@ -191,10 +181,7 @@ interface ParseBudget {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const readRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new DocumentOperationContractError(`${label} must be an object`);
 };
@@ -212,22 +199,14 @@ const assertExactKeys = (
   }
   for (const key of Object.keys(record)) {
     if (allowed.has(key)) continue;
-    throw new DocumentOperationContractError(
-      `${label}.${key} is not supported`,
-    );
+    throw new DocumentOperationContractError(`${label}.${key} is not supported`);
   }
 };
 
-const consumeBudget = (
-  budget: ParseBudget,
-  units: number,
-  label: string,
-): void => {
+const consumeBudget = (budget: ParseBudget, units: number, label: string): void => {
   budget.remaining -= units;
   if (budget.remaining >= 0) return;
-  throw new DocumentOperationContractError(
-    `${label} exceeds the bounded operation payload budget`,
-  );
+  throw new DocumentOperationContractError(`${label} exceeds the bounded operation payload budget`);
 };
 
 const readBoundedString = (
@@ -245,9 +224,7 @@ const readBoundedString = (
   ) {
     return value;
   }
-  throw new DocumentOperationContractError(
-    `${label}.${key} must be a non-empty bounded string`,
-  );
+  throw new DocumentOperationContractError(`${label}.${key} must be a non-empty bounded string`);
 };
 
 const readOptionalBlockId = (
@@ -266,16 +243,10 @@ const readInteger = (
   minimum: number,
 ): number => {
   const value = record[key];
-  if (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= minimum
-  ) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
-  throw new DocumentOperationContractError(
-    `${label}.${key} must be a safe integer >= ${minimum}`,
-  );
+  throw new DocumentOperationContractError(`${label}.${key} must be a safe integer >= ${minimum}`);
 };
 
 const readOptionalInteger = (
@@ -295,9 +266,7 @@ const clonePortableValue = (
   depth = 0,
 ): BlockTreeValue => {
   if (depth > MAX_PORTABLE_VALUE_DEPTH) {
-    throw new DocumentOperationContractError(
-      `${label} exceeds the portable value depth limit`,
-    );
+    throw new DocumentOperationContractError(`${label} exceeds the portable value depth limit`);
   }
   consumeBudget(budget, 1, label);
   if (value === null || typeof value === "boolean") return value;
@@ -312,26 +281,15 @@ const clonePortableValue = (
     );
   }
   if (!isRecord(value)) {
-    throw new DocumentOperationContractError(
-      `${label} must contain only portable JSON values`,
-    );
+    throw new DocumentOperationContractError(`${label} must contain only portable JSON values`);
   }
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => {
-      if (
-        key.length === 0 ||
-        key.length > MAX_PORTABLE_KEY_LENGTH ||
-        key !== key.trim()
-      ) {
-        throw new DocumentOperationContractError(
-          `${label} contains an invalid object key`,
-        );
+      if (key.length === 0 || key.length > MAX_PORTABLE_KEY_LENGTH || key !== key.trim()) {
+        throw new DocumentOperationContractError(`${label} contains an invalid object key`);
       }
       consumeBudget(budget, key.length, label);
-      return [
-        key,
-        clonePortableValue(entry, `${label}.${key}`, budget, depth + 1),
-      ];
+      return [key, clonePortableValue(entry, `${label}.${key}`, budget, depth + 1)];
     }),
   );
 };
@@ -356,32 +314,21 @@ const readBlockTreeNode = (
   depth = 0,
 ): BlockTreeNode => {
   if (depth > MAX_PORTABLE_VALUE_DEPTH) {
-    throw new DocumentOperationContractError(
-      `${label} exceeds the Block tree depth limit`,
-    );
+    throw new DocumentOperationContractError(`${label} exceeds the Block tree depth limit`);
   }
   const block = readRecord(value, label);
   consumeBudget(budget, 1, label);
-  assertExactKeys(
-    block,
-    label,
-    ["id", "type", "props", "children"],
-    ["content"],
-  );
+  assertExactKeys(block, label, ["id", "type", "props", "children"], ["content"]);
   const id = readBoundedString(block, "id", label, MAX_BLOCK_ID_LENGTH);
   if (seenIds.has(id)) {
-    throw new DocumentOperationContractError(
-      `${label} repeats Block identity ${id}`,
-    );
+    throw new DocumentOperationContractError(`${label} repeats Block identity ${id}`);
   }
   seenIds.add(id);
   const type = readBoundedString(block, "type", label, MAX_BLOCK_TYPE_LENGTH);
   consumeBudget(budget, id.length + type.length, label);
   const children = block.children;
   if (!Array.isArray(children)) {
-    throw new DocumentOperationContractError(
-      `${label}.children must be an array`,
-    );
+    throw new DocumentOperationContractError(`${label}.children must be an array`);
   }
   const content = Object.hasOwn(block, "content")
     ? clonePortableValue(block.content, `${label}.content`, budget)
@@ -392,13 +339,7 @@ const readBlockTreeNode = (
     props: readProps(block.props, `${label}.props`, budget),
     ...(content === undefined ? {} : { content }),
     children: children.map((child, index) =>
-      readBlockTreeNode(
-        child,
-        `${label}.children[${index}]`,
-        budget,
-        seenIds,
-        depth + 1,
-      ),
+      readBlockTreeNode(child, `${label}.children[${index}]`, budget, seenIds, depth + 1),
     ),
   };
 };
@@ -409,37 +350,24 @@ const readUpdatePatch = (
   budget: ParseBudget,
 ): DocumentBlockUpdatePatch => {
   const patch = readRecord(value, label);
-  assertExactKeys(
-    patch,
-    label,
-    [],
-    ["type", "props", "content", "unsetContent"],
-  );
+  assertExactKeys(patch, label, [], ["type", "props", "content", "unsetContent"]);
   if (Object.keys(patch).length === 0) {
-    throw new DocumentOperationContractError(
-      `${label} must change at least one field`,
-    );
+    throw new DocumentOperationContractError(`${label} must change at least one field`);
   }
   const type =
     patch.type === undefined
       ? undefined
       : readBoundedString(patch, "type", label, MAX_BLOCK_TYPE_LENGTH);
   const props =
-    patch.props === undefined
-      ? undefined
-      : readProps(patch.props, `${label}.props`, budget);
+    patch.props === undefined ? undefined : readProps(patch.props, `${label}.props`, budget);
   const content = Object.hasOwn(patch, "content")
     ? clonePortableValue(patch.content, `${label}.content`, budget)
     : undefined;
   if (patch.unsetContent !== undefined && patch.unsetContent !== true) {
-    throw new DocumentOperationContractError(
-      `${label}.unsetContent must be true when provided`,
-    );
+    throw new DocumentOperationContractError(`${label}.unsetContent must be true when provided`);
   }
   if (Object.hasOwn(patch, "content") && patch.unsetContent === true) {
-    throw new DocumentOperationContractError(
-      `${label} cannot set and unset content together`,
-    );
+    throw new DocumentOperationContractError(`${label} cannot set and unset content together`);
   }
   return {
     ...(type === undefined ? {} : { type }),
@@ -471,44 +399,20 @@ const readOperation = (
     assertExactKeys(operation, label, ["kind", "richTitle"]);
     try {
       const richTitle = canonicalizePortableRichText(operation.richTitle);
-      consumeBudget(
-        budget,
-        portableRichTextSemanticSource(richTitle).length,
-        `${label}.richTitle`,
-      );
+      consumeBudget(budget, portableRichTextSemanticSource(richTitle).length, `${label}.richTitle`);
       return { kind: "set_rich_title", richTitle };
     } catch (error) {
       if (error instanceof PortableRichTextError) {
-        throw new DocumentOperationContractError(
-          `${label}.richTitle is invalid: ${error.message}`,
-        );
+        throw new DocumentOperationContractError(`${label}.richTitle is invalid: ${error.message}`);
       }
       throw error;
     }
   }
   if (operation.kind === "insert_block") {
-    assertExactKeys(
-      operation,
-      label,
-      ["kind", "block"],
-      ["parentBlockId", "beforeBlockId"],
-    );
-    const block = readBlockTreeNode(
-      operation.block,
-      `${label}.block`,
-      budget,
-      new Set<BlockId>(),
-    );
-    const parentBlockId = readOptionalBlockId(
-      operation,
-      "parentBlockId",
-      label,
-    );
-    const beforeBlockId = readOptionalBlockId(
-      operation,
-      "beforeBlockId",
-      label,
-    );
+    assertExactKeys(operation, label, ["kind", "block"], ["parentBlockId", "beforeBlockId"]);
+    const block = readBlockTreeNode(operation.block, `${label}.block`, budget, new Set<BlockId>());
+    const parentBlockId = readOptionalBlockId(operation, "parentBlockId", label);
+    const beforeBlockId = readOptionalBlockId(operation, "beforeBlockId", label);
     const insertedIds = new Set<BlockId>();
     const pending = [block];
     while (pending.length > 0) {
@@ -536,12 +440,7 @@ const readOperation = (
     assertExactKeys(operation, label, ["kind", "blockId", "patch"]);
     return {
       kind: "update_block",
-      blockId: readBoundedString(
-        operation,
-        "blockId",
-        label,
-        MAX_BLOCK_ID_LENGTH,
-      ),
+      blockId: readBoundedString(operation, "blockId", label, MAX_BLOCK_ID_LENGTH),
       patch: readUpdatePatch(operation.patch, `${label}.patch`, budget),
     };
   }
@@ -549,41 +448,16 @@ const readOperation = (
     assertExactKeys(operation, label, ["kind", "blockId"]);
     return {
       kind: "delete_block",
-      blockId: readBoundedString(
-        operation,
-        "blockId",
-        label,
-        MAX_BLOCK_ID_LENGTH,
-      ),
+      blockId: readBoundedString(operation, "blockId", label, MAX_BLOCK_ID_LENGTH),
     };
   }
   if (operation.kind === "move_block") {
-    assertExactKeys(
-      operation,
-      label,
-      ["kind", "blockId"],
-      ["parentBlockId", "beforeBlockId"],
-    );
-    const blockId = readBoundedString(
-      operation,
-      "blockId",
-      label,
-      MAX_BLOCK_ID_LENGTH,
-    );
-    const parentBlockId = readOptionalBlockId(
-      operation,
-      "parentBlockId",
-      label,
-    );
-    const beforeBlockId = readOptionalBlockId(
-      operation,
-      "beforeBlockId",
-      label,
-    );
+    assertExactKeys(operation, label, ["kind", "blockId"], ["parentBlockId", "beforeBlockId"]);
+    const blockId = readBoundedString(operation, "blockId", label, MAX_BLOCK_ID_LENGTH);
+    const parentBlockId = readOptionalBlockId(operation, "parentBlockId", label);
+    const beforeBlockId = readOptionalBlockId(operation, "beforeBlockId", label);
     if (parentBlockId === blockId || beforeBlockId === blockId) {
-      throw new DocumentOperationContractError(
-        `${label} cannot target the moved Block itself`,
-      );
+      throw new DocumentOperationContractError(`${label} cannot target the moved Block itself`);
     }
     return {
       kind: "move_block",
@@ -631,12 +505,7 @@ const parseMutationEnvelope = (
   const clientSessionId = readOptionalBlockId(record, "clientSessionId", label);
   return {
     record,
-    mutationId: readBoundedString(
-      record,
-      "mutationId",
-      label,
-      MAX_SCOPE_ID_LENGTH,
-    ),
+    mutationId: readBoundedString(record, "mutationId", label, MAX_SCOPE_ID_LENGTH),
     projectId: readBoundedString(record, "projectId", label),
     storeEpoch: readBoundedString(record, "storeEpoch", label),
     ...(clientSessionId === undefined ? {} : { clientSessionId }),
@@ -647,16 +516,9 @@ const parseMutationEnvelope = (
   };
 };
 
-export const parseDocumentOperationBatch = (
-  value: unknown,
-): DocumentOperationBatch => {
+export const parseDocumentOperationBatch = (value: unknown): DocumentOperationBatch => {
   const budget: ParseBudget = { remaining: MAX_OPERATION_REQUEST_UNITS };
-  const envelope = parseMutationEnvelope(
-    value,
-    "documentOperation",
-    ["operations"],
-    budget,
-  );
+  const envelope = parseMutationEnvelope(value, "documentOperation", ["operations"], budget);
   const operations = envelope.record.operations;
   if (
     !Array.isArray(operations) ||
@@ -678,23 +540,15 @@ export const parseDocumentOperationBatch = (
     documentId: envelope.documentId,
     generation: envelope.generation,
     expectedHeadSeq: envelope.expectedHeadSeq,
-    operations: operations.map((operation, index) =>
-      readOperation(operation, index, budget),
-    ),
+    operations: operations.map((operation, index) => readOperation(operation, index, budget)),
   };
 };
 
-export const parseReplaceDocumentFromNfm = (
-  value: unknown,
-): ReplaceDocumentFromNfm => {
+export const parseReplaceDocumentFromNfm = (value: unknown): ReplaceDocumentFromNfm => {
   const budget: ParseBudget = { remaining: MAX_OPERATION_REQUEST_UNITS };
-  const envelope = parseMutationEnvelope(
-    value,
-    "replaceDocumentFromNfm",
-    ["nfm"],
-    budget,
-    ["richTitle"],
-  );
+  const envelope = parseMutationEnvelope(value, "replaceDocumentFromNfm", ["nfm"], budget, [
+    "richTitle",
+  ]);
   const nfm = envelope.record.nfm;
   if (typeof nfm !== "string" || nfm.length > MAX_PAGE_DESCRIPTION_LENGTH) {
     throw new DocumentOperationContractError(
@@ -735,16 +589,9 @@ export const parseReplaceDocumentFromNfm = (
   };
 };
 
-export const parseDocumentVersionRestore = (
-  value: unknown,
-): PrepareDocumentVersionRestore => {
+export const parseDocumentVersionRestore = (value: unknown): PrepareDocumentVersionRestore => {
   const budget: ParseBudget = { remaining: MAX_OPERATION_REQUEST_UNITS };
-  const envelope = parseMutationEnvelope(
-    value,
-    "documentVersionRestore",
-    ["versionId"],
-    budget,
-  );
+  const envelope = parseMutationEnvelope(value, "documentVersionRestore", ["versionId"], budget);
   return {
     mutationId: envelope.mutationId,
     projectId: envelope.projectId,
@@ -765,10 +612,7 @@ export const parseDocumentVersionRestore = (
   };
 };
 
-const readTouchedBlockIds = (
-  value: unknown,
-  label: string,
-): readonly BlockId[] => {
+const readTouchedBlockIds = (value: unknown, label: string): readonly BlockId[] => {
   if (!Array.isArray(value)) {
     throw new DocumentOperationContractError(`${label} must be an array`);
   }
@@ -789,9 +633,7 @@ const readTouchedBlockIds = (
   throw new DocumentOperationContractError(`${label} contains duplicate IDs`);
 };
 
-export const parseDocumentOperationResult = (
-  value: unknown,
-): DocumentOperationResult => {
+export const parseDocumentOperationResult = (value: unknown): DocumentOperationResult => {
   const label = "documentOperationResult";
   const result = readRecord(value, label);
   assertExactKeys(result, label, [
@@ -820,35 +662,19 @@ export const parseDocumentOperationResult = (
     result.mutationKind !== "replace_document_from_nfm" &&
     result.mutationKind !== "document_version_restore"
   ) {
-    throw new DocumentOperationContractError(
-      `${label}.mutationKind is not supported`,
-    );
+    throw new DocumentOperationContractError(`${label}.mutationKind is not supported`);
   }
   if (typeof result.duplicate !== "boolean") {
-    throw new DocumentOperationContractError(
-      `${label}.duplicate must be a boolean`,
-    );
+    throw new DocumentOperationContractError(`${label}.duplicate must be a boolean`);
   }
   if (typeof result.titleChanged !== "boolean") {
-    throw new DocumentOperationContractError(
-      `${label}.titleChanged must be a boolean`,
-    );
+    throw new DocumentOperationContractError(`${label}.titleChanged must be a boolean`);
   }
-  if (
-    result.coordination !== "merge_friendly" &&
-    result.coordination !== "write_fence"
-  ) {
-    throw new DocumentOperationContractError(
-      `${label}.coordination is not supported`,
-    );
+  if (result.coordination !== "merge_friendly" && result.coordination !== "write_fence") {
+    throw new DocumentOperationContractError(`${label}.coordination is not supported`);
   }
-  if (
-    typeof result.committedAt !== "string" ||
-    result.committedAt.length === 0
-  ) {
-    throw new DocumentOperationContractError(
-      `${label}.committedAt must be a non-empty string`,
-    );
+  if (typeof result.committedAt !== "string" || result.committedAt.length === 0) {
+    throw new DocumentOperationContractError(`${label}.committedAt must be a non-empty string`);
   }
   const generation = readInteger(result, "generation", label, 1);
   const baseHeadSeq = readInteger(result, "baseHeadSeq", label, 0);
@@ -867,26 +693,11 @@ export const parseDocumentOperationResult = (
     generation,
     baseHeadSeq,
     headSeq,
-    touchedBlockIds: readTouchedBlockIds(
-      result.touchedBlockIds,
-      `${label}.touchedBlockIds`,
-    ),
-    createdBlockIds: readTouchedBlockIds(
-      result.createdBlockIds,
-      `${label}.createdBlockIds`,
-    ),
-    deletedBlockIds: readTouchedBlockIds(
-      result.deletedBlockIds,
-      `${label}.deletedBlockIds`,
-    ),
-    updatedBlockIds: readTouchedBlockIds(
-      result.updatedBlockIds,
-      `${label}.updatedBlockIds`,
-    ),
-    movedBlockIds: readTouchedBlockIds(
-      result.movedBlockIds,
-      `${label}.movedBlockIds`,
-    ),
+    touchedBlockIds: readTouchedBlockIds(result.touchedBlockIds, `${label}.touchedBlockIds`),
+    createdBlockIds: readTouchedBlockIds(result.createdBlockIds, `${label}.createdBlockIds`),
+    deletedBlockIds: readTouchedBlockIds(result.deletedBlockIds, `${label}.deletedBlockIds`),
+    updatedBlockIds: readTouchedBlockIds(result.updatedBlockIds, `${label}.updatedBlockIds`),
+    movedBlockIds: readTouchedBlockIds(result.movedBlockIds, `${label}.movedBlockIds`),
     writeFenceBlockIds: readTouchedBlockIds(
       result.writeFenceBlockIds,
       `${label}.writeFenceBlockIds`,
@@ -912,12 +723,12 @@ const DOCUMENT_OPERATION_ERROR_CODES: readonly DocumentOperationErrorCode[] = [
   "duplicate_block_id",
   "block_not_found",
   "invalid_anchor",
-    "ancestor_cycle",
-    "invalid_block",
-    "invalid_operation",
-    "no_change",
-    "document_state_corrupt",
-    "unknown",
+  "ancestor_cycle",
+  "invalid_block",
+  "invalid_operation",
+  "no_change",
+  "document_state_corrupt",
+  "unknown",
 ];
 
 export const parseDocumentOperationCommandError = (
@@ -941,40 +752,19 @@ export const parseDocumentOperationCommandError = (
   );
   if (
     typeof error.code !== "string" ||
-    !DOCUMENT_OPERATION_ERROR_CODES.includes(
-      error.code as DocumentOperationErrorCode,
-    )
+    !DOCUMENT_OPERATION_ERROR_CODES.includes(error.code as DocumentOperationErrorCode)
   ) {
     throw new DocumentOperationContractError(`${label}.code is not supported`);
   }
   if (typeof error.retryable !== "boolean") {
-    throw new DocumentOperationContractError(
-      `${label}.retryable must be a boolean`,
-    );
+    throw new DocumentOperationContractError(`${label}.retryable must be a boolean`);
   }
   const mutationId =
-    error.mutationId === undefined
-      ? undefined
-      : readBoundedString(error, "mutationId", label);
+    error.mutationId === undefined ? undefined : readBoundedString(error, "mutationId", label);
   const blockId = readOptionalBlockId(error, "blockId", label);
-  const expectedGeneration = readOptionalInteger(
-    error,
-    "expectedGeneration",
-    label,
-    1,
-  );
-  const actualGeneration = readOptionalInteger(
-    error,
-    "actualGeneration",
-    label,
-    1,
-  );
-  const expectedHeadSeq = readOptionalInteger(
-    error,
-    "expectedHeadSeq",
-    label,
-    0,
-  );
+  const expectedGeneration = readOptionalInteger(error, "expectedGeneration", label, 1);
+  const actualGeneration = readOptionalInteger(error, "actualGeneration", label, 1);
+  const expectedHeadSeq = readOptionalInteger(error, "expectedHeadSeq", label, 0);
   const actualHeadSeq = readOptionalInteger(error, "actualHeadSeq", label, 0);
   const operationIndex = readOptionalInteger(error, "operationIndex", label, 0);
   if (
@@ -1059,9 +849,7 @@ const withoutMutationAuditIdentity = <
   value: T,
 ): Omit<T, "actor" | "clientSessionId"> =>
   Object.fromEntries(
-    Object.entries(value).filter(
-      ([key]) => key !== "actor" && key !== "clientSessionId",
-    ),
+    Object.entries(value).filter(([key]) => key !== "actor" && key !== "clientSessionId"),
   ) as Omit<T, "actor" | "clientSessionId">;
 
 /**
@@ -1076,17 +864,9 @@ export const canonicalizeDocumentOperationIntent = (value: unknown): string =>
   stableStringify(withoutMutationAuditIdentity(parseDocumentOperationBatch(value)));
 
 /** See {@link canonicalizeDocumentOperationIntent}. */
-export const canonicalizeReplaceDocumentFromNfmIntent = (
-  value: unknown,
-): string =>
-  stableStringify(
-    withoutMutationAuditIdentity(parseReplaceDocumentFromNfm(value)),
-  );
+export const canonicalizeReplaceDocumentFromNfmIntent = (value: unknown): string =>
+  stableStringify(withoutMutationAuditIdentity(parseReplaceDocumentFromNfm(value)));
 
 /** See {@link canonicalizeDocumentOperationIntent}. */
-export const canonicalizeDocumentVersionRestoreIntent = (
-  value: unknown,
-): string =>
-  stableStringify(
-    withoutMutationAuditIdentity(parseDocumentVersionRestore(value)),
-  );
+export const canonicalizeDocumentVersionRestoreIntent = (value: unknown): string =>
+  stableStringify(withoutMutationAuditIdentity(parseDocumentVersionRestore(value)));

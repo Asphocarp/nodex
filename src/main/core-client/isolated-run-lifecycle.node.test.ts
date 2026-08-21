@@ -16,10 +16,7 @@ const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const RUN_A = "11111111-1111-4111-8111-111111111111";
 const RUN_B = "22222222-2222-4222-8222-222222222222";
 
-const waitUntil = async (
-  predicate: () => boolean,
-  message: string,
-): Promise<void> => {
+const waitUntil = async (predicate: () => boolean, message: string): Promise<void> => {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -32,9 +29,7 @@ describe("isolated run Core lifecycle", () => {
   test("gracefully stops the authenticated generation before releasing the lease", async () => {
     expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
     accessSync(CORE_BINARY, constants.X_OK);
-    const nodexHome = mkdtempSync(
-      path.join(tmpdir(), "nodex-isolated-lifecycle-"),
-    );
+    const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-isolated-lifecycle-"));
     const launched = await connectOrStartCore({
       buildId: "isolated-run-lifecycle-integration",
       environment: { NODEX_CORE_EXECUTABLE: CORE_BINARY },
@@ -65,15 +60,9 @@ describe("isolated run Core lifecycle", () => {
       });
       lease = null;
 
-      expect(
-        existsSync(path.join(nodexHome, "run/core/core.sock")),
-      ).toBe(false);
-      expect(
-        existsSync(path.join(nodexHome, "run/core/core.json")),
-      ).toBe(false);
-      expect(
-        existsSync(path.join(nodexHome, "run/core/core.auth")),
-      ).toBe(false);
+      expect(existsSync(path.join(nodexHome, "run/core/core.sock"))).toBe(false);
+      expect(existsSync(path.join(nodexHome, "run/core/core.json"))).toBe(false);
+      expect(existsSync(path.join(nodexHome, "run/core/core.auth"))).toBe(false);
       expect(readIsolatedRunLeaseOwner(nodexHome)).toBeNull();
 
       const nextLease = acquireIsolatedRunLease({
@@ -98,9 +87,7 @@ describe("isolated run Core lifecycle", () => {
   test("does not stop a Core when the leased run never became primary host", async () => {
     expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
     accessSync(CORE_BINARY, constants.X_OK);
-    const nodexHome = mkdtempSync(
-      path.join(tmpdir(), "nodex-isolated-non-owner-"),
-    );
+    const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-isolated-non-owner-"));
     const launched = await connectOrStartCore({
       buildId: "isolated-run-non-owner-integration",
       environment: { NODEX_CORE_EXECUTABLE: CORE_BINARY },

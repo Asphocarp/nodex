@@ -42,13 +42,11 @@ const row = (
   ...input,
 });
 
-const column = (
-  rows: readonly DatabaseViewRenderRow[],
-): DatabaseViewRenderColumn => ({
+const column = (rows: readonly DatabaseViewRenderRow[]): DatabaseViewRenderColumn => ({
   id: "build",
   groupKey: "build",
   name: "Build",
-  scopeKey: "key:\"build\"",
+  scopeKey: 'key:"build"',
   rows,
 });
 
@@ -90,25 +88,31 @@ describe("Database List projection", () => {
       collapsedOccurrenceKeys: new Set(),
     });
 
-    expect(resolveDatabaseListAuthority({
-      coreAuthorized: true,
-      coreRows: [],
-      clientRows,
-    })).toEqual([]);
-    expect(resolveDatabaseListAuthority({
-      coreAuthorized: false,
-      coreRows: [],
-      clientRows,
-    })).toBe(clientRows);
+    expect(
+      resolveDatabaseListAuthority({
+        coreAuthorized: true,
+        coreRows: [],
+        clientRows,
+      }),
+    ).toEqual([]);
+    expect(
+      resolveDatabaseListAuthority({
+        coreAuthorized: false,
+        coreRows: [],
+        clientRows,
+      }),
+    ).toBe(clientRows);
   });
 
   test("uses occurrence identity and keeps a Page nested below its parent", () => {
     const projection = buildDatabaseListProjection({
-      columns: [column([
-        row("parent"),
-        row("child", { parentPageId: "parent" }),
-        row("grandchild", { parentPageId: "child" }),
-      ])],
+      columns: [
+        column([
+          row("parent"),
+          row("child", { parentPageId: "parent" }),
+          row("grandchild", { parentPageId: "child" }),
+        ]),
+      ],
       grouped: true,
       subgrouped: false,
       nested: true,
@@ -155,21 +159,19 @@ describe("Database List projection", () => {
 
   test("keeps the mounted slice bounded for a 10k occurrence projection", () => {
     const projection = buildDatabaseListProjection({
-      columns: [column(Array.from(
-        { length: 10_000 },
-        (_, index) => row(`page-${index.toString().padStart(5, "0")}`),
-      ))],
+      columns: [
+        column(
+          Array.from({ length: 10_000 }, (_, index) =>
+            row(`page-${index.toString().padStart(5, "0")}`),
+          ),
+        ),
+      ],
       grouped: true,
       subgrouped: false,
       nested: false,
       collapsedOccurrenceKeys: new Set(),
     });
-    const window = computeDatabaseListVirtualWindow(
-      projection,
-      44 * 5_000,
-      900,
-      100,
-    );
+    const window = computeDatabaseListVirtualWindow(projection, 44 * 5_000, 900, 100);
 
     expect(window.endIndex - window.startIndex).toBeLessThan(32);
     expect(window.totalHeight).toBe(38 + 44 * 10_000);
@@ -193,9 +195,7 @@ describe("Database List projection", () => {
       activeOccurrenceKey: firstPage.key,
     });
 
-    expect(mountedActive).toBe(
-      projection.slice(70, 80).find((item) => item.kind === "page")?.key,
-    );
+    expect(mountedActive).toBe(projection.slice(70, 80).find((item) => item.kind === "page")?.key);
   });
 
   test("restores a logical row anchor after rows are inserted above it", () => {
@@ -228,56 +228,54 @@ describe("Database List projection", () => {
       nested: false,
       collapsedOccurrenceKeys: new Set(),
     });
-    const target = projection.find((item) =>
-      item.kind === "page" && item.pageId === "p-80"
-    );
+    const target = projection.find((item) => item.kind === "page" && item.pageId === "p-80");
     if (!target) throw new Error("missing keyboard target fixture");
 
-    expect(databaseListScrollTopForOccurrence({
-      rows: projection,
-      occurrenceKey: target.key,
-      viewportTop: 0,
-      viewportHeight: 440,
-    })).toBe(38 + 44 * 81 - 440);
-    expect(databaseListScrollTopForOccurrence({
-      rows: projection,
-      occurrenceKey: target.key,
-      viewportTop: 38 + 44 * 78,
-      viewportHeight: 440,
-    })).toBe(38 + 44 * 78);
+    expect(
+      databaseListScrollTopForOccurrence({
+        rows: projection,
+        occurrenceKey: target.key,
+        viewportTop: 0,
+        viewportHeight: 440,
+      }),
+    ).toBe(38 + 44 * 81 - 440);
+    expect(
+      databaseListScrollTopForOccurrence({
+        rows: projection,
+        occurrenceKey: target.key,
+        viewportTop: 38 + 44 * 78,
+        viewportHeight: 440,
+      }),
+    ).toBe(38 + 44 * 78);
   });
 
   test("keeps a moved subtree contiguous in the optimistic drop overlay", () => {
     const before = buildDatabaseListProjection({
-      columns: [column([
-        row("parent"),
-        row("child", { parentPageId: "parent" }),
-        row("root-b"),
-      ])],
+      columns: [column([row("parent"), row("child", { parentPageId: "parent" }), row("root-b")])],
       grouped: true,
       subgrouped: false,
       nested: true,
       collapsedOccurrenceKeys: new Set(),
     });
-    const parent = before.find((item) =>
-      item.kind === "page" && item.pageId === "parent"
-    );
+    const parent = before.find((item) => item.kind === "page" && item.pageId === "parent");
     if (!parent) throw new Error("missing parent fixture");
 
     const optimistic = applyOptimisticDatabaseListDrop({
       rows: before,
-      occurrenceKeys: new Set([before.find((item) =>
-        item.kind === "page" && item.pageId === "root-b"
-      )!.key]),
+      occurrenceKeys: new Set([
+        before.find((item) => item.kind === "page" && item.pageId === "root-b")!.key,
+      ]),
       targetOccurrenceKey: parent.key,
       position: "nest",
       groupKey: "build",
       subgroupKey: null,
     });
 
-    expect(optimistic.flatMap((item) => item.kind === "page"
-      ? [[item.pageId, item.depth, item.ancestorPageIds]]
-      : [])).toEqual([
+    expect(
+      optimistic.flatMap((item) =>
+        item.kind === "page" ? [[item.pageId, item.depth, item.ancestorPageIds]] : [],
+      ),
+    ).toEqual([
       ["parent", 0, []],
       ["child", 1, ["parent"]],
       ["root-b", 1, ["parent"]],
@@ -359,8 +357,9 @@ describe("Database List occurrence selection", () => {
     });
 
     expect(range.selectedOccurrenceKeys.size).toBe(3);
-    expect(selectedDatabaseListPageIds(projection, range))
-      .toEqual(new Set(["one", "two", "three"]));
+    expect(selectedDatabaseListPageIds(projection, range)).toEqual(
+      new Set(["one", "two", "three"]),
+    );
   });
 
   test("keyboard movement keeps active state separate until range extension", () => {
@@ -379,9 +378,7 @@ describe("Database List occurrence selection", () => {
       direction: 1,
       extendSelection: true,
     });
-    expect(extended.selectedOccurrenceKeys).toEqual(
-      new Set([pages[0]!.key, pages[1]!.key]),
-    );
+    expect(extended.selectedOccurrenceKeys).toEqual(new Set([pages[0]!.key, pages[1]!.key]));
   });
 
   test("represents select-all sparsely and tracks occurrence exclusions", () => {
@@ -394,8 +391,7 @@ describe("Database List occurrence selection", () => {
       rows: projection,
     });
     expect(all.selectedOccurrenceKeys.size).toBe(0);
-    expect(pages.every((item) => isDatabaseListOccurrenceSelected(all, item.key)))
-      .toBe(true);
+    expect(pages.every((item) => isDatabaseListOccurrenceSelected(all, item.key))).toBe(true);
     expect(all.activeOccurrenceKey).toBe(pages[1]!.key);
 
     const excluded = selectDatabaseListOccurrence({
@@ -406,9 +402,7 @@ describe("Database List occurrence selection", () => {
     });
     expect(excluded.allMatching).toBe(true);
     expect(isDatabaseListOccurrenceSelected(excluded, pages[1]!.key)).toBe(false);
-    expect(selectedDatabaseListPageIds(projection, excluded)).toEqual(
-      new Set(["one", "three"]),
-    );
+    expect(selectedDatabaseListPageIds(projection, excluded)).toEqual(new Set(["one", "three"]));
   });
 
   test("preserves selection identity when a refreshed projection changes no keys", () => {

@@ -189,7 +189,8 @@ describe("codex scheduled automation scheduler", () => {
       logger: logger(),
       isAuthorityAvailable: () => authorityAvailable,
       now: () => 500,
-      setIntervalImpl: () => ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
+      setIntervalImpl: () =>
+        ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
       clearIntervalImpl: () => undefined,
       settleInterruptedRuns: () => ({
         archivedPendingCount: 0,
@@ -239,14 +240,17 @@ describe("codex scheduled automation scheduler", () => {
     const scheduler = startCodexScheduledAutomationScheduler({
       logger: logger(),
       isAuthorityAvailable: () => authorityAvailable,
-      setIntervalImpl: () => ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
+      setIntervalImpl: () =>
+        ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
       clearIntervalImpl: () => undefined,
-      settleInterruptedRuns: async () => await new Promise((resolve) => {
-        resolveInitialization = () => resolve({
-          archivedPendingCount: 0,
-          pendingReviewCount: 0,
-        });
-      }),
+      settleInterruptedRuns: async () =>
+        await new Promise((resolve) => {
+          resolveInitialization = () =>
+            resolve({
+              archivedPendingCount: 0,
+              pendingReviewCount: 0,
+            });
+        }),
       claimDueAutomations,
       completeClaim: async () => undefined,
       failClaim: async () => undefined,
@@ -277,15 +281,17 @@ describe("codex scheduled automation scheduler", () => {
       logger: logger(),
       intervalMs: 5_000,
       isAuthorityAvailable: () => authorityAvailable,
-      setIntervalImpl: () => ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
+      setIntervalImpl: () =>
+        ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
       clearIntervalImpl: () => undefined,
       settleInterruptedRuns: async () => ({
         archivedPendingCount: 0,
         pendingReviewCount: 0,
       }),
-      claimDueAutomations: async () => await new Promise((resolve) => {
-        resolveClaims = resolve;
-      }),
+      claimDueAutomations: async () =>
+        await new Promise((resolve) => {
+          resolveClaims = resolve;
+        }),
       completeClaim: async () => undefined,
       failClaim: async (leaseId, retryDelayMs, reasonCode) => {
         failed.push({ leaseId, retryDelayMs, reasonCode });
@@ -301,11 +307,13 @@ describe("codex scheduled automation scheduler", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(runIds).toEqual([]);
-    expect(failed).toEqual([{
-      leaseId: "lease:deferred",
-      retryDelayMs: 5_000,
-      reasonCode: "core_authority_unavailable",
-    }]);
+    expect(failed).toEqual([
+      {
+        leaseId: "lease:deferred",
+        retryDelayMs: 5_000,
+        reasonCode: "core_authority_unavailable",
+      },
+    ]);
     scheduler.dispose();
   });
 
@@ -315,16 +323,19 @@ describe("codex scheduled automation scheduler", () => {
     const scheduler = startCodexScheduledAutomationScheduler({
       logger: logger(),
       now: () => nowMs,
-      setIntervalImpl: () => ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
+      setIntervalImpl: () =>
+        ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
       clearIntervalImpl: () => undefined,
       settleInterruptedRuns: () => ({
         archivedPendingCount: 0,
         pendingReviewCount: 0,
       }),
-      claimDueAutomations: async () => [{
-        leaseId: "lease:heartbeat",
-        definition: heartbeatAutomation("heartbeat"),
-      }],
+      claimDueAutomations: async () => [
+        {
+          leaseId: "lease:heartbeat",
+          definition: heartbeatAutomation("heartbeat"),
+        },
+      ],
       completeClaim: async () => undefined,
       failClaim: async () => undefined,
       runAutomation: async (_item, context) => {

@@ -18,11 +18,7 @@ export function applyNfmLinkEditAtRange(
     if (!linkMarkType) return;
 
     tr.insertText(text, range.from, range.to);
-    tr.addMark(
-      range.from,
-      range.from + text.length,
-      linkMarkType.create({ href: url }),
-    );
+    tr.addMark(range.from, range.from + text.length, linkMarkType.create({ href: url }));
     nextRange = {
       from: range.from,
       to: range.from + text.length,

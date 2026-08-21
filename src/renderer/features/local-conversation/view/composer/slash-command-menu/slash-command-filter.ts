@@ -12,7 +12,9 @@ export interface ComposerSlashTriggerInput {
   cursor: number;
 }
 
-export function detectComposerSlashTrigger(input: ComposerSlashTriggerInput): ComposerSlashTriggerState {
+export function detectComposerSlashTrigger(
+  input: ComposerSlashTriggerInput,
+): ComposerSlashTriggerState {
   const cursor = Math.max(0, Math.min(input.cursor, input.text.length));
   const beforeCursor = input.text.slice(0, cursor);
   const tokenMatch = /(?:^|\s)([/@])([^\s/@]*)$/u.exec(beforeCursor);
@@ -119,14 +121,19 @@ export function resolveNextSlashHighlight(input: {
     return input.matches[0]?.command.id ?? null;
   }
 
-  const currentIndex = input.matches.findIndex((match) => match.command.id === input.currentCommandId);
+  const currentIndex = input.matches.findIndex(
+    (match) => match.command.id === input.currentCommandId,
+  );
   if (currentIndex < 0) return input.matches[0]?.command.id ?? null;
 
   if (input.direction === "next") {
     return input.matches[(currentIndex + 1) % input.matches.length]?.command.id ?? null;
   }
 
-  return input.matches[(currentIndex - 1 + input.matches.length) % input.matches.length]?.command.id ?? null;
+  return (
+    input.matches[(currentIndex - 1 + input.matches.length) % input.matches.length]?.command.id ??
+    null
+  );
 }
 
 export function resolvePreservedSlashHighlight(input: {
@@ -136,7 +143,9 @@ export function resolvePreservedSlashHighlight(input: {
   if (input.matches.length === 0) return null;
   if (!input.currentCommandId) return input.matches[0]?.command.id ?? null;
 
-  const currentStillVisible = input.matches.some((match) => match.command.id === input.currentCommandId);
+  const currentStillVisible = input.matches.some(
+    (match) => match.command.id === input.currentCommandId,
+  );
   if (currentStillVisible) return input.currentCommandId;
 
   return input.matches[0]?.command.id ?? null;
@@ -152,13 +161,14 @@ export function resolveComposerSlashHighlight(input: {
   });
   return {
     commandId,
-    source: commandId === input.intent.commandId
-      ? input.intent.source
-      : "programmatic",
+    source: commandId === input.intent.commandId ? input.intent.source : "programmatic",
   };
 }
 
-function matchSlashCommand(command: ComposerSlashCommand, normalizedQuery: string): ComposerSlashCommandMatch | null {
+function matchSlashCommand(
+  command: ComposerSlashCommand,
+  normalizedQuery: string,
+): ComposerSlashCommandMatch | null {
   if (!normalizedQuery) {
     return {
       command,
@@ -174,7 +184,10 @@ function matchSlashCommand(command: ComposerSlashCommand, normalizedQuery: strin
     return {
       command,
       score: 1000 - substringIndex,
-      matchedTitleIndexes: Array.from({ length: normalizedQuery.length }, (_, index) => substringIndex + index),
+      matchedTitleIndexes: Array.from(
+        { length: normalizedQuery.length },
+        (_, index) => substringIndex + index,
+      ),
     };
   }
 

@@ -2,9 +2,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { afterEach, describe, expect, test } from "vitest";
 import "../../../globals.css";
-import {
-  writeTaskShorthandPagePromotionEnabled,
-} from "../../../lib/page-promotion-preference";
+import { writeTaskShorthandPagePromotionEnabled } from "../../../lib/page-promotion-preference";
 import { nfmTaskShorthandPreviewExtension } from "./nfm-task-shorthand-preview-extension";
 
 const mountedEditors: BlockNoteEditor[] = [];
@@ -36,11 +34,13 @@ describe("task shorthand authoring feedback in Chromium", () => {
   test("is quiet, inspectable, non-persistent, and updates with typing and preference", () => {
     document.documentElement.dataset.codexWindowType = "electron";
     writeTaskShorthandPagePromotionEnabled(true);
-    const { editor, host } = mountEditor([{
-      id: "shorthand",
-      type: "paragraph",
-      content: "1XL(ui, unclear) Fix import",
-    }]);
+    const { editor, host } = mountEditor([
+      {
+        id: "shorthand",
+        type: "paragraph",
+        content: "1XL(ui, unclear) Fix import",
+      },
+    ]);
     const before = editor.document;
     const block = host.querySelector<HTMLElement>('.bn-block[data-id="shorthand"]');
     const prefix = host.querySelector<HTMLElement>("[data-task-shorthand-preview]");
@@ -81,19 +81,21 @@ describe("task shorthand authoring feedback in Chromium", () => {
 
   test("does not preview a prefix that crosses a rich-link authority boundary", () => {
     writeTaskShorthandPagePromotionEnabled(true);
-    const { host } = mountEditor([{
-      id: "rich-boundary",
-      type: "paragraph",
-      content: [
-        { type: "text", text: "1", styles: {} },
-        {
-          type: "link",
-          href: "https://nodex.dev",
-          content: [{ type: "text", text: "XL", styles: {} }],
-        },
-        { type: "text", text: " Fix import", styles: {} },
-      ],
-    }]);
+    const { host } = mountEditor([
+      {
+        id: "rich-boundary",
+        type: "paragraph",
+        content: [
+          { type: "text", text: "1", styles: {} },
+          {
+            type: "link",
+            href: "https://nodex.dev",
+            content: [{ type: "text", text: "XL", styles: {} }],
+          },
+          { type: "text", text: " Fix import", styles: {} },
+        ],
+      },
+    ]);
     expect(host.textContent).toContain("1XL Fix import");
     expect(host.querySelector("[data-task-shorthand-preview]")).toBeNull();
   });

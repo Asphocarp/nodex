@@ -16,7 +16,10 @@ const FALLBACK_SOURCES = [
 ] as const;
 
 export function normalizeCodexSetupSourceAlias(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
 }
 
 function appAliases(app: ProtocolAppInfo): string[] {
@@ -71,11 +74,13 @@ export function resolveCodexSetupFallbackSources(
   return FALLBACK_SOURCES.flatMap((fallback) => {
     const app = findConnectedApp(index, [fallback.id]);
     if (!app) return [];
-    return [{
-      ...projectConnectedApp(app),
-      id: fallback.id,
-      description: fallback.description,
-    }];
+    return [
+      {
+        ...projectConnectedApp(app),
+        id: fallback.id,
+        description: fallback.description,
+      },
+    ];
   });
 }
 
@@ -87,8 +92,9 @@ export function resolveCodexSetupBrowseSources(
   return apps
     .filter((app) => {
       if (!normalizedQuery) return true;
-      return [app.id, app.name, app.description ?? "", ...app.pluginDisplayNames]
-        .some((value) => normalizeCodexSetupSourceAlias(value).includes(normalizedQuery));
+      return [app.id, app.name, app.description ?? "", ...app.pluginDisplayNames].some((value) =>
+        normalizeCodexSetupSourceAlias(value).includes(normalizedQuery),
+      );
     })
     .map(projectConnectedApp);
 }
@@ -97,8 +103,10 @@ export function buildCodexSetupSelectedSourceIds(
   selectedIds: readonly string[],
   recommendedSources: readonly CodexSetupContextSource[],
 ): string[] {
-  return Array.from(new Set([
-    ...selectedIds,
-    ...recommendedSources.flatMap((source) => source.connected ? [source.id] : []),
-  ]));
+  return Array.from(
+    new Set([
+      ...selectedIds,
+      ...recommendedSources.flatMap((source) => (source.connected ? [source.id] : [])),
+    ]),
+  );
 }

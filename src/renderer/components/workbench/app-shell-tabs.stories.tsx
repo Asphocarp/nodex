@@ -5,11 +5,7 @@ import { History, X } from "@/components/shared/icons/generic-icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { resolveWorkspaceFileTabIcon } from "@/features/workspace-files";
 import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
-import {
-  AppShellTabs,
-  type AppShellTabItem,
-  type AppShellTabTitleSource,
-} from "./app-shell-tabs";
+import { AppShellTabs, type AppShellTabItem, type AppShellTabTitleSource } from "./app-shell-tabs";
 
 const meta = {
   title: "Workbench/App shell tabs",
@@ -64,20 +60,21 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
           <div className="text-xs text-token-description-foreground">Design System / {tab.id}</div>
         </div>
       ) : undefined,
-      renderPanel: () => (
+      renderPanel: () =>
         historyOpen && tab.id === activeTabId ? (
           <div className="grid h-full grid-cols-[18rem_1fr] text-sm text-token-foreground">
             <aside className="border-r border-token-border p-3 text-token-description-foreground">
               Embedded card history
             </aside>
-            <section className="p-4">History renders as a second state of the active card tab.</section>
+            <section className="p-4">
+              History renders as a second state of the active card tab.
+            </section>
           </div>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
             {tab.title}
           </div>
-        )
-      ),
+        ),
     })),
   ];
 
@@ -87,19 +84,23 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
         <AppShellTabs
           tabs={tabs}
           activeTabId={activeTabId}
-          panelTabDnd={showInsertionPreview ? {
-            sessionId: "storybook-session",
-            panelId: "right",
-            leafId: "storybook-leaf",
-            activeDragId: "session:2",
-            previewIntent: {
-              kind: "tab-row",
-              panelId: "right",
-              leafId: "storybook-leaf",
-              targetIndex: 3,
-              markerLeft: 438,
-            },
-          } : undefined}
+          panelTabDnd={
+            showInsertionPreview
+              ? {
+                  sessionId: "storybook-session",
+                  panelId: "right",
+                  leafId: "storybook-leaf",
+                  activeDragId: "session:2",
+                  previewIntent: {
+                    kind: "tab-row",
+                    panelId: "right",
+                    leafId: "storybook-leaf",
+                    targetIndex: 3,
+                    markerLeft: 438,
+                  },
+                }
+              : undefined
+          }
           onSelect={(tabId) => {
             setHistoryOpen(false);
             setActiveTabId(tabId);
@@ -123,48 +124,48 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
 export const PageStageTabs: Story = {};
 
 function BrowserFaviconLifecycleStory() {
-  const [phase, setPhase] = useState<"waiting" | "loading" | "settled">(
-    "waiting",
-  );
+  const [phase, setPhase] = useState<"waiting" | "loading" | "settled">("waiting");
   const faviconUrl =
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%2310a37f'/%3E%3C/svg%3E";
-  const tabs: AppShellTabItem[] = [{
-    id: "browser-loading",
-    title: "Browser research",
-    iconElement: (
-      <BrowserTabFavicon
-        className="icon-xs"
-        faviconUrl={faviconUrl}
-        isLoading={phase !== "settled"}
-        isWaitingForResponse={phase === "waiting"}
-      />
-    ),
-    closable: true,
-    renderPanel: () => (
-      <div className="flex h-full flex-col items-center justify-center gap-4">
-        <span className="text-sm text-token-description-foreground">
-          {phase === "waiting"
-            ? "Waiting for first response"
-            : phase === "loading"
-              ? "Loading with favicon"
-              : "Settled"}
-        </span>
-        <div className="flex gap-2">
-          {(["waiting", "loading", "settled"] as const).map((value) => (
-            <button
-              type="button"
-              aria-pressed={phase === value}
-              className="rounded-md bg-token-foreground/8 px-3 py-1.5 text-sm"
-              key={value}
-              onClick={() => setPhase(value)}
-            >
-              {value}
-            </button>
-          ))}
+  const tabs: AppShellTabItem[] = [
+    {
+      id: "browser-loading",
+      title: "Browser research",
+      iconElement: (
+        <BrowserTabFavicon
+          className="icon-xs"
+          faviconUrl={faviconUrl}
+          isLoading={phase !== "settled"}
+          isWaitingForResponse={phase === "waiting"}
+        />
+      ),
+      closable: true,
+      renderPanel: () => (
+        <div className="flex h-full flex-col items-center justify-center gap-4">
+          <span className="text-sm text-token-description-foreground">
+            {phase === "waiting"
+              ? "Waiting for first response"
+              : phase === "loading"
+                ? "Loading with favicon"
+                : "Settled"}
+          </span>
+          <div className="flex gap-2">
+            {(["waiting", "loading", "settled"] as const).map((value) => (
+              <button
+                type="button"
+                aria-pressed={phase === value}
+                className="rounded-md bg-token-foreground/8 px-3 py-1.5 text-sm"
+                key={value}
+                onClick={() => setPhase(value)}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-    ),
-  }];
+      ),
+    },
+  ];
 
   return (
     <NodexTooltipProvider>
@@ -200,28 +201,28 @@ function LiveCardTitleStory() {
       },
     } satisfies AppShellTabTitleSource & { setTitle: (title: string) => void };
   });
-  const tabs: AppShellTabItem[] = [{
-    id: "live-card-title",
-    title: "Persisted title snapshot",
-    titleSource,
-    contextLabel: "Roadmap",
-    titleLabel: (title) => `Roadmap project, ${title}`,
-    tooltip: (title) => (
-      <div className="flex max-w-80 flex-col gap-0.5">
-        <div className="truncate font-medium">{title}</div>
-        <div className="truncate text-xs text-token-description-foreground">
-          Project: Roadmap
+  const tabs: AppShellTabItem[] = [
+    {
+      id: "live-card-title",
+      title: "Persisted title snapshot",
+      titleSource,
+      contextLabel: "Roadmap",
+      titleLabel: (title) => `Roadmap project, ${title}`,
+      tooltip: (title) => (
+        <div className="flex max-w-80 flex-col gap-0.5">
+          <div className="truncate font-medium">{title}</div>
+          <div className="truncate text-xs text-token-description-foreground">Project: Roadmap</div>
         </div>
-      </div>
-    ),
-    icon: BoardIcon,
-    closable: true,
-    renderPanel: () => (
-      <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
-        The tab chrome subscribes independently from the panel content.
-      </div>
-    ),
-  }];
+      ),
+      icon: BoardIcon,
+      closable: true,
+      renderPanel: () => (
+        <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+          The tab chrome subscribes independently from the panel content.
+        </div>
+      ),
+    },
+  ];
 
   return (
     <NodexTooltipProvider>
@@ -256,7 +257,8 @@ export const InsertionPreview: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Panel-tab dragging leaves a faint source placeholder and uses a centered accent rail with a hollow endpoint for the insertion boundary.",
+        story:
+          "Panel-tab dragging leaves a faint source placeholder and uses a centered accent rail with a hollow endpoint for the insertion boundary.",
       },
     },
   },
@@ -274,11 +276,19 @@ function FileTabsAndOverflowStory() {
   const [activeTabId, setActiveTabId] = useState("file:tsx");
   const fileTabs = [
     { id: "file:empty", path: "", title: "Open file" },
-    { id: "file:tsx", path: "/workspace/src/renderer/workbench-shell.tsx", title: "workbench-shell.tsx" },
+    {
+      id: "file:tsx",
+      path: "/workspace/src/renderer/workbench-shell.tsx",
+      title: "workbench-shell.tsx",
+    },
     { id: "file:ts", path: "/workspace/src/shared/types.ts", title: "types.ts" },
     { id: "file:css", path: "/workspace/src/styles/globals.css", title: "globals.css" },
     { id: "file:json", path: "/workspace/package.json", title: "package.json" },
-    { id: "file:md", path: "/workspace/docs/ENGINEERING_LEARNINGS.md", title: "ENGINEERING_LEARNINGS.md" },
+    {
+      id: "file:md",
+      path: "/workspace/docs/ENGINEERING_LEARNINGS.md",
+      title: "ENGINEERING_LEARNINGS.md",
+    },
     { id: "file:license", path: "/workspace/LICENSE", title: "LICENSE" },
   ];
   const tabs: AppShellTabItem[] = fileTabs.map((tab, index) => ({
@@ -306,7 +316,7 @@ function FileTabsAndOverflowStory() {
             onSelect={setActiveTabId}
             onCloseTab={() => undefined}
             onPinTab={() => undefined}
-            afterTabsInline={(
+            afterTabsInline={
               <button
                 type="button"
                 className="mx-1 flex size-7 items-center justify-center rounded-lg text-token-text-secondary hover:bg-token-foreground/5"
@@ -314,7 +324,7 @@ function FileTabsAndOverflowStory() {
               >
                 +
               </button>
-            )}
+            }
           />
         </div>
       </div>
@@ -562,8 +572,8 @@ function makeRetainedPageStageStoryTab({
               </div>
               <div className="mt-2 text-lg font-semibold">{title}</div>
               <p className="mt-2 text-sm leading-6 text-token-description-foreground">
-                Scroll this panel, switch to the other retained card tab, then return. The panel stays
-                mounted and keeps native scroll without waiting for a fallback restore.
+                Scroll this panel, switch to the other retained card tab, then return. The panel
+                stays mounted and keeps native scroll without waiting for a fallback restore.
               </p>
             </div>
             {retainedPageStageNotes.map((note) => (

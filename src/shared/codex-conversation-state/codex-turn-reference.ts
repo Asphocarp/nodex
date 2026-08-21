@@ -43,9 +43,9 @@ export function resolveCodexTurnReference(
   }
 
   if (
-    options.rebindLatestInProgressPlaceholder === true
-    && latestTurn.turnId === null
-    && latestTurn.status === "inProgress"
+    options.rebindLatestInProgressPlaceholder === true &&
+    latestTurn.turnId === null &&
+    latestTurn.status === "inProgress"
   ) {
     return {
       kind: "reboundInProgressPlaceholder",
@@ -54,11 +54,11 @@ export function resolveCodexTurnReference(
   }
 
   if (
-    turns.length === 1
-    && latestTurn.turnId === null
-    && latestTurn.status === "completed"
-    && !latestTurn.hasError
-    && latestTurn.itemCount === 0
+    turns.length === 1 &&
+    latestTurn.turnId === null &&
+    latestTurn.status === "completed" &&
+    !latestTurn.hasError &&
+    latestTurn.itemCount === 0
   ) {
     return {
       kind: "reboundCompletedEmptyPlaceholder",

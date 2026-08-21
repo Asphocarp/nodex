@@ -1,8 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  resolveSubagentAvatarIndex,
-  SubagentAvatar,
-} from "./subagent-avatar";
+import { resolveSubagentAvatarIndex, SubagentAvatar } from "./subagent-avatar";
 
 function resolveCatalogSeeds(): readonly string[] {
   const seeds = Array.from({ length: 10 }, () => "");
@@ -23,12 +20,10 @@ function SubagentAvatarCatalog() {
   return (
     <main className="min-h-screen bg-token-main-surface-secondary px-8 py-7 text-token-text-primary">
       <header className="mb-6 max-w-2xl">
-        <h1 className="text-lg font-semibold tracking-[-0.01em]">
-          Subagent avatars
-        </h1>
+        <h1 className="text-lg font-semibold tracking-[-0.01em]">Subagent avatars</h1>
         <p className="mt-1 text-sm leading-5 text-token-text-secondary">
-          Ten deterministic, static identities shown at their 14px, 16px, and 24px
-          product sizes. Toggle the Storybook appearance to inspect both asset sets.
+          Ten deterministic, static identities shown at their 14px, 16px, and 24px product sizes.
+          Toggle the Storybook appearance to inspect both asset sets.
         </p>
       </header>
 

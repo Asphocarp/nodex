@@ -11,7 +11,11 @@ import {
 } from "./toast";
 
 function ToastHarness() {
-  return <NodexToastProvider><div>Harness</div></NodexToastProvider>;
+  return (
+    <NodexToastProvider>
+      <div>Harness</div>
+    </NodexToastProvider>
+  );
 }
 
 describe("Nodex toast system", () => {
@@ -227,11 +231,21 @@ describe("Nodex toast system", () => {
     await act(async () => {
       toast.info("Older action", {
         duration: 0,
-        action: { label: "Older", onClick: () => { calls.push("older"); } },
+        action: {
+          label: "Older",
+          onClick: () => {
+            calls.push("older");
+          },
+        },
       });
       toast.info("Latest action", {
         duration: 0,
-        action: { label: "Latest", onClick: () => { calls.push("latest"); } },
+        action: {
+          label: "Latest",
+          onClick: () => {
+            calls.push("latest");
+          },
+        },
       });
       await settleAsyncRender();
     });

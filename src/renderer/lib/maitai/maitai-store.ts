@@ -1,10 +1,4 @@
-import {
-  atom,
-  createStore,
-  type Atom,
-  type PrimitiveAtom,
-  type WritableAtom,
-} from "jotai";
+import { atom, createStore, type Atom, type PrimitiveAtom, type WritableAtom } from "jotai";
 import type { QueryClient } from "@tanstack/react-query";
 
 export type ScopeKey = string | number | boolean | symbol | object | null | undefined;
@@ -46,8 +40,11 @@ export interface ScopedAtom<Value> extends ScopedAtomBase<Value> {
   readonly kind: "signal" | "derived" | "writable-derived" | "external";
 }
 
-export interface ScopedWritableAtom<Value, Args extends unknown[], Result>
-  extends ScopedAtom<Value> {
+export interface ScopedWritableAtom<
+  Value,
+  Args extends unknown[],
+  Result,
+> extends ScopedAtom<Value> {
   readonly writeValue?: (get: ScopedGetter, set: ScopedSetter, ...args: Args) => Result;
 }
 
@@ -55,18 +52,19 @@ export type ScopedSignalAtom<Value> = ScopedWritableAtom<
   Value,
   [Value | ((previous: Value) => Value)],
   void
-> & (
-  | {
-      readonly kind: "signal";
-      readonly initialValue: Value;
-      readonly initializeValue?: never;
-    }
-  | {
-      readonly kind: "signal";
-      readonly initialValue?: never;
-      readonly initializeValue: () => Value;
-    }
-);
+> &
+  (
+    | {
+        readonly kind: "signal";
+        readonly initialValue: Value;
+        readonly initializeValue?: never;
+      }
+    | {
+        readonly kind: "signal";
+        readonly initialValue?: never;
+        readonly initializeValue: () => Value;
+      }
+  );
 
 export interface ScopedAtomOptions {
   readonly debugLabel: string;
@@ -266,10 +264,11 @@ export function scopedAtomFamily<Param, AtomType extends ScopedAtom<unknown>>(op
   const debugLabel = requireDebugLabel(options.debugLabel);
   const owner = Object.freeze({ debugLabel });
   const memberCache = new Map<unknown, AtomType>();
-  const resolveKey = (param: Param) => normalizeFamilyParameter(
-    options.key ? options.key(param) : param,
-    options.key ? undefined : options.excludeFieldsFromKey,
-  );
+  const resolveKey = (param: Param) =>
+    normalizeFamilyParameter(
+      options.key ? options.key(param) : param,
+      options.key ? undefined : options.excludeFieldsFromKey,
+    );
 
   const family = ((param: Param): AtomType => {
     const keyToken = resolveKey(param);
@@ -295,9 +294,11 @@ export function scopedAtomFamily<Param, AtomType extends ScopedAtom<unknown>>(op
     if (!target) throw new Error(`Missing scope ${options.scope.debugLabel}`);
     const keyToken = resolveKey(param);
     const bindings = target.node.familyBindings.get(owner);
-    const binding = bindings?.get(keyToken) as {
-      definition: AnyScopedAtom;
-    } | undefined;
+    const binding = bindings?.get(keyToken) as
+      | {
+          definition: AnyScopedAtom;
+        }
+      | undefined;
     if (!binding) return false;
     target.node.signalBindings.delete(binding.definition);
     target.node.cachedBindings.delete(binding.definition);
@@ -407,7 +408,9 @@ export function prepareScope<Descriptor>(
   assertStoreLive(parent.node.store);
   const expectedParent = findScopeView(parent, definition.parent);
   if (!expectedParent || expectedParent !== parent) {
-    throw new Error(`Missing parent scope ${definition.parent?.debugLabel ?? "<root>"} for ${definition.debugLabel}`);
+    throw new Error(
+      `Missing parent scope ${definition.parent?.debugLabel ?? "<root>"} for ${definition.debugLabel}`,
+    );
   }
 
   const key = definition.getKey(descriptor);
@@ -418,7 +421,9 @@ export function prepareScope<Descriptor>(
   if (existing) {
     assertNodeLive(existing.node);
     const descriptorChanged = !deepEqual(existing.node.value, descriptor);
-    const cachedBindings = descriptorChanged ? new Map<AnyScopedAtom, AnyJotaiAtom>() : existing.node.cachedBindings;
+    const cachedBindings = descriptorChanged
+      ? new Map<AnyScopedAtom, AnyJotaiAtom>()
+      : existing.node.cachedBindings;
     return {
       view: {
         node: existing.node,
@@ -437,12 +442,12 @@ export function prepareScope<Descriptor>(
   }
 
   if (
-    provisional
-    && provisional.isNew
-    && provisional.parent.node === parent.node
-    && provisional.definition === definition
-    && Object.is(provisional.keyToken, keyToken)
-    && provisional.entry.node.phase === "live"
+    provisional &&
+    provisional.isNew &&
+    provisional.parent.node === parent.node &&
+    provisional.definition === definition &&
+    Object.is(provisional.keyToken, keyToken) &&
+    provisional.entry.node.phase === "live"
   ) {
     return provisional;
   }
@@ -502,7 +507,8 @@ export function publishPreparedScope(prepared: PreparedScope): void {
     return;
   }
 
-  const entries = parent.node.retainedScopeEntries.get(definition) ?? new Map<unknown, RetainedScopeEntry>();
+  const entries =
+    parent.node.retainedScopeEntries.get(definition) ?? new Map<unknown, RetainedScopeEntry>();
   const existing = entries.get(keyToken);
   if (existing && existing.node !== entry.node) {
     throw new Error(
@@ -596,18 +602,11 @@ export function getMaitaiRootView(store: MaitaiStore): ScopeView {
   return asInternalStore(store).rootView;
 }
 
-export function registerMaitaiStoreDisposer(
-  store: MaitaiStore,
-  dispose: () => void,
-): () => void {
+export function registerMaitaiStoreDisposer(store: MaitaiStore, dispose: () => void): () => void {
   return registerScopeDisposer(asInternalStore(store).rootView, dispose);
 }
 
-export function disposeScopeNode(
-  node: ScopeNode,
-  reason: DisposalReason,
-  force = false,
-): void {
+export function disposeScopeNode(node: ScopeNode, reason: DisposalReason, force = false): void {
   if (node.phase !== "live") return;
   if (!force && findActiveLeaseCount(node) > 0) {
     node.store.cleanupErrors.push(new Error(`Cannot dispose mounted scope ${node.path}`));
@@ -670,7 +669,10 @@ export function createScopeHandle(view: ScopeView): ScopeHandle {
     },
     sub<Value>(definition: ScopedAtom<Value>, listener: () => void): () => void {
       assertHandleLive();
-      const unsubscribe = view.node.store.jotaiStore.sub(resolveConcreteAtom(view, definition), listener);
+      const unsubscribe = view.node.store.jotaiStore.sub(
+        resolveConcreteAtom(view, definition),
+        listener,
+      );
       let active = true;
       const ownedUnsubscribe = () => {
         if (!active) return;
@@ -710,19 +712,27 @@ export function registerScopeDisposerForTests(
   return registerScopeDisposer(view, dispose);
 }
 
-export function resolveConcreteAtom<Value>(view: ScopeView, definition: ScopedAtom<Value>): Atom<Value> {
+export function resolveConcreteAtom<Value>(
+  view: ScopeView,
+  definition: ScopedAtom<Value>,
+): Atom<Value> {
   const target = findScopeView(view, definition.scope);
   if (!target) {
-    throw new Error(`Missing scope ${definition.scope.debugLabel} while resolving ${definition.debugLabel}`);
+    throw new Error(
+      `Missing scope ${definition.scope.debugLabel} while resolving ${definition.debugLabel}`,
+    );
   }
   assertNodeLive(target.node);
 
   const familyMetadata = definition.familyMetadata;
   if (familyMetadata) {
-    const familyBindings = target.node.familyBindings.get(familyMetadata.owner) ?? new Map<unknown, unknown>();
-    const existingFamilyBinding = familyBindings.get(familyMetadata.keyToken) as {
-      concrete: Atom<Value>;
-    } | undefined;
+    const familyBindings =
+      target.node.familyBindings.get(familyMetadata.owner) ?? new Map<unknown, unknown>();
+    const existingFamilyBinding = familyBindings.get(familyMetadata.keyToken) as
+      | {
+          concrete: Atom<Value>;
+        }
+      | undefined;
     if (existingFamilyBinding) return existingFamilyBinding.concrete;
     const concrete = resolveConcreteAtomCore(target, definition);
     familyBindings.set(familyMetadata.keyToken, { definition, concrete });
@@ -732,8 +742,10 @@ export function resolveConcreteAtom<Value>(view: ScopeView, definition: ScopedAt
   return resolveConcreteAtomCore(target, definition);
 }
 
-function resolveConcreteAtomCore<Value>(target: ScopeView, definition: ScopedAtom<Value>): Atom<Value> {
-
+function resolveConcreteAtomCore<Value>(
+  target: ScopeView,
+  definition: ScopedAtom<Value>,
+): Atom<Value> {
   if (definition.kind === "signal") {
     const existing = target.node.signalBindings.get(definition as AnyScopedAtom);
     if (existing) return existing as unknown as Atom<Value>;
@@ -774,19 +786,20 @@ function resolveConcreteAtomCore<Value>(target: ScopeView, definition: ScopedAto
     target.cachedBindings.set(definition as AnyScopedAtom, concrete);
     return concrete;
   }
-  const concrete = definition.kind === "derived"
-    ? atom((get) => definition.readValue?.(createScopedGetter(target, get)) as Value)
-    : atom(
-      (get) => definition.readValue?.(createScopedGetter(target, get)) as Value,
-      (get, set, ...args: unknown[]) => {
-        const writable = definition as ScopedWritableAtom<Value, unknown[], unknown>;
-        return writable.writeValue?.(
-          createScopedGetter(target, get),
-          createScopedSetter(target, get, set),
-          ...args,
+  const concrete =
+    definition.kind === "derived"
+      ? atom((get) => definition.readValue?.(createScopedGetter(target, get)) as Value)
+      : atom(
+          (get) => definition.readValue?.(createScopedGetter(target, get)) as Value,
+          (get, set, ...args: unknown[]) => {
+            const writable = definition as ScopedWritableAtom<Value, unknown[], unknown>;
+            return writable.writeValue?.(
+              createScopedGetter(target, get),
+              createScopedSetter(target, get, set),
+              ...args,
+            );
+          },
         );
-      },
-    );
   concrete.debugLabel = `${target.node.path}/${definition.debugLabel}`;
   target.cachedBindings.set(definition as AnyScopedAtom, concrete as Atom<unknown>);
   return concrete as Atom<Value>;
@@ -847,7 +860,10 @@ function mergeScopeDescriptors(descriptors: readonly unknown[]): unknown {
   return merged;
 }
 
-export function findScopeView(view: ScopeView, definition: AnyScopeDefinition | null): ScopeView | null {
+export function findScopeView(
+  view: ScopeView,
+  definition: AnyScopeDefinition | null,
+): ScopeView | null {
   if (!definition) return null;
   let cursor: ScopeView | null = view;
   while (cursor) {
@@ -869,14 +885,16 @@ export function getMaitaiDebugSnapshot(store: MaitaiStore): MaitaiDebugEntry[] {
       path: node.path,
       definitionLabel: node.token.debugLabel,
       key: node.key,
-      mountedCount: entry?.activeLeases.size ?? (node === internal.rootNode && !internal.disposed ? 1 : 0),
+      mountedCount:
+        entry?.activeLeases.size ?? (node === internal.rootNode && !internal.disposed ? 1 : 0),
       retained: node.token.retain !== null,
       eligible: Boolean(entry && entry.activeLeases.size === 0),
       lastUsed: entry?.lastUsed ?? 0,
       childCount,
       concreteBindingCount: node.signalBindings.size + node.cachedBindings.size,
       familyEntryCount,
-      contextVersion: node.phase === "disposed" ? 0 : internal.jotaiStore.get(node.contextVersionAtom),
+      contextVersion:
+        node.phase === "disposed" ? 0 : internal.jotaiStore.get(node.contextVersionAtom),
       phase: node.phase,
       disposalReason: node.disposalReason,
     });
@@ -924,16 +942,17 @@ function normalizeFamilyParameter<Param>(
 ): unknown {
   if (!excludeFields || !isPlainObject(value)) return normalizeMapKey(value);
   const excluded = new Set<PropertyKey>(excludeFields as readonly PropertyKey[]);
-  const included = Object.fromEntries(
-    Object.entries(value).filter(([key]) => !excluded.has(key)),
-  );
+  const included = Object.fromEntries(Object.entries(value).filter(([key]) => !excluded.has(key)));
   return normalizeMapKey(included);
 }
 
 function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
   if (isPlainObject(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`)
+      .join(",")}}`;
   }
   if (typeof value === "symbol") return `symbol:${value.description ?? ""}`;
   if (typeof value === "bigint") return `bigint:${value.toString()}`;
@@ -945,13 +964,17 @@ function stableSerialize(value: unknown): string {
 function deepEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) && Array.isArray(right)) {
-    return left.length === right.length && left.every((value, index) => deepEqual(value, right[index]));
+    return (
+      left.length === right.length && left.every((value, index) => deepEqual(value, right[index]))
+    );
   }
   if (!isPlainObject(left) || !isPlainObject(right)) return false;
   const leftKeys = Object.keys(left).sort();
   const rightKeys = Object.keys(right).sort();
   if (leftKeys.length !== rightKeys.length) return false;
-  return leftKeys.every((key, index) => key === rightKeys[index] && deepEqual(left[key], right[key]));
+  return leftKeys.every(
+    (key, index) => key === rightKeys[index] && deepEqual(left[key], right[key]),
+  );
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -24,22 +24,30 @@ export const databaseBoardColumnLayoutScope = ({
 export const getDatabaseBoardColumnLayout = (
   prefs: DatabaseBoardColumnLayoutPrefs,
   pathKey: string,
-): BoardColumnLayout => prefs[pathKey] ?? {
-  collapsed: false,
-  width: DEFAULT_BOARD_COLUMN_WIDTH,
-};
+): BoardColumnLayout =>
+  prefs[pathKey] ?? {
+    collapsed: false,
+    width: DEFAULT_BOARD_COLUMN_WIDTH,
+  };
 
 export const normalizeDatabaseBoardColumnLayoutPrefs = (
   value: unknown,
 ): DatabaseBoardColumnLayoutPrefs => {
   if (!isRecord(value)) return {};
-  return Object.fromEntries(Object.entries(value).flatMap(([pathKey, candidate]) => {
-    if (!pathKey || !isRecord(candidate)) return [];
-    return [[pathKey, {
-      collapsed: candidate.collapsed === true,
-      width: clampBoardColumnWidth(candidate.width),
-    }]];
-  }));
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([pathKey, candidate]) => {
+      if (!pathKey || !isRecord(candidate)) return [];
+      return [
+        [
+          pathKey,
+          {
+            collapsed: candidate.collapsed === true,
+            width: clampBoardColumnWidth(candidate.width),
+          },
+        ],
+      ];
+    }),
+  );
 };
 
 export const readDatabaseBoardColumnLayoutPrefs = (
@@ -47,9 +55,7 @@ export const readDatabaseBoardColumnLayoutPrefs = (
 ): DatabaseBoardColumnLayoutPrefs => {
   try {
     const raw = localStorage.getItem(storageKey(scope));
-    return raw
-      ? normalizeDatabaseBoardColumnLayoutPrefs(JSON.parse(raw) as unknown)
-      : {};
+    return raw ? normalizeDatabaseBoardColumnLayoutPrefs(JSON.parse(raw) as unknown) : {};
   } catch {
     return {};
   }
@@ -66,9 +72,7 @@ export const updateDatabaseBoardColumnLayoutPrefs = (
     ...current,
     [pathKey]: {
       collapsed: patch.collapsed ?? previous.collapsed,
-      width: patch.width === undefined
-        ? previous.width
-        : clampBoardColumnWidth(patch.width),
+      width: patch.width === undefined ? previous.width : clampBoardColumnWidth(patch.width),
     },
   });
   try {

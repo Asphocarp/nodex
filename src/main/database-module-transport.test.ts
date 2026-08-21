@@ -24,22 +24,24 @@ const applyRequest = (): DatabaseApplyV2 => ({
   operations: [
     {
       kind: "edit_property_values",
-      edits: [{
-        pageId: "page-1",
-        dataSourceId: parseDataSourceId("source-1"),
-        propertyId: parseDataSourcePropertyId("status"),
-        edit: {
-          kind: "replace",
-          expectedValueRevision: 1,
-          value: {
-            kind: "select",
-            optionId: parseDataSourceOptionId({
-              propertyId: parseDataSourcePropertyId("status"),
-              value: "ship",
-            }),
+      edits: [
+        {
+          pageId: "page-1",
+          dataSourceId: parseDataSourceId("source-1"),
+          propertyId: parseDataSourcePropertyId("status"),
+          edit: {
+            kind: "replace",
+            expectedValueRevision: 1,
+            value: {
+              kind: "select",
+              optionId: parseDataSourceOptionId({
+                propertyId: parseDataSourcePropertyId("status"),
+                value: "ship",
+              }),
+            },
           },
         },
-      }],
+      ],
     },
   ],
 });
@@ -117,9 +119,7 @@ describe("Database Module IPC", () => {
     registerDatabaseModuleIpcHandlers({
       registerHandle: (channel, handler) => handlers.set(channel, handler),
       resolveTrustedIdentity: (event) =>
-        event === "trusted"
-          ? { actor: { kind: "electron_renderer", clientId: "window-1" } }
-          : null,
+        event === "trusted" ? { actor: { kind: "electron_renderer", clientId: "window-1" } } : null,
       apply,
       read: async () => readResult(),
     });

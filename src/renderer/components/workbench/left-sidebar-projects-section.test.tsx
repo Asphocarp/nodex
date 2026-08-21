@@ -7,9 +7,9 @@ import { NodexModalHost } from "@/lib/modal-registry";
 import { renderWithMaitai, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 
-let SidebarProjectsSection: typeof import("./left-sidebar-projects-section")["SidebarProjectsSection"];
-let CodexProjectRow: typeof import("./codex-sidebar")["CodexProjectRow"];
-let CodexProjectSessionList: typeof import("./codex-sidebar")["CodexProjectSessionList"];
+let SidebarProjectsSection: (typeof import("./left-sidebar-projects-section"))["SidebarProjectsSection"];
+let CodexProjectRow: (typeof import("./codex-sidebar"))["CodexProjectRow"];
+let CodexProjectSessionList: (typeof import("./codex-sidebar"))["CodexProjectSessionList"];
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
@@ -21,8 +21,9 @@ vi.mock("@/lib/api", () => ({
   readLibraryDatabaseModule: async (request: {
     read: { nameHint: string; requestedPrefix?: string };
   }) => {
-    const prefix = request.read.requestedPrefix
-      ?? (request.read.nameHint.trim().toUpperCase().slice(0, 3) || "NX");
+    const prefix =
+      request.read.requestedPrefix ??
+      (request.read.nameHint.trim().toUpperCase().slice(0, 3) || "NX");
     return {
       ok: true,
       value: {
@@ -159,10 +160,14 @@ describe("SidebarProjectsSection", () => {
     );
 
     expect(getByText("Projects").textContent).toBe("Projects");
-    expect(container.querySelector('[data-app-action-sidebar-projects-collapse-action]') === null).toBe(true);
+    expect(
+      container.querySelector("[data-app-action-sidebar-projects-collapse-action]") === null,
+    ).toBe(true);
     expect(getByLabelText("Project sidebar options").getAttribute("aria-disabled")).toBe(null);
     expect(getByLabelText("Add new project").getAttribute("aria-label")).toBe("Add new project");
-    expect(textContent(container).indexOf("Beta") < textContent(container).indexOf("Alpha")).toBe(true);
+    expect(textContent(container).indexOf("Beta") < textContent(container).indexOf("Alpha")).toBe(
+      true,
+    );
     expect(textContent(container).includes("/repo/beta")).toBe(false);
     expect(textContent(container).includes("/alpha")).toBe(false);
 
@@ -175,9 +180,7 @@ describe("SidebarProjectsSection", () => {
     expect(rows.length).toBe(2);
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-id")).toBe("beta");
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-label")).toBe("Beta");
-    const betaProjectButton = rows[0]?.querySelector(
-      "[data-app-action-sidebar-select-project]",
-    );
+    const betaProjectButton = rows[0]?.querySelector("[data-app-action-sidebar-select-project]");
     const betaDisclosureButton = rows[0]?.querySelector(
       "[data-app-action-sidebar-project-toggle-chevron]",
     );
@@ -194,30 +197,24 @@ describe("SidebarProjectsSection", () => {
       if (channel === "projects:pick-source-roots") return ["/repo/new-project"];
       return null;
     };
-    const {
-      findByText,
-      getByLabelText,
-      getByRole,
-      getByText,
-      queryByRole,
-      queryByText,
-    } = renderProjectsSection(
-      <SidebarProjectsSection
-        projects={PROJECTS}
-        projectOrder={["alpha", "beta"]}
-        activeProjectId="alpha"
-        expanded
-        onToggleExpanded={() => undefined}
-        onSelectProject={() => undefined}
-        onCreateProject={async (input) => {
-          createCalls.push(input);
-          return PROJECTS[0] ?? null;
-        }}
-        onArchiveProject={async () => ({ kind: "not-found" })}
-        onUpdateProject={async () => null}
-        projectPickerOpenTick={0}
-      />,
-    );
+    const { findByText, getByLabelText, getByRole, getByText, queryByRole, queryByText } =
+      renderProjectsSection(
+        <SidebarProjectsSection
+          projects={PROJECTS}
+          projectOrder={["alpha", "beta"]}
+          activeProjectId="alpha"
+          expanded
+          onToggleExpanded={() => undefined}
+          onSelectProject={() => undefined}
+          onCreateProject={async (input) => {
+            createCalls.push(input);
+            return PROJECTS[0] ?? null;
+          }}
+          onArchiveProject={async () => ({ kind: "not-found" })}
+          onUpdateProject={async () => null}
+          projectPickerOpenTick={0}
+        />,
+      );
 
     const addProjectButton = getByLabelText("Add new project");
     const addProjectIcon = addProjectButton.querySelector("svg");
@@ -243,14 +240,16 @@ describe("SidebarProjectsSection", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(createCalls).toEqual([{
-        appearance: {
-          color: "black",
-          marker: { kind: "icon", icon: "folder" },
+      expect(createCalls).toEqual([
+        {
+          appearance: {
+            color: "black",
+            marker: { kind: "icon", icon: "folder" },
+          },
+          name: "",
+          sources: [],
         },
-        name: "",
-        sources: [],
-      }]);
+      ]);
       expect(queryByRole("heading", { name: "Create project" })).toBe(null);
     });
 
@@ -312,7 +311,10 @@ describe("SidebarProjectsSection", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project sidebar options"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(getByLabelText("Project sidebar options"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
 
@@ -372,26 +374,30 @@ describe("SidebarProjectsSection", () => {
       return null;
     };
 
-    const { getByLabelText, getByText, queryByRole, queryByText, findByText } = renderProjectsSection(
-      <SidebarProjectsSection
-        projects={PROJECTS}
-        projectOrder={["beta", "alpha"]}
-        activeProjectId="beta"
-        expanded
-        onToggleExpanded={() => undefined}
-        onSelectProject={() => undefined}
-        onCreateProject={async () => null}
-        onArchiveProject={async () => ({ kind: "not-found" })}
-        onUpdateProject={async (projectId, updates) => {
-          updateCalls.push([projectId, updates]);
-          return PROJECTS[1] ?? null;
-        }}
-        projectPickerOpenTick={0}
-      />,
-    );
+    const { getByLabelText, getByText, queryByRole, queryByText, findByText } =
+      renderProjectsSection(
+        <SidebarProjectsSection
+          projects={PROJECTS}
+          projectOrder={["beta", "alpha"]}
+          activeProjectId="beta"
+          expanded
+          onToggleExpanded={() => undefined}
+          onSelectProject={() => undefined}
+          onCreateProject={async () => null}
+          onArchiveProject={async () => ({ kind: "not-found" })}
+          onUpdateProject={async (projectId, updates) => {
+            updateCalls.push([projectId, updates]);
+            return PROJECTS[1] ?? null;
+          }}
+          projectPickerOpenTick={0}
+        />,
+      );
 
     await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
 
@@ -428,15 +434,17 @@ describe("SidebarProjectsSection", () => {
     });
 
     await waitFor(() => {
-      expect(JSON.stringify(updateCalls[0])).toBe(JSON.stringify([
-        "beta",
-        {
-          expectedBindingRevision: 1,
-          appearance: PROJECTS[1]?.appearance,
-          name: "Beta",
-          sources: ["/repo/beta", "/repo/selected"],
-        },
-      ]));
+      expect(JSON.stringify(updateCalls[0])).toBe(
+        JSON.stringify([
+          "beta",
+          {
+            expectedBindingRevision: 1,
+            appearance: PROJECTS[1]?.appearance,
+            name: "Beta",
+            sources: ["/repo/beta", "/repo/selected"],
+          },
+        ]),
+      );
     });
   });
 
@@ -471,9 +479,7 @@ describe("SidebarProjectsSection", () => {
     });
 
     await findByText("Source folders");
-    const dialogContent = document.body.querySelector(
-      '[data-slot="codex-dialog-content"]',
-    );
+    const dialogContent = document.body.querySelector('[data-slot="codex-dialog-content"]');
     if (!(dialogContent instanceof HTMLElement)) {
       throw new Error("Expected Edit project dialog content");
     }
@@ -530,8 +536,7 @@ describe("SidebarProjectsSection", () => {
       if (!candidate) throw new Error("Expected Project hover card");
       return candidate;
     });
-    expect(within(card).getByText("66 tasks · 1 waiting · 2 unread · 3 active"))
-      .toBeTruthy();
+    expect(within(card).getByText("66 tasks · 1 waiting · 2 unread · 3 active")).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(card);
@@ -543,11 +548,14 @@ describe("SidebarProjectsSection", () => {
       fireEvent.click(within(card).getByText("/repo/beta"));
       await Promise.resolve();
     });
-    expect(invokeCalls.some(([channel, target, opener]) => (
-      channel === "shell:open-file-link"
-      && JSON.stringify(target) === JSON.stringify({ path: "/repo/beta" })
-      && opener === "fileManager"
-    ))).toBe(true);
+    expect(
+      invokeCalls.some(
+        ([channel, target, opener]) =>
+          channel === "shell:open-file-link" &&
+          JSON.stringify(target) === JSON.stringify({ path: "/repo/beta" }) &&
+          opener === "fileManager",
+      ),
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(within(card).getByText("Edit project"));
@@ -590,7 +598,7 @@ describe("SidebarProjectsSection", () => {
 
     expect(
       container
-        .querySelector('[data-app-action-sidebar-project-toggle-chevron]')
+        .querySelector("[data-app-action-sidebar-project-toggle-chevron]")
         ?.getAttribute("aria-expanded"),
     ).toBe("true");
     expect(onActivate).not.toHaveBeenCalled();
@@ -621,7 +629,10 @@ describe("SidebarProjectsSection", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
 
@@ -639,10 +650,11 @@ describe("SidebarProjectsSection", () => {
   test("keeps the Codex non-animated project children fallback available", () => {
     const { container, getByText } = renderProjectRowWithSessions({ animateChildren: false });
 
-    const staticDisclosure = container.querySelector("[data-app-action-sidebar-project-list-static]");
+    const staticDisclosure = container.querySelector(
+      "[data-app-action-sidebar-project-list-static]",
+    );
     expect(Boolean(staticDisclosure)).toBe(true);
     expect(container.querySelector("[data-app-action-sidebar-project-list-motion]")).toBe(null);
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
-
 });

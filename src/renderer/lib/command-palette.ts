@@ -63,15 +63,17 @@ export interface CommandPalettePage {
   projectName: string;
   projectAppearance: ProjectAppearance;
   columnName: string;
-  page: DatabasePageSummary | {
-    id: string;
-    title: string;
-    pageKey: string | null;
-    status: WorkflowStatus | null;
-    priority: Priority | null;
-    tags: string[];
-    assignee: string | null;
-  };
+  page:
+    | DatabasePageSummary
+    | {
+        id: string;
+        title: string;
+        pageKey: string | null;
+        status: WorkflowStatus | null;
+        priority: Priority | null;
+        tags: string[];
+        assignee: string | null;
+      };
   /** Registry-resolved display labels; canonical option IDs stay on page.tags. */
   tagLabels: string[];
   inActiveProject: boolean;
@@ -179,8 +181,7 @@ export interface CommandPalettePageFilters {
 }
 
 const DEFAULT_THREAD_LIMIT = 8;
-export const COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY =
-  "nodex-command-palette-page-filters-v2";
+export const COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY = "nodex-command-palette-page-filters-v2";
 export const LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY =
   "nodex-command-palette-page-filters-v1";
 const TAG_FILTER_MODES = new Set<ToggleListTagFilterMode>(["any", "all", "none"]);
@@ -246,18 +247,20 @@ export function areCommandPalettePageFiltersEqual(
   left: CommandPalettePageFilters,
   right: CommandPalettePageFilters,
 ): boolean {
-  return left.includeEmptyPriority === right.includeEmptyPriority
-    && left.tagMode === right.tagMode
-    && left.statuses.length === right.statuses.length
-    && left.statuses.every((value, index) => value === right.statuses[index])
-    && left.priorities.length === right.priorities.length
-    && left.priorities.every((value, index) => value === right.priorities[index])
-    && left.tags.length === right.tags.length
-    && left.tags.every((value, index) => value === right.tags[index])
-    && left.assignees.length === right.assignees.length
-    && left.assignees.every((value, index) => value === right.assignees[index])
-    && left.projectIds.length === right.projectIds.length
-    && left.projectIds.every((value, index) => value === right.projectIds[index]);
+  return (
+    left.includeEmptyPriority === right.includeEmptyPriority &&
+    left.tagMode === right.tagMode &&
+    left.statuses.length === right.statuses.length &&
+    left.statuses.every((value, index) => value === right.statuses[index]) &&
+    left.priorities.length === right.priorities.length &&
+    left.priorities.every((value, index) => value === right.priorities[index]) &&
+    left.tags.length === right.tags.length &&
+    left.tags.every((value, index) => value === right.tags[index]) &&
+    left.assignees.length === right.assignees.length &&
+    left.assignees.every((value, index) => value === right.assignees[index]) &&
+    left.projectIds.length === right.projectIds.length &&
+    left.projectIds.every((value, index) => value === right.projectIds[index])
+  );
 }
 
 function normalizeSelectableStrings(
@@ -290,25 +293,41 @@ export function normalizeCommandPalettePageFilters(
 
   const candidate = value as Record<string, unknown>;
   const allowedTags = options?.allowedTags ? new Set(options.allowedTags) : undefined;
-  const allowedAssignees = options?.allowedAssignees ? new Set(options.allowedAssignees) : undefined;
-  const allowedProjectIds = options?.allowedProjectIds ? new Set(options.allowedProjectIds) : undefined;
+  const allowedAssignees = options?.allowedAssignees
+    ? new Set(options.allowedAssignees)
+    : undefined;
+  const allowedProjectIds = options?.allowedProjectIds
+    ? new Set(options.allowedProjectIds)
+    : undefined;
 
   return {
-    statuses: normalizeSelectableStrings(candidate.statuses, fallback.statuses)
-      .filter((status): status is DatabasePageSummary["status"] => WORKFLOW_STATUS_ORDER.includes(status as DatabasePageSummary["status"])),
-    priorities: normalizeSelectableStrings(candidate.priorities, fallback.priorities)
-      .filter(isPriority),
+    statuses: normalizeSelectableStrings(candidate.statuses, fallback.statuses).filter(
+      (status): status is DatabasePageSummary["status"] =>
+        WORKFLOW_STATUS_ORDER.includes(status as DatabasePageSummary["status"]),
+    ),
+    priorities: normalizeSelectableStrings(candidate.priorities, fallback.priorities).filter(
+      isPriority,
+    ),
     includeEmptyPriority:
       typeof candidate.includeEmptyPriority === "boolean"
         ? candidate.includeEmptyPriority
         : fallback.includeEmptyPriority,
     tags: normalizeSelectableStrings(candidate.tags, fallback.tags, allowedTags),
     tagMode:
-      typeof candidate.tagMode === "string" && TAG_FILTER_MODES.has(candidate.tagMode as ToggleListTagFilterMode)
-        ? candidate.tagMode as ToggleListTagFilterMode
+      typeof candidate.tagMode === "string" &&
+      TAG_FILTER_MODES.has(candidate.tagMode as ToggleListTagFilterMode)
+        ? (candidate.tagMode as ToggleListTagFilterMode)
         : fallback.tagMode,
-    assignees: normalizeSelectableStrings(candidate.assignees, fallback.assignees, allowedAssignees),
-    projectIds: normalizeSelectableStrings(candidate.projectIds, fallback.projectIds, allowedProjectIds),
+    assignees: normalizeSelectableStrings(
+      candidate.assignees,
+      fallback.assignees,
+      allowedAssignees,
+    ),
+    projectIds: normalizeSelectableStrings(
+      candidate.projectIds,
+      fallback.projectIds,
+      allowedProjectIds,
+    ),
   };
 }
 
@@ -326,29 +345,25 @@ export function normalizeLegacyCommandPalettePageFilters(
         return priority ? [priority] : [];
       })
     : candidate.priorities;
-  return normalizeCommandPalettePageFilters({
-    ...candidate,
-    priorities,
-  }, options);
+  return normalizeCommandPalettePageFilters(
+    {
+      ...candidate,
+      priorities,
+    },
+    options,
+  );
 }
 
 export function readCommandPalettePageFilters(
   options?: Parameters<typeof normalizeCommandPalettePageFilters>[1],
 ): CommandPalettePageFilters {
   try {
-    const raw = readRawFilterStorageValue(
-      COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
-    );
+    const raw = readRawFilterStorageValue(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY);
     if (raw) {
-      return normalizeCommandPalettePageFilters(
-        JSON.parse(raw) as unknown,
-        options,
-      );
+      return normalizeCommandPalettePageFilters(JSON.parse(raw) as unknown, options);
     }
 
-    const legacyRaw = readRawFilterStorageValue(
-      LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
-    );
+    const legacyRaw = readRawFilterStorageValue(LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY);
     if (!legacyRaw) return normalizeCommandPalettePageFilters(null, options);
     const migrated = normalizeLegacyCommandPalettePageFilters(
       JSON.parse(legacyRaw) as unknown,
@@ -363,29 +378,27 @@ export function readCommandPalettePageFilters(
   }
 }
 
-export function writeCommandPalettePageFilters(filters: CommandPalettePageFilters): CommandPalettePageFilters {
+export function writeCommandPalettePageFilters(
+  filters: CommandPalettePageFilters,
+): CommandPalettePageFilters {
   const normalized = normalizeCommandPalettePageFilters(filters);
   writeRawFilterStorageValue(JSON.stringify(normalized));
   return normalized;
 }
 
-export function hasActiveCommandPalettePageFilters(
-  filters: CommandPalettePageFilters,
-): boolean {
+export function hasActiveCommandPalettePageFilters(filters: CommandPalettePageFilters): boolean {
   if (filters.statuses.length !== WORKFLOW_STATUS_ORDER.length) {
     return true;
   }
 
   if (
-    filters.priorities.length !== TOGGLE_LIST_PRIORITY_ORDER.length
-    || !filters.includeEmptyPriority
+    filters.priorities.length !== TOGGLE_LIST_PRIORITY_ORDER.length ||
+    !filters.includeEmptyPriority
   ) {
     return true;
   }
 
-  return filters.tags.length > 0
-    || filters.assignees.length > 0
-    || filters.projectIds.length > 0;
+  return filters.tags.length > 0 || filters.assignees.length > 0 || filters.projectIds.length > 0;
 }
 
 export function summarizeCommandPalettePageFilters(
@@ -417,7 +430,8 @@ export function summarizeCommandPalettePageFilters(
   }
 
   if (filters.tags.length > 0) {
-    const modeLabel = filters.tagMode === "any" ? "any" : filters.tagMode === "all" ? "all" : "none";
+    const modeLabel =
+      filters.tagMode === "any" ? "any" : filters.tagMode === "all" ? "all" : "none";
     summaries.push({
       key: "tags",
       label: `Tags (${modeLabel})`,
@@ -466,11 +480,9 @@ function scoreNormalizedText(text: string, query: string): number {
 }
 
 function buildCommandSearchText(item: CommandPaletteCommand): string {
-  return normalizeCommandPaletteSearchText([
-    item.title,
-    item.subtitle,
-    item.keywords.join(" "),
-  ].join(" "));
+  return normalizeCommandPaletteSearchText(
+    [item.title, item.subtitle, item.keywords.join(" ")].join(" "),
+  );
 }
 
 function scoreFuzzySubsequence(text: string, query: string): number {
@@ -482,7 +494,11 @@ function scoreFuzzySubsequence(text: string, query: string): number {
   let previousMatch = -1;
   let gapCost = 0;
 
-  for (let index = 0; index < textCharacters.length && queryIndex < queryCharacters.length; index += 1) {
+  for (
+    let index = 0;
+    index < textCharacters.length && queryIndex < queryCharacters.length;
+    index += 1
+  ) {
     if (textCharacters[index] !== queryCharacters[queryIndex]) continue;
     if (firstMatch < 0) firstMatch = index;
     if (previousMatch >= 0) gapCost += index - previousMatch - 1;
@@ -511,11 +527,12 @@ function rankCommand(
   const fuzzyTitleScore = scoreFuzzySubsequence(normalizedTitle, query);
   const fuzzySearchScore = scoreFuzzySubsequence(searchText, query);
   if (
-    query
-    && !tokenMatch
-    && !Number.isFinite(fuzzyTitleScore)
-    && !Number.isFinite(fuzzySearchScore)
-  ) return null;
+    query &&
+    !tokenMatch &&
+    !Number.isFinite(fuzzyTitleScore) &&
+    !Number.isFinite(fuzzySearchScore)
+  )
+    return null;
 
   let score = item.priority;
   if (query) {
@@ -598,7 +615,10 @@ function compareScoredThreads(left: ScoredThread, right: ScoredThread): number {
   return compareDefaultThreads(left.item, right.item);
 }
 
-function compareScoredThreadsWithActiveProjectPriority(left: ScoredThread, right: ScoredThread): number {
+function compareScoredThreadsWithActiveProjectPriority(
+  left: ScoredThread,
+  right: ScoredThread,
+): number {
   return compareActiveProjectItems(left.item, right.item) || compareScoredThreads(left, right);
 }
 
@@ -637,16 +657,21 @@ export function filterCommandPaletteItems(input: {
   if (input.mode === "chats") {
     const threadItems = input.threads ?? [];
     const threads = query
-      ? (
-          input.threadSearchIndex === undefined
-            ? createCommandPaletteThreadSearchIndex(threadItems).search(query)
-            : input.threadSearchIndex?.search(query) ?? []
+      ? (input.threadSearchIndex === undefined
+          ? createCommandPaletteThreadSearchIndex(threadItems).search(query)
+          : (input.threadSearchIndex?.search(query) ?? [])
         )
-          .sort(preferActiveProject ? compareScoredThreadsWithActiveProjectPriority : compareScoredThreads)
+          .sort(
+            preferActiveProject
+              ? compareScoredThreadsWithActiveProjectPriority
+              : compareScoredThreads,
+          )
           .slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT)
           .map(({ item }) => item)
-      : (preferActiveProject ? prioritizeActiveProjectItems(threadItems) : threadItems.slice())
-          .slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT);
+      : (preferActiveProject
+          ? prioritizeActiveProjectItems(threadItems)
+          : threadItems.slice()
+        ).slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT);
 
     return {
       mode: input.mode,

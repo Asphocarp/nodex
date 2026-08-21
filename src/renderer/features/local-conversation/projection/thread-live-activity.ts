@@ -32,18 +32,18 @@ export interface ResolveThreadParentActivityInput {
   forceThinking?: boolean;
 }
 
-export function resolveThreadReasoningSummary(
-  agentItems: readonly ThreadAgentItemModel[],
-) {
+export function resolveThreadReasoningSummary(agentItems: readonly ThreadAgentItemModel[]) {
   return resolveCodexReasoningSummaryPresentation(
     agentItems.flatMap((item) => {
       if (item.type !== "reasoning") return [];
-      return [{
-        itemId: item.entry.itemId,
-        normalizedKind: item.entry.kind,
-        semanticKind: item.entry.semanticKind,
-        markdownText: item.entry.markdownText,
-      }];
+      return [
+        {
+          itemId: item.entry.itemId,
+          normalizedKind: item.entry.kind,
+          semanticKind: item.entry.semanticKind,
+          markdownText: item.entry.markdownText,
+        },
+      ];
     }),
   );
 }
@@ -52,26 +52,23 @@ function isIncompleteBlock(block: ThreadTranscriptBlockModel | null): boolean {
   return block?.status === "inProgress";
 }
 
-function hasVisibleAssistantOutput(
-  block: ThreadTranscriptBlockModel | null,
-): boolean {
+function hasVisibleAssistantOutput(block: ThreadTranscriptBlockModel | null): boolean {
   if (block?.type !== "assistantMessage") return false;
-  return block.status === "completed"
-    || (block.entry.markdownText ?? "").trim().length > 0;
+  return block.status === "completed" || (block.entry.markdownText ?? "").trim().length > 0;
 }
 
-function hasFinalAssistantStarted(
-  block: ThreadTranscriptBlockModel | null,
-): boolean {
-  return block?.type === "assistantMessage"
-    && block.entry.assistantPhase === "final_answer"
-    && hasVisibleAssistantOutput(block);
+function hasFinalAssistantStarted(block: ThreadTranscriptBlockModel | null): boolean {
+  return (
+    block?.type === "assistantMessage" &&
+    block.entry.assistantPhase === "final_answer" &&
+    hasVisibleAssistantOutput(block)
+  );
 }
 
 function flattenActivityItems(
   units: readonly ThreadAgentActivityUnit<ThreadClassifiableActivityItem>[],
 ) {
-  return units.flatMap((unit) => unit.kind === "group" ? unit.items : [unit.item]);
+  return units.flatMap((unit) => (unit.kind === "group" ? unit.items : [unit.item]));
 }
 
 function resolveGlobalActivityState(
@@ -89,17 +86,20 @@ function resolveGlobalActivityState(
 
   const activityItems = flattenActivityItems(input.activityUnits);
   const latestActivityItem = activityItems.at(-1) ?? null;
-  const hasActiveWebSearch = latestActivityItem?.item.type === "webSearch"
-    && isThreadAgentActivityItemInProgress(latestActivityItem);
-  const hasActiveDynamicTool = activityItems.some(({ item }) => (
-    item.type === "dynamicToolCall"
-    && isThreadAgentActivityItemInProgress({ item, grouping: "groupable" })
-  ));
-  const isAnyNonExploringItemInProgress = activityItems.some((activityItem) => (
-    activityItem.item.type !== "assistantMessage"
-    && !isThreadExplorationActivityItem(activityItem.item)
-    && isThreadAgentActivityItemInProgress(activityItem)
-  ));
+  const hasActiveWebSearch =
+    latestActivityItem?.item.type === "webSearch" &&
+    isThreadAgentActivityItemInProgress(latestActivityItem);
+  const hasActiveDynamicTool = activityItems.some(
+    ({ item }) =>
+      item.type === "dynamicToolCall" &&
+      isThreadAgentActivityItemInProgress({ item, grouping: "groupable" }),
+  );
+  const isAnyNonExploringItemInProgress = activityItems.some(
+    (activityItem) =>
+      activityItem.item.type !== "assistantMessage" &&
+      !isThreadExplorationActivityItem(activityItem.item) &&
+      isThreadAgentActivityItemInProgress(activityItem),
+  );
   const hasBlockingRequest = input.isBlocked || input.hasBlockingRequest;
   if (hasBlockingRequest) return { state: { type: "none" }, reason: "blocking-request" };
   if (hasVisibleAssistantOutput(input.assistantItem)) {
@@ -120,12 +120,15 @@ function resolveActivitySlice(
   input: ResolveThreadParentActivityInput,
 ): ThreadActivitySlicePresentation {
   const latestVisibleUnit = input.activityUnits.at(-1) ?? null;
-  const presentation = (state: ThreadActivitySlicePresentation["state"]): ThreadActivitySlicePresentation => ({
+  const presentation = (
+    state: ThreadActivitySlicePresentation["state"],
+  ): ThreadActivitySlicePresentation => ({
     kind: "main",
     state,
-    latestVisibleUnit: latestVisibleUnit == null
-      ? null
-      : { key: latestVisibleUnit.key, kind: latestVisibleUnit.kind },
+    latestVisibleUnit:
+      latestVisibleUnit == null
+        ? null
+        : { key: latestVisibleUnit.key, kind: latestVisibleUnit.kind },
   });
 
   if (!input.isLatestTurn) {
@@ -152,9 +155,7 @@ function resolveActivitySlice(
   return presentation({ kind: "open", reason: "turn-streaming" });
 }
 
-export function isThreadActivitySliceClosed(
-  slice: ThreadActivitySlicePresentation,
-): boolean {
+export function isThreadActivitySliceClosed(slice: ThreadActivitySlicePresentation): boolean {
   return slice.state.kind === "closed";
 }
 
@@ -167,19 +168,21 @@ function resolveThinkingFallback(input: {
   const { parentInput, global, mainSlice, reasoningMessage } = input;
   const isActivitySliceClosed = isThreadActivitySliceClosed(mainSlice);
   const hasActivityUnits = parentInput.activityUnits.length > 0;
-  const postAssistantThinking = parentInput.isLatestTurn
-    && parentInput.isTurnInProgress
-    && isActivitySliceClosed
-    && !hasFinalAssistantStarted(parentInput.assistantItem)
-    && !(parentInput.isBlocked || parentInput.hasBlockingRequest)
-    && global.state.type === "none"
-    && !parentInput.hasPostAssistantUnits;
-  const groupOwnsThinking = !parentInput.showSafetyBufferingUi
-    && !parentInput.hasPendingGeneratedOutput
-    && global.state.type === "thinking"
-    && !isActivitySliceClosed
-    && hasActivityUnits
-    && mainSlice.latestVisibleUnit?.kind === "group";
+  const postAssistantThinking =
+    parentInput.isLatestTurn &&
+    parentInput.isTurnInProgress &&
+    isActivitySliceClosed &&
+    !hasFinalAssistantStarted(parentInput.assistantItem) &&
+    !(parentInput.isBlocked || parentInput.hasBlockingRequest) &&
+    global.state.type === "none" &&
+    !parentInput.hasPostAssistantUnits;
+  const groupOwnsThinking =
+    !parentInput.showSafetyBufferingUi &&
+    !parentInput.hasPendingGeneratedOutput &&
+    global.state.type === "thinking" &&
+    !isActivitySliceClosed &&
+    hasActivityUnits &&
+    mainSlice.latestVisibleUnit?.kind === "group";
 
   if (groupOwnsThinking) {
     return {

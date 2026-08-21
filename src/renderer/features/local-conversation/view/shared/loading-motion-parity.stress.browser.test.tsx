@@ -2,20 +2,12 @@ import { render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
-import {
-  createMaitaiStore,
-  disposeMaitaiStore,
-  MaitaiProvider,
-} from "@/lib/maitai";
+import { createMaitaiStore, disposeMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import { REDUCED_MOTION_STORAGE_KEY } from "@/lib/reduced-motion";
 import { ReducedMotionProvider } from "@/lib/use-reduced-motion";
 import { readLoadingAnimations } from "@/test/loading-motion";
-import {
-  GeneratedImagePlaceholder,
-} from "@/features/user-attachment-image-editor";
-import {
-  getGeneratedImageAnimationClockSubscriberCount,
-} from "@/features/user-attachment-image-editor/view/generated-image-animation-clock";
+import { GeneratedImagePlaceholder } from "@/features/user-attachment-image-editor";
+import { getGeneratedImageAnimationClockSubscriberCount } from "@/features/user-attachment-image-editor/view/generated-image-animation-clock";
 import { CodexShimmerProvider, CodexShimmerText } from "./codex-shimmer-text";
 import { SubagentAvatar } from "./subagent-avatar";
 import "../../../../globals.css";
@@ -42,9 +34,7 @@ describe("loading motion stress topology", () => {
             </div>
 
             <CodexShimmerProvider enabled={false}>
-              <CodexShimmerText data-testid="nested-activity">
-                Nested tool detail
-              </CodexShimmerText>
+              <CodexShimmerText data-testid="nested-activity">Nested tool detail</CodexShimmerText>
             </CodexShimmerProvider>
 
             <div className="fixed top-0 left-0 grid grid-cols-3 gap-2">
@@ -76,26 +66,21 @@ describe("loading motion stress topology", () => {
       });
       await new Promise((resolve) => setTimeout(resolve, 350));
 
-      expect(readLoadingAnimations(view.getByTestId("subagent-grid")))
-        .toEqual([]);
-      expect(readLoadingAnimations(view.getByTestId("nested-activity")))
-        .toEqual([]);
-      expect(view.getByTestId("settled-browser").querySelector(
-        "[data-browser-tab-throbber='true']",
-      )).toBeNull();
-      expect(readLoadingAnimations(view.getByTestId("settled-browser")))
-        .toEqual([]);
+      expect(readLoadingAnimations(view.getByTestId("subagent-grid"))).toEqual([]);
+      expect(readLoadingAnimations(view.getByTestId("nested-activity"))).toEqual([]);
+      expect(
+        view.getByTestId("settled-browser").querySelector("[data-browser-tab-throbber='true']"),
+      ).toBeNull();
+      expect(readLoadingAnimations(view.getByTestId("settled-browser"))).toEqual([]);
 
-      const dotFields = view.container.querySelectorAll(
-        '[data-generated-image-dot-field="true"]',
-      );
+      const dotFields = view.container.querySelectorAll('[data-generated-image-dot-field="true"]');
       expect(dotFields).toHaveLength(6);
-      expect(view.container.querySelectorAll(
-        '[data-generated-image-dot-field="true"][data-animate="true"]',
-      )).toHaveLength(1);
-      const imageAnimations = [...dotFields].flatMap((element) => (
-        readLoadingAnimations(element)
-      ));
+      expect(
+        view.container.querySelectorAll(
+          '[data-generated-image-dot-field="true"][data-animate="true"]',
+        ),
+      ).toHaveLength(1);
+      const imageAnimations = [...dotFields].flatMap((element) => readLoadingAnimations(element));
       expect(imageAnimations).toHaveLength(1);
       expect(imageAnimations[0]?.animatedProperties).toEqual(["opacity"]);
     } finally {

@@ -79,12 +79,9 @@ interface GitPerformanceOperationRuntime {
   timedOut: boolean;
 }
 
-const gitPerformanceOperationContext =
-  new AsyncLocalStorage<GitPerformanceOperationRuntime>();
+const gitPerformanceOperationContext = new AsyncLocalStorage<GitPerformanceOperationRuntime>();
 
-export function recordGitQueryCacheOutcome(
-  outcome: "hit" | "miss" | "coalesced",
-): void {
+export function recordGitQueryCacheOutcome(outcome: "hit" | "miss" | "coalesced"): void {
   const runtime = gitPerformanceOperationContext.getStore();
   if (!runtime) return;
   if (outcome === "hit") runtime.cacheHits += 1;
@@ -231,15 +228,12 @@ export class LocalGitCommandRunner implements GitCommandRunner {
         if (runtime) {
           runtime.commandCount += 1;
           runtime.statusCommandCount += args[0] === "status" ? 1 : 0;
-          runtime.fullUntrackedScanCount += args[0] === "status"
-            && args.includes("--untracked-files=normal")
-            ? 1
-            : 0;
-          runtime.unscopedAllStatusCount += args[0] === "status"
-            && args.includes("--untracked-files=all")
-            && !args.includes("--")
-            ? 1
-            : 0;
+          runtime.fullUntrackedScanCount +=
+            args[0] === "status" && args.includes("--untracked-files=normal") ? 1 : 0;
+          runtime.unscopedAllStatusCount +=
+            args[0] === "status" && args.includes("--untracked-files=all") && !args.includes("--")
+              ? 1
+              : 0;
           runtime.timedOut ||= result.timedOut;
           runtime.canceled ||= result.aborted;
           runtime.outputLimitExceeded ||= result.outputLimitExceeded;
@@ -269,18 +263,16 @@ export class LocalGitCommandRunner implements GitCommandRunner {
   ): Promise<GitCommandResult> {
     const allowedExitCodes = new Set([0, ...(options.allowedNonZeroExitCodes ?? [])]);
     const outputBytesCap = options.outputBytesCap ?? GIT_DEFAULT_OUTPUT_BYTES_CAP;
-    const timeoutMs = options.timeoutMs === undefined
-      ? isGitReadCommand(args)
-        ? GIT_READ_TIMEOUT_MS
-        : null
-      : options.timeoutMs;
+    const timeoutMs =
+      options.timeoutMs === undefined
+        ? isGitReadCommand(args)
+          ? GIT_READ_TIMEOUT_MS
+          : null
+        : options.timeoutMs;
     if (!Number.isSafeInteger(outputBytesCap) || outputBytesCap <= 0) {
       throw new Error("Git command output cap must be a positive safe integer");
     }
-    if (
-      timeoutMs !== null
-      && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
-    ) {
+    if (timeoutMs !== null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
       throw new Error("Git command timeout must be a positive safe integer");
     }
 
@@ -296,28 +288,30 @@ export class LocalGitCommandRunner implements GitCommandRunner {
     return await new Promise<GitCommandResult>((resolve) => {
       let child: ReturnType<typeof spawn>;
       try {
-        child = spawn("git", [
-          ...GIT_CONFIG_OVERRIDES,
-          ...configArgs,
-          ...(fsmonitorOverride === null
-            ? []
-            : ["-c", `core.fsmonitor=${fsmonitorOverride}`]),
-          ...(options.literalPathspecs ? ["--literal-pathspecs"] : []),
-          ...args,
-        ], {
-          cwd: repository.root,
-          detached: process.platform !== "win32",
-          env: {
-            ...process.env,
-            ...options.env,
-            GIT_OPTIONAL_LOCKS: "0",
-            GIT_TERMINAL_PROMPT: "0",
-            LANGUAGE: "C",
-            LC_MESSAGES: "C",
+        child = spawn(
+          "git",
+          [
+            ...GIT_CONFIG_OVERRIDES,
+            ...configArgs,
+            ...(fsmonitorOverride === null ? [] : ["-c", `core.fsmonitor=${fsmonitorOverride}`]),
+            ...(options.literalPathspecs ? ["--literal-pathspecs"] : []),
+            ...args,
+          ],
+          {
+            cwd: repository.root,
+            detached: process.platform !== "win32",
+            env: {
+              ...process.env,
+              ...options.env,
+              GIT_OPTIONAL_LOCKS: "0",
+              GIT_TERMINAL_PROMPT: "0",
+              LANGUAGE: "C",
+              LC_MESSAGES: "C",
+            },
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
           },
-          stdio: ["pipe", "pipe", "pipe"],
-          windowsHide: true,
-        });
+        );
       } catch {
         resolve(createEmptyFailure("spawn_failed"));
         return;
@@ -359,12 +353,13 @@ export class LocalGitCommandRunner implements GitCommandRunner {
         aborted = true;
         terminate();
       };
-      const timeout = timeoutMs === null
-        ? null
-        : setTimeout(() => {
-          timedOut = true;
-          terminate();
-        }, timeoutMs);
+      const timeout =
+        timeoutMs === null
+          ? null
+          : setTimeout(() => {
+              timedOut = true;
+              terminate();
+            }, timeoutMs);
       timeout?.unref?.();
 
       const cleanup = () => {
@@ -449,8 +444,7 @@ export class LocalGitCommandRunner implements GitCommandRunner {
     }
     const cacheKey = JSON.stringify([
       repository.commonDir,
-      Object.entries(options.env ?? {}).sort(([left], [right]) =>
-        left.localeCompare(right)),
+      Object.entries(options.env ?? {}).sort(([left], [right]) => left.localeCompare(right)),
     ]);
     const now = performance.now();
     const cached = this.#safeFsmonitorCache.get(cacheKey);
@@ -546,15 +540,12 @@ export function isGitReadCommand(args: readonly string[]): boolean {
     case "cat-file":
       return args.includes("-e");
     case "ls-files":
-      return args.includes("--others")
-        && !args.includes("--cached")
-        && !args.includes("--ignored");
+      return args.includes("--others") && !args.includes("--cached") && !args.includes("--ignored");
     case "config":
-      return args.some((arg) =>
-        arg === "--get"
-        || arg === "--get-all"
-        || arg === "--get-regexp"
-        || arg === "--list");
+      return args.some(
+        (arg) =>
+          arg === "--get" || arg === "--get-all" || arg === "--get-regexp" || arg === "--list",
+      );
     case "worktree":
       return args[1] === "list";
     default:

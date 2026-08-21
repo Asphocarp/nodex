@@ -4,11 +4,7 @@ import {
   writePasteResourceSettings,
   type PasteResourceSettings,
 } from "./paste-resource-settings";
-import {
-  appScope,
-  scopedAtomWithInitializer,
-  useScopedAtom,
-} from "./maitai";
+import { appScope, scopedAtomWithInitializer, useScopedAtom } from "./maitai";
 
 interface PasteResourceSettingsContextValue {
   settings: PasteResourceSettings;
@@ -16,29 +12,33 @@ interface PasteResourceSettingsContextValue {
   updateSettings: (patch: Partial<PasteResourceSettings>) => void;
 }
 
-const pasteResourceSettingsAtom = scopedAtomWithInitializer(
-  appScope,
-  readPasteResourceSettings,
-  { debugLabel: "paste-resource-settings" },
-);
+const pasteResourceSettingsAtom = scopedAtomWithInitializer(appScope, readPasteResourceSettings, {
+  debugLabel: "paste-resource-settings",
+});
 
 function usePasteResourceSettingsInternal(): PasteResourceSettingsContextValue {
   const [settings, setSettingsState] = useScopedAtom(pasteResourceSettingsAtom);
 
-  const setSettings = useCallback((value: PasteResourceSettings) => {
-    const next = writePasteResourceSettings(value);
-    setSettingsState(next);
-  }, [setSettingsState]);
+  const setSettings = useCallback(
+    (value: PasteResourceSettings) => {
+      const next = writePasteResourceSettings(value);
+      setSettingsState(next);
+    },
+    [setSettingsState],
+  );
 
-  const updateSettings = useCallback((patch: Partial<PasteResourceSettings>) => {
-    setSettingsState((current) => {
-      const next = writePasteResourceSettings({
-        ...current,
-        ...patch,
+  const updateSettings = useCallback(
+    (patch: Partial<PasteResourceSettings>) => {
+      setSettingsState((current) => {
+        const next = writePasteResourceSettings({
+          ...current,
+          ...patch,
+        });
+        return next;
       });
-      return next;
-    });
-  }, [setSettingsState]);
+    },
+    [setSettingsState],
+  );
 
   return { settings, setSettings, updateSettings };
 }

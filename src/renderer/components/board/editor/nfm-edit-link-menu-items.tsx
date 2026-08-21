@@ -1,9 +1,6 @@
 import { LinkToolbarExtension } from "@blocknote/core/extensions";
 import { KeyboardEvent, useCallback, useEffect, useState } from "react";
-import {
-  useExtension,
-  type LinkToolbarProps,
-} from "./nfm-link-toolbar-deps";
+import { useExtension, type LinkToolbarProps } from "./nfm-link-toolbar-deps";
 import { normalizeNfmEditorLinkUrl } from "./nfm-link-url";
 
 export type NfmLinkEditorProps = Pick<
@@ -11,9 +8,7 @@ export type NfmLinkEditorProps = Pick<
   "url" | "text" | "range" | "setToolbarOpen" | "setToolbarPositionFrozen"
 >;
 
-export function useNfmLinkEditorState(
-  props: NfmLinkEditorProps,
-) {
+export function useNfmLinkEditorState(props: NfmLinkEditorProps) {
   const { editLink } = useExtension(LinkToolbarExtension);
   const { url, text } = props;
 
@@ -25,20 +20,26 @@ export function useNfmLinkEditorState(
     setCurrentText(text);
   }, [text, url]);
 
-  const submit = useCallback((overrideUrl?: string, overrideText?: string) => {
-    const normalizedUrl = normalizeNfmEditorLinkUrl(overrideUrl ?? currentUrl);
-    if (!normalizedUrl) return;
+  const submit = useCallback(
+    (overrideUrl?: string, overrideText?: string) => {
+      const normalizedUrl = normalizeNfmEditorLinkUrl(overrideUrl ?? currentUrl);
+      if (!normalizedUrl) return;
 
-    editLink(normalizedUrl, overrideText ?? currentText, props.range.from);
-    props.setToolbarOpen?.(false);
-    props.setToolbarPositionFrozen?.(false);
-  }, [currentText, currentUrl, editLink, props]);
+      editLink(normalizedUrl, overrideText ?? currentText, props.range.from);
+      props.setToolbarOpen?.(false);
+      props.setToolbarPositionFrozen?.(false);
+    },
+    [currentText, currentUrl, editLink, props],
+  );
 
-  const handleEnter = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    submit();
-  }, [submit]);
+  const handleEnter = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+      event.preventDefault();
+      submit();
+    },
+    [submit],
+  );
 
   return {
     currentUrl,

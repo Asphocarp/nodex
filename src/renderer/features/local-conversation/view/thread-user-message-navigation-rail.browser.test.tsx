@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
-import { installAsyncRequestAnimationFrame, installElementScrollHeight } from "../../../test/browser-globals";
+import {
+  installAsyncRequestAnimationFrame,
+  installElementScrollHeight,
+} from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
 import type { ThreadUserMessageNavigationItem } from "../thread-stage-types";
 import {
@@ -18,7 +21,10 @@ import {
 } from "./thread-user-message-navigation-rail";
 
 const originalIntersectionObserver = globalThis.IntersectionObserver;
-const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "offsetWidth",
+);
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const intersectionObserverInstances: TestIntersectionObserver[] = [];
 
@@ -56,15 +62,18 @@ class TestIntersectionObserver {
 
   trigger(entries: Array<{ target: Element; isIntersecting: boolean }>) {
     this.callback(
-      entries.map((entry) => ({
-        boundingClientRect: entry.target.getBoundingClientRect(),
-        intersectionRatio: entry.isIntersecting ? 1 : 0,
-        intersectionRect: entry.target.getBoundingClientRect(),
-        isIntersecting: entry.isIntersecting,
-        rootBounds: null,
-        target: entry.target,
-        time: 0,
-      }) as IntersectionObserverEntry),
+      entries.map(
+        (entry) =>
+          ({
+            boundingClientRect: entry.target.getBoundingClientRect(),
+            intersectionRatio: entry.isIntersecting ? 1 : 0,
+            intersectionRect: entry.target.getBoundingClientRect(),
+            isIntersecting: entry.isIntersecting,
+            rootBounds: null,
+            target: entry.target,
+            time: 0,
+          }) as IntersectionObserverEntry,
+      ),
       this as unknown as IntersectionObserver,
     );
   }
@@ -82,7 +91,10 @@ function installTestIntersectionObserver() {
 function restoreIntersectionObserver() {
   intersectionObserverInstances.splice(0);
   if (typeof originalIntersectionObserver === "undefined") {
-    Reflect.deleteProperty(globalThis as typeof globalThis & { IntersectionObserver?: typeof IntersectionObserver }, "IntersectionObserver");
+    Reflect.deleteProperty(
+      globalThis as typeof globalThis & { IntersectionObserver?: typeof IntersectionObserver },
+      "IntersectionObserver",
+    );
     return;
   }
 
@@ -143,11 +155,17 @@ function restoreRailLayoutGeometry() {
   if (originalOffsetWidthDescriptor) {
     Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidthDescriptor);
   } else {
-    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { offsetWidth?: number }, "offsetWidth");
+    Reflect.deleteProperty(
+      HTMLElement.prototype as HTMLElement & { offsetWidth?: number },
+      "offsetWidth",
+    );
   }
 }
 
-function buildItem(index: number, overrides?: Partial<ThreadUserMessageNavigationItem>): ThreadUserMessageNavigationItem {
+function buildItem(
+  index: number,
+  overrides?: Partial<ThreadUserMessageNavigationItem>,
+): ThreadUserMessageNavigationItem {
   return {
     id: `turn_${index}:user:0`,
     turnId: `turn_${index}`,
@@ -186,12 +204,10 @@ function RailHarness({
                     <div data-user-message-bubble="true">{item.label}</div>
                   </div>
                 </div>
-              ))}
+              ),
+            )}
           </div>
-          <ThreadUserMessageNavigationRail
-            items={items}
-            onRevealItem={onRevealItem}
-          />
+          <ThreadUserMessageNavigationRail items={items} onRevealItem={onRevealItem} />
         </LocalConversationThreadScrollLayout>
       </EnsureLocalConversationThreadScrollController>
     </TooltipProvider>
@@ -237,7 +253,9 @@ describe("ThreadUserMessageNavigationRail", () => {
     expect(targets.length).toBe(3);
     expect(targets[0]?.element.getAttribute("data-turn-key")).toBe("turn_same");
     expect(targets[0]?.itemId).toBe("turn_same:user:0");
-    expect(targets[1]?.element.getAttribute("data-content-search-unit-key")).toBe("turn_same:user:1");
+    expect(targets[1]?.element.getAttribute("data-content-search-unit-key")).toBe(
+      "turn_same:user:1",
+    );
     expect(targets[1]?.itemId).toBe("turn_same:user:1");
     expect(targets[2]?.element.getAttribute("data-content-search-turn-key")).toBe("turn_next");
     expect(targets[2]?.itemId).toBe("turn_next:user:0");
@@ -251,7 +269,7 @@ describe("ThreadUserMessageNavigationRail", () => {
       new Set(["turn_2:user:0", "turn_4:user:0"]),
     );
 
-    expect([...range ?? []].join(",")).toBe("turn_2:user:0,turn_3:user:0,turn_4:user:0");
+    expect([...(range ?? [])].join(",")).toBe("turn_2:user:0,turn_3:user:0,turn_4:user:0");
   });
 
   test("rescans only when mutations add or remove turn containers", () => {
@@ -261,15 +279,30 @@ describe("ThreadUserMessageNavigationRail", () => {
     nested.innerHTML = `<section data-content-search-turn-key="turn_2"></section>`;
     const plain = document.createElement("span");
 
-    expect(threadUserMessageNavigationMutationsIncludeTurnContainer([
-      { addedNodes: [turn] as unknown as NodeList, removedNodes: [] as unknown as NodeList } as MutationRecord,
-    ])).toBe(true);
-    expect(threadUserMessageNavigationMutationsIncludeTurnContainer([
-      { addedNodes: [nested] as unknown as NodeList, removedNodes: [] as unknown as NodeList } as MutationRecord,
-    ])).toBe(true);
-    expect(threadUserMessageNavigationMutationsIncludeTurnContainer([
-      { addedNodes: [plain] as unknown as NodeList, removedNodes: [] as unknown as NodeList } as MutationRecord,
-    ])).toBe(false);
+    expect(
+      threadUserMessageNavigationMutationsIncludeTurnContainer([
+        {
+          addedNodes: [turn] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+        } as MutationRecord,
+      ]),
+    ).toBe(true);
+    expect(
+      threadUserMessageNavigationMutationsIncludeTurnContainer([
+        {
+          addedNodes: [nested] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+        } as MutationRecord,
+      ]),
+    ).toBe(true);
+    expect(
+      threadUserMessageNavigationMutationsIncludeTurnContainer([
+        {
+          addedNodes: [plain] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+        } as MutationRecord,
+      ]),
+    ).toBe(false);
   });
 
   test("keeps the active rail row visible within the rail list", () => {
@@ -312,13 +345,17 @@ describe("ThreadUserMessageNavigationRail", () => {
       value: () => makeRect({ left: 47, width: 700 }),
     });
 
-    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBe(false);
+    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBe(
+      false,
+    );
 
     Object.defineProperty(contentElement, "getBoundingClientRect", {
       configurable: true,
       value: () => makeRect({ left: 48, width: 700 }),
     });
-    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBe(true);
+    expect(hasEnoughThreadUserMessageNavigationLeftSpace({ scrollElement, contentElement })).toBe(
+      true,
+    );
   });
 
   test("renders the Codex-compatible rail DOM contract", async () => {
@@ -331,7 +368,9 @@ describe("ThreadUserMessageNavigationRail", () => {
     const rows = container.querySelectorAll("[data-thread-user-message-navigation-item-id]");
 
     expect(Boolean(nav)).toBe(true);
-    expect(nav?.parentElement?.getAttribute("data-thread-user-message-navigation-portal-target")).toBe("true");
+    expect(
+      nav?.parentElement?.getAttribute("data-thread-user-message-navigation-portal-target"),
+    ).toBe("true");
     expect(Boolean(list)).toBe(true);
     expect(rows.length).toBe(4);
     expect(rows[0]?.getAttribute("aria-label")).toBe("Jump to user message 1");
@@ -381,7 +420,9 @@ describe("ThreadUserMessageNavigationRail", () => {
     await settleAsyncRender();
 
     const currentRows = Array.from(
-      container.querySelectorAll<HTMLElement>("[data-thread-user-message-navigation-item-id][aria-current='true']"),
+      container.querySelectorAll<HTMLElement>(
+        "[data-thread-user-message-navigation-item-id][aria-current='true']",
+      ),
     ).map((row) => row.dataset.threadUserMessageNavigationItemId);
     expect(currentRows.join(",")).toBe("turn_2:user:0,turn_3:user:0,turn_4:user:0");
 
@@ -397,12 +438,16 @@ describe("ThreadUserMessageNavigationRail", () => {
     const { container } = render(<RailHarness items={items} />);
     await settleAsyncRender();
 
-    const list = container.querySelector<HTMLElement>("[data-thread-user-message-navigation-rail-list='true']") as HTMLElement;
+    const list = container.querySelector<HTMLElement>(
+      "[data-thread-user-message-navigation-rail-list='true']",
+    ) as HTMLElement;
     const eighthRow = container.querySelector<HTMLElement>(
       "[data-thread-user-message-navigation-item-id='turn_8:user:0']",
     ) as HTMLElement;
     list.style.cssText = "height: 20px; overflow: auto; position: relative";
-    for (const row of list.querySelectorAll<HTMLElement>("[data-thread-user-message-navigation-item-id]")) {
+    for (const row of list.querySelectorAll<HTMLElement>(
+      "[data-thread-user-message-navigation-item-id]",
+    )) {
       row.style.cssText = "display: block; height: 10px";
     }
 
@@ -529,7 +574,9 @@ describe("ThreadUserMessageNavigationRail", () => {
     );
     await settleAsyncRender();
 
-    const list = container.querySelector<HTMLElement>("[data-thread-user-message-navigation-rail-list='true']");
+    const list = container.querySelector<HTMLElement>(
+      "[data-thread-user-message-navigation-rail-list='true']",
+    );
     const secondRow = getByRole("button", { name: "Jump to user message 2" });
     Object.defineProperty(list, "getBoundingClientRect", {
       configurable: true,
@@ -572,7 +619,9 @@ describe("ThreadUserMessageNavigationRail", () => {
     expect(revealed.join(",")).toBe("turn_2:user:0:instant");
     expect(secondRow.getAttribute("data-scrub-target")).toBe("true");
     expect(
-      secondRow.querySelector<HTMLElement>(".thread-user-message-navigation-marker")?.className.includes("opacity-100"),
+      secondRow
+        .querySelector<HTMLElement>(".thread-user-message-navigation-marker")
+        ?.className.includes("opacity-100"),
     ).toBe(true);
   });
 });

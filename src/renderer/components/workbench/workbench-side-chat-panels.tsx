@@ -18,11 +18,7 @@ export function SideChatLoadingPanel({ title }: { title: string }) {
   );
 }
 
-export function SideChatExpiredPanel({
-  onRecreateSideChat,
-}: {
-  onRecreateSideChat: () => void;
-}) {
+export function SideChatExpiredPanel({ onRecreateSideChat }: { onRecreateSideChat: () => void }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">
       <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
@@ -33,12 +29,7 @@ export function SideChatExpiredPanel({
         <div className="mt-1 max-w-sm text-sm text-token-text-secondary">
           This temporary side chat is no longer available; start a new side chat to continue
         </div>
-        <NodexButton
-          type="button"
-          size="sm"
-          className="mt-4"
-          onClick={onRecreateSideChat}
-        >
+        <NodexButton type="button" size="sm" className="mt-4" onClick={onRecreateSideChat}>
           Start new side chat
         </NodexButton>
       </div>

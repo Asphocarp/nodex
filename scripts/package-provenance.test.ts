@@ -10,8 +10,7 @@ import {
 } from "./package-provenance.mjs";
 
 const temporaryRoots: string[] = [];
-const sha256 = (value: string): string =>
-  createHash("sha256").update(value).digest("hex");
+const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 
 const skillFiles = [
   "SKILL.md",
@@ -22,15 +21,10 @@ const skillFiles = [
   "references/troubleshooting.md",
 ] as const;
 
-const writeAgentSkills = (
-  resources: string,
-): { manifestSha256: string; treeSha256: string } => {
+const writeAgentSkills = (resources: string): { manifestSha256: string; treeSha256: string } => {
   const root = path.join(resources, "agent-skills");
   const files = new Map(
-    skillFiles.map((relativePath) => [
-      relativePath,
-      Buffer.from(`${relativePath}\n`, "utf8"),
-    ]),
+    skillFiles.map((relativePath) => [relativePath, Buffer.from(`${relativePath}\n`, "utf8")]),
   );
   const hash = createHash("sha256");
   for (const relativePath of [...files.keys()].sort()) {
@@ -51,21 +45,29 @@ const writeAgentSkills = (
   }
   fs.writeFileSync(path.join(root, "README.md"), "README\n");
   fs.writeFileSync(path.join(root, "LICENSE"), "LICENSE\n");
-  const manifest = `${JSON.stringify({
-    schemaVersion: 1,
-    distribution: "NodexApp/skills",
-    product: { name: "Nodex", releaseVersion: "0.1.10" },
-    source: { repository: "NodexApp/nodex", ref: "v0.1.10" },
-    agentInterface: { minimumRevision: 1, maximumRevision: 1 },
-    skills: [{
-      name: "nodex",
-      path: "skills/nodex",
-      treeSha256,
-      fileCount: files.size,
-      totalBytes: [...files.values()]
-        .reduce((total, contents) => total + contents.byteLength, 0),
-    }],
-  }, null, 2)}\n`;
+  const manifest = `${JSON.stringify(
+    {
+      schemaVersion: 1,
+      distribution: "NodexApp/skills",
+      product: { name: "Nodex", releaseVersion: "0.1.10" },
+      source: { repository: "NodexApp/nodex", ref: "v0.1.10" },
+      agentInterface: { minimumRevision: 1, maximumRevision: 1 },
+      skills: [
+        {
+          name: "nodex",
+          path: "skills/nodex",
+          treeSha256,
+          fileCount: files.size,
+          totalBytes: [...files.values()].reduce(
+            (total, contents) => total + contents.byteLength,
+            0,
+          ),
+        },
+      ],
+    },
+    null,
+    2,
+  )}\n`;
   fs.writeFileSync(path.join(root, "release-manifest.json"), manifest);
   return { manifestSha256: sha256(manifest), treeSha256 };
 };
@@ -78,12 +80,14 @@ const makePreparedManifest = (
     agentSkills,
     buildContext: { arch: "arm64", platform: "darwin" },
     inputDigest,
-    outputs: [{
-      executable: false,
-      path: "out/main/bootstrap.js",
-      sha256: "2".repeat(64),
-      size: 10,
-    }],
+    outputs: [
+      {
+        executable: false,
+        path: "out/main/bootstrap.js",
+        sha256: "2".repeat(64),
+        size: 10,
+      },
+    ],
     product: { name: "nodex", version: "0.1.10" },
     releaseIdentity: null,
     schemaVersion: 4,
@@ -108,7 +112,8 @@ const writeJson = (filePath: string, value: unknown): void => {
 const stableJson = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (typeof value === "object" && value !== null) {
-    return `{${Object.keys(value).sort()
+    return `{${Object.keys(value)
+      .sort()
       .map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`)
       .join(",")}}`;
   }
@@ -121,10 +126,7 @@ const refreshBrowserProvenanceIdentity = (appPath: string): void => {
     "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
   );
   const browserContents = fs.readFileSync(browserManifestPath);
-  const provenancePath = path.join(
-    appPath,
-    "Contents/Resources/nodex-build-provenance.json",
-  );
+  const provenancePath = path.join(appPath, "Contents/Resources/nodex-build-provenance.json");
   const provenance = JSON.parse(fs.readFileSync(provenancePath, "utf8")) as {
     payload: { browserRuntimeManifest: unknown };
     provenanceId?: string;
@@ -148,20 +150,22 @@ const writeSparkleRuntime = (appPath: string): void => {
     frameworkInfoPlist: "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
     updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
   };
-  const artifacts = Object.fromEntries(Object.entries(artifactPaths).map(([
-    name,
-    relativePath,
-  ]) => {
-    const filePath = path.join(appPath, "Contents", relativePath);
-    const contents = Buffer.from(`${name}\n`, "utf8");
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, contents, { mode: name === "frameworkInfoPlist" ? 0o644 : 0o755 });
-    return [name, {
-      path: relativePath,
-      sha256: createHash("sha256").update(contents).digest("hex"),
-      size: contents.length,
-    }];
-  }));
+  const artifacts = Object.fromEntries(
+    Object.entries(artifactPaths).map(([name, relativePath]) => {
+      const filePath = path.join(appPath, "Contents", relativePath);
+      const contents = Buffer.from(`${name}\n`, "utf8");
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, contents, { mode: name === "frameworkInfoPlist" ? 0o644 : 0o755 });
+      return [
+        name,
+        {
+          path: relativePath,
+          sha256: createHash("sha256").update(contents).digest("hex"),
+          size: contents.length,
+        },
+      ];
+    }),
+  );
   writeJson(path.join(appPath, "Contents/Resources/native/sparkle-runtime.json"), {
     artifacts,
     architecture: "arm64",
@@ -233,10 +237,7 @@ describe("packaged build provenance", () => {
       fixture.appPath,
       "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
     );
-    const agentManifestPath = path.join(
-      fixture.appPath,
-      "Contents/Resources/agent-runtime.json",
-    );
+    const agentManifestPath = path.join(fixture.appPath, "Contents/Resources/agent-runtime.json");
     writeJson(agentManifestPath, {
       codexCompatibilityVersion: "0.146.0",
       layoutVersion: 3,
@@ -266,10 +267,7 @@ describe("packaged build provenance", () => {
       fixture.appPath,
       "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
     );
-    const agentManifestPath = path.join(
-      fixture.appPath,
-      "Contents/Resources/agent-runtime.json",
-    );
+    const agentManifestPath = path.join(fixture.appPath, "Contents/Resources/agent-runtime.json");
     writeJson(agentManifestPath, {
       codexCompatibilityVersion: "0.147.0",
       layoutVersion: 3,
@@ -284,9 +282,7 @@ describe("packaged build provenance", () => {
       targetPlatform: "darwin",
     });
 
-    expect(() => writePackagedBuildProvenance(fixture.appPath)).toThrow(
-      "targets do not agree",
-    );
+    expect(() => writePackagedBuildProvenance(fixture.appPath)).toThrow("targets do not agree");
   });
 
   test("rejects a Browser runtime that drifts outside the compatibility window during verification", () => {
@@ -295,10 +291,7 @@ describe("packaged build provenance", () => {
       fixture.appPath,
       "Contents/Resources/browser-runtime/browser-runtime-manifest.json",
     );
-    const agentManifestPath = path.join(
-      fixture.appPath,
-      "Contents/Resources/agent-runtime.json",
-    );
+    const agentManifestPath = path.join(fixture.appPath, "Contents/Resources/agent-runtime.json");
     writeJson(agentManifestPath, {
       codexCompatibilityVersion: "0.147.0",
       layoutVersion: 3,
@@ -330,17 +323,14 @@ describe("packaged build provenance", () => {
   test("rejects a stale prepared source generation", () => {
     const fixture = makeApp();
     writePackagedBuildProvenance(fixture.appPath);
-    const agentSkills = writeAgentSkills(
-      path.join(fixture.appPath, "Contents/Resources"),
-    );
-    writeJson(
-      fixture.currentPreparedPath,
-      makePreparedManifest(agentSkills, "5".repeat(64)),
-    );
+    const agentSkills = writeAgentSkills(path.join(fixture.appPath, "Contents/Resources"));
+    writeJson(fixture.currentPreparedPath, makePreparedManifest(agentSkills, "5".repeat(64)));
 
-    expect(() => verifyPackagedBuildProvenance(fixture.appPath, {
-      expectedPreparedManifestPath: fixture.currentPreparedPath,
-    })).toThrow("stale for the current prepared Electron source");
+    expect(() =>
+      verifyPackagedBuildProvenance(fixture.appPath, {
+        expectedPreparedManifestPath: fixture.currentPreparedPath,
+      }),
+    ).toThrow("stale for the current prepared Electron source");
   });
 
   test("rejects native/app version drift before sealing provenance", () => {
@@ -367,10 +357,7 @@ describe("packaged build provenance", () => {
   ])("rejects a packaged payload mutation in %s", (relativePath) => {
     const fixture = makeApp();
     writePackagedBuildProvenance(fixture.appPath);
-    fs.appendFileSync(
-      path.join(fixture.appPath, "Contents/Resources", relativePath),
-      "tampered\n",
-    );
+    fs.appendFileSync(path.join(fixture.appPath, "Contents/Resources", relativePath), "tampered\n");
 
     expect(() => verifyPackagedBuildProvenance(fixture.appPath)).toThrow(
       "does not match the packaged provenance",
@@ -381,10 +368,7 @@ describe("packaged build provenance", () => {
     const fixture = makeApp();
     writePackagedBuildProvenance(fixture.appPath);
     fs.appendFileSync(
-      path.join(
-        fixture.appPath,
-        "Contents/Resources/agent-skills/skills/nodex/SKILL.md",
-      ),
+      path.join(fixture.appPath, "Contents/Resources/agent-skills/skills/nodex/SKILL.md"),
       "tampered\n",
     );
 

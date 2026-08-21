@@ -23,33 +23,26 @@ function createFixture(): {
   const packagedBrowserRoot = path.join(root, "packaged");
   const relativePlaceholder = "runtime/lib/example/.gitkeep";
   const sourcePlaceholderPath = path.join(sourceBrowserRoot, relativePlaceholder);
-  const packagedParent = path.join(
-    packagedBrowserRoot,
-    path.dirname(relativePlaceholder),
-  );
+  const packagedParent = path.join(packagedBrowserRoot, path.dirname(relativePlaceholder));
   fs.mkdirSync(path.dirname(sourcePlaceholderPath), { recursive: true });
   fs.mkdirSync(packagedParent, { recursive: true });
   fs.writeFileSync(sourcePlaceholderPath, "");
   const manifest = {
-    artifacts: [{
-      architecture: "any",
-      executable: false,
-      kind: "data",
-      path: relativePlaceholder,
-      sha256: sha256(""),
-      size: 0,
-    }],
+    artifacts: [
+      {
+        architecture: "any",
+        executable: false,
+        kind: "data",
+        path: relativePlaceholder,
+        sha256: sha256(""),
+        size: 0,
+      },
+    ],
     schemaVersion: 4,
   };
   const manifestBytes = `${JSON.stringify(manifest)}\n`;
-  fs.writeFileSync(
-    path.join(sourceBrowserRoot, "browser-runtime-manifest.json"),
-    manifestBytes,
-  );
-  fs.writeFileSync(
-    path.join(packagedBrowserRoot, "browser-runtime-manifest.json"),
-    manifestBytes,
-  );
+  fs.writeFileSync(path.join(sourceBrowserRoot, "browser-runtime-manifest.json"), manifestBytes);
+  fs.writeFileSync(path.join(packagedBrowserRoot, "browser-runtime-manifest.json"), manifestBytes);
   return {
     packagedBrowserRoot,
     placeholderPath: path.join(packagedParent, ".gitkeep"),
@@ -95,8 +88,6 @@ describe("restorePackagedBrowserRuntimeClosure", () => {
       packagedParent,
     );
 
-    expect(() => restorePackagedBrowserRuntimeClosure(fixture)).toThrow(
-      "is not a real directory",
-    );
+    expect(() => restorePackagedBrowserRuntimeClosure(fixture)).toThrow("is not a real directory");
   });
 });

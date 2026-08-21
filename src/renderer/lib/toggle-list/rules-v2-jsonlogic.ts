@@ -43,9 +43,7 @@ export function parseRulesV2FromJsonLogic(input: string): {
       return { rules: null, error: "JSON root must be an object." };
     }
 
-    const mode = parsed.mode === "advanced" || parsed.mode === "basic"
-      ? parsed.mode
-      : "advanced";
+    const mode = parsed.mode === "advanced" || parsed.mode === "basic" ? parsed.mode : "advanced";
     const filter = parseFilterSpec(parsed.filter);
     if (!filter) {
       return { rules: null, error: "Unsupported filter expression." };
@@ -58,7 +56,8 @@ export function parseRulesV2FromJsonLogic(input: string): {
     return {
       rules: {
         mode,
-        includeHostCard: typeof parsed.includeHostCard === "boolean" ? parsed.includeHostCard : false,
+        includeHostCard:
+          typeof parsed.includeHostCard === "boolean" ? parsed.includeHostCard : false,
         filter,
         sort,
       },
@@ -207,8 +206,10 @@ function parseStatusInClause(
   if (!isVarRef(left, "status")) return null;
   if (!Array.isArray(right)) return null;
 
-  return right.filter((item): item is (typeof TOGGLE_LIST_STATUS_ORDER)[number] =>
-    typeof item === "string" && TOGGLE_LIST_STATUS_ORDER.includes(item as (typeof TOGGLE_LIST_STATUS_ORDER)[number]),
+  return right.filter(
+    (item): item is (typeof TOGGLE_LIST_STATUS_ORDER)[number] =>
+      typeof item === "string" &&
+      TOGGLE_LIST_STATUS_ORDER.includes(item as (typeof TOGGLE_LIST_STATUS_ORDER)[number]),
   );
 }
 
@@ -254,8 +255,10 @@ function parsePriorityInClause(
   if (!isVarRef(left, "priority")) return null;
   if (!Array.isArray(right)) return null;
 
-  const values = right.filter((item): item is (typeof TOGGLE_LIST_PRIORITY_ORDER)[number] =>
-    typeof item === "string" && TOGGLE_LIST_PRIORITY_ORDER.includes(item as (typeof TOGGLE_LIST_PRIORITY_ORDER)[number]),
+  const values = right.filter(
+    (item): item is (typeof TOGGLE_LIST_PRIORITY_ORDER)[number] =>
+      typeof item === "string" &&
+      TOGGLE_LIST_PRIORITY_ORDER.includes(item as (typeof TOGGLE_LIST_PRIORITY_ORDER)[number]),
   );
   return { field: "priority", op: "in", values, includeEmpty: false };
 }
@@ -263,17 +266,18 @@ function parsePriorityInClause(
 function isPriorityEmptyExpression(value: unknown): boolean {
   if (!isRecord(value)) return false;
 
-  if (Array.isArray(value.missing) && value.missing.length === 1 && value.missing[0] === "priority") {
+  if (
+    Array.isArray(value.missing) &&
+    value.missing.length === 1 &&
+    value.missing[0] === "priority"
+  ) {
     return true;
   }
 
   return isNullEqualityVarRef(value, "priority");
 }
 
-function isNullEqualityVarRef(
-  value: Record<string, unknown>,
-  key: string,
-): boolean {
+function isNullEqualityVarRef(value: Record<string, unknown>, key: string): boolean {
   return ["==", "==="].some((operator) => {
     const expression = value[operator];
     if (!Array.isArray(expression) || expression.length !== 2) return false;
@@ -353,7 +357,9 @@ function isVarRef(value: unknown, name: string): boolean {
 }
 
 function isRankField(value: unknown): value is ToggleListRankField {
-  return typeof value === "string" && TOGGLE_LIST_RANK_FIELDS.includes(value as ToggleListRankField);
+  return (
+    typeof value === "string" && TOGGLE_LIST_RANK_FIELDS.includes(value as ToggleListRankField)
+  );
 }
 
 function isRankDirection(value: unknown): value is ToggleListRankDirection {

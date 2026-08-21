@@ -4,9 +4,7 @@ import {
   type WorkbenchTabKind,
 } from "@/lib/types";
 
-export type WorkbenchPanelActionKind =
-  | Exclude<WorkbenchTabKind, "image_editor">
-  | "side_chat";
+export type WorkbenchPanelActionKind = Exclude<WorkbenchTabKind, "image_editor"> | "side_chat";
 
 export type WorkbenchPanelActionUnavailableReason =
   | "no_session"
@@ -54,9 +52,7 @@ const PROJECTLESS_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
   "terminal",
 ];
 
-const ALL_ACTION_KINDS: readonly WorkbenchPanelActionKind[] = [
-  ...PROJECT_ACTION_ORDER,
-];
+const ALL_ACTION_KINDS: readonly WorkbenchPanelActionKind[] = [...PROJECT_ACTION_ORDER];
 
 const RIGHT_PANEL_ACTIONS = new Set<WorkbenchPanelActionKind>(ALL_ACTION_KINDS);
 const BOTTOM_PANEL_ACTIONS = new Set<WorkbenchPanelActionKind>([
@@ -71,9 +67,7 @@ const PROJECT_REQUIRED_ACTIONS = new Set<WorkbenchPanelActionKind>([
   "page_stage",
   "canvas_stage",
 ]);
-const SINGLETON_ACTIONS = new Set<WorkbenchPanelActionKind>(
-  PROJECT_SESSION_SINGLETON_TAB_KINDS,
-);
+const SINGLETON_ACTIONS = new Set<WorkbenchPanelActionKind>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 
 function unavailable(
   reason: WorkbenchPanelActionUnavailableReason,
@@ -88,9 +82,7 @@ function resolveActionCapability(
 ): WorkbenchPanelActionCapability {
   if (!input.hasSession) return unavailable("no_session");
 
-  const supportedActions = input.panelId === "right"
-    ? RIGHT_PANEL_ACTIONS
-    : BOTTOM_PANEL_ACTIONS;
+  const supportedActions = input.panelId === "right" ? RIGHT_PANEL_ACTIONS : BOTTOM_PANEL_ACTIONS;
   if (!supportedActions.has(kind)) return unavailable("panel_not_supported");
 
   if (input.projectId === null && PROJECT_REQUIRED_ACTIONS.has(kind)) {
@@ -124,14 +116,9 @@ export function resolveWorkbenchPanelCapabilities(
 ): WorkbenchPanelCapabilities {
   const existingTabKinds = new Set(input.existingTabKinds ?? []);
   const actions = Object.fromEntries(
-    ALL_ACTION_KINDS.map((kind) => [
-      kind,
-      resolveActionCapability(kind, input, existingTabKinds),
-    ]),
+    ALL_ACTION_KINDS.map((kind) => [kind, resolveActionCapability(kind, input, existingTabKinds)]),
   ) as Record<WorkbenchPanelActionKind, WorkbenchPanelActionCapability>;
-  const orderedKinds = input.projectId === null
-    ? PROJECTLESS_ACTION_ORDER
-    : PROJECT_ACTION_ORDER;
+  const orderedKinds = input.projectId === null ? PROJECTLESS_ACTION_ORDER : PROJECT_ACTION_ORDER;
 
   return {
     actions,

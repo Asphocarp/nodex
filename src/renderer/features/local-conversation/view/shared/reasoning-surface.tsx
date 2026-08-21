@@ -103,7 +103,9 @@ function formatElapsedDuration(elapsedMs: number): string | null {
 
 function useReasoningElapsedLabel(isInProgress: boolean): string | null {
   const [now, setNow] = useState(() => Date.now());
-  const [startedAt, setStartedAt] = useState<number | null>(() => (isInProgress ? Date.now() : null));
+  const [startedAt, setStartedAt] = useState<number | null>(() =>
+    isInProgress ? Date.now() : null,
+  );
   const [settledElapsedMs, setSettledElapsedMs] = useState<number | null>(null);
   const previousInProgressRef = useRef(isInProgress);
 
@@ -157,21 +159,27 @@ export function ReasoningSurface({
   const isInProgress = item.status === "inProgress";
   const elapsedLabel = useReasoningElapsedLabel(isInProgress);
   const summaryLabel = resolveReasoningHeaderLabel(isInProgress, elapsedLabel);
-  const richBudget = useMemo(() => classifyContentBudget({
-    value: content,
-    maxBytes: RICH_MARKDOWN_MAX_BYTES,
-    maxLines: RICH_MARKDOWN_MAX_LINES,
-  }), [content]);
+  const richBudget = useMemo(
+    () =>
+      classifyContentBudget({
+        value: content,
+        maxBytes: RICH_MARKDOWN_MAX_BYTES,
+        maxLines: RICH_MARKDOWN_MAX_LINES,
+      }),
+    [content],
+  );
   const sections = useMemo(
-    () => richBudget.kind === "withinBudget"
-      ? extractReasoningSections(content)
-      : { heading: null, body: content },
+    () =>
+      richBudget.kind === "withinBudget"
+        ? extractReasoningSections(content)
+        : { heading: null, body: content },
     [content, richBudget.kind],
   );
   const previewBody = useMemo(
-    () => richBudget.kind === "withinBudget"
-      ? stripReasoningPreviewHeading(content).trimStart()
-      : content,
+    () =>
+      richBudget.kind === "withinBudget"
+        ? stripReasoningPreviewHeading(content).trimStart()
+        : content,
     [content, richBudget.kind],
   );
   const hasCompletedBody = !isInProgress && sections.body.trim().length > 0;
@@ -195,7 +203,9 @@ export function ReasoningSurface({
   }, [isInProgress, previewBody]);
 
   const renderedBody = isInProgress ? previewBody : sections.body;
-  const shouldRenderBody = isInProgress ? previewBody.trim().length > 0 : expanded && hasCompletedBody;
+  const shouldRenderBody = isInProgress
+    ? previewBody.trim().length > 0
+    : expanded && hasCompletedBody;
   const canToggle = hasCompletedBody;
 
   const header = (

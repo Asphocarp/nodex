@@ -5,18 +5,8 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useCanonicalOrderHandoff } from "@/lib/use-canonical-order-handoff";
 
 export const SIDEBAR_GROUP_DND_PREFIX = "sidebar-group:";
@@ -73,9 +63,7 @@ export function parseSidebarGroupDndId(id: string): string | null {
 
 export function readSidebarGroupDndPayload(value: unknown): SidebarGroupDndPayload | null {
   if (!value || typeof value !== "object") return null;
-  return Reflect.get(value, "kind") === "sidebar-group"
-    ? value as SidebarGroupDndPayload
-    : null;
+  return Reflect.get(value, "kind") === "sidebar-group" ? (value as SidebarGroupDndPayload) : null;
 }
 
 function sameStringOrder(left: readonly string[], right: readonly string[]): boolean {
@@ -91,9 +79,8 @@ export function moveSidebarGroupBefore(
   if (!groupIds.includes(activeGroupId)) return [...groupIds];
 
   const remainingGroupIds = groupIds.filter((groupId) => groupId !== activeGroupId);
-  const insertionIndex = beforeGroupId === null
-    ? remainingGroupIds.length
-    : remainingGroupIds.indexOf(beforeGroupId);
+  const insertionIndex =
+    beforeGroupId === null ? remainingGroupIds.length : remainingGroupIds.indexOf(beforeGroupId);
   if (insertionIndex < 0) return [...groupIds];
 
   return [
@@ -195,47 +182,52 @@ export function useSidebarGroupReorderController({
     [orderHandoff.displayedIds],
   );
 
-  const resolveDropTarget = useCallback((
-    event: DragOverEvent | DragEndEvent,
-    pointerY: number | null,
-  ) => resolveSidebarGroupDropTarget({
-    groupIds: displayedGroupIds,
-    activeGroupId: parseSidebarGroupDndId(String(event.active.id)),
-    overGroupId: event.over ? parseSidebarGroupDndId(String(event.over.id)) : null,
-    activeRect: event.active.rect.current.translated,
-    overRect: event.over?.rect ?? null,
-    pointerY,
-  }), [displayedGroupIds]);
+  const resolveDropTarget = useCallback(
+    (event: DragOverEvent | DragEndEvent, pointerY: number | null) =>
+      resolveSidebarGroupDropTarget({
+        groupIds: displayedGroupIds,
+        activeGroupId: parseSidebarGroupDndId(String(event.active.id)),
+        overGroupId: event.over ? parseSidebarGroupDndId(String(event.over.id)) : null,
+        activeRect: event.active.rect.current.translated,
+        overRect: event.over?.rect ?? null,
+        pointerY,
+      }),
+    [displayedGroupIds],
+  );
 
-  const controller = useMemo<SidebarGroupDndController>(() => ({
-    handleDragOver(event, pointerY) {
-      setDropTarget(resolveDropTarget(event, pointerY));
-    },
-    handleDragCancel() {
-      setDropTarget(null);
-    },
-    handleDragEnd(event, pointerY) {
-      const activeId = parseSidebarGroupDndId(String(event.active.id));
-      const target = resolveDropTarget(event, pointerY);
-      setDropTarget(null);
-      if (!activeId || !target) {
-        return;
-      }
+  const controller = useMemo<SidebarGroupDndController>(
+    () => ({
+      handleDragOver(event, pointerY) {
+        setDropTarget(resolveDropTarget(event, pointerY));
+      },
+      handleDragCancel() {
+        setDropTarget(null);
+      },
+      handleDragEnd(event, pointerY) {
+        const activeId = parseSidebarGroupDndId(String(event.active.id));
+        const target = resolveDropTarget(event, pointerY);
+        setDropTarget(null);
+        if (!activeId || !target) {
+          return;
+        }
 
-      const nextGroupIds = moveSidebarGroupBefore(
-        displayedGroupIds,
-        activeId,
-        target.beforeGroupId,
-      );
-      orderHandoff.submit(nextGroupIds, () => reorderGroups(nextGroupIds));
-    },
-  }), [displayedGroupIds, orderHandoff, reorderGroups, resolveDropTarget]);
+        const nextGroupIds = moveSidebarGroupBefore(
+          displayedGroupIds,
+          activeId,
+          target.beforeGroupId,
+        );
+        orderHandoff.submit(nextGroupIds, () => reorderGroups(nextGroupIds));
+      },
+    }),
+    [displayedGroupIds, orderHandoff, reorderGroups, resolveDropTarget],
+  );
 
-  const dropIndicatorIndex = dropTarget === null
-    ? null
-    : dropTarget.beforeGroupId === null
-      ? displayedGroupIds.length
-      : displayedGroupIds.indexOf(dropTarget.beforeGroupId);
+  const dropIndicatorIndex =
+    dropTarget === null
+      ? null
+      : dropTarget.beforeGroupId === null
+        ? displayedGroupIds.length
+        : displayedGroupIds.indexOf(dropTarget.beforeGroupId);
 
   return {
     controller,

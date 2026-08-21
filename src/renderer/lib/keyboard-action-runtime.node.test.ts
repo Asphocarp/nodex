@@ -13,9 +13,7 @@ const defaultPolicy: KeyboardActionPolicy = {
   allowRepeat: false,
 };
 
-function event(
-  overrides: Partial<KeyboardActionEventLike> = {},
-): KeyboardActionEventLike {
+function event(overrides: Partial<KeyboardActionEventLike> = {}): KeyboardActionEventLike {
   return {
     target: null,
     defaultPrevented: false,
@@ -58,10 +56,9 @@ describe("keyboard action ownership", () => {
     expect(keyboardActionMayRun(event({ isComposing: true }), defaultPolicy)).toBe(false);
     expect(keyboardActionMayRun(event({ keyCode: 229 }), defaultPolicy)).toBe(false);
     expect(keyboardActionMayRun(event({ repeat: true }), defaultPolicy)).toBe(false);
-    expect(keyboardActionMayRun(
-      event({ repeat: true }),
-      { ...defaultPolicy, allowRepeat: true },
-    )).toBe(true);
+    expect(
+      keyboardActionMayRun(event({ repeat: true }), { ...defaultPolicy, allowRepeat: true }),
+    ).toBe(true);
   });
 
   test("keeps editable and local surface keys with their nearest owner", () => {
@@ -76,57 +73,107 @@ describe("keyboard action ownership", () => {
     const terminalSurface = element({ tagName: "DIV", scope: "terminal" });
 
     for (const target of [textInput, textarea, combobox, editable]) {
-      expect(keyboardActionMayRun(event({
-        target,
-        composedPath: () => [target],
-      }), defaultPolicy)).toBe(false);
+      expect(
+        keyboardActionMayRun(
+          event({
+            target,
+            composedPath: () => [target],
+          }),
+          defaultPolicy,
+        ),
+      ).toBe(false);
     }
-    expect(keyboardActionMayRun(event({
-      target: textInput,
-      composedPath: () => [textInput],
-    }), { ...defaultPolicy, runWithEditableFocus: true })).toBe(true);
-    expect(keyboardActionMayRun(event({
-      target: checkbox,
-      composedPath: () => [checkbox],
-    }), defaultPolicy)).toBe(true);
-    expect(keyboardActionMayRun(event({
-      target: explicitlyStatic,
-      composedPath: () => [explicitlyStatic],
-    }), defaultPolicy)).toBe(true);
+    expect(
+      keyboardActionMayRun(
+        event({
+          target: textInput,
+          composedPath: () => [textInput],
+        }),
+        { ...defaultPolicy, runWithEditableFocus: true },
+      ),
+    ).toBe(true);
+    expect(
+      keyboardActionMayRun(
+        event({
+          target: checkbox,
+          composedPath: () => [checkbox],
+        }),
+        defaultPolicy,
+      ),
+    ).toBe(true);
+    expect(
+      keyboardActionMayRun(
+        event({
+          target: explicitlyStatic,
+          composedPath: () => [explicitlyStatic],
+        }),
+        defaultPolicy,
+      ),
+    ).toBe(true);
 
-    expect(keyboardActionMayRun(event({
-      target: child,
-      composedPath: () => [child, localSurface],
-    }), defaultPolicy)).toBe(false);
-    expect(keyboardActionMayRun(event({
-      target: child,
-      composedPath: () => [child, localSurface],
-    }), { ...defaultPolicy, runInsideLocalSurface: true })).toBe(true);
-    expect(keyboardActionMayRun(event({
-      target: child,
-      composedPath: () => [child, localSurface, terminalSurface],
-    }), { ...defaultPolicy, runInsideLocalSurface: true })).toBe(false);
-    expect(keyboardActionMayRun(event({
-      target: child,
-      composedPath: () => [child, localSurface, terminalSurface],
-    }), {
-      ...defaultPolicy,
-      runInsideLocalSurface: true,
-      runInsideTerminal: true,
-    })).toBe(true);
+    expect(
+      keyboardActionMayRun(
+        event({
+          target: child,
+          composedPath: () => [child, localSurface],
+        }),
+        defaultPolicy,
+      ),
+    ).toBe(false);
+    expect(
+      keyboardActionMayRun(
+        event({
+          target: child,
+          composedPath: () => [child, localSurface],
+        }),
+        { ...defaultPolicy, runInsideLocalSurface: true },
+      ),
+    ).toBe(true);
+    expect(
+      keyboardActionMayRun(
+        event({
+          target: child,
+          composedPath: () => [child, localSurface, terminalSurface],
+        }),
+        { ...defaultPolicy, runInsideLocalSurface: true },
+      ),
+    ).toBe(false);
+    expect(
+      keyboardActionMayRun(
+        event({
+          target: child,
+          composedPath: () => [child, localSurface, terminalSurface],
+        }),
+        {
+          ...defaultPolicy,
+          runInsideLocalSurface: true,
+          runInsideTerminal: true,
+        },
+      ),
+    ).toBe(true);
   });
 
   test("projects semantic keyboard context through the composed path", () => {
     const editor = element({ tagName: "DIV" });
     const composer = element({ tagName: "DIV", context: "composer" });
 
-    expect(keyboardActionHasContext(event({
-      target: editor,
-      composedPath: () => [editor, composer],
-    }), "composer")).toBe(true);
-    expect(keyboardActionHasContext(event({
-      target: editor,
-      composedPath: () => [editor],
-    }), "composer")).toBe(false);
+    expect(
+      keyboardActionHasContext(
+        event({
+          target: editor,
+          composedPath: () => [editor, composer],
+        }),
+        "composer",
+      ),
+    ).toBe(true);
+    expect(
+      keyboardActionHasContext(
+        event({
+          target: editor,
+          composedPath: () => [editor],
+        }),
+        "composer",
+      ),
+    ).toBe(false);
   });
 });

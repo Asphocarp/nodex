@@ -4,22 +4,10 @@ import "../../globals.css";
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
 import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "@/components/board/editor/nfm-blocknote-floating-ui";
 import { Circle } from "@/components/shared/icons/generic-icons";
-import {
-  NodexDropdownButtonTrigger,
-  NodexDropdownMenu,
-  NodexOptionPicker,
-} from "./dropdown";
+import { NodexDropdownButtonTrigger, NodexDropdownMenu, NodexOptionPicker } from "./dropdown";
 import { NodexHoverCard, NodexHoverCardProvider } from "./hover-card";
-import {
-  NodexPopover,
-  NodexPopoverAnchor,
-  NodexPopoverContent,
-} from "./popover";
-import {
-  __resetNodexToastStoreForTests,
-  NodexToastProvider,
-  toast,
-} from "./toast";
+import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "./popover";
+import { __resetNodexToastStoreForTests, NodexToastProvider, toast } from "./toast";
 import { NodexTooltip, NodexTooltipProvider } from "./tooltip";
 
 const settleFloatingSurface = async (): Promise<void> => {
@@ -64,7 +52,8 @@ describe("shared floating UI in Chromium", () => {
     const levelIcon = alert.querySelector("svg");
     if (!levelIcon) throw new Error("Expected a toast level icon.");
 
-    const surfaceCenter = alert.getBoundingClientRect().top + alert.getBoundingClientRect().height / 2;
+    const surfaceCenter =
+      alert.getBoundingClientRect().top + alert.getBoundingClientRect().height / 2;
     for (const element of [title, restore, dismiss, levelIcon]) {
       const rect = element.getBoundingClientRect();
       expect(Math.abs(rect.top + rect.height / 2 - surfaceCenter)).toBeLessThanOrEqual(1);
@@ -94,12 +83,12 @@ describe("shared floating UI in Chromium", () => {
               leftSlot: <ProbeIcon testId="menu-status-icon" />,
             },
           ]}
-          triggerButton={(
+          triggerButton={
             <NodexDropdownButtonTrigger size="xs" shape="pill" showChevron={false}>
               <ProbeIcon testId="dropdown-chip-status-icon" />
               Triage
             </NodexDropdownButtonTrigger>
-          )}
+          }
         />
       </div>,
     );
@@ -132,9 +121,7 @@ describe("shared floating UI in Chromium", () => {
           { value: "bundle", label: "Readable bundle" },
         ]}
         onValueChange={() => undefined}
-        triggerButton={(
-          <NodexDropdownButtonTrigger>Project</NodexDropdownButtonTrigger>
-        )}
+        triggerButton={<NodexDropdownButtonTrigger>Project</NodexDropdownButtonTrigger>}
       />,
     );
 
@@ -234,7 +221,7 @@ describe("shared floating UI in Chromium", () => {
         <NodexHoverCard
           defaultOpen
           ariaLabel="Floating owner"
-          hoverCardContent={(
+          hoverCardContent={
             <NodexPopover open>
               <NodexPopoverAnchor asChild>
                 <button type="button">Nested hover-card action</button>
@@ -243,7 +230,7 @@ describe("shared floating UI in Chromium", () => {
                 Nested child
               </NodexPopoverContent>
             </NodexPopover>
-          )}
+          }
         >
           <button type="button">Hover-card trigger</button>
         </NodexHoverCard>

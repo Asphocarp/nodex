@@ -1,8 +1,4 @@
-import {
-  BrowserWindow,
-  type BrowserWindowConstructorOptions,
-  type NativeImage,
-} from "electron";
+import { BrowserWindow, type BrowserWindowConstructorOptions, type NativeImage } from "electron";
 import {
   BROWSER_SIDEBAR_PARTITION,
   type BrowserSidebarLocalServerThumbnailResult,
@@ -37,10 +33,7 @@ function isLocalHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/gu, "");
   if (normalized === "localhost" || normalized === "::1") return true;
   const match = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u.exec(normalized);
-  return Boolean(
-    match
-    && match.slice(1).every((octet) => Number.parseInt(octet, 10) <= 255),
-  );
+  return Boolean(match && match.slice(1).every((octet) => Number.parseInt(octet, 10) <= 255));
 }
 
 export function normalizeLocalServerThumbnailUrl(rawUrl: string): string | null {
@@ -48,10 +41,10 @@ export function normalizeLocalServerThumbnailUrl(rawUrl: string): string | null 
   try {
     const url = new URL(rawUrl);
     if (
-      !["http:", "https:"].includes(url.protocol)
-      || url.username.length > 0
-      || url.password.length > 0
-      || !isLocalHostname(url.hostname)
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username.length > 0 ||
+      url.password.length > 0 ||
+      !isLocalHostname(url.hostname)
     ) {
       return null;
     }
@@ -82,19 +75,13 @@ function createThumbnailWindowOptions(): BrowserWindowConstructorOptions {
   };
 }
 
-async function withTimeout<Value>(
-  promise: Promise<Value>,
-  timeoutMs: number,
-): Promise<Value> {
+async function withTimeout<Value>(promise: Promise<Value>, timeoutMs: number): Promise<Value> {
   let timeout: NodeJS.Timeout | null = null;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error("Local server preview timed out")),
-          timeoutMs,
-        );
+        timeout = setTimeout(() => reject(new Error("Local server preview timed out")), timeoutMs);
       }),
     ]);
   } finally {
@@ -110,8 +97,8 @@ function imageToBoundedDataUrl(image: NativeImage): string {
   });
   const dataUrl = resized.toDataURL();
   if (
-    !dataUrl.startsWith("data:image/png;base64,")
-    || dataUrl.length > MAX_THUMBNAIL_DATA_URL_LENGTH
+    !dataUrl.startsWith("data:image/png;base64,") ||
+    dataUrl.length > MAX_THUMBNAIL_DATA_URL_LENGTH
   ) {
     throw new Error("Local server preview exceeded its image budget");
   }
@@ -121,10 +108,7 @@ function imageToBoundedDataUrl(image: NativeImage): string {
 async function captureElectronLocalServerThumbnail(url: string): Promise<string> {
   const window = new BrowserWindow(createThumbnailWindowOptions());
   const contents = window.webContents;
-  const preventUnsafeNavigation = (
-    event: { preventDefault(): void },
-    targetUrl: string,
-  ) => {
+  const preventUnsafeNavigation = (event: { preventDefault(): void }, targetUrl: string) => {
     if (normalizeLocalServerThumbnailUrl(targetUrl)) return;
     event.preventDefault();
   };
@@ -154,14 +138,8 @@ async function captureElectronLocalServerThumbnail(url: string): Promise<string>
 }
 
 export class BrowserLocalServerThumbnailService {
-  private readonly cache = new Map<
-    string,
-    BrowserLocalServerThumbnailCacheEntry
-  >();
-  private readonly pending = new Map<
-    string,
-    Promise<BrowserSidebarLocalServerThumbnailResult>
-  >();
+  private readonly cache = new Map<string, BrowserLocalServerThumbnailCacheEntry>();
+  private readonly pending = new Map<string, Promise<BrowserSidebarLocalServerThumbnailResult>>();
   private readonly queue: Array<() => void> = [];
   private readonly capture: BrowserLocalServerThumbnailCapture;
   private readonly maxConcurrency: number;
@@ -170,10 +148,7 @@ export class BrowserLocalServerThumbnailService {
 
   constructor(options: BrowserLocalServerThumbnailServiceOptions = {}) {
     this.capture = options.capture ?? captureElectronLocalServerThumbnail;
-    this.maxConcurrency = Math.max(
-      1,
-      Math.min(4, Math.floor(options.maxConcurrency ?? 2)),
-    );
+    this.maxConcurrency = Math.max(1, Math.min(4, Math.floor(options.maxConcurrency ?? 2)));
     this.now = options.now ?? Date.now;
   }
 
@@ -243,10 +218,12 @@ export class BrowserLocalServerThumbnailService {
     return new Promise<Value>((resolve, reject) => {
       const run = () => {
         this.activeCaptures += 1;
-        void operation().then(resolve, reject).finally(() => {
-          this.activeCaptures -= 1;
-          this.drainQueue();
-        });
+        void operation()
+          .then(resolve, reject)
+          .finally(() => {
+            this.activeCaptures -= 1;
+            this.drainQueue();
+          });
       };
       this.queue.push(run);
       this.drainQueue();
@@ -254,18 +231,12 @@ export class BrowserLocalServerThumbnailService {
   }
 
   private drainQueue(): void {
-    while (
-      this.activeCaptures < this.maxConcurrency
-      && this.queue.length > 0
-    ) {
+    while (this.activeCaptures < this.maxConcurrency && this.queue.length > 0) {
       this.queue.shift()?.();
     }
   }
 
-  private setCacheEntry(
-    url: string,
-    entry: BrowserLocalServerThumbnailCacheEntry,
-  ): void {
+  private setCacheEntry(url: string, entry: BrowserLocalServerThumbnailCacheEntry): void {
     this.cache.delete(url);
     this.cache.set(url, entry);
     while (this.cache.size > MAX_THUMBNAIL_CACHE_ENTRIES) {
@@ -275,10 +246,7 @@ export class BrowserLocalServerThumbnailService {
     }
   }
 
-  private touchCacheEntry(
-    url: string,
-    entry: BrowserLocalServerThumbnailCacheEntry,
-  ): void {
+  private touchCacheEntry(url: string, entry: BrowserLocalServerThumbnailCacheEntry): void {
     this.cache.delete(url);
     this.cache.set(url, entry);
   }

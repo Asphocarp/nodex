@@ -5,10 +5,7 @@ import {
   type AuthorityResource,
   type AuthorizedReadStamp,
 } from "../../shared/authorized-read-stamp";
-import {
-  deliveryAddressKey,
-  type DeliveryAddress,
-} from "../../shared/recipient-delivery";
+import { deliveryAddressKey, type DeliveryAddress } from "../../shared/recipient-delivery";
 
 export type AuthorityVisibilityChange = "grant" | "revoke";
 
@@ -87,8 +84,9 @@ const sameResources = (
 ): boolean => {
   const leftKeys = normalizeResources(left).map(authorityResourceKey);
   const rightKeys = normalizeResources(right).map(authorityResourceKey);
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key, index) => key === rightKeys[index]);
+  return (
+    leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index])
+  );
 };
 
 export class AuthorityFreshnessIndex {
@@ -100,14 +98,16 @@ export class AuthorityFreshnessIndex {
   readonly #onFenceError: ((error: unknown) => void) | undefined;
   readonly #addresses = new Map<string, AddressState>();
 
-  constructor(input: {
-    readonly maxAddresses?: number;
-    readonly maxRootFloors?: number;
-    readonly maxInFlightReads?: number;
-    readonly maxRegistrations?: number;
-    readonly readTimeoutMs?: number;
-    readonly onFenceError?: (error: unknown) => void;
-  } = {}) {
+  constructor(
+    input: {
+      readonly maxAddresses?: number;
+      readonly maxRootFloors?: number;
+      readonly maxInFlightReads?: number;
+      readonly maxRegistrations?: number;
+      readonly readTimeoutMs?: number;
+      readonly onFenceError?: (error: unknown) => void;
+    } = {},
+  ) {
     this.#maxAddresses = input.maxAddresses ?? DEFAULT_MAX_ADDRESSES;
     this.#maxRootFloors = input.maxRootFloors ?? DEFAULT_MAX_ROOT_FLOORS;
     this.#maxInFlightReads = input.maxInFlightReads ?? DEFAULT_MAX_IN_FLIGHT_READS;
@@ -131,10 +131,10 @@ export class AuthorityFreshnessIndex {
     readonly requestDependencies: readonly AuthorityResource[];
   }): AuthorityReadLease {
     if (
-      (input.storeEpoch !== undefined && !input.storeEpoch)
-      || !Number.isSafeInteger(input.observedCommitSeq)
-      || input.observedCommitSeq < 0
-      || input.requestDependencies.length < 1
+      (input.storeEpoch !== undefined && !input.storeEpoch) ||
+      !Number.isSafeInteger(input.observedCommitSeq) ||
+      input.observedCommitSeq < 0 ||
+      input.requestDependencies.length < 1
     ) {
       throw new TypeError("Authority read request is invalid");
     }
@@ -179,20 +179,16 @@ export class AuthorityFreshnessIndex {
     const state = this.#addresses.get(deliveryAddressKey(lease.deliveryAddress));
     const active = state?.inFlight.get(lease.leaseId);
     const replacedByStamp = Boolean(
-      state
-      && state.storeEpoch !== null
-      && state.storeEpoch !== stamp.store_epoch
-      && lease.storeEpoch === state.storeEpoch,
+      state &&
+      state.storeEpoch !== null &&
+      state.storeEpoch !== stamp.store_epoch &&
+      lease.storeEpoch === state.storeEpoch,
     );
     if (state && replacedByStamp) {
       this.#replaceEpoch(state, stamp.store_epoch, stamp.covered_commit_seq);
     }
     if (state && state.storeEpoch === null) state.storeEpoch = stamp.store_epoch;
-    if (
-      !state
-      || !active
-      || !this.#stampMatchesLease(state, lease, stamp, replacedByStamp)
-    ) {
+    if (!state || !active || !this.#stampMatchesLease(state, lease, stamp, replacedByStamp)) {
       const requiredCommitSeq = state
         ? Math.max(lease.observedCommitSeq, this.#requiredCommitSeq(state))
         : lease.observedCommitSeq;
@@ -215,19 +211,14 @@ export class AuthorityFreshnessIndex {
     const stamp = await verifyAuthorizedReadStamp(candidate);
     const key = deliveryAddressKey(stamp.delivery_address);
     const existing = this.#addresses.get(key);
-    if (existing && existing.storeEpoch !== null
-      && existing.storeEpoch !== stamp.store_epoch) {
+    if (existing && existing.storeEpoch !== null && existing.storeEpoch !== stamp.store_epoch) {
       throw new StaleAuthorizedReadError(this.#requiredCommitSeq(existing));
     }
-    const state = existing ?? this.#address(
-      stamp.delivery_address,
-      stamp.store_epoch,
-      0,
-    );
+    const state = existing ?? this.#address(stamp.delivery_address, stamp.store_epoch, 0);
     if (state.storeEpoch === null) state.storeEpoch = stamp.store_epoch;
     if (
-      stamp.covered_commit_seq < state.latestCommitSeq
-      || stamp.covered_commit_seq < state.addressFloor
+      stamp.covered_commit_seq < state.latestCommitSeq ||
+      stamp.covered_commit_seq < state.addressFloor
     ) {
       throw new StaleAuthorizedReadError(this.#requiredCommitSeq(state));
     }
@@ -245,9 +236,8 @@ export class AuthorityFreshnessIndex {
     }
     const roots = new Set(stamp.authorization_dependencies.map(authorityResourceKey));
     if (
-      roots.size > this.#maxRootFloors
-      || [...roots].some((root) =>
-        (state.rootFloors.get(root) ?? 0) > stamp.covered_commit_seq)
+      roots.size > this.#maxRootFloors ||
+      [...roots].some((root) => (state.rootFloors.get(root) ?? 0) > stamp.covered_commit_seq)
     ) {
       if (roots.size > this.#maxRootFloors) {
         this.#failClosed(state, state.latestCommitSeq);
@@ -327,11 +317,7 @@ export class AuthorityFreshnessIndex {
     readonly storeEpoch: string;
     readonly requiredCommitSeq: number;
   }): void {
-    const state = this.#address(
-      input.deliveryAddress,
-      input.storeEpoch,
-      input.requiredCommitSeq,
-    );
+    const state = this.#address(input.deliveryAddress, input.storeEpoch, input.requiredCommitSeq);
     this.#fenceAddress(state, input.requiredCommitSeq, "address_reset");
   }
 
@@ -367,8 +353,11 @@ export class AuthorityFreshnessIndex {
     const key = deliveryAddressKey(deliveryAddress);
     const existing = this.#addresses.get(key);
     if (existing) {
-      if (storeEpoch !== null && existing.storeEpoch !== null
-        && existing.storeEpoch !== storeEpoch) {
+      if (
+        storeEpoch !== null &&
+        existing.storeEpoch !== null &&
+        existing.storeEpoch !== storeEpoch
+      ) {
         this.#replaceEpoch(existing, storeEpoch, observedCommitSeq);
       }
       if (existing.storeEpoch === null && storeEpoch !== null) {
@@ -418,31 +407,24 @@ export class AuthorityFreshnessIndex {
     allowLeaseEpochReplacement: boolean,
   ): boolean {
     if (
-      (!allowLeaseEpochReplacement
-        && lease.storeEpoch !== null
-        && stamp.store_epoch !== lease.storeEpoch)
-      || (!allowLeaseEpochReplacement
-        && lease.addressGeneration !== state.generation)
-      || (state.storeEpoch !== null && stamp.store_epoch !== state.storeEpoch)
-      || deliveryAddressKey(stamp.delivery_address)
-        !== deliveryAddressKey(lease.deliveryAddress)
-      || authorityResourceKey(stamp.subject) !== authorityResourceKey(lease.subject)
-      || !sameResources(stamp.request_dependencies, lease.requestDependencies)
-      || (!allowLeaseEpochReplacement
-        && stamp.covered_commit_seq < lease.observedCommitSeq)
-      || stamp.covered_commit_seq < state.latestCommitSeq
-      || stamp.covered_commit_seq < state.addressFloor
+      (!allowLeaseEpochReplacement &&
+        lease.storeEpoch !== null &&
+        stamp.store_epoch !== lease.storeEpoch) ||
+      (!allowLeaseEpochReplacement && lease.addressGeneration !== state.generation) ||
+      (state.storeEpoch !== null && stamp.store_epoch !== state.storeEpoch) ||
+      deliveryAddressKey(stamp.delivery_address) !== deliveryAddressKey(lease.deliveryAddress) ||
+      authorityResourceKey(stamp.subject) !== authorityResourceKey(lease.subject) ||
+      !sameResources(stamp.request_dependencies, lease.requestDependencies) ||
+      (!allowLeaseEpochReplacement && stamp.covered_commit_seq < lease.observedCommitSeq) ||
+      stamp.covered_commit_seq < state.latestCommitSeq ||
+      stamp.covered_commit_seq < state.addressFloor
     ) {
       return false;
     }
     return true;
   }
 
-  #fenceAddress(
-    state: AddressState,
-    commitSeq: number,
-    kind: "address_reset",
-  ): void {
+  #fenceAddress(state: AddressState, commitSeq: number, kind: "address_reset"): void {
     state.generation += 1;
     state.latestCommitSeq = Math.max(state.latestCommitSeq, commitSeq);
     state.addressFloor = Math.max(state.addressFloor, commitSeq);
@@ -474,8 +456,7 @@ export class AuthorityFreshnessIndex {
     const activeRoots = new Set(
       [...state.registrations.values()].flatMap((registration) => [...registration.roots]),
     );
-    const inFlightFloors = [...state.inFlight.values()]
-      .map(({ lease }) => lease.observedCommitSeq);
+    const inFlightFloors = [...state.inFlight.values()].map(({ lease }) => lease.observedCommitSeq);
     for (const [root, floor] of state.rootFloors) {
       if (activeRoots.has(root)) continue;
       if (inFlightFloors.some((observed) => observed < floor)) continue;
@@ -484,19 +465,17 @@ export class AuthorityFreshnessIndex {
   }
 
   #inFlightCount(): number {
-    return [...this.#addresses.values()]
-      .reduce((total, state) => total + state.inFlight.size, 0);
+    return [...this.#addresses.values()].reduce((total, state) => total + state.inFlight.size, 0);
   }
 
   #registrationCount(): number {
-    return [...this.#addresses.values()]
-      .reduce((total, state) => total + state.registrations.size, 0);
+    return [...this.#addresses.values()].reduce(
+      (total, state) => total + state.registrations.size,
+      0,
+    );
   }
 
-  #requiredCommitSeq(
-    state: AddressState,
-    roots: ReadonlySet<string> = new Set(),
-  ): number {
+  #requiredCommitSeq(state: AddressState, roots: ReadonlySet<string> = new Set()): number {
     return Math.max(
       state.latestCommitSeq,
       state.addressFloor,

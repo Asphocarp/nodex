@@ -33,16 +33,17 @@ describe("LocalCommitAudienceBroker", () => {
       resolveLibraryId: () => "library-1",
     });
     const target = sender();
-    expect(() => broker.subscribe(target, {
-      ...address("foreign"),
-      library_id: "library-other",
-    })).toThrow("address is invalid");
+    expect(() =>
+      broker.subscribe(target, {
+        ...address("foreign"),
+        library_id: "library-other",
+      }),
+    ).toThrow("address is invalid");
     for (let index = 0; index < 200; index += 1) {
       broker.subscribe(target, address(`project-${index}`));
     }
 
-    expect(() => broker.subscribe(target, address("project-200")))
-      .toThrow("at most 200 addresses");
+    expect(() => broker.subscribe(target, address("project-200"))).toThrow("at most 200 addresses");
     expect(broker.diagnostics()).toMatchObject({
       subscriptions: 200,
       addresses: 200,
@@ -87,11 +88,13 @@ describe("LocalCommitAudienceBroker", () => {
       kind: "packet",
       packet: { delivery_address: address("project-1") },
     });
-    expect(scopes).toHaveBeenCalledWith([{
-      kind: "project",
-      libraryId: "library-1",
-      projectId: "project-1",
-    }]);
+    expect(scopes).toHaveBeenCalledWith([
+      {
+        kind: "project",
+        libraryId: "library-1",
+        projectId: "project-1",
+      },
+    ]);
 
     release();
     expect(broker.diagnostics().subscriptions).toBe(0);
@@ -157,11 +160,13 @@ describe("LocalCommitAudienceBroker", () => {
     );
     const firstReset = sent.at(-1)?.envelope;
     if (!firstReset) throw new Error("First recipient received no reset");
-    expect(router.admit(1, {
-      version: 2,
-      deliveryId: firstReset.deliveryId,
-      outcome: "ack",
-    })).toBe(true);
+    expect(
+      router.admit(1, {
+        version: 2,
+        deliveryId: firstReset.deliveryId,
+        outcome: "ack",
+      }),
+    ).toBe(true);
     sent.length = 0;
 
     broker.subscribe(sender(2), address("project-1"));
@@ -183,11 +188,13 @@ describe("LocalCommitAudienceBroker", () => {
     ]);
     const secondReset = sent.at(-1)?.envelope;
     if (!secondReset) throw new Error("Second recipient received no reset");
-    expect(router.admit(2, {
-      version: 2,
-      deliveryId: secondReset.deliveryId,
-      outcome: "ack",
-    })).toBe(true);
+    expect(
+      router.admit(2, {
+        version: 2,
+        deliveryId: secondReset.deliveryId,
+        outcome: "ack",
+      }),
+    ).toBe(true);
 
     sent.length = 0;
     const packet = createCoreLocalCommitFixture({

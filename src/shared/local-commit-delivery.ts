@@ -46,53 +46,54 @@ export const revocationsFromVisibilityDelta = (
   if (delta.change.kind !== "revoke") return [];
   const reason = delta.change.reason;
   return delta.roots.flatMap((root): readonly ResourceRevocation[] => {
-    const identity = root.kind === "page"
-      ? root.page_id
-      : root.kind === "document"
-        ? root.document_id
-        : root.kind === "database"
-          ? root.database_id
-          : root.kind === "data_source"
-            ? root.data_source_id
-            : root.kind === "view"
-              ? root.view_id
-              : root.kind === "canvas"
-                ? root.canvas_id
-                : null;
+    const identity =
+      root.kind === "page"
+        ? root.page_id
+        : root.kind === "document"
+          ? root.document_id
+          : root.kind === "database"
+            ? root.database_id
+            : root.kind === "data_source"
+              ? root.data_source_id
+              : root.kind === "view"
+                ? root.view_id
+                : root.kind === "canvas"
+                  ? root.canvas_id
+                  : null;
     if (identity === null || root.kind === "library" || root.kind === "project") {
       return [];
     }
-    return [{
-      authorization_scope: delta.authorization_scope,
-      resource_kind: root.kind,
-      resource_id: identity,
-      reason,
-    }];
+    return [
+      {
+        authorization_scope: delta.authorization_scope,
+        resource_kind: root.kind,
+        resource_id: identity,
+        reason,
+      },
+    ];
   });
 };
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const validIdentity = (value: unknown): boolean =>
-  isRecord(value)
-  && typeof value.store_epoch === "string"
-  && value.store_epoch.length > 0
-  && value.store_epoch === value.store_epoch.trim()
-  && Number.isSafeInteger(value.commit_seq)
-  && Number(value.commit_seq) > 0
-  && typeof value.manifest_hash === "string"
-  && HASH_PATTERN.test(value.manifest_hash);
+  isRecord(value) &&
+  typeof value.store_epoch === "string" &&
+  value.store_epoch.length > 0 &&
+  value.store_epoch === value.store_epoch.trim() &&
+  Number.isSafeInteger(value.commit_seq) &&
+  Number(value.commit_seq) > 0 &&
+  typeof value.manifest_hash === "string" &&
+  HASH_PATTERN.test(value.manifest_hash);
 
 const validObservation = (value: unknown): boolean =>
-  isRecord(value)
-  && typeof value.store_epoch === "string"
-  && value.store_epoch.length > 0
-  && value.store_epoch === value.store_epoch.trim()
-  && Number.isSafeInteger(value.commit_head)
-  && Number(value.commit_head) >= 0;
+  isRecord(value) &&
+  typeof value.store_epoch === "string" &&
+  value.store_epoch.length > 0 &&
+  value.store_epoch === value.store_epoch.trim() &&
+  Number.isSafeInteger(value.commit_head) &&
+  Number(value.commit_head) >= 0;
 
 /** Strictly parses the transport-neutral part of a Core ApplyResponse. */
 export const parseLocalCommitApply = (value: unknown): LocalCommitApply => {
@@ -134,9 +135,7 @@ export const projectionScopeCanReceive = (
   return projectIdOf(effect) === subscription.projectId;
 };
 
-const mapPatch = (
-  patch: CoreProjectionEffect["patch"],
-): ProjectionPatch | null => {
+const mapPatch = (patch: CoreProjectionEffect["patch"]): ProjectionPatch | null => {
   if (!patch) return null;
   if (patch.kind === "page_changed") {
     return {
@@ -186,9 +185,7 @@ const mapEffect = (effect: CoreProjectionEffect): ProjectionEffect => ({
   effectHash: effect.effect_hash,
 });
 
-const projectionImpactOf = (
-  effect: CoreProjectionEffect,
-): ProjectionDelivery["impact"] => {
+const projectionImpactOf = (effect: CoreProjectionEffect): ProjectionDelivery["impact"] => {
   const patch = effect.patch;
   if (!patch) {
     const scope = effect.scope.scope;
@@ -246,9 +243,7 @@ const projectionImpactOf = (
   }
   return {
     kind: "resources",
-    page_ids: [patch.kind === "database_row_remove"
-      ? patch.page_id
-      : patch.row.page_id],
+    page_ids: [patch.kind === "database_row_remove" ? patch.page_id : patch.row.page_id],
     database_ids: [patch.database_id],
     data_source_ids: [patch.data_source_id],
     view_ids: [patch.view_id],
@@ -287,8 +282,7 @@ export const revocationScopeCanReceive = (
   if (authorization.library_id !== subscription.libraryId) return false;
   if (authorization.kind === "library") return subscription.kind === "library";
   if (authorization.kind === "document") return false;
-  return subscription.kind === "project"
-    && subscription.projectId === authorization.project_id;
+  return subscription.kind === "project" && subscription.projectId === authorization.project_id;
 };
 
 export const revocationMessageFromDelivery = (

@@ -25,7 +25,7 @@ export const EditableTypeScript: Story = {
       "  name: string;",
       "};",
       "",
-      "export const project: Project = { id: \"nodex\", name: \"Nodex\" };",
+      'export const project: Project = { id: "nodex", name: "Nodex" };',
     ].join("\n"),
     filename: "project.ts",
     language: "typescript",

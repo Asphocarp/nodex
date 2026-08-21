@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  parseNativeRuntimeManifest,
-  swiftTargetForNativeRuntime,
-} from "./native-runtime-manifest";
+import { parseNativeRuntimeManifest, swiftTargetForNativeRuntime } from "./native-runtime-manifest";
 
 const manifest = {
   schemaVersion: 3,
@@ -62,24 +59,29 @@ describe("native runtime manifest", () => {
   });
 
   test("rejects cross-architecture and duplicate package inventories", () => {
-    expect(() => parseNativeRuntimeManifest({ ...manifest, rustTarget: "x86_64-apple-darwin" }))
-      .toThrow("Rust target");
-    expect(() => parseNativeRuntimeManifest({
-      ...manifest,
-      binaries: [
-        manifest.binaries[0],
-        manifest.binaries[0],
-        manifest.binaries[1],
-        manifest.binaries[2],
-        manifest.binaries[3],
-      ],
-    })).toThrow("each required binary exactly once");
+    expect(() =>
+      parseNativeRuntimeManifest({ ...manifest, rustTarget: "x86_64-apple-darwin" }),
+    ).toThrow("Rust target");
+    expect(() =>
+      parseNativeRuntimeManifest({
+        ...manifest,
+        binaries: [
+          manifest.binaries[0],
+          manifest.binaries[0],
+          manifest.binaries[1],
+          manifest.binaries[2],
+          manifest.binaries[3],
+        ],
+      }),
+    ).toThrow("each required binary exactly once");
   });
 
   test("rejects an unstable or missing product version", () => {
-    expect(() => parseNativeRuntimeManifest({ ...manifest, productVersion: "0.2.0-beta.1" }))
-      .toThrow("release semantic version");
-    expect(() => parseNativeRuntimeManifest({ ...manifest, productVersion: undefined }))
-      .toThrow("productVersion");
+    expect(() =>
+      parseNativeRuntimeManifest({ ...manifest, productVersion: "0.2.0-beta.1" }),
+    ).toThrow("release semantic version");
+    expect(() => parseNativeRuntimeManifest({ ...manifest, productVersion: undefined })).toThrow(
+      "productVersion",
+    );
   });
 });

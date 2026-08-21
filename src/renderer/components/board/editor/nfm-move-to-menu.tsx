@@ -8,9 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ActivitySpinnerIcon, NfmSideMenuChevronRightIcon } from "@/components/shared/icons";
-import {
-  resolveQueryFreshAccept,
-} from "@/lib/query-fresh-picker";
+import { resolveQueryFreshAccept } from "@/lib/query-fresh-picker";
 import { normalizeSearchText } from "@/lib/search-text";
 import { StatusIcon } from "@/lib/status-presentation";
 import type { BoardSummary, Project } from "@/lib/types";
@@ -69,9 +67,7 @@ const MOVE_TO_ROW_BASE_PADDING_X = 6;
 const MOVE_TO_ROW_GAP = 6;
 const MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH = 22;
 const MOVE_TO_ROW_COLUMN_PADDING_LEFT =
-  MOVE_TO_ROW_BASE_PADDING_X
-  + MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH
-  + MOVE_TO_ROW_GAP;
+  MOVE_TO_ROW_BASE_PADDING_X + MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH + MOVE_TO_ROW_GAP;
 
 function getMoveToRowDomId(listboxId: string, index: number) {
   return `${listboxId}-option-${index}`;
@@ -96,13 +92,7 @@ type NfmMoveToNonPageRow = Exclude<NfmMoveToRow, { kind: "page" }>;
 
 function MoveToRowIcon({ row }: { row: NfmMoveToNonPageRow }) {
   if (row.kind === "db-column") {
-    return (
-      <StatusIcon
-        statusId={row.columnId}
-        label={row.columnName}
-        className="size-4"
-      />
-    );
+    return <StatusIcon statusId={row.columnId} label={row.columnName} className="size-4" />;
   }
   return <MoveToProjectIcon projectAppearance={row.projectAppearance} />;
 }
@@ -155,13 +145,14 @@ function NfmMoveToResultRow({
       className={cn(
         "group flex h-7 w-full select-none items-center gap-1.5 rounded-[7px] pr-2 text-left text-[14px] leading-7 outline-hidden",
         "text-token-foreground",
-        disabled ? "cursor-default opacity-55" : "cursor-interaction hover:bg-token-list-hover-background",
+        disabled
+          ? "cursor-default opacity-55"
+          : "cursor-interaction hover:bg-token-list-hover-background",
         focused && "bg-token-list-hover-background",
       )}
       style={{
-        paddingLeft: row.kind === "db-column"
-          ? MOVE_TO_ROW_COLUMN_PADDING_LEFT
-          : MOVE_TO_ROW_BASE_PADDING_X,
+        paddingLeft:
+          row.kind === "db-column" ? MOVE_TO_ROW_COLUMN_PADDING_LEFT : MOVE_TO_ROW_BASE_PADDING_X,
       }}
       onPointerDown={keepEditorSelection}
       onPointerEnter={() => onFocusRowChange(row.id)}
@@ -253,24 +244,24 @@ function NfmMoveToSectionView({
 
   return (
     <NodexDestinationPickerSection label={section.label}>
-        {section.rows.map((row, offset) => {
-          const index = startIndex + offset;
-          return (
-            <NfmMoveToResultRow
-              key={row.id}
-              row={row}
-              index={index}
-              listboxId={listboxId}
-              focused={focusedIndex === index}
-              disabled={disabled}
-              accepting={acceptingRowId === row.id}
-              showProjectName={showProjectName}
-              onToggleProject={onToggleProject}
-              onAccept={onAccept}
-              onFocusRowChange={onFocusRowChange}
-            />
-          );
-        })}
+      {section.rows.map((row, offset) => {
+        const index = startIndex + offset;
+        return (
+          <NfmMoveToResultRow
+            key={row.id}
+            row={row}
+            index={index}
+            listboxId={listboxId}
+            focused={focusedIndex === index}
+            disabled={disabled}
+            accepting={acceptingRowId === row.id}
+            showProjectName={showProjectName}
+            onToggleProject={onToggleProject}
+            onAccept={onAccept}
+            onFocusRowChange={onFocusRowChange}
+          />
+        );
+      })}
     </NodexDestinationPickerSection>
   );
 }
@@ -284,20 +275,13 @@ export function NfmMoveToMenu({
   ariaLabel,
   placeholder,
 }: NfmMoveToMenuProps) {
-  const {
-    projects,
-    loading,
-    error,
-  } = useProjects();
-  const scopedProjects = getNfmMoveToExecutableProjects(
-    projects,
-    sourceProjectId,
-  );
-  const scopeError = error ?? (
-    !loading && sourceProjectId && scopedProjects.length === 0
+  const { projects, loading, error } = useProjects();
+  const scopedProjects = getNfmMoveToExecutableProjects(projects, sourceProjectId);
+  const scopeError =
+    error ??
+    (!loading && sourceProjectId && scopedProjects.length === 0
       ? "The current Project is unavailable."
-      : null
-  );
+      : null);
 
   return (
     <NfmMoveToMenuSurface
@@ -338,14 +322,15 @@ export function NfmMoveToMenuSurface({
   const comboboxId = useId();
   const [query, setQuery] = useState(initialQuery);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
-  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
-    () => getDefaultNfmMoveToExpandedProjectIds(projects, sourceProjectId),
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() =>
+    getDefaultNfmMoveToExpandedProjectIds(projects, sourceProjectId),
   );
   const defaultPageProjectId = getDefaultNfmMoveToProjectId(projects, sourceProjectId);
   const pageProjects = useMemo(
-    () => loadPageWindow && resultScope === "all"
-      ? projects.filter((project) => project.id === defaultPageProjectId)
-      : [],
+    () =>
+      loadPageWindow && resultScope === "all"
+        ? projects.filter((project) => project.id === defaultPageProjectId)
+        : [],
     [defaultPageProjectId, loadPageWindow, projects, resultScope],
   );
   const pageBoards = useBoardsForProjects(pageProjects);
@@ -384,18 +369,16 @@ export function NfmMoveToMenuSurface({
   }, [resolvedLoading]);
 
   const searchIndex = useMemo(
-    () => createNfmMoveToSearchIndex({
-      projects,
-      boardMap: pageBoardMap,
-      sourceProjectId,
-      sourcePageId,
-    }),
+    () =>
+      createNfmMoveToSearchIndex({
+        projects,
+        boardMap: pageBoardMap,
+        sourceProjectId,
+        sourcePageId,
+      }),
     [pageBoardMap, projects, sourcePageId, sourceProjectId],
   );
-  const searchResult = useMemo(
-    () => searchIndex.search(query),
-    [query, searchIndex],
-  );
+  const searchResult = useMemo(() => searchIndex.search(query), [query, searchIndex]);
   const pageSearchEnabled = enableRemotePageSearch && resultScope !== "db-only";
   const remoteSearchResult = useProjectPageDestinationSearch({
     projects,
@@ -409,16 +392,17 @@ export function NfmMoveToMenuSurface({
     [remoteSearchResult, searchResult],
   );
   const sections = useMemo(
-    () => buildNfmMoveToSections({
-      projects,
-      pageBoardMap,
-      sourceProjectId,
-      sourcePageId,
-      expandedProjectIds,
-      query,
-      searchResult: resolvedSearchResult,
-      resultScope,
-    }),
+    () =>
+      buildNfmMoveToSections({
+        projects,
+        pageBoardMap,
+        sourceProjectId,
+        sourcePageId,
+        expandedProjectIds,
+        query,
+        searchResult: resolvedSearchResult,
+        resultScope,
+      }),
     [
       pageBoardMap,
       expandedProjectIds,
@@ -431,42 +415,43 @@ export function NfmMoveToMenuSurface({
     ],
   );
   const rows = useMemo(() => flattenNfmMoveToRows(sections), [sections]);
-  const buildRowsForQuery = useCallback((nextQuery: string): readonly NfmMoveToRow[] => {
-    const nextSearchResult = normalizeSearchText(nextQuery) === resolvedSearchResult.normalizedQuery
-      ? resolvedSearchResult
-      : searchIndex.search(nextQuery);
-    const nextSections = buildNfmMoveToSections({
-      projects,
+  const buildRowsForQuery = useCallback(
+    (nextQuery: string): readonly NfmMoveToRow[] => {
+      const nextSearchResult =
+        normalizeSearchText(nextQuery) === resolvedSearchResult.normalizedQuery
+          ? resolvedSearchResult
+          : searchIndex.search(nextQuery);
+      const nextSections = buildNfmMoveToSections({
+        projects,
+        pageBoardMap,
+        sourceProjectId,
+        sourcePageId,
+        expandedProjectIds,
+        query: nextQuery,
+        searchResult: nextSearchResult,
+        resultScope,
+      });
+      return flattenNfmMoveToRows(nextSections);
+    },
+    [
       pageBoardMap,
-      sourceProjectId,
-      sourcePageId,
       expandedProjectIds,
-      query: nextQuery,
-      searchResult: nextSearchResult,
+      projects,
       resultScope,
-    });
-    return flattenNfmMoveToRows(nextSections);
-  }, [
-    pageBoardMap,
-    expandedProjectIds,
-    projects,
-    resultScope,
-    resolvedSearchResult,
-    searchIndex,
-    sourcePageId,
-    sourceProjectId,
-  ]);
-  const resolvedFocusedRowId = resolveNfmMoveToFocusedRowId(
-    focusedRowId,
-    query,
-    rows,
+      resolvedSearchResult,
+      searchIndex,
+      sourcePageId,
+      sourceProjectId,
+    ],
   );
+  const resolvedFocusedRowId = resolveNfmMoveToFocusedRowId(focusedRowId, query, rows);
   const focusedIndex = resolvedFocusedRowId
     ? rows.findIndex((row) => row.id === resolvedFocusedRowId)
     : -1;
-  const activeDescendantId = focusedIndex >= 0 && focusedIndex < rows.length
-    ? getMoveToRowDomId(listboxId, focusedIndex)
-    : undefined;
+  const activeDescendantId =
+    focusedIndex >= 0 && focusedIndex < rows.length
+      ? getMoveToRowDomId(listboxId, focusedIndex)
+      : undefined;
   const displayError = acceptError ?? resolvedLoadError;
   const visibleRowCount = rows.length;
   const disabled = Boolean(acceptingRowId);
@@ -484,45 +469,45 @@ export function NfmMoveToMenuSurface({
     });
   }, []);
 
-  const acceptRow = useCallback(async (row: NfmMoveToRow) => {
-    if (!isAcceptableMoveToRow(row)) return;
-    setAcceptError(null);
-    setAcceptingRowId(row.id);
-    try {
-      await onAccept(row.destination);
-      setAcceptingRowId(null);
-    } catch (error) {
-      console.error("[nfm-move-to:accept]", {
-        destination: row.destination,
-        error,
-      });
-      setAcceptError(
-        error instanceof Error && error.message.trim()
-          ? error.message
-          : MOVE_TO_MENU_ERROR,
-      );
-      setAcceptingRowId(null);
-    }
-  }, [onAccept]);
+  const acceptRow = useCallback(
+    async (row: NfmMoveToRow) => {
+      if (!isAcceptableMoveToRow(row)) return;
+      setAcceptError(null);
+      setAcceptingRowId(row.id);
+      try {
+        await onAccept(row.destination);
+        setAcceptingRowId(null);
+      } catch (error) {
+        console.error("[nfm-move-to:accept]", {
+          destination: row.destination,
+          error,
+        });
+        setAcceptError(
+          error instanceof Error && error.message.trim() ? error.message : MOVE_TO_MENU_ERROR,
+        );
+        setAcceptingRowId(null);
+      }
+    },
+    [onAccept],
+  );
 
-  const activateRow = useCallback((row: NfmMoveToRow | undefined) => {
-    if (!row || disabled) return;
-    if (row.kind === "db") {
-      toggleProject(row.projectId);
-      return;
-    }
-    void acceptRow(row);
-  }, [acceptRow, disabled, toggleProject]);
+  const activateRow = useCallback(
+    (row: NfmMoveToRow | undefined) => {
+      if (!row || disabled) return;
+      if (row.kind === "db") {
+        toggleProject(row.projectId);
+        return;
+      }
+      void acceptRow(row);
+    },
+    [acceptRow, disabled, toggleProject],
+  );
 
   const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setFocusedRowId((currentRowId) =>
-        moveNfmMoveToFocusedRowId(
-          resolveNfmMoveToFocusedRowId(currentRowId, query, rows),
-          1,
-          rows,
-        )
+        moveNfmMoveToFocusedRowId(resolveNfmMoveToFocusedRowId(currentRowId, query, rows), 1, rows),
       );
       return;
     }
@@ -533,7 +518,7 @@ export function NfmMoveToMenuSurface({
           resolveNfmMoveToFocusedRowId(currentRowId, query, rows),
           -1,
           rows,
-        )
+        ),
       );
       return;
     }
@@ -577,51 +562,47 @@ export function NfmMoveToMenuSurface({
       }}
       onKeyDown={handleInputKeyDown}
     >
-          {sections.map((section) => {
-            const startIndex = rowIndex;
-            rowIndex += section.rows.length;
-            return (
-              <NfmMoveToSectionView
-                key={section.key}
-                section={section}
-                listboxId={listboxId}
-                startIndex={startIndex}
-                focusedIndex={focusedIndex}
-                disabled={disabled}
-                acceptingRowId={acceptingRowId}
-                showProjectName={showProjectName}
-                onToggleProject={toggleProject}
-                onAccept={(row) => void acceptRow(row)}
-                onFocusRowChange={setFocusedRowId}
-              />
-            );
-          })}
-          {showDelayedLoading ? (
-            <NodexDestinationPickerStatus role="status">
-              <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
-              Loading…
-            </NodexDestinationPickerStatus>
-          ) : null}
-          {query && pageSearchEnabled && remoteSearchResult.enrichment === "loading" ? (
-            <NodexDestinationPickerStatus role="status">
-              {rows.length > 0 ? "Loading more Pages…" : "Loading Pages…"}
-            </NodexDestinationPickerStatus>
-          ) : null}
-          {query && pageSearchEnabled && remoteSearchResult.enrichment === "unavailable" ? (
-            <NodexDestinationPickerStatus role="status">
-              Full Page search is unavailable
-            </NodexDestinationPickerStatus>
-          ) : null}
-          {displayError ? (
-            <NodexDestinationPickerStatus role="alert">
-              {displayError}
-            </NodexDestinationPickerStatus>
-          ) : null}
-          {!resolvedLoading && !displayError && visibleRowCount === 0 ? (
-            <NodexDestinationPickerStatus role="status">
-              No results
-            </NodexDestinationPickerStatus>
-          ) : null}
+      {sections.map((section) => {
+        const startIndex = rowIndex;
+        rowIndex += section.rows.length;
+        return (
+          <NfmMoveToSectionView
+            key={section.key}
+            section={section}
+            listboxId={listboxId}
+            startIndex={startIndex}
+            focusedIndex={focusedIndex}
+            disabled={disabled}
+            acceptingRowId={acceptingRowId}
+            showProjectName={showProjectName}
+            onToggleProject={toggleProject}
+            onAccept={(row) => void acceptRow(row)}
+            onFocusRowChange={setFocusedRowId}
+          />
+        );
+      })}
+      {showDelayedLoading ? (
+        <NodexDestinationPickerStatus role="status">
+          <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
+          Loading…
+        </NodexDestinationPickerStatus>
+      ) : null}
+      {query && pageSearchEnabled && remoteSearchResult.enrichment === "loading" ? (
+        <NodexDestinationPickerStatus role="status">
+          {rows.length > 0 ? "Loading more Pages…" : "Loading Pages…"}
+        </NodexDestinationPickerStatus>
+      ) : null}
+      {query && pageSearchEnabled && remoteSearchResult.enrichment === "unavailable" ? (
+        <NodexDestinationPickerStatus role="status">
+          Full Page search is unavailable
+        </NodexDestinationPickerStatus>
+      ) : null}
+      {displayError ? (
+        <NodexDestinationPickerStatus role="alert">{displayError}</NodexDestinationPickerStatus>
+      ) : null}
+      {!resolvedLoading && !displayError && visibleRowCount === 0 ? (
+        <NodexDestinationPickerStatus role="status">No results</NodexDestinationPickerStatus>
+      ) : null}
     </NodexDestinationPicker>
   );
 }

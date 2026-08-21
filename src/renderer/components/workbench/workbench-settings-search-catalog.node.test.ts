@@ -4,10 +4,7 @@ import {
   buildSettingsSearchTargets,
   type SettingsSearchContext,
 } from "@/lib/settings-search";
-import {
-  SETTINGS_SECTIONS,
-  type SettingsSectionId,
-} from "./workbench-settings-sections";
+import { SETTINGS_SECTIONS, type SettingsSectionId } from "./workbench-settings-sections";
 
 const SEARCH_CONTEXT: SettingsSearchContext = {
   activeProjectName: "Nodex Workspace",

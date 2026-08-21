@@ -18,11 +18,7 @@ import {
 import { FileIcon } from "@/components/shared/icons";
 
 import { NodexButton } from "@/components/ui/button";
-import {
-  NodexDialog,
-  NodexDialogContent,
-  NodexDialogTitle,
-} from "@/components/ui/dialog";
+import { NodexDialog, NodexDialogContent, NodexDialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
@@ -64,10 +60,7 @@ interface HistoryPanelProps {
   onPageMutated?: () => void;
 }
 
-const matchesFilter = (
-  entry: PageHistoryEntry,
-  filter: HistoryFilter,
-): boolean => {
+const matchesFilter = (entry: PageHistoryEntry, filter: HistoryFilter): boolean => {
   if (filter === "revisions") return entry.kind === "document_version";
   return entry.kind !== "document_version";
 };
@@ -96,55 +89,58 @@ export function HistoryPanel({
   const [loading, setLoading] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
-  const [previewCache, setPreviewCache] = useState<
-    ReadonlyMap<string, DocumentVersionDetail>
-  >(() => new Map());
+  const [previewCache, setPreviewCache] = useState<ReadonlyMap<string, DocumentVersionDetail>>(
+    () => new Map(),
+  );
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
-  const loadFirstPage = useCallback(async (targetPageId: string) => {
-    const requestSerial = requestSerialRef.current + 1;
-    requestSerialRef.current = requestSerial;
-    setLoading(true);
-    setLoadingOlder(false);
-    setTimelineError(null);
-    setEntries([]);
-    setNextCursor(null);
-    setSelectedEntryId(null);
-    setPreviewCache(new Map());
-    try {
-      const result = await listPageHistory({
-        requestingProjectId: projectId,
-        pageId: targetPageId,
-        pageSize: DEFAULT_PAGE_HISTORY_PAGE_SIZE,
-      });
-      if (requestSerial !== requestSerialRef.current) return;
-      if (!result.ok) {
-        setEntries([]);
-        setNextCursor(null);
-        setTimelineError(result.error.message);
-        return;
-      }
-      setEntries(result.value.entries);
-      setNextCursor(result.value.nextCursor);
-      setSelectedEntryId((current) => {
-        if (current && result.value.entries.some((entry) => entry.id === current)) {
-          return current;
-        }
-        return "current";
-      });
-    } catch (error) {
-      if (requestSerial !== requestSerialRef.current) return;
+  const loadFirstPage = useCallback(
+    async (targetPageId: string) => {
+      const requestSerial = requestSerialRef.current + 1;
+      requestSerialRef.current = requestSerial;
+      setLoading(true);
+      setLoadingOlder(false);
+      setTimelineError(null);
       setEntries([]);
       setNextCursor(null);
-      setTimelineError(toErrorMessage(error, "Couldn’t load Page history."));
-    } finally {
-      if (requestSerial === requestSerialRef.current) setLoading(false);
-    }
-  }, [projectId]);
+      setSelectedEntryId(null);
+      setPreviewCache(new Map());
+      try {
+        const result = await listPageHistory({
+          requestingProjectId: projectId,
+          pageId: targetPageId,
+          pageSize: DEFAULT_PAGE_HISTORY_PAGE_SIZE,
+        });
+        if (requestSerial !== requestSerialRef.current) return;
+        if (!result.ok) {
+          setEntries([]);
+          setNextCursor(null);
+          setTimelineError(result.error.message);
+          return;
+        }
+        setEntries(result.value.entries);
+        setNextCursor(result.value.nextCursor);
+        setSelectedEntryId((current) => {
+          if (current && result.value.entries.some((entry) => entry.id === current)) {
+            return current;
+          }
+          return "current";
+        });
+      } catch (error) {
+        if (requestSerial !== requestSerialRef.current) return;
+        setEntries([]);
+        setNextCursor(null);
+        setTimelineError(toErrorMessage(error, "Couldn’t load Page history."));
+      } finally {
+        if (requestSerial === requestSerialRef.current) setLoading(false);
+      }
+    },
+    [projectId],
+  );
 
   useEffect(() => {
     if (!open || !pageId) return;
@@ -174,21 +170,13 @@ export function HistoryPanel({
   useEffect(() => {
     if (filter === "revisions" && selectedEntryId === "current") return;
     if (filteredEntries.some((entry) => entry.id === selectedEntryId)) return;
-    setSelectedEntryId(
-      filter === "revisions" ? "current" : filteredEntries[0]?.id ?? null,
-    );
+    setSelectedEntryId(filter === "revisions" ? "current" : (filteredEntries[0]?.id ?? null));
   }, [filter, filteredEntries, selectedEntryId]);
 
-  const selectedIsCurrent =
-    filter === "revisions" && selectedEntryId === "current";
-  const selectedIndex = filteredEntries.findIndex(
-    (entry) => entry.id === selectedEntryId,
-  );
-  const selectedEntry =
-    selectedIndex < 0 ? null : filteredEntries[selectedIndex] ?? null;
-  const selectedPreview = selectedEntry
-    ? previewCache.get(selectedEntry.id) ?? null
-    : null;
+  const selectedIsCurrent = filter === "revisions" && selectedEntryId === "current";
+  const selectedIndex = filteredEntries.findIndex((entry) => entry.id === selectedEntryId);
+  const selectedEntry = selectedIndex < 0 ? null : (filteredEntries[selectedIndex] ?? null);
+  const selectedPreview = selectedEntry ? (previewCache.get(selectedEntry.id) ?? null) : null;
 
   useEffect(() => {
     setConfirmingRestore(false);
@@ -212,55 +200,62 @@ export function HistoryPanel({
       projectId,
       documentId: selectedEntry.documentId,
       versionId: selectedEntry.versionMetadata.versionId,
-    }).then((result) => {
-      if (cancelled) return;
-      if (!result.ok) {
-        setPreviewError(result.error.message);
-        return;
-      }
-      setPreviewCache((current) => {
-        const next = new Map(current);
-        next.set(selectedEntry.id, result.value);
-        return next;
+    })
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setPreviewError(result.error.message);
+          return;
+        }
+        setPreviewCache((current) => {
+          const next = new Map(current);
+          next.set(selectedEntry.id, result.value);
+          return next;
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setPreviewError(toErrorMessage(error, "Revision preview is unavailable."));
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
       });
-    }).catch((error: unknown) => {
-      if (cancelled) return;
-      setPreviewError(toErrorMessage(error, "Revision preview is unavailable."));
-    }).finally(() => {
-      if (!cancelled) setPreviewLoading(false);
-    });
 
     return () => {
       cancelled = true;
     };
   }, [previewCache, projectId, selectedEntry]);
 
-  const navigate = useCallback((direction: -1 | 1) => {
-    const selectableIds = [
-      ...(filter === "revisions" ? ["current"] : []),
-      ...filteredEntries.map((entry) => entry.id),
-    ];
-    if (selectableIds.length === 0) return;
-    const currentIndex = selectableIds.indexOf(selectedEntryId ?? "");
-    const nextIndex = currentIndex < 0
-      ? 0
-      : Math.min(
-          selectableIds.length - 1,
-          Math.max(0, currentIndex + direction),
-        );
-    setSelectedEntryId(selectableIds[nextIndex] ?? null);
-  }, [filter, filteredEntries, selectedEntryId]);
+  const navigate = useCallback(
+    (direction: -1 | 1) => {
+      const selectableIds = [
+        ...(filter === "revisions" ? ["current"] : []),
+        ...filteredEntries.map((entry) => entry.id),
+      ];
+      if (selectableIds.length === 0) return;
+      const currentIndex = selectableIds.indexOf(selectedEntryId ?? "");
+      const nextIndex =
+        currentIndex < 0
+          ? 0
+          : Math.min(selectableIds.length - 1, Math.max(0, currentIndex + direction));
+      setSelectedEntryId(selectableIds[nextIndex] ?? null);
+    },
+    [filter, filteredEntries, selectedEntryId],
+  );
 
-  const handleTimelineKeyDown = useCallback((event: ReactKeyboardEvent) => {
-    if (event.key === "ArrowDown") {
+  const handleTimelineKeyDown = useCallback(
+    (event: ReactKeyboardEvent) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        navigate(1);
+        return;
+      }
+      if (event.key !== "ArrowUp") return;
       event.preventDefault();
-      navigate(1);
-      return;
-    }
-    if (event.key !== "ArrowUp") return;
-    event.preventDefault();
-    navigate(-1);
-  }, [navigate]);
+      navigate(-1);
+    },
+    [navigate],
+  );
 
   const handleLoadOlder = useCallback(async () => {
     if (!pageId || !nextCursor || loadingOlder) return;
@@ -329,11 +324,12 @@ export function HistoryPanel({
         pendingRestoreRef.current = pendingRestore;
       }
 
-      const commit = () => restoreDocumentVersion(
-        projectId,
-        pendingRestore.request.documentId,
-        pendingRestore.request,
-      );
+      const commit = () =>
+        restoreDocumentVersion(
+          projectId,
+          pendingRestore.request.documentId,
+          pendingRestore.request,
+        );
       let result;
       let retried = false;
       try {
@@ -359,14 +355,7 @@ export function HistoryPanel({
       restoreInFlightRef.current = false;
       setRestoring(false);
     }
-  }, [
-    auditSessionId,
-    pageId,
-    loadFirstPage,
-    onPageMutated,
-    projectId,
-    selectedEntry,
-  ]);
+  }, [auditSessionId, pageId, loadFirstPage, onPageMutated, projectId, selectedEntry]);
 
   if (!open) return null;
 
@@ -513,8 +502,7 @@ export function HistoryPanel({
               const showDate =
                 filter === "revisions" &&
                 (!previous ||
-                  formatHistoryDate(previous.occurredAt) !==
-                    formatHistoryDate(entry.occurredAt));
+                  formatHistoryDate(previous.occurredAt) !== formatHistoryDate(entry.occurredAt));
               return (
                 <div key={entry.id}>
                   {showDate ? (
@@ -586,9 +574,7 @@ export function HistoryCurrentRevisionPreview({
 }) {
   return (
     <article className="min-w-0">
-      <p className="mb-4 text-xs font-medium text-token-description-foreground">
-        Current content
-      </p>
+      <p className="mb-4 text-xs font-medium text-token-description-foreground">Current content</p>
       <h2 className="wrap-break-word text-xl/snug-plus font-semibold tracking-normal text-token-text-primary">
         {title || "Untitled Page"}
       </h2>
@@ -607,8 +593,8 @@ export function HistoryCurrentRevisionPreview({
         )}
       </div>
       <p className="mt-5 text-xs text-token-description-foreground">
-        This is the latest committed title and body. Historical revisions below
-        can be restored without removing newer history.
+        This is the latest committed title and body. Historical revisions below can be restored
+        without removing newer history.
       </p>
     </article>
   );
@@ -646,17 +632,16 @@ export function HistoryRevisionPreview({
     );
   }
 
-  const title = materialization.kind === "page"
-    ? materialization.title
-    : fallbackTitle ?? "Document revision";
+  const title =
+    materialization.kind === "page"
+      ? materialization.title
+      : (fallbackTitle ?? "Document revision");
   return (
     <article className="min-w-0">
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-token-description-foreground">
         <span>{formatRevisionKind(entry.versionMetadata.revisionKind)}</span>
         <span aria-hidden="true">·</span>
-        <time dateTime={entry.occurredAt}>
-          {formatAbsoluteTimestamp(entry.occurredAt)}
-        </time>
+        <time dateTime={entry.occurredAt}>{formatAbsoluteTimestamp(entry.occurredAt)}</time>
         {entry.display.actorLabel ? (
           <>
             <span aria-hidden="true">·</span>
@@ -682,8 +667,8 @@ export function HistoryRevisionPreview({
         )}
       </div>
       <p className="mt-5 text-xs text-token-description-foreground">
-        This revision contains the Page title and body. Restoring saves the
-        current state first, then creates a new forward change.
+        This revision contains the Page title and body. Restoring saves the current state first,
+        then creates a new forward change.
       </p>
     </article>
   );
@@ -706,16 +691,12 @@ export function HistoryTimelineDetails({
             {entry.display.title}
           </h2>
           {entry.display.detail ? (
-            <p className="mt-1 text-sm text-token-text-secondary">
-              {entry.display.detail}
-            </p>
+            <p className="mt-1 text-sm text-token-text-secondary">{entry.display.detail}</p>
           ) : null}
         </div>
       </div>
 
-      {children ? (
-        <p className="mt-4 text-sm text-token-text-secondary">{children}</p>
-      ) : null}
+      {children ? <p className="mt-4 text-sm text-token-text-secondary">{children}</p> : null}
 
       <dl className="mt-5 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
         {metadata.map(([label, value]) => (
@@ -766,8 +747,8 @@ function HistoryRecoveryFooter({
       ) : null}
       {confirming && recoverable ? (
         <p className="mb-2 text-xs text-token-text-secondary">
-          Nodex will save the current title and body first, then apply this
-          revision as a new forward change.
+          Nodex will save the current title and body first, then apply this revision as a new
+          forward change.
         </p>
       ) : null}
       {!recoverable ? (
@@ -793,11 +774,7 @@ function HistoryRecoveryFooter({
             disabled={restoring}
             onClick={confirming ? onConfirm : onRequestRestore}
           >
-            {restoring
-              ? "Restoring…"
-              : confirming
-                ? "Confirm restore"
-                : "Restore title & body"}
+            {restoring ? "Restoring…" : confirming ? "Confirm restore" : "Restore title & body"}
           </NodexButton>
         </div>
       )}
@@ -862,9 +839,7 @@ function CurrentHistoryEntryRow({
     >
       <History className="icon-2xs mt-0.5 shrink-0 text-token-description-foreground" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-token-text-primary">
-          Current
-        </span>
+        <span className="block truncate text-sm font-medium text-token-text-primary">Current</span>
         <span className="mt-0.5 block text-xs text-token-description-foreground">
           Latest title and body
         </span>
@@ -873,27 +848,27 @@ function CurrentHistoryEntryRow({
   );
 }
 
-function HistoryKindIcon({
-  entry,
-  className,
-}: {
-  entry: PageHistoryEntry;
-  className?: string;
-}) {
+function HistoryKindIcon({ entry, className }: { entry: PageHistoryEntry; className?: string }) {
   if (entry.kind === "document_version") {
-    return <FileIcon className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />;
+    return (
+      <FileIcon className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />
+    );
   }
   if (entry.kind === "block_relocation") {
-    return <Route className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />;
+    return (
+      <Route className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />
+    );
   }
-  return <GitCommitHorizontal className={cn("icon-2xs shrink-0 text-token-description-foreground", className)} />;
+  return (
+    <GitCommitHorizontal
+      className={cn("icon-2xs shrink-0 text-token-description-foreground", className)}
+    />
+  );
 }
 
 function HistoryEmptyState({ children }: { children: ReactNode }) {
   return (
-    <div className="py-10 text-center text-sm text-token-description-foreground">
-      {children}
-    </div>
+    <div className="py-10 text-center text-sm text-token-description-foreground">{children}</div>
   );
 }
 
@@ -976,9 +951,7 @@ const formatOptionalCount = (value: number | null): string =>
   value === null ? "Unknown" : String(value);
 
 const formatRevisionKind = (
-  kind: Extract<PageHistoryEntry, { kind: "document_version" }>[
-    "versionMetadata"
-  ]["revisionKind"],
+  kind: Extract<PageHistoryEntry, { kind: "document_version" }>["versionMetadata"]["revisionKind"],
 ): string => {
   switch (kind) {
     case "automatic":

@@ -1,14 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import {
-  chmod,
-  copyFile,
-  lstat,
-  mkdir,
-  mkdtemp,
-  realpath,
-  rm,
-} from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -22,10 +14,7 @@ import {
   writeIsolatedProfileManifest,
 } from "./isolated-profile-manifest";
 
-export type IsolatedCodexPolicy =
-  | "empty"
-  | "copy-config"
-  | "copy-auth-and-config";
+export type IsolatedCodexPolicy = "empty" | "copy-config" | "copy-auth-and-config";
 export type IsolatedProfileRetention = "dispose" | "keep";
 
 export interface IsolatedProfileOptions {
@@ -55,12 +44,14 @@ export interface IsolatedProfileCleanupResult {
 const ROOT_PREFIX = "ndx-scn-";
 const execFileAsync = promisify(execFile);
 
-const scenarioTempParent = (): string =>
-  process.platform === "darwin" ? "/tmp" : os.tmpdir();
+const scenarioTempParent = (): string => (process.platform === "darwin" ? "/tmp" : os.tmpdir());
 
 const sanitizedLabel = (label: string): string => {
-  const value = label.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-")
-    .replaceAll(/^-+|-+$/gu, "").slice(0, 24);
+  const value = label
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/gu, "-")
+    .replaceAll(/^-+|-+$/gu, "")
+    .slice(0, 24);
   return value || "scenario";
 };
 
@@ -102,10 +93,7 @@ const ensureOwnedRootShape = async (profile: IsolatedProfile): Promise<void> => 
     throw new Error("Isolated scenario Profile root changed identity");
   }
   const tempRoot = await realpath(scenarioTempParent());
-  if (
-    path.dirname(actualRoot) !== tempRoot
-    || !path.basename(actualRoot).startsWith(ROOT_PREFIX)
-  ) {
+  if (path.dirname(actualRoot) !== tempRoot || !path.basename(actualRoot).startsWith(ROOT_PREFIX)) {
     throw new Error("Isolated scenario Profile root is outside the owned temp namespace");
   }
 };
@@ -140,11 +128,7 @@ export const createIsolatedProfile = async (
     repositoryRealpath,
     createdAt: new Date().toISOString(),
   };
-  const profile = descriptorFrom(
-    runRoot,
-    manifest,
-    options.retention ?? "dispose",
-  );
+  const profile = descriptorFrom(runRoot, manifest, options.retention ?? "dispose");
   try {
     await writeIsolatedProfileManifest(profile.manifestPath, manifest);
     await Promise.all([
@@ -169,10 +153,7 @@ export const createIsolatedProfile = async (
         await chmod(path.join(profile.codexHome, "config.toml"), 0o600);
       }
       if (policy === "copy-auth-and-config") {
-        await copyFile(
-          path.join(source, "auth.json"),
-          path.join(profile.codexHome, "auth.json"),
-        );
+        await copyFile(path.join(source, "auth.json"), path.join(profile.codexHome, "auth.json"));
         await chmod(path.join(profile.codexHome, "auth.json"), 0o600);
       }
     }
@@ -192,9 +173,7 @@ export const createIsolatedProfile = async (
   }
 };
 
-export const resumeIsolatedProfile = async (
-  runRoot: string,
-): Promise<IsolatedProfile> => {
+export const resumeIsolatedProfile = async (runRoot: string): Promise<IsolatedProfile> => {
   if (!path.isAbsolute(runRoot)) {
     throw new Error("Retained scenario Profile root must be absolute");
   }
@@ -204,7 +183,7 @@ export const resumeIsolatedProfile = async (
   );
   const profile = descriptorFrom(normalized, manifest, "keep");
   await ensureOwnedRootShape(profile);
-  if (manifest.repositoryRealpath !== await realpath(process.cwd())) {
+  if (manifest.repositoryRealpath !== (await realpath(process.cwd()))) {
     throw new Error("Retained scenario Profile belongs to another repository");
   }
   const leaseOwner = readIsolatedRunLeaseOwner(profile.nodexHome);
@@ -242,8 +221,8 @@ export const cleanupIsolatedProfile = async (
     };
   }
   if (
-    manifest.runId !== profile.runId
-    || manifest.repositoryRealpath !== profile.repositoryRealpath
+    manifest.runId !== profile.runId ||
+    manifest.repositoryRealpath !== profile.repositoryRealpath
   ) {
     return { status: "unsafe", reason: "Profile ownership manifest does not match" };
   }
@@ -274,11 +253,10 @@ export const withIsolatedProfile = async <Value>(
     operationError = error;
   }
   const cleanup = await cleanupIsolatedProfile(profile);
-  const cleanupError = cleanup.status === "unsafe"
-    ? new Error(
-        `Preserved unsafe scenario Profile ${profile.runRoot}: ${cleanup.reason}`,
-      )
-    : null;
+  const cleanupError =
+    cleanup.status === "unsafe"
+      ? new Error(`Preserved unsafe scenario Profile ${profile.runRoot}: ${cleanup.reason}`)
+      : null;
   if (operationError && cleanupError) {
     throw new AggregateError(
       [operationError, cleanupError],

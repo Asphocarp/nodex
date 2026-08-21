@@ -1,4 +1,7 @@
-import { dropTargetForElements, draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import {
+  dropTargetForElements,
+  draggable,
+} from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { preserveOffsetOnSource } from "@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source";
 import { setCustomNativeDragPreview } from "@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview";
 import { AnimatePresence, motion } from "motion/react";
@@ -103,10 +106,7 @@ export interface AppShellTabPanelRenderContext {
   active: boolean;
 }
 
-function makeAppShellTabAccessibleLabel(
-  tab: AppShellTabItem,
-  title: string,
-): string {
+function makeAppShellTabAccessibleLabel(tab: AppShellTabItem, title: string): string {
   if (typeof tab.titleLabel === "function") return tab.titleLabel(title);
   if (tab.titleLabel) return tab.titleLabel;
   if (tab.contextLabel) return `${tab.contextLabel} · ${title}`;
@@ -132,10 +132,12 @@ function useAppShellTabTitle(tab: AppShellTabItem): string {
 }
 
 function isPreviewPinExemptEvent(event: Event): boolean {
-  return event.composedPath().some((target) =>
-    target instanceof Element
-    && target.hasAttribute(APP_SHELL_PREVIEW_PIN_EXEMPT_ATTRIBUTE)
-  );
+  return event
+    .composedPath()
+    .some(
+      (target) =>
+        target instanceof Element && target.hasAttribute(APP_SHELL_PREVIEW_PIN_EXEMPT_ATTRIBUTE),
+    );
 }
 
 export type AppShellTabContextMenuItem =
@@ -240,17 +242,21 @@ export function AppShellTabs({
   const [leftEdgeClipped, setLeftEdgeClipped] = useState(false);
   const [rightEdgeClipped, setRightEdgeClipped] = useState(false);
   const reducedMotion = useResolvedReducedMotion();
-  const { elementRef: afterTabsInlineRef, elementWidthPx: afterTabsInlineWidthPx } = useMeasuredElementWidth();
+  const { elementRef: afterTabsInlineRef, elementWidthPx: afterTabsInlineWidthPx } =
+    useMeasuredElementWidth();
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null;
   const resolvedActiveTabId = activeTab?.id ?? null;
   const activePanelId = activeTab ? makeTabPanelId(controllerId, activeTab.id) : undefined;
   const activeIndex = activeTab ? tabs.findIndex((tab) => tab.id === activeTab.id) : -1;
-  const draggingIndex = panelTabDnd?.activeDragId ? tabs.findIndex((tab) => tab.id === panelTabDnd.activeDragId) : -1;
-  const tabRowPreview = panelTabDnd?.previewIntent?.kind === "tab-row"
-    && panelTabDnd.previewIntent.panelId === panelTabDnd.panelId
-    && panelTabDnd.previewIntent.leafId === panelTabDnd.leafId
-    ? panelTabDnd.previewIntent
-    : null;
+  const draggingIndex = panelTabDnd?.activeDragId
+    ? tabs.findIndex((tab) => tab.id === panelTabDnd.activeDragId)
+    : -1;
+  const tabRowPreview =
+    panelTabDnd?.previewIntent?.kind === "tab-row" &&
+    panelTabDnd.previewIntent.panelId === panelTabDnd.panelId &&
+    panelTabDnd.previewIntent.leafId === panelTabDnd.leafId
+      ? panelTabDnd.previewIntent
+      : null;
   const dndSessionId = panelTabDnd?.sessionId;
   const dndPanelId = panelTabDnd?.panelId;
   const dndLeafId = panelTabDnd?.leafId;
@@ -284,14 +290,15 @@ export function AppShellTabs({
 
     return dropTargetForElements({
       element,
-      canDrop: ({ source }) => isPanelTabDragData(source.data)
-        && source.data.sessionId === dndSessionId,
+      canDrop: ({ source }) =>
+        isPanelTabDragData(source.data) && source.data.sessionId === dndSessionId,
       getIsSticky: () => true,
-      getData: () => buildPanelTabRowDropData({
-        sessionId: dndSessionId,
-        panelId: dndPanelId,
-        leafId: dndLeafId,
-      }),
+      getData: () =>
+        buildPanelTabRowDropData({
+          sessionId: dndSessionId,
+          panelId: dndPanelId,
+          leafId: dndLeafId,
+        }),
     });
   }, [dndLeafId, dndPanelId, dndSessionId]);
 
@@ -332,24 +339,24 @@ export function AppShellTabs({
       };
     }
 
-    const trailingInsetPx = Math.max(
-      0,
-      Math.ceil(afterTabsInlineWidthPx + tabScrollEndPaddingPx),
+    const trailingInsetPx = Math.max(0, Math.ceil(afterTabsInlineWidthPx + tabScrollEndPaddingPx));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.target === leftSentinel) {
+            setLeftEdgeClipped(!entry.isIntersecting);
+          }
+          if (entry.target === rightSentinel) {
+            setRightEdgeClipped(!entry.isIntersecting);
+          }
+        }
+      },
+      {
+        root: tabRow,
+        rootMargin: `0px -${trailingInsetPx}px 0px 0px`,
+        threshold: 0.99,
+      },
     );
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === leftSentinel) {
-          setLeftEdgeClipped(!entry.isIntersecting);
-        }
-        if (entry.target === rightSentinel) {
-          setRightEdgeClipped(!entry.isIntersecting);
-        }
-      }
-    }, {
-      root: tabRow,
-      rootMargin: `0px -${trailingInsetPx}px 0px 0px`,
-      threshold: 0.99,
-    });
     observer.observe(leftSentinel);
     observer.observe(rightSentinel);
     return () => {
@@ -387,14 +394,15 @@ export function AppShellTabs({
 
     return dropTargetForElements({
       element,
-      canDrop: ({ source }) => isPanelTabDragData(source.data)
-        && source.data.sessionId === dndSessionId,
+      canDrop: ({ source }) =>
+        isPanelTabDragData(source.data) && source.data.sessionId === dndSessionId,
       getIsSticky: () => true,
-      getData: () => buildPanelGroupBodyDropData({
-        sessionId: dndSessionId,
-        panelId: dndPanelId,
-        leafId: dndLeafId,
-      }),
+      getData: () =>
+        buildPanelGroupBodyDropData({
+          sessionId: dndSessionId,
+          panelId: dndPanelId,
+          leafId: dndLeafId,
+        }),
     });
   }, [dndLeafId, dndPanelId, dndSessionId]);
 
@@ -470,11 +478,7 @@ export function AppShellTabs({
               onDirectClose={tab.closable ? closeTabFromDirectInteraction : undefined}
               onCloseModeExit={exitTabCloseMode}
               onTabNodeChange={registerTabNode}
-              onPin={
-                tab.preview && tab.pinBehavior !== "disabled"
-                  ? pinTab
-                  : undefined
-              }
+              onPin={tab.preview && tab.pinBehavior !== "disabled" ? pinTab : undefined}
               onMove={onMoveTab}
               onSplit={onSplitTab}
               reducedMotion={Boolean(reducedMotion)}
@@ -497,10 +501,16 @@ export function AppShellTabs({
             headerHeight === "toolbar" ? "h-toolbar" : "h-toolbar-pane",
           )}
         >
-          {beforeList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{beforeList}</div> : null}
+          {beforeList ? (
+            <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">
+              {beforeList}
+            </div>
+          ) : null}
           <div
             ref={tabRowRef}
-            data-panel-tab-row={panelTabDnd ? `${panelTabDnd.panelId}:${panelTabDnd.leafId}` : undefined}
+            data-panel-tab-row={
+              panelTabDnd ? `${panelTabDnd.panelId}:${panelTabDnd.leafId}` : undefined
+            }
             data-app-shell-tab-close-mode={lockedTabWidthPx !== null ? "true" : undefined}
             className="hide-scrollbar relative isolate flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden [contain:layout_paint]"
             style={{
@@ -517,19 +527,16 @@ export function AppShellTabs({
                 leftEdgeClipped ? "opacity-100" : "opacity-0",
               )}
             />
-            <span
-              ref={leftEdgeSentinelRef}
-              aria-hidden="true"
-              className="h-px w-px shrink-0"
-            />
+            <span ref={leftEdgeSentinelRef} aria-hidden="true" className="h-px w-px shrink-0" />
             {tabList}
-            <span
-              ref={rightEdgeSentinelRef}
-              aria-hidden="true"
-              className="h-px w-px shrink-0"
-            />
+            <span ref={rightEdgeSentinelRef} aria-hidden="true" className="h-px w-px shrink-0" />
             {afterTabsInline ? (
-              <div ref={afterTabsInlineRef} className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabsInline}</div>
+              <div
+                ref={afterTabsInlineRef}
+                className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary"
+              >
+                {afterTabsInline}
+              </div>
             ) : null}
             {tabRowPreview ? <PanelTabInsertionIndicator intent={tabRowPreview} /> : null}
             <div
@@ -544,10 +551,14 @@ export function AppShellTabs({
             />
           </div>
           {afterListSticky ? (
-            <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterListSticky}</div>
+            <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">
+              {afterListSticky}
+            </div>
           ) : null}
           {afterList ? (
-            <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterList}</div>
+            <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">
+              {afterList}
+            </div>
           ) : null}
           {headerEndInsetPx > 0 ? (
             <div
@@ -626,7 +637,9 @@ function useMeasuredElementWidth(): {
 
     const measure = () => {
       const nextWidthPx = Math.ceil(element.getBoundingClientRect().width);
-      setElementWidthPx((currentWidthPx) => currentWidthPx === nextWidthPx ? currentWidthPx : nextWidthPx);
+      setElementWidthPx((currentWidthPx) =>
+        currentWidthPx === nextWidthPx ? currentWidthPx : nextWidthPx,
+      );
     };
 
     measure();
@@ -742,15 +755,16 @@ function AppShellTab({
   reducedMotion: boolean;
 }) {
   const tabRef = useRef<HTMLDivElement | null>(null);
-  const setTabRef = useCallback((element: HTMLDivElement | null) => {
-    tabRef.current = element;
-    onTabNodeChange(tab.id, element);
-  }, [onTabNodeChange, tab.id]);
+  const setTabRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      tabRef.current = element;
+      onTabNodeChange(tab.id, element);
+    },
+    [onTabNodeChange, tab.id],
+  );
   const resolvedTitle = useAppShellTabTitle(tab);
   const Icon = tab.icon;
-  const iconElement = tab.iconElement ?? (
-    Icon ? <Icon className="icon-xs shrink-0" /> : null
-  );
+  const iconElement = tab.iconElement ?? (Icon ? <Icon className="icon-xs shrink-0" /> : null);
   const dataTabId = tab.domTabId ?? tab.id;
   const tabId = makeTabId(controllerId, tab.id);
   const accessibleLabel = makeAppShellTabAccessibleLabel(tab, resolvedTitle);
@@ -778,8 +792,7 @@ function AppShellTab({
         side="bottom"
         align="start"
         style={{
-          maxWidth:
-            "min(32rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
+          maxWidth: "min(32rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
         }}
       >
         <span className="flex min-w-0 items-center gap-1">
@@ -866,8 +879,11 @@ function AppShellTab({
   const dndLeafId = panelTabDnd?.leafId;
   const isDraggable = Boolean(panelTabDnd && tab.isLabel !== true && tab.reorderable !== false);
   const tabIndex = tabs.findIndex((candidate) => candidate.id === tab.id);
-  const hasOtherClosableTabs = tabs.some((candidate) => candidate.id !== tab.id && candidate.closable === true);
-  const hasClosableTabsToRight = tabIndex !== -1 && tabs.slice(tabIndex + 1).some((candidate) => candidate.closable === true);
+  const hasOtherClosableTabs = tabs.some(
+    (candidate) => candidate.id !== tab.id && candidate.closable === true,
+  );
+  const hasClosableTabsToRight =
+    tabIndex !== -1 && tabs.slice(tabIndex + 1).some((candidate) => candidate.closable === true);
   const flexSizing = buildAppShellTabFlexSizing(lockedWidthPx);
 
   useEffect(() => {
@@ -883,12 +899,13 @@ function AppShellTab({
         if (target?.closest("[data-app-shell-tab-no-drag='true']")) return false;
         return true;
       },
-      getInitialData: () => buildPanelTabDragData({
-        sessionId: dndSessionId,
-        panelId: dndPanelId,
-        leafId: dndLeafId,
-        tabId: tab.id,
-      }),
+      getInitialData: () =>
+        buildPanelTabDragData({
+          sessionId: dndSessionId,
+          panelId: dndPanelId,
+          leafId: dndLeafId,
+          tabId: tab.id,
+        }),
       onGenerateDragPreview: ({ location, nativeSetDragImage, source }) => {
         setCustomNativeDragPreview({
           nativeSetDragImage,
@@ -927,24 +944,27 @@ function AppShellTab({
       )}
       initial={reducedMotion || isDragging ? false : APP_SHELL_TAB_COLLAPSED_MOTION}
       animate={APP_SHELL_TAB_EXPANDED_MOTION}
-      exit={reducedMotion || isDragging
-        ? {
-            ...APP_SHELL_TAB_EXPANDED_MOTION,
-            transition: { duration: 0 },
-          }
-        : APP_SHELL_TAB_COLLAPSED_MOTION}
-      transition={reducedMotion
-        ? { duration: 0 }
-        : APP_SHELL_TAB_WIDTH_TRANSITION}
+      exit={
+        reducedMotion || isDragging
+          ? {
+              ...APP_SHELL_TAB_EXPANDED_MOTION,
+              transition: { duration: 0 },
+            }
+          : APP_SHELL_TAB_COLLAPSED_MOTION
+      }
+      transition={reducedMotion ? { duration: 0 } : APP_SHELL_TAB_WIDTH_TRANSITION}
       style={{ flexBasis: flexSizing.flexBasis, flexGrow: flexSizing.flexGrow }}
     >
       <div
         data-tab-id={dataTabId}
         data-app-shell-tab-surface="true"
         className="group group/tab relative flex h-7 w-full max-w-39 shrink-0 items-center overflow-hidden rounded-lg bg-token-main-surface-primary px-2 py-1"
-        style={{
-          "--app-shell-tab-background": "color-mix(in srgb, var(--color-token-foreground) 5%, var(--color-token-main-surface-primary))",
-        } as CSSProperties}
+        style={
+          {
+            "--app-shell-tab-background":
+              "color-mix(in srgb, var(--color-token-foreground) 5%, var(--color-token-main-surface-primary))",
+          } as CSSProperties
+        }
         onMouseDown={(event) => {
           if (event.button !== 1 || !onClose) return;
           event.preventDefault();
@@ -968,11 +988,8 @@ function AppShellTab({
           disabled={tab.disabled}
           className={cn(
             "no-drag relative z-10 flex min-w-0 flex-1 items-center gap-2 text-sm",
-            onClose && (
-              isActive
-                ? "pe-3.5"
-                : "group-focus-within/tab:pe-3.5 group-hover/tab:pe-3.5"
-            ),
+            onClose &&
+              (isActive ? "pe-3.5" : "group-focus-within/tab:pe-3.5 group-hover/tab:pe-3.5"),
             isActive ? "text-token-text-primary" : "text-token-text-secondary",
           )}
           onMouseDown={(event) => {
@@ -995,7 +1012,10 @@ function AppShellTab({
           }}
         >
           {iconElement ? (
-            <span aria-hidden="true" className="icon-xs relative flex shrink-0 items-center justify-center overflow-visible">
+            <span
+              aria-hidden="true"
+              className="icon-xs relative flex shrink-0 items-center justify-center overflow-visible"
+            >
               {iconElement}
             </span>
           ) : null}
@@ -1009,7 +1029,8 @@ function AppShellTab({
             aria-label={`Close ${accessibleLabel} tab`}
             className={cn(
               "no-drag absolute end-1 top-1/2 z-30 flex size-5 -translate-y-1/2 cursor-interaction items-center justify-center rounded-md text-token-text-tertiary hover:bg-token-foreground/8 hover:text-token-text-primary focus-visible:bg-token-foreground/8 focus-visible:text-token-text-primary",
-              !isActive && "pointer-events-none opacity-0 group-focus-within/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-hover/tab:pointer-events-auto group-hover/tab:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100",
+              !isActive &&
+                "pointer-events-none opacity-0 group-focus-within/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-hover/tab:pointer-events-auto group-hover/tab:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100",
             )}
             onMouseDown={(event) => {
               event.preventDefault();
@@ -1058,14 +1079,16 @@ function AppShellTab({
   });
 
   return (
-    <NodexContextMenuRoot onOpenChange={(open) => {
-      if (!open) return;
-      onCloseModeExit();
-    }}>
+    <NodexContextMenuRoot
+      onOpenChange={(open) => {
+        if (!open) return;
+        onCloseModeExit();
+      }}
+    >
       <NodexContextMenuTrigger asChild>{chrome}</NodexContextMenuTrigger>
       <NodexContextMenuPortal>
         <NodexContextMenuContent className="min-w-36">
-          {contextMenuItems.map((item) => (
+          {contextMenuItems.map((item) =>
             item.type === "separator" ? (
               <ContextMenuDivider key={item.id} />
             ) : (
@@ -1081,8 +1104,8 @@ function AppShellTab({
               >
                 {item.label}
               </NodexContextMenuItem>
-            )
-          ))}
+            ),
+          )}
         </NodexContextMenuContent>
       </NodexContextMenuPortal>
     </NodexContextMenuRoot>
@@ -1196,9 +1219,8 @@ function useAppShellTabTitleOverflow(
 
     measure();
 
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(measure);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     resizeObserver?.observe(titleElement);
     window.addEventListener("resize", measure);
 

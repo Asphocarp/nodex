@@ -6,15 +6,9 @@ import type {
   ProjectionStreamMessage,
 } from "../../shared/projection-stream";
 import type { ResourceRevocationMessage } from "../../shared/resource-revocation-stream";
-import {
-  projectionCursorCovers,
-  projectionScopeKey,
-} from "../../shared/projection-stream";
+import { projectionCursorCovers, projectionScopeKey } from "../../shared/projection-stream";
 import type { CausalProjectionRuntime } from "./causal-projection-runtime";
-import {
-  BoundedBurstScheduler,
-  type BoundedBurstTiming,
-} from "./bounded-burst-scheduler";
+import { BoundedBurstScheduler, type BoundedBurstTiming } from "./bounded-burst-scheduler";
 
 export interface ProjectionResourceDependencies {
   readonly pageIds?: readonly string[];
@@ -32,13 +26,14 @@ export type ProjectionRevocationMessage = Extract<
   ResourceRevocationMessage,
   { readonly kind: "revocation" }
 >;
-export type ProjectionInvalidationCause =
-  | ProjectionStreamMessage
-  | ResourceRevocationMessage;
+export type ProjectionInvalidationCause = ProjectionStreamMessage | ResourceRevocationMessage;
 export type ProjectionFenceCause =
-  | Extract<ProjectionStreamMessage, {
-      readonly kind: "checkpoint" | "reset";
-    }>
+  | Extract<
+      ProjectionStreamMessage,
+      {
+        readonly kind: "checkpoint" | "reset";
+      }
+    >
   | Extract<ResourceRevocationMessage, { readonly kind: "reset" }>;
 
 export interface ProjectionRegistration {
@@ -119,12 +114,9 @@ export class ProjectionInvalidationRegistry {
     consumer.registrations.set(token, registration);
 
     if (!scope.unsubscribeRevocations) {
-      scope.unsubscribeRevocations = this.#subscribeRevocations(
-        scope.scope,
-        (message) => {
-          this.#handle(scope, message);
-        },
-      );
+      scope.unsubscribeRevocations = this.#subscribeRevocations(scope.scope, (message) => {
+        this.#handle(scope, message);
+      });
     }
     if (!scope.unsubscribeProjection) {
       scope.unsubscribeProjection = this.#subscribeProjection(scope.scope, (message) => {
@@ -193,10 +185,7 @@ export class ProjectionInvalidationRegistry {
     }
   }
 
-  #handleConsumer(
-    consumer: ConsumerState,
-    message: ProjectionInvalidationCause,
-  ): void {
+  #handleConsumer(consumer: ConsumerState, message: ProjectionInvalidationCause): void {
     const registrations = [...consumer.registrations.values()];
     if (registrations.length === 0) return;
     const runtimes = new Set(
@@ -239,24 +228,15 @@ export class ProjectionInvalidationRegistry {
     message: ProjectionInvalidationCause,
   ): boolean {
     if (message.kind === "revocation") {
-      return revocationMatches(
-        registration.getDependencies(),
-        message.delivery.revocation,
-      );
+      return revocationMatches(registration.getDependencies(), message.delivery.revocation);
     }
-    if (
-      registration.projectionEffects === "ignore"
-      && message.kind === "effect"
-    ) return false;
+    if (registration.projectionEffects === "ignore" && message.kind === "effect") return false;
     if (message.kind === "reset") return true;
     const cursor = registration.getCursor();
     if (cursor && cursor.storeEpoch !== message.stream.storeEpoch) return true;
     if (projectionCursorCovers(cursor, message.stream)) return false;
     if (message.kind === "checkpoint") return true;
-    return projectionEffectMatches(
-      registration.getDependencies(),
-      message.delivery,
-    );
+    return projectionEffectMatches(registration.getDependencies(), message.delivery);
   }
 
   #schedule(consumer: ConsumerState, message: ProjectionInvalidationCause): void {
@@ -266,9 +246,7 @@ export class ProjectionInvalidationRegistry {
     }
     consumer.pending = laterCause(consumer.pending, message);
     if (consumer.running) return;
-    consumer.scheduler?.request(
-      consumer.pending.kind === "effect" ? "deferred" : "immediate",
-    );
+    consumer.scheduler?.request(consumer.pending.kind === "effect" ? "deferred" : "immediate");
   }
 
   #startDrain(consumer: ConsumerState): void {
@@ -292,9 +270,9 @@ export class ProjectionInvalidationRegistry {
         | undefined;
       if (!registration) return;
       if (
-        cause.kind !== "reset"
-        && cause.kind !== "revocation"
-        && projectionCursorCovers(registration.getCursor(), cause.stream)
+        cause.kind !== "reset" &&
+        cause.kind !== "revocation" &&
+        projectionCursorCovers(registration.getCursor(), cause.stream)
       ) {
         return;
       }
@@ -313,10 +291,7 @@ export class ProjectionInvalidationRegistry {
   }
 }
 
-const intersects = (
-  left: readonly string[] | undefined,
-  right: readonly string[],
-): boolean => {
+const intersects = (left: readonly string[] | undefined, right: readonly string[]): boolean => {
   if (!left?.length || right.length === 0) return false;
   const values = new Set(left);
   return right.some((value) => values.has(value));
@@ -328,14 +303,16 @@ export const impactMatches = (
 ): boolean => {
   if (impact.kind === "none") return false;
   if (impact.kind === "all" || dependencies.aggregate === true) return true;
-  return intersects(dependencies.pageIds, impact.page_ids)
-    || intersects(dependencies.databaseIds, impact.database_ids)
-    || intersects(dependencies.dataSourceIds, impact.data_source_ids)
-    || intersects(dependencies.viewIds, impact.view_ids)
-    || intersects(
+  return (
+    intersects(dependencies.pageIds, impact.page_ids) ||
+    intersects(dependencies.databaseIds, impact.database_ids) ||
+    intersects(dependencies.dataSourceIds, impact.data_source_ids) ||
+    intersects(dependencies.viewIds, impact.view_ids) ||
+    intersects(
       dependencies.documentIds,
       impact.document_heads.map((head) => head.document_id),
-    );
+    )
+  );
 };
 
 export const projectionEffectMatches = (
@@ -349,15 +326,17 @@ export const projectionEffectMatches = (
     case "project":
       return true;
     case "page":
-      return intersects(dependencies.pageIds, [scope.page_id])
-        || intersects(
+      return (
+        intersects(dependencies.pageIds, [scope.page_id]) ||
+        intersects(
           dependencies.documentIds,
           delivery.impact.kind === "resources"
             ? delivery.impact.document_heads
-              .filter((head) => head.page_id === scope.page_id)
-              .map((head) => head.document_id)
+                .filter((head) => head.page_id === scope.page_id)
+                .map((head) => head.document_id)
             : [],
-        );
+        )
+      );
     case "database_view":
       return intersects(dependencies.viewIds, [scope.view_id]);
     case "page_detail_database":
@@ -412,7 +391,5 @@ const laterCause = (
   if (current.stream.storeEpoch !== incoming.stream.storeEpoch) return incoming;
   if (incoming.stream.commitSeq > current.stream.commitSeq) return incoming;
   if (incoming.stream.commitSeq < current.stream.commitSeq) return current;
-  return messagePriority(incoming) >= messagePriority(current)
-    ? incoming
-    : current;
+  return messagePriority(incoming) >= messagePriority(current) ? incoming : current;
 };

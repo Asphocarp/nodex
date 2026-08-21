@@ -85,20 +85,17 @@ function toPierreDirectoryPath(path: string): string {
   return path.replace(/\/+$/, "") + "/";
 }
 
-export function toPierreWorkspaceTreePaths(
-  paths: readonly WorkspaceFileTreePath[],
-): string[] {
+export function toPierreWorkspaceTreePaths(paths: readonly WorkspaceFileTreePath[]): string[] {
   return paths.map((item) =>
-    item.kind === "directory" ? toPierreDirectoryPath(item.path) : item.path);
+    item.kind === "directory" ? toPierreDirectoryPath(item.path) : item.path,
+  );
 }
 
 function fromPierreTreePath(path: string): string {
   return path.replace(/\/+$/, "");
 }
 
-export function resolveWorkspaceFileClickMode(
-  detail: number,
-): "preview" | null {
+export function resolveWorkspaceFileClickMode(detail: number): "preview" | null {
   return detail > 1 ? null : "preview";
 }
 
@@ -139,15 +136,10 @@ export function WorkspaceFileTree({
   };
   const treePaths = useMemo(() => toPierreWorkspaceTreePaths(paths), [paths]);
   const initialExpandedPaths = useMemo(
-    () => [...expandedPaths]
-      .filter((path) => path.length > 0)
-      .map(toPierreDirectoryPath),
+    () => [...expandedPaths].filter((path) => path.length > 0).map(toPierreDirectoryPath),
     [expandedPaths],
   );
-  const initialSelectedPaths = useMemo(
-    () => selectedPath ? [selectedPath] : [],
-    [selectedPath],
-  );
+  const initialSelectedPaths = useMemo(() => (selectedPath ? [selectedPath] : []), [selectedPath]);
   const expandedPathsRef = useRef<readonly string[]>([...expandedPaths]);
   const selectedPathRef = useRef(selectedPath);
   const scrollTopRef = useRef(Math.max(0, initialScrollTop));
@@ -181,8 +173,8 @@ export function WorkspaceFileTree({
     selectedPathRef.current = selectedPath;
     const currentSelection = model.getSelectedPaths();
     if (
-      currentSelection.length === (selectedPath ? 1 : 0)
-      && currentSelection[0] === selectedPath
+      currentSelection.length === (selectedPath ? 1 : 0) &&
+      currentSelection[0] === selectedPath
     ) {
       return;
     }
@@ -193,12 +185,11 @@ export function WorkspaceFileTree({
   useEffect(() => {
     const readExpandedPaths = (): readonly string[] => {
       const knownDirectoryPaths = new Set(
-        treePaths
-          .filter((path) => path.endsWith("/"))
-          .map(fromPierreTreePath),
+        treePaths.filter((path) => path.endsWith("/")).map(fromPierreTreePath),
       );
-      const next = expandedPathsRef.current.filter((path) =>
-        path === "" || !knownDirectoryPaths.has(path));
+      const next = expandedPathsRef.current.filter(
+        (path) => path === "" || !knownDirectoryPaths.has(path),
+      );
       for (const path of treePaths) {
         if (!path.endsWith("/")) continue;
         const item = model.getItem(path);
@@ -228,9 +219,10 @@ export function WorkspaceFileTree({
     const connectScrollElement = (attempt: number) => {
       if (cancelled) return;
       const container = model.getFileTreeContainer();
-      scrollElement = container?.shadowRoot?.querySelector<HTMLElement>(
-        "[data-file-tree-virtualized-scroll='true']",
-      ) ?? null;
+      scrollElement =
+        container?.shadowRoot?.querySelector<HTMLElement>(
+          "[data-file-tree-virtualized-scroll='true']",
+        ) ?? null;
       if (!scrollElement) {
         if (attempt >= 12) return;
         animationFrame = window.requestAnimationFrame(() => {
@@ -272,12 +264,7 @@ export function WorkspaceFileTree({
     model.scrollToPath(selectedPath, {
       offset: revealSelectedPathScrollOffset,
     });
-  }, [
-    model,
-    revealSelectedPath,
-    revealSelectedPathScrollOffset,
-    selectedPath,
-  ]);
+  }, [model, revealSelectedPath, revealSelectedPathScrollOffset, selectedPath]);
 
   const handleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const rawPath = getTreeEventPath(event.nativeEvent);

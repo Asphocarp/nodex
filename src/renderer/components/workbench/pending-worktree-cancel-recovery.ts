@@ -8,11 +8,12 @@ export function resolveCancelledPendingWorktreeProjectId(
   entry: CodexPendingWorktreeEntry,
   existingProjectIds: ReadonlySet<string>,
 ): string | null {
-  const projectId = entry.launchMode === "start-conversation"
-    ? entry.startConversationParamsInput.projectAssignment?.projectId ?? null
-    : entry.launchMode === "fork-conversation"
-      ? entry.projectAssignment?.projectId ?? null
-      : null;
+  const projectId =
+    entry.launchMode === "start-conversation"
+      ? (entry.startConversationParamsInput.projectAssignment?.projectId ?? null)
+      : entry.launchMode === "fork-conversation"
+        ? (entry.projectAssignment?.projectId ?? null)
+        : null;
   return projectId !== null && existingProjectIds.has(projectId) ? projectId : null;
 }
 
@@ -21,9 +22,10 @@ export function buildCancelledPendingWorktreeComposerIntent(
   focusNonce: number,
 ): CodexComposerIntent {
   const prompt = extractCodexUserRequestSection(entry.prompt).trim();
-  const commentAttachments = entry.launchMode === "start-conversation"
-    ? entry.startConversationParamsInput.commentAttachments
-    : [];
+  const commentAttachments =
+    entry.launchMode === "start-conversation"
+      ? entry.startConversationParamsInput.commentAttachments
+      : [];
 
   return {
     prompt,

@@ -33,8 +33,9 @@ describe("replaceOwnedDirectory", () => {
     replaceOwnedDirectory(source, destination);
 
     expect(fs.readdirSync(destination)).toEqual(["nodex-core"]);
-    expect(fs.readFileSync(path.join(root, "agent-runtime", "runtime.json"), "utf8"))
-      .toBe("preserved");
+    expect(fs.readFileSync(path.join(root, "agent-runtime", "runtime.json"), "utf8")).toBe(
+      "preserved",
+    );
   });
 
   test("replaces a symlink entry without modifying its target", () => {

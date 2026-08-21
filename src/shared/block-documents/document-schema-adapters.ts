@@ -6,10 +6,7 @@ import {
   type BlockTreeNode,
   type PageDocumentMaterialization,
 } from "./block-document-codec";
-import {
-  assertValidBlockDocument,
-  type ScannedDocumentBlock,
-} from "./block-structure";
+import { assertValidBlockDocument, type ScannedDocumentBlock } from "./block-structure";
 import {
   assertValidPageDocumentRoots,
   assertValidLegacyPageDocumentRoots,
@@ -206,9 +203,7 @@ const inspectBlockNoteBody = (
   };
 };
 
-const assertTemplateBodyCanInstantiate = (
-  blockTree: readonly BlockTreeNode[],
-): void => {
+const assertTemplateBodyCanInstantiate = (blockTree: readonly BlockTreeNode[]): void => {
   const pending = [...blockTree];
   while (pending.length > 0) {
     const block = pending.pop();
@@ -374,14 +369,16 @@ const historicalSchemaAdapters: readonly HistoricalBlockDocumentSchemaAdapter[] 
 ] as const;
 
 const schemaRegistrations: readonly OwnedDocumentSchemaRegistration[] = [
-  ...schemaAdapters.map(({ kind, contentModel, syncEngine, ownerType, schemaKey, schemaVersion }) => ({
-    kind,
-    contentModel,
-    syncEngine,
-    ownerType,
-    schemaKey,
-    schemaVersion,
-  })),
+  ...schemaAdapters.map(
+    ({ kind, contentModel, syncEngine, ownerType, schemaKey, schemaVersion }) => ({
+      kind,
+      contentModel,
+      syncEngine,
+      ownerType,
+      schemaKey,
+      schemaVersion,
+    }),
+  ),
   canvasDocumentRegistration,
 ] as const;
 
@@ -425,8 +422,7 @@ export const getOwnedDocumentSchemaRegistrationForSchema = (input: {
 }): OwnedDocumentSchemaRegistration => {
   const matches = schemaRegistrations.filter(
     (candidate) =>
-      candidate.schemaKey === input.schemaKey &&
-      candidate.schemaVersion === input.schemaVersion,
+      candidate.schemaKey === input.schemaKey && candidate.schemaVersion === input.schemaVersion,
   );
   if (matches.length === 1 && matches[0]) return matches[0];
   throw new BlockDocumentSchemaError(
@@ -462,8 +458,7 @@ export const getBlockDocumentSchemaAdapterForSchema = (input: {
 }): BlockDocumentSchemaAdapter => {
   const matches = schemaAdapters.filter(
     (candidate) =>
-      candidate.schemaKey === input.schemaKey &&
-      candidate.schemaVersion === input.schemaVersion,
+      candidate.schemaKey === input.schemaKey && candidate.schemaVersion === input.schemaVersion,
   );
   if (matches.length === 1 && matches[0]) {
     if (matches[0].contentModel === "block_tree") return matches[0];
@@ -482,8 +477,7 @@ export const getRegisteredBlockDocumentSchemaAdapterForSchema = (input: {
 }): RegisteredBlockDocumentSchemaAdapter => {
   const matches = schemaAdapters.filter(
     (candidate) =>
-      candidate.schemaKey === input.schemaKey &&
-      candidate.schemaVersion === input.schemaVersion,
+      candidate.schemaKey === input.schemaKey && candidate.schemaVersion === input.schemaVersion,
   );
   if (matches.length === 1 && matches[0]) return matches[0];
   throw new BlockDocumentSchemaError(
@@ -498,8 +492,7 @@ export const getHistoricalBlockDocumentSchemaAdapterForSchema = (input: {
 }): HistoricalBlockDocumentSchemaAdapter => {
   const matches = historicalSchemaAdapters.filter(
     (candidate) =>
-      candidate.schemaKey === input.schemaKey &&
-      candidate.schemaVersion === input.schemaVersion,
+      candidate.schemaKey === input.schemaKey && candidate.schemaVersion === input.schemaVersion,
   );
   if (matches.length === 1 && matches[0]) return matches[0];
   throw new BlockDocumentSchemaError(
@@ -514,8 +507,7 @@ export const inspectOwnedBlockDocument = (
     readonly schemaKey: string;
     readonly schemaVersion: number;
   },
-): OwnedDocumentInspection =>
-  getBlockDocumentSchemaAdapter(input).inspect(document);
+): OwnedDocumentInspection => getBlockDocumentSchemaAdapter(input).inspect(document);
 
 export const inspectRegisteredOwnedBlockDocument = (
   document: Y.Doc,
@@ -524,8 +516,7 @@ export const inspectRegisteredOwnedBlockDocument = (
     readonly schemaKey: string;
     readonly schemaVersion: number;
   },
-): OwnedDocumentInspection =>
-  getRegisteredBlockDocumentSchemaAdapter(input).inspect(document);
+): OwnedDocumentInspection => getRegisteredBlockDocumentSchemaAdapter(input).inspect(document);
 
 export const inspectHistoricalOwnedBlockDocument = (
   document: Y.Doc,
@@ -562,5 +553,5 @@ export const toPersistedBlockDocumentMaterialization = (
   assetRefs: materialization.assetRefs,
 });
 
-export const listBlockDocumentSchemaAdapters =
-  (): readonly BlockDocumentSchemaAdapter[] => schemaAdapters;
+export const listBlockDocumentSchemaAdapters = (): readonly BlockDocumentSchemaAdapter[] =>
+  schemaAdapters;

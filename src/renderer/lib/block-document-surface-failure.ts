@@ -19,14 +19,8 @@ interface BlockDocumentSurfaceErrorOptions {
 export class BlockDocumentSurfaceError extends Error {
   readonly syncError?: DocumentSyncCommandError;
 
-  constructor(
-    message: string,
-    options: BlockDocumentSurfaceErrorOptions = {},
-  ) {
-    super(
-      message,
-      options.cause === undefined ? undefined : { cause: options.cause },
-    );
+  constructor(message: string, options: BlockDocumentSurfaceErrorOptions = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "BlockDocumentSurfaceError";
     this.syncError = options.syncError;
   }
@@ -72,8 +66,7 @@ const resolveFailureTitle = (
 };
 
 export const isBlockDocumentAccessRevoked = (error: Error): boolean =>
-  error instanceof BlockDocumentSurfaceError
-  && error.syncError?.code === "unauthorized";
+  error instanceof BlockDocumentSurfaceError && error.syncError?.code === "unauthorized";
 
 const appendDiagnostic = (
   diagnostics: string[],
@@ -84,11 +77,12 @@ const appendDiagnostic = (
   diagnostics.push(`${label}: ${String(value)}`);
 };
 
-export const resolveBlockDocumentSurfaceFailure = (
-  { descriptor, error, reason }: BlockDocumentSurfaceFailureInput,
-): BlockDocumentSurfaceFailurePresentation => {
-  const syncError =
-    error instanceof BlockDocumentSurfaceError ? error.syncError : undefined;
+export const resolveBlockDocumentSurfaceFailure = ({
+  descriptor,
+  error,
+  reason,
+}: BlockDocumentSurfaceFailureInput): BlockDocumentSurfaceFailurePresentation => {
+  const syncError = error instanceof BlockDocumentSurfaceError ? error.syncError : undefined;
   const title = resolveFailureTitle(reason, syncError);
   const message = error.message.trim();
   const diagnostics: string[] = [];
@@ -97,21 +91,13 @@ export const resolveBlockDocumentSurfaceFailure = (
   appendDiagnostic(diagnostics, "Code", syncError?.code ?? "runtime_error");
   appendDiagnostic(diagnostics, "Message", message || title);
   appendDiagnostic(diagnostics, "Library", descriptor.libraryId);
-  appendDiagnostic(
-    diagnostics,
-    "Access",
-    contentAccessContextKey(descriptor.accessContext),
-  );
+  appendDiagnostic(diagnostics, "Access", contentAccessContextKey(descriptor.accessContext));
   appendDiagnostic(diagnostics, "Owner block", descriptor.ownerBlockId);
   appendDiagnostic(diagnostics, "Document", descriptor.documentId);
   appendDiagnostic(diagnostics, "Store epoch", descriptor.storeEpoch);
   appendDiagnostic(diagnostics, "Generation", descriptor.generation);
   appendDiagnostic(diagnostics, "Head sequence", descriptor.headSeq);
-  appendDiagnostic(
-    diagnostics,
-    "Schema",
-    `${descriptor.schemaKey}@${descriptor.schemaVersion}`,
-  );
+  appendDiagnostic(diagnostics, "Schema", `${descriptor.schemaKey}@${descriptor.schemaVersion}`);
   appendDiagnostic(diagnostics, "Retryable", syncError?.retryable);
   appendDiagnostic(diagnostics, "Reset required", syncError?.resetRequired);
   appendDiagnostic(diagnostics, "Relocation", syncError?.relocationId);
@@ -119,9 +105,12 @@ export const resolveBlockDocumentSurfaceFailure = (
 
   return {
     title,
-    description: reason === "access-revoked"
-      ? "Your current access no longer includes this content."
-      : message && message !== title ? message : "Reload to try again.",
+    description:
+      reason === "access-revoked"
+        ? "Your current access no longer includes this content."
+        : message && message !== title
+          ? message
+          : "Reload to try again.",
     diagnostics: diagnostics.join("\n"),
   };
 };

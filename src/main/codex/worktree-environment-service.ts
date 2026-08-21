@@ -40,10 +40,7 @@ function normalizeRelativeEnvironmentPath(environmentPath: string): string {
   return requireCodexWorktreeEnvironmentConfigPath(environmentPath);
 }
 
-function resolveEnvironmentPath(input: {
-  workspacePath: string;
-  environmentPath: string;
-}): {
+function resolveEnvironmentPath(input: { workspacePath: string; environmentPath: string }): {
   resolvedWorkspacePath: string;
   environmentRoot: string;
   relativePath: string;
@@ -67,9 +64,9 @@ function resolveEnvironmentPath(input: {
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): boolean {
-  return error instanceof Error
-    && "code" in error
-    && (error as NodeJS.ErrnoException).code === code;
+  return (
+    error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === code
+  );
 }
 
 function createEnvironmentRevision(raw: string): string {
@@ -111,8 +108,8 @@ async function prepareCanonicalEnvironmentRoot(input: {
 
   const canonicalAncestor = await findCanonicalExistingAncestor(input.environmentRoot);
   if (
-    canonicalAncestor.canonicalPath !== canonicalWorkspacePath
-    && !isPathWithin(canonicalWorkspacePath, canonicalAncestor.canonicalPath)
+    canonicalAncestor.canonicalPath !== canonicalWorkspacePath &&
+    !isPathWithin(canonicalWorkspacePath, canonicalAncestor.canonicalPath)
   ) {
     throw new Error("Environment directory must be inside the workspace");
   }
@@ -143,8 +140,8 @@ async function resolveCanonicalEnvironmentTarget(input: {
   });
   const canonicalAncestor = await findCanonicalExistingAncestor(input.resolvedPath);
   if (
-    canonicalAncestor.canonicalPath !== canonicalEnvironmentRoot
-    && !isPathWithin(canonicalEnvironmentRoot, canonicalAncestor.canonicalPath)
+    canonicalAncestor.canonicalPath !== canonicalEnvironmentRoot &&
+    !isPathWithin(canonicalEnvironmentRoot, canonicalAncestor.canonicalPath)
   ) {
     throw new Error("Environment path must be inside .codex/environments");
   }
@@ -153,8 +150,9 @@ async function resolveCanonicalEnvironmentTarget(input: {
     if (isNodeErrorWithCode(error, "ENOENT")) return null;
     throw error;
   });
-  const canonicalTargetPath = canonicalExistingTarget
-    ?? path.resolve(
+  const canonicalTargetPath =
+    canonicalExistingTarget ??
+    path.resolve(
       canonicalAncestor.canonicalPath,
       path.relative(canonicalAncestor.requestedPath, input.resolvedPath),
     );
@@ -170,7 +168,10 @@ const environmentSaveQueues = new Map<string, Promise<void>>();
 async function runEnvironmentSaveQueued<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const previous = environmentSaveQueues.get(key) ?? Promise.resolve();
   const result = previous.catch(() => undefined).then(operation);
-  const tail = result.then(() => undefined, () => undefined);
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
   environmentSaveQueues.set(key, tail);
 
   try {
@@ -203,9 +204,11 @@ function buildConfigRecord(input: {
     exists: true,
     name: environment?.name ?? path.basename(absolutePath, ".toml"),
     hasSetupScript:
-      Boolean(environment?.setup.script) || Boolean(countOwnValues(environment?.setup.platformScripts ?? {})),
+      Boolean(environment?.setup.script) ||
+      Boolean(countOwnValues(environment?.setup.platformScripts ?? {})),
     hasCleanupScript:
-      Boolean(environment?.cleanup.script) || Boolean(countOwnValues(environment?.cleanup.platformScripts ?? {})),
+      Boolean(environment?.cleanup.script) ||
+      Boolean(countOwnValues(environment?.cleanup.platformScripts ?? {})),
     actionCount: environment?.actions.length ?? 0,
     parseErrorMessage: input.parseErrorMessage ?? null,
     readErrorMessage: input.readErrorMessage ?? null,
@@ -251,11 +254,10 @@ async function readSelectedEnvironmentState(input: {
 
   const statResult = await stat(target.canonicalTargetPath).then(
     (fileStat) => ({ fileStat }),
-    (error: unknown) => (
+    (error: unknown) =>
       isNodeErrorWithCode(error, "ENOENT")
         ? { missing: true as const }
-        : { error: error instanceof Error ? error.message : "Could not inspect file" }
-    ),
+        : { error: error instanceof Error ? error.message : "Could not inspect file" },
   );
   if ("missing" in statResult) return { record: null, revision: null };
   if ("error" in statResult) {
@@ -356,15 +358,21 @@ async function readSelectedEnvironmentState(input: {
 
 function resolvePreferredConfigPath(configs: WorktreeEnvironmentConfigRecord[]): string | null {
   const preferred =
-    configs.find((config) => path.basename(config.configPath) === "environment.toml" && config.state === "success")
-    ?? configs.find((config) => config.state === "success")
-    ?? configs[0]
-    ?? null;
+    configs.find(
+      (config) =>
+        path.basename(config.configPath) === "environment.toml" && config.state === "success",
+    ) ??
+    configs.find((config) => config.state === "success") ??
+    configs[0] ??
+    null;
 
   return preferred?.configPath ?? null;
 }
 
-function generateConfigPath(configs: WorktreeEnvironmentConfigRecord[], workspacePath: string): string {
+function generateConfigPath(
+  configs: WorktreeEnvironmentConfigRecord[],
+  workspacePath: string,
+): string {
   const environmentRoot = resolveEnvironmentRoot(workspacePath);
   const existingPaths = new Set(
     configs.map((config) => path.resolve(workspacePath, config.configPath)),
@@ -431,64 +439,76 @@ export async function listWorktreeEnvironmentConfigs(
     const absolutePath = path.resolve(canonicalEnvironmentRoot, entry.name);
     const configPath = toPosixPath(path.join(".codex", "environments", entry.name));
     const fileStat = await stat(absolutePath).catch((error) => {
-      records.push(buildConfigRecord({
-        workspacePath: resolvedWorkspacePath,
-        configPath,
-        state: "readError",
-        environment: null,
-        readErrorMessage: error instanceof Error ? error.message : "Could not inspect file",
-      }));
+      records.push(
+        buildConfigRecord({
+          workspacePath: resolvedWorkspacePath,
+          configPath,
+          state: "readError",
+          environment: null,
+          readErrorMessage: error instanceof Error ? error.message : "Could not inspect file",
+        }),
+      );
       return null;
     });
     if (fileStat === null) continue;
     if (fileStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-      records.push(buildConfigRecord({
-        workspacePath: resolvedWorkspacePath,
-        configPath,
-        state: "tooLarge",
-        environment: null,
-        tooLargeMessage: `Environment file exceeds ${WORKTREE_ENVIRONMENT_MAX_BYTES.toLocaleString()} bytes`,
-      }));
+      records.push(
+        buildConfigRecord({
+          workspacePath: resolvedWorkspacePath,
+          configPath,
+          state: "tooLarge",
+          environment: null,
+          tooLargeMessage: `Environment file exceeds ${WORKTREE_ENVIRONMENT_MAX_BYTES.toLocaleString()} bytes`,
+        }),
+      );
       continue;
     }
     const raw = await readFile(absolutePath, "utf8").catch((error) => {
-      records.push(buildConfigRecord({
-        workspacePath: resolvedWorkspacePath,
-        configPath,
-        state: "readError",
-        environment: null,
-        readErrorMessage: error instanceof Error ? error.message : "Could not read file",
-      }));
+      records.push(
+        buildConfigRecord({
+          workspacePath: resolvedWorkspacePath,
+          configPath,
+          state: "readError",
+          environment: null,
+          readErrorMessage: error instanceof Error ? error.message : "Could not read file",
+        }),
+      );
       return null;
     });
     if (raw === null) continue;
     if (Buffer.byteLength(raw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-      records.push(buildConfigRecord({
-        workspacePath: resolvedWorkspacePath,
-        configPath,
-        state: "tooLarge",
-        environment: null,
-        tooLargeMessage: `Environment file exceeds ${WORKTREE_ENVIRONMENT_MAX_BYTES.toLocaleString()} bytes`,
-      }));
+      records.push(
+        buildConfigRecord({
+          workspacePath: resolvedWorkspacePath,
+          configPath,
+          state: "tooLarge",
+          environment: null,
+          tooLargeMessage: `Environment file exceeds ${WORKTREE_ENVIRONMENT_MAX_BYTES.toLocaleString()} bytes`,
+        }),
+      );
       continue;
     }
 
     try {
       const environment = parseWorktreeEnvironmentToml(raw, absolutePath);
-      records.push(buildConfigRecord({
-        workspacePath: resolvedWorkspacePath,
-        configPath,
-        state: "success",
-        environment,
-      }));
+      records.push(
+        buildConfigRecord({
+          workspacePath: resolvedWorkspacePath,
+          configPath,
+          state: "success",
+          environment,
+        }),
+      );
     } catch (error) {
-      records.push(buildConfigRecord({
-        workspacePath: resolvedWorkspacePath,
-        configPath,
-        state: "parseError",
-        environment: null,
-        parseErrorMessage: error instanceof Error ? error.message : "Could not parse file",
-      }));
+      records.push(
+        buildConfigRecord({
+          workspacePath: resolvedWorkspacePath,
+          configPath,
+          state: "parseError",
+          environment: null,
+          parseErrorMessage: error instanceof Error ? error.message : "Could not parse file",
+        }),
+      );
     }
   }
 
@@ -515,12 +535,8 @@ async function readWorktreeEnvironmentRecord(input: {
   workspacePath: string;
   environmentPath: string;
 }): Promise<WorktreeEnvironmentConfigRecord> {
-  const {
-    resolvedWorkspacePath,
-    environmentRoot,
-    relativePath,
-    resolvedPath,
-  } = resolveEnvironmentPath(input);
+  const { resolvedWorkspacePath, environmentRoot, relativePath, resolvedPath } =
+    resolveEnvironmentPath(input);
 
   const resolvedEnvironmentRootPath = await prepareCanonicalEnvironmentRoot({
     resolvedWorkspacePath,
@@ -579,17 +595,15 @@ export async function readWorktreeEnvironmentDefinition(input: {
 }> {
   const record = await readWorktreeEnvironmentRecord(input);
   const setup = record.environment?.setup;
-  const platformSetupScript = process.platform === "darwin"
-    || process.platform === "linux"
-    || process.platform === "win32"
-    ? setup?.platformScripts[process.platform] ?? null
-    : null;
+  const platformSetupScript =
+    process.platform === "darwin" || process.platform === "linux" || process.platform === "win32"
+      ? (setup?.platformScripts[process.platform] ?? null)
+      : null;
   const cleanup = record.environment?.cleanup;
-  const platformCleanupScript = process.platform === "darwin"
-    || process.platform === "linux"
-    || process.platform === "win32"
-    ? cleanup?.platformScripts[process.platform] ?? null
-    : null;
+  const platformCleanupScript =
+    process.platform === "darwin" || process.platform === "linux" || process.platform === "win32"
+      ? (cleanup?.platformScripts[process.platform] ?? null)
+      : null;
 
   return {
     path: record.configPath,
@@ -607,9 +621,10 @@ export async function readWorktreeEnvironmentSettingsSnapshot(input: {
 }): Promise<WorktreeEnvironmentSettingsSnapshot> {
   const resolvedWorkspacePath = path.resolve(input.workspacePath.trim());
   const configs = await listWorktreeEnvironmentConfigs(resolvedWorkspacePath);
-  const preferredConfigPath = input.configPath?.trim()
-    || resolvePreferredConfigPath(configs)
-    || generateConfigPath(configs, resolvedWorkspacePath);
+  const preferredConfigPath =
+    input.configPath?.trim() ||
+    resolvePreferredConfigPath(configs) ||
+    generateConfigPath(configs, resolvedWorkspacePath);
   const listedRecord = configs.find((config) => config.configPath === preferredConfigPath) ?? null;
   const selected = await readSelectedEnvironmentState({
     workspacePath: resolvedWorkspacePath,
@@ -619,9 +634,9 @@ export async function readWorktreeEnvironmentSettingsSnapshot(input: {
   const selectedRecord = selected.record;
   let snapshotConfigs = configs;
   if (listedRecord && selectedRecord) {
-    snapshotConfigs = configs.map((config) => (
-      config.configPath === preferredConfigPath ? selectedRecord : config
-    ));
+    snapshotConfigs = configs.map((config) =>
+      config.configPath === preferredConfigPath ? selectedRecord : config,
+    );
   } else if (listedRecord) {
     snapshotConfigs = configs.filter((config) => config.configPath !== preferredConfigPath);
   } else if (selectedRecord) {
@@ -649,11 +664,7 @@ export async function saveWorktreeEnvironmentConfigFile(
     workspacePath: string;
   },
 ): Promise<WorktreeEnvironmentSaveResult> {
-  const {
-    resolvedWorkspacePath,
-    environmentRoot,
-    resolvedPath,
-  } = resolveEnvironmentPath({
+  const { resolvedWorkspacePath, environmentRoot, resolvedPath } = resolveEnvironmentPath({
     workspacePath: input.workspacePath,
     environmentPath: input.configPath,
   });

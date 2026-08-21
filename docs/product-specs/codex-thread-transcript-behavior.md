@@ -1,6 +1,7 @@
 # Codex Thread Transcript Behavior
 
 ## Intent
+
 This document is the source of truth for visible Codex Threads transcript behavior in Nodex.
 It defines what appears in chat, what stays internal, how transcript state is projected, and how live and restarted threads stay consistent.
 
@@ -8,7 +9,9 @@ Other product specs should link here instead of restating transcript behavior.
 Detailed Auto-review preset and approval-lifecycle rules are specified in [Auto-review Behavior](./auto-review-behavior.md).
 
 ## Scope
+
 This spec covers:
+
 - canonical transcript projection and entry ordering
 - pending prompt projection and authoritative echo reconciliation
 - visible item kinds and transcript rendering rules
@@ -19,6 +22,7 @@ This spec covers:
 - internal bootstrap/context visibility rules
 
 This spec does not cover:
+
 - general workbench shell layout
 - thread auth/account flows
 - worktree creation, environment setup, and the client-only initialization item,
@@ -30,6 +34,7 @@ This spec does not cover:
 - approval policy configuration outside its visible transcript effects
 
 ## Canonical Model
+
 - The visible transcript is one canonical ordered array of `CodexTranscriptEntry` values for durable/read-model history. Live active-thread prose is reduced by the current renderer owner and shared through revisioned conversation patches; main remains the app-server transport, persistence, and fallback snapshot authority.
 - Renderer surfaces consume canonical conversation snapshots and owner-published patches; JSX components do not reconstruct chat rows from raw runtime payloads or sort rows independently by timestamp.
 - Renderer derives turn-scoped view models from that canonical transcript (`thread detail -> turn buckets -> render blocks`), but transcript merge/reconciliation stays outside the JSX layer.
@@ -41,12 +46,14 @@ This spec does not cover:
 - Every user-visible agent turn requests the app-server's readable reasoning-summary stream with the Electron-compatible `concurrent_reasoning_summaries` capability and `detailed` default; an explicit per-turn summary override remains authoritative. The owner, follower, canonical optimistic state, and resumed thread settings use the same resolved policy.
 
 ## Visibility Rules
+
 - Only actual conversation and visible tool/reasoning state belongs in the transcript.
 - Internal bootstrap/context content such as `AGENTS.md`, developer instructions, and other session setup wrappers is not part of the visible transcript.
 - Raw rollout `response_item.message` rows are not themselves visible transcript truth.
 - Restart must not reveal transcript rows that were hidden in the live session.
 
 ## Ordering and Identity
+
 - Transcript order is owned by the projection layer, not inferred ad hoc in the renderer.
 - Projection assigns one canonical sequence order for visible entries.
 - Params-owned submitted prompts and later authoritative user-message entries must reconcile into one visible row instead of rendering twice.
@@ -54,7 +61,9 @@ This spec does not cover:
 - The detailed turn-level classifier, conditional assistant-promotion rule, and post-classification lane order are specified in [../codex-thread-turn-ordering-and-assistant-promotion.md](../codex-thread-turn-ordering-and-assistant-promotion.md).
 
 ## Transcript Entry Kinds
+
 The visible transcript can contain these projected kinds:
+
 - `userMessage`
 - `assistantMessage`
 - `reasoning`
@@ -69,6 +78,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 MCP and dynamic app-server tool calls are specialized `toolCall` rows with canonical renderer state: MCP rows preserve plugin ids, app resource URIs, result metadata, and normalized resource content; dynamic rows preserve namespace, tool, arguments, status, output content, success, duration, and the exact canonical raw item.
 
 ## Prompt and Turn Behavior
+
 - Sending from a new-chat composer creates a session-owned thread; editor/card send-to-chat flows keep focus in the originating surface.
 - As soon as submit begins, the transcript projects the submitted user prompt from a nullable in-progress turn's params and keeps that row above the pending turn-body `Thinking` state until live response items arrive. The nullable turn contains no synthetic raw user item. In an active owned thread, the renderer owner appends and publishes that params-owned occurrence, calls `turn/start` through the owner-scoped app-server facade with the same `clientUserMessageId`, then rebinds the occurrence to the app-server turn id and publishes that rebind revision. A local conversation with no stream role resumes into renderer ownership before appending it; there is no direct main-owned submit branch. Follower submits wait for the owner revision before resolving.
 - When the live user-message item later arrives, its canonical raw item remains in turn state for protocol identity. It is deduped against the params-owned user row only when its `clientId` matches the submitted `clientUserMessageId` or its input is structurally equal and only the reference-approved metadata prelude precedes it. A user message after actual turn work projects as a `steered` lifecycle marker even when the client id matches. Incremental item notifications must apply the same whole-turn duplicate policy as resume, rebind, and complete-history projection.
@@ -103,6 +113,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Explicit read-state changes synchronize loaded conversations, thread summaries, linked sessions, and other windows through a standalone message. They do not call the app server or advance the revisioned conversation stream; an in-flight owner cursor rebases locally without a corrective publication. Repeated same-state changes are no-ops, an older owner publication cannot restore the superseded value, and archive eviction rejects late request/unread/dynamic resurrection.
 
 ## Request User Input
+
 - `item/tool/requestUserInput` presents a questionnaire in UI; selecting a preset answer is itself an explicit submission action rather than the first half of a select-then-confirm flow.
 - While unanswered, `request_user_input` does not render inline in the scroll body. It appears in the composer shell above the input editor.
 - After resolution, answered `request_user_input` remains visible as a compact `Asked N question(s)` disclosure row.
@@ -117,6 +128,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Owner-side request responses remove the pending request and publish the completed request item state immediately. Response UI surfaces route by the owning `conversationId` before local request lookup, so a stale follower that missed a request patch still forwards approval, permission, user-input, MCP, and notification actions to the current owner instead of calling direct fallback response IPC. Main-hosted timeout follows that same response boundary and forwards a synthetic `serverRequest/resolved` notification to the renderer owner after the empty response succeeds, preventing the owner from retaining a stale card. Later real `serverRequest/resolved` notifications are still accepted through the same revisioned stream patch path: the first strict scalar-id match supplies any family-specific completed permission, user-input, or MCP elicitation synthetic state, and every pending envelope with that scalar id is withdrawn.
 
 ## Plan Mode Follow-Up
+
 - `item/plan/delta` streams incremental proposed-plan text only for an existing plan item; it must not create a proposed-plan card by itself.
 - The final `item/completed` plan item `{ type: "plan", id, text }` is the authoritative proposed-plan content and overwrites any streamed draft text.
 - `turn/plan/updated` remains the source for structured todo/checklist progress and must not be bucketed as a proposed-plan card. In an owned live stream, it is reduced by the renderer owner and published as a conversation patch.
@@ -128,6 +140,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Accepting the plan waits for the displayed intelligence selection to commit, then starts one `Default`-mode follow-up turn prefixed with `PLEASE IMPLEMENT THIS PLAN:` using that exact model, effort, and speed. Starting the turn owns stale request cleanup so a settings or turn-start failure leaves the plan available for retry. Dismissal switches to `Default` before removing the request; freeform feedback preserves the current collaboration mode.
 
 ## Turn Rendering
+
 - The renderer groups transcript entries by `turnId`, projects a flat renderer-item stream, bucketizes that stream, and then renders each turn in fixed block order:
   - `modelChanged`
   - leading `hook` items that appear before the first user message
@@ -178,6 +191,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Unknown replay/app-server tool payloads do not render a generic transcript tool row. The mounted transcript only renders supported tool families with dedicated surfaces (`exec`, `patch`, `mcpToolCall`, `dynamicToolCall`, `webSearch`, `turnDiff`) and keeps any remaining raw tool metadata internal to the canonical conversation state.
 
 ## Collapse and Search
+
 - Agent-body collapse applies after a renderable final-answer boundary has started, or after a settled turn has subagent activity. The turn must not be interrupted and must have a renderable agent body or auxiliary subagent activity. Collapse never hides the user message or dedicated final assistant answer.
 - Every eligible turn, including the newest completed turn, defaults to collapsed. A persisted disclosure state overrides that default, while active subagent activity prevents automatic collapse.
 - In-progress turns without a final-answer boundary, interrupted turns, and turns without renderable activity do not expose an agent-body collapse toggle. Auxiliary null-anchor subagent activity may establish turn semantics, but it never creates an empty wrapper or toggle when there are no visible agent-body units.
@@ -204,6 +218,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Embedded Side chats reuse the connected conversation stage but omit the root header and floating summary, retain their own composer, and cannot recursively create or fork another Side chat.
 
 ## Message Rendering
+
 - Assistant, plan, and reasoning content render through Streamdown with official code, Mermaid, math, and CJK plugins.
 - Streamdown fenced code blocks in thread markdown use the same resting visual surface as the BlockNote-backed NFM editor code block: one subdued `--code-block-bg` surface, no nested Streamdown header/body card, no line numbers, and a copy action that appears on code-block hover or when the copy button itself has keyboard focus.
 - Thread fenced code copy preserves the original source line breaks and goes through Nodex's clipboard fallback path so Electron permission/API gaps do not make the Streamdown copy affordance inert.
@@ -275,6 +290,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Assistant fork targets the owning completed turn. Latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out. Accepting a destination closes that confirmation synchronously and admits the fork exactly once; retaining the source task or loading the destination cannot keep the confirmation visible. For session-backed threads, forking opens a new project session backed by the forked conversation snapshot and focuses an empty composer in that new session.
 
 ## Tool and Activity Rendering
+
 - Tool activity passes through one production classifier and one topology
   projector. Hidden items, including reasoning, do not break adjacency;
   standalone items flush the current run; and every maximal run of groupable
@@ -467,6 +483,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Patch-row expansion uses a per-file Motion-based measured-height animation model. Expanded rows keep their body height on continuously measured pixel values instead of switching back to `height: auto`, so inline diff expansion does not hand layout authority back to the scroll container mid-transition.
 
 ## Composer Shell
+
 - The composer shell is owned outside the transcript scroll container and sits above the input editor.
 - It owns queued follow-ups, background terminal rows, background child-agent rows, and unresolved live request cards. Pending steering messages belong to the transcript as `steeringUserMessage` items, not to the composer shell.
 - Background terminal rows and queued follow-up rows remain visible as stacked shell sections above the request/editor branch.
@@ -485,6 +502,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Live `approval`, unanswered `userInput`, synthesized `implementPlan`, and live MCP elicitation requests do not render inline in the transcript scroll area.
 
 ## Persistence and Recovery
+
 - Snapshot requests never invoke `thread/read` or `thread/resume`. They serialize and rebroadcast the current manager-owned canonical conversation; when no loaded record exists, that serialization boundary may first bootstrap the manager from a persisted Codex session artifact.
 - Every explicit renderer bootstrap boundary—snapshot request, resume, older/complete history, side-chat start, follower snapshot, and rollback—materializes the canonical whole turn before applying the conversation snapshot. This keeps params-first user rows, raw-echo suppression, request/review overlays, hook feedback, generated images, and hidden item identity identical to live projection. Generic snapshot application does not perform an implicit second projection.
 - Reopened threads first use the manager's canonical record or its bootstrap-only persisted-session recovery input. Explicit history reads and paged resume responses then materialize generated whole turns exactly once; the renderer does not replay or re-normalize those projected rows.
@@ -493,6 +511,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Live and restarted threads must show the same visible conversation history for the same underlying session state.
 
 ## Non-Goals
+
 - Nodex does not expose internal bootstrap/session context as a developer-visible transcript row in this release.
 - Nodex does not treat raw rollout storage as a direct UI contract.
 - Browser/HTTP transport does not support `codex:*` methods in this release.

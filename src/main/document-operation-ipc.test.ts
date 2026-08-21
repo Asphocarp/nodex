@@ -21,16 +21,12 @@ const request: DocumentMutationRequest = {
   operations: [
     {
       kind: "set_rich_title",
-      richTitle: [
-        { type: "text", text: "Current", styles: { italic: true } },
-      ],
+      richTitle: [{ type: "text", text: "Current", styles: { italic: true } }],
     },
   ],
 };
 
-const committed = (
-  bound: DocumentMutationRequest,
-): DocumentOperationCommandResult => ({
+const committed = (bound: DocumentMutationRequest): DocumentOperationCommandResult => ({
   ok: true,
   localCommit: {
     status: "no_op",
@@ -66,9 +62,7 @@ const committed = (
 
 const register = (options: {
   readonly trusted: boolean;
-  readonly apply?: (
-    input: DocumentMutationRequest,
-  ) => Promise<DocumentOperationCommandResult>;
+  readonly apply?: (input: DocumentMutationRequest) => Promise<DocumentOperationCommandResult>;
 }) => {
   let handler: DocumentMutationIpcHandler | null = null;
   const captured: DocumentMutationRequest[] = [];
@@ -115,20 +109,12 @@ describe("Document mutation IPC", () => {
 
   test("rejects sender and route scope before the Hub", async () => {
     const untrusted = register({ trusted: false });
-    const unauthorized = await untrusted.invoke(
-      "project-1",
-      "document-1",
-      request,
-    );
+    const unauthorized = await untrusted.invoke("project-1", "document-1", request);
     expect(unauthorized.ok).toBe(false);
     expect(untrusted.captured.length).toBe(0);
 
     const scoped = register({ trusted: true });
-    const mismatch = await scoped.invoke(
-      "project-1",
-      "document-2",
-      request,
-    );
+    const mismatch = await scoped.invoke("project-1", "document-2", request);
     expect(mismatch.ok).toBe(false);
     expect(scoped.captured.length).toBe(0);
   });

@@ -21,29 +21,33 @@ describe("database Board column layout", () => {
       viewId: "view-1",
       groupPropertyId: "priority",
     });
-    const updated = updateDatabaseBoardColumnLayoutPrefs(
-      scope,
-      {},
-      "key:\"p1-high\"",
-      { collapsed: true, width: 360 },
-    );
-    expect(getDatabaseBoardColumnLayout(updated, "key:\"p1-high\""))
-      .toEqual({ collapsed: true, width: 360 });
+    const updated = updateDatabaseBoardColumnLayoutPrefs(scope, {}, 'key:"p1-high"', {
+      collapsed: true,
+      width: 360,
+    });
+    expect(getDatabaseBoardColumnLayout(updated, 'key:"p1-high"')).toEqual({
+      collapsed: true,
+      width: 360,
+    });
     expect(readDatabaseBoardColumnLayoutPrefs(scope)).toEqual(updated);
-    expect(readDatabaseBoardColumnLayoutPrefs(
-      databaseBoardColumnLayoutScope({
-        viewId: "view-1",
-        groupPropertyId: "status",
-      }),
-    )).toEqual({});
+    expect(
+      readDatabaseBoardColumnLayoutPrefs(
+        databaseBoardColumnLayoutScope({
+          viewId: "view-1",
+          groupPropertyId: "status",
+        }),
+      ),
+    ).toEqual({});
   });
 
   test("normalizes malformed persisted paths without assuming workflow statuses", () => {
-    expect(normalizeDatabaseBoardColumnLayoutPrefs({
-      "key:\"custom-option\"": { collapsed: true, width: 9_999 },
-      empty: null,
-    })).toEqual({
-      "key:\"custom-option\"": { collapsed: true, width: 416 },
+    expect(
+      normalizeDatabaseBoardColumnLayoutPrefs({
+        'key:"custom-option"': { collapsed: true, width: 9_999 },
+        empty: null,
+      }),
+    ).toEqual({
+      'key:"custom-option"': { collapsed: true, width: 416 },
     });
   });
 });

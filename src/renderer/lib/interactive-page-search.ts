@@ -62,10 +62,13 @@ let refreshInFlight = false;
 let pendingFullRefresh = false;
 const pendingPageIds = new Set<string>();
 let nextScopeLeaseId = 1;
-const scopeLeases = new Map<number, {
-  readonly projectIds: readonly string[];
-  readonly mode: "extend" | "replace";
-}>();
+const scopeLeases = new Map<
+  number,
+  {
+    readonly projectIds: readonly string[];
+    readonly mode: "extend" | "replace";
+  }
+>();
 const listeners = new Set<() => void>();
 
 function emit(next: Omit<ProjectionState, "revision">): void {
@@ -89,14 +92,18 @@ function scopeKey(projectIds: readonly string[]): string {
 function projectionIsValid(snapshot: PageSearchMetadataSnapshot, expectedScope: string): boolean {
   const authorizedProjects = new Set(snapshot.authorization.projectIds);
   const pageIds = new Set(snapshot.documents.map((document) => document.pageId));
-  return snapshot.libraryId === snapshot.authorization.libraryId
-    && snapshot.storeEpoch === snapshot.authorization.storeEpoch
-    && snapshot.commitSeq === snapshot.authorization.coveredCommitSeq
-    && scopeKey(snapshot.authorization.projectIds) === expectedScope
-    && pageIds.size === snapshot.documents.length
-    && snapshot.documents.every((document) =>
-      document.authorizedProjectIds.length > 0
-      && document.authorizedProjectIds.every((projectId) => authorizedProjects.has(projectId)));
+  return (
+    snapshot.libraryId === snapshot.authorization.libraryId &&
+    snapshot.storeEpoch === snapshot.authorization.storeEpoch &&
+    snapshot.commitSeq === snapshot.authorization.coveredCommitSeq &&
+    scopeKey(snapshot.authorization.projectIds) === expectedScope &&
+    pageIds.size === snapshot.documents.length &&
+    snapshot.documents.every(
+      (document) =>
+        document.authorizedProjectIds.length > 0 &&
+        document.authorizedProjectIds.every((projectId) => authorizedProjects.has(projectId)),
+    )
+  );
 }
 
 async function loadWasm(): Promise<WasmIndex> {
@@ -116,18 +123,18 @@ async function refresh(pageIds?: readonly string[]): Promise<void> {
       pageIds ? [...pageIds] : undefined,
     );
     if (
-      currentGeneration !== generation
-      || !projectionIsValid(snapshot, expectedScope)
-      || (state.storeEpoch === snapshot.storeEpoch && snapshot.commitSeq < state.commitSeq)
+      currentGeneration !== generation ||
+      !projectionIsValid(snapshot, expectedScope) ||
+      (state.storeEpoch === snapshot.storeEpoch && snapshot.commitSeq < state.commitSeq)
     ) {
       // A partial response can legitimately finish after a newer full response.
       // Reconcile the complete projection instead of silently leaving unrelated
       // Pages stale until another library event arrives.
       if (
-        pageIds
-        && currentGeneration === generation
-        && state.storeEpoch === snapshot.storeEpoch
-        && snapshot.commitSeq < state.commitSeq
+        pageIds &&
+        currentGeneration === generation &&
+        state.storeEpoch === snapshot.storeEpoch &&
+        snapshot.commitSeq < state.commitSeq
       ) {
         requestRefresh();
       }
@@ -177,9 +184,7 @@ function requestRefresh(pageIds?: readonly string[]): void {
 async function drainRefreshQueue(): Promise<void> {
   try {
     while (pendingFullRefresh || pendingPageIds.size > 0) {
-      const pageIds = pendingFullRefresh
-        ? undefined
-        : [...pendingPageIds];
+      const pageIds = pendingFullRefresh ? undefined : [...pendingPageIds];
       pendingFullRefresh = false;
       pendingPageIds.clear();
       await refresh(pageIds);
@@ -192,9 +197,10 @@ async function drainRefreshQueue(): Promise<void> {
 
 function activeProjectIds(): string[] {
   const leases = [...scopeLeases.values()];
-  const replacement = leases.at(-1)?.mode === "replace"
-    ? leases.at(-1)
-    : leases.filter((lease) => lease.mode === "replace").at(-1);
+  const replacement =
+    leases.at(-1)?.mode === "replace"
+      ? leases.at(-1)
+      : leases.filter((lease) => lease.mode === "replace").at(-1);
   if (replacement) return [...new Set(replacement.projectIds)];
   return [...new Set(leases.flatMap((lease) => lease.projectIds))];
 }
@@ -212,10 +218,24 @@ function applyProjectScope(nextIds: readonly string[]): void {
   if (nextIds.length === 0) {
     unsubscribeChanges?.();
     unsubscribeChanges = null;
-    emit({ scopeKey: "", status: "idle", libraryId: null, storeEpoch: null, commitSeq: 0, error: null });
+    emit({
+      scopeKey: "",
+      status: "idle",
+      libraryId: null,
+      storeEpoch: null,
+      commitSeq: 0,
+      error: null,
+    });
     return;
   }
-  emit({ scopeKey: nextScope, status: "loading", libraryId: null, storeEpoch: null, commitSeq: 0, error: null });
+  emit({
+    scopeKey: nextScope,
+    status: "loading",
+    libraryId: null,
+    storeEpoch: null,
+    commitSeq: 0,
+    error: null,
+  });
   requestRefresh();
   unsubscribeChanges ??= subscribeLibraryChanges((event) => {
     if (state.storeEpoch !== null && event.storeEpoch !== state.storeEpoch) {
@@ -223,7 +243,14 @@ function applyProjectScope(nextIds: readonly string[]): void {
       documents.clear();
       index?.free?.();
       index = null;
-      emit({ ...state, status: "loading", libraryId: null, storeEpoch: null, commitSeq: 0, error: null });
+      emit({
+        ...state,
+        status: "loading",
+        libraryId: null,
+        storeEpoch: null,
+        commitSeq: 0,
+        error: null,
+      });
       requestRefresh();
       return;
     }
@@ -245,7 +272,7 @@ function applyProjectScope(nextIds: readonly string[]): void {
 export function configureInteractivePageSearch(
   projectIds: readonly string[],
   mode: "extend" | "replace" = "extend",
-): (() => void) {
+): () => void {
   const leaseId = nextScopeLeaseId++;
   scopeLeases.set(leaseId, { projectIds: [...new Set(projectIds)], mode });
   applyProjectScope(activeProjectIds());
@@ -257,10 +284,11 @@ export function configureInteractivePageSearch(
 
 export function searchPageMetadataSync(intent: PageSearchIntent): readonly PageSearchResult[] {
   if (
-    !index
-    || state.status !== "ready"
-    || intent.projectIds.some((projectId) => !configuredProjectIds.includes(projectId))
-  ) return [];
+    !index ||
+    state.status !== "ready" ||
+    intent.projectIds.some((projectId) => !configuredProjectIds.includes(projectId))
+  )
+    return [];
   try {
     return index.search({
       projectIds: [...intent.projectIds],
@@ -303,8 +331,10 @@ function filterCompleteResults(
   const requestedDataSourceIds = new Set(dataSourceIds);
   return rows.filter((row) => {
     const document = documents.get(row.pageId);
-    return document !== undefined
-      && document.dataSourceIds.some((dataSourceId) => requestedDataSourceIds.has(dataSourceId));
+    return (
+      document !== undefined &&
+      document.dataSourceIds.some((dataSourceId) => requestedDataSourceIds.has(dataSourceId))
+    );
   });
 }
 
@@ -312,7 +342,7 @@ export function useInteractivePageSearch(intent: PageSearchIntent): InteractiveP
   const projection = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const intendedScope = scopeKey(intent.projectIds);
   const normalizedProjectIds = useMemo(
-    () => intendedScope ? intendedScope.split("\n") : [],
+    () => (intendedScope ? intendedScope.split("\n") : []),
     [intendedScope],
   );
   useEffect(() => configureInteractivePageSearch(normalizedProjectIds), [normalizedProjectIds]);
@@ -335,18 +365,19 @@ export function useInteractivePageSearch(intent: PageSearchIntent): InteractiveP
   });
   const excluded = new Set(intent.excludePageIds ?? []);
   const completeRows = filterCompleteResults(complete.rows, intent.dataSourceIds);
-  const rows = complete.status === "settled"
-    ? completeRows.filter((row) => !excluded.has(row.pageId)).slice(0, intent.limit ?? 20)
-    : mergeResults(
-        preview.filter((row) => !excluded.has(row.pageId)),
-        completeRows.filter((row) => !excluded.has(row.pageId)),
-        intent.limit ?? 20,
-      );
+  const rows =
+    complete.status === "settled"
+      ? completeRows.filter((row) => !excluded.has(row.pageId)).slice(0, intent.limit ?? 20)
+      : mergeResults(
+          preview.filter((row) => !excluded.has(row.pageId)),
+          completeRows.filter((row) => !excluded.has(row.pageId)),
+          intent.limit ?? 20,
+        );
   if (projection.status !== "ready" && complete.status !== "settled") {
     let enrichment: InteractivePageSearchResult["enrichment"] = "loading";
     if (
-      complete.status === "unavailable"
-      || (complete.status === "idle" && projection.status === "unavailable")
+      complete.status === "unavailable" ||
+      (complete.status === "idle" && projection.status === "unavailable")
     ) {
       enrichment = "unavailable";
     } else if (complete.status === "idle" && projection.status === "idle") {
@@ -365,12 +396,18 @@ function useCompletePageSearch(
   enabled: boolean,
   revision: string,
   intent: PageSearchIntent,
-): { readonly rows: readonly PageSearchResult[]; readonly status: InteractivePageSearchResult["enrichment"] } {
+): {
+  readonly rows: readonly PageSearchResult[];
+  readonly status: InteractivePageSearchResult["enrichment"];
+} {
   const store = completeStoreFor(revision, enabled, intent);
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
-interface CompleteSnapshot { readonly rows: readonly PageSearchResult[]; readonly status: InteractivePageSearchResult["enrichment"] }
+interface CompleteSnapshot {
+  readonly rows: readonly PageSearchResult[];
+  readonly status: InteractivePageSearchResult["enrichment"];
+}
 interface CompleteStore {
   subscribe(listener: () => void): () => void;
   getSnapshot(): CompleteSnapshot;
@@ -423,8 +460,10 @@ function createCompleteStore(
   intent: PageSearchIntent,
 ): CompleteStore {
   const existingRequest = completeRequests.get(revision);
-  let snapshot: CompleteSnapshot = existingRequest?.getSnapshot()
-    ?? { rows: [], status: enabled ? "loading" : "idle" };
+  let snapshot: CompleteSnapshot = existingRequest?.getSnapshot() ?? {
+    rows: [],
+    status: enabled ? "loading" : "idle",
+  };
   let requestUnsubscribe: (() => void) | null = null;
   let storeEvictionTimer: ReturnType<typeof setTimeout> | null = null;
   const subscribers = new Set<() => void>();
@@ -506,26 +545,36 @@ function createCompleteRequest(
       const activeController = controller;
       // Core returns the complete candidate set. Data-source scoping is
       // applied against the same authorized metadata projection by the hook.
-      void searchPages({
-        projectIds: [...intent.projectIds], query: intent.query,
-        filters: intent.filters, preferredProjectId: intent.preferredProjectId ?? undefined,
-        recentPageIds: [...(intent.recentPageIds ?? [])], limit: intent.limit,
-      }, activeController.signal).then((result) => {
-        if (controller !== activeController || activeController.signal.aborted) return;
-        if (
-          (state.libraryId !== null && result.libraryId !== state.libraryId)
-          || (state.storeEpoch !== null && result.storeEpoch !== state.storeEpoch)
-          || result.commitSeq < state.commitSeq
-        ) return;
-        snapshot = { rows: result.results, status: "settled" };
-        notify();
-      }).catch(() => {
-        if (controller !== activeController || activeController.signal.aborted) return;
-        snapshot = { rows: [], status: "unavailable" };
-        notify();
-      }).finally(() => {
-        if (controller === activeController) controller = null;
-      });
+      void searchPages(
+        {
+          projectIds: [...intent.projectIds],
+          query: intent.query,
+          filters: intent.filters,
+          preferredProjectId: intent.preferredProjectId ?? undefined,
+          recentPageIds: [...(intent.recentPageIds ?? [])],
+          limit: intent.limit,
+        },
+        activeController.signal,
+      )
+        .then((result) => {
+          if (controller !== activeController || activeController.signal.aborted) return;
+          if (
+            (state.libraryId !== null && result.libraryId !== state.libraryId) ||
+            (state.storeEpoch !== null && result.storeEpoch !== state.storeEpoch) ||
+            result.commitSeq < state.commitSeq
+          )
+            return;
+          snapshot = { rows: result.results, status: "settled" };
+          notify();
+        })
+        .catch(() => {
+          if (controller !== activeController || activeController.signal.aborted) return;
+          snapshot = { rows: [], status: "unavailable" };
+          notify();
+        })
+        .finally(() => {
+          if (controller === activeController) controller = null;
+        });
     }, 175);
   };
   const stop = (): void => {
@@ -598,15 +647,22 @@ export const __testing = {
   },
   reset() {
     generation += 1;
-    unsubscribeChanges?.(); unsubscribeChanges = null;
+    unsubscribeChanges?.();
+    unsubscribeChanges = null;
     refreshInFlight = false;
     pendingFullRefresh = false;
     pendingPageIds.clear();
     scopeLeases.clear();
     nextScopeLeaseId = 1;
-    state = EMPTY_STATE; index?.free?.(); index = null; documents.clear(); configuredProjectIds = [];
+    state = EMPTY_STATE;
+    index?.free?.();
+    index = null;
+    documents.clear();
+    configuredProjectIds = [];
     completeStores.forEach((store) => store.dispose());
     completeRequests.forEach((request) => request.dispose());
-    completeStores.clear(); completeRequests.clear(); listeners.clear();
+    completeStores.clear();
+    completeRequests.clear();
+    listeners.clear();
   },
 };

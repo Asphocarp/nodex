@@ -40,7 +40,9 @@ function automation(overrides: Partial<CodexScheduledAutomation> = {}): CodexSch
 
 describe("codex scheduled automation schedule helpers", () => {
   test("normalizes missing RRULEs to the reference default interval", () => {
-    expect(normalizeCodexScheduledAutomationRrule(null)).toBe(DEFAULT_CODEX_SCHEDULED_AUTOMATION_RRULE);
+    expect(normalizeCodexScheduledAutomationRrule(null)).toBe(
+      DEFAULT_CODEX_SCHEDULED_AUTOMATION_RRULE,
+    );
     expect(normalizeCodexScheduledAutomationRrule("  FREQ=DAILY  ")).toBe("FREQ=DAILY");
   });
 
@@ -81,13 +83,15 @@ describe("codex scheduled automation schedule helpers", () => {
     expect(jitter >= 0).toBe(true);
     expect(jitter < CODEX_SCHEDULED_AUTOMATION_JITTER_MAX_SECONDS * 1_000).toBe(true);
     expect(next).toBe(base + jitter);
-    expect(shouldJitterCodexScheduledAutomation({
-      automation: {
-        id: "cron-1",
-        kind: "cron",
-        rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=30",
-      },
-    })).toBe(true);
+    expect(
+      shouldJitterCodexScheduledAutomation({
+        automation: {
+          id: "cron-1",
+          kind: "cron",
+          rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=30",
+        },
+      }),
+    ).toBe(true);
   });
 
   test("reconciles active, paused, and changed schedules against mirror state", () => {
@@ -126,12 +130,16 @@ describe("codex scheduled automation schedule helpers", () => {
   });
 
   test("selects due automations in next-run order with a limit", () => {
-    const due = listDueCodexScheduledAutomations([
-      automation({ id: "future", nextRunAt: 300 }),
-      automation({ id: "second", nextRunAt: 200 }),
-      automation({ id: "paused", status: "PAUSED", nextRunAt: 100 }),
-      automation({ id: "first", nextRunAt: 100 }),
-    ], 250, 2);
+    const due = listDueCodexScheduledAutomations(
+      [
+        automation({ id: "future", nextRunAt: 300 }),
+        automation({ id: "second", nextRunAt: 200 }),
+        automation({ id: "paused", status: "PAUSED", nextRunAt: 100 }),
+        automation({ id: "first", nextRunAt: 100 }),
+      ],
+      250,
+      2,
+    );
 
     expect(due.length).toBe(2);
     expect(due[0]?.id).toBe("first");

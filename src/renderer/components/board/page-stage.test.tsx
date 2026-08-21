@@ -8,16 +8,10 @@ import {
   writePageStageShowRawContentPreference,
 } from "@/lib/page-stage-layout";
 import type { DatabasePage } from "@/lib/types";
-import {
-  projectPageDetailToStageModel,
-  type PageStagePageModel,
-} from "@/lib/page-stage-page";
+import { projectPageDetailToStageModel, type PageStagePageModel } from "@/lib/page-stage-page";
 import { readPageStageSemanticProperties } from "@/lib/page-stage-properties";
 import type { PageStageProps } from "./page-stage/types";
-import {
-  renderWithMaitai as render,
-  settleAsyncRender,
-} from "@/test/dom";
+import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
   createPageDocument,
@@ -66,11 +60,7 @@ vi.mock("@/lib/use-page-backlinks", () => ({
 }));
 
 vi.mock("@/components/block-documents/collaborative-page-title", () => ({
-  CollaborativePageTitle: ({
-    onValueChange,
-  }: {
-    onValueChange?: (title: string) => void;
-  }) => {
+  CollaborativePageTitle: ({ onValueChange }: { onValueChange?: (title: string) => void }) => {
     publishCollaborativeTitle = onValueChange ?? null;
     useEffect(() => {
       onValueChange?.("Live title");
@@ -132,9 +122,9 @@ function toStageModel(page: DatabasePage): PageStagePageModel {
   if (!detail.ok) throw new Error(detail.error.message);
   const projected = projectPageDetailToStageModel(detail.value);
   if (projected.databaseContext.kind !== "member") return projected;
-  const properties = projected.databaseContext.properties.filter((item) =>
-    item.property.valueType !== "select"
-    && item.property.valueType !== "multi_select");
+  const properties = projected.databaseContext.properties.filter(
+    (item) => item.property.valueType !== "select" && item.property.valueType !== "multi_select",
+  );
   return {
     ...projected,
     databaseContext: {
@@ -212,10 +202,7 @@ describe("page stage", () => {
       documentId: "document:page-1",
       initialTitle: "Live title",
     });
-    populateBlockDocumentBodyFromNfm(
-      surfaceDocument.body,
-      "# Live collaborative body\n\n- item",
-    );
+    populateBlockDocumentBodyFromNfm(surfaceDocument.body, "# Live collaborative body\n\n- item");
     loadedPageStage = await import("./page-stage");
   });
 
@@ -225,32 +212,33 @@ describe("page stage", () => {
     const { container, getByText } = renderStage();
     await settleAsyncRender();
 
-    expect(getByText("Mock collaborative editor").textContent).toBe(
-      "Mock collaborative editor",
-    );
+    expect(getByText("Mock collaborative editor").textContent).toBe("Mock collaborative editor");
     const source = lastNfmEditorProps?.source as Record<string, unknown>;
-    expect(lastNfmEditorProps?.contentAccessContext).toEqual(
-      projectContentAccess("default"),
-    );
+    expect(lastNfmEditorProps?.contentAccessContext).toEqual(projectContentAccess("default"));
     expect(source.kind).toBe("collaborative-document");
     expect(source.documentId).toBe("document:page-1");
     expect(Object.hasOwn(source, "content")).toBe(false);
     expect(Object.hasOwn(source, "onChange")).toBe(false);
     expect(
-      container.querySelector('[data-page-stage-surface="true"]')
+      container
+        .querySelector('[data-page-stage-surface="true"]')
         ?.getAttribute("data-page-stage-page-id"),
     ).toBe("page-1");
-    expect(container.querySelector('[data-page-stage-heading-navigation-portal-target="true"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-page-stage-heading-navigation-portal-target="true"]'),
+    ).not.toBeNull();
   });
 
   test("renders the current breadcrumb item from the live Y.Text title", async () => {
     const view = renderStage(toStageModel(buildPage()), {
       breadcrumb: {
-        ancestors: [{
-          projectId: "default",
-          pageId: "parent-page",
-          title: "Parent Page",
-        }],
+        ancestors: [
+          {
+            projectId: "default",
+            pageId: "parent-page",
+            title: "Parent Page",
+          },
+        ],
         onOpenAncestor: () => undefined,
       },
     });
@@ -264,9 +252,9 @@ describe("page stage", () => {
     const breadcrumb = view.getByRole("navigation", {
       name: "Page hierarchy",
     });
-    expect(
-      breadcrumb.querySelector('[aria-current="page"]')?.textContent,
-    ).toBe("Renamed live title");
+    expect(breadcrumb.querySelector('[aria-current="page"]')?.textContent).toBe(
+      "Renamed live title",
+    );
   });
 
   test("opens a standalone Page without Database controls or delete", async () => {

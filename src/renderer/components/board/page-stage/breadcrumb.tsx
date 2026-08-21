@@ -1,9 +1,6 @@
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { Ellipsis } from "@/components/shared/icons/generic-icons";
-import {
-  NodexDropdownItem,
-  NodexDropdownMenu,
-} from "@/components/ui/dropdown";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 
 export interface PageStageBreadcrumbItem {
@@ -17,10 +14,7 @@ export interface PageStageBreadcrumbProps {
   readonly ancestors: readonly PageStageBreadcrumbItem[];
   readonly currentTitle: string;
   readonly disabled?: boolean;
-  readonly onOpenAncestor: (
-    ancestor: PageStageBreadcrumbItem,
-    ancestorIndex: number,
-  ) => void;
+  readonly onOpenAncestor: (ancestor: PageStageBreadcrumbItem, ancestorIndex: number) => void;
 }
 
 interface IndexedBreadcrumbItem {
@@ -67,7 +61,8 @@ function PageStageBreadcrumbAncestor({
         className={cn(
           "min-w-0 max-w-36 truncate rounded-md px-1 py-0.5 text-token-text-secondary outline-hidden",
           "hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-2",
-          itemDisabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-text-secondary",
+          itemDisabled &&
+            "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-text-secondary",
         )}
       >
         {label}
@@ -116,7 +111,7 @@ export function PageStageBreadcrumb({
               side="bottom"
               align="start"
               contentWidth="menuBounded"
-              triggerButton={(
+              triggerButton={
                 <button
                   type="button"
                   aria-label="More ancestor pages"
@@ -124,12 +119,13 @@ export function PageStageBreadcrumb({
                   className={cn(
                     "inline-flex size-6 items-center justify-center rounded-md text-token-description-foreground outline-hidden",
                     "hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-2",
-                    disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-description-foreground",
+                    disabled &&
+                      "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-token-description-foreground",
                   )}
                 >
                   <Ellipsis className="icon-2xs shrink-0" />
                 </button>
-              )}
+              }
             >
               {overflow.map((entry) => {
                 const label = breadcrumbLabel(entry.item.title);

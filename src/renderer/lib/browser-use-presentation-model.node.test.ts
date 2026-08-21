@@ -88,28 +88,30 @@ describe("Browser Use presentation model", () => {
   });
 
   test("finds an existing Workbench shell by logical Browser identity", () => {
-    const tabs = [{
-      id: "workbench-browser",
-      sessionId: "session-1",
-      projectId: "project-1",
-      panelId: "bottom",
-      title: "Example",
-      order: 0,
-      stateKey: 0,
-      state: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      kind: "browser",
-      browserTabId: "browser-use:one",
-      config: {
+    const tabs = [
+      {
+        id: "workbench-browser",
+        sessionId: "session-1",
         projectId: "project-1",
-        browserStorageId: "browser-storage-1",
+        panelId: "bottom",
+        title: "Example",
+        order: 0,
+        stateKey: 0,
+        state: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        kind: "browser",
+        browserTabId: "browser-use:one",
+        config: {
+          projectId: "project-1",
+          browserStorageId: "browser-storage-1",
+        },
       },
-    }] satisfies WorkbenchTabProjection[];
+    ] satisfies WorkbenchTabProjection[];
 
-    expect(
-      findWorkbenchBrowserTabByRuntimeId(tabs, "browser-use:one")?.id,
-    ).toBe("workbench-browser");
+    expect(findWorkbenchBrowserTabByRuntimeId(tabs, "browser-use:one")?.id).toBe(
+      "workbench-browser",
+    );
     expect(findWorkbenchBrowserTabByRuntimeId(tabs, "missing")).toBe(null);
   });
 });

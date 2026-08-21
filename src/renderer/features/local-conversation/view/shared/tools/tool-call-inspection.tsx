@@ -11,10 +11,7 @@ import {
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
 import { CopyMessageActionButton } from "../thread-message-actions";
-import {
-  LazySourceViewer,
-  preloadSourceViewer,
-} from "@/components/ui/lazy-source-viewer";
+import { LazySourceViewer, preloadSourceViewer } from "@/components/ui/lazy-source-viewer";
 import {
   buildTextPreview,
   INLINE_TEXT_PREVIEW_MAX_CHARS,
@@ -25,11 +22,13 @@ const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 
 export function stringifyToolCallValue(value: unknown): string {
   try {
-    return JSON.stringify(
-      value,
-      (_key, entry) => typeof entry === "bigint" ? entry.toString() : entry,
-      2,
-    ) ?? String(value);
+    return (
+      JSON.stringify(
+        value,
+        (_key, entry) => (typeof entry === "bigint" ? entry.toString() : entry),
+        2,
+      ) ?? String(value)
+    );
   } catch {
     return String(value);
   }
@@ -53,9 +52,10 @@ export function ToolCallCodePanel({
   stickyHeaderClassName?: string;
 }) {
   const [fullTextOpen, setFullTextOpen] = useState(false);
-  const boundedPreview = preview.text.length <= INLINE_TEXT_PREVIEW_MAX_CHARS
-    ? preview
-    : buildTextPreview(preview.text, INLINE_TEXT_PREVIEW_MAX_CHARS);
+  const boundedPreview =
+    preview.text.length <= INLINE_TEXT_PREVIEW_MAX_CHARS
+      ? preview
+      : buildTextPreview(preview.text, INLINE_TEXT_PREVIEW_MAX_CHARS);
   return (
     <div
       className="bg-token-text-code-block-background border-token-border-heavy relative overflow-clip rounded-lg border contain-inline-size dark"
@@ -93,7 +93,9 @@ export function ToolCallCodePanel({
         </div>
       </div>
       <div className={cn("text-size-chat max-h-48 overflow-y-auto p-2", bodyClassName)} dir="ltr">
-        <pre className={cn("m-0 whitespace-pre-wrap break-words", preClassName)}>{boundedPreview.text}</pre>
+        <pre className={cn("m-0 whitespace-pre-wrap break-words", preClassName)}>
+          {boundedPreview.text}
+        </pre>
       </div>
     </div>
   );
@@ -152,7 +154,9 @@ export function ToolCallRawDialog({
         <NodexTooltip tooltipContent={triggerLabel} side="top" delayDuration={0}>
           {trigger}
         </NodexTooltip>
-      ) : trigger}
+      ) : (
+        trigger
+      )}
       <DialogContent
         id={dialogId}
         ref={contentRef}
@@ -170,11 +174,7 @@ export function ToolCallRawDialog({
           </DialogHeader>
           <DialogBody className="h-[min(65vh,40rem)] min-h-72">
             {open ? (
-              <ToolCallRawContent
-                title={title}
-                getRawText={getRawText}
-                getRawValue={getRawValue}
-              />
+              <ToolCallRawContent title={title} getRawText={getRawText} getRawValue={getRawValue} />
             ) : null}
           </DialogBody>
         </DialogFrame>
@@ -192,12 +192,15 @@ function ToolCallRawContent({
   readonly getRawText?: () => string;
   readonly getRawValue?: () => unknown;
 }) {
-  const [rawText] = useState(() => (
-    getRawText ? getRawText() : stringifyToolCallValue(getRawValue?.())
-  ));
+  const [rawText] = useState(() =>
+    getRawText ? getRawText() : stringifyToolCallValue(getRawValue?.()),
+  );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-token-text-code-block-background dark" data-theme="dark">
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-token-text-code-block-background dark"
+      data-theme="dark"
+    >
       <div className="flex h-8 shrink-0 items-center justify-between px-2 text-sm text-token-description-foreground">
         <span>json</span>
         <CopyMessageActionButton
@@ -208,11 +211,7 @@ function ToolCallRawContent({
           copiedTooltipLabel="Copied"
         />
       </div>
-      <LazySourceViewer
-        value={rawText}
-        ariaLabel={title}
-        className="min-h-0 flex-1"
-      />
+      <LazySourceViewer value={rawText} ariaLabel={title} className="min-h-0 flex-1" />
     </div>
   );
 }

@@ -5,10 +5,7 @@ import {
   buildCommandPaletteHighlightSegments,
   normalizeCommandPalettePreviewText,
 } from "./command-palette-highlight";
-import {
-  normalizeSearchText,
-  resolveFuzzyThreshold,
-} from "./search-text";
+import { normalizeSearchText, resolveFuzzyThreshold } from "./search-text";
 import type {
   CommandPaletteThread,
   CommandPaletteThreadSearchDecorations,
@@ -135,11 +132,13 @@ function buildSearchDecorations(
 }
 
 function resolveMatchedFieldPriority(result: SearchResult): number {
-  return SEARCH_FIELDS.reduce((priority, field) => (
-    collectMatchedTermsForField(result, field).length > 0
-      ? Math.min(priority, FIELD_PRIORITIES[field])
-      : priority
-  ), Number.MAX_SAFE_INTEGER);
+  return SEARCH_FIELDS.reduce(
+    (priority, field) =>
+      collectMatchedTermsForField(result, field).length > 0
+        ? Math.min(priority, FIELD_PRIORITIES[field])
+        : priority,
+    Number.MAX_SAFE_INTEGER,
+  );
 }
 
 function buildPreview(

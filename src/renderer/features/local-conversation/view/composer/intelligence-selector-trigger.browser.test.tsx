@@ -7,10 +7,7 @@ import "../../../../globals.css";
 describe("IntelligenceSelectorTrigger layout", () => {
   test("measures every label candidate without adding scrollable height", async () => {
     const view = render(
-      <div
-        className="relative h-7 w-80 overflow-y-auto"
-        data-testid="composer-control-row"
-      >
+      <div className="relative h-7 w-80 overflow-y-auto" data-testid="composer-control-row">
         <IntelligenceSelectorTrigger
           geometry={{
             alignOffset: undefined,
@@ -53,9 +50,9 @@ describe("IntelligenceSelectorTrigger layout", () => {
         throw new Error("Expected the intelligence selector measurement stack.");
       }
 
-      const candidates = Array.from(
-        measurement.children,
-      ).filter((candidate): candidate is HTMLElement => candidate instanceof HTMLElement);
+      const candidates = Array.from(measurement.children).filter(
+        (candidate): candidate is HTMLElement => candidate instanceof HTMLElement,
+      );
       const candidateWidths = candidates.map(
         (candidate) => candidate.getBoundingClientRect().width,
       );
@@ -88,11 +85,13 @@ describe("IntelligenceSelectorTrigger layout", () => {
           wrapperRef: createRef<HTMLSpanElement>(),
         }}
         isOpen
-        labelCandidates={[{
-          id: "openai:gpt-5.6-sol:xhigh",
-          modelLabel: "GPT-5.6-Sol",
-          reasoningLabel: "Extra High",
-        }]}
+        labelCandidates={[
+          {
+            id: "openai:gpt-5.6-sol:xhigh",
+            modelLabel: "GPT-5.6-Sol",
+            reasoningLabel: "Extra High",
+          },
+        ]}
         modelLabel="GPT-5.6-Sol"
         reasoningLabel="Extra High"
         showFastIndicator
@@ -104,13 +103,9 @@ describe("IntelligenceSelectorTrigger layout", () => {
       const wrapper = view.container.querySelector<HTMLElement>(
         "[data-intelligence-selector-trigger-wrapper=true]",
       );
-      const label = view.container.querySelector<HTMLElement>(
-        "[data-fast-mode-indicator=true]",
-      );
+      const label = view.container.querySelector<HTMLElement>("[data-fast-mode-indicator=true]");
       const icon = label?.querySelector<SVGSVGElement>("svg");
-      const slot = view.container.querySelector<HTMLElement>(
-        "[data-fast-mode-slot=true]",
-      );
+      const slot = view.container.querySelector<HTMLElement>("[data-fast-mode-slot=true]");
       if (!wrapper || !label || !icon || !slot) {
         throw new Error("Expected the expanded Fast selector geometry.");
       }

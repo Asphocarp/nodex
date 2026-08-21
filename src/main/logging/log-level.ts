@@ -16,10 +16,7 @@ export interface LogSinkLevels {
   observer: LogLevelName;
 }
 
-export function parseLogLevel(
-  value: string | undefined,
-  fallback: LogLevelName,
-): LogLevelName {
+export function parseLogLevel(value: string | undefined, fallback: LogLevelName): LogLevelName {
   const normalized = value?.trim().toLowerCase();
   if (normalized && Object.prototype.hasOwnProperty.call(LOG_LEVELS, normalized)) {
     return normalized as LogLevelName;
@@ -28,9 +25,7 @@ export function parseLogLevel(
 }
 
 export function resolveLogSinkLevels(env: NodeJS.ProcessEnv): LogSinkLevels {
-  const legacyLevel = env.NODEX_LOG_LEVEL
-    ? parseLogLevel(env.NODEX_LOG_LEVEL, "info")
-    : null;
+  const legacyLevel = env.NODEX_LOG_LEVEL ? parseLogLevel(env.NODEX_LOG_LEVEL, "info") : null;
 
   return {
     console: parseLogLevel(env.NODEX_LOG_CONSOLE_LEVEL, legacyLevel ?? "warn"),
@@ -39,9 +34,6 @@ export function resolveLogSinkLevels(env: NodeJS.ProcessEnv): LogSinkLevels {
   };
 }
 
-export function isLogLevelEnabled(
-  level: ActiveLogLevelName,
-  threshold: LogLevelName,
-): boolean {
+export function isLogLevelEnabled(level: ActiveLogLevelName, threshold: LogLevelName): boolean {
   return LOG_LEVELS[level] >= LOG_LEVELS[threshold];
 }

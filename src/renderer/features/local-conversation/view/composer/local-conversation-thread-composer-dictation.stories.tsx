@@ -65,20 +65,23 @@ class StoryScriptProcessor {
   connect(): void {
     if (this.intervalId !== null) return;
 
-    this.intervalId = window.setInterval(() => {
-      const samples = new Float32Array(STORY_AUDIO_BUFFER_SIZE);
-      const envelope = 0.035 + ((Math.sin(this.sampleCursor / 18_000) + 1) * 0.025);
-      for (let index = 0; index < samples.length; index += 1) {
-        const position = this.sampleCursor + index;
-        samples[index] = Math.sin(position * 0.025) * envelope;
-      }
-      this.sampleCursor += samples.length;
-      this.onaudioprocess?.({
-        inputBuffer: {
-          getChannelData: () => samples,
-        },
-      });
-    }, 1_000 * STORY_AUDIO_BUFFER_SIZE / COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ);
+    this.intervalId = window.setInterval(
+      () => {
+        const samples = new Float32Array(STORY_AUDIO_BUFFER_SIZE);
+        const envelope = 0.035 + (Math.sin(this.sampleCursor / 18_000) + 1) * 0.025;
+        for (let index = 0; index < samples.length; index += 1) {
+          const position = this.sampleCursor + index;
+          samples[index] = Math.sin(position * 0.025) * envelope;
+        }
+        this.sampleCursor += samples.length;
+        this.onaudioprocess?.({
+          inputBuffer: {
+            getChannelData: () => samples,
+          },
+        });
+      },
+      (1_000 * STORY_AUDIO_BUFFER_SIZE) / COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ,
+    );
   }
 
   disconnect(): void {
@@ -116,7 +119,11 @@ function buildModel(state: DictationStoryState): ThreadFooterModel {
     collapseAgentBody: false,
   };
   const scenario = buildThreadStageStoryScenario(controls);
-  const footerModel = buildThreadStageStorySurfaceModels(scenario, controls, scenario.runtime).footerModel;
+  const footerModel = buildThreadStageStorySurfaceModels(
+    scenario,
+    controls,
+    scenario.runtime,
+  ).footerModel;
   return {
     ...footerModel,
     dictation: {
@@ -147,7 +154,7 @@ function buildActions(): ThreadStageActions {
     onEditQueuedFollowUp: async () => {},
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
-    onUnarchiveThread: async () => { },
+    onUnarchiveThread: async () => {},
     onOpenTurnDiffReview: () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
@@ -194,15 +201,17 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
       writable: true,
       value: StoryAudioContext,
     });
-    globalThis.fetch = (state === "transcribing"
-      ? (() => new Promise<Response>(() => {}))
-      : (async () =>
-          new Response(JSON.stringify({ text: "Story transcript" }), {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }))) as typeof fetch;
+    globalThis.fetch = (
+      state === "transcribing"
+        ? () => new Promise<Response>(() => {})
+        : async () =>
+            new Response(JSON.stringify({ text: "Story transcript" }), {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+              },
+            })
+    ) as typeof fetch;
 
     if (state === "recording" || state === "transcribing") {
       startTimeout = window.setTimeout(() => {
@@ -211,18 +220,22 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
 
       if (state === "transcribing") {
         stopTimeout = window.setTimeout(() => {
-          (document.querySelector('[aria-label="Stop dictation"]') as HTMLButtonElement | null)?.click();
+          (
+            document.querySelector('[aria-label="Stop dictation"]') as HTMLButtonElement | null
+          )?.click();
         }, 400);
       }
     }
 
     if (state === "keyboardHold") {
       startTimeout = window.setTimeout(() => {
-        document.dispatchEvent(new KeyboardEvent("keydown", {
-          key: "m",
-          ctrlKey: true,
-          bubbles: true,
-        }));
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "m",
+            ctrlKey: true,
+            bubbles: true,
+          }),
+        );
       }, 50);
     }
 
@@ -253,7 +266,8 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
       <div className="mb-4 max-w-2xl">
         <div className="text-sm font-semibold text-(--foreground)">Composer Dictation</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          Electron dictation states with keyboard hold, buffered transcription, and a ten-second rolling waveform.
+          Electron dictation states with keyboard hold, buffered transcription, and a ten-second
+          rolling waveform.
         </div>
       </div>
       <TooltipProvider>

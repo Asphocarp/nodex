@@ -17,11 +17,7 @@ import {
 const CLIENT_THREAD_ID = "client-new-thread:11111111-1111-4111-8111-111111111111";
 
 function render(element: ReactElement) {
-  return renderWithMaitai(
-    <NodexTooltipProvider>
-      {element}
-    </NodexTooltipProvider>,
-  );
+  return renderWithMaitai(<NodexTooltipProvider>{element}</NodexTooltipProvider>);
 }
 
 function deferred<T>(): {
@@ -43,9 +39,7 @@ type StartConversationEntry = Extract<
   { readonly launchMode: "start-conversation" }
 >;
 
-function makeEntry(
-  overrides: Partial<StartConversationEntry> = {},
-): StartConversationEntry {
+function makeEntry(overrides: Partial<StartConversationEntry> = {}): StartConversationEntry {
   return {
     id: "local:pending-1",
     hostId: "local",
@@ -102,9 +96,7 @@ class TestPendingWorktreeTransport implements PendingWorktreeRouteTransport {
   entries: CodexPendingWorktreeEntry[];
   resolution: CodexPendingWorktreeThreadResolution | null;
   calls: string[] = [];
-  private readonly listeners = new Set<(
-    entries: CodexPendingWorktreesChangedEvent,
-  ) => void>();
+  private readonly listeners = new Set<(entries: CodexPendingWorktreesChangedEvent) => void>();
 
   constructor(
     entry: CodexPendingWorktreeEntry | null,
@@ -206,12 +198,18 @@ describe("PendingWorktreeRoute", () => {
       />,
     );
 
-    expect(Boolean(await view.findByText("Creating a worktree", {
-      selector: ".loading-shimmer-pure-text",
-    }))).toBe(true);
+    expect(
+      Boolean(
+        await view.findByText("Creating a worktree", {
+          selector: ".loading-shimmer-pure-text",
+        }),
+      ),
+    ).toBe(true);
     expect(Boolean(view.getByText("Preparing workspace"))).toBe(true);
     expect(Boolean(view.getByText("Checking out files"))).toBe(true);
-    expect(Boolean(view.getByText("Create an isolated workspace and implement the task."))).toBe(true);
+    expect(Boolean(view.getByText("Create an isolated workspace and implement the task."))).toBe(
+      true,
+    );
     expect(Boolean(view.getByRole("button", { name: "Work locally" }))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Cancel" }))).toBe(true);
 
@@ -235,8 +233,9 @@ describe("PendingWorktreeRoute", () => {
       await Promise.resolve();
     });
     expect(Boolean(view.getByText("bun install"))).toBe(true);
-    expect(view.getByRole("button", { name: "Less details" }).getAttribute("aria-expanded"))
-      .toBe("true");
+    expect(view.getByRole("button", { name: "Less details" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
     expect((view.container.textContent ?? "").includes("\u001b")).toBe(false);
   });
 
@@ -407,9 +406,7 @@ describe("PendingWorktreeRoute", () => {
 
     expect(Boolean(await view.findByText("Worktree setup failed"))).toBe(true);
     expect(Boolean(view.getByText("Worktree creation failed"))).toBe(true);
-    expect(
-      transport.calls.filter((call) => call.startsWith("clear-attention:")).length,
-    ).toBe(1);
+    expect(transport.calls.filter((call) => call.startsWith("clear-attention:")).length).toBe(1);
   });
 
   test("uses the normal thread hierarchy without a private header or fake composer", async () => {
@@ -424,13 +421,17 @@ describe("PendingWorktreeRoute", () => {
       />,
     );
 
-    expect(Boolean(await view.findByText("Creating a worktree", {
-      selector: ".loading-shimmer-pure-text",
-    }))).toBe(true);
-    expect(Boolean(view.container.querySelector("[data-local-conversation-thread-body='true']")))
-      .toBe(true);
-    expect(Boolean(view.container.querySelector("[data-user-message-bubble='true']")))
-      .toBe(true);
+    expect(
+      Boolean(
+        await view.findByText("Creating a worktree", {
+          selector: ".loading-shimmer-pure-text",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(view.container.querySelector("[data-local-conversation-thread-body='true']")),
+    ).toBe(true);
+    expect(Boolean(view.container.querySelector("[data-user-message-bubble='true']"))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Copy message" }))).toBe(true);
     expect(view.queryByRole("heading", { name: entry.label })).toBe(null);
     expect(view.queryByRole("button", { name: "Pin task" })).toBe(null);
@@ -456,14 +457,17 @@ describe("PendingWorktreeRoute", () => {
         busyAction="cancel"
       />,
     );
-    const activeNames = activeView.getAllByRole("button")
+    const activeNames = activeView
+      .getAllByRole("button")
       .map((button) => button.textContent?.trim())
       .filter((name) => name === "Work locally" || name === "Cancel");
     expect(activeNames).toEqual(["Work locally", "Cancel"]);
-    expect(activeView.getByRole("button", { name: "Work locally" }).getAttribute("aria-busy"))
-      .toBe("true");
-    expect(activeView.getByRole("button", { name: "Cancel" }).getAttribute("aria-busy"))
-      .toBe("true");
+    expect(activeView.getByRole("button", { name: "Work locally" }).getAttribute("aria-busy")).toBe(
+      "true",
+    );
+    expect(activeView.getByRole("button", { name: "Cancel" }).getAttribute("aria-busy")).toBe(
+      "true",
+    );
     expect(activeView.queryByText("Canceling…")).toBe(null);
 
     const failed = makeEntry({
@@ -487,21 +491,16 @@ describe("PendingWorktreeRoute", () => {
       "Retry",
       "Continue anyway",
     ]);
-    const failureNames = failedView.getAllByRole("button")
+    const failureNames = failedView
+      .getAllByRole("button")
       .map((button) => button.textContent?.trim())
       .filter((name): name is string => name !== undefined && failureActionLabels.has(name));
-    expect(failureNames).toEqual([
-      "Edit environment",
-      "Auto-fix",
-      "Retry",
-      "Continue anyway",
-    ]);
-    expect(failedView.getByRole("button", { name: "Auto-fix" }).getAttribute("aria-busy"))
-      .toBe("true");
-    expect(failedView.getByRole("button", { name: "Retry" }).getAttribute("aria-busy"))
-      .toBe(null);
-    expect(failedView.getByRole("button", { name: "Retry" }).hasAttribute("disabled"))
-      .toBe(false);
+    expect(failureNames).toEqual(["Edit environment", "Auto-fix", "Retry", "Continue anyway"]);
+    expect(failedView.getByRole("button", { name: "Auto-fix" }).getAttribute("aria-busy")).toBe(
+      "true",
+    );
+    expect(failedView.getByRole("button", { name: "Retry" }).getAttribute("aria-busy")).toBe(null);
+    expect(failedView.getByRole("button", { name: "Retry" }).hasAttribute("disabled")).toBe(false);
     expect(failedView.queryByText("Starting…")).toBe(null);
   });
 
@@ -610,9 +609,13 @@ describe("PendingWorktreeRoute", () => {
       />,
     );
 
-    expect(Boolean(await view.findByText("Starting a task", {
-      selector: ".loading-shimmer-pure-text",
-    }))).toBe(true);
+    expect(
+      Boolean(
+        await view.findByText("Starting a task", {
+          selector: ".loading-shimmer-pure-text",
+        }),
+      ),
+    ).toBe(true);
     await act(async () => {
       transport.resolution = {
         state: "succeeded",

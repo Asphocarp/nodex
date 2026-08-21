@@ -10,18 +10,11 @@ import {
   moveNfmMoveToFocusedRowId,
   resolveNfmMoveToFocusedRowId,
 } from "./nfm-move-to-menu-model";
-import {
-  createNfmMoveToSearchIndex,
-  type NfmMoveToPageSearchHit,
-} from "./nfm-move-to-menu-search";
+import { createNfmMoveToSearchIndex, type NfmMoveToPageSearchHit } from "./nfm-move-to-menu-search";
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
-function makeProject(
-  id: string,
-  name: string,
-  icon?: "heart" | "plant",
-): Project {
+function makeProject(id: string, name: string, icon?: "heart" | "plant"): Project {
   return {
     id,
     libraryId: "library:test",
@@ -166,9 +159,9 @@ function pageHit(
 
 describe("nfm move-to menu model", () => {
   test("exposes only destinations inside the source Project authority", () => {
-    expect(getNfmMoveToExecutableProjects(PROJECTS, "alpha").map(
-      (project) => project.id,
-    )).toEqual(["alpha"]);
+    expect(getNfmMoveToExecutableProjects(PROJECTS, "alpha").map((project) => project.id)).toEqual([
+      "alpha",
+    ]);
     expect(getNfmMoveToExecutableProjects(PROJECTS, null)).toEqual([]);
   });
 
@@ -210,14 +203,16 @@ describe("nfm move-to menu model", () => {
   });
 
   test("builds DB status destinations without loading Project boards", () => {
-    const rows = flattenNfmMoveToRows(buildNfmMoveToSections({
-      projects: PROJECTS,
-      pageBoardMap: new Map(),
-      sourceProjectId: "alpha",
-      sourcePageId: "source-page",
-      expandedProjectIds: new Set(["beta"]),
-      query: "",
-    }));
+    const rows = flattenNfmMoveToRows(
+      buildNfmMoveToSections({
+        projects: PROJECTS,
+        pageBoardMap: new Map(),
+        sourceProjectId: "alpha",
+        sourcePageId: "source-page",
+        expandedProjectIds: new Set(["beta"]),
+        query: "",
+      }),
+    );
 
     expect(rows.map((row) => row.id)).toEqual([
       "db:alpha",
@@ -285,7 +280,9 @@ describe("nfm move-to menu model", () => {
       "triage",
       "Triage",
     );
-    const fuzzyRows = flattenNfmMoveToRows(buildSections("commnd pal", undefined, [commandPalette]));
+    const fuzzyRows = flattenNfmMoveToRows(
+      buildSections("commnd pal", undefined, [commandPalette]),
+    );
     const descriptionRows = flattenNfmMoveToRows(buildSections("ocr pipeline"));
     const tagRows = flattenNfmMoveToRows(buildSections("secret-tag"));
     const assigneeRows = flattenNfmMoveToRows(buildSections("alex"));
@@ -303,9 +300,7 @@ describe("nfm move-to menu model", () => {
       matchedPageKey: "LAB-13",
       matchedPageKeyIsCurrent: true,
     };
-    const kernelRows = flattenNfmMoveToRows(
-      buildSections("#lab-13", undefined, [commandPalette]),
-    );
+    const kernelRows = flattenNfmMoveToRows(buildSections("#lab-13", undefined, [commandPalette]));
     const localRows = flattenNfmMoveToRows(buildSections("#lab-13"));
 
     expect(kernelRows.map((row) => row.id)).toEqual(["page:alpha:command-palette"]);

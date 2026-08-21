@@ -42,7 +42,8 @@ type StatusIconDefinition = {
 };
 
 const STATUS_ICON_CLASS_NAME = "size-3.5 shrink-0";
-const STATUS_LABEL_CLASS_NAME = "inline-flex min-w-0 max-w-full items-center gap-1.5 text-sm/5 font-normal text-token-text-primary";
+const STATUS_LABEL_CLASS_NAME =
+  "inline-flex min-w-0 max-w-full items-center gap-1.5 text-sm/5 font-normal text-token-text-primary";
 
 const STATUS_ID_BY_LABEL: Record<string, StatusVisualId> = {
   Triage: "triage",
@@ -59,18 +60,20 @@ const PROGRESS_ICON_RADIUS = 3.5;
 function createProgressIconDefinition(percentage: number): StatusIconDefinition {
   const degrees = 360 * percentage;
   const projectedDegrees = degrees > 180 ? 360 - degrees : degrees;
-  const radians = projectedDegrees * Math.PI / 180;
+  const radians = (projectedDegrees * Math.PI) / 180;
   const chord = Math.sqrt(
-    2 * PROGRESS_ICON_RADIUS * PROGRESS_ICON_RADIUS
-      - 2 * PROGRESS_ICON_RADIUS * PROGRESS_ICON_RADIUS * Math.cos(radians),
+    2 * PROGRESS_ICON_RADIUS * PROGRESS_ICON_RADIUS -
+      2 * PROGRESS_ICON_RADIUS * PROGRESS_ICON_RADIUS * Math.cos(radians),
   );
-  const horizontalOffset = projectedDegrees <= 90
-    ? PROGRESS_ICON_RADIUS * Math.sin(radians)
-    : PROGRESS_ICON_RADIUS * Math.sin((180 - projectedDegrees) * Math.PI / 180);
+  const horizontalOffset =
+    projectedDegrees <= 90
+      ? PROGRESS_ICON_RADIUS * Math.sin(radians)
+      : PROGRESS_ICON_RADIUS * Math.sin(((180 - projectedDegrees) * Math.PI) / 180);
   const verticalOffset = Math.sqrt(chord * chord - horizontalOffset * horizontalOffset);
-  const arcEndX = degrees <= 180
-    ? PROGRESS_ICON_RADIUS + horizontalOffset
-    : PROGRESS_ICON_RADIUS - horizontalOffset;
+  const arcEndX =
+    degrees <= 180
+      ? PROGRESS_ICON_RADIUS + horizontalOffset
+      : PROGRESS_ICON_RADIUS - horizontalOffset;
   const largeArcFlag = degrees <= 180 ? 0 : 1;
 
   return {
@@ -183,7 +186,10 @@ const FALLBACK_STATUS_STYLE: StatusTone = {
   accentColor: "#8E8B86",
 };
 
-function resolveStatusVisualId(statusId?: string | null, label?: string | null): StatusVisualId | null {
+function resolveStatusVisualId(
+  statusId?: string | null,
+  label?: string | null,
+): StatusVisualId | null {
   if (statusId && statusId in columnStyles) {
     return statusId as StatusVisualId;
   }
@@ -308,30 +314,32 @@ export function StatusIcon({
       {...props}
       style={{ color: tone.accentColor, ...inlineStyle }}
     >
-      {definition.shapes.map((shape, index) => shape.kind === "rect" ? (
-        <rect
-          key={`${resolved}:${index}`}
-          x={shape.x}
-          y={shape.y}
-          width={shape.width}
-          height={shape.height}
-          rx={shape.rx}
-          fill={shape.fill}
-          stroke={shape.stroke}
-          strokeWidth={shape.strokeWidth}
-        />
-      ) : (
-        <path
-          key={`${resolved}:${index}`}
-          d={shape.d}
-          fill={shape.fill}
-          stroke={shape.stroke}
-          strokeWidth={shape.strokeWidth}
-          transform={shape.transform}
-          fillRule={shape.fillRule}
-          clipRule={shape.fillRule}
-        />
-      ))}
+      {definition.shapes.map((shape, index) =>
+        shape.kind === "rect" ? (
+          <rect
+            key={`${resolved}:${index}`}
+            x={shape.x}
+            y={shape.y}
+            width={shape.width}
+            height={shape.height}
+            rx={shape.rx}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+          />
+        ) : (
+          <path
+            key={`${resolved}:${index}`}
+            d={shape.d}
+            fill={shape.fill}
+            stroke={shape.stroke}
+            strokeWidth={shape.strokeWidth}
+            transform={shape.transform}
+            fillRule={shape.fillRule}
+            clipRule={shape.fillRule}
+          />
+        ),
+      )}
     </svg>
   );
 }

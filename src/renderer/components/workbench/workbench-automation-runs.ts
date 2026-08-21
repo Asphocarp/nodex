@@ -26,7 +26,10 @@ export function formatWorkbenchAutomationRunSourceLabel(sourceCwd: string | null
   return basename(sourceCwd) || sourceCwd;
 }
 
-export function formatWorkbenchAutomationRunRelativeTime(createdAt: number, now = Date.now()): string {
+export function formatWorkbenchAutomationRunRelativeTime(
+  createdAt: number,
+  now = Date.now(),
+): string {
   if (!Number.isFinite(createdAt)) return "";
 
   const elapsedMs = Math.max(0, now - createdAt);

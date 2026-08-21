@@ -13,7 +13,7 @@ const storageMap = new Map<string, string>();
 
 const mockStorage = {
   getItem(key: string): string | null {
-    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+    return storageMap.has(key) ? (storageMap.get(key) ?? null) : null;
   },
   setItem(key: string, value: string): void {
     storageMap.set(key, value);
@@ -80,24 +80,19 @@ describe("nfm autolink settings", () => {
   });
 
   test("recognizes explicit web URLs with the default settings", () => {
-    expect(
-      shouldAutoLinkValue("https://example.com/docs", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBe(true);
-    expect(
-      shouldAutoLinkValue("www.example.com/docs", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBe(true);
-    expect(
-      shouldAutoLinkValue("mailto:test@example.com", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBe(true);
+    expect(shouldAutoLinkValue("https://example.com/docs", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(
+      true,
+    );
+    expect(shouldAutoLinkValue("www.example.com/docs", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(true);
+    expect(shouldAutoLinkValue("mailto:test@example.com", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(
+      true,
+    );
   });
 
   test("rejects path-like and filename-like input even when bare-domain recognition is enabled", () => {
-    expect(
-      shouldAutoLinkValue(
-        "nfm-editor-copy-behavior.md",
-        DEFAULT_NFM_AUTOLINK_SETTINGS,
-      ),
-    ).toBe(false);
+    expect(shouldAutoLinkValue("nfm-editor-copy-behavior.md", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(
+      false,
+    );
     expect(
       shouldAutoLinkValue(
         "docs/product-specs/nfm-editor-copy-behavior.md",
@@ -120,44 +115,23 @@ describe("nfm autolink settings", () => {
 
   test("rejects bare domains when the setting is disabled", () => {
     expect(
-      shouldAutoLinkValue(
-        "example.com",
-        {
-          ...DEFAULT_NFM_AUTOLINK_SETTINGS,
-          linkifyBareDomains: false,
-        },
-      ),
+      shouldAutoLinkValue("example.com", {
+        ...DEFAULT_NFM_AUTOLINK_SETTINGS,
+        linkifyBareDomains: false,
+      }),
     ).toBe(false);
   });
 
   test("allows bare domains with the default settings", () => {
-    expect(
-      shouldAutoLinkValue("example.com", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBe(true);
-    expect(
-      shouldAutoLinkValue(
-        "example.co.uk",
-        DEFAULT_NFM_AUTOLINK_SETTINGS,
-      ),
-    ).toBe(true);
-    expect(
-      shouldAutoLinkValue(
-        "example.com/docs",
-        DEFAULT_NFM_AUTOLINK_SETTINGS,
-      ),
-    ).toBe(true);
+    expect(shouldAutoLinkValue("example.com", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(true);
+    expect(shouldAutoLinkValue("example.co.uk", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(true);
+    expect(shouldAutoLinkValue("example.com/docs", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(true);
   });
 
   test("rejects internal and unsupported explicit values", () => {
-    expect(
-      shouldAutoLinkValue("foo.internal", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBe(false);
-    expect(
-      shouldAutoLinkValue("localhost", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBe(false);
-    expect(
-      shouldAutoLinkValue("javascript:alert(1)", DEFAULT_NFM_AUTOLINK_SETTINGS),
-    ).toBe(false);
+    expect(shouldAutoLinkValue("foo.internal", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(false);
+    expect(shouldAutoLinkValue("localhost", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(false);
+    expect(shouldAutoLinkValue("javascript:alert(1)", DEFAULT_NFM_AUTOLINK_SETTINGS)).toBe(false);
   });
 
   test("rejects protocol-less matches embedded in path segments on paste", () => {

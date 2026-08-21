@@ -7,10 +7,7 @@ import {
   __resetNodexToastStoreForTests,
 } from "@/components/ui/toast";
 import { render, settleAsyncRender } from "@/test/dom";
-import {
-  installAsyncRequestAnimationFrame,
-  installWindowApi,
-} from "@/test/browser-globals";
+import { installAsyncRequestAnimationFrame, installWindowApi } from "@/test/browser-globals";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
 import {
   clearImageEditComposerDraft,
@@ -32,13 +29,15 @@ import { NodexModalHost } from "@/lib/modal-registry";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import type { AgentProviderCatalog } from "../../../../../shared/agent-runtime";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
-import { ThreadComposer, __composerAddContextTestUtils } from "./local-conversation-thread-composer";
+import {
+  ThreadComposer,
+  __composerAddContextTestUtils,
+} from "./local-conversation-thread-composer";
 import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 
 const FAST_MODE_ICON_PATH =
   "M11.9125 21.4125C11.5292 21.8625 11.0292 22.0958 10.4125 22.1125C9.79586 22.1291 9.29586 21.9208 8.91252 21.4875C8.53752 21.0541 8.45836 20.4541 8.67503 19.6875L9.68752 16H4.57502C4.00836 16 3.56669 15.8375 3.25002 15.5125C2.93336 15.1791 2.77502 14.7791 2.77502 14.3125C2.77502 13.8375 2.92919 13.4125 3.23752 13.0375L12.1375 2.47497C12.5209 2.02497 13.0209 1.79164 13.6375 1.77497C14.2542 1.75831 14.75 1.96664 15.125 2.39997C15.5084 2.83331 15.5917 3.43331 15.375 4.19997L14.3125 7.99998H19.425C19.9917 7.99998 20.4334 8.16664 20.75 8.49997C21.075 8.83331 21.2375 9.23748 21.2375 9.71247C21.2375 10.1791 21.0792 10.5958 20.7625 10.9625L11.9125 21.4125Z";
-const IMAGE_EDIT_COMPOSER_CHANNEL_ID =
-  "AppScope:app/ThreadScope:session:renderer-test::root";
+const IMAGE_EDIT_COMPOSER_CHANNEL_ID = "AppScope:app/ThreadScope:session:renderer-test::root";
 
 const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
   providers: [
@@ -68,7 +67,11 @@ const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
           defaultReasoningEffort: "high",
           supportedServiceTiers: [
             { value: null, displayName: "Standard", description: "Default speed, normal usage" },
-            { value: "priority", displayName: "Fast", description: "Faster responses, higher usage" },
+            {
+              value: "priority",
+              displayName: "Fast",
+              description: "Faster responses, higher usage",
+            },
           ],
           defaultServiceTier: null,
           inputCapabilities: ["text", "image"],
@@ -89,7 +92,11 @@ const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
           defaultReasoningEffort: "medium",
           supportedServiceTiers: [
             { value: null, displayName: "Standard", description: "Default speed, normal usage" },
-            { value: "priority", displayName: "Fast", description: "Faster responses, higher usage" },
+            {
+              value: "priority",
+              displayName: "Fast",
+              description: "Faster responses, higher usage",
+            },
           ],
           defaultServiceTier: null,
           inputCapabilities: ["text", "image"],
@@ -107,25 +114,29 @@ const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
       isDefault: false,
       credentialEnvKey: "ANTHROPIC_API_KEY",
       recommendedHarnessId: "claude-code",
-      models: [{
-        providerId: "anthropic",
-        modelId: "claude-sonnet-4-5",
-        displayName: "Claude Sonnet 4.5",
-        description: "Anthropic coding model.",
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: "claude-code",
-        supportedReasoningEfforts: [{
-          value: "high",
-          displayName: "High",
-          description: "Extended thinking.",
-        }],
-        defaultReasoningEffort: "high",
-        supportedServiceTiers: [],
-        defaultServiceTier: null,
-        inputCapabilities: ["text", "image"],
-        switchPolicy: "new-thread",
-      }],
+      models: [
+        {
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          displayName: "Claude Sonnet 4.5",
+          description: "Anthropic coding model.",
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: "claude-code",
+          supportedReasoningEfforts: [
+            {
+              value: "high",
+              displayName: "High",
+              description: "Extended thinking.",
+            },
+          ],
+          defaultReasoningEffort: "high",
+          supportedServiceTiers: [],
+          defaultServiceTier: null,
+          inputCapabilities: ["text", "image"],
+          switchPolicy: "new-thread",
+        },
+      ],
     },
     {
       id: "kimi-for-coding",
@@ -137,25 +148,29 @@ const TEST_AGENT_PROVIDER_CATALOG: AgentProviderCatalog = {
       isDefault: false,
       credentialEnvKey: "KIMI_API_KEY",
       recommendedHarnessId: "kimi-code",
-      models: [{
-        providerId: "kimi-for-coding",
-        modelId: "kimi-k3",
-        displayName: "Kimi K3",
-        description: "Kimi coding model.",
-        hidden: false,
-        isDefault: true,
-        recommendedHarnessId: "kimi-code",
-        supportedReasoningEfforts: [{
-          value: "Thinking",
-          displayName: "Thinking",
-          description: "Reason before responding.",
-        }],
-        defaultReasoningEffort: "Thinking",
-        supportedServiceTiers: [],
-        defaultServiceTier: null,
-        inputCapabilities: ["text"],
-        switchPolicy: "new-thread",
-      }],
+      models: [
+        {
+          providerId: "kimi-for-coding",
+          modelId: "kimi-k3",
+          displayName: "Kimi K3",
+          description: "Kimi coding model.",
+          hidden: false,
+          isDefault: true,
+          recommendedHarnessId: "kimi-code",
+          supportedReasoningEfforts: [
+            {
+              value: "Thinking",
+              displayName: "Thinking",
+              description: "Reason before responding.",
+            },
+          ],
+          defaultReasoningEffort: "Thinking",
+          supportedServiceTiers: [],
+          defaultServiceTier: null,
+          inputCapabilities: ["text"],
+          switchPolicy: "new-thread",
+        },
+      ],
     },
   ],
 };
@@ -168,7 +183,7 @@ const persistedAtomListeners = new Set<PersistedAtomListener>();
 
 const mockStorage = {
   getItem(key: string): string | null {
-    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+    return storageMap.has(key) ? (storageMap.get(key) ?? null) : null;
   },
   setItem(key: string, value: string): void {
     storageMap.set(key, value);
@@ -445,7 +460,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onClearThreadGoal: async () => {},
     onSetThreadMemoryMode: async () => {},
     onUploadFeedback: async () => {},
-    onUnarchiveThread: async () => { },
+    onUnarchiveThread: async () => {},
     onOpenTurnDiffReview: () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
@@ -661,7 +676,7 @@ describe("ThreadComposer speed menu", () => {
         clipboardData: {
           files: [],
           items: [],
-          getData: (format: string) => format === "text/plain" ? source : "",
+          getData: (format: string) => (format === "text/plain" ? source : ""),
         },
       });
       await Promise.resolve();
@@ -705,9 +720,7 @@ describe("ThreadComposer speed menu", () => {
         return undefined;
       },
     );
-    const composer = view.container.querySelector<HTMLElement>(
-      '[data-codex-composer="true"]',
-    );
+    const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
     if (!composer) throw new Error("Expected composer editor");
     const image = new File(["image"], "diagram.png", { type: "image/png" });
     Object.defineProperty(image, "arrayBuffer", {
@@ -719,12 +732,14 @@ describe("ThreadComposer speed menu", () => {
       fireEvent.paste(composer, {
         clipboardData: {
           files: [image],
-          items: [{
-            kind: "file",
-            type: image.type,
-            getAsFile: () => image,
-          }],
-          getData: (format: string) => format === "text/plain" ? image.name : "",
+          items: [
+            {
+              kind: "file",
+              type: image.type,
+              getAsFile: () => image,
+            },
+          ],
+          getData: (format: string) => (format === "text/plain" ? image.name : ""),
         },
       });
       await Promise.resolve();
@@ -732,16 +747,19 @@ describe("ThreadComposer speed menu", () => {
 
     const thumbnail = await view.findByRole("button", { name: "diagram.png" });
     expect(thumbnail.getAttribute("data-composer-image-attachment-size")).toBe("80");
-    expect(thumbnail.querySelector("img")?.getAttribute("src"))
-      .toMatch(/^data:image\/png;base64,/u);
+    expect(thumbnail.querySelector("img")?.getAttribute("src")).toMatch(
+      /^data:image\/png;base64,/u,
+    );
     await waitFor(() => expect(savedImages).toHaveLength(1));
 
     await submitCurrentComposerDraft(view);
 
-    expect(sentPromptInputs).toEqual([{
-      text: "",
-      images: [{ source: "/managed/pasted.png", caption: "diagram.png" }],
-    }]);
+    expect(sentPromptInputs).toEqual([
+      {
+        text: "",
+        images: [{ source: "/managed/pasted.png", caption: "diagram.png" }],
+      },
+    ]);
   });
 
   test("submits Remove area through a projectless New Chat's normal start path", async () => {
@@ -786,17 +804,14 @@ describe("ThreadComposer speed menu", () => {
     let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | null = null;
 
     await act(async () => {
-      result = await requestImageEditComposerSubmit(
-        IMAGE_EDIT_COMPOSER_CHANNEL_ID,
-        {
-          intent: buildRemoveSubmissionIntent({
-            entrypoint: "image_click",
-            image: original,
-            mask,
-          }),
-          source: "single",
-        },
-      );
+      result = await requestImageEditComposerSubmit(IMAGE_EDIT_COMPOSER_CHANNEL_ID, {
+        intent: buildRemoveSubmissionIntent({
+          entrypoint: "image_click",
+          image: original,
+          mask,
+        }),
+        source: "single",
+      });
     });
 
     expect(result).toEqual({ status: "submitted" });
@@ -861,8 +876,7 @@ describe("ThreadComposer speed menu", () => {
     );
     try {
       await waitFor(() => {
-        expect(view.getByRole("button", { name: "browser-managed-original.png" }))
-          .toBeDefined();
+        expect(view.getByRole("button", { name: "browser-managed-original.png" })).toBeDefined();
       });
       const editorDescriptor = {
         id: attachmentId,
@@ -886,17 +900,14 @@ describe("ThreadComposer speed menu", () => {
 
       let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | null = null;
       await act(async () => {
-        result = await requestImageEditComposerSubmit(
-          IMAGE_EDIT_COMPOSER_CHANNEL_ID,
-          {
-            intent: buildRemoveSubmissionIntent({
-              entrypoint: "image_click",
-              image: editorDescriptor,
-              mask,
-            }),
-            source: "single",
-          },
-        );
+        result = await requestImageEditComposerSubmit(IMAGE_EDIT_COMPOSER_CHANNEL_ID, {
+          intent: buildRemoveSubmissionIntent({
+            entrypoint: "image_click",
+            image: editorDescriptor,
+            mask,
+          }),
+          source: "single",
+        });
       });
 
       expect(result).toEqual({ status: "submitted" });
@@ -954,49 +965,49 @@ describe("ThreadComposer speed menu", () => {
 
     try {
       await waitFor(() => {
-        expect(view.getByRole("button", { name: "projectless-managed-original.png" }))
-          .toBeDefined();
+        expect(
+          view.getByRole("button", { name: "projectless-managed-original.png" }),
+        ).toBeDefined();
       });
       let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | null = null;
       await act(async () => {
-        result = await requestImageEditComposerSubmit(
-          IMAGE_EDIT_COMPOSER_CHANNEL_ID,
-          {
-            intent: buildRemoveSubmissionIntent({
-              entrypoint: "image_click",
-              image: {
-                id: attachmentId,
-                attachmentId,
-                alt: "User attachment",
-                attachmentSrc: managedSource,
-                dataUrl: managedSource,
-                managedSource,
-                source: "uploaded",
-                src: managedSource,
-              },
-              mask: {
-                id: "projectless-mask",
-                alt: "Removal mask",
-                attachmentSrc: "data:image/png;base64,bWFzaw==",
-                dataUrl: "data:image/png;base64,bWFzaw==",
-                source: "uploaded",
-                src: "data:image/png;base64,bWFzaw==",
-              },
-            }),
-            source: "single",
-          },
-        );
+        result = await requestImageEditComposerSubmit(IMAGE_EDIT_COMPOSER_CHANNEL_ID, {
+          intent: buildRemoveSubmissionIntent({
+            entrypoint: "image_click",
+            image: {
+              id: attachmentId,
+              attachmentId,
+              alt: "User attachment",
+              attachmentSrc: managedSource,
+              dataUrl: managedSource,
+              managedSource,
+              source: "uploaded",
+              src: managedSource,
+            },
+            mask: {
+              id: "projectless-mask",
+              alt: "Removal mask",
+              attachmentSrc: "data:image/png;base64,bWFzaw==",
+              dataUrl: "data:image/png;base64,bWFzaw==",
+              source: "uploaded",
+              src: "data:image/png;base64,bWFzaw==",
+            },
+          }),
+          source: "single",
+        });
       });
 
       expect(result).toEqual({ status: "submitted" });
       expect(errors).toEqual([]);
-      expect(sentPromptInputs).toMatchObject([{
-        text: "Remove the area marked in the second image from the first image",
-        images: [
-          { source: managedSource, caption: "projectless-managed-original.png" },
-          { source: "data:image/png;base64,bWFzaw==", caption: "image-mask.png" },
-        ],
-      }]);
+      expect(sentPromptInputs).toMatchObject([
+        {
+          text: "Remove the area marked in the second image from the first image",
+          images: [
+            { source: managedSource, caption: "projectless-managed-original.png" },
+            { source: "data:image/png;base64,bWFzaw==", caption: "image-mask.png" },
+          ],
+        },
+      ]);
     } finally {
       view.unmount();
       consumeBrowserImageAttachments(
@@ -1009,14 +1020,11 @@ describe("ThreadComposer speed menu", () => {
   test("queues an image edit when the existing task is active", async () => {
     resetStorage();
     const queued: Array<{ threadId: string; prompt: string; promptInput: unknown }> = [];
-    const view = await renderComposer(
-      buildRunningComposerModel({ composerIntent: null }),
-      {
-        onEnqueueQueuedFollowUp: async (threadId, prompt, options) => {
-          queued.push({ threadId, prompt, promptInput: options?.promptInput });
-        },
+    const view = await renderComposer(buildRunningComposerModel({ composerIntent: null }), {
+      onEnqueueQueuedFollowUp: async (threadId, prompt, options) => {
+        queued.push({ threadId, prompt, promptInput: options?.promptInput });
       },
-    );
+    });
     const image = {
       id: "selected",
       alt: "Selected image",
@@ -1028,23 +1036,20 @@ describe("ThreadComposer speed menu", () => {
 
     let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | undefined;
     await act(async () => {
-      result = await requestImageEditComposerSubmit(
-        IMAGE_EDIT_COMPOSER_CHANNEL_ID,
-        {
-          intent: {
-            analytics: { hasGeneralInstruction: true, selectedImageCount: 1 },
-            attachmentIds: [image.id],
-            attachments: [{ attachmentId: image.id, image, role: "selected" }],
-            entrypoint: "canvas_button",
-            focusComposerAfterSubmit: true,
-            isImageEditFollowUp: true,
-            mode: "select",
-            promptRaw: "Make the sky warmer",
-            queuePolicy: "queue-while-active",
-          },
-          source: "canvas",
+      result = await requestImageEditComposerSubmit(IMAGE_EDIT_COMPOSER_CHANNEL_ID, {
+        intent: {
+          analytics: { hasGeneralInstruction: true, selectedImageCount: 1 },
+          attachmentIds: [image.id],
+          attachments: [{ attachmentId: image.id, image, role: "selected" }],
+          entrypoint: "canvas_button",
+          focusComposerAfterSubmit: true,
+          isImageEditFollowUp: true,
+          mode: "select",
+          promptRaw: "Make the sky warmer",
+          queuePolicy: "queue-while-active",
         },
-      );
+        source: "canvas",
+      });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -1078,9 +1083,7 @@ describe("ThreadComposer speed menu", () => {
         return undefined;
       },
     );
-    const composer = view.container.querySelector<HTMLElement>(
-      '[data-codex-composer="true"]',
-    );
+    const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
     if (!composer) throw new Error("Expected composer editor");
     const image = new File(["image"], "remote-thread.png", { type: "image/png" });
     Object.defineProperty(image, "arrayBuffer", {
@@ -1092,12 +1095,14 @@ describe("ThreadComposer speed menu", () => {
       fireEvent.paste(composer, {
         clipboardData: {
           files: [image],
-          items: [{
-            kind: "file",
-            type: image.type,
-            getAsFile: () => image,
-          }],
-          getData: (format: string) => format === "text/plain" ? image.name : "",
+          items: [
+            {
+              kind: "file",
+              type: image.type,
+              getAsFile: () => image,
+            },
+          ],
+          getData: (format: string) => (format === "text/plain" ? image.name : ""),
         },
       });
       await Promise.resolve();
@@ -1106,32 +1111,30 @@ describe("ThreadComposer speed menu", () => {
 
     await submitCurrentComposerDraft(view);
 
-    expect(sentPromptInputs).toEqual([{
-      text: "",
-      images: [{
-        source: expect.stringMatching(/^data:image\/png;base64,/u),
-        caption: "remote-thread.png",
-      }],
-    }]);
+    expect(sentPromptInputs).toEqual([
+      {
+        text: "",
+        images: [
+          {
+            source: expect.stringMatching(/^data:image\/png;base64,/u),
+            caption: "remote-thread.png",
+          },
+        ],
+      },
+    ]);
   });
 
   test("routes an operating-system image drop through the same thumbnail shell", async () => {
     resetStorage();
     const savedImages: unknown[] = [];
-    const view = await renderComposer(
-      undefined,
-      undefined,
-      async (channel, ...args) => {
-        if (channel === "asset:image:save") {
-          savedImages.push(args[0]);
-          return { source: "nodex://assets/dropped.png" };
-        }
-        return undefined;
-      },
-    );
-    const dropTarget = view.container.querySelector<HTMLElement>(
-      '[data-file-drop-active="false"]',
-    );
+    const view = await renderComposer(undefined, undefined, async (channel, ...args) => {
+      if (channel === "asset:image:save") {
+        savedImages.push(args[0]);
+        return { source: "nodex://assets/dropped.png" };
+      }
+      return undefined;
+    });
+    const dropTarget = view.container.querySelector<HTMLElement>('[data-file-drop-active="false"]');
     if (!dropTarget) throw new Error("Expected Composer file drop target");
     const image = new File(["image"], "dropped.png", { type: "image/png" });
     Object.defineProperty(image, "arrayBuffer", {
@@ -1140,11 +1143,13 @@ describe("ThreadComposer speed menu", () => {
     });
     const dataTransfer = {
       files: [image],
-      items: [{
-        kind: "file",
-        type: image.type,
-        getAsFile: () => image,
-      }],
+      items: [
+        {
+          kind: "file",
+          type: image.type,
+          getAsFile: () => image,
+        },
+      ],
       types: ["Files"],
       getData: () => "",
       dropEffect: "none",
@@ -1181,9 +1186,7 @@ describe("ThreadComposer speed menu", () => {
         return undefined;
       },
     );
-    const composer = view.container.querySelector<HTMLElement>(
-      '[data-codex-composer="true"]',
-    );
+    const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
     if (!composer) throw new Error("Expected composer editor");
     const image = new File(["image"], "diagram.png", { type: "image/png" });
     Object.defineProperty(image, "arrayBuffer", {
@@ -1195,12 +1198,14 @@ describe("ThreadComposer speed menu", () => {
       fireEvent.paste(composer, {
         clipboardData: {
           files: [image],
-          items: [{
-            kind: "file",
-            type: image.type,
-            getAsFile: () => image,
-          }],
-          getData: (format: string) => format === "text/plain" ? image.name : "",
+          items: [
+            {
+              kind: "file",
+              type: image.type,
+              getAsFile: () => image,
+            },
+          ],
+          getData: (format: string) => (format === "text/plain" ? image.name : ""),
         },
       });
       await Promise.resolve();
@@ -1210,14 +1215,18 @@ describe("ThreadComposer speed menu", () => {
     await keyDownComposer(view, { key: "Enter" });
     await settleAsyncRender();
     await waitFor(() => expect(queued).toHaveLength(1));
-    expect(queued).toEqual([{
-      text: "Follow up",
-      documentItems: [{ type: "text", text: "Follow up" }],
-      images: [{
-        source: expect.stringMatching(/^data:image\/png;base64,/u),
-        caption: "diagram.png",
-      }],
-    }]);
+    expect(queued).toEqual([
+      {
+        text: "Follow up",
+        documentItems: [{ type: "text", text: "Follow up" }],
+        images: [
+          {
+            source: expect.stringMatching(/^data:image\/png;base64,/u),
+            caption: "diagram.png",
+          },
+        ],
+      },
+    ]);
     await waitFor(() => {
       expect(view.queryByRole("button", { name: "diagram.png" })).toBeNull();
     });
@@ -1248,10 +1257,12 @@ describe("ThreadComposer speed menu", () => {
           focusNonce: 1,
           promptInput: {
             text: "Describe this image",
-            images: [{
-              source: "data:image/png;base64,aW1hZ2U=",
-              caption: "diagram.png",
-            }],
+            images: [
+              {
+                source: "data:image/png;base64,aW1hZ2U=",
+                caption: "diagram.png",
+              },
+            ],
           },
         },
       },
@@ -1270,9 +1281,7 @@ describe("ThreadComposer speed menu", () => {
     await submitCurrentComposerDraft(view);
 
     expect(sent).toEqual([]);
-    expect(errors).toContain(
-      "Remove images or switch models to send this message",
-    );
+    expect(errors).toContain("Remove images or switch models to send this message");
     expect(view.getByRole("button", { name: "diagram.png" })).toBeDefined();
   });
 
@@ -1288,10 +1297,12 @@ describe("ThreadComposer speed menu", () => {
           focusNonce: 1,
           promptInput: {
             text: "Describe this image",
-            images: [{
-              source: "/managed/local-only.png",
-              caption: "local-only.png",
-            }],
+            images: [
+              {
+                source: "/managed/local-only.png",
+                caption: "local-only.png",
+              },
+            ],
           },
         },
       },
@@ -1307,8 +1318,9 @@ describe("ThreadComposer speed menu", () => {
     );
 
     const thumbnail = await view.findByRole("button", { name: "local-only.png" });
-    expect(thumbnail.querySelector("img")?.getAttribute("src"))
-      .toBe("file:///managed/local-only.png");
+    expect(thumbnail.querySelector("img")?.getAttribute("src")).toBe(
+      "file:///managed/local-only.png",
+    );
     await submitCurrentComposerDraft(view);
 
     expect(sent).toEqual([]);
@@ -1346,7 +1358,7 @@ describe("ThreadComposer speed menu", () => {
           clipboardData: {
             files: [],
             items: [],
-            getData: (format: string) => format === "text/plain" ? source : "",
+            getData: (format: string) => (format === "text/plain" ? source : ""),
           },
         });
         await Promise.resolve();
@@ -1456,18 +1468,20 @@ describe("ThreadComposer speed menu", () => {
     const queued: Array<{ prompt: string; options: unknown }> = [];
     const steeredPrompts: string[] = [];
     replaceImageEditComposerDraft(IMAGE_EDIT_COMPOSER_CHANNEL_ID, {
-      attachments: [{
-        asset: {
-          hostId: null,
-          localPath: null,
-          managedSource: null,
-          src: "data:image/png;base64,aW1hZ2U=",
+      attachments: [
+        {
+          asset: {
+            hostId: null,
+            localPath: null,
+            managedSource: null,
+            src: "data:image/png;base64,aW1hZ2U=",
+          },
+          comments: [{ id: "comment-1", text: "Remove the label", x: 0.25, y: 0.75 }],
+          filename: "Generated image 1",
+          id: "image-playground:image-1",
+          imageSource: "generated",
         },
-        comments: [{ id: "comment-1", text: "Remove the label", x: 0.25, y: 0.75 }],
-        filename: "Generated image 1",
-        id: "image-playground:image-1",
-        imageSource: "generated",
-      }],
+      ],
       mode: "comment",
     });
 
@@ -1490,25 +1504,31 @@ describe("ThreadComposer speed menu", () => {
       await keyDownComposer(view, { key: "Enter", metaKey: true });
 
       await waitFor(() => expect(queued).toHaveLength(1));
-      expect(queued[0]?.prompt).toBe([
-        "Image 1:",
-        "1. (x: 25%, y: 75%) Remove the label",
-        "",
-        "Additional instructions:",
-        "Follow up",
-      ].join("\n"));
+      expect(queued[0]?.prompt).toBe(
+        [
+          "Image 1:",
+          "1. (x: 25%, y: 75%) Remove the label",
+          "",
+          "Additional instructions:",
+          "Follow up",
+        ].join("\n"),
+      );
       expect(queued[0]?.options).toMatchObject({
         promptInput: {
-          images: [{
-            caption: "Generated image 1",
-            source: "data:image/png;base64,aW1hZ2U=",
-          }],
+          images: [
+            {
+              caption: "Generated image 1",
+              source: "data:image/png;base64,aW1hZ2U=",
+            },
+          ],
         },
       });
       expect(steeredPrompts).toEqual([]);
       expect(getImageEditComposerDraftSnapshot(IMAGE_EDIT_COMPOSER_CHANNEL_ID).mode).toBeNull();
-      expect(getGeneratedImageLiveCollectionSnapshot("thread_1").images.at(-1))
-        .toMatchObject({ loading: true, status: "loading" });
+      expect(getGeneratedImageLiveCollectionSnapshot("thread_1").images.at(-1)).toMatchObject({
+        loading: true,
+        status: "loading",
+      });
     } finally {
       clearImageEditComposerDraft(IMAGE_EDIT_COMPOSER_CHANNEL_ID);
       clearOptimisticGeneratedImageEdits("thread_1");
@@ -1638,7 +1658,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       expect(sideChatInputs.length).toBe(1);
     });
-    expect(sideChatInputs[0]).toBe("{\"prompt\":\"investigate this\"}");
+    expect(sideChatInputs[0]).toBe('{"prompt":"investigate this"}');
     expect(sentPrompts.length).toBe(0);
     await waitFor(() => expect(readComposerText(view)).toBe(""));
   });
@@ -1703,13 +1723,15 @@ describe("ThreadComposer speed menu", () => {
           },
         },
       },
-      { onSendPrompt: async () => { throw new Error("transport failed"); } },
+      {
+        onSendPrompt: async () => {
+          throw new Error("transport failed");
+        },
+      },
     );
     await submitCurrentComposerDraft(sendView);
     await waitFor(() =>
-      expect(readComposerText(sendView)).toBe(
-        "preserve failed send Failure Context ",
-      )
+      expect(readComposerText(sendView)).toBe("preserve failed send Failure Context "),
     );
     expect(sendView.container.textContent?.includes("Failure Context") ?? false).toBe(true);
     sendView.unmount();
@@ -1717,7 +1739,11 @@ describe("ThreadComposer speed menu", () => {
     resetStorage();
     const sideView = await renderComposer(
       { composerIntent: { prompt: "/side preserve failed side", focusNonce: 2 } },
-      { onOpenSideChat: async () => { throw new Error("side failed"); } },
+      {
+        onOpenSideChat: async () => {
+          throw new Error("side failed");
+        },
+      },
     );
     await submitCurrentComposerDraft(sideView);
     await waitFor(() => expect(readComposerText(sideView)).toBe("/side preserve failed side"));
@@ -1782,12 +1808,14 @@ describe("ThreadComposer speed menu", () => {
     expect(view.container.textContent?.includes("Alpha") ?? false).toBe(true);
 
     await act(async () => {
-      view.rerender(renderTree({
-        prompt: "",
-        focusNonce: 11,
-        attachmentMode: "append",
-        promptInput: { text: "", skills: [{ name: "Beta", path: "/skills/beta" }] },
-      }));
+      view.rerender(
+        renderTree({
+          prompt: "",
+          focusNonce: 11,
+          attachmentMode: "append",
+          promptInput: { text: "", skills: [{ name: "Beta", path: "/skills/beta" }] },
+        }),
+      );
       await Promise.resolve();
     });
     await settleComposerFrame();
@@ -1796,12 +1824,14 @@ describe("ThreadComposer speed menu", () => {
     expect(view.container.textContent?.includes("Beta") ?? false).toBe(true);
 
     await act(async () => {
-      view.rerender(renderTree({
-        prompt: "",
-        focusNonce: 12,
-        attachmentMode: "replace",
-        promptInput: { text: "", skills: [{ name: "Beta", path: "/skills/beta" }] },
-      }));
+      view.rerender(
+        renderTree({
+          prompt: "",
+          focusNonce: 12,
+          attachmentMode: "replace",
+          promptInput: { text: "", skills: [{ name: "Beta", path: "/skills/beta" }] },
+        }),
+      );
       await Promise.resolve();
     });
     await settleComposerFrame();
@@ -1817,14 +1847,16 @@ describe("ThreadComposer speed menu", () => {
         ariaKeyShortcuts: "Meta+Alt+M",
       },
     });
-    expect(customizedView.getByLabelText("Select model").getAttribute("aria-keyshortcuts"))
-      .toBe("Meta+Alt+M");
+    expect(customizedView.getByLabelText("Select model").getAttribute("aria-keyshortcuts")).toBe(
+      "Meta+Alt+M",
+    );
 
     customizedView.unmount();
 
     const unassignedView = await renderComposer({ modelPickerShortcut: null });
-    expect(unassignedView.getByLabelText("Select model").hasAttribute("aria-keyshortcuts"))
-      .toBe(false);
+    expect(unassignedView.getByLabelText("Select model").hasAttribute("aria-keyshortcuts")).toBe(
+      false,
+    );
   });
 
   test("shows the Codex-style fast indicator before the model label only when Fast is active", async () => {
@@ -1832,7 +1864,9 @@ describe("ThreadComposer speed menu", () => {
 
     const standardView = await renderComposer();
     const standardModelTrigger = standardView.getByLabelText("Select model");
-    expect(Boolean(standardModelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBe(false);
+    expect(Boolean(standardModelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBe(
+      false,
+    );
 
     standardView.unmount();
 
@@ -1882,7 +1916,9 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const fastOption = view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]');
+    const fastOption = view.container.ownerDocument.body.querySelectorAll(
+      "[data-radix-collection-item]",
+    );
     const fastItem = Array.from(fastOption).find((node) => node.textContent?.includes("Fast"));
     if (!(fastItem instanceof HTMLElement)) {
       throw new Error("Expected the Fast speed option.");
@@ -1909,23 +1945,28 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const menuItems = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
+    const menuItems = Array.from(
+      view.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+    );
     expect(menuItems.some((node) => node.textContent?.includes("Speed"))).toBe(false);
   });
 
   test("add-context menu groups direct actions in Codex row order", async () => {
     resetStorage();
     const selectedModes: string[] = [];
-    const view = await renderComposer({
-      composerIntent: {
-        prompt: "toggle mode",
-        focusNonce: 1,
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "toggle mode",
+          focusNonce: 1,
+        },
       },
-    }, {
-      onCollaborationModeChange: (mode) => {
-        selectedModes.push(mode);
+      {
+        onCollaborationModeChange: (mode) => {
+          selectedModes.push(mode);
+        },
       },
-    });
+    );
 
     const trigger = view.getByLabelText("Add files and more");
 
@@ -1942,7 +1983,9 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(bodyText.includes("Speed"))).toBe(false);
     expect(Boolean(bodyText.includes("Plugins"))).toBe(false);
 
-    const planRow = view.container.ownerDocument.body.querySelector('[data-add-context-row="plan-mode"]');
+    const planRow = view.container.ownerDocument.body.querySelector(
+      '[data-add-context-row="plan-mode"]',
+    );
     if (!(planRow instanceof HTMLElement)) {
       throw new Error("Expected the Plan mode row.");
     }
@@ -2001,9 +2044,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
     const appshotRow = await waitFor(() => {
-      const row = view.container.querySelector(
-        '[data-add-context-row="appshot"]',
-      );
+      const row = view.container.querySelector('[data-add-context-row="appshot"]');
       if (!(row instanceof HTMLElement)) {
         throw new Error("Expected the foreground Appshot row.");
       }
@@ -2016,16 +2057,16 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(
-        view.container.querySelector('[data-composer-appshot="true"]'),
-      ).not.toBeNull();
+      expect(view.container.querySelector('[data-composer-appshot="true"]')).not.toBeNull();
     });
 
     await submitCurrentComposerDraft(view);
-    expect(sentPromptInputs).toEqual([{
-      text: "",
-      appshots: [context],
-    }]);
+    expect(sentPromptInputs).toEqual([
+      {
+        text: "",
+        appshots: [context],
+      },
+    ]);
   });
 
   test("shift-tab toggles Plan mode and blocks focus traversal", async () => {
@@ -2037,7 +2078,11 @@ describe("ThreadComposer speed menu", () => {
       },
     });
 
-    const wasNotCanceled = await keyDownComposer(view, { key: "Tab", shiftKey: true }, { waitForContent: false });
+    const wasNotCanceled = await keyDownComposer(
+      view,
+      { key: "Tab", shiftKey: true },
+      { waitForContent: false },
+    );
 
     expect(wasNotCanceled).toBe(false);
     expect(selectedModes[0]).toBe("plan");
@@ -2050,7 +2095,9 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await waitFor(() => {
-      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Describe your task to generate a plan..."]');
+      const placeholder = view.container.querySelector<HTMLElement>(
+        '[data-placeholder="Describe your task to generate a plan..."]',
+      );
       if (!placeholder) {
         throw new Error("Expected Plan mode placeholder.");
       }
@@ -2061,16 +2108,19 @@ describe("ThreadComposer speed menu", () => {
   test("plan keyword suggestion can use or dismiss Plan mode", async () => {
     resetStorage();
     const selectedModes: string[] = [];
-    const view = await renderComposer({
-      composerIntent: {
-        prompt: "please plan the migration",
-        focusNonce: 1,
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "please plan the migration",
+          focusNonce: 1,
+        },
       },
-    }, {
-      onCollaborationModeChange: (mode) => {
-        selectedModes.push(mode);
+      {
+        onCollaborationModeChange: (mode) => {
+          selectedModes.push(mode);
+        },
       },
-    });
+    );
 
     await waitFor(() => {
       const suggestion = view.container.querySelector('[data-plan-keyword-suggestion="true"]');
@@ -2080,7 +2130,9 @@ describe("ThreadComposer speed menu", () => {
       expect(Boolean(suggestion.textContent?.includes("Create a plan"))).toBe(true);
     });
 
-    const usePlanButton = view.container.querySelector('[data-codex-above-composer-suggestion-action="true"]');
+    const usePlanButton = view.container.querySelector(
+      '[data-codex-above-composer-suggestion-action="true"]',
+    );
     if (!(usePlanButton instanceof HTMLElement)) {
       throw new Error("Expected Use plan mode button.");
     }
@@ -2091,7 +2143,11 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(selectedModes[0]).toBe("plan");
-    expect(Boolean(view.container.querySelector('[data-codex-above-composer-suggestion="keyword-plan-mode"]'))).toBe(true);
+    expect(
+      Boolean(
+        view.container.querySelector('[data-codex-above-composer-suggestion="keyword-plan-mode"]'),
+      ),
+    ).toBe(true);
     view.unmount();
 
     const dismissView = await renderComposer({
@@ -2113,7 +2169,9 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await waitFor(() => {
-      expect(Boolean(dismissView.container.querySelector('[data-plan-keyword-suggestion="true"]'))).toBe(false);
+      expect(
+        Boolean(dismissView.container.querySelector('[data-plan-keyword-suggestion="true"]')),
+      ).toBe(false);
     });
   });
 
@@ -2121,59 +2179,77 @@ describe("ThreadComposer speed menu", () => {
     const promptInput = __composerAddContextTestUtils.buildComposerPromptInput({
       prompt: "  Use these\n[$Computer Use](/plugins/computer-use)",
       attachments: {
-        fileAttachments: [{
-          uiId: "file_1",
-          attachment: {
-            label: "notes.md",
-            path: "/tmp/notes.md",
-            fsPath: "/tmp/notes.md",
-          },
-        }],
-        addedFiles: [{
-          uiId: "added_1",
-          attachment: {
-            label: "generated.md",
-            path: "/tmp/generated.md",
-            fsPath: "/tmp/generated.md",
-          },
-        }],
-        imageAttachments: [{
-          id: "image_1",
-          filename: "diagram.png",
-          mimeType: "image/png",
-          src: "data:image/png;base64,aW1hZ2U=",
-          origin: "restored",
-          materialization: null,
-          materializationStatus: "failed",
-          uploadStatus: "idle",
-          generation: 0,
-        }],
-        appshotContexts: [],
-        pastedTextAttachments: [{
-          id: "pasted_text_1",
-          status: "ready",
-          preview: "Pasted requirements",
-          characterCount: 19,
-          attachment: {
-            file: {
-              label: "Pasted text.txt",
-              path: "/tmp/pasted-text.txt",
-              fsPath: "/tmp/pasted-text.txt",
+        fileAttachments: [
+          {
+            uiId: "file_1",
+            attachment: {
+              label: "notes.md",
+              path: "/tmp/notes.md",
+              fsPath: "/tmp/notes.md",
             },
+          },
+        ],
+        addedFiles: [
+          {
+            uiId: "added_1",
+            attachment: {
+              label: "generated.md",
+              path: "/tmp/generated.md",
+              fsPath: "/tmp/generated.md",
+            },
+          },
+        ],
+        imageAttachments: [
+          {
+            id: "image_1",
+            filename: "diagram.png",
+            mimeType: "image/png",
+            src: "data:image/png;base64,aW1hZ2U=",
+            origin: "restored",
+            materialization: null,
+            materializationStatus: "failed",
+            uploadStatus: "idle",
+            generation: 0,
+          },
+        ],
+        appshotContexts: [],
+        pastedTextAttachments: [
+          {
+            id: "pasted_text_1",
+            status: "ready",
             preview: "Pasted requirements",
             characterCount: 19,
+            attachment: {
+              file: {
+                label: "Pasted text.txt",
+                path: "/tmp/pasted-text.txt",
+                fsPath: "/tmp/pasted-text.txt",
+              },
+              preview: "Pasted requirements",
+              characterCount: 19,
+            },
           },
-        }],
+        ],
         commentAttachments: [],
         browserAnnotationAttachments: [],
       },
     });
 
     expect(JSON.stringify(promptInput)).toBe(
-      "{\"text\":\"  Use these\\n\",\"documentItems\":[{\"type\":\"text\",\"text\":\"  Use these\\n\"},{\"type\":\"skill\",\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}],\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"textAttachments\":[{\"file\":{\"label\":\"Pasted text.txt\",\"path\":\"/tmp/pasted-text.txt\",\"fsPath\":\"/tmp/pasted-text.txt\"},\"preview\":\"Pasted requirements\",\"characterCount\":19}],\"fileAttachments\":[{\"label\":\"notes.md\",\"path\":\"/tmp/notes.md\",\"fsPath\":\"/tmp/notes.md\"}],\"addedFiles\":[{\"label\":\"generated.md\",\"path\":\"/tmp/generated.md\",\"fsPath\":\"/tmp/generated.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
+      '{"text":"  Use these\\n","documentItems":[{"type":"text","text":"  Use these\\n"},{"type":"skill","name":"Computer Use","path":"/plugins/computer-use"}],"images":[{"source":"data:image/png;base64,aW1hZ2U=","caption":"diagram.png"}],"textAttachments":[{"file":{"label":"Pasted text.txt","path":"/tmp/pasted-text.txt","fsPath":"/tmp/pasted-text.txt"},"preview":"Pasted requirements","characterCount":19}],"fileAttachments":[{"label":"notes.md","path":"/tmp/notes.md","fsPath":"/tmp/notes.md"}],"addedFiles":[{"label":"generated.md","path":"/tmp/generated.md","fsPath":"/tmp/generated.md"}],"skills":[{"name":"Computer Use","path":"/plugins/computer-use"}]}',
     );
-    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBe(true);
-    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBe(false);
+    expect(
+      __composerAddContextTestUtils.isComposerImageFile({
+        label: "diagram.png",
+        path: "/tmp/diagram.png",
+      }),
+    ).toBe(true);
+    expect(
+      __composerAddContextTestUtils.isComposerImageFile({
+        label: "notes.md",
+        path: "/tmp/notes.md",
+      }),
+    ).toBe(false);
   });
 
   test("compiles document-owned mentions into structured prompt input", () => {
@@ -2197,35 +2273,44 @@ describe("ThreadComposer speed menu", () => {
 
     expect(promptInput).toEqual({
       text: "Use \nand \nand \nwith ",
-      documentItems: [{
-        type: "text",
-        text: "Use ",
-      }, {
-        type: "mention",
-        name: "Browser",
-        path: "plugin://browser@openai-bundled",
-      }, {
-        type: "text",
-        text: "\nand ",
-      }, {
-        type: "mention",
-        name: "plugin-management",
-        path: "app://plugin-management",
-      }, {
-        type: "text",
-        text: "\nand ",
-      }, {
-        type: "skill",
-        name: "PDF",
-        path: "/skills/pdf/SKILL.md",
-      }, {
-        type: "text",
-        text: "\nwith ",
-      }, {
-        type: "mention",
-        name: "notes.md",
-        path: "/tmp/notes.md",
-      }],
+      documentItems: [
+        {
+          type: "text",
+          text: "Use ",
+        },
+        {
+          type: "mention",
+          name: "Browser",
+          path: "plugin://browser@openai-bundled",
+        },
+        {
+          type: "text",
+          text: "\nand ",
+        },
+        {
+          type: "mention",
+          name: "plugin-management",
+          path: "app://plugin-management",
+        },
+        {
+          type: "text",
+          text: "\nand ",
+        },
+        {
+          type: "skill",
+          name: "PDF",
+          path: "/skills/pdf/SKILL.md",
+        },
+        {
+          type: "text",
+          text: "\nwith ",
+        },
+        {
+          type: "mention",
+          name: "notes.md",
+          path: "/tmp/notes.md",
+        },
+      ],
       mentions: [
         {
           name: "Browser",
@@ -2240,106 +2325,125 @@ describe("ThreadComposer speed menu", () => {
           path: "/tmp/notes.md",
         },
       ],
-      skills: [{
-        name: "PDF",
-        path: "/skills/pdf/SKILL.md",
-      }],
+      skills: [
+        {
+          name: "PDF",
+          path: "/skills/pdf/SKILL.md",
+        },
+      ],
     });
   });
 
   test("restores all structured mentions into the persisted prompt document", () => {
-    expect(__composerAddContextTestUtils.buildPersistedMentionPrompt({
-      text: "",
-      mentions: [{
-        name: "Browser",
-        path: "plugin://browser@openai-bundled",
-      }, {
-        name: "Plugin Management",
-        path: "app://plugin-management",
-      }, {
-        name: "notes.md",
-        path: "/tmp/notes.md",
-      }, {
-        name: "Release notes",
-        path: "sites-project://site-1",
-      }, {
-        name: "Prior research",
-        path: "chatgpt-conversation://conversation-1",
-      }],
-      skills: [{
-        name: "PDF",
-        path: "/skills/pdf/SKILL.md",
-      }],
-    })).toBe(
+    expect(
+      __composerAddContextTestUtils.buildPersistedMentionPrompt({
+        text: "",
+        mentions: [
+          {
+            name: "Browser",
+            path: "plugin://browser@openai-bundled",
+          },
+          {
+            name: "Plugin Management",
+            path: "app://plugin-management",
+          },
+          {
+            name: "notes.md",
+            path: "/tmp/notes.md",
+          },
+          {
+            name: "Release notes",
+            path: "sites-project://site-1",
+          },
+          {
+            name: "Prior research",
+            path: "chatgpt-conversation://conversation-1",
+          },
+        ],
+        skills: [
+          {
+            name: "PDF",
+            path: "/skills/pdf/SKILL.md",
+          },
+        ],
+      }),
+    ).toBe(
       "[@Browser](plugin://browser@openai-bundled) [$plugin-management](app://plugin-management) [notes.md](/tmp/notes.md) [Release notes](sites-project://site-1) [Prior research](chatgpt-conversation://conversation-1) [$PDF](/skills/pdf/SKILL.md)",
     );
   });
 
   test("restores an ordered prompt document without moving mentions", () => {
-    expect(__composerAddContextTestUtils.buildPersistedPromptDocument({
-      text: "Open  then ",
-      documentItems: [{
-        type: "text",
-        text: "Open ",
-      }, {
-        type: "mention",
-        name: "notes.md",
-        path: "docs/notes.md",
-      }, {
-        type: "text",
-        text: " then ",
-      }, {
-        type: "skill",
-        name: "PDF",
-        path: "/skills/pdf/SKILL.md",
-      }],
-    })).toBe(
-      "Open [notes.md](docs/notes.md) then [$PDF](/skills/pdf/SKILL.md)",
-    );
+    expect(
+      __composerAddContextTestUtils.buildPersistedPromptDocument({
+        text: "Open  then ",
+        documentItems: [
+          {
+            type: "text",
+            text: "Open ",
+          },
+          {
+            type: "mention",
+            name: "notes.md",
+            path: "docs/notes.md",
+          },
+          {
+            type: "text",
+            text: " then ",
+          },
+          {
+            type: "skill",
+            name: "PDF",
+            path: "/skills/pdf/SKILL.md",
+          },
+        ],
+      }),
+    ).toBe("Open [notes.md](docs/notes.md) then [$PDF](/skills/pdf/SKILL.md)");
   });
 
   test("does not demote document mentions into footer file attachments", () => {
-    const attachmentState = __composerAddContextTestUtils
-      .buildComposerAttachmentStateFromPromptInput({
+    const attachmentState =
+      __composerAddContextTestUtils.buildComposerAttachmentStateFromPromptInput({
         text: "",
-        mentions: [{
-          name: "notes.md",
-          path: "/tmp/notes.md",
-        }],
+        mentions: [
+          {
+            name: "notes.md",
+            path: "/tmp/notes.md",
+          },
+        ],
       });
 
     expect(attachmentState.fileAttachments).toEqual([]);
   });
 
   test("replacing structured mention input removes prior document mentions", () => {
-    expect(__composerAddContextTestUtils.removePersistedMentionPrompt(
-      [
-        "Keep [notes.md](/tmp/notes.md)",
-        "remove [@Browser](plugin://browser@openai-bundled)",
-        "and [$PDF](/skills/pdf/SKILL.md)",
-      ].join("\n"),
-    )).toBe([
-      "Keep ",
-      "remove ",
-      "and",
-    ].join("\n"));
+    expect(
+      __composerAddContextTestUtils.removePersistedMentionPrompt(
+        [
+          "Keep [notes.md](/tmp/notes.md)",
+          "remove [@Browser](plugin://browser@openai-bundled)",
+          "and [$PDF](/skills/pdf/SKILL.md)",
+        ].join("\n"),
+      ),
+    ).toBe(["Keep ", "remove ", "and"].join("\n"));
   });
 
   test("restores pasted source metadata exactly and treats an explicit empty file channel as authoritative", () => {
-    const attachmentState = __composerAddContextTestUtils
-      .buildComposerAttachmentStateFromPromptInput({
+    const attachmentState =
+      __composerAddContextTestUtils.buildComposerAttachmentStateFromPromptInput({
         text: "",
-        textAttachments: [{
-          text: "Exact pasted bytes",
-          file: {
-            label: "Pasted text.txt",
-            path: "/attachments/id/pasted-text.txt",
-            fsPath: "/attachments/id/pasted-text.txt",
+        textAttachments: [
+          {
+            text: "Exact pasted bytes",
+            file: {
+              label: "Pasted text.txt",
+              path: "/attachments/id/pasted-text.txt",
+              fsPath: "/attachments/id/pasted-text.txt",
+            },
+            preview: "Exact pasted bytes",
+            hostId: "local",
+            characterCount: 18,
           },
-          preview: "Exact pasted bytes",
-          hostId: "local",
-          characterCount: 18,
-        }],
+        ],
         fileAttachments: [],
         mentions: [{ name: "legacy.md", path: "/tmp/legacy.md" }],
       });
@@ -2349,85 +2453,101 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(attachmentState.fileAttachments.length).toBe(0);
-    expect(JSON.stringify(roundTripped)).toBe(JSON.stringify({
-      text: "",
-      textAttachments: [{
-        file: {
-          label: "Pasted text.txt",
-          path: "/attachments/id/pasted-text.txt",
-          fsPath: "/attachments/id/pasted-text.txt",
-        },
-        preview: "Exact pasted bytes",
-        hostId: "local",
-        characterCount: 18,
-      }],
-    }));
+    expect(JSON.stringify(roundTripped)).toBe(
+      JSON.stringify({
+        text: "",
+        textAttachments: [
+          {
+            file: {
+              label: "Pasted text.txt",
+              path: "/attachments/id/pasted-text.txt",
+              fsPath: "/attachments/id/pasted-text.txt",
+            },
+            preview: "Exact pasted bytes",
+            hostId: "local",
+            characterCount: 18,
+          },
+        ],
+      }),
+    );
   });
 
   test("restores explicit file channels without rewriting attachment identity fields", () => {
-    const attachmentState = __composerAddContextTestUtils
-      .buildComposerAttachmentStateFromPromptInput({
+    const attachmentState =
+      __composerAddContextTestUtils.buildComposerAttachmentStateFromPromptInput({
         text: "",
-        fileAttachments: [{
-          label: "  exact label  ",
-          path: "relative/source.ts",
-          fsPath: "",
-          startLine: null,
-          endLine: 9,
-          hostId: "local",
-          id: "protocol-file-id",
-          appContext: { source: "exact" },
-        }, {
-          label: "  exact label  ",
-          path: "relative/source.ts",
-          fsPath: "",
-          startLine: undefined,
-          endLine: 9,
-          hostId: "duplicate-host-must-not-win",
-          id: "duplicate-protocol-id",
-          appContext: { source: "duplicate" },
-        }],
-        addedFiles: [{
-          label: "added.ts",
-          path: "relative/added.ts",
-          fsPath: "/repo/relative/added.ts",
-          startLine: 3,
-          endLine: 3,
-          id: "protocol-added-id",
-        }, {
-          label: "added.ts",
-          path: "relative/added.ts",
-          fsPath: "/repo/relative/added.ts",
-          startLine: 3,
-          endLine: 3,
-        }],
+        fileAttachments: [
+          {
+            label: "  exact label  ",
+            path: "relative/source.ts",
+            fsPath: "",
+            startLine: null,
+            endLine: 9,
+            hostId: "local",
+            id: "protocol-file-id",
+            appContext: { source: "exact" },
+          },
+          {
+            label: "  exact label  ",
+            path: "relative/source.ts",
+            fsPath: "",
+            startLine: undefined,
+            endLine: 9,
+            hostId: "duplicate-host-must-not-win",
+            id: "duplicate-protocol-id",
+            appContext: { source: "duplicate" },
+          },
+        ],
+        addedFiles: [
+          {
+            label: "added.ts",
+            path: "relative/added.ts",
+            fsPath: "/repo/relative/added.ts",
+            startLine: 3,
+            endLine: 3,
+            id: "protocol-added-id",
+          },
+          {
+            label: "added.ts",
+            path: "relative/added.ts",
+            fsPath: "/repo/relative/added.ts",
+            startLine: 3,
+            endLine: 3,
+          },
+        ],
       });
     const roundTripped = __composerAddContextTestUtils.buildComposerPromptInput({
       prompt: "",
       attachments: attachmentState,
     });
 
-    expect(JSON.stringify(roundTripped)).toBe(JSON.stringify({
-      text: "",
-      fileAttachments: [{
-        label: "  exact label  ",
-        path: "relative/source.ts",
-        fsPath: "",
-        startLine: null,
-        endLine: 9,
-        hostId: "local",
-        id: "protocol-file-id",
-        appContext: { source: "exact" },
-      }],
-      addedFiles: [{
-        label: "added.ts",
-        path: "relative/added.ts",
-        fsPath: "/repo/relative/added.ts",
-        startLine: 3,
-        endLine: 3,
-        id: "protocol-added-id",
-      }],
-    }));
+    expect(JSON.stringify(roundTripped)).toBe(
+      JSON.stringify({
+        text: "",
+        fileAttachments: [
+          {
+            label: "  exact label  ",
+            path: "relative/source.ts",
+            fsPath: "",
+            startLine: null,
+            endLine: 9,
+            hostId: "local",
+            id: "protocol-file-id",
+            appContext: { source: "exact" },
+          },
+        ],
+        addedFiles: [
+          {
+            label: "added.ts",
+            path: "relative/added.ts",
+            fsPath: "/repo/relative/added.ts",
+            startLine: 3,
+            endLine: 3,
+            id: "protocol-added-id",
+          },
+        ],
+      }),
+    );
   });
 
   test("unified add-context menu inserts a structured plugin mention", async () => {
@@ -2435,19 +2555,21 @@ describe("ThreadComposer speed menu", () => {
     const sentPromptInputs: string[] = [];
     const view = await renderComposer(
       {
-        composerPlugins: [{
-          id: "computer-use@openai-bundled",
-          name: "Computer",
-          displayName: "Computer",
-          description: "Control Mac apps from ChatGPT",
-          defaultPrompt: null,
-          installed: true,
-          enabled: true,
-          path: "plugin://computer-use@openai-bundled",
-          iconUrl: null,
-          iconUrlDark: null,
-          brandColor: null,
-        }],
+        composerPlugins: [
+          {
+            id: "computer-use@openai-bundled",
+            name: "Computer",
+            displayName: "Computer",
+            description: "Control Mac apps from ChatGPT",
+            defaultPrompt: null,
+            installed: true,
+            enabled: true,
+            path: "plugin://computer-use@openai-bundled",
+            iconUrl: null,
+            iconUrlDark: null,
+            brandColor: null,
+          },
+        ],
       },
       {
         onSendPrompt: async (_prompt, opts) => {
@@ -2485,9 +2607,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(
-      editor.querySelector(
-        "[plugin-mention-path='plugin://computer-use@openai-bundled']",
-      ),
+      editor.querySelector("[plugin-mention-path='plugin://computer-use@openai-bundled']"),
     ).not.toBeNull();
     const sendButton = view.getByLabelText("Send prompt");
     await act(async () => {
@@ -2496,12 +2616,14 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(JSON.parse(sentPromptInputs[0] ?? "null")).toMatchObject({
-      mentions: [{
-        name: "Computer",
-        path: "plugin://computer-use@openai-bundled",
-      }],
+      mentions: [
+        {
+          name: "Computer",
+          path: "plugin://computer-use@openai-bundled",
+        },
+      ],
     });
-    expect(sentPromptInputs[0]).not.toContain("\"skills\"");
+    expect(sentPromptInputs[0]).not.toContain('"skills"');
   });
 
   test("inserts authenticated Sites and ChatGPT conversation mentions", async () => {
@@ -2510,19 +2632,23 @@ describe("ThreadComposer speed menu", () => {
     const view = await renderComposer(
       {
         composerSitesAvailable: true,
-        composerSites: [{
-          id: "appgprj_release",
-          title: "Release notes",
-          slug: "release-notes",
-          currentLiveUrl: "https://release.chatgpt.site/docs",
-          path: "sites-project://appgprj_release",
-        }],
+        composerSites: [
+          {
+            id: "appgprj_release",
+            title: "Release notes",
+            slug: "release-notes",
+            currentLiveUrl: "https://release.chatgpt.site/docs",
+            path: "sites-project://appgprj_release",
+          },
+        ],
         composerChatGptConversationsAvailable: true,
-        composerChatGptConversations: [{
-          conversationId: "conversation/research",
-          title: "Prior research",
-          path: "chatgpt-conversation://conversation%2Fresearch",
-        }],
+        composerChatGptConversations: [
+          {
+            conversationId: "conversation/research",
+            title: "Prior research",
+            path: "chatgpt-conversation://conversation%2Fresearch",
+          },
+        ],
       },
       {
         onSendPrompt: async (_prompt, opts) => {
@@ -2540,9 +2666,7 @@ describe("ThreadComposer speed menu", () => {
     };
 
     await openMenu();
-    const siteRow = view.container.querySelector(
-      '[data-add-context-row="site:appgprj_release"]',
-    );
+    const siteRow = view.container.querySelector('[data-add-context-row="site:appgprj_release"]');
     if (!(siteRow instanceof HTMLElement)) {
       throw new Error("Expected the Sites project row.");
     }
@@ -2569,9 +2693,7 @@ describe("ThreadComposer speed menu", () => {
       throw new Error("Expected the composer editor.");
     }
     expect(
-      editor.querySelector(
-        "[sites-project-mention-path='sites-project://appgprj_release']",
-      ),
+      editor.querySelector("[sites-project-mention-path='sites-project://appgprj_release']"),
     ).not.toBeNull();
     expect(
       editor.querySelector(
@@ -2602,19 +2724,21 @@ describe("ThreadComposer speed menu", () => {
     const activationInputs: unknown[] = [];
     const view = await renderComposer(
       {
-        composerPlugins: [{
-          id: "browser@openai-bundled",
-          name: "Browser",
-          displayName: "Browser",
-          description: "Control the in-app browser with ChatGPT",
-          defaultPrompt: null,
-          installed: false,
-          enabled: false,
-          path: "plugin://browser@openai-bundled",
-          iconUrl: null,
-          iconUrlDark: null,
-          brandColor: null,
-        }],
+        composerPlugins: [
+          {
+            id: "browser@openai-bundled",
+            name: "Browser",
+            displayName: "Browser",
+            description: "Control the in-app browser with ChatGPT",
+            defaultPrompt: null,
+            installed: false,
+            enabled: false,
+            path: "plugin://browser@openai-bundled",
+            iconUrl: null,
+            iconUrlDark: null,
+            brandColor: null,
+          },
+        ],
       },
       undefined,
       async (channel, ...args) => {
@@ -2632,9 +2756,7 @@ describe("ThreadComposer speed menu", () => {
       fireEvent.click(trigger);
       await Promise.resolve();
     });
-    const browserRow = view.container.querySelector(
-      '[data-add-context-plugin="Browser"]',
-    );
+    const browserRow = view.container.querySelector('[data-add-context-plugin="Browser"]');
     if (!(browserRow instanceof HTMLElement)) {
       throw new Error("Expected the Browser plugin row.");
     }
@@ -2645,15 +2767,15 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await waitFor(() => {
-      expect(activationInputs).toEqual([{
-        id: "browser@openai-bundled",
-        cwds: ["/tmp/project"],
-      }]);
+      expect(activationInputs).toEqual([
+        {
+          id: "browser@openai-bundled",
+          cwds: ["/tmp/project"],
+        },
+      ]);
     });
     expect(
-      view.container.querySelector(
-        "[plugin-mention-path='plugin://browser@openai-bundled']",
-      ),
+      view.container.querySelector("[plugin-mention-path='plugin://browser@openai-bundled']"),
     ).not.toBeNull();
   });
 
@@ -2663,19 +2785,21 @@ describe("ThreadComposer speed menu", () => {
     const newChatInputs: unknown[] = [];
     const view = await renderComposer(
       {
-        composerPlugins: [{
-          id: "record-and-replay@openai-bundled",
-          name: "record-and-replay",
-          displayName: "Record and Replay",
-          description: "Turn a workflow into a reusable skill",
-          defaultPrompt: "Record this workflow as a reusable skill.",
-          installed: false,
-          enabled: false,
-          path: "plugin://record-and-replay@openai-bundled",
-          iconUrl: null,
-          iconUrlDark: null,
-          brandColor: null,
-        }],
+        composerPlugins: [
+          {
+            id: "record-and-replay@openai-bundled",
+            name: "record-and-replay",
+            displayName: "Record and Replay",
+            description: "Turn a workflow into a reusable skill",
+            defaultPrompt: "Record this workflow as a reusable skill.",
+            installed: false,
+            enabled: false,
+            path: "plugin://record-and-replay@openai-bundled",
+            iconUrl: null,
+            iconUrlDark: null,
+            brandColor: null,
+          },
+        ],
       },
       {
         onStartNewChatWithPrompt: async (input) => {
@@ -2697,16 +2821,12 @@ describe("ThreadComposer speed menu", () => {
       fireEvent.click(trigger);
       await Promise.resolve();
     });
-    const recordRow = view.container.querySelector(
-      '[data-add-context-row="record-skill"]',
-    );
+    const recordRow = view.container.querySelector('[data-add-context-row="record-skill"]');
     if (!(recordRow instanceof HTMLElement)) {
       throw new Error("Expected the Record a skill action.");
     }
     expect(
-      view.container.querySelector(
-        '[data-add-context-plugin="Record and Replay"]',
-      ),
+      view.container.querySelector('[data-add-context-plugin="Record and Replay"]'),
     ).toBeNull();
 
     await act(async () => {
@@ -2716,11 +2836,13 @@ describe("ThreadComposer speed menu", () => {
 
     await waitFor(() => {
       expect(activationInputs).toHaveLength(1);
-      expect(newChatInputs).toEqual([{
-        projectId: "project_1",
-        prompt:
-          "[@Record and Replay](plugin://record-and-replay@openai-bundled) Record this workflow as a reusable skill.",
-      }]);
+      expect(newChatInputs).toEqual([
+        {
+          projectId: "project_1",
+          prompt:
+            "[@Record and Replay](plugin://record-and-replay@openai-bundled) Record this workflow as a reusable skill.",
+        },
+      ]);
     });
   });
 
@@ -2763,8 +2885,7 @@ describe("ThreadComposer speed menu", () => {
               },
               description: "/tmp/devtools-codex",
               primaryWorkspaceRoot: "/tmp/devtools-codex",
-              searchText:
-                "project_2 devtools codex /tmp/devtools-codex",
+              searchText: "project_2 devtools codex /tmp/devtools-codex",
             },
           ],
         },
@@ -2782,9 +2903,7 @@ describe("ThreadComposer speed menu", () => {
       fireEvent.click(trigger);
       await Promise.resolve();
     });
-    const projectAction = view.container.querySelector(
-      '[data-add-context-row="project"]',
-    );
+    const projectAction = view.container.querySelector('[data-add-context-row="project"]');
     if (!(projectAction instanceof HTMLElement)) {
       throw new Error("Expected the Work in a project action.");
     }
@@ -2795,23 +2914,17 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const projectMenu = view.getByLabelText("Work in a project");
-    const projectRows = Array.from(
-      projectMenu.querySelectorAll("[data-add-context-row]"),
-    ).map((row) => row.getAttribute("data-add-context-row"));
-    expect(projectRows).toEqual([
-      "project:none",
-      "project:project_1",
-      "project:project_2",
-    ]);
+    const projectRows = Array.from(projectMenu.querySelectorAll("[data-add-context-row]")).map(
+      (row) => row.getAttribute("data-add-context-row"),
+    );
+    expect(projectRows).toEqual(["project:none", "project:project_1", "project:project_2"]);
     expect(
       projectMenu.querySelector(
         '[data-add-context-row="project:project_1"] [data-state="checked"]',
       ),
     ).not.toBeNull();
 
-    const devtoolsProject = projectMenu.querySelector(
-      '[data-add-context-row="project:project_2"]',
-    );
+    const devtoolsProject = projectMenu.querySelector('[data-add-context-row="project:project_2"]');
     if (!(devtoolsProject instanceof HTMLElement)) {
       throw new Error("Expected the Devtools Codex project row.");
     }
@@ -2821,9 +2934,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(selectedProjectIds).toEqual(["project_2"]);
-    expect(
-      view.container.querySelector('[aria-label="Work in a project"]'),
-    ).toBeNull();
+    expect(view.container.querySelector('[aria-label="Work in a project"]')).toBeNull();
   });
 
   test("app rows insert canonical app mentions", async () => {
@@ -2831,23 +2942,25 @@ describe("ThreadComposer speed menu", () => {
     const sentPromptInputs: string[] = [];
     const view = await renderComposer(
       {
-        composerApps: [{
-          id: "plugin-management",
-          name: "Plugin Management",
-          description: "Manage installed plugins",
-          logoUrl: null,
-          logoUrlDark: null,
-          iconAssets: null,
-          iconDarkAssets: null,
-          distributionChannel: null,
-          branding: null,
-          appMetadata: null,
-          labels: null,
-          installUrl: null,
-          isAccessible: true,
-          isEnabled: true,
-          pluginDisplayNames: [],
-        }],
+        composerApps: [
+          {
+            id: "plugin-management",
+            name: "Plugin Management",
+            description: "Manage installed plugins",
+            logoUrl: null,
+            logoUrlDark: null,
+            iconAssets: null,
+            iconDarkAssets: null,
+            distributionChannel: null,
+            branding: null,
+            appMetadata: null,
+            labels: null,
+            installUrl: null,
+            isAccessible: true,
+            isEnabled: true,
+            pluginDisplayNames: [],
+          },
+        ],
       },
       {
         onSendPrompt: async (_prompt, opts) => {
@@ -2863,9 +2976,7 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const appItem = view.container.querySelector(
-      '[data-add-context-app="Plugin Management"]',
-    );
+    const appItem = view.container.querySelector('[data-add-context-app="Plugin Management"]');
     if (!(appItem instanceof HTMLElement)) {
       throw new Error("Expected the Plugin Management app row.");
     }
@@ -2880,10 +2991,12 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(JSON.parse(sentPromptInputs[0] ?? "null")).toMatchObject({
-      mentions: [{
-        name: "plugin-management",
-        path: "app://plugin-management",
-      }],
+      mentions: [
+        {
+          name: "plugin-management",
+          path: "app://plugin-management",
+        },
+      ],
     });
   });
 
@@ -2896,32 +3009,36 @@ describe("ThreadComposer speed menu", () => {
           prompt: "$plug",
           focusNonce: 1,
         },
-        composerSkills: [{
-          name: "plugin-creator",
-          displayName: "Plugin Creator",
-          description: "Create Codex plugins",
-          iconUrl: null,
-          brandColor: null,
-          path: "/skills/plugin-creator/SKILL.md",
-          scope: "system",
-        }],
-        composerApps: [{
-          id: "plugin-management",
-          name: "Plugin Management",
-          description: "Manage installed plugins",
-          logoUrl: null,
-          logoUrlDark: null,
-          iconAssets: null,
-          iconDarkAssets: null,
-          distributionChannel: null,
-          branding: null,
-          appMetadata: null,
-          labels: null,
-          installUrl: null,
-          isAccessible: true,
-          isEnabled: true,
-          pluginDisplayNames: [],
-        }],
+        composerSkills: [
+          {
+            name: "plugin-creator",
+            displayName: "Plugin Creator",
+            description: "Create Codex plugins",
+            iconUrl: null,
+            brandColor: null,
+            path: "/skills/plugin-creator/SKILL.md",
+            scope: "system",
+          },
+        ],
+        composerApps: [
+          {
+            id: "plugin-management",
+            name: "Plugin Management",
+            description: "Manage installed plugins",
+            logoUrl: null,
+            logoUrlDark: null,
+            iconAssets: null,
+            iconDarkAssets: null,
+            distributionChannel: null,
+            branding: null,
+            appMetadata: null,
+            labels: null,
+            installUrl: null,
+            isAccessible: true,
+            isEnabled: true,
+            pluginDisplayNames: [],
+          },
+        ],
       },
       {
         onSendPrompt: async (_prompt, opts) => {
@@ -2931,19 +3048,16 @@ describe("ThreadComposer speed menu", () => {
     );
 
     const menu = await waitFor(() => {
-      const element = view.container.querySelector(
-        '[data-skill-mention-menu="true"]',
-      );
+      const element = view.container.querySelector('[data-skill-mention-menu="true"]');
       if (!(element instanceof HTMLElement)) {
         throw new Error("Expected the skill mention menu.");
       }
       return element;
     });
-    expect(menu.querySelector('[data-add-context-row="skill:/skills/plugin-creator/SKILL.md"]'))
-      .not.toBeNull();
-    const appItem = menu.querySelector(
-      '[data-add-context-app="Plugin Management"]',
-    );
+    expect(
+      menu.querySelector('[data-add-context-row="skill:/skills/plugin-creator/SKILL.md"]'),
+    ).not.toBeNull();
+    const appItem = menu.querySelector('[data-add-context-app="Plugin Management"]');
     if (!(appItem instanceof HTMLElement)) {
       throw new Error("Expected the Plugin Management app row.");
     }
@@ -2961,25 +3075,29 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
     expect(JSON.parse(sentPromptInputs[0] ?? "null")).toMatchObject({
-      mentions: [{
-        name: "plugin-management",
-        path: "app://plugin-management",
-      }],
+      mentions: [
+        {
+          name: "plugin-management",
+          path: "app://plugin-management",
+        },
+      ],
     });
   });
 
   test("empty plus suggestions leave skills to the dedicated dollar surface", async () => {
     resetStorage();
     const view = await renderComposer({
-      composerSkills: [{
-        name: "pdf",
-        displayName: "PDF",
-        description: "Read and create PDFs",
-        iconUrl: null,
-        brandColor: null,
-        path: "/skills/pdf/SKILL.md",
-        scope: "system",
-      }],
+      composerSkills: [
+        {
+          name: "pdf",
+          displayName: "PDF",
+          description: "Read and create PDFs",
+          iconUrl: null,
+          brandColor: null,
+          path: "/skills/pdf/SKILL.md",
+          scope: "system",
+        },
+      ],
     });
 
     const trigger = view.getByLabelText("Add files and more");
@@ -2990,8 +3108,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const menu = view.container.querySelector('[data-add-context-menu="true"]');
-    expect(menu?.querySelector('[data-add-context-row="skill:/skills/pdf/SKILL.md"]'))
-      .toBeNull();
+    expect(menu?.querySelector('[data-add-context-row="skill:/skills/pdf/SKILL.md"]')).toBeNull();
     expect(menu?.textContent).toContain("Type to search files or chats");
   });
 
@@ -3019,16 +3136,19 @@ describe("ThreadComposer speed menu", () => {
   test("slash Plan command toggles through the shared Plan mode action", async () => {
     resetStorage();
     const selectedModes: string[] = [];
-    const view = await renderComposer({
-      composerIntent: {
-        prompt: "/plan",
-        focusNonce: 1,
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "/plan",
+          focusNonce: 1,
+        },
       },
-    }, {
-      onCollaborationModeChange: (mode) => {
-        selectedModes.push(mode);
+      {
+        onCollaborationModeChange: (mode) => {
+          selectedModes.push(mode);
+        },
       },
-    });
+    );
 
     await waitFor(() => {
       const planRow = view.container.querySelector('[data-slash-command-row="plan-mode"]');
@@ -3041,17 +3161,20 @@ describe("ThreadComposer speed menu", () => {
     expect(selectedModes[0]).toBe("plan");
     view.unmount();
 
-    const offView = await renderComposer({
-      selectedCollaborationMode: "plan",
-      composerIntent: {
-        prompt: "/plan",
-        focusNonce: 2,
+    const offView = await renderComposer(
+      {
+        selectedCollaborationMode: "plan",
+        composerIntent: {
+          prompt: "/plan",
+          focusNonce: 2,
+        },
       },
-    }, {
-      onCollaborationModeChange: (mode) => {
-        selectedModes.push(mode);
+      {
+        onCollaborationModeChange: (mode) => {
+          selectedModes.push(mode);
+        },
       },
-    });
+    );
 
     await waitFor(() => {
       const planRow = offView.container.querySelector('[data-slash-command-row="plan-mode"]');
@@ -3078,13 +3201,17 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
       if (!goalRow) throw new Error("Expected Goal slash command row.");
-      expect(Boolean(goalRow.textContent?.includes("Set a goal that Nodex will keep working towards"))).toBe(true);
+      expect(
+        Boolean(goalRow.textContent?.includes("Set a goal that Nodex will keep working towards")),
+      ).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" });
 
     await waitFor(() => {
-      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Describe your goal, define measurable outcomes for best results"]');
+      const placeholder = view.container.querySelector<HTMLElement>(
+        '[data-placeholder="Describe your goal, define measurable outcomes for best results"]',
+      );
       if (!placeholder) {
         throw new Error("Expected Goal mode placeholder.");
       }
@@ -3128,7 +3255,9 @@ describe("ThreadComposer speed menu", () => {
     );
 
     await waitFor(() => {
-      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Ask for follow-up changes"]');
+      const placeholder = view.container.querySelector<HTMLElement>(
+        '[data-placeholder="Ask for follow-up changes"]',
+      );
       if (!placeholder) {
         throw new Error("Expected the normal follow-up placeholder for a saved goal.");
       }
@@ -3174,7 +3303,7 @@ describe("ThreadComposer speed menu", () => {
       expect(setGoalCalls.length).toBe(1);
     });
     expect(setGoalCalls[0]).toBe(
-      "{\"threadId\":\"thread_1\",\"objective\":\"Keep refining the migration until tests pass\",\"status\":\"active\"}",
+      '{"threadId":"thread_1","objective":"Keep refining the migration until tests pass","status":"active"}',
     );
     expect(sentPrompts.length).toBe(0);
   });
@@ -3221,7 +3350,7 @@ describe("ThreadComposer speed menu", () => {
       expect(startThreadCalls.length).toBe(1);
     });
     expect(startThreadCalls[0]).toBe(
-      "{\"projectId\":\"project_1\",\"sessionId\":\"session_1\",\"prompt\":\"Keep refining the migration until tests pass\",\"threadGoalDraft\":{\"objective\":\"Keep refining the migration until tests pass\",\"imageAttachments\":[],\"pastedTextAttachments\":[]},\"threadGoalMaterializedDraft\":{\"objective\":\"Keep refining the migration until tests pass\",\"attachmentDirectory\":null},\"runInTarget\":\"localProject\"}",
+      '{"projectId":"project_1","sessionId":"session_1","prompt":"Keep refining the migration until tests pass","threadGoalDraft":{"objective":"Keep refining the migration until tests pass","imageAttachments":[],"pastedTextAttachments":[]},"threadGoalMaterializedDraft":{"objective":"Keep refining the migration until tests pass","attachmentDirectory":null},"runInTarget":"localProject"}',
     );
     expect(setGoalCalls.length).toBe(0);
     expect(sentPrompts.length).toBe(0);
@@ -3248,19 +3377,23 @@ describe("ThreadComposer speed menu", () => {
           focusNonce: 1,
           promptInput: {
             text: "/goal Keep the worktree goal alive",
-            images: [{
-              source: "data:image/png;base64,aW1hZ2U=",
-              caption: "diagram.png",
-            }],
-            textAttachments: [{
-              file: {
-                label: "Pasted text.txt",
-                path: "/attachments/goal/pasted-text.txt",
-                fsPath: "/attachments/goal/pasted-text.txt",
+            images: [
+              {
+                source: "data:image/png;base64,aW1hZ2U=",
+                caption: "diagram.png",
               },
-              preview: "Pasted requirements",
-              characterCount: 19,
-            }],
+            ],
+            textAttachments: [
+              {
+                file: {
+                  label: "Pasted text.txt",
+                  path: "/attachments/goal/pasted-text.txt",
+                  fsPath: "/attachments/goal/pasted-text.txt",
+                },
+                preview: "Pasted requirements",
+                characterCount: 19,
+              },
+            ],
           },
         },
       },
@@ -3294,27 +3427,32 @@ describe("ThreadComposer speed menu", () => {
     expect(materializeCalls.length).toBe(0);
     expect(start.prompt).toBe("Keep the worktree goal alive");
     expect(start.runInTarget).toBe("newWorktree");
-    expect(JSON.stringify(start.threadGoalDraft)).toBe(JSON.stringify({
-      objective: "Keep the worktree goal alive",
-      imageAttachments: [{
-        src: "data:image/png;base64,aW1hZ2U=",
-        localPath: null,
-        filename: "diagram.png",
-      }],
-      pastedTextAttachments: [{
-        file: {
-          label: "Pasted text.txt",
-          path: "/attachments/goal/pasted-text.txt",
-          fsPath: "/attachments/goal/pasted-text.txt",
-        },
-        preview: "Pasted requirements",
-        characterCount: 19,
-      }],
-    }));
-    expect(Object.prototype.hasOwnProperty.call(
-      start.threadGoalDraft ?? {},
-      "attachmentDirectory",
-    )).toBe(false);
+    expect(JSON.stringify(start.threadGoalDraft)).toBe(
+      JSON.stringify({
+        objective: "Keep the worktree goal alive",
+        imageAttachments: [
+          {
+            src: "data:image/png;base64,aW1hZ2U=",
+            localPath: null,
+            filename: "diagram.png",
+          },
+        ],
+        pastedTextAttachments: [
+          {
+            file: {
+              label: "Pasted text.txt",
+              path: "/attachments/goal/pasted-text.txt",
+              fsPath: "/attachments/goal/pasted-text.txt",
+            },
+            preview: "Pasted requirements",
+            characterCount: 19,
+          },
+        ],
+      }),
+    );
+    expect(
+      Object.prototype.hasOwnProperty.call(start.threadGoalDraft ?? {}, "attachmentDirectory"),
+    ).toBe(false);
   });
 
   test("local-project Goal still materializes pasted text and images before starting", async () => {
@@ -3338,19 +3476,23 @@ describe("ThreadComposer speed menu", () => {
           focusNonce: 1,
           promptInput: {
             text: "/goal Keep the local goal alive",
-            images: [{
-              source: "data:image/png;base64,aW1hZ2U=",
-              caption: "diagram.png",
-            }],
-            textAttachments: [{
-              file: {
-                label: "Pasted text.txt",
-                path: "/attachments/goal/pasted-text.txt",
-                fsPath: "/attachments/goal/pasted-text.txt",
+            images: [
+              {
+                source: "data:image/png;base64,aW1hZ2U=",
+                caption: "diagram.png",
               },
-              preview: "Pasted requirements",
-              characterCount: 19,
-            }],
+            ],
+            textAttachments: [
+              {
+                file: {
+                  label: "Pasted text.txt",
+                  path: "/attachments/goal/pasted-text.txt",
+                  fsPath: "/attachments/goal/pasted-text.txt",
+                },
+                preview: "Pasted requirements",
+                characterCount: 19,
+              },
+            ],
           },
         },
       },
@@ -3380,45 +3522,59 @@ describe("ThreadComposer speed menu", () => {
       threadGoalMaterializedDraft?: unknown;
     };
     expect(materializeCalls.length).toBe(1);
-    expect(JSON.stringify(materializeCalls[0])).toBe(JSON.stringify({
-      objective: "Keep the local goal alive",
-      imageAttachments: [{
-        src: "data:image/png;base64,aW1hZ2U=",
-        localPath: null,
-        filename: "diagram.png",
-      }],
-      pastedTextAttachments: [{
-        file: {
-          label: "Pasted text.txt",
-          path: "/attachments/goal/pasted-text.txt",
-          fsPath: "/attachments/goal/pasted-text.txt",
-        },
-        preview: "Pasted requirements",
-        characterCount: 19,
-      }],
-    }));
+    expect(JSON.stringify(materializeCalls[0])).toBe(
+      JSON.stringify({
+        objective: "Keep the local goal alive",
+        imageAttachments: [
+          {
+            src: "data:image/png;base64,aW1hZ2U=",
+            localPath: null,
+            filename: "diagram.png",
+          },
+        ],
+        pastedTextAttachments: [
+          {
+            file: {
+              label: "Pasted text.txt",
+              path: "/attachments/goal/pasted-text.txt",
+              fsPath: "/attachments/goal/pasted-text.txt",
+            },
+            preview: "Pasted requirements",
+            characterCount: 19,
+          },
+        ],
+      }),
+    );
     expect(start.prompt).toBe("Materialized local objective");
-    expect(JSON.stringify(start.threadGoalDraft)).toBe(JSON.stringify({
-      objective: "Keep the local goal alive",
-      imageAttachments: [{
-        src: "data:image/png;base64,aW1hZ2U=",
-        localPath: null,
-        filename: "diagram.png",
-      }],
-      pastedTextAttachments: [{
-        file: {
-          label: "Pasted text.txt",
-          path: "/attachments/goal/pasted-text.txt",
-          fsPath: "/attachments/goal/pasted-text.txt",
-        },
-        preview: "Pasted requirements",
-        characterCount: 19,
-      }],
-    }));
-    expect(JSON.stringify(start.threadGoalMaterializedDraft)).toBe(JSON.stringify({
-      objective: "Materialized local objective",
-      attachmentDirectory: "/tmp/materialized-goal",
-    }));
+    expect(JSON.stringify(start.threadGoalDraft)).toBe(
+      JSON.stringify({
+        objective: "Keep the local goal alive",
+        imageAttachments: [
+          {
+            src: "data:image/png;base64,aW1hZ2U=",
+            localPath: null,
+            filename: "diagram.png",
+          },
+        ],
+        pastedTextAttachments: [
+          {
+            file: {
+              label: "Pasted text.txt",
+              path: "/attachments/goal/pasted-text.txt",
+              fsPath: "/attachments/goal/pasted-text.txt",
+            },
+            preview: "Pasted requirements",
+            characterCount: 19,
+          },
+        ],
+      }),
+    );
+    expect(JSON.stringify(start.threadGoalMaterializedDraft)).toBe(
+      JSON.stringify({
+        objective: "Materialized local objective",
+        attachmentDirectory: "/tmp/materialized-goal",
+      }),
+    );
   });
 
   test("empty goal mode submit clears goal mode without sending a prompt", async () => {
@@ -3446,7 +3602,9 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       const goalRow = view.container.querySelector('[data-slash-command-row="goal"]');
       if (!goalRow) throw new Error("Expected Goal slash command row.");
-      expect(Boolean(goalRow.textContent?.includes("Set a goal that Nodex will keep working towards"))).toBe(true);
+      expect(
+        Boolean(goalRow.textContent?.includes("Set a goal that Nodex will keep working towards")),
+      ).toBe(true);
     });
 
     await keyDownComposer(view, { key: "Enter" });
@@ -3584,7 +3742,7 @@ describe("ThreadComposer speed menu", () => {
       expect(setGoalCalls.length).toBe(1);
     });
     expect(setGoalCalls[0]).toBe(
-      "{\"threadId\":\"thread_1\",\"objective\":\"Replace with the current composer objective\",\"status\":\"active\"}",
+      '{"threadId":"thread_1","objective":"Replace with the current composer objective","status":"active"}',
     );
     expect(sentPrompts.length).toBe(0);
     await waitFor(() => {
@@ -3777,8 +3935,9 @@ describe("ThreadComposer speed menu", () => {
       expect(Boolean(view.container.textContent?.includes("GPT-5.5"))).toBe(true);
     });
 
-    const nextModelButton = Array.from(view.container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("GPT-5.5"));
+    const nextModelButton = Array.from(view.container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("GPT-5.5"),
+    );
     if (!(nextModelButton instanceof HTMLElement)) {
       throw new Error("Expected GPT-5.5 model option.");
     }
@@ -3855,9 +4014,15 @@ describe("ThreadComposer speed menu", () => {
     );
 
     const projectSelector = view.getByLabelText("Select project");
-    const lowerStatusRow = view.container.querySelector<HTMLElement>('[data-composer-lower-status-row="true"]');
-    const externalFooterSlot = view.container.querySelector<HTMLElement>('[data-composer-external-footer-slot="true"]');
-    const formFooter = view.container.querySelector<HTMLElement>('[data-composer-form-footer="true"]');
+    const lowerStatusRow = view.container.querySelector<HTMLElement>(
+      '[data-composer-lower-status-row="true"]',
+    );
+    const externalFooterSlot = view.container.querySelector<HTMLElement>(
+      '[data-composer-external-footer-slot="true"]',
+    );
+    const formFooter = view.container.querySelector<HTMLElement>(
+      '[data-composer-form-footer="true"]',
+    );
     const composerSurface = view.container.querySelector<HTMLElement>(".composer-surface-chrome");
     const composerFrame = composerSurface?.parentElement;
     const lowerText = lowerStatusRow?.textContent ?? "";
@@ -3888,7 +4053,9 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
-    const externalFooterSlot = view.container.querySelector('[data-composer-external-footer-slot="true"]');
+    const externalFooterSlot = view.container.querySelector(
+      '[data-composer-external-footer-slot="true"]',
+    );
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
 
     expect(formFooter !== null).toBe(true);
@@ -3907,13 +4074,17 @@ describe("ThreadComposer speed menu", () => {
     });
     const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
     const composerSurface = view.container.querySelector<HTMLElement>(".composer-surface-chrome");
-    const promptFrame = view.container.querySelector<HTMLElement>('[data-composer-prompt-frame="true"]');
-    const editorScrollContainer = composer?.parentElement;
-    const attachmentStrip = view.container.querySelector<HTMLElement>('[data-composer-attachments="true"]');
-    const formFooter = view.container.querySelector<HTMLElement>('[data-composer-form-footer="true"]');
-    const inputSlot = formFooter?.querySelector<HTMLElement>(
-      '[data-composer-input-slot="true"]',
+    const promptFrame = view.container.querySelector<HTMLElement>(
+      '[data-composer-prompt-frame="true"]',
     );
+    const editorScrollContainer = composer?.parentElement;
+    const attachmentStrip = view.container.querySelector<HTMLElement>(
+      '[data-composer-attachments="true"]',
+    );
+    const formFooter = view.container.querySelector<HTMLElement>(
+      '[data-composer-form-footer="true"]',
+    );
+    const inputSlot = formFooter?.querySelector<HTMLElement>('[data-composer-input-slot="true"]');
     const leadingSlot = formFooter?.querySelector<HTMLElement>(
       '[data-composer-footer-leading="true"]',
     );
@@ -3975,7 +4146,9 @@ describe("ThreadComposer speed menu", () => {
 
     expect(composer !== null).toBe(true);
     await waitFor(() => {
-      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Do anything"]');
+      const placeholder = view.container.querySelector<HTMLElement>(
+        '[data-placeholder="Do anything"]',
+      );
       if (!placeholder) {
         throw new Error("Expected Codex placeholder.");
       }
@@ -4016,7 +4189,9 @@ describe("ThreadComposer speed menu", () => {
     expect(view.getByLabelText("Model GPT-5.5")).toBeTruthy();
     expect(view.getByLabelText("Effort High")).toBeTruthy();
     expect(view.getByLabelText("Speed Standard")).toBeTruthy();
-    expect(view.container.ownerDocument.body.textContent?.includes("Deep reasoning.") ?? false).toBe(false);
+    expect(
+      view.container.ownerDocument.body.textContent?.includes("Deep reasoning.") ?? false,
+    ).toBe(false);
 
     await act(async () => {
       fireEvent.click(providerSummary);
@@ -4204,10 +4379,12 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await waitFor(() => {
-      expect(credentialWrites).toEqual([{
-        providerId: "anthropic",
-        apiKey: "sk-ant-test",
-      }]);
+      expect(credentialWrites).toEqual([
+        {
+          providerId: "anthropic",
+          apiKey: "sk-ant-test",
+        },
+      ]);
       expect(selectedProfiles[0]).toMatchObject({
         providerId: "anthropic",
         modelId: "claude-sonnet-4-5",
@@ -4290,7 +4467,7 @@ describe("ThreadComposer speed menu", () => {
     });
     const visibleModelLabels = Array.from(
       view.container.ownerDocument.body.querySelectorAll<HTMLElement>(
-        '[data-radix-collection-item]',
+        "[data-radix-collection-item]",
       ),
     )
       .map((item) => item.textContent?.trim())
@@ -4347,8 +4524,9 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const modelItem = Array.from(modelView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
-      .find((node) => node.textContent?.includes("GPT-5.5"));
+    const modelItem = Array.from(
+      modelView.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+    ).find((node) => node.textContent?.includes("GPT-5.5"));
     if (!(modelItem instanceof HTMLElement)) {
       throw new Error("Expected the Model flyout to include GPT-5.5.");
     }
@@ -4379,7 +4557,9 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const nextMenuItems = Array.from(reasoningView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
+    const nextMenuItems = Array.from(
+      reasoningView.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+    );
     const reasoningItem = nextMenuItems.find((node) => node.textContent?.includes("Medium"));
     if (!(reasoningItem instanceof HTMLElement)) {
       throw new Error("Expected the Effort submenu to include Medium reasoning.");
@@ -4419,8 +4599,9 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const modelTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
-      .find((node) => node.textContent?.includes("GPT-5.3 Codex"));
+    const modelTrigger = Array.from(
+      view.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+    ).find((node) => node.textContent?.includes("GPT-5.3 Codex"));
     if (!(modelTrigger instanceof HTMLElement)) {
       throw new Error("Expected the model selector to include the current model row.");
     }
@@ -4430,8 +4611,9 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const modelItem = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
-      .find((node) => node.textContent?.includes("GPT-5.5"));
+    const modelItem = Array.from(
+      view.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+    ).find((node) => node.textContent?.includes("GPT-5.5"));
     if (!(modelItem instanceof HTMLElement)) {
       throw new Error("Expected the Model flyout to include GPT-5.5.");
     }
@@ -4524,16 +4706,17 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(modelMenuText.includes("Previous stable Codex model"))).toBe(false);
     const visibleModelLabels = Array.from(
       view.container.ownerDocument.body.querySelectorAll<HTMLElement>(
-        '[data-radix-collection-item]',
+        "[data-radix-collection-item]",
       ),
     )
       .map((item) => item.textContent?.trim())
-      .filter((label) => (
-        label === "GPT-5.5"
-        || label === "GPT-5.4"
-        || label === "GPT-5.4-Mini"
-        || label === "GPT-5.3-Codex-Spark"
-      ));
+      .filter(
+        (label) =>
+          label === "GPT-5.5" ||
+          label === "GPT-5.4" ||
+          label === "GPT-5.4-Mini" ||
+          label === "GPT-5.3-Codex-Spark",
+      );
     expect(visibleModelLabels).toEqual([
       "GPT-5.5",
       "GPT-5.4",
@@ -4558,7 +4741,9 @@ describe("ThreadComposer speed menu", () => {
     const addContextButton = view.getByLabelText("Add files and more");
     const permissionTrigger = view.getByLabelText("Permission mode");
     const planButton = view.getByLabelText("Plan");
-    const planAccessoryDivider = formFooter?.querySelector('[data-composer-footer-accessory-divider="true"]');
+    const planAccessoryDivider = formFooter?.querySelector(
+      '[data-composer-footer-accessory-divider="true"]',
+    );
 
     expect(formFooter !== null).toBe(true);
     expect(formFooter?.contains(addContextButton)).toBe(true);
@@ -4567,8 +4752,17 @@ describe("ThreadComposer speed menu", () => {
     expect(planButton.hasAttribute("aria-haspopup")).toBe(false);
     expect(planButton.getAttribute("data-slot") === "dropdown-trigger").toBe(false);
     expect(planAccessoryDivider !== null).toBe(true);
-    expect(Boolean(addContextButton.compareDocumentPosition(permissionTrigger) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(Boolean(permissionTrigger.compareDocumentPosition(planButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(
+      Boolean(
+        addContextButton.compareDocumentPosition(permissionTrigger) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        permissionTrigger.compareDocumentPosition(planButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
     expect(permissionTrigger.nextElementSibling === planAccessoryDivider).toBe(true);
     expect(planAccessoryDivider?.nextElementSibling === planButton).toBe(true);
 

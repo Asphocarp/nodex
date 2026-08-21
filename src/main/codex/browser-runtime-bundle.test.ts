@@ -56,7 +56,8 @@ describe("resolveBrowserRuntimeBundle", () => {
       path.join(bundleRoot, "marketplace", "plugins", "browser"),
     );
     expect(result.bundle.browserPluginClientSha256).toBe(
-      manifest.artifacts.find((artifact) => artifact.path === manifest.browserPlugin.client)?.sha256,
+      manifest.artifacts.find((artifact) => artifact.path === manifest.browserPlugin.client)
+        ?.sha256,
     );
   });
 
@@ -131,11 +132,10 @@ describe("resolveBrowserRuntimeBundle", () => {
 
     const result = resolveBrowserRuntimeBundle({
       expectedCodexCompatibilityVersion: "0.144.6",
-      platformArtifactVerifier: ({ artifact, manifest }) => (
+      platformArtifactVerifier: ({ artifact, manifest }) =>
         artifact.kind === "native-addon" && manifest.peerAuthorization.signingTeamId !== "REALTEAM"
           ? "unexpected signing team"
-          : null
-      ),
+          : null,
       runtimeRoot,
       targetArch: "arm64",
       targetPlatform: "darwin",

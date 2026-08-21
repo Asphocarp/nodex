@@ -85,36 +85,38 @@ describe("session context menu model", () => {
       projectWorkspacePath: "/tmp/project",
       platform: "darwin",
       isGitRepository: true,
-      projects: [
-        makeProject("project-1", "Current"),
-        makeProject("project-2", "Destination"),
-      ],
+      projects: [makeProject("project-1", "Current"), makeProject("project-2", "Destination")],
     });
 
-    expect(JSON.stringify(flattenActionIds(items))).toBe(JSON.stringify([
-      SESSION_CONTEXT_MENU_ACTION_IDS.togglePin,
-      "session.moveToProject",
-      sessionMoveToProjectActionId("project-2"),
-      SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject,
-      SESSION_CONTEXT_MENU_ACTION_IDS.rename,
-      SESSION_CONTEXT_MENU_ACTION_IDS.archive,
-      "separator",
-      SESSION_CONTEXT_MENU_ACTION_IDS.markUnread,
-      SESSION_CONTEXT_MENU_ACTION_IDS.reveal,
-      "session.copy",
-      SESSION_CONTEXT_MENU_ACTION_IDS.copyWorkingDirectory,
-      SESSION_CONTEXT_MENU_ACTION_IDS.copySessionId,
-      SESSION_CONTEXT_MENU_ACTION_IDS.copyDeeplink,
-      "session.fork",
-      SESSION_CONTEXT_MENU_ACTION_IDS.forkLocal,
-      SESSION_CONTEXT_MENU_ACTION_IDS.forkNewWorktree,
-      "separator",
-      SESSION_CONTEXT_MENU_ACTION_IDS.openInNewWindow,
-    ]));
+    expect(JSON.stringify(flattenActionIds(items))).toBe(
+      JSON.stringify([
+        SESSION_CONTEXT_MENU_ACTION_IDS.togglePin,
+        "session.moveToProject",
+        sessionMoveToProjectActionId("project-2"),
+        SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject,
+        SESSION_CONTEXT_MENU_ACTION_IDS.rename,
+        SESSION_CONTEXT_MENU_ACTION_IDS.archive,
+        "separator",
+        SESSION_CONTEXT_MENU_ACTION_IDS.markUnread,
+        SESSION_CONTEXT_MENU_ACTION_IDS.reveal,
+        "session.copy",
+        SESSION_CONTEXT_MENU_ACTION_IDS.copyWorkingDirectory,
+        SESSION_CONTEXT_MENU_ACTION_IDS.copySessionId,
+        SESSION_CONTEXT_MENU_ACTION_IDS.copyDeeplink,
+        "session.fork",
+        SESSION_CONTEXT_MENU_ACTION_IDS.forkLocal,
+        SESSION_CONTEXT_MENU_ACTION_IDS.forkNewWorktree,
+        "separator",
+        SESSION_CONTEXT_MENU_ACTION_IDS.openInNewWindow,
+      ]),
+    );
   });
 
   test("offers every other active Project and parses the selected destination", () => {
-    const archived = { ...makeProject("project-archived", "Archived"), lifecycle: "archived" as const };
+    const archived = {
+      ...makeProject("project-archived", "Archived"),
+      lifecycle: "archived" as const,
+    };
     const items = buildSessionContextMenuItems({
       session: makeSession({
         projectId: "project-1",
@@ -140,36 +142,42 @@ describe("session context menu model", () => {
         archived,
       ],
     });
-    const move = items.find((item) => item.type === "submenu" && item.id === "session.moveToProject");
+    const move = items.find(
+      (item) => item.type === "submenu" && item.id === "session.moveToProject",
+    );
 
     expect(move?.type).toBe("submenu");
     if (move?.type === "submenu") {
-      expect(move.submenu.map((item) => item.type === "separator" ? null : item.label))
-        .toEqual(["Destination"]);
-      const destinationId = move.submenu[0]?.type === "separator"
-        ? null
-        : move.submenu[0]?.id ?? "";
+      expect(move.submenu.map((item) => (item.type === "separator" ? null : item.label))).toEqual([
+        "Destination",
+      ]);
+      const destinationId =
+        move.submenu[0]?.type === "separator" ? null : (move.submenu[0]?.id ?? "");
       expect(readSessionMoveToProjectActionId(destinationId ?? "")).toBe("project-2");
     }
-    const remove = items.find((item) =>
-      item.type !== "separator"
-      && item.id === SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject
+    const remove = items.find(
+      (item) =>
+        item.type !== "separator" && item.id === SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject,
     );
     expect(remove?.type === "separator" ? null : remove?.label).toBe("Remove from Current");
   });
 
   test("preserves pin state when moving to another Project or back to Chats", () => {
-    expect(resolveSessionProjectMoveContainers(
-      makeSession({ projectId: "project-1", pinned: true, pinnedOrder: 0 }),
-      "project-2",
-    )).toEqual({
+    expect(
+      resolveSessionProjectMoveContainers(
+        makeSession({ projectId: "project-1", pinned: true, pinnedOrder: 0 }),
+        "project-2",
+      ),
+    ).toEqual({
       sourceContainerId: "project-pinned:project-1",
       targetContainerId: "project-pinned:project-2",
     });
-    expect(resolveSessionProjectMoveContainers(
-      makeSession({ projectId: "project-1", pinned: true, pinnedOrder: 0 }),
-      null,
-    )).toEqual({
+    expect(
+      resolveSessionProjectMoveContainers(
+        makeSession({ projectId: "project-1", pinned: true, pinnedOrder: 0 }),
+        null,
+      ),
+    ).toEqual({
       sourceContainerId: "project-pinned:project-1",
       targetContainerId: "pinned",
     });
@@ -186,7 +194,9 @@ describe("session context menu model", () => {
     if (items[0]?.type !== "separator") {
       expect(items[0]?.label).toBe("Unpin");
     }
-    const reveal = items.find((item) => item.type !== "separator" && item.id === SESSION_CONTEXT_MENU_ACTION_IDS.reveal);
+    const reveal = items.find(
+      (item) => item.type !== "separator" && item.id === SESSION_CONTEXT_MENU_ACTION_IDS.reveal,
+    );
     if (reveal?.type !== "separator") {
       expect(reveal?.label).toBe("Reveal in File Explorer");
     }
@@ -196,11 +206,12 @@ describe("session context menu model", () => {
     const labelFor = (unread: boolean): string | null => {
       const item = buildSessionContextMenuItems({
         session: makeSession({ unread }),
-      }).find((candidate) =>
-        candidate.type !== "separator"
-        && candidate.id === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread
+      }).find(
+        (candidate) =>
+          candidate.type !== "separator" &&
+          candidate.id === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread,
       );
-      return item?.type === "separator" ? null : item?.label ?? null;
+      return item?.type === "separator" ? null : (item?.label ?? null);
     };
 
     expect(labelFor(false)).toBe("Mark as unread");
@@ -212,7 +223,9 @@ describe("session context menu model", () => {
       session: makeSession(),
       isGitRepository: true,
     });
-    const blankFork = blankItems.find((item) => item.type === "submenu" && item.id === "session.fork");
+    const blankFork = blankItems.find(
+      (item) => item.type === "submenu" && item.id === "session.fork",
+    );
     if (blankFork?.type === "submenu") {
       const localFork = blankFork.submenu[0];
       const worktreeFork = blankFork.submenu[1];
@@ -240,7 +253,9 @@ describe("session context menu model", () => {
       },
     });
     const nonGitItems = buildSessionContextMenuItems({ session: attached, isGitRepository: false });
-    const nonGitFork = nonGitItems.find((item) => item.type === "submenu" && item.id === "session.fork");
+    const nonGitFork = nonGitItems.find(
+      (item) => item.type === "submenu" && item.id === "session.fork",
+    );
     if (nonGitFork?.type === "submenu") {
       const localFork = nonGitFork.submenu[0];
       const worktreeFork = nonGitFork.submenu[1];

@@ -71,7 +71,9 @@ export function buildMcpAppCapabilityId(input: {
     input.tool,
     input.callId,
     input.resourceUri,
-  ].map(encodeURIComponent).join(":");
+  ]
+    .map(encodeURIComponent)
+    .join(":");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -87,10 +89,11 @@ export function resolveMcpAppResourceScopeUri(input: {
   payload: CodexMcpToolCallView;
   mcpServerStatuses?: ProtocolListMcpServerStatusResponse | null;
 }): string | null {
-  const metadataResourceUri = resolveCodexMcpAppResourceMetadata({
-    payload: input.payload,
-    mcpServerStatuses: input.mcpServerStatuses ?? null,
-  })?.resourceUri ?? null;
+  const metadataResourceUri =
+    resolveCodexMcpAppResourceMetadata({
+      payload: input.payload,
+      mcpServerStatuses: input.mcpServerStatuses ?? null,
+    })?.resourceUri ?? null;
   if (metadataResourceUri !== null) return metadataResourceUri;
   if (input.payload.result?.type !== "success") return null;
   return input.payload.mcpAppResourceUri ?? null;
@@ -100,9 +103,7 @@ export function resolveMcpAppResourceUri(input: {
   payload: CodexMcpToolCallView;
   mcpServerStatuses?: ProtocolListMcpServerStatusResponse | null;
 }): string | null {
-  return resolveMcpAppResourceScopeUri(input)
-    ?? input.payload.mcpAppResourceUri
-    ?? null;
+  return resolveMcpAppResourceScopeUri(input) ?? input.payload.mcpAppResourceUri ?? null;
 }
 
 function getEmbeddedResourceContents(
@@ -167,17 +168,22 @@ export function shouldHideDuplicateMcpTextContent(
 
 export function stringifyMcpValue(value: unknown, spacing = 2): string {
   try {
-    return JSON.stringify(
-      value,
-      (_key, nestedValue) => (typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue),
-      spacing,
-    ) ?? "null";
+    return (
+      JSON.stringify(
+        value,
+        (_key, nestedValue) =>
+          typeof nestedValue === "bigint" ? nestedValue.toString() : nestedValue,
+        spacing,
+      ) ?? "null"
+    );
   } catch {
     return "";
   }
 }
 
-function parseSingleJsonTextContent(content: readonly CodexMcpToolCallContentBlock[]): string | null {
+function parseSingleJsonTextContent(
+  content: readonly CodexMcpToolCallContentBlock[],
+): string | null {
   if (content.length !== 1) return null;
   const [block] = content;
   if (!block || block.type !== "text" || block.annotations != null) return null;

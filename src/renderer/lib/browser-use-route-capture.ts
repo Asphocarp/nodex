@@ -18,11 +18,7 @@ export interface BrowserUseRouteCaptureInput {
 export function buildBrowserUseRouteCaptureCommand(
   input: BrowserUseRouteCaptureInput,
 ): BrowserUseRouteCaptureCommand | null {
-  if (
-    !input.browserConversationId
-    || !input.browserViewScopeId
-    || !input.codexSessionId
-  ) {
+  if (!input.browserConversationId || !input.browserViewScopeId || !input.codexSessionId) {
     return null;
   }
   return {
@@ -36,9 +32,7 @@ export function buildBrowserUseRouteCaptureCommand(
 
 export async function captureBrowserUseRoute(
   input: BrowserUseRouteCaptureInput,
-  run: (
-    command: BrowserUseRouteCaptureCommand,
-  ) => Promise<BrowserSidebarCommandResult>,
+  run: (command: BrowserUseRouteCaptureCommand) => Promise<BrowserSidebarCommandResult>,
 ): Promise<void> {
   const command = buildBrowserUseRouteCaptureCommand(input);
   if (!command) return;

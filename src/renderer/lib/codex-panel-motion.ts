@@ -57,7 +57,9 @@ export function resolveCodexAnimatedPanelSize(progress: number, targetSize: numb
   return clampCodexPanelProgress(progress) * targetSize;
 }
 
-export function resolveCodexSummaryPanelLayoutMode(mainContentTargetWidth: number): ThreadSummaryPanelLayoutMode {
+export function resolveCodexSummaryPanelLayoutMode(
+  mainContentTargetWidth: number,
+): ThreadSummaryPanelLayoutMode {
   const availableWidth = (mainContentTargetWidth - CODEX_SUMMARY_TARGET_CONTENT_WIDTH) / 2;
   if (availableWidth < CODEX_SUMMARY_OVERLAY_AVAILABLE_WIDTH) return "overlay";
   if (availableWidth < CODEX_SUMMARY_GUTTER_AVAILABLE_WIDTH) return "shift";
@@ -93,12 +95,10 @@ export function resolveCodexMainContentTargetWidth({
 }): number {
   if (!Number.isFinite(shellWidth) || shellWidth <= 0) return 0;
   if (rightPanelFullWidth) return 0;
-  const reservedLeftWidth = leftSidebarOpen && Number.isFinite(leftSidebarWidth)
-    ? Math.max(0, leftSidebarWidth)
-    : 0;
-  const reservedRightWidth = rightPanelOpen && Number.isFinite(rightPanelWidth)
-    ? Math.max(0, rightPanelWidth)
-    : 0;
+  const reservedLeftWidth =
+    leftSidebarOpen && Number.isFinite(leftSidebarWidth) ? Math.max(0, leftSidebarWidth) : 0;
+  const reservedRightWidth =
+    rightPanelOpen && Number.isFinite(rightPanelWidth) ? Math.max(0, rightPanelWidth) : 0;
   return Math.max(0, shellWidth - reservedLeftWidth - reservedRightWidth);
 }
 
@@ -115,7 +115,8 @@ export function resolveCodexHeaderEdgeScroll({
 }): boolean {
   if (layout !== "thread-edge-scroll") return false;
   if (rightPanelFullWidth) return false;
-  const normalizedRootFontSize = Number.isFinite(rootFontSizePx) && rootFontSizePx > 0 ? rootFontSizePx : 16;
+  const normalizedRootFontSize =
+    Number.isFinite(rootFontSizePx) && rootFontSizePx > 0 ? rootFontSizePx : 16;
   return mainContentWidth >= CODEX_THREAD_EDGE_SCROLL_MIN_WIDTH_REM * normalizedRootFontSize;
 }
 
@@ -129,7 +130,10 @@ export function resolveCodexMainContentFrameBorder({
   return rightPanelOpen || !headerEdgeScroll;
 }
 
-export function shouldSnapCodexMotion(reducedMotion: boolean | null, animateLayout = true): boolean {
+export function shouldSnapCodexMotion(
+  reducedMotion: boolean | null,
+  animateLayout = true,
+): boolean {
   return reducedMotion === true || !animateLayout;
 }
 
@@ -150,7 +154,7 @@ export function useCodexAnimatedPanelState({
   const progress = useMotionValue(initialProgress);
   const opacity = useTransform(progress, clampCodexPanelProgress);
   const animatedSize = useTransform([progress, targetSize], ([latestProgress, latestTargetSize]) =>
-    resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize))
+    resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize)),
   );
   const [mounted, setMounted] = useState(open);
   const [animating, setAnimating] = useState(false);

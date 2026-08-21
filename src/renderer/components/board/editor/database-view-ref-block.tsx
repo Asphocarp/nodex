@@ -41,9 +41,7 @@ function DatabaseViewRefBlock({
       renderDocument={({ card, isActive }) => (
         <Suspense
           fallback={
-            <div className="py-2 text-sm text-token-description-foreground">
-              Opening Page…
-            </div>
+            <div className="py-2 text-sm text-token-description-foreground">Opening Page…</div>
           }
         >
           <EmbeddedReferencedPageDocument
@@ -58,15 +56,12 @@ function DatabaseViewRefBlock({
 }
 
 /** A durable View reference; query rows never become host ProseMirror children. */
-export const createDatabaseViewRefBlockSpec = createReactBlockSpec(
-  databaseViewRefBlockConfig,
-  {
-    render: ({ block }) => (
-      <DatabaseViewRefBlock
-        blockId={block.id}
-        databaseViewId={block.props.databaseViewId}
-        displayHint={block.props.displayHint}
-      />
-    ),
-  },
-);
+export const createDatabaseViewRefBlockSpec = createReactBlockSpec(databaseViewRefBlockConfig, {
+  render: ({ block }) => (
+    <DatabaseViewRefBlock
+      blockId={block.id}
+      databaseViewId={block.props.databaseViewId}
+      displayHint={block.props.displayHint}
+    />
+  ),
+});

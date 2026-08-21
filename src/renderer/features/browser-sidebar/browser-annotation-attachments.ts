@@ -5,10 +5,7 @@ import {
 
 export type { BrowserAnnotationAttachment } from "../../../shared/browser-annotation";
 
-const attachmentsByConversation = new Map<
-  string,
-  BrowserAnnotationAttachment[]
->();
+const attachmentsByConversation = new Map<string, BrowserAnnotationAttachment[]>();
 const listeners = new Set<() => void>();
 const EMPTY_ATTACHMENTS: readonly BrowserAnnotationAttachment[] = Object.freeze([]);
 const MAX_BROWSER_ANNOTATION_ATTACHMENTS = 32;
@@ -22,10 +19,12 @@ export function publishBrowserAnnotationAttachment(
   attachment: BrowserAnnotationAttachment,
 ): void {
   const parsed = BrowserAnnotationAttachmentSchema.parse(attachment);
-  attachmentsByConversation.set(conversationId, [
-    ...(attachmentsByConversation.get(conversationId) ?? []),
-    parsed,
-  ].slice(-MAX_BROWSER_ANNOTATION_ATTACHMENTS));
+  attachmentsByConversation.set(
+    conversationId,
+    [...(attachmentsByConversation.get(conversationId) ?? []), parsed].slice(
+      -MAX_BROWSER_ANNOTATION_ATTACHMENTS,
+    ),
+  );
   notify();
 }
 
@@ -41,9 +40,7 @@ export function removeBrowserAnnotationAttachment(
   notify();
 }
 
-export function clearBrowserAnnotationAttachments(
-  conversationId: string,
-): void {
+export function clearBrowserAnnotationAttachments(conversationId: string): void {
   if (!attachmentsByConversation.delete(conversationId)) return;
   notify();
 }
@@ -71,9 +68,7 @@ export function getBrowserAnnotationAttachmentsSnapshot(
   return attachmentsByConversation.get(conversationId) ?? EMPTY_ATTACHMENTS;
 }
 
-export function subscribeBrowserAnnotationAttachments(
-  listener: () => void,
-): () => void {
+export function subscribeBrowserAnnotationAttachments(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }

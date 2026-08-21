@@ -212,8 +212,9 @@ function currentIso(): string {
 function defaultIdentityFactory(): WorkbenchSessionViewIdentityFactory {
   return {
     createId(kind) {
-      const id = globalThis.crypto?.randomUUID?.()
-        ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      const id =
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       return `${kind}:${id}`;
     },
   };
@@ -227,9 +228,10 @@ function createPanel(
   return {
     collapsed,
     layout: makeWorkbenchPanelLayout([], null, leafId),
-    size: panelId === "right"
-      ? { widthPx: DEFAULT_RIGHT_WIDTH_PX, fullWidth: false }
-      : { heightPx: DEFAULT_BOTTOM_HEIGHT_PX },
+    size:
+      panelId === "right"
+        ? { widthPx: DEFAULT_RIGHT_WIDTH_PX, fullWidth: false }
+        : { heightPx: DEFAULT_BOTTOM_HEIGHT_PX },
   };
 }
 
@@ -282,9 +284,10 @@ function removeDuplicateAndUnknownTabIds(
       return {
         ...leaf,
         tabIds,
-        activeTabId: leaf.activeTabId && validTabIds.has(leaf.activeTabId)
-          ? leaf.activeTabId
-          : tabIds[0] ?? null,
+        activeTabId:
+          leaf.activeTabId && validTabIds.has(leaf.activeTabId)
+            ? leaf.activeTabId
+            : (tabIds[0] ?? null),
         mruTabIds: leaf.mruTabIds.filter((tabId) => validTabIds.has(tabId)),
       };
     }),
@@ -361,10 +364,10 @@ export function normalizeWorkbenchSessionView(
     };
   }
 
-  const lastFocusedPanelId = value.lastFocusedPanelId
-    && !panels[value.lastFocusedPanelId].collapsed
-    ? value.lastFocusedPanelId
-    : null;
+  const lastFocusedPanelId =
+    value.lastFocusedPanelId && !panels[value.lastFocusedPanelId].collapsed
+      ? value.lastFocusedPanelId
+      : null;
   return {
     version: WORKBENCH_SESSION_VIEW_VERSION,
     sessionId: value.sessionId,
@@ -431,33 +434,34 @@ export function createWorkbenchSessionViewTab(
 
   const panel = view.panels[input.panelId];
   const presentation = input.presentation ?? "activate";
-  const layout = presentation === "background"
-    ? insertWorkbenchPanelTabInBackground(panel.layout, {
-        tabId: input.tab.id,
-        targetLeafId: input.targetLeafId,
-      })
-    : moveWorkbenchPanelTab(panel.layout, {
-        tabId: input.tab.id,
-        targetLeafId: input.targetLeafId,
-      });
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    tabsById: {
-      ...view.tabsById,
-      [input.tab.id]: input.tab,
-    },
-    panels: {
-      ...view.panels,
-      [input.panelId]: {
-        ...panel,
-        collapsed: presentation === "background" ? panel.collapsed : false,
-        layout,
+  const layout =
+    presentation === "background"
+      ? insertWorkbenchPanelTabInBackground(panel.layout, {
+          tabId: input.tab.id,
+          targetLeafId: input.targetLeafId,
+        })
+      : moveWorkbenchPanelTab(panel.layout, {
+          tabId: input.tab.id,
+          targetLeafId: input.targetLeafId,
+        });
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      tabsById: {
+        ...view.tabsById,
+        [input.tab.id]: input.tab,
       },
-    },
-    lastFocusedPanelId: presentation === "background"
-      ? view.lastFocusedPanelId
-      : input.panelId,
-  }));
+      panels: {
+        ...view.panels,
+        [input.panelId]: {
+          ...panel,
+          collapsed: presentation === "background" ? panel.collapsed : false,
+          layout,
+        },
+      },
+      lastFocusedPanelId: presentation === "background" ? view.lastFocusedPanelId : input.panelId,
+    }),
+  );
 }
 
 export function updateWorkbenchSessionViewTab(
@@ -509,18 +513,20 @@ export function activateWorkbenchSessionViewTab(
 ): WorkbenchSessionViewSnapshot {
   const panel = view.panels[panelId];
   if (!findWorkbenchPanelLeaf(panel.layout, leafId)) return view;
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels: {
-      ...view.panels,
-      [panelId]: {
-        ...panel,
-        collapsed: false,
-        layout: activateWorkbenchPanelLeaf(panel.layout, leafId, tabId),
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels: {
+        ...view.panels,
+        [panelId]: {
+          ...panel,
+          collapsed: false,
+          layout: activateWorkbenchPanelLeaf(panel.layout, leafId, tabId),
+        },
       },
-    },
-    lastFocusedPanelId: panelId,
-  }));
+      lastFocusedPanelId: panelId,
+    }),
+  );
 }
 
 export function splitWorkbenchSessionViewLeaf(
@@ -536,14 +542,16 @@ export function splitWorkbenchSessionViewLeaf(
     side: input.side,
     tabId: input.tabId,
   });
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels: {
-      ...view.panels,
-      [input.panelId]: { ...panel, collapsed: false, layout },
-    },
-    lastFocusedPanelId: input.panelId,
-  }));
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels: {
+        ...view.panels,
+        [input.panelId]: { ...panel, collapsed: false, layout },
+      },
+      lastFocusedPanelId: input.panelId,
+    }),
+  );
 }
 
 export function ensureWorkbenchSessionViewLeafToRight(
@@ -575,14 +583,16 @@ export function ensureWorkbenchSessionViewLeafToRight(
     side: "right",
   });
   return {
-    view: normalizeWorkbenchSessionView(touch({
-      ...view,
-      panels: {
-        ...view.panels,
-        [input.panelId]: { ...panel, collapsed: false, layout },
-      },
-      lastFocusedPanelId: input.panelId,
-    })),
+    view: normalizeWorkbenchSessionView(
+      touch({
+        ...view,
+        panels: {
+          ...view.panels,
+          [input.panelId]: { ...panel, collapsed: false, layout },
+        },
+        lastFocusedPanelId: input.panelId,
+      }),
+    ),
     leafId,
     created: true,
   };
@@ -594,13 +604,15 @@ export function mergeWorkbenchSessionViewLeaf(
 ): WorkbenchSessionViewSnapshot {
   const panel = view.panels[input.panelId];
   const layout = mergeWorkbenchPanelLeaf(panel.layout, input.leafId);
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels: {
-      ...view.panels,
-      [input.panelId]: { ...panel, layout },
-    },
-  }));
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels: {
+        ...view.panels,
+        [input.panelId]: { ...panel, layout },
+      },
+    }),
+  );
 }
 
 export function moveWorkbenchSessionViewTab(
@@ -645,11 +657,13 @@ export function moveWorkbenchSessionViewTab(
       targetIndex: input.targetIndex,
     }),
   };
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels,
-    lastFocusedPanelId: input.targetPanelId,
-  }));
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels,
+      lastFocusedPanelId: input.targetPanelId,
+    }),
+  );
 }
 
 export function reorderWorkbenchSessionViewTabs(
@@ -661,20 +675,18 @@ export function reorderWorkbenchSessionViewTabs(
   },
 ): WorkbenchSessionViewSnapshot {
   const panel = view.panels[input.panelId];
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels: {
-      ...view.panels,
-      [input.panelId]: {
-        ...panel,
-        layout: reorderWorkbenchPanelLeafTabs(
-          panel.layout,
-          input.leafId,
-          input.orderedTabIds,
-        ),
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels: {
+        ...view.panels,
+        [input.panelId]: {
+          ...panel,
+          layout: reorderWorkbenchPanelLeafTabs(panel.layout, input.leafId, input.orderedTabIds),
+        },
       },
-    },
-  }));
+    }),
+  );
 }
 
 export function resizeWorkbenchSessionViewBranch(
@@ -686,20 +698,18 @@ export function resizeWorkbenchSessionViewBranch(
   },
 ): WorkbenchSessionViewSnapshot {
   const panel = view.panels[input.panelId];
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels: {
-      ...view.panels,
-      [input.panelId]: {
-        ...panel,
-        layout: setWorkbenchPanelBranchRatio(
-          panel.layout,
-          input.branchId,
-          input.ratio,
-        ),
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels: {
+        ...view.panels,
+        [input.panelId]: {
+          ...panel,
+          layout: setWorkbenchPanelBranchRatio(panel.layout, input.branchId, input.ratio),
+        },
       },
-    },
-  }));
+    }),
+  );
 }
 
 export function maximizeWorkbenchSessionViewLeaf(
@@ -710,16 +720,18 @@ export function maximizeWorkbenchSessionViewLeaf(
   },
 ): WorkbenchSessionViewSnapshot {
   const panel = view.panels[input.panelId];
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels: {
-      ...view.panels,
-      [input.panelId]: {
-        ...panel,
-        layout: setWorkbenchPanelMaximizedLeaf(panel.layout, input.leafId),
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels: {
+        ...view.panels,
+        [input.panelId]: {
+          ...panel,
+          layout: setWorkbenchPanelMaximizedLeaf(panel.layout, input.leafId),
+        },
       },
-    },
-  }));
+    }),
+  );
 }
 
 export function patchWorkbenchSessionViewPanel(
@@ -728,21 +740,23 @@ export function patchWorkbenchSessionViewPanel(
   patch: WorkbenchSessionViewPanelPatch,
 ): WorkbenchSessionViewSnapshot {
   const panel = view.panels[panelId];
-  return normalizeWorkbenchSessionView(touch({
-    ...view,
-    panels: {
-      ...view.panels,
-      [panelId]: {
-        ...panel,
-        ...(patch.collapsed === undefined ? {} : { collapsed: patch.collapsed }),
-        size: {
-          ...panel.size,
-          ...patch.size,
+  return normalizeWorkbenchSessionView(
+    touch({
+      ...view,
+      panels: {
+        ...view.panels,
+        [panelId]: {
+          ...panel,
+          ...(patch.collapsed === undefined ? {} : { collapsed: patch.collapsed }),
+          size: {
+            ...panel.size,
+            ...patch.size,
+          },
         },
       },
-    },
-    lastFocusedPanelId: patch.collapsed === false ? panelId : view.lastFocusedPanelId,
-  }));
+      lastFocusedPanelId: patch.collapsed === false ? panelId : view.lastFocusedPanelId,
+    }),
+  );
 }
 
 function clonePanelNode(
@@ -762,7 +776,7 @@ function clonePanelNode(
         const mapped = tabIds.get(tabId);
         return mapped ? [mapped] : [];
       }),
-      activeTabId: node.activeTabId ? tabIds.get(node.activeTabId) ?? null : null,
+      activeTabId: node.activeTabId ? (tabIds.get(node.activeTabId) ?? null) : null,
       mruTabIds: node.mruTabIds.flatMap((tabId) => {
         const mapped = tabIds.get(tabId);
         return mapped ? [mapped] : [];
@@ -788,17 +802,18 @@ function cloneSessionView(
     Object.values(view.tabsById).map((tab) => {
       const id = tabIds.get(tab.id);
       if (!id) throw new Error(`Missing cloned Workbench tab identity for ${tab.id}`);
-      const cloned = tab.kind === "browser"
-        ? {
-            ...tab,
-            id,
-            config: {
-              ...tab.config,
-              browserTabId: identityFactory.createId("browser"),
-              browserStorageId: identityFactory.createId("browser"),
-            },
-          }
-        : { ...tab, id };
+      const cloned =
+        tab.kind === "browser"
+          ? {
+              ...tab,
+              id,
+              config: {
+                ...tab.config,
+                browserTabId: identityFactory.createId("browser"),
+                browserStorageId: identityFactory.createId("browser"),
+              },
+            }
+          : { ...tab, id };
       return [id, cloned];
     }),
   );
@@ -812,15 +827,16 @@ function cloneSessionView(
       layout: {
         ...panel.layout,
         root,
-        activeLeafId: nodeIds.get(panel.layout.activeLeafId)
-          ?? listWorkbenchPanelLeaves({ ...panel.layout, root })[0]?.id
-          ?? identityFactory.createId("leaf"),
+        activeLeafId:
+          nodeIds.get(panel.layout.activeLeafId) ??
+          listWorkbenchPanelLeaves({ ...panel.layout, root })[0]?.id ??
+          identityFactory.createId("leaf"),
         mruLeafIds: panel.layout.mruLeafIds.flatMap((leafId) => {
           const mapped = nodeIds.get(leafId);
           return mapped ? [mapped] : [];
         }),
         maximizedLeafId: panel.layout.maximizedLeafId
-          ? nodeIds.get(panel.layout.maximizedLeafId) ?? null
+          ? (nodeIds.get(panel.layout.maximizedLeafId) ?? null)
           : null,
       },
     };
@@ -855,8 +871,9 @@ export function reconcileWorkbenchSessionViews<Layout extends CloneWorkbenchLayo
   return {
     ...layout,
     sessionViewsBySessionId: Object.fromEntries(
-      Object.entries(layout.sessionViewsBySessionId)
-        .filter(([sessionId]) => availableSessionIds.has(sessionId)),
+      Object.entries(layout.sessionViewsBySessionId).filter(([sessionId]) =>
+        availableSessionIds.has(sessionId),
+      ),
     ),
   };
 }

@@ -22,10 +22,7 @@ const detail = (): PageDetail => {
   return result.value;
 };
 
-const withoutProperties = (
-  source: PageDetail,
-  removedIds: ReadonlySet<string>,
-): PageDetail => {
+const withoutProperties = (source: PageDetail, removedIds: ReadonlySet<string>): PageDetail => {
   if (source.dataSourceContext.kind !== "member") return source;
   return {
     ...source,
@@ -34,19 +31,20 @@ const withoutProperties = (
       properties: source.dataSourceContext.properties.filter(
         (property) => !removedIds.has(property.propertyId),
       ),
-      values: Object.fromEntries(Object.entries(source.dataSourceContext.values).filter(
-        ([propertyId]) => !removedIds.has(propertyId),
-      )),
+      values: Object.fromEntries(
+        Object.entries(source.dataSourceContext.values).filter(
+          ([propertyId]) => !removedIds.has(propertyId),
+        ),
+      ),
     },
   };
 };
 
 describe("PageStageInlinePropertyStrip", () => {
   test("renders remaining primary Properties when Due date and Assignee are deleted", () => {
-    const model = projectPageDetailToStageModel(withoutProperties(
-      detail(),
-      new Set(["due_date", "assignee"]),
-    ));
+    const model = projectPageDetailToStageModel(
+      withoutProperties(detail(), new Set(["due_date", "assignee"])),
+    );
     if (model.databaseContext.kind !== "member") {
       throw new Error("Expected member Data Source context");
     }
@@ -67,11 +65,11 @@ describe("PageStageInlinePropertyStrip", () => {
       optionRegistryLoadingMore: {},
       busyPropertyIds: new Set(),
       errors: {},
-      edit: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
-      patchRelation: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
-      replaceRelation: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
-      patchMultiSelect: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
-      createOptionAndSelect: vi.fn(async () => ({ status: "updated", didMutate: true } as const)),
+      edit: vi.fn(async () => ({ status: "updated", didMutate: true }) as const),
+      patchRelation: vi.fn(async () => ({ status: "updated", didMutate: true }) as const),
+      replaceRelation: vi.fn(async () => ({ status: "updated", didMutate: true }) as const),
+      patchMultiSelect: vi.fn(async () => ({ status: "updated", didMutate: true }) as const),
+      createOptionAndSelect: vi.fn(async () => ({ status: "updated", didMutate: true }) as const),
       loadRelationTargets: vi.fn(async (property) => ({
         valueRevision: property.valueRevision,
         totalCount: 0,

@@ -56,9 +56,7 @@ import type {
 import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list-theme";
 
 const databaseListCollisionDetection: CollisionDetection = (input) =>
-  input.pointerCoordinates
-    ? pointerWithin(input)
-    : closestCenter(input);
+  input.pointerCoordinates ? pointerWithin(input) : closestCenter(input);
 
 export const DATABASE_LIST_DND_INTERACTIVE_SELECTOR = [
   "button",
@@ -78,29 +76,32 @@ const activatorIsAllowed = (event: { readonly nativeEvent?: Event }): boolean =>
 };
 
 class DatabaseListMouseSensor extends MouseSensor {
-  static activators: typeof MouseSensor.activators = [{
-    eventName: "onMouseDown",
-    handler: (event: ReactMouseEvent, options: MouseSensorOptions) =>
-      activatorIsAllowed(event)
-      && MouseSensor.activators[0]!.handler(event, options),
-  }];
+  static activators: typeof MouseSensor.activators = [
+    {
+      eventName: "onMouseDown",
+      handler: (event: ReactMouseEvent, options: MouseSensorOptions) =>
+        activatorIsAllowed(event) && MouseSensor.activators[0]!.handler(event, options),
+    },
+  ];
 }
 
 class DatabaseListTouchSensor extends TouchSensor {
-  static activators: typeof TouchSensor.activators = [{
-    eventName: "onTouchStart",
-    handler: (event: ReactTouchEvent, options: TouchSensorOptions) =>
-      activatorIsAllowed(event)
-      && TouchSensor.activators[0]!.handler(event, options),
-  }];
+  static activators: typeof TouchSensor.activators = [
+    {
+      eventName: "onTouchStart",
+      handler: (event: ReactTouchEvent, options: TouchSensorOptions) =>
+        activatorIsAllowed(event) && TouchSensor.activators[0]!.handler(event, options),
+    },
+  ];
 }
 
 class DatabaseListKeyboardSensor extends KeyboardSensor {
   static activators: typeof KeyboardSensor.activators = KeyboardSensor.activators.map(
     (activator) => ({
       ...activator,
-      handler: (event, options, context) => activatorIsAllowed(event)
-        && activator.handler(event, options as KeyboardSensorOptions, context),
+      handler: (event, options, context) =>
+        activatorIsAllowed(event) &&
+        activator.handler(event, options as KeyboardSensorOptions, context),
     }),
   );
 }
@@ -119,11 +120,12 @@ const eventClientY = (event: Event): number | null => {
   if ("touches" in event) {
     const touches = event.touches;
     if (
-      typeof touches === "object"
-      && touches !== null
-      && "item" in touches
-      && typeof touches.item === "function"
-    ) return touches.item(0)?.clientY ?? null;
+      typeof touches === "object" &&
+      touches !== null &&
+      "item" in touches &&
+      typeof touches.item === "function"
+    )
+      return touches.item(0)?.clientY ?? null;
   }
   return null;
 };
@@ -283,8 +285,8 @@ export function DatabaseListDndProvider({
   selectionRef.current = selection;
 
   const publishTarget = (next: DatabaseListDragTarget | null): void => {
-    const unchanged = databaseListDropTargetIdentity(targetRef.current)
-      === databaseListDropTargetIdentity(next);
+    const unchanged =
+      databaseListDropTargetIdentity(targetRef.current) === databaseListDropTargetIdentity(next);
     // Preserve the latest physical droppable even when both row halves resolve
     // to the same canonical slot. React only needs the semantic visual change.
     targetRef.current = next;
@@ -295,8 +297,9 @@ export function DatabaseListDndProvider({
   const announcements: Announcements = {
     onDragStart: ({ active }) => {
       const activeSources = sourcesRef.current;
-      const title = activeSources?.initiator.row.title
-        ?? dragRowLabel(rowsRef.current.find((row) => row.key === String(active.id)));
+      const title =
+        activeSources?.initiator.row.title ??
+        dragRowLabel(rowsRef.current.find((row) => row.key === String(active.id)));
       const count = activeSources?.concretePageCount ?? 1;
       return count > 1
         ? `Picked up ${title}. Moving a subtree of ${count} Pages.`
@@ -337,11 +340,13 @@ export function DatabaseListDndProvider({
       return;
     }
     if (row.kind !== "page") {
-      publishTarget(normalizeDatabaseListDropTarget({
-        rows: rowsRef.current,
-        row,
-        sources: activeSources,
-      }));
+      publishTarget(
+        normalizeDatabaseListDropTarget({
+          rows: rowsRef.current,
+          row,
+          sources: activeSources,
+        }),
+      );
       return;
     }
     const rect = overRectRef.current;
@@ -350,17 +355,19 @@ export function DatabaseListDndProvider({
       publishTarget(null);
       return;
     }
-    publishTarget(normalizeDatabaseListDropTarget({
-      rows: rowsRef.current,
-      row,
-      sources: activeSources,
-      rawEdge: resolveDatabaseListRawEdge({
-        pointerY,
-        top: rect.top,
-        height: rect.height,
-        explicitInside: altKeyRef.current,
+    publishTarget(
+      normalizeDatabaseListDropTarget({
+        rows: rowsRef.current,
+        row,
+        sources: activeSources,
+        rawEdge: resolveDatabaseListRawEdge({
+          pointerY,
+          top: rect.top,
+          height: rect.height,
+          explicitInside: altKeyRef.current,
+        }),
       }),
-    }));
+    );
   };
 
   const stopAutoScroll = (): void => {
@@ -440,9 +447,10 @@ export function DatabaseListDndProvider({
     });
     if (!activeSources) return;
     const activeRect = event.active.rect.current.initial;
-    const preferredWidth = activeRect && activeRect.width < 400
-      ? activeRect.width + 16
-      : Math.min(500, Math.max(300, Math.round((activeRect?.width ?? 800) * 0.4)));
+    const preferredWidth =
+      activeRect && activeRect.width < 400
+        ? activeRect.width + 16
+        : Math.min(500, Math.max(300, Math.round((activeRect?.width ?? 800) * 0.4)));
     sourcesRef.current = activeSources;
     completedTargetRef.current = null;
     completedNoOpRef.current = false;
@@ -464,18 +472,19 @@ export function DatabaseListDndProvider({
 
   const handleDragEnd = (event: DragEndEvent): void => {
     const activeSources = sourcesRef.current;
-    const acceptedTarget = event.over
-      && targetRef.current?.overOccurrenceKey === String(event.over.id)
-      ? targetRef.current
-      : null;
+    const acceptedTarget =
+      event.over && targetRef.current?.overOccurrenceKey === String(event.over.id)
+        ? targetRef.current
+        : null;
     completedTargetRef.current = acceptedTarget;
-    const noOp = activeSources && acceptedTarget
-      ? !databaseListDragTargetChangesPlacement({
-          rows: rowsRef.current,
-          sources: activeSources,
-          target: acceptedTarget,
-        })
-      : false;
+    const noOp =
+      activeSources && acceptedTarget
+        ? !databaseListDragTargetChangesPlacement({
+            rows: rowsRef.current,
+            sources: activeSources,
+            target: acceptedTarget,
+          })
+        : false;
     completedNoOpRef.current = noOp;
     if (activeSources && acceptedTarget && !noOp) {
       onCommit({
@@ -502,11 +511,13 @@ export function DatabaseListDndProvider({
     // Route that boundary through the same sensor cancellation path so the
     // internal drag state and this controller always settle together.
     const cancelForWindowBlur = (): void => {
-      document.dispatchEvent(new KeyboardEvent("keydown", {
-        bubbles: true,
-        code: "Escape",
-        key: "Escape",
-      }));
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          code: "Escape",
+          key: "Escape",
+        }),
+      );
     };
     window.addEventListener("keydown", updateModifier, true);
     window.addEventListener("keyup", updateModifier, true);
@@ -518,12 +529,15 @@ export function DatabaseListDndProvider({
     };
   });
 
-  useEffect(() => () => {
-    stopAutoScroll();
-    if (releaseClickTimerRef.current !== null) {
-      window.clearTimeout(releaseClickTimerRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      stopAutoScroll();
+      if (releaseClickTimerRef.current !== null) {
+        window.clearTimeout(releaseClickTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const context: DatabaseListDndContextValue = {
     disabled,
@@ -532,9 +546,10 @@ export function DatabaseListDndProvider({
     suppressesNextClick: () => suppressClickRef.current,
   };
   const overlayRow = sources
-    ? rows.find((row): row is DatabaseListPageRow =>
-        row.kind === "page" && row.key === sources.initiator.key
-      ) ?? sources.initiator
+    ? (rows.find(
+        (row): row is DatabaseListPageRow =>
+          row.kind === "page" && row.key === sources.initiator.key,
+      ) ?? sources.initiator)
     : null;
 
   return (
@@ -544,7 +559,8 @@ export function DatabaseListDndProvider({
           announcements,
           restoreFocus: true,
           screenReaderInstructions: {
-            draggable: "Press Space to pick up a Page. Use arrow keys to choose a destination, Space to move it, or Escape to cancel.",
+            draggable:
+              "Press Space to pick up a Page. Use arrow keys to choose a destination, Space to move it, or Escape to cancel.",
           },
         }}
         sensors={sensors}
@@ -558,20 +574,22 @@ export function DatabaseListDndProvider({
         onDragCancel={handleDragCancel}
       >
         {children}
-        {typeof document !== "undefined" ? createPortal(
-          <DragOverlay adjustScale={false} dropAnimation={null} zIndex={1000}>
-            {sources && overlayRow ? (
-              <DatabaseListDragOverlay
-                sources={sources}
-                row={overlayRow}
-                columns={overlayColumns}
-                width={overlayWidth}
-                scrollerRef={scrollerRef}
-              />
-            ) : null}
-          </DragOverlay>,
-          document.body,
-        ) : null}
+        {typeof document !== "undefined"
+          ? createPortal(
+              <DragOverlay adjustScale={false} dropAnimation={null} zIndex={1000}>
+                {sources && overlayRow ? (
+                  <DatabaseListDragOverlay
+                    sources={sources}
+                    row={overlayRow}
+                    columns={overlayColumns}
+                    width={overlayWidth}
+                    scrollerRef={scrollerRef}
+                  />
+                ) : null}
+              </DragOverlay>,
+              document.body,
+            )
+          : null}
       </DndContext>
     </DatabaseListDndContext.Provider>
   );
@@ -593,10 +611,13 @@ export const useDatabaseListPageDnd = (item: DatabaseListPageRow) => {
   });
   const setDraggableNodeRef = draggable.setNodeRef;
   const setDroppableNodeRef = droppable.setNodeRef;
-  const setNodeRef = useCallback((node: HTMLElement | null): void => {
-    setDraggableNodeRef(node);
-    setDroppableNodeRef(node);
-  }, [setDraggableNodeRef, setDroppableNodeRef]);
+  const setNodeRef = useCallback(
+    (node: HTMLElement | null): void => {
+      setDraggableNodeRef(node);
+      setDroppableNodeRef(node);
+    },
+    [setDraggableNodeRef, setDroppableNodeRef],
+  );
   return {
     setNodeRef,
     listeners: draggable.listeners,

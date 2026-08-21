@@ -34,10 +34,7 @@ import { useMcpServerStatuses } from "@/lib/use-mcp-queries";
 import type { CodexPersonality, CodexReasoningEffort, CodexServiceTier } from "@/lib/types";
 import type { ThreadFooterModel, ThreadStageActions } from "../../../thread-stage-types";
 import { getThreadGoalMessage } from "../../../thread-goal-copy";
-import type {
-  ComposerSlashCommand,
-  ComposerSlashCommandContentProps,
-} from "./slash-command-types";
+import type { ComposerSlashCommand, ComposerSlashCommandContentProps } from "./slash-command-types";
 import { hasPlanMode, resolveNextComposerPlanMode } from "../composer-plan-mode";
 
 interface BuildSlashCommandsInput {
@@ -52,7 +49,10 @@ interface BuildSlashCommandsInput {
 
 const iconClassName = "icon-xs shrink-0";
 
-function canStartNewThreadGoalDraft(model: ThreadFooterModel, actions: ThreadStageActions): boolean {
+function canStartNewThreadGoalDraft(
+  model: ThreadFooterModel,
+  actions: ThreadStageActions,
+): boolean {
   if (!model.isNewThreadTab) return false;
   if (!model.newThreadTarget) return false;
   if (model.isCloudNewThreadTarget) return false;
@@ -60,19 +60,12 @@ function canStartNewThreadGoalDraft(model: ThreadFooterModel, actions: ThreadSta
   return Boolean(model.newThreadTarget.sessionId && actions.onStartThreadForSession);
 }
 
-export function canUseComposerGoal(
-  model: ThreadFooterModel,
-  actions: ThreadStageActions,
-): boolean {
+export function canUseComposerGoal(model: ThreadFooterModel, actions: ThreadStageActions): boolean {
   if (model.conversation === null) {
     return canStartNewThreadGoalDraft(model, actions);
   }
 
-  return Boolean(
-    actions.onGetThreadGoal &&
-    actions.onSetThreadGoal &&
-    actions.onClearThreadGoal,
-  );
+  return Boolean(actions.onGetThreadGoal && actions.onSetThreadGoal && actions.onClearThreadGoal);
 }
 
 export function buildComposerSlashCommands(input: BuildSlashCommandsInput): ComposerSlashCommand[] {
@@ -207,11 +200,12 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
     {
       id: "personality",
       title: "Personality",
-      description: input.model.selectedPersonality === "pragmatic"
-        ? "Pragmatic"
-        : input.model.selectedPersonality === "none"
-          ? "None"
-          : "Friendly",
+      description:
+        input.model.selectedPersonality === "pragmatic"
+          ? "Pragmatic"
+          : input.model.selectedPersonality === "none"
+            ? "None"
+            : "Friendly",
       group: "Commands",
       icon: <SlashPersonalityIcon className={iconClassName} />,
       requiresEmptyComposer: true,
@@ -240,7 +234,8 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       group: "Commands",
       icon: <SlashSideIcon className={iconClassName} />,
       requiresEmptyComposer: true,
-      isVisible: canUseExistingThread && !isSideConversation && Boolean(input.actions.onOpenSideChat),
+      isVisible:
+        canUseExistingThread && !isSideConversation && Boolean(input.actions.onOpenSideChat),
       onSelect: async () => {
         await runCommand("Failed to open side chat", async () => {
           await input.actions.onOpenSideChat?.();
@@ -255,16 +250,12 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       icon: <SplitIcon className={iconClassName} />,
       requiresEmptyComposer: true,
       isVisible: Boolean(
-        input.model.isNewThreadTab
-        && input.model.newThreadProjectSelector
-        && !input.model.newThreadProjectSelector.disabled,
+        input.model.isNewThreadTab &&
+        input.model.newThreadProjectSelector &&
+        !input.model.newThreadProjectSelector.disabled,
       ),
       Content: (props) => (
-        <ProjectCommandContent
-          model={input.model}
-          actions={input.actions}
-          {...props}
-        />
+        <ProjectCommandContent model={input.model} actions={input.actions} {...props} />
       ),
     },
     {
@@ -286,7 +277,10 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
     {
       id: "plan-mode",
       title: "Plan mode",
-      description: input.model.selectedCollaborationMode === "plan" ? "Switch off plan mode" : "Switch to plan mode",
+      description:
+        input.model.selectedCollaborationMode === "plan"
+          ? "Switch off plan mode"
+          : "Switch to plan mode",
       group: "Commands",
       icon: <ComposerPlanModeIcon className={iconClassName} />,
       requiresEmptyComposer: true,
@@ -314,7 +308,9 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
           input.actions.onOpenStatusPanel(threadId);
           return;
         }
-        toast.info(`Thread ${threadId}`, { description: input.model.conversation?.statusType ?? "idle" });
+        toast.info(`Thread ${threadId}`, {
+          description: input.model.conversation?.statusType ?? "idle",
+        });
       },
     },
     {
@@ -378,18 +374,20 @@ function ModelCommandContent({
 }) {
   return (
     <CommandPanel>
-      {model.availableModels.filter((candidate) => !candidate.hidden).map((candidate) => (
-        <CommandPanelRow
-          key={candidate.id}
-          title={formatCodexModelLabel(candidate.id, model.availableModels)}
-          description={candidate.description}
-          selected={candidate.id === model.selectedModel}
-          onClick={() => {
-            onModelChange(candidate.id);
-            close();
-          }}
-        />
-      ))}
+      {model.availableModels
+        .filter((candidate) => !candidate.hidden)
+        .map((candidate) => (
+          <CommandPanelRow
+            key={candidate.id}
+            title={formatCodexModelLabel(candidate.id, model.availableModels)}
+            description={candidate.description}
+            selected={candidate.id === model.selectedModel}
+            onClick={() => {
+              onModelChange(candidate.id);
+              close();
+            }}
+          />
+        ))}
     </CommandPanel>
   );
 }
@@ -498,12 +496,21 @@ function MemoryCommandContent({
     });
   };
 
-  if (!setMemoryMode) return <CommandMessage>Memories are not available in this context</CommandMessage>;
+  if (!setMemoryMode)
+    return <CommandMessage>Memories are not available in this context</CommandMessage>;
 
   return (
     <CommandPanel>
-      <CommandPanelRow title="Enabled" description="Allow thread memory updates" onClick={() => void selectMode("enabled")} />
-      <CommandPanelRow title="Disabled" description="Do not update memories from this thread" onClick={() => void selectMode("disabled")} />
+      <CommandPanelRow
+        title="Enabled"
+        description="Allow thread memory updates"
+        onClick={() => void selectMode("enabled")}
+      />
+      <CommandPanelRow
+        title="Disabled"
+        description="Do not update memories from this thread"
+        onClick={() => void selectMode("disabled")}
+      />
     </CommandPanel>
   );
 }
@@ -513,7 +520,9 @@ const McpCommandContent: React.ComponentType<
 > = () => {
   const { data: response, error, isPending } = useMcpServerStatuses();
   const errorMessage = error
-    ? error instanceof Error ? error.message : "Could not load MCP status"
+    ? error instanceof Error
+      ? error.message
+      : "Could not load MCP status"
     : null;
 
   if (errorMessage) return <CommandMessage>{errorMessage}</CommandMessage>;
@@ -554,7 +563,8 @@ function FeedbackCommandContent({
   const [reason, setReason] = useState("");
   const [includeLogs, setIncludeLogs] = useState(true);
 
-  if (!uploadFeedback) return <CommandMessage>Feedback is not available in this context</CommandMessage>;
+  if (!uploadFeedback)
+    return <CommandMessage>Feedback is not available in this context</CommandMessage>;
 
   return (
     <div className="space-y-2 p-2">
@@ -660,7 +670,9 @@ function CommandPanelRow({
       </span>
       <span className="min-w-0 flex-1 truncate">{title}</span>
       {description ? (
-        <span className="min-w-0 flex-1 truncate text-token-description-foreground">{description}</span>
+        <span className="min-w-0 flex-1 truncate text-token-description-foreground">
+          {description}
+        </span>
       ) : null}
     </button>
   );

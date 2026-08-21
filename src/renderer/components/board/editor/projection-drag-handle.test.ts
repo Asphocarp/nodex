@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  endProjectionBlockDrag,
-  startProjectionBlockDrag,
-} from "./projection-drag-handle";
+import { endProjectionBlockDrag, startProjectionBlockDrag } from "./projection-drag-handle";
 
 describe("projection drag handle helpers", () => {
   test("prevents drag start when SideMenu extension is unavailable", () => {
@@ -66,15 +63,11 @@ describe("projection drag handle helpers", () => {
       }),
     };
 
-    const started = startProjectionBlockDrag(
-      editor,
-      fallbackBlock,
-      {
-        dataTransfer: null,
-        clientY: 8,
-        preventDefault: () => {},
-      },
-    );
+    const started = startProjectionBlockDrag(editor, fallbackBlock, {
+      dataTransfer: null,
+      clientY: 8,
+      preventDefault: () => {},
+    });
 
     expect(started).toBe(true);
     expect(draggedBlock).toBe(fallbackBlock);

@@ -45,11 +45,12 @@ type EnvironmentStoryState =
   | "multi-root";
 
 function EnvironmentSelectorStory({ state }: { state: EnvironmentStoryState }) {
-  const initialSelectedPath = state === "selected"
-    ? ".codex/environments/test.toml"
-    : state === "default" || state === "multi-root"
-      ? DEFAULT_PATH
-      : null;
+  const initialSelectedPath =
+    state === "selected"
+      ? ".codex/environments/test.toml"
+      : state === "default" || state === "multi-root"
+        ? DEFAULT_PATH
+        : null;
   const [selectedPath, setSelectedPath] = useState<string | null>(initialSelectedPath);
   const needsAttention = state === "needs-attention";
   const configs = needsAttention

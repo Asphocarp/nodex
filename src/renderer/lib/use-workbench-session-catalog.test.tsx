@@ -1,20 +1,7 @@
 import type { PropsWithChildren } from "react";
-import {
-  act,
-  renderHook,
-  waitFor,
-} from "@testing-library/react";
-import {
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
-import {
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   Project,
   ProjectSession,
@@ -22,9 +9,7 @@ import type {
   ProjectSessionSummaryWindow,
 } from "../../shared/types";
 import type { WorkbenchLocation } from "../../shared/workbench-layout";
-import {
-  materializeInitialWorkbenchSessionView,
-} from "../../shared/workbench-session-view";
+import { materializeInitialWorkbenchSessionView } from "../../shared/workbench-session-view";
 import {
   applyLegacySessionViewToWorkbenchScene,
   makeWorkbenchSceneKey,
@@ -134,17 +119,15 @@ function createHarness(
     },
   });
   const wrapper = ({ children }: PropsWithChildren) => (
-    <QueryClientProvider client={client}>
-      {children}
-    </QueryClientProvider>
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
   const hook = renderHook(
-    () => useWorkbenchSessionCatalog({
-      projects: options.projects ?? [makeProject("alpha")],
-      expandedProjectIds:
-        options.expandedProjectIds ?? new Set(["alpha"]),
-      window,
-    }),
+    () =>
+      useWorkbenchSessionCatalog({
+        projects: options.projects ?? [makeProject("alpha")],
+        expandedProjectIds: options.expandedProjectIds ?? new Set(["alpha"]),
+        window,
+      }),
     { wrapper },
   );
   return { client, hook };
@@ -156,17 +139,10 @@ beforeEach(() => {
 
 describe("useWorkbenchSessionCatalog", () => {
   test("keeps loading distinct from an empty catalog", async () => {
-    let resolveProject:
-      | ((value: ProjectSessionSummaryWindow) => void)
-      | null = null;
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-    ) => {
+    let resolveProject: ((value: ProjectSessionSummaryWindow) => void) | null = null;
+    invokeMock.mockImplementation((channel: string, projectId: string | null) => {
       if (channel === "project-sessions:get") {
-        return Promise.resolve(
-          makeSummary("session:alpha", "alpha") as ProjectSession,
-        );
+        return Promise.resolve(makeSummary("session:alpha", "alpha") as ProjectSession);
       }
       expect(channel).toBe("workspace:tasks:list");
       if (projectId === null) return Promise.resolve(makeWindow([]));
@@ -177,15 +153,12 @@ describe("useWorkbenchSessionCatalog", () => {
     const window = makeWindowPort();
     const { hook } = createHarness(window);
 
-    expect(hook.result.current.collectionsByProject.alpha.state)
-      .toEqual({ kind: "loading" });
+    expect(hook.result.current.collectionsByProject.alpha.state).toEqual({ kind: "loading" });
     expect(hook.result.current.selectedDetailReady).toBe(false);
     expect(window.reconcileMissingSession).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveProject?.(makeWindow([
-        makeSummary("session:alpha", "alpha"),
-      ]));
+      resolveProject?.(makeWindow([makeSummary("session:alpha", "alpha")]));
     });
     await waitFor(() => {
       expect(hook.result.current.selectedDetailReady).toBe(true);
@@ -206,45 +179,38 @@ describe("useWorkbenchSessionCatalog", () => {
 
     expect(hook.result.current.selectedDetailReady).toBe(true);
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state)
-        .toEqual({
-          kind: "ready",
-          refreshing: false,
-          refreshError: null,
-        });
+      expect(hook.result.current.collectionsByProject.alpha.state).toEqual({
+        kind: "ready",
+        refreshing: false,
+        refreshError: null,
+      });
     });
-    expect(hook.result.current.collectionsByProject.alpha.projections)
-      .toEqual([]);
-    expect(invokeMock.mock.calls.some(([channel]) => (
-      channel === "project-sessions:get"
-    ))).toBe(false);
+    expect(hook.result.current.collectionsByProject.alpha.projections).toEqual([]);
+    expect(invokeMock.mock.calls.some(([channel]) => channel === "project-sessions:get")).toBe(
+      false,
+    );
   });
 
   test("isolates loading state between Session scopes", async () => {
-    let resolveProjectless:
-      | ((value: ProjectSessionSummaryWindow) => void)
-      | null = null;
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-    ) => {
+    let resolveProjectless: ((value: ProjectSessionSummaryWindow) => void) | null = null;
+    invokeMock.mockImplementation((channel: string, projectId: string | null) => {
       expect(channel).toBe("workspace:tasks:list");
       if (projectId === "alpha") return Promise.resolve(makeWindow([]));
       return new Promise<ProjectSessionSummaryWindow>((resolve) => {
         resolveProjectless = resolve;
       });
     });
-    const { hook } = createHarness(makeWindowPort({
-      kind: "project",
-      projectId: "alpha",
-    }));
+    const { hook } = createHarness(
+      makeWindowPort({
+        kind: "project",
+        projectId: "alpha",
+      }),
+    );
 
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state.kind)
-        .toBe("ready");
+      expect(hook.result.current.collectionsByProject.alpha.state.kind).toBe("ready");
     });
-    expect(hook.result.current.projectlessCollection.state.kind)
-      .toBe("loading");
+    expect(hook.result.current.projectlessCollection.state.kind).toBe("loading");
 
     await act(async () => {
       resolveProjectless?.(makeWindow([]));
@@ -256,31 +222,21 @@ describe("useWorkbenchSessionCatalog", () => {
       expect(channel).toBe("workspace:tasks:list");
       return Promise.resolve(makeWindow([]));
     });
-    const { hook } = createHarness(
-      makeWindowPort({ kind: "project", projectId: "alpha" }),
-      {
-        projects: [makeProject("alpha"), makeProject("beta")],
-        expandedProjectIds: new Set(),
-      },
-    );
-
-    expect(hook.result.current.collectionsByProject.beta.state)
-      .toEqual({ kind: "idle" });
-    await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state.kind)
-        .toBe("ready");
+    const { hook } = createHarness(makeWindowPort({ kind: "project", projectId: "alpha" }), {
+      projects: [makeProject("alpha"), makeProject("beta")],
+      expandedProjectIds: new Set(),
     });
-    expect(invokeMock.mock.calls.some(([, projectId]) => (
-      projectId === "beta"
-    ))).toBe(false);
+
+    expect(hook.result.current.collectionsByProject.beta.state).toEqual({ kind: "idle" });
+    await waitFor(() => {
+      expect(hook.result.current.collectionsByProject.alpha.state.kind).toBe("ready");
+    });
+    expect(invokeMock.mock.calls.some(([, projectId]) => projectId === "beta")).toBe(false);
   });
 
   test("exposes a scope-local error that can be retried", async () => {
     let alphaAttempt = 0;
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, projectId: string | null) => {
       expect(channel).toBe("workspace:tasks:list");
       if (projectId === null) return Promise.resolve(makeWindow([]));
       alphaAttempt += 1;
@@ -289,54 +245,50 @@ describe("useWorkbenchSessionCatalog", () => {
       }
       return Promise.resolve(makeWindow([]));
     });
-    const { hook } = createHarness(makeWindowPort({
-      kind: "project",
-      projectId: "alpha",
-    }));
+    const { hook } = createHarness(
+      makeWindowPort({
+        kind: "project",
+        projectId: "alpha",
+      }),
+    );
 
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state)
-        .toEqual({
-          kind: "error",
-          message: "Alpha is temporarily unavailable",
-        });
+      expect(hook.result.current.collectionsByProject.alpha.state).toEqual({
+        kind: "error",
+        message: "Alpha is temporarily unavailable",
+      });
     });
 
     await act(async () => {
       await hook.result.current.retryCollection("alpha");
     });
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state.kind)
-        .toBe("ready");
+      expect(hook.result.current.collectionsByProject.alpha.state.kind).toBe("ready");
     });
   });
 
   test("keeps cached rows ready through a failing background refresh", async () => {
     let refreshAlpha = false;
     let rejectRefresh: ((reason: Error) => void) | null = null;
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, projectId: string | null) => {
       expect(channel).toBe("workspace:tasks:list");
       if (projectId === null) return Promise.resolve(makeWindow([]));
       if (!refreshAlpha) {
-        return Promise.resolve(makeWindow([
-          makeSummary("session:alpha", "alpha"),
-        ]));
+        return Promise.resolve(makeWindow([makeSummary("session:alpha", "alpha")]));
       }
       return new Promise<ProjectSessionSummaryWindow>((_resolve, reject) => {
         rejectRefresh = reject;
       });
     });
-    const { client, hook } = createHarness(makeWindowPort({
-      kind: "project",
-      projectId: "alpha",
-    }));
+    const { client, hook } = createHarness(
+      makeWindowPort({
+        kind: "project",
+        projectId: "alpha",
+      }),
+    );
 
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state.kind)
-        .toBe("ready");
+      expect(hook.result.current.collectionsByProject.alpha.state.kind).toBe("ready");
     });
     refreshAlpha = true;
     act(() => {
@@ -346,60 +298,53 @@ describe("useWorkbenchSessionCatalog", () => {
       });
     });
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state)
-        .toEqual({
-          kind: "ready",
-          refreshing: true,
-          refreshError: null,
-        });
+      expect(hook.result.current.collectionsByProject.alpha.state).toEqual({
+        kind: "ready",
+        refreshing: true,
+        refreshError: null,
+      });
     });
-    expect(hook.result.current.collectionsByProject.alpha.projections)
-      .toHaveLength(1);
+    expect(hook.result.current.collectionsByProject.alpha.projections).toHaveLength(1);
 
     await act(async () => {
       rejectRefresh?.(new Error("Refresh failed"));
     });
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state)
-        .toEqual({
-          kind: "ready",
-          refreshing: false,
-          refreshError: "Refresh failed",
-        });
+      expect(hook.result.current.collectionsByProject.alpha.state).toEqual({
+        kind: "ready",
+        refreshing: false,
+        refreshError: "Refresh failed",
+      });
     });
-    expect(hook.result.current.collectionsByProject.alpha.projections[0]?.id)
-      .toBe("session:alpha");
+    expect(hook.result.current.collectionsByProject.alpha.projections[0]?.id).toBe("session:alpha");
   });
 
   test("does not let an older in-flight TaskWindow refetch overwrite a committed refresh", async () => {
     let alphaReads = 0;
     let resolveOlderRefetch!: (window: ProjectSessionSummaryWindow) => void;
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, projectId: string | null) => {
       expect(channel).toBe("workspace:tasks:list");
       if (projectId === null) return Promise.resolve(makeWindow([]));
       alphaReads += 1;
       if (alphaReads === 1) {
-        return Promise.resolve(makeWindow([
-          makeSummary("session:alpha", "alpha"),
-        ], { projectionRevision: 1 }));
+        return Promise.resolve(
+          makeWindow([makeSummary("session:alpha", "alpha")], { projectionRevision: 1 }),
+        );
       }
       if (alphaReads === 2) {
         return new Promise<ProjectSessionSummaryWindow>((resolve) => {
           resolveOlderRefetch = resolve;
         });
       }
-      return Promise.resolve(makeWindow([
-        makeSummary("session:beta", "alpha"),
-        makeSummary("session:alpha", "alpha"),
-      ], { projectionRevision: 2 }));
+      return Promise.resolve(
+        makeWindow([makeSummary("session:beta", "alpha"), makeSummary("session:alpha", "alpha")], {
+          projectionRevision: 2,
+        }),
+      );
     });
     const { client, hook } = createHarness(makeWindowPort());
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.projectionRevision)
-        .toBe(1);
+      expect(hook.result.current.collectionsByProject.alpha.projectionRevision).toBe(1);
     });
 
     let olderRefetch!: Promise<void>;
@@ -416,9 +361,9 @@ describe("useWorkbenchSessionCatalog", () => {
       await hook.result.current.refreshThrough("alpha", 2);
     });
     await act(async () => {
-      resolveOlderRefetch(makeWindow([
-        makeSummary("session:alpha", "alpha"),
-      ], { projectionRevision: 1 }));
+      resolveOlderRefetch(
+        makeWindow([makeSummary("session:alpha", "alpha")], { projectionRevision: 1 }),
+      );
       await olderRefetch;
     });
 
@@ -426,14 +371,17 @@ describe("useWorkbenchSessionCatalog", () => {
       client.getQueryData<ProjectSessionSummaryWindow>(
         queryKeys.projectSessions.summaries("alpha"),
       ),
-    ).toEqual(makeWindow([
-      makeSummary("session:beta", "alpha"),
-      makeSummary("session:alpha", "alpha"),
-    ], { projectionRevision: 2 }));
+    ).toEqual(
+      makeWindow([makeSummary("session:beta", "alpha"), makeSummary("session:alpha", "alpha")], {
+        projectionRevision: 2,
+      }),
+    );
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.projections.map(
-        (projection) => projection.id,
-      )).toEqual(["session:beta", "session:alpha"]);
+      expect(
+        hook.result.current.collectionsByProject.alpha.projections.map(
+          (projection) => projection.id,
+        ),
+      ).toEqual(["session:beta", "session:alpha"]);
     });
   });
 
@@ -480,16 +428,9 @@ describe("useWorkbenchSessionCatalog", () => {
         ...thread,
       } as NonNullable<ProjectSession["thread"]>,
     };
-    invokeMock.mockImplementation((
-      channel: string,
-      value: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, value: string | null) => {
       if (channel === "workspace:tasks:list") {
-        return Promise.resolve(makeWindow(
-          value === "alpha"
-            ? [summary]
-            : [],
-        ));
+        return Promise.resolve(makeWindow(value === "alpha" ? [summary] : []));
       }
       if (channel === "project-sessions:get") {
         return Promise.resolve(detail);
@@ -499,27 +440,18 @@ describe("useWorkbenchSessionCatalog", () => {
     const { hook } = createHarness(window);
 
     await waitFor(() => {
-      expect(hook.result.current.active?.domain.thread?.threadId)
-        .toBe("thread:alpha");
+      expect(hook.result.current.active?.domain.thread?.threadId).toBe("thread:alpha");
     });
     expect(hook.result.current.active?.scene).toStrictEqual(persistedScene);
     expect(window.setScene).not.toHaveBeenCalled();
   });
 
   test("hydrates the exact selected Session outside the bounded summary window", async () => {
-    const selected = makeSummary(
-      "session:beyond-first-window",
-      "alpha",
-    ) as ProjectSession;
+    const selected = makeSummary("session:beyond-first-window", "alpha") as ProjectSession;
     const firstSummary = makeSummary("session:first", "alpha");
-    invokeMock.mockImplementation((
-      channel: string,
-      value: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, value: string | null) => {
       if (channel === "workspace:tasks:list") {
-        return Promise.resolve(makeWindow(
-          value === "alpha" ? [firstSummary] : [],
-        ));
+        return Promise.resolve(makeWindow(value === "alpha" ? [firstSummary] : []));
       }
       if (channel === "project-sessions:get") {
         expect(value).toBe("session:beyond-first-window");
@@ -535,24 +467,18 @@ describe("useWorkbenchSessionCatalog", () => {
     const { hook } = createHarness(window);
 
     await waitFor(() => {
-      expect(hook.result.current.active?.domain.id)
-        .toBe("session:beyond-first-window");
+      expect(hook.result.current.active?.domain.id).toBe("session:beyond-first-window");
     });
     expect(hook.result.current.active?.domain.id).not.toBe("session:first");
     expect(window.reconcileMissingSession).not.toHaveBeenCalled();
   });
 
   test("reconciles only an authoritative missing exact Session", async () => {
-    invokeMock.mockImplementation((
-      channel: string,
-      value: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, value: string | null) => {
       if (channel === "workspace:tasks:list") {
-        return Promise.resolve(makeWindow(
-          value === "alpha"
-            ? [makeSummary("session:first", "alpha")]
-            : [],
-        ));
+        return Promise.resolve(
+          makeWindow(value === "alpha" ? [makeSummary("session:first", "alpha")] : []),
+        );
       }
       if (channel === "project-sessions:get") return Promise.resolve(null);
       throw new Error(`Unexpected channel: ${channel}`);
@@ -565,16 +491,13 @@ describe("useWorkbenchSessionCatalog", () => {
     const { hook } = createHarness(window);
 
     await waitFor(() => {
-      expect(window.reconcileMissingSession)
-        .toHaveBeenCalledWith("session:missing");
+      expect(window.reconcileMissingSession).toHaveBeenCalledWith("session:missing");
     });
     expect(hook.result.current.active).toBeNull();
   });
 
   test("keeps exact location on a transient detail error", async () => {
-    invokeMock.mockImplementation((
-      channel: string,
-    ) => {
+    invokeMock.mockImplementation((channel: string) => {
       if (channel === "workspace:tasks:list") {
         return Promise.resolve(makeWindow([]));
       }
@@ -591,8 +514,7 @@ describe("useWorkbenchSessionCatalog", () => {
     const { hook } = createHarness(window);
 
     await waitFor(() => {
-      expect(hook.result.current.selectedDetailError)
-        .toBe("temporary outage");
+      expect(hook.result.current.selectedDetailError).toBe("temporary outage");
     });
     expect(window.reconcileMissingSession).not.toHaveBeenCalled();
     expect(window.location).toEqual({
@@ -603,20 +525,12 @@ describe("useWorkbenchSessionCatalog", () => {
   });
 
   test("prefetches detail without fetching a full session list or board", async () => {
-    const detail = makeSummary(
-      "session:alpha",
-      "alpha",
-    ) as ProjectSession;
-    invokeMock.mockImplementation((
-      channel: string,
-      value: string | null,
-    ) => {
+    const detail = makeSummary("session:alpha", "alpha") as ProjectSession;
+    invokeMock.mockImplementation((channel: string, value: string | null) => {
       if (channel === "workspace:tasks:list") {
-        return Promise.resolve(makeWindow(
-          value === "alpha"
-            ? [makeSummary("session:alpha", "alpha")]
-            : [],
-        ));
+        return Promise.resolve(
+          makeWindow(value === "alpha" ? [makeSummary("session:alpha", "alpha")] : []),
+        );
       }
       if (channel === "project-sessions:get") return Promise.resolve(detail);
       throw new Error(`Unexpected channel: ${channel}`);
@@ -630,41 +544,40 @@ describe("useWorkbenchSessionCatalog", () => {
       await hook.result.current.prefetch("session:alpha");
     });
 
-    expect(invokeMock).toHaveBeenCalledWith(
-      "project-sessions:get",
-      "session:alpha",
-    );
-    expect(invokeMock.mock.calls.some(([channel]) =>
-      channel === "project-sessions:list"
-      || channel === "boards:by-project"
-    )).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith("project-sessions:get", "session:alpha");
+    expect(
+      invokeMock.mock.calls.some(
+        ([channel]) => channel === "project-sessions:list" || channel === "boards:by-project",
+      ),
+    ).toBe(false);
   });
 
   test("appends a bounded continuation without duplicating summaries", async () => {
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-      input?: { after?: string },
-    ) => {
-      if (channel !== "workspace:tasks:list") {
-        throw new Error(`Unexpected channel: ${channel}`);
-      }
-      if (projectId === null) return Promise.resolve(makeWindow([]));
-      if (input?.after === "cursor:one") {
-        return Promise.resolve(makeWindow([
-          makeSummary("session:alpha", "alpha"),
-          makeSummary("session:beta", "alpha"),
-        ]));
-      }
-      return Promise.resolve(makeWindow(
-        [makeSummary("session:alpha", "alpha")],
-        { hasMore: true, nextCursor: "cursor:one" },
-      ));
-    });
+    invokeMock.mockImplementation(
+      (channel: string, projectId: string | null, input?: { after?: string }) => {
+        if (channel !== "workspace:tasks:list") {
+          throw new Error(`Unexpected channel: ${channel}`);
+        }
+        if (projectId === null) return Promise.resolve(makeWindow([]));
+        if (input?.after === "cursor:one") {
+          return Promise.resolve(
+            makeWindow([
+              makeSummary("session:alpha", "alpha"),
+              makeSummary("session:beta", "alpha"),
+            ]),
+          );
+        }
+        return Promise.resolve(
+          makeWindow([makeSummary("session:alpha", "alpha")], {
+            hasMore: true,
+            nextCursor: "cursor:one",
+          }),
+        );
+      },
+    );
     const { client, hook } = createHarness(makeWindowPort());
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.hasMore)
-        .toBe(true);
+      expect(hook.result.current.collectionsByProject.alpha.hasMore).toBe(true);
     });
 
     await act(async () => {
@@ -672,33 +585,34 @@ describe("useWorkbenchSessionCatalog", () => {
     });
 
     expect(
-      client.getQueryData<ProjectSessionSummaryWindow>(
-        queryKeys.projectSessions.summaries("alpha"),
-      )?.items.map((item) => item.id),
+      client
+        .getQueryData<ProjectSessionSummaryWindow>(queryKeys.projectSessions.summaries("alpha"))
+        ?.items.map((item) => item.id),
     ).toEqual(["session:alpha", "session:beta"]);
   });
 
   test("ignores a continuation from an older projection after the first page advances", async () => {
     let resolveContinuation!: (window: ProjectSessionSummaryWindow) => void;
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-      input?: { after?: string },
-    ) => {
-      if (channel !== "workspace:tasks:list") {
-        throw new Error(`Unexpected channel: ${channel}`);
-      }
-      if (projectId === null) return Promise.resolve(makeWindow([]));
-      if (input?.after === "cursor:one") {
-        return new Promise<ProjectSessionSummaryWindow>((resolve) => {
-          resolveContinuation = resolve;
-        });
-      }
-      return Promise.resolve(makeWindow(
-        [makeSummary("session:alpha", "alpha")],
-        { hasMore: true, nextCursor: "cursor:one", projectionRevision: 1 },
-      ));
-    });
+    invokeMock.mockImplementation(
+      (channel: string, projectId: string | null, input?: { after?: string }) => {
+        if (channel !== "workspace:tasks:list") {
+          throw new Error(`Unexpected channel: ${channel}`);
+        }
+        if (projectId === null) return Promise.resolve(makeWindow([]));
+        if (input?.after === "cursor:one") {
+          return new Promise<ProjectSessionSummaryWindow>((resolve) => {
+            resolveContinuation = resolve;
+          });
+        }
+        return Promise.resolve(
+          makeWindow([makeSummary("session:alpha", "alpha")], {
+            hasMore: true,
+            nextCursor: "cursor:one",
+            projectionRevision: 1,
+          }),
+        );
+      },
+    );
     const { client, hook } = createHarness(makeWindowPort());
     await waitFor(() => {
       expect(hook.result.current.collectionsByProject.alpha.hasMore).toBe(true);
@@ -710,45 +624,36 @@ describe("useWorkbenchSessionCatalog", () => {
     });
     client.setQueryData<ProjectSessionSummaryWindow>(
       queryKeys.projectSessions.summaries("alpha"),
-      makeWindow(
-        [makeSummary("session:beta", "alpha")],
-        { hasMore: true, nextCursor: "cursor:one", projectionRevision: 2 },
-      ),
+      makeWindow([makeSummary("session:beta", "alpha")], {
+        hasMore: true,
+        nextCursor: "cursor:one",
+        projectionRevision: 2,
+      }),
     );
     await act(async () => {
-      resolveContinuation(makeWindow(
-        [makeSummary("session:stale", "alpha")],
-        { projectionRevision: 1 },
-      ));
+      resolveContinuation(
+        makeWindow([makeSummary("session:stale", "alpha")], { projectionRevision: 1 }),
+      );
       await loadMore;
     });
 
     expect(
-      client.getQueryData<ProjectSessionSummaryWindow>(
-        queryKeys.projectSessions.summaries("alpha"),
-      )?.items.map((item) => item.id),
+      client
+        .getQueryData<ProjectSessionSummaryWindow>(queryKeys.projectSessions.summaries("alpha"))
+        ?.items.map((item) => item.id),
     ).toEqual(["session:beta"]);
     expect(
-      client.getQueryData<ProjectSessionSummaryWindow>(
-        queryKeys.projectSessions.summaries("alpha"),
-      )?.projectionRevision,
+      client.getQueryData<ProjectSessionSummaryWindow>(queryKeys.projectSessions.summaries("alpha"))
+        ?.projectionRevision,
     ).toBe(2);
   });
 
   test("seeds mutation responses in the Query detail cache", async () => {
-    const current = makeSummary(
-      "session:alpha",
-      "alpha",
-    ) as ProjectSession;
+    const current = makeSummary("session:alpha", "alpha") as ProjectSession;
     const updated = { ...current, unread: true };
-    invokeMock.mockImplementation((
-      channel: string,
-      value: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, value: string | null) => {
       if (channel === "workspace:tasks:list") {
-        return Promise.resolve(makeWindow(
-          value === "alpha" ? [current] : [],
-        ));
+        return Promise.resolve(makeWindow(value === "alpha" ? [current] : []));
       }
       if (channel === "project-sessions:get") {
         return Promise.resolve(current);
@@ -768,22 +673,14 @@ describe("useWorkbenchSessionCatalog", () => {
     });
 
     expect(
-      client.getQueryData<ProjectSession>(
-        queryKeys.projectSessions.detail(current.id),
-      )?.unread,
+      client.getQueryData<ProjectSession>(queryKeys.projectSessions.detail(current.id))?.unread,
     ).toBe(true);
   });
 
   test("does not let a failed pin operation roll a newer cache update back", async () => {
-    const current = makeSummary(
-      "session:alpha",
-      "alpha",
-    ) as ProjectSession;
+    const current = makeSummary("session:alpha", "alpha") as ProjectSession;
     let rejectPin!: (error: Error) => void;
-    invokeMock.mockImplementation((
-      channel: string,
-      value: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, value: string | null) => {
       if (channel === "workspace:tasks:list") {
         return Promise.resolve(makeWindow(value === "alpha" ? [current] : []));
       }
@@ -805,9 +702,9 @@ describe("useWorkbenchSessionCatalog", () => {
       pinRequest = hook.result.current.setPinned(current, true);
     });
     await waitFor(() => {
-      expect(client.getQueryData<ProjectSession>(
-        queryKeys.projectSessions.detail(current.id),
-      )?.pinned).toBe(true);
+      expect(
+        client.getQueryData<ProjectSession>(queryKeys.projectSessions.detail(current.id))?.pinned,
+      ).toBe(true);
     });
 
     const newer = {
@@ -815,19 +712,10 @@ describe("useWorkbenchSessionCatalog", () => {
       displayTitle: "Newer title",
       updatedAt: "2026-01-02T00:00:00.000Z",
     };
-    const newerWindow = makeWindow(
-      [newer],
-      { projectionRevision: 2 },
-    );
+    const newerWindow = makeWindow([newer], { projectionRevision: 2 });
     act(() => {
-      client.setQueryData(
-        queryKeys.projectSessions.detail(current.id),
-        newer,
-      );
-      client.setQueryData(
-        queryKeys.projectSessions.summaries("alpha"),
-        newerWindow,
-      );
+      client.setQueryData(queryKeys.projectSessions.detail(current.id), newer);
+      client.setQueryData(queryKeys.projectSessions.summaries("alpha"), newerWindow);
     });
 
     const failure = new Error("pin failed");
@@ -836,27 +724,28 @@ describe("useWorkbenchSessionCatalog", () => {
       await expect(pinRequest).rejects.toBe(failure);
     });
 
-    expect(client.getQueryData<ProjectSession>(
-      queryKeys.projectSessions.detail(current.id),
-    )).toEqual(newer);
-    expect(client.getQueryData<ProjectSessionSummaryWindow>(
-      queryKeys.projectSessions.summaries("alpha"),
-    )).toEqual(newerWindow);
+    expect(
+      client.getQueryData<ProjectSession>(queryKeys.projectSessions.detail(current.id)),
+    ).toEqual(newer);
+    expect(
+      client.getQueryData<ProjectSessionSummaryWindow>(
+        queryKeys.projectSessions.summaries("alpha"),
+      ),
+    ).toEqual(newerWindow);
   });
 
   test("selects projectless sessions through the WindowState command port", async () => {
-    invokeMock.mockImplementation((
-      channel: string,
-      projectId: string | null,
-    ) => {
+    invokeMock.mockImplementation((channel: string, projectId: string | null) => {
       if (channel !== "workspace:tasks:list") {
         throw new Error(`Unexpected channel: ${channel}`);
       }
-      return Promise.resolve(makeWindow(
-        projectId === null
-          ? [makeSummary("session:projectless", null)]
-          : [makeSummary("session:alpha", "alpha")],
-      ));
+      return Promise.resolve(
+        makeWindow(
+          projectId === null
+            ? [makeSummary("session:projectless", null)]
+            : [makeSummary("session:alpha", "alpha")],
+        ),
+      );
     });
     const window = makeWindowPort();
     const { hook } = createHarness(window);
@@ -865,9 +754,7 @@ describe("useWorkbenchSessionCatalog", () => {
     });
 
     act(() => {
-      hook.result.current.select(
-        hook.result.current.projectlessCollection.presentations[0],
-      );
+      hook.result.current.select(hook.result.current.projectlessCollection.presentations[0]);
     });
 
     expect(window.selectSession).toHaveBeenCalledWith({
@@ -897,24 +784,21 @@ describe("useWorkbenchSessionCatalog", () => {
     const window = makeWindowPort({ kind: "project", projectId: "alpha" });
     const { client, hook } = createHarness(window);
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state.kind)
-        .toBe("ready");
+      expect(hook.result.current.collectionsByProject.alpha.state.kind).toBe("ready");
     });
 
-    let presentation!: Awaited<ReturnType<
-      typeof hook.result.current.ensureDefaultDraft
-    >>;
+    let presentation!: Awaited<ReturnType<typeof hook.result.current.ensureDefaultDraft>>;
     await act(async () => {
       presentation = await hook.result.current.ensureDefaultDraft("alpha");
     });
 
     expect(presentation.domain.id).toBe("session:default");
-    expect(client.getQueryData<ProjectSession>(
-      queryKeys.projectSessions.detail("session:default"),
-    )?.id).toBe("session:default");
-    expect(invokeMock.mock.calls.some(([channel]) => (
-      channel === "project-sessions:get"
-    ))).toBe(false);
+    expect(
+      client.getQueryData<ProjectSession>(queryKeys.projectSessions.detail("session:default"))?.id,
+    ).toBe("session:default");
+    expect(invokeMock.mock.calls.some(([channel]) => channel === "project-sessions:get")).toBe(
+      false,
+    );
   });
 
   test("commits canonical Session order for a pre-thread New Chat", async () => {
@@ -940,12 +824,9 @@ describe("useWorkbenchSessionCatalog", () => {
       }
       throw new Error(`Unexpected channel: ${channel}`);
     });
-    const { hook } = createHarness(
-      makeWindowPort({ kind: "project", projectId: "alpha" }),
-    );
+    const { hook } = createHarness(makeWindowPort({ kind: "project", projectId: "alpha" }));
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.presentations)
-        .toHaveLength(2);
+      expect(hook.result.current.collectionsByProject.alpha.presentations).toHaveLength(2);
     });
 
     await act(async () => {
@@ -954,8 +835,9 @@ describe("useWorkbenchSessionCatalog", () => {
 
     await waitFor(() => {
       expect(
-        hook.result.current.collectionsByProject.alpha.presentations
-          .map((presentation) => presentation.domain.id),
+        hook.result.current.collectionsByProject.alpha.presentations.map(
+          (presentation) => presentation.domain.id,
+        ),
       ).toEqual(["session:draft", "session:chat"]);
     });
   });
@@ -970,10 +852,12 @@ describe("useWorkbenchSessionCatalog", () => {
         return Promise.resolve(makeWindow([]));
       }
       if (channel === "project-sessions:create") {
-        expect(args).toEqual([{
-          projectId: "alpha",
-          noThreadFallbackTitle: "Roadmap",
-        }]);
+        expect(args).toEqual([
+          {
+            projectId: "alpha",
+            noThreadFallbackTitle: "Roadmap",
+          },
+        ]);
         return Promise.resolve(created);
       }
       throw new Error(`Unexpected channel: ${channel}`);
@@ -981,18 +865,12 @@ describe("useWorkbenchSessionCatalog", () => {
     const window = makeWindowPort({ kind: "project", projectId: "alpha" });
     const { hook } = createHarness(window);
     await waitFor(() => {
-      expect(hook.result.current.collectionsByProject.alpha.state.kind)
-        .toBe("ready");
+      expect(hook.result.current.collectionsByProject.alpha.state.kind).toBe("ready");
     });
 
-    let presentation!: Awaited<ReturnType<
-      typeof hook.result.current.createOrdinarySession
-    >>;
+    let presentation!: Awaited<ReturnType<typeof hook.result.current.createOrdinarySession>>;
     await act(async () => {
-      presentation = await hook.result.current.createOrdinarySession(
-        "alpha",
-        "Roadmap",
-      );
+      presentation = await hook.result.current.createOrdinarySession("alpha", "Roadmap");
     });
 
     expect(presentation.domain.id).toBe("session:page-chat");

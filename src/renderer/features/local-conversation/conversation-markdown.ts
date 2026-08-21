@@ -10,14 +10,15 @@ export interface ConversationMarkdownInput {
 type UnknownRecord = Record<string, unknown>;
 
 const GIT_ACTION_DIRECTIVE_PATTERN = /::git-[a-z-]+\{[^}\n]*\}/g;
-const MARKDOWN_LINK_TARGET_PATTERN = /\]\((<[^>\n]+>|[^)\s\n]+)([ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\)/g;
+const MARKDOWN_LINK_TARGET_PATTERN =
+  /\]\((<[^>\n]+>|[^)\s\n]+)([ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\)/g;
 const PATH_LINE_SUFFIX_PATTERN = /^(.*?)(:\d+(?:-\d+)?)$/;
 const UNIX_HOME_PATTERN = /^\/(?:Users|home)\/[^/]+(?=\/|$)/;
 const WINDOWS_HOME_PATTERN = /^[A-Za-z]:\/Users\/[^/]+(?=\/|$)/;
 
 function asRecord(value: unknown): UnknownRecord | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as UnknownRecord
+    ? (value as UnknownRecord)
     : null;
 }
 
@@ -70,17 +71,14 @@ function isAbsolutePath(value: string): boolean {
 
 function resolveHomeDirectory(cwd: string | null): string | null {
   if (!cwd) return null;
-  return UNIX_HOME_PATTERN.exec(cwd)?.[0]
-    ?? WINDOWS_HOME_PATTERN.exec(cwd)?.[0]
-    ?? null;
+  return UNIX_HOME_PATTERN.exec(cwd)?.[0] ?? WINDOWS_HOME_PATTERN.exec(cwd)?.[0] ?? null;
 }
 
 function rewritePath(value: string, cwd: string | null): string {
   const suffixMatch = PATH_LINE_SUFFIX_PATTERN.exec(value);
-  const path = suffixMatch && isAbsolutePath(suffixMatch[1] ?? "")
-    ? suffixMatch[1] ?? value
-    : value;
-  const suffix = path === value ? "" : suffixMatch?.[2] ?? "";
+  const path =
+    suffixMatch && isAbsolutePath(suffixMatch[1] ?? "") ? (suffixMatch[1] ?? value) : value;
+  const suffix = path === value ? "" : (suffixMatch?.[2] ?? "");
   const normalized = normalizeAbsolutePath(path);
   const normalizedCwd = cwd ? normalizeAbsolutePath(cwd) : null;
   if (normalizedCwd && normalizedCwd !== "/") {
@@ -101,14 +99,17 @@ function rewritePath(value: string, cwd: string | null): string {
 }
 
 function rewriteMarkdownLinkPaths(value: string, cwd: string | null): string {
-  return value.replaceAll(MARKDOWN_LINK_TARGET_PATTERN, (whole, rawTarget: string, title: string | undefined) => {
-    const angled = rawTarget.startsWith("<") && rawTarget.endsWith(">");
-    const target = angled ? rawTarget.slice(1, -1) : rawTarget;
-    if (!isAbsolutePath(normalizeAbsolutePath(target))) return whole;
-    const rewritten = rewritePath(target, cwd);
-    const safeTarget = angled || /[\s()]/.test(rewritten) ? `<${rewritten}>` : rewritten;
-    return `](${safeTarget}${title ?? ""})`;
-  });
+  return value.replaceAll(
+    MARKDOWN_LINK_TARGET_PATTERN,
+    (whole, rawTarget: string, title: string | undefined) => {
+      const angled = rawTarget.startsWith("<") && rawTarget.endsWith(">");
+      const target = angled ? rawTarget.slice(1, -1) : rawTarget;
+      if (!isAbsolutePath(normalizeAbsolutePath(target))) return whole;
+      const rewritten = rewritePath(target, cwd);
+      const safeTarget = angled || /[\s()]/.test(rewritten) ? `<${rewritten}>` : rewritten;
+      return `](${safeTarget}${title ?? ""})`;
+    },
+  );
 }
 
 function normalizeMessage(value: string, cwd: string | null): string {
@@ -127,7 +128,7 @@ function quoteBlock(value: string): string {
   return normalizeNewlines(value)
     .trim()
     .split("\n")
-    .map((line) => line.length === 0 ? ">" : `> ${line}`)
+    .map((line) => (line.length === 0 ? ">" : `> ${line}`))
     .join("\n");
 }
 
@@ -143,7 +144,7 @@ function groupedActivityDetails(items: readonly string[]): string {
 
 function titledLines(title: string, lines: readonly (string | null | undefined)[]): string {
   const content = lines
-    .flatMap((line) => line == null ? [] : [escapeDetailsTags(normalizeNewlines(line))])
+    .flatMap((line) => (line == null ? [] : [escapeDetailsTags(normalizeNewlines(line))]))
     .filter((line) => line.trim().length > 0);
   return content.length === 0 ? title : `${title}\n\n${content.join("\n")}`;
 }
@@ -175,8 +176,13 @@ function renderUserContext(item: CodexConversationItem, cwd: string | null): str
       const start = comment.position.start_line;
       const end = comment.position.line;
       const lineRange = start && start !== end ? `:${start}-${end}` : `:${end}`;
-      const text = comment.content.map((entry) => entry.text).join(" ").replaceAll("\n", " ");
-      lines.push(`- ${rewritePath(`${comment.position.path}${lineRange}`, cwd)}: ${escapeDetailsTags(text)}`);
+      const text = comment.content
+        .map((entry) => entry.text)
+        .join(" ")
+        .replaceAll("\n", " ");
+      lines.push(
+        `- ${rewritePath(`${comment.position.path}${lineRange}`, cwd)}: ${escapeDetailsTags(text)}`,
+      );
     }
   }
   return lines.length === 0 ? null : titledLines("User context", lines);
@@ -197,16 +203,22 @@ function renderAssistantMessage(item: CodexConversationItem, cwd: string | null)
 }
 
 function renderCommand(item: CodexConversationItem): string {
-  const command = item.command?.trim() || item.cmd?.join(" ").trim() || item.parsedCmd?.cmd.trim() || "";
+  const command =
+    item.command?.trim() || item.cmd?.join(" ").trim() || item.parsedCmd?.cmd.trim() || "";
   const blocks = [fencedCode("bash", `$ ${command}`)];
   if (item.aggregatedOutput != null && item.aggregatedOutput.trim().length > 0) {
     blocks.push(fencedCode("text", item.aggregatedOutput));
   }
-  const status = item.executionStatus === "interrupted"
-    ? "Stopped"
-    : item.exitCode == null
-      ? item.executionStatus === "completed" ? "Success" : "Running"
-      : item.exitCode === 0 ? "Success" : `Failed with exit code ${item.exitCode}`;
+  const status =
+    item.executionStatus === "interrupted"
+      ? "Stopped"
+      : item.exitCode == null
+        ? item.executionStatus === "completed"
+          ? "Success"
+          : "Running"
+        : item.exitCode === 0
+          ? "Success"
+          : `Failed with exit code ${item.exitCode}`;
   blocks.push(status);
   return details(`Ran <code>${escapeHtml(command)}</code>`, blocks.join("\n\n"));
 }
@@ -225,18 +237,27 @@ function renderPatch(item: CodexConversationItem, cwd: string | null): string | 
   const changes = item.fileChange?.changes ?? {};
   const sections = Object.entries(changes).flatMap(([path, change]) => {
     if (change.type === "nonRenderable") return [];
-    const diff = change.type === "update"
-      ? change.unifiedDiff
-      : change.type === "add"
-        ? change.content.split("\n").map((line) => `+${line}`).join("\n")
-        : change.content.split("\n").map((line) => `-${line}`).join("\n");
+    const diff =
+      change.type === "update"
+        ? change.unifiedDiff
+        : change.type === "add"
+          ? change.content
+              .split("\n")
+              .map((line) => `+${line}`)
+              .join("\n")
+          : change.content
+              .split("\n")
+              .map((line) => `-${line}`)
+              .join("\n");
     if (!diff.trim()) return [];
     const stats = diffStats(diff);
     const verb = change.type === "add" ? "Added" : change.type === "delete" ? "Deleted" : "Updated";
-    return [details(
-      `${verb} <code>${escapeHtml(rewritePath(path, cwd))}</code> +${stats.additions} -${stats.deletions}`,
-      fencedCode("diff", diff),
-    )];
+    return [
+      details(
+        `${verb} <code>${escapeHtml(rewritePath(path, cwd))}</code> +${stats.additions} -${stats.deletions}`,
+        fencedCode("diff", diff),
+      ),
+    ];
   });
   return sections.length === 0 ? null : sections.join("\n");
 }
@@ -265,16 +286,20 @@ function renderMcpContent(item: CodexConversationItem): string {
     }
     if (content.type === "embedded_resource") {
       const title = content.resource.title ?? content.resource.name ?? content.resource.uri;
-      sections.push(content.resource.text?.trim()
-        ? `Resource: ${title}\n\n${fencedCode("text", content.resource.text)}`
-        : `Resource: ${title}`);
+      sections.push(
+        content.resource.text?.trim()
+          ? `Resource: ${title}\n\n${fencedCode("text", content.resource.text)}`
+          : `Resource: ${title}`,
+      );
     }
     if (content.type === "unknown") {
       sections.push(fencedCode("json", JSON.stringify(content.raw, null, 2) ?? "null"));
     }
   }
   if (call.result.structuredContent != null) {
-    sections.push(fencedCode("json", JSON.stringify(call.result.structuredContent, null, 2) ?? "null"));
+    sections.push(
+      fencedCode("json", JSON.stringify(call.result.structuredContent, null, 2) ?? "null"),
+    );
   }
   return sections.join("\n\n");
 }
@@ -291,13 +316,17 @@ function renderSystemEvent(item: CodexConversationItem, cwd: string | null): str
     case "patch":
       return renderPatch(item, item.grantRoot ?? item.cwd ?? cwd);
     case "diff":
-      return item.markdownText?.trim() ? details("Diff", fencedCode("diff", item.markdownText)) : null;
+      return item.markdownText?.trim()
+        ? details("Diff", fencedCode("diff", item.markdownText))
+        : null;
     case "webSearch":
       return `Searched the web for ${inlineCode(item.webSearch?.query ?? item.markdownText ?? "")}`;
     case "generatedImage":
       return item.generatedImage?.src
         ? `Generated image\n\n![Generated image](${item.generatedImage.src})`
-        : titledLines("Generated image", [`Status: ${item.generatedImage?.status ?? item.status ?? "pending"}`]);
+        : titledLines("Generated image", [
+            `Status: ${item.generatedImage?.status ?? item.status ?? "pending"}`,
+          ]);
     case "imageView":
       return (item.imageViewPaths?.length ?? 0) === 1
         ? "Viewed an image"
@@ -316,10 +345,13 @@ function renderSystemEvent(item: CodexConversationItem, cwd: string | null): str
       ]);
     case "userInputResponse": {
       const questions = item.userInputQuestions ?? [];
-      return titledLines("User input response", questions.flatMap((question) => [
-        `- ${question.question}`,
-        ...(item.userInputAnswers?.[question.id] ?? []).map((answer) => `  - ${answer}`),
-      ]));
+      return titledLines(
+        "User input response",
+        questions.flatMap((question) => [
+          `- ${question.question}`,
+          ...(item.userInputAnswers?.[question.id] ?? []).map((answer) => `  - ${answer}`),
+        ]),
+      );
     }
     case "mcpServerElicitation":
       return titledLines("MCP server elicitation", [
@@ -352,14 +384,18 @@ function renderSystemEvent(item: CodexConversationItem, cwd: string | null): str
         item.markdownText ?? null,
       ]);
     case "remoteTaskCreated":
-      return titledLines("Remote task created", [`Task ID: ${asString(raw.taskId) ?? item.itemId}`]);
+      return titledLines("Remote task created", [
+        `Task ID: ${asString(raw.taskId) ?? item.itemId}`,
+      ]);
     case "contextCompaction":
       return titledLines("Context compaction", [
         `Source: ${item.contextCompaction?.source ?? "automatic"}`,
         item.contextCompaction?.completed ? "Status: completed" : "Status: running",
       ]);
     case "personalityChanged":
-      return titledLines("Personality changed", [`Personality: ${asString(raw.personality) ?? "unknown"}`]);
+      return titledLines("Personality changed", [
+        `Personality: ${asString(raw.personality) ?? "unknown"}`,
+      ]);
     case "forkedFromConversation":
       return titledLines("Copied conversation", [
         `Source conversation: ${asString(raw.sourceConversationId) ?? "unknown"}`,
@@ -374,7 +410,9 @@ function renderSystemEvent(item: CodexConversationItem, cwd: string | null): str
         `Reason: ${asString(raw.reason) ?? "unknown"}`,
       ]);
     case "systemError":
-      return item.markdownText?.trim() ? `System error\n\n${escapeDetailsTags(item.markdownText)}` : null;
+      return item.markdownText?.trim()
+        ? `System error\n\n${escapeDetailsTags(item.markdownText)}`
+        : null;
     case "streamError":
       return titledLines("Stream error", [item.markdownText, item.additionalDetails]);
     case "worktreeInit":
@@ -407,7 +445,8 @@ function renderRequest(request: VisibleConversationTurnEntry["requests"][number]
     return titledLines("User input requested", questions);
   }
   if (type === "approval") return titledLines("Approval requested", [asString(record.reason)]);
-  if (type === "permissionRequest") return titledLines("Permission request", [asString(record.reason)]);
+  if (type === "permissionRequest")
+    return titledLines("Permission request", [asString(record.reason)]);
   if (type === "implementPlan") return "Plan implementation requested";
   return titledLines("Request pending", [`Type: ${type}`]);
 }
@@ -418,13 +457,22 @@ function renderTurn(entry: VisibleConversationTurnEntry, cwd: string | null): st
   const modelChanges = items.filter((item) => item.semanticKind === "modelChanged");
   const users = items.filter((item) => item.semanticKind === "userMessage" || item.role === "user");
   const reroutes = items.filter((item) => item.semanticKind === "modelRerouted");
-  const assistants = items.filter((item) => item.semanticKind === "assistantMessage" || item.role === "assistant");
-  const postAssistant = items.filter((item) =>
-    item.semanticKind === "remoteTaskCreated"
-    || item.semanticKind === "personalityChanged"
-    || item.semanticKind === "forkedFromConversation"
+  const assistants = items.filter(
+    (item) => item.semanticKind === "assistantMessage" || item.role === "assistant",
   );
-  const excluded = new Set([...modelChanges, ...users, ...reroutes, ...assistants, ...postAssistant]);
+  const postAssistant = items.filter(
+    (item) =>
+      item.semanticKind === "remoteTaskCreated" ||
+      item.semanticKind === "personalityChanged" ||
+      item.semanticKind === "forkedFromConversation",
+  );
+  const excluded = new Set([
+    ...modelChanges,
+    ...users,
+    ...reroutes,
+    ...assistants,
+    ...postAssistant,
+  ]);
   const activity = items
     .filter((item) => !excluded.has(item))
     .flatMap((item) => {
@@ -465,7 +513,11 @@ function normalizeTitle(value: string | null | undefined): string {
   return (normalized || "Nodex conversation").replaceAll("#", "\\#");
 }
 
-export function renderConversationMarkdown({ cwd = null, title, turns }: ConversationMarkdownInput): string {
+export function renderConversationMarkdown({
+  cwd = null,
+  title,
+  turns,
+}: ConversationMarkdownInput): string {
   const sections = [`# ${normalizeTitle(title)}`];
   for (const entry of turns) {
     const rendered = renderTurn(entry, entry.turn.items.find((item) => item.cwd)?.cwd ?? cwd);

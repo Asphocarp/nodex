@@ -51,19 +51,25 @@ export interface NfmSendToThreadRowsInput {
 }
 
 function firstPreviewLine(thread: CodexThreadSummary): string {
-  return thread.threadPreview
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
+  return (
+    thread.threadPreview
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
 }
 
 export function resolveNfmSendToThreadTitle(thread: CodexThreadSummary): string {
-  return thread.threadName?.trim()
-    || firstPreviewLine(thread)
-    || formatThreadMentionShortUuid(thread.threadId);
+  return (
+    thread.threadName?.trim() ||
+    firstPreviewLine(thread) ||
+    formatThreadMentionShortUuid(thread.threadId)
+  );
 }
 
-function resolveThreadStatusLabel(thread: Pick<CommandPaletteThread, "statusType" | "statusActiveFlags">): string {
+function resolveThreadStatusLabel(
+  thread: Pick<CommandPaletteThread, "statusType" | "statusActiveFlags">,
+): string {
   if (thread.statusType === "systemError") return "Error";
   if (thread.statusActiveFlags.includes("waitingOnApproval")) return "Approval";
   if (thread.statusActiveFlags.includes("waitingOnUserInput")) return "Waiting";
@@ -71,24 +77,21 @@ function resolveThreadStatusLabel(thread: Pick<CommandPaletteThread, "statusType
   return "Ready";
 }
 
-function preferredThreadMatchesQuery(
-  thread: CommandPaletteThread,
-  query: string,
-): boolean {
+function preferredThreadMatchesQuery(thread: CommandPaletteThread, query: string): boolean {
   const normalizedQuery = normalizeSearchText(query);
   if (!normalizedQuery) return true;
 
   return createCommandPaletteThreadSearchIndex([thread]).search(normalizedQuery).length > 0;
 }
 
-function newThreadMatchesQuery(row: Pick<NfmSendToThreadNewRow, "label" | "meta" | "target">, query: string): boolean {
+function newThreadMatchesQuery(
+  row: Pick<NfmSendToThreadNewRow, "label" | "meta" | "target">,
+  query: string,
+): boolean {
   const normalizedQuery = normalizeSearchText(query);
   if (!normalizedQuery) return true;
 
-  const haystack = normalizeSearchText([
-    row.label,
-    row.meta,
-  ].join(" "));
+  const haystack = normalizeSearchText([row.label, row.meta].join(" "));
   return haystack.includes(normalizedQuery);
 }
 
@@ -187,31 +190,32 @@ export function buildNfmSendToThreadRows({
   preferredTarget = null,
   projectNameById = {},
 }: NfmSendToThreadRowsInput): NfmSendToThreadRow[] {
-  const preferredExistingThreadId = preferredTarget?.kind === "thread"
-    ? preferredTarget.thread.threadId
-    : null;
+  const preferredExistingThreadId =
+    preferredTarget?.kind === "thread" ? preferredTarget.thread.threadId : null;
   const preferredThreadFromResults = preferredExistingThreadId
-    ? threads.find((thread) => thread.threadId === preferredExistingThreadId) ?? null
+    ? (threads.find((thread) => thread.threadId === preferredExistingThreadId) ?? null)
     : null;
-  const preferredThreadFallback = preferredTarget?.kind === "thread"
-    ? createPreferredThreadItem(preferredTarget.thread, projectNameById)
-    : null;
+  const preferredThreadFallback =
+    preferredTarget?.kind === "thread"
+      ? createPreferredThreadItem(preferredTarget.thread, projectNameById)
+      : null;
   const preferredThread = preferredThreadFromResults ?? preferredThreadFallback;
-  const visiblePreferredThread = preferredThread && preferredThreadMatchesQuery(preferredThread, query)
-    ? preferredThread
-    : null;
-  const preferredNewThreadRow = preferredTarget?.kind === "new-thread"
-    ? createPreferredNewThreadRow(preferredTarget)
-    : null;
-  const visiblePreferredNewThreadRow = preferredNewThreadRow && newThreadMatchesQuery(preferredNewThreadRow, query)
-    ? preferredNewThreadRow
-    : null;
+  const visiblePreferredThread =
+    preferredThread && preferredThreadMatchesQuery(preferredThread, query) ? preferredThread : null;
+  const preferredNewThreadRow =
+    preferredTarget?.kind === "new-thread" ? createPreferredNewThreadRow(preferredTarget) : null;
+  const visiblePreferredNewThreadRow =
+    preferredNewThreadRow && newThreadMatchesQuery(preferredNewThreadRow, query)
+      ? preferredNewThreadRow
+      : null;
   const threadRows = [
     ...(visiblePreferredThread
-      ? [createThreadRow(
-        visiblePreferredThread,
-        preferredTarget?.kind === "thread" ? preferredTarget.meta : null,
-      )]
+      ? [
+          createThreadRow(
+            visiblePreferredThread,
+            preferredTarget?.kind === "thread" ? preferredTarget.meta : null,
+          ),
+        ]
       : []),
     ...threads
       .filter((thread) => thread.threadId !== visiblePreferredThread?.threadId)
@@ -219,16 +223,10 @@ export function buildNfmSendToThreadRows({
   ];
 
   if (visiblePreferredNewThreadRow) {
-    return [
-      visiblePreferredNewThreadRow,
-      ...threadRows,
-    ];
+    return [visiblePreferredNewThreadRow, ...threadRows];
   }
 
-  return [
-    ...threadRows,
-    createProjectNewThreadRow(),
-  ];
+  return [...threadRows, createProjectNewThreadRow()];
 }
 
 function getInitialNfmSendToThreadFocusedRowId(
@@ -272,9 +270,7 @@ export function moveNfmSendToThreadFocusedRowId(
 ): string | null {
   if (rows.length === 0) return null;
 
-  const currentIndex = focusedRowId
-    ? rows.findIndex((row) => row.id === focusedRowId)
-    : -1;
+  const currentIndex = focusedRowId ? rows.findIndex((row) => row.id === focusedRowId) : -1;
   const nextIndex = moveNfmSendToThreadFocus(currentIndex, direction, rows);
   return rows[nextIndex]?.id ?? null;
 }

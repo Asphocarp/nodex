@@ -16,21 +16,21 @@ import type {
 type DatabaseAuthoringProperty = DataSourcePropertyRecordV2;
 type DatabaseAuthoringView = DatabaseViewRecordV2;
 
-const authoringPropertyId = (property: DatabaseAuthoringProperty): string =>
-  property.propertyId;
-const authoringViewId = (view: DatabaseAuthoringView): string =>
-  view.viewId;
+const authoringPropertyId = (property: DatabaseAuthoringProperty): string => property.propertyId;
+const authoringViewId = (view: DatabaseAuthoringView): string => view.viewId;
 
 export const emptyDatabaseViewConfig = (): DatabaseViewConfigV4 => ({
   schemaKey: "nodex.database-view",
   schemaVersion: 4,
   filter: { kind: "group", operator: "and", children: [] },
   presentation: {
-    sort: [{
-      field: { kind: "manual" },
-      direction: "asc",
-      nulls: "last",
-    }],
+    sort: [
+      {
+        field: { kind: "manual" },
+        direction: "asc",
+        nulls: "last",
+      },
+    ],
     group: null,
     subgroup: null,
     groupDirection: "asc",
@@ -75,8 +75,7 @@ export const readDatabasePropertyOptions = (
 export const databaseViewConfigsEqual = (
   left: DatabaseViewConfigV4,
   right: DatabaseViewConfigV4,
-): boolean =>
-  stableStringifyDatabaseJson(left) === stableStringifyDatabaseJson(right);
+): boolean => stableStringifyDatabaseJson(left) === stableStringifyDatabaseJson(right);
 
 /**
  * Resolve the logical anchor for moving one durable View exactly one place.
@@ -88,9 +87,7 @@ export const databaseViewMoveBeforeId = (
   viewId: string,
   direction: "up" | "down",
 ): string | null | undefined => {
-  const ordered = views
-    .filter((view) => view.lifecycle === "active")
-    .map(authoringViewId);
+  const ordered = views.filter((view) => view.lifecycle === "active").map(authoringViewId);
   const currentIndex = ordered.indexOf(viewId);
   if (currentIndex < 0) return undefined;
   const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
@@ -113,9 +110,8 @@ const transformFilterNode = (
   return {
     ...node,
     children: node.children.map((child, childIndex) =>
-      childIndex === index
-        ? transformFilterNode(child, rest, transform)
-        : child),
+      childIndex === index ? transformFilterNode(child, rest, transform) : child,
+    ),
   };
 };
 
@@ -123,8 +119,7 @@ export const updateDatabaseViewFilterNode = (
   root: DatabaseViewFilterNode,
   path: DatabaseViewFilterPath,
   next: DatabaseViewFilterNode,
-): DatabaseViewFilterNode =>
-  transformFilterNode(root, path, () => next);
+): DatabaseViewFilterNode => transformFilterNode(root, path, () => next);
 
 export const appendDatabaseViewFilterChild = (
   root: DatabaseViewFilterNode,
@@ -163,23 +158,14 @@ export const filterOperatorsForProperty = (
     return ["contains", "not_contains", "is_empty", "is_not_empty"];
   }
   const common = ["equals", "not_equals", "is_empty", "is_not_empty"] as const;
-  if (
-    property.valueType === "text" ||
-    property.valueType === "multi_select"
-  ) {
-    return [
-      ...common.slice(0, 2),
-      "contains",
-      "not_contains",
-      ...common.slice(2),
-    ];
+  if (property.valueType === "text" || property.valueType === "multi_select") {
+    return [...common.slice(0, 2), "contains", "not_contains", ...common.slice(2)];
   }
   return common;
 };
 
-const firstOptionId = (
-  property: DatabaseAuthoringProperty,
-): string | null => readDatabasePropertyOptions(property)[0]?.id ?? null;
+const firstOptionId = (property: DatabaseAuthoringProperty): string | null =>
+  readDatabasePropertyOptions(property)[0]?.id ?? null;
 
 export const defaultDatabaseFilterValue = (
   property: DatabaseAuthoringProperty,
@@ -201,10 +187,8 @@ export const defaultDatabaseFilterValue = (
 
 export const createDatabaseViewFilterClause = (
   property: DatabaseAuthoringProperty,
-): DatabaseViewFilterClause => databaseFilterClauseWithOperator(
-  property,
-  filterOperatorsForProperty(property)[0] ?? "is_empty",
-);
+): DatabaseViewFilterClause =>
+  databaseFilterClauseWithOperator(property, filterOperatorsForProperty(property)[0] ?? "is_empty");
 
 export const databaseFilterClauseWithOperator = (
   property: DatabaseAuthoringProperty,
@@ -226,9 +210,7 @@ export const databaseFilterClauseWithProperty = (
   property: DatabaseAuthoringProperty,
 ): DatabaseViewFilterClause => {
   const supported = filterOperatorsForProperty(property);
-  const operator = supported.includes(clause.operator)
-    ? clause.operator
-    : "equals";
+  const operator = supported.includes(clause.operator) ? clause.operator : "equals";
   return databaseFilterClauseWithOperator(property, operator);
 };
 

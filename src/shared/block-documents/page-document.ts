@@ -2,10 +2,7 @@ import * as Y from "yjs";
 import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
 import { BLOCK_GROUP_NODE_NAME } from "./block-structure";
 import type { DocumentId } from "./contracts";
-import {
-  PortableRichTextError,
-  readPortableRichTextFromYText,
-} from "./portable-rich-text";
+import { PortableRichTextError, readPortableRichTextFromYText } from "./portable-rich-text";
 
 export const PAGE_DOCUMENT_SCHEMA_KEY = "nodex.page";
 export const PAGE_DOCUMENT_SCHEMA_VERSION = 2;
@@ -34,10 +31,7 @@ export class PageDocumentRootValidationError extends TypeError {
   }
 }
 
-const resolveCanonicalRoot = <Root>(
-  key: string,
-  resolve: () => Root,
-): Root => {
+const resolveCanonicalRoot = <Root>(key: string, resolve: () => Root): Root => {
   try {
     return resolve();
   } catch (error) {
@@ -52,13 +46,11 @@ export const openPageDocument = (document: Y.Doc): PageDocumentEnvelope => {
   // generic AbstractType placeholders. The typed getters resolve those
   // placeholders and still throw when a root was genuinely created with an
   // incompatible constructor.
-  const title = resolveCanonicalRoot(
-    PAGE_DOCUMENT_TITLE_KEY,
-    () => document.getText(PAGE_DOCUMENT_TITLE_KEY),
+  const title = resolveCanonicalRoot(PAGE_DOCUMENT_TITLE_KEY, () =>
+    document.getText(PAGE_DOCUMENT_TITLE_KEY),
   );
-  const body = resolveCanonicalRoot(
-    PAGE_DOCUMENT_BODY_KEY,
-    () => document.getXmlFragment(PAGE_DOCUMENT_BODY_KEY),
+  const body = resolveCanonicalRoot(PAGE_DOCUMENT_BODY_KEY, () =>
+    document.getXmlFragment(PAGE_DOCUMENT_BODY_KEY),
   );
 
   return {
@@ -69,9 +61,7 @@ export const openPageDocument = (document: Y.Doc): PageDocumentEnvelope => {
   };
 };
 
-export const assertValidPageDocumentRoots = (
-  document: Y.Doc,
-): PageDocumentEnvelope => {
+export const assertValidPageDocumentRoots = (document: Y.Doc): PageDocumentEnvelope => {
   const envelope = openPageDocument(document);
   const unexpectedRoots = [...document.share.keys()].filter(
     (key) => key !== PAGE_DOCUMENT_TITLE_KEY && key !== PAGE_DOCUMENT_BODY_KEY,
@@ -91,17 +81,13 @@ export const assertValidPageDocumentRoots = (
     );
   }
   if (Object.keys(envelope.title.getAttributes()).length > 0) {
-    throw new PageDocumentRootValidationError(
-      "Page document title contains hidden map attributes",
-    );
+    throw new PageDocumentRootValidationError("Page document title contains hidden map attributes");
   }
   return envelope;
 };
 
 /** Migration/history reader for the former plain-title schema only. */
-export const assertValidLegacyPageDocumentRoots = (
-  document: Y.Doc,
-): PageDocumentEnvelope => {
+export const assertValidLegacyPageDocumentRoots = (document: Y.Doc): PageDocumentEnvelope => {
   const envelope = openPageDocument(document);
   const unexpectedRoots = [...document.share.keys()].filter(
     (key) => key !== PAGE_DOCUMENT_TITLE_KEY && key !== PAGE_DOCUMENT_BODY_KEY,

@@ -5,15 +5,9 @@ import {
   mapCoreStoreAdministrationEvent,
 } from "./desktop-store-administration-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import {
-  createFakeCoreHandshake,
-  FakeCoreClient,
-} from "./testing/fake-core-client";
+import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
-import type {
-  StoreAdministrationApplyResult,
-  StoreAdministrationReadSnapshot,
-} from "./types";
+import type { StoreAdministrationApplyResult, StoreAdministrationReadSnapshot } from "./types";
 
 const backup = {
   version: 2,
@@ -60,17 +54,18 @@ const committed = (
   },
 });
 
-const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
-  backend: "rust",
-  rootClient: Object.assign(client, {
-    handshake: createFakeCoreHandshake({
-      libraryId: "library:test",
-      profileId: "profile:test",
-      storeEpoch: "epoch:test",
+const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime =>
+  ({
+    backend: "rust",
+    rootClient: Object.assign(client, {
+      handshake: createFakeCoreHandshake({
+        libraryId: "library:test",
+        profileId: "profile:test",
+        storeEpoch: "epoch:test",
+      }),
     }),
-  }),
-  clientForProject: () => client,
-}) as unknown as RustDataAuthorityRuntime;
+    clientForProject: () => client,
+  }) as unknown as RustDataAuthorityRuntime;
 
 describe("Desktop Store Administration bridge", () => {
   test("maps complete Backup records and trusted backup mutations through Core", async () => {
@@ -79,21 +74,25 @@ describe("Desktop Store Administration bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
     client.enqueueAdministrationApply(committed({ backup_id: backup.backup_id }));
-    client.enqueueAdministrationRead(readSnapshot({
-      kind: "backups",
-      backups: {
-        items: [backup],
-        next_cursor: null,
-        authority: {
-          projection_revision: 4,
+    client.enqueueAdministrationRead(
+      readSnapshot({
+        kind: "backups",
+        backups: {
+          items: [backup],
+          next_cursor: null,
+          authority: {
+            projection_revision: 4,
+          },
         },
-      },
-    }));
+      }),
+    );
 
-    await expect(bridge.createBackup({
-      trigger: "auto",
-      label: "  Before refactor  ",
-    })).resolves.toEqual({
+    await expect(
+      bridge.createBackup({
+        trigger: "auto",
+        label: "  Before refactor  ",
+      }),
+    ).resolves.toEqual({
       version: 2,
       id: "core-backup",
       trigger: "auto",

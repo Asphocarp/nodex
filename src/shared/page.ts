@@ -4,7 +4,6 @@ import {
   type PortableRichText,
 } from "./block-documents/portable-rich-text";
 
-
 export type PageLifecycle = "active" | "archived" | "deleted";
 
 export type PageParent =
@@ -58,10 +57,7 @@ export class PageContractError extends TypeError {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const record = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const record = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new PageContractError(`${label} must be an object`);
 };

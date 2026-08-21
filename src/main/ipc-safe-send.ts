@@ -44,7 +44,11 @@ function shouldWarn(key: string, options: SafeSendOptions): boolean {
   return true;
 }
 
-function baseFields(channel: string, sender: SafeSendWebContentsLike | null | undefined, options: SafeSendOptions) {
+function baseFields(
+  channel: string,
+  sender: SafeSendWebContentsLike | null | undefined,
+  options: SafeSendOptions,
+) {
   return {
     channel,
     webContentsId: sender?.id ?? null,

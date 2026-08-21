@@ -1,9 +1,4 @@
-import {
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { WorkbenchTabProjection } from "../../shared/types";
 import type { ProjectSessionPreviewTab } from "./workbench-panel-preview";
 import {
@@ -150,7 +145,7 @@ describe("Workbench panel runtime lifecycle", () => {
     const closeBrowserRuntime = vi.fn();
     const removeDescriptor = vi.fn();
     await closePreviewPanelTabWithRuntime(
-      ({
+      {
         ...makeTab("browser", {
           projectId: null,
         }),
@@ -158,7 +153,7 @@ describe("Workbench panel runtime lifecycle", () => {
         config: { projectId: null },
         browserTabId: "browser:one",
         preview: true,
-      }) as ProjectSessionPreviewTab,
+      } as ProjectSessionPreviewTab,
       {
         flushFile: async () => true,
         isBrowserRuntimeRetained: () => true,

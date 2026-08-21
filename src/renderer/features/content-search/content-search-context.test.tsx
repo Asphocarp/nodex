@@ -26,44 +26,47 @@ describe("ContentSearchProvider", () => {
 
     function Probe() {
       controller = useContentSearch();
-      const source = useMemo<ContentSearchLocalSource>(() => ({
-        domain: "conversation",
-        contextId: "conversation:thread",
-        search: (query) => ({
-          query,
-          totalMatches: 2,
-          capped: false,
-          matches: [
-            {
-              id: "match-1",
-              domain: "conversation",
-              contextId: "conversation:thread",
-              ordinal: 0,
-              label: "needle one",
-              meta: {},
-            },
-            {
-              id: "match-2",
-              domain: "conversation",
-              contextId: "conversation:thread",
-              ordinal: 1,
-              label: "needle two",
-              meta: {},
-            },
-          ],
+      const source = useMemo<ContentSearchLocalSource>(
+        () => ({
+          domain: "conversation",
+          contextId: "conversation:thread",
+          search: (query) => ({
+            query,
+            totalMatches: 2,
+            capped: false,
+            matches: [
+              {
+                id: "match-1",
+                domain: "conversation",
+                contextId: "conversation:thread",
+                ordinal: 0,
+                label: "needle one",
+                meta: {},
+              },
+              {
+                id: "match-2",
+                domain: "conversation",
+                contextId: "conversation:thread",
+                ordinal: 1,
+                label: "needle two",
+                meta: {},
+              },
+            ],
+          }),
+          ensureVisible: (_match, { signal }) => {
+            ensureSignals.push(signal);
+            if (ensureSignals.length > 1) return;
+            return new Promise<void>((resolve) => {
+              signal.addEventListener("abort", () => resolve(), { once: true });
+            });
+          },
+          activate: (match) => {
+            activatedIds.push(match.id);
+          },
+          clear: () => {},
         }),
-        ensureVisible: (_match, { signal }) => {
-          ensureSignals.push(signal);
-          if (ensureSignals.length > 1) return;
-          return new Promise<void>((resolve) => {
-            signal.addEventListener("abort", () => resolve(), { once: true });
-          });
-        },
-        activate: (match) => {
-          activatedIds.push(match.id);
-        },
-        clear: () => {},
-      }), []);
+        [],
+      );
       useRegisterContentSearchSource(source);
       return createElement("div");
     }
@@ -100,24 +103,27 @@ describe("ContentSearchProvider", () => {
 
     function Probe() {
       controller = useContentSearch();
-      const source = useMemo<ContentSearchLocalSource>(() => ({
-        domain: "conversation",
-        contextId: "conversation:thread",
-        search: (query) => {
-          searchedQueries.push(query);
-          if (query === "old") return oldSearch.promise;
-          return {
-            query,
-            totalMatches: 0,
-            capped: false,
-            matches: [],
-          };
-        },
-        activate: (_match, query) => {
-          activatedQueries.push(query);
-        },
-        clear: () => {},
-      }), []);
+      const source = useMemo<ContentSearchLocalSource>(
+        () => ({
+          domain: "conversation",
+          contextId: "conversation:thread",
+          search: (query) => {
+            searchedQueries.push(query);
+            if (query === "old") return oldSearch.promise;
+            return {
+              query,
+              totalMatches: 0,
+              capped: false,
+              matches: [],
+            };
+          },
+          activate: (_match, query) => {
+            activatedQueries.push(query);
+          },
+          clear: () => {},
+        }),
+        [],
+      );
       useRegisterContentSearchSource(source);
       return createElement("div");
     }
@@ -139,14 +145,16 @@ describe("ContentSearchProvider", () => {
         query: "old",
         totalMatches: 1,
         capped: false,
-        matches: [{
-          id: "old-match",
-          domain: "conversation",
-          contextId: "conversation:thread",
-          ordinal: 0,
-          label: "old",
-          meta: {},
-        }],
+        matches: [
+          {
+            id: "old-match",
+            domain: "conversation",
+            contextId: "conversation:thread",
+            ordinal: 0,
+            label: "old",
+            meta: {},
+          },
+        ],
       });
     });
     await waitFor(() => {
@@ -165,21 +173,28 @@ describe("ContentSearchProvider", () => {
 
     function Probe() {
       controller = useContentSearch();
-      const source = useMemo<ContentSearchLocalSource>(() => ({
-        domain: "diff",
-        contextId: "diff:thread",
-        search: (query, _limit, options) => {
-          searchedQueries.push(query);
-          if (options) searchSignals.push(options.signal);
-          return new Promise((resolve) => {
-            options?.signal.addEventListener("abort", () => {
-              resolve({ query, matches: [], totalMatches: 0, capped: false });
-            }, { once: true });
-          });
-        },
-        activate: () => {},
-        clear: () => {},
-      }), []);
+      const source = useMemo<ContentSearchLocalSource>(
+        () => ({
+          domain: "diff",
+          contextId: "diff:thread",
+          search: (query, _limit, options) => {
+            searchedQueries.push(query);
+            if (options) searchSignals.push(options.signal);
+            return new Promise((resolve) => {
+              options?.signal.addEventListener(
+                "abort",
+                () => {
+                  resolve({ query, matches: [], totalMatches: 0, capped: false });
+                },
+                { once: true },
+              );
+            });
+          },
+          activate: () => {},
+          clear: () => {},
+        }),
+        [],
+      );
       useRegisterContentSearchSource(source);
       return createElement("div");
     }
@@ -211,23 +226,26 @@ describe("ContentSearchProvider", () => {
 
     function Probe() {
       controller = useContentSearch();
-      const source = useMemo<ContentSearchLocalSource>(() => ({
-        domain: "diff",
-        contextId: "diff:thread",
-        search: (query) => ({
-          query,
-          totalMatches: 300,
-          capped: true,
-          matches: [
-            { id: "match-1", domain: "diff", contextId: "diff:thread", ordinal: 1 },
-            { id: "match-2", domain: "diff", contextId: "diff:thread", ordinal: 2 },
-          ],
+      const source = useMemo<ContentSearchLocalSource>(
+        () => ({
+          domain: "diff",
+          contextId: "diff:thread",
+          search: (query) => ({
+            query,
+            totalMatches: 300,
+            capped: true,
+            matches: [
+              { id: "match-1", domain: "diff", contextId: "diff:thread", ordinal: 1 },
+              { id: "match-2", domain: "diff", contextId: "diff:thread", ordinal: 2 },
+            ],
+          }),
+          activate: (match) => {
+            activatedIds.push(match.id);
+          },
+          clear: () => {},
         }),
-        activate: (match) => {
-          activatedIds.push(match.id);
-        },
-        clear: () => {},
-      }), []);
+        [],
+      );
       useRegisterContentSearchSource(source);
       return createElement("div");
     }

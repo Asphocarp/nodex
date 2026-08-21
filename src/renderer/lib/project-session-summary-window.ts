@@ -14,9 +14,9 @@ export function preferNewestProjectSessionSummaryWindow(
     return current;
   }
   if (
-    current.projectionRevision === incoming.projectionRevision
-    && current.items.length > incoming.items.length
-    && (incoming.hasMore || incoming.nextCursor !== null)
+    current.projectionRevision === incoming.projectionRevision &&
+    current.items.length > incoming.items.length &&
+    (incoming.hasMore || incoming.nextCursor !== null)
   ) {
     return current;
   }

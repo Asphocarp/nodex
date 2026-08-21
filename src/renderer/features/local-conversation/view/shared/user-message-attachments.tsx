@@ -30,7 +30,11 @@ function ImageErrorTile({ onRetry }: { onRetry?: () => void }) {
     "size-16 rounded-lg border border-token-border bg-token-bg-tertiary px-1.5 text-center text-[10px] leading-tight text-token-description-foreground";
   if (!onRetry) {
     return (
-      <div className={cn(className, "flex items-center justify-center")} aria-label="Image unavailable" role="status">
+      <div
+        className={cn(className, "flex items-center justify-center")}
+        aria-label="Image unavailable"
+        role="status"
+      >
         Image unavailable
       </div>
     );
@@ -115,14 +119,7 @@ export function InlineOrLocalUserImageAttachment({
     allowLocalPath: isLocalImage,
     materialize: isLocalImage,
   });
-  const {
-    previewSrc: src,
-    downloadSrc,
-    isLoading,
-    isError,
-    error,
-    refetch,
-  } = asset;
+  const { previewSrc: src, downloadSrc, isLoading, isError, error, refetch } = asset;
 
   useEffect(() => {
     if (!src) return;
@@ -136,19 +133,14 @@ export function InlineOrLocalUserImageAttachment({
 
   if (isLoading) return <ImageLoadingTile label="Loading user attachment" />;
   if (!src) {
-    return isError
-      ? <ImageErrorTile onRetry={error ? () => void refetch() : undefined} />
-      : <ImageLoadingTile label="Loading user attachment" />;
+    return isError ? (
+      <ImageErrorTile onRetry={error ? () => void refetch() : undefined} />
+    ) : (
+      <ImageLoadingTile label="Loading user attachment" />
+    );
   }
 
-  return (
-    <UserImageButton
-      src={src}
-      fit="cover"
-      bordered
-      onOpenPreview={onOpenPreview}
-    />
-  );
+  return <UserImageButton src={src} fit="cover" bordered onOpenPreview={onOpenPreview} />;
 }
 
 export function RemoteUserImageAttachment({
@@ -198,7 +190,11 @@ export function RemoteUserImageAttachment({
   );
 }
 
-function UserFileAttachmentChip({ attachment }: { attachment: Extract<CodexUserAttachment, { type: "file" }> }) {
+function UserFileAttachmentChip({
+  attachment,
+}: {
+  attachment: Extract<CodexUserAttachment, { type: "file" }>;
+}) {
   const Icon = attachment.sourceKind === "skill" ? SparklesIcon : FileIcon;
 
   return (
@@ -214,9 +210,9 @@ function UserFileAttachmentChip({ attachment }: { attachment: Extract<CodexUserA
 
 export function UserAttachmentStrip({ attachments }: { attachments: CodexUserAttachment[] }) {
   const { composerTarget, conversationId } = useConversationImageAssetContext();
-  const [resolvedImages, setResolvedImages] = useState<ReadonlyMap<string, ResolvedUserImagePreview>>(
-    () => new Map(),
-  );
+  const [resolvedImages, setResolvedImages] = useState<
+    ReadonlyMap<string, ResolvedUserImagePreview>
+  >(() => new Map());
   const [activePreview, setActivePreview] = useState<{
     attachmentId: string;
     trigger: HTMLButtonElement;
@@ -241,8 +237,9 @@ export function UserAttachmentStrip({ attachments }: { attachments: CodexUserAtt
 
   if (attachments.length === 0) return null;
 
-  const remoteOnly = attachments.every((attachment) =>
-    attachment.type === "image" && attachment.sourceKind === "remote-pointer");
+  const remoteOnly = attachments.every(
+    (attachment) => attachment.type === "image" && attachment.sourceKind === "remote-pointer",
+  );
   const availableImageCount = attachments.filter(
     (attachment) => attachment.type === "image",
   ).length;
@@ -251,10 +248,11 @@ export function UserAttachmentStrip({ attachments }: { attachments: CodexUserAtt
     const image = resolvedImages.get(attachment.id);
     return image ? [image] : [];
   });
-  const activeImageIndex = activePreview === null
-    ? -1
-    : orderedImages.findIndex((image) => image.attachmentId === activePreview.attachmentId);
-  const activeImage = activeImageIndex < 0 ? null : orderedImages[activeImageIndex] ?? null;
+  const activeImageIndex =
+    activePreview === null
+      ? -1
+      : orderedImages.findIndex((image) => image.attachmentId === activePreview.attachmentId);
+  const activeImage = activeImageIndex < 0 ? null : (orderedImages[activeImageIndex] ?? null);
 
   const openPreview = (attachmentId: string, trigger: HTMLButtonElement) => {
     setActivePreview({ attachmentId, trigger });
@@ -279,23 +277,21 @@ export function UserAttachmentStrip({ attachments }: { attachments: CodexUserAtt
             openPreview(attachment.id, trigger);
           };
 
-          return attachment.sourceKind === "remote-pointer"
-            ? (
-                <RemoteUserImageAttachment
-                  key={attachment.id}
-                  attachment={attachment}
-                  onOpenPreview={handleOpenPreview}
-                  registerPreview={registerPreview}
-                />
-              )
-            : (
-                <InlineOrLocalUserImageAttachment
-                  key={attachment.id}
-                  attachment={attachment}
-                  onOpenPreview={handleOpenPreview}
-                  registerPreview={registerPreview}
-                />
-              );
+          return attachment.sourceKind === "remote-pointer" ? (
+            <RemoteUserImageAttachment
+              key={attachment.id}
+              attachment={attachment}
+              onOpenPreview={handleOpenPreview}
+              registerPreview={registerPreview}
+            />
+          ) : (
+            <InlineOrLocalUserImageAttachment
+              key={attachment.id}
+              attachment={attachment}
+              onOpenPreview={handleOpenPreview}
+              registerPreview={registerPreview}
+            />
+          );
         })}
       </div>
       {activeImage && activePreview ? (
@@ -316,16 +312,36 @@ export function UserAttachmentStrip({ attachments }: { attachments: CodexUserAtt
             entrypoint: "image_click",
             imageSource: "uploaded",
           }}
-          onPreviousImage={activeImageIndex > 0
-            ? () => setActivePreview((current) => current === null
-              ? null
-              : { ...current, attachmentId: orderedImages[activeImageIndex - 1]?.attachmentId ?? current.attachmentId })
-            : undefined}
-          onNextImage={activeImageIndex < orderedImages.length - 1
-            ? () => setActivePreview((current) => current === null
-              ? null
-              : { ...current, attachmentId: orderedImages[activeImageIndex + 1]?.attachmentId ?? current.attachmentId })
-            : undefined}
+          onPreviousImage={
+            activeImageIndex > 0
+              ? () =>
+                  setActivePreview((current) =>
+                    current === null
+                      ? null
+                      : {
+                          ...current,
+                          attachmentId:
+                            orderedImages[activeImageIndex - 1]?.attachmentId ??
+                            current.attachmentId,
+                        },
+                  )
+              : undefined
+          }
+          onNextImage={
+            activeImageIndex < orderedImages.length - 1
+              ? () =>
+                  setActivePreview((current) =>
+                    current === null
+                      ? null
+                      : {
+                          ...current,
+                          attachmentId:
+                            orderedImages[activeImageIndex + 1]?.attachmentId ??
+                            current.attachmentId,
+                        },
+                  )
+              : undefined
+          }
           onEditImage={() => {
             void openUserAttachmentImagePreview({
               alt: "User attachment",

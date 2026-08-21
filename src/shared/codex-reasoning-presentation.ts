@@ -14,9 +14,9 @@ type CodexReasoningSummarySource = Pick<
 >;
 
 function stripReasoningHtmlComments(markdownText: string): string {
-  return markdownText.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) => (
-    comment.replace(/[^\r\n]/g, "")
-  ));
+  return markdownText.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) =>
+    comment.replace(/[^\r\n]/g, ""),
+  );
 }
 
 /**
@@ -29,10 +29,7 @@ export function resolveCodexReasoningSummaryPresentation(
 ): CodexReasoningSummaryPresentation | null {
   for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
     const item = items[itemIndex];
-    if (
-      item?.semanticKind !== "reasoning"
-      && item?.normalizedKind !== "reasoning"
-    ) {
+    if (item?.semanticKind !== "reasoning" && item?.normalizedKind !== "reasoning") {
       continue;
     }
 

@@ -1,8 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  BoardScrollContainer,
-  ToggleListScrollContainer,
-} from "./view-scroll-containers";
+import { BoardScrollContainer, ToggleListScrollContainer } from "./view-scroll-containers";
 
 const meta = {
   title: "Board/View Scroll Containers",

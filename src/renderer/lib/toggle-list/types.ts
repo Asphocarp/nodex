@@ -2,10 +2,7 @@ import type { DatabasePage, WorkflowStatus, Priority } from "../types";
 import { PRIORITY_VALUES } from "../../../shared/priority";
 import { getPriorityShortLabel } from "../priority-presentation";
 import type { SortEmptyPlacement } from "../sort-empty-placement";
-import {
-  WORKFLOW_STATUS_LABELS,
-  WORKFLOW_STATUS_ORDER,
-} from "../../../shared/workflow-status";
+import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER } from "../../../shared/workflow-status";
 
 export const TOGGLE_LIST_STATUS_ORDER = [...WORKFLOW_STATUS_ORDER] as const;
 
@@ -49,10 +46,9 @@ export const TOGGLE_LIST_RANK_FIELD_LABELS: Record<ToggleListRankField, string> 
   title: "Title",
 };
 
-export const TOGGLE_LIST_PRIORITY_CHIP_LABELS: Record<Priority, string> =
-  Object.fromEntries(
-    PRIORITY_VALUES.map((priority) => [priority, getPriorityShortLabel(priority)]),
-  ) as Record<Priority, string>;
+export const TOGGLE_LIST_PRIORITY_CHIP_LABELS: Record<Priority, string> = Object.fromEntries(
+  PRIORITY_VALUES.map((priority) => [priority, getPriorityShortLabel(priority)]),
+) as Record<Priority, string>;
 
 export const TOGGLE_LIST_EMPTY_PRIORITY_LABEL = "-";
 
@@ -112,7 +108,12 @@ export const DEFAULT_TOGGLE_LIST_SETTINGS: ToggleListSettings = {
         {
           all: [
             { field: "status", op: "in", values: [...TOGGLE_LIST_STATUS_ORDER] },
-            { field: "priority", op: "in", values: [...TOGGLE_LIST_PRIORITY_ORDER], includeEmpty: true },
+            {
+              field: "priority",
+              op: "in",
+              values: [...TOGGLE_LIST_PRIORITY_ORDER],
+              includeEmpty: true,
+            },
           ],
         },
       ],

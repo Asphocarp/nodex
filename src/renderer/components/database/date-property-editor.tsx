@@ -8,11 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { CalendarIcon, ClockIcon } from "@/components/shared/icons";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import {
   datetimeDraftFromIso,
   formatLocalDateAsIso,
@@ -27,9 +23,7 @@ import {
   type DatabasePropertyValuePresentation,
 } from "./property-value-chip";
 
-let dateCalendarPromise:
-  | Promise<typeof import("@/components/ui/date-calendar")>
-  | undefined;
+let dateCalendarPromise: Promise<typeof import("@/components/ui/date-calendar")> | undefined;
 
 /** Warms the deferred calendar before an interaction that is likely to open it. */
 export const preloadDatePropertyCalendar = () => {
@@ -66,10 +60,7 @@ function DatePropertyEditorContentFrame({
 }) {
   if (host === "embedded") {
     return (
-      <div
-        className="w-full min-w-0 overflow-hidden"
-        onPointerDownCapture={onPointerDownCapture}
-      >
+      <div className="w-full min-w-0 overflow-hidden" onPointerDownCapture={onPointerDownCapture}>
         {children}
       </div>
     );
@@ -108,15 +99,16 @@ export function DatePropertyEditor({
   readonly onRequestClose?: () => void;
   readonly onChange: (value: string | null) => void;
 }) {
-  const committed = mode === "date"
-    ? { date: value ?? "", time: "" }
-    : value ? datetimeDraftFromIso(value) ?? { date: "", time: "" } : { date: "", time: "" };
+  const committed =
+    mode === "date"
+      ? { date: value ?? "", time: "" }
+      : value
+        ? (datetimeDraftFromIso(value) ?? { date: "", time: "" })
+        : { date: "", time: "" };
   const [open, setOpen] = useState(false);
   const [dateInput, setDateInput] = useState(committed.date);
   const [timeInput, setTimeInput] = useState(committed.time);
-  const [month, setMonth] = useState(
-    parseIsoDateToLocalDate(committed.date) ?? new Date(),
-  );
+  const [month, setMonth] = useState(parseIsoDateToLocalDate(committed.date) ?? new Date());
   const [error, setError] = useState<string | null>(null);
   const skipBlurCommitRef = useRef(false);
   const lastCommittedDraftRef = useRef<string | null>(null);
@@ -179,11 +171,11 @@ export function DatePropertyEditor({
     ? presentation === "list" || presentation === "board"
       ? formatListDate(mode === "datetime" && value ? new Date(value) : selected)
       : new Intl.DateTimeFormat(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        ...(mode === "datetime" ? { hour: "numeric", minute: "2-digit" } : {}),
-      }).format(mode === "datetime" && value ? new Date(value) : selected)
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          ...(mode === "datetime" ? { hour: "numeric", minute: "2-digit" } : {}),
+        }).format(mode === "datetime" && value ? new Date(value) : selected)
     : null;
   const cancelDraft = () => {
     skipBlurCommitRef.current = true;
@@ -196,29 +188,32 @@ export function DatePropertyEditor({
   const handlePointerDownCapture: PointerEventHandler<HTMLDivElement> = (event) => {
     const active = document.activeElement;
     if (
-      active instanceof HTMLElement
-      && active.dataset.propertyDateDraft === "true"
-      && event.target instanceof Node
-      && !active.contains(event.target)
+      active instanceof HTMLElement &&
+      active.dataset.propertyDateDraft === "true" &&
+      event.target instanceof Node &&
+      !active.contains(event.target)
     ) {
       skipBlurCommitRef.current = true;
     }
   };
 
   return (
-    <NodexPopover open={editorOpen} onOpenChange={(next) => {
-      if (host === "embedded") return;
-      if (next && disabled) return;
-      setOpen(next);
-      if (next) {
-        skipBlurCommitRef.current = false;
-        lastCommittedDraftRef.current = null;
-        return;
-      }
-      setDateInput(committed.date);
-      setTimeInput(committed.time);
-      setError(null);
-    }}>
+    <NodexPopover
+      open={editorOpen}
+      onOpenChange={(next) => {
+        if (host === "embedded") return;
+        if (next && disabled) return;
+        setOpen(next);
+        if (next) {
+          skipBlurCommitRef.current = false;
+          lastCommittedDraftRef.current = null;
+          return;
+        }
+        setDateInput(committed.date);
+        setTimeInput(committed.time);
+        setError(null);
+      }}
+    >
       {host === "popover" ? (
         <NodexPopoverTrigger asChild disabled={disabled}>
           <button
@@ -240,17 +235,16 @@ export function DatePropertyEditor({
                   : "text-[11px]",
             )}
           >
-            {selected ? (
-              triggerIcon ?? <CalendarIcon className="icon-2xs shrink-0 text-token-description-foreground" />
-            ) : null}
+            {selected
+              ? (triggerIcon ?? (
+                  <CalendarIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+                ))
+              : null}
             {display ? <span className="truncate">{display}</span> : <PropertyEmptyValue />}
           </button>
         </NodexPopoverTrigger>
       ) : null}
-      <DatePropertyEditorContentFrame
-        host={host}
-        onPointerDownCapture={handlePointerDownCapture}
-      >
+      <DatePropertyEditorContentFrame host={host} onPointerDownCapture={handlePointerDownCapture}>
         <div className="px-2 pt-2">
           <div className="flex h-8 items-center gap-1 rounded-lg bg-token-foreground/5 px-2">
             <CalendarIcon className="icon-2xs shrink-0 text-token-description-foreground" />
@@ -311,7 +305,11 @@ export function DatePropertyEditor({
               />
             </div>
           ) : null}
-          {error ? <p role="alert" className="px-1 pt-1 text-xs text-token-error-foreground">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="px-1 pt-1 text-xs text-token-error-foreground">
+              {error}
+            </p>
+          ) : null}
         </div>
         <Suspense fallback={<div aria-hidden="true" className="h-56 w-full" />}>
           <LazyNodexDateCalendar

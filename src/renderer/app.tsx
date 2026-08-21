@@ -1,7 +1,4 @@
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 import { AppStartupScreen } from "@/components/app-startup-screen";
 import { CoreAuthorityStatusNotice } from "@/components/core-authority-status";
 import { NodexToastProvider } from "@/components/ui/toast";
@@ -41,13 +38,11 @@ const CORE_RECOVERY_NOTICE_DELAY_MS = 1_500;
 export default function App() {
   const appUpdateStatus = useAppUpdateStatus();
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
-  const [bootstrapState, setBootstrapState] = useState<BootstrapState>(
-    INITIAL_BOOTSTRAP_STATE,
+  const [bootstrapState, setBootstrapState] = useState<BootstrapState>(INITIAL_BOOTSTRAP_STATE);
+  const [coreAuthorityStatus, setCoreAuthorityStatus] = useState<CoreAuthorityStatus>(
+    READY_CORE_AUTHORITY_STATUS,
   );
-  const [coreAuthorityStatus, setCoreAuthorityStatus] =
-    useState<CoreAuthorityStatus>(READY_CORE_AUTHORITY_STATUS);
-  const [showRecoveringCoreAuthority, setShowRecoveringCoreAuthority] =
-    useState(false);
+  const [showRecoveringCoreAuthority, setShowRecoveringCoreAuthority] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,8 +65,7 @@ export default function App() {
       .then((windowSession) => {
         if (cancelled) return;
         window.api?.reportInitializationReady?.({
-          durationMs:
-            performance.now() - rendererBootstrapStartedAt,
+          durationMs: performance.now() - rendererBootstrapStartedAt,
           outcome: "ready",
         });
         setBootstrapState({
@@ -84,8 +78,7 @@ export default function App() {
       .catch(() => {
         if (cancelled) return;
         window.api?.reportInitializationReady?.({
-          durationMs:
-            performance.now() - rendererBootstrapStartedAt,
+          durationMs: performance.now() - rendererBootstrapStartedAt,
           outcome: "failed",
         });
         setBootstrapState({
@@ -125,10 +118,12 @@ export default function App() {
     });
     const statusSnapshot = window.api?.getCoreAuthorityStatus?.();
     if (statusSnapshot) {
-      void statusSnapshot.then((status) => {
-        if (cancelled || observedPush) return;
-        setCoreAuthorityStatus(status);
-      }).catch(() => undefined);
+      void statusSnapshot
+        .then((status) => {
+          if (cancelled || observedPush) return;
+          setCoreAuthorityStatus(status);
+        })
+        .catch(() => undefined);
     }
     return () => {
       cancelled = true;
@@ -166,35 +161,32 @@ export default function App() {
         <DesktopNotificationPermissionBootstrap />
         <LocalConversationViewStateCleanupController />
         <HeartbeatAutomationController />
-        <WorkbenchShell
-          windowSessionBootstrap={bootstrapState.windowSession}
-        />
+        <WorkbenchShell windowSessionBootstrap={bootstrapState.windowSession} />
         <CoreAuthorityStatusNotice
           status={
-            coreAuthorityStatus.kind === "recovering"
-              && !showRecoveringCoreAuthority
+            coreAuthorityStatus.kind === "recovering" && !showRecoveringCoreAuthority
               ? READY_CORE_AUTHORITY_STATUS
               : coreAuthorityStatus
           }
           onRetry={retryCoreAuthority}
           onRelaunch={relaunchForCoreAuthority}
         />
-        {appUpdateStatus?.status === "downloaded"
-          && dismissedUpdateVersion !== appUpdateStatus.availableVersion ? (
-            <div className="pointer-events-none fixed inset-x-3 bottom-14 z-[61] flex justify-center">
-              <div className="pointer-events-auto">
-                <AppUpdateRestartNotice
-                  status={appUpdateStatus}
-                  onDismiss={() => {
-                    setDismissedUpdateVersion(appUpdateStatus.availableVersion);
-                  }}
-                  onRestart={() => {
-                    void invoke("app:update:install");
-                  }}
-                />
-              </div>
+        {appUpdateStatus?.status === "downloaded" &&
+        dismissedUpdateVersion !== appUpdateStatus.availableVersion ? (
+          <div className="pointer-events-none fixed inset-x-3 bottom-14 z-[61] flex justify-center">
+            <div className="pointer-events-auto">
+              <AppUpdateRestartNotice
+                status={appUpdateStatus}
+                onDismiss={() => {
+                  setDismissedUpdateVersion(appUpdateStatus.availableVersion);
+                }}
+                onRestart={() => {
+                  void invoke("app:update:install");
+                }}
+              />
             </div>
-          ) : null}
+          </div>
+        ) : null}
         <NodexModalHost />
       </LocalConversationProvider>
     </NodexToastProvider>

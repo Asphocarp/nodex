@@ -39,9 +39,7 @@ describe("image-editor semantic icons", () => {
     expect(svg?.getAttribute("fill")).toBe("currentColor");
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
     expect(svg?.querySelectorAll("path")).toHaveLength(1);
-    expect(
-      svg?.querySelector("path")?.getAttribute("d")?.length,
-    ).toBeGreaterThan(300);
+    expect(svg?.querySelector("path")?.getAttribute("d")?.length).toBeGreaterThan(300);
   });
 
   test("keeps each aspect option visually distinct", () => {
@@ -66,13 +64,9 @@ describe("image-editor semantic icons", () => {
     const canvasSvg = canvasView.container.querySelector("svg");
 
     expect(focusedSvg?.getAttribute("viewBox")).toBe("0 0 16 16");
-    expect(focusedSvg?.querySelector("g")?.getAttribute("transform")).toBe(
-      "translate(1.468 2.11)",
-    );
+    expect(focusedSvg?.querySelector("g")?.getAttribute("transform")).toBe("translate(1.468 2.11)");
     expect(focusedSvg?.querySelectorAll("path")).toHaveLength(1);
-    expect(canvasSvg?.querySelector("g")?.getAttribute("transform")).toBe(
-      "translate(1.516 1.516)",
-    );
+    expect(canvasSvg?.querySelector("g")?.getAttribute("transform")).toBe("translate(1.516 1.516)");
     expect(canvasSvg?.querySelectorAll("path")).toHaveLength(4);
   });
 
@@ -83,9 +77,7 @@ describe("image-editor semantic icons", () => {
     const resize = render(<ImageResizeIcon />).container.querySelector("svg");
     const undo = render(<ImageUndoIcon />).container.querySelector("svg");
     const redo = render(<ImageRedoIcon />).container.querySelector("svg");
-    const select = render(<ImageMultiSelectIcon />).container.querySelector(
-      "svg",
-    );
+    const select = render(<ImageMultiSelectIcon />).container.querySelector("svg");
 
     expect(tab?.getAttribute("viewBox")).toBe("0 0 24 24");
     expect(tab?.querySelectorAll("path")).toHaveLength(3);
@@ -93,9 +85,7 @@ describe("image-editor semantic icons", () => {
     expect(remove?.querySelector("path")?.getAttribute("transform")).toBe(
       "translate(2 2) scale(1.25)",
     );
-    expect(resize?.querySelector("path")?.getAttribute("fill-rule")).toBe(
-      "evenodd",
-    );
+    expect(resize?.querySelector("path")?.getAttribute("fill-rule")).toBe("evenodd");
     expect(undo?.querySelectorAll("path")).toHaveLength(1);
     expect(redo?.getAttribute("class")).toContain("-scale-x-100");
     expect(select?.getAttribute("viewBox")).toBe("0 0 13 13");
@@ -104,9 +94,7 @@ describe("image-editor semantic icons", () => {
   test("keeps marker, zoom, and brush-track shapes at their authored geometry", () => {
     const marker = render(<ImageCommentMarkerShape />).container.querySelector("svg");
     const zoomMinus = render(<ImageZoomMinusIcon />).container.querySelector("svg");
-    const brushTrack = render(<ImageRemoveBrushTrackShape />).container.querySelector(
-      "svg",
-    );
+    const brushTrack = render(<ImageRemoveBrushTrackShape />).container.querySelector("svg");
 
     expect(marker?.getAttribute("viewBox")).toBe("0 0 26 25");
     expect(marker?.querySelector("path")?.getAttribute("stroke-width")).toBe("1.65");

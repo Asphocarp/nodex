@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type {
-  DatabaseViewFilterNode,
-  DatabaseViewConfigV4,
-} from "../../shared/database-kernel";
+import type { DatabaseViewFilterNode, DatabaseViewConfigV4 } from "../../shared/database-kernel";
 import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type {
   DatabaseViewRecordV2,
@@ -41,9 +38,10 @@ const property = (
     valueType === "select" || valueType === "multi_select" ? 1 : 0,
   ),
   valueType,
-  config: valueType === "select" || valueType === "multi_select"
-    ? { options: [{ id: "o_AAAAAAAA", name: "One" }] }
-    : {},
+  config:
+    valueType === "select" || valueType === "multi_select"
+      ? { options: [{ id: "o_AAAAAAAA", name: "One" }] }
+      : {},
   rankKey: "a",
   lifecycle: "active",
   revision: 1,
@@ -117,9 +115,7 @@ describe("durable Database View authoring", () => {
   test("authors negative membership filters with scalar set members", () => {
     const multiSelect = property("multi_select");
     expect(filterOperatorsForProperty(multiSelect)).toContain("not_contains");
-    expect(
-      databaseFilterClauseWithOperator(multiSelect, "not_contains"),
-    ).toEqual({
+    expect(databaseFilterClauseWithOperator(multiSelect, "not_contains")).toEqual({
       kind: "clause",
       propertyId: multiSelect.propertyId,
       operator: "not_contains",
@@ -141,16 +137,20 @@ describe("durable Database View authoring", () => {
     });
     const moved = moveDatabaseViewSort(base.presentation.sort, 1, "up");
     expect(moved[0]?.field.kind).toBe("manual");
-    expect(databaseViewConfigsEqual(base, {
-      ...base,
-      presentation: {
-        ...base.presentation,
-        sort: [...base.presentation.sort],
-      },
-    })).toBe(true);
-    expect(databaseViewConfigsEqual(base, {
-      ...base,
-      presentation: { ...base.presentation, sort: moved },
-    })).toBe(false);
+    expect(
+      databaseViewConfigsEqual(base, {
+        ...base,
+        presentation: {
+          ...base.presentation,
+          sort: [...base.presentation.sort],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      databaseViewConfigsEqual(base, {
+        ...base,
+        presentation: { ...base.presentation, sort: moved },
+      }),
+    ).toBe(false);
   });
 });

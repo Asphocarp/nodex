@@ -1,14 +1,9 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { subscribeToBackendLogs } from "./logging/logger";
-import {
-  isDevRuntimeMetricsEnabled,
-  logDevRuntimeMetric,
-} from "./dev-runtime-metrics";
-import { NODEX_DEVELOPMENT_FEATURES_ENV } from
-  "../shared/development-features";
+import { isDevRuntimeMetricsEnabled, logDevRuntimeMetric } from "./dev-runtime-metrics";
+import { NODEX_DEVELOPMENT_FEATURES_ENV } from "../shared/development-features";
 
-const ORIGINAL_DEVELOPMENT_FEATURES =
-  process.env[NODEX_DEVELOPMENT_FEATURES_ENV];
+const ORIGINAL_DEVELOPMENT_FEATURES = process.env[NODEX_DEVELOPMENT_FEATURES_ENV];
 
 afterEach(() => {
   if (ORIGINAL_DEVELOPMENT_FEATURES === undefined) {
@@ -29,10 +24,7 @@ describe("dev runtime metrics", () => {
 
   test("emits a structured info record only when explicitly enabled", () => {
     const records: Array<Record<string, unknown>> = [];
-    const unsubscribe = subscribeToBackendLogs(
-      (entry) => records.push(entry),
-      { level: "info" },
-    );
+    const unsubscribe = subscribeToBackendLogs((entry) => records.push(entry), { level: "info" });
 
     try {
       delete process.env[NODEX_DEVELOPMENT_FEATURES_ENV];

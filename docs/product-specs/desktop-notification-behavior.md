@@ -133,12 +133,12 @@ is not presentation.
 
 Request presentation is:
 
-| Raw request | Title | Body | Native actions |
-| --- | --- | --- | --- |
-| command approval | `Command approval` | reason or `Approval required` | Approve, Approve for session, Decline |
-| file-change approval | `File edit approval` | reason or `Approval required` | Approve, Approve for session, Decline |
-| permissions approval | `Permission approval` | reason or `Approval required` | none; open only |
-| input request | task title or `Need your input` | singular/plural question count | none; open only |
+| Raw request          | Title                           | Body                           | Native actions                        |
+| -------------------- | ------------------------------- | ------------------------------ | ------------------------------------- |
+| command approval     | `Command approval`              | reason or `Approval required`  | Approve, Approve for session, Decline |
+| file-change approval | `File edit approval`            | reason or `Approval required`  | Approve, Approve for session, Decline |
+| permissions approval | `Permission approval`           | reason or `Approval required`  | none; open only                       |
+| input request        | task title or `Need your input` | singular/plural question count | none; open only                       |
 
 The current production app-server source is the singleton local host. Request
 events and actions retain a host-qualified contract so a future real host

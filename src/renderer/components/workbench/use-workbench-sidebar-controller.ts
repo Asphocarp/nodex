@@ -1,35 +1,16 @@
-import {
-  useCallback,
-  useEffect,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
-import type {
-  QueryClient,
-} from "@tanstack/react-query";
-import {
-  ensureFreshDatabaseViewBoard,
-} from "@/lib/board-store";
-import {
-  getGitWorkerClient,
-  invoke,
-} from "@/lib/api";
-import {
-  buildSessionDeepLink,
-} from "@/lib/page-deeplink";
-import {
-  documentSessionRegistry,
-} from "@/lib/document-session-registry";
-import {
-  queryKeys,
-} from "@/lib/query-keys";
+import { useCallback, useEffect, type MouseEvent as ReactMouseEvent } from "react";
+import type { QueryClient } from "@tanstack/react-query";
+import { ensureFreshDatabaseViewBoard } from "@/lib/board-store";
+import { getGitWorkerClient, invoke } from "@/lib/api";
+import { buildSessionDeepLink } from "@/lib/page-deeplink";
+import { documentSessionRegistry } from "@/lib/document-session-registry";
+import { queryKeys } from "@/lib/query-keys";
 import {
   loadLocalEnvironmentConfigSelection,
   readLocalEnvironmentSelections,
 } from "./local-environment-selection";
 import type { ScopeHandle } from "@/lib/maitai";
-import {
-  openModal,
-} from "@/lib/modal-registry";
+import { openModal } from "@/lib/modal-registry";
 import {
   buildSessionContextMenuItems,
   canForkSessionLocally,
@@ -38,21 +19,11 @@ import {
   resolveSessionProjectMoveContainers,
   SESSION_CONTEXT_MENU_ACTION_IDS,
 } from "./session-context-menu-model";
-import {
-  showNativeContextMenu,
-} from "@/lib/native-context-menu";
-import {
-  toast,
-} from "@/components/ui/toast";
-import {
-  writeTextToClipboard,
-} from "@/lib/clipboard";
-import {
-  projectWorkspaceRootOrNull,
-} from "@/lib/workbench-workspace-context";
-import {
-  presentWorkbenchSessionDomainWithScene,
-} from "@/lib/workbench-scene-presentation";
+import { showNativeContextMenu } from "@/lib/native-context-menu";
+import { toast } from "@/components/ui/toast";
+import { writeTextToClipboard } from "@/lib/clipboard";
+import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
+import { presentWorkbenchSessionDomainWithScene } from "@/lib/workbench-scene-presentation";
 import {
   presentWorkbenchSession,
   type WorkbenchSessionRenderProjection,
@@ -61,21 +32,11 @@ import type {
   WorkbenchSessionCatalog,
   WorkbenchSessionCatalogWindowPort,
 } from "@/lib/use-workbench-session-catalog";
-import type {
-  WorkbenchPanelController,
-} from "@/lib/use-workbench-panel-controller";
-import type {
-  useWorkbenchSidebarState,
-} from "@/lib/use-workbench-sidebar-state";
-import type {
-  useSidebarThreadSyncModel,
-} from "@/lib/use-sidebar-thread-sync-model";
-import type {
-  useCodexAppServerControl,
-} from "@/features/local-conversation";
-import type {
-  CodexSidebarThreadSyncModel,
-} from "@/lib/codex-sidebar-thread-sync";
+import type { WorkbenchPanelController } from "@/lib/use-workbench-panel-controller";
+import type { useWorkbenchSidebarState } from "@/lib/use-workbench-sidebar-state";
+import type { useSidebarThreadSyncModel } from "@/lib/use-sidebar-thread-sync-model";
+import type { useCodexAppServerControl } from "@/features/local-conversation";
+import type { CodexSidebarThreadSyncModel } from "@/lib/codex-sidebar-thread-sync";
 import type {
   CodexSidebarThreadItem,
   Project,
@@ -87,16 +48,9 @@ import {
   type CodexSidebarThreadMovePlacement,
   type CodexSidebarThreadMoveSuccess,
 } from "../../../shared/codex-sidebar-thread-move";
-import {
-  RenameChatDialog,
-} from "./rename-chat-dialog";
-import {
-  SidebarThreadMoveConfirmationDialog,
-} from "./sidebar-thread-move-confirmation-dialog";
-import type {
-  SidebarThreadDropCommit,
-  SidebarThreadDropRequest,
-} from "./sidebar-thread-reorder";
+import { RenameChatDialog } from "./rename-chat-dialog";
+import { SidebarThreadMoveConfirmationDialog } from "./sidebar-thread-move-confirmation-dialog";
+import type { SidebarThreadDropCommit, SidebarThreadDropRequest } from "./sidebar-thread-reorder";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 type SidebarState = Pick<
@@ -136,14 +90,10 @@ interface WorkbenchSidebarControllerInput {
   readonly appHandle: ScopeHandle;
   readonly setSettingsPath: (path: string | null) => void;
   readonly setAutomationsPath: (path: string | null) => void;
-  readonly setPendingWorktreeClientThreadId: (
-    clientThreadId: string | null,
-  ) => void;
+  readonly setPendingWorktreeClientThreadId: (clientThreadId: string | null) => void;
   readonly setLocalEnvironmentSettingsInitial: (value: null) => void;
   readonly closePendingWorktreeRoute: () => void;
-  readonly onOpenProjectSessionInNewWindow?: (
-    session: ProjectSession,
-  ) => Promise<void>;
+  readonly onOpenProjectSessionInNewWindow?: (session: ProjectSession) => Promise<void>;
 }
 
 function readRendererPlatform(): NodeJS.Platform | "browser" {
@@ -158,10 +108,7 @@ function readRendererPlatform(): NodeJS.Platform | "browser" {
 function listSessionDbViewTargets(
   session: ProjectSession,
 ): Array<{ projectId: string; databaseViewId: string }> {
-  const targets = new Map<
-    string,
-    { projectId: string; databaseViewId: string }
-  >();
+  const targets = new Map<string, { projectId: string; databaseViewId: string }>();
   for (const tab of session.tabs) {
     if (tab.kind !== "db_view") continue;
     if (!("projectId" in tab.config)) continue;
@@ -217,10 +164,7 @@ export function useWorkbenchSidebarController({
     finishArchive,
     finishContextMenu,
   } = sidebarState;
-  const {
-    refresh: refreshSidebarThreadSnapshot,
-    setPinned: setSidebarThreadPinned,
-  } = sidebarSync;
+  const { refresh: refreshSidebarThreadSnapshot, setPinned: setSidebarThreadPinned } = sidebarSync;
 
   const refreshProjectSessions = useCallback(
     async (projectId: string | null) => {
@@ -230,218 +174,218 @@ export function useWorkbenchSidebarController({
     [catalog],
   );
 
-  const moveSidebarThreadInputForSidebar = useCallback(async (
-    initialInput: CodexSidebarThreadMoveInput,
-  ) => {
-    const submitMove = async (
-      moveInput: CodexSidebarThreadMoveInput,
-    ): Promise<CodexSidebarThreadMoveSuccess | null> => {
-      try {
-        const result = await invoke("codex:sidebar:thread:move", moveInput);
-        if (result.status === "confirmation-required") {
-          openModal(appHandle, SidebarThreadMoveConfirmationDialog, {
-            confirmation: result,
-            onContinue: () => {
-              void submitMove({
-                ...moveInput,
-                projectAccessGrant: {
-                  targetProjectId: result.targetProjectId,
-                  expectedBindingRevision: result.targetBindingRevision,
-                  missingProjectSources: result.missingProjectSources,
-                },
-              });
-            },
-          });
+  const moveSidebarThreadInputForSidebar = useCallback(
+    async (initialInput: CodexSidebarThreadMoveInput) => {
+      const submitMove = async (
+        moveInput: CodexSidebarThreadMoveInput,
+      ): Promise<CodexSidebarThreadMoveSuccess | null> => {
+        try {
+          const result = await invoke("codex:sidebar:thread:move", moveInput);
+          if (result.status === "confirmation-required") {
+            openModal(appHandle, SidebarThreadMoveConfirmationDialog, {
+              confirmation: result,
+              onContinue: () => {
+                void submitMove({
+                  ...moveInput,
+                  projectAccessGrant: {
+                    targetProjectId: result.targetProjectId,
+                    expectedBindingRevision: result.targetBindingRevision,
+                    missingProjectSources: result.missingProjectSources,
+                  },
+                });
+              },
+            });
+            return null;
+          }
+
+          const scopeIds = new Set([result.source.projectId, result.destination.projectId]);
+          await Promise.all(
+            [...scopeIds].map(async (projectId) => {
+              await catalog.refreshThrough(projectId, result.projectionRevision);
+            }),
+          );
+          if (moveInput.projectAccessGrant) {
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.projects.all(),
+            });
+          }
+          return result;
+        } catch {
+          toast.danger("Couldn’t move chat");
           return null;
         }
+      };
 
-        const scopeIds = new Set([
-          result.source.projectId,
-          result.destination.projectId,
-        ]);
-        await Promise.all([...scopeIds].map(async (projectId) => {
-          await catalog.refreshThrough(projectId, result.projectionRevision);
-        }));
-        if (moveInput.projectAccessGrant) {
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.projects.all(),
-          });
-        }
-        return result;
-      } catch {
-        toast.danger("Couldn’t move chat");
-        return null;
+      return await submitMove(initialInput);
+    },
+    [appHandle, catalog, queryClient],
+  );
+
+  const moveSidebarThreadForSidebar = useCallback(
+    async (drop: SidebarThreadDropRequest): Promise<SidebarThreadDropCommit | null> => {
+      if (
+        !isCodexSidebarThreadContainerId(drop.sourceContainerId) ||
+        !isCodexSidebarThreadContainerId(drop.targetContainerId)
+      ) {
+        throw new Error("Invalid sidebar thread move container");
       }
-    };
 
-    return await submitMove(initialInput);
-  }, [appHandle, catalog, queryClient]);
+      const placement: CodexSidebarThreadMovePlacement = drop.useDefaultOrder
+        ? { beforeThreadId: null, useDefaultOrder: true }
+        : drop.afterThreadId !== undefined
+          ? { beforeThreadId: null, afterThreadId: drop.afterThreadId }
+          : drop.insertAtEnd
+            ? { beforeThreadId: null, insertAtEnd: true }
+            : drop.beforeThreadId === null
+              ? { beforeThreadId: null }
+              : { beforeThreadId: drop.beforeThreadId };
+      const result = await moveSidebarThreadInputForSidebar({
+        hostId: "local",
+        threadId: drop.threadId,
+        sourceContainerId: drop.sourceContainerId,
+        targetContainerId: drop.targetContainerId,
+        ...placement,
+      });
+      return result === null
+        ? null
+        : {
+            operationId: result.operationId,
+            projectionRevision: result.projectionRevision,
+          };
+    },
+    [moveSidebarThreadInputForSidebar],
+  );
 
-  const moveSidebarThreadForSidebar = useCallback(async (
-    drop: SidebarThreadDropRequest,
-  ): Promise<SidebarThreadDropCommit | null> => {
-    if (
-      !isCodexSidebarThreadContainerId(drop.sourceContainerId)
-      || !isCodexSidebarThreadContainerId(drop.targetContainerId)
-    ) {
-      throw new Error("Invalid sidebar thread move container");
-    }
+  const mergeSessionInState = useCallback(
+    (session: ProjectSessionDomain) => {
+      catalog.seed(session);
+    },
+    [catalog],
+  );
 
-    const placement: CodexSidebarThreadMovePlacement = drop.useDefaultOrder
-      ? { beforeThreadId: null, useDefaultOrder: true }
-      : drop.afterThreadId !== undefined
-        ? { beforeThreadId: null, afterThreadId: drop.afterThreadId }
-        : drop.insertAtEnd
-          ? { beforeThreadId: null, insertAtEnd: true }
-          : drop.beforeThreadId === null
-            ? { beforeThreadId: null }
-            : { beforeThreadId: drop.beforeThreadId };
-    const result = await moveSidebarThreadInputForSidebar({
-      hostId: "local",
-      threadId: drop.threadId,
-      sourceContainerId: drop.sourceContainerId,
-      targetContainerId: drop.targetContainerId,
-      ...placement,
-    });
-    return result === null
-      ? null
-      : {
-          operationId: result.operationId,
-          projectionRevision: result.projectionRevision,
-        };
-  }, [moveSidebarThreadInputForSidebar]);
-
-  const mergeSessionInState = useCallback((
-    session: ProjectSessionDomain,
-  ) => {
-    catalog.seed(session);
-  }, [catalog]);
-
-  const warmProjectSessionDbViewBoards = useCallback((
-    session: ProjectSessionDomain | ProjectSession,
-  ) => {
-    const projected = "tabs" in session
-      ? session
-      : presentWorkbenchSessionDomainWithScene(
-          session,
-          catalog.resolveScene(session),
+  const warmProjectSessionDbViewBoards = useCallback(
+    (session: ProjectSessionDomain | ProjectSession) => {
+      const projected =
+        "tabs" in session
+          ? session
+          : presentWorkbenchSessionDomainWithScene(session, catalog.resolveScene(session));
+      for (const target of listSessionDbViewTargets(projected)) {
+        void ensureFreshDatabaseViewBoard(target.projectId, target.databaseViewId).catch(
+          () => undefined,
         );
-    for (const target of listSessionDbViewTargets(projected)) {
-      void ensureFreshDatabaseViewBoard(
-        target.projectId,
-        target.databaseViewId,
-      ).catch(() => undefined);
-    }
-  }, [catalog]);
+      }
+    },
+    [catalog],
+  );
 
-  const prefetchSidebarSession = useCallback((
-    item: CodexSidebarThreadItem,
-  ) => {
-    if (item.disabled) return;
+  const prefetchSidebarSession = useCallback(
+    (item: CodexSidebarThreadItem) => {
+      if (item.disabled) return;
 
-    const session = item.sessionId
-      ? knownSessions.find(
-          (candidate) => candidate.id === item.sessionId,
-        ) ?? null
-      : knownSessions.find(
-          (candidate) => candidate.thread?.threadId === item.threadId,
-        ) ?? null;
-    const sessionId = item.sessionId ?? session?.id ?? null;
-    if (!sessionId) return;
+      const session = item.sessionId
+        ? (knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null)
+        : (knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null);
+      const sessionId = item.sessionId ?? session?.id ?? null;
+      if (!sessionId) return;
 
-    void catalog.prefetch(sessionId)
-      .then((detail) => {
-        if (detail) warmProjectSessionDbViewBoards(detail);
-      })
-      .catch(() => undefined);
-  }, [catalog, knownSessions, warmProjectSessionDbViewBoards]);
+      void catalog
+        .prefetch(sessionId)
+        .then((detail) => {
+          if (detail) warmProjectSessionDbViewBoards(detail);
+        })
+        .catch(() => undefined);
+    },
+    [catalog, knownSessions, warmProjectSessionDbViewBoards],
+  );
 
   useEffect(() => {
     if (!catalog.active) return;
     warmProjectSessionDbViewBoards(catalog.active.domain);
   }, [catalog.active, warmProjectSessionDbViewBoards]);
 
-  const resolveSessionHasGitRepository = useCallback(async (
-    session: ProjectSession,
-  ): Promise<boolean> => {
-    if (!canForkSessionLocally(session)) return false;
-    const cwd = session.thread?.cwd?.trim();
-    if (!cwd) return false;
-    try {
-      const state = await getGitWorkerClient().request({
-        method: "branch-metadata",
-        params: { cwd },
-      });
-      return Boolean(
-        state.currentBranch
-        || state.defaultBranch
-        || (state.branches?.length ?? 0) > 0
-      );
-    } catch {
-      return false;
-    }
-  }, []);
-
-  const resolveForkLocalEnvironmentConfigPath = useCallback(async (
-    workspaceRoot: string | null | undefined,
-  ): Promise<string | null> => {
-    return await loadLocalEnvironmentConfigSelection({
-      workspaceRoot,
-      selectionsByWorkspace: readLocalEnvironmentSelections(),
-      loadCandidates: async (resolvedWorkspaceRoot) => await invoke(
-        "worktrees:environments:configs:list-for-workspace",
-        "local",
-        resolvedWorkspaceRoot,
-      ),
-    });
-  }, []);
-
-  const selectProject = useCallback((projectId: string) => {
-    workbenchWindow.selectProject(projectId);
-    ensureProjectExpanded(projectId);
-  }, [
-    ensureProjectExpanded,
-    workbenchWindow,
-  ]);
-
-  const selectSession = useCallback((
-    session: ProjectSessionDomain | ProjectSession,
-  ) => {
-    const catalogPresentation = catalog.findById(session.id);
-    const domainSession = catalogPresentation?.domain ?? session;
-    const targetSession = catalogPresentation
-      ? presentWorkbenchSession(catalogPresentation)
-      : presentWorkbenchSessionDomainWithScene(
-          domainSession,
-          catalog.resolveScene(domainSession),
+  const resolveSessionHasGitRepository = useCallback(
+    async (session: ProjectSession): Promise<boolean> => {
+      if (!canForkSessionLocally(session)) return false;
+      const cwd = session.thread?.cwd?.trim();
+      if (!cwd) return false;
+      try {
+        const state = await getGitWorkerClient().request({
+          method: "branch-metadata",
+          params: { cwd },
+        });
+        return Boolean(
+          state.currentBranch || state.defaultBranch || (state.branches?.length ?? 0) > 0,
         );
-    warmProjectSessionDbViewBoards(targetSession);
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
 
-    catalog.select(domainSession);
-    if (targetSession.projectId !== null) {
-      ensureProjectExpanded(targetSession.projectId);
-    }
+  const resolveForkLocalEnvironmentConfigPath = useCallback(
+    async (workspaceRoot: string | null | undefined): Promise<string | null> => {
+      return await loadLocalEnvironmentConfigSelection({
+        workspaceRoot,
+        selectionsByWorkspace: readLocalEnvironmentSelections(),
+        loadCandidates: async (resolvedWorkspaceRoot) =>
+          await invoke(
+            "worktrees:environments:configs:list-for-workspace",
+            "local",
+            resolvedWorkspaceRoot,
+          ),
+      });
+    },
+    [],
+  );
 
-    if (!targetSession.unread) return;
-    const threadId = targetSession.thread?.threadId ?? null;
-    if (threadId) {
-      void codexControl.markConversationAsRead(threadId)
+  const selectProject = useCallback(
+    (projectId: string) => {
+      workbenchWindow.selectProject(projectId);
+      ensureProjectExpanded(projectId);
+    },
+    [ensureProjectExpanded, workbenchWindow],
+  );
+
+  const selectSession = useCallback(
+    (session: ProjectSessionDomain | ProjectSession) => {
+      const catalogPresentation = catalog.findById(session.id);
+      const domainSession = catalogPresentation?.domain ?? session;
+      const targetSession = catalogPresentation
+        ? presentWorkbenchSession(catalogPresentation)
+        : presentWorkbenchSessionDomainWithScene(
+            domainSession,
+            catalog.resolveScene(domainSession),
+          );
+      warmProjectSessionDbViewBoards(targetSession);
+
+      catalog.select(domainSession);
+      if (targetSession.projectId !== null) {
+        ensureProjectExpanded(targetSession.projectId);
+      }
+
+      if (!targetSession.unread) return;
+      const threadId = targetSession.thread?.threadId ?? null;
+      if (threadId) {
+        void codexControl.markConversationAsRead(threadId).catch(() => undefined);
+        return;
+      }
+      void catalog
+        .markUnread(domainSession, false)
+        .then((updated) => {
+          if (!updated) return;
+          mergeSessionInState(updated);
+        })
         .catch(() => undefined);
-      return;
-    }
-    void catalog.markUnread(domainSession, false)
-      .then((updated) => {
-        if (!updated) return;
-        mergeSessionInState(updated);
-      })
-      .catch(() => undefined);
-  }, [
-    catalog,
-    codexControl,
-    ensureProjectExpanded,
-    mergeSessionInState,
-    warmProjectSessionDbViewBoards,
-  ]);
+    },
+    [
+      catalog,
+      codexControl,
+      ensureProjectExpanded,
+      mergeSessionInState,
+      warmProjectSessionDbViewBoards,
+    ],
+  );
 
   useEffect(() => {
     if (!pendingSessionOpen) return;
@@ -459,650 +403,520 @@ export function useWorkbenchSidebarController({
     );
     if (!targetSession) return;
     selectSession(targetSession);
-  }, [
-    activeProject?.id,
-    activeSessions,
-    pendingSessionOpen,
-    projectlessSessions,
-    selectSession,
-  ]);
+  }, [activeProject?.id, activeSessions, pendingSessionOpen, projectlessSessions, selectSession]);
 
-  const toggleSessionPin = useCallback(async (
-    session: ProjectSession,
-  ) => {
-    const nextPinned = !session.pinned;
-    if (session.thread) {
+  const toggleSessionPin = useCallback(
+    async (session: ProjectSession) => {
+      const nextPinned = !session.pinned;
+      if (session.thread) {
+        try {
+          await setSidebarThreadPinned(session.thread.threadId, nextPinned);
+          const updatedSessions = await refreshProjectSessions(session.projectId);
+          const updatedSession = updatedSessions.find((candidate) => candidate.id === session.id);
+          if (updatedSession) mergeSessionInState(updatedSession);
+        } catch {
+          toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
+        }
+        return;
+      }
+
       try {
-        await setSidebarThreadPinned(
-          session.thread.threadId,
-          nextPinned,
-        );
-        const updatedSessions = await refreshProjectSessions(
-          session.projectId,
-        );
-        const updatedSession = updatedSessions.find(
-          (candidate) => candidate.id === session.id,
-        );
+        await catalog.setPinned(session, nextPinned);
+      } catch {
+        toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
+      }
+    },
+    [catalog, mergeSessionInState, refreshProjectSessions, setSidebarThreadPinned],
+  );
+
+  const toggleSidebarThreadPinned = useCallback(
+    async (item: CodexSidebarThreadItem) => {
+      if (item.disabled) return;
+      const nextPinned = !item.pinned;
+      try {
+        if (item.kind === "pending-worktree") {
+          if (!item.pendingWorktreeId) return;
+          await invoke(
+            "codex:pending-worktree:set-pinned",
+            item.hostId,
+            item.pendingWorktreeId,
+            nextPinned,
+          );
+          return;
+        }
+        await setSidebarThreadPinned(item.threadId, nextPinned);
+        const session = item.sessionId
+          ? (knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null)
+          : null;
+        if (!session) return;
+        const refreshed = await refreshProjectSessions(session.projectId);
+        const updatedSession = refreshed.find((candidate) => candidate.id === session.id);
         if (updatedSession) mergeSessionInState(updatedSession);
       } catch {
-        toast.danger(
-          nextPinned ? "Failed to pin chat" : "Failed to unpin chat",
-        );
+        toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
       }
-      return;
-    }
+    },
+    [knownSessions, mergeSessionInState, refreshProjectSessions, setSidebarThreadPinned],
+  );
 
-    try {
-      await catalog.setPinned(session, nextPinned);
-    } catch {
-      toast.danger(
-        nextPinned ? "Failed to pin chat" : "Failed to unpin chat",
-      );
-    }
-  }, [
-    catalog,
-    mergeSessionInState,
-    refreshProjectSessions,
-    setSidebarThreadPinned,
-  ]);
-
-  const toggleSidebarThreadPinned = useCallback(async (
-    item: CodexSidebarThreadItem,
-  ) => {
-    if (item.disabled) return;
-    const nextPinned = !item.pinned;
-    try {
+  const selectSidebarThread = useCallback(
+    async (item: CodexSidebarThreadItem) => {
+      if (item.disabled) return;
       if (item.kind === "pending-worktree") {
-        if (!item.pendingWorktreeId) return;
-        await invoke(
-          "codex:pending-worktree:set-pinned",
-          item.hostId,
-          item.pendingWorktreeId,
-          nextPinned,
-        );
+        setSettingsPath(null);
+        setLocalEnvironmentSettingsInitial(null);
+        setAutomationsPath(null);
+        setPendingWorktreeClientThreadId(item.threadId);
         return;
       }
-      await setSidebarThreadPinned(item.threadId, nextPinned);
-      const session = item.sessionId
-        ? knownSessions.find(
-            (candidate) => candidate.id === item.sessionId,
-          ) ?? null
-        : null;
-      if (!session) return;
-      const refreshed = await refreshProjectSessions(
-        session.projectId,
-      );
-      const updatedSession = refreshed.find(
-        (candidate) => candidate.id === session.id,
-      );
-      if (updatedSession) mergeSessionInState(updatedSession);
-    } catch {
-      toast.danger(
-        nextPinned ? "Failed to pin chat" : "Failed to unpin chat",
-      );
-    }
-  }, [
-    knownSessions,
-    mergeSessionInState,
-    refreshProjectSessions,
-    setSidebarThreadPinned,
-  ]);
-
-  const selectSidebarThread = useCallback(async (
-    item: CodexSidebarThreadItem,
-  ) => {
-    if (item.disabled) return;
-    if (item.kind === "pending-worktree") {
-      setSettingsPath(null);
-      setLocalEnvironmentSettingsInitial(null);
-      setAutomationsPath(null);
-      setPendingWorktreeClientThreadId(item.threadId);
-      return;
-    }
-    const existingSession = item.sessionId
-      ? knownSessions.find(
-          (candidate) => candidate.id === item.sessionId,
-        ) ?? null
-      : knownSessions.find(
-          (candidate) => candidate.thread?.threadId === item.threadId,
-        ) ?? null;
-    if (existingSession) {
-      selectSession(existingSession);
-      return;
-    }
-
-    try {
-      const ensured = await catalog.ensureThreadSession(item.threadId);
-      if (!ensured) {
-        toast.info("That chat is not available", {
-          id: `thread-open-unavailable-${item.threadId}`,
-        });
+      const existingSession = item.sessionId
+        ? (knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null)
+        : (knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null);
+      if (existingSession) {
+        selectSession(existingSession);
         return;
       }
-      selectSession(ensured);
-    } catch {
-      toast.danger("Failed to open chat");
-    }
-  }, [
-    catalog,
-    knownSessions,
-    selectSession,
-    setAutomationsPath,
-    setLocalEnvironmentSettingsInitial,
-    setPendingWorktreeClientThreadId,
-    setSettingsPath,
-  ]);
 
-  const openRenameSessionDialog = useCallback((
-    session: ProjectSession,
-  ) => {
-    openModal(appHandle, RenameChatDialog, {
-      initialValue: session.displayTitle,
-      onSave: (title) => {
-        void catalog.rename(session, title)
-          .catch(() => {
+      try {
+        const ensured = await catalog.ensureThreadSession(item.threadId);
+        if (!ensured) {
+          toast.info("That chat is not available", {
+            id: `thread-open-unavailable-${item.threadId}`,
+          });
+          return;
+        }
+        selectSession(ensured);
+      } catch {
+        toast.danger("Failed to open chat");
+      }
+    },
+    [
+      catalog,
+      knownSessions,
+      selectSession,
+      setAutomationsPath,
+      setLocalEnvironmentSettingsInitial,
+      setPendingWorktreeClientThreadId,
+      setSettingsPath,
+    ],
+  );
+
+  const openRenameSessionDialog = useCallback(
+    (session: ProjectSession) => {
+      openModal(appHandle, RenameChatDialog, {
+        initialValue: session.displayTitle,
+        onSave: (title) => {
+          void catalog.rename(session, title).catch(() => {
             toast.danger("Failed to rename chat");
           });
-      },
-    });
-  }, [appHandle, catalog]);
-
-  const handleSessionTitleDoubleClick = useCallback((
-    session: ProjectSession,
-    event: ReactMouseEvent<HTMLElement>,
-  ) => {
-    if (event.defaultPrevented) return;
-    if (activeSessionId !== session.id) return;
-    if (!(event.target instanceof Element)) return;
-    if (!event.target.closest("[data-thread-title]")) return;
-
-    const pointerCancelEvent = typeof PointerEvent === "function"
-      ? new PointerEvent(
-          "pointercancel",
-          { bubbles: true, cancelable: true },
-        )
-      : new Event(
-          "pointercancel",
-          { bubbles: true, cancelable: true },
-        );
-    event.currentTarget.dispatchEvent(pointerCancelEvent);
-    openRenameSessionDialog(session);
-  }, [activeSessionId, openRenameSessionDialog]);
-
-  const handlePendingWorktreeTitleDoubleClick = useCallback((
-    item: CodexSidebarThreadItem,
-    event: ReactMouseEvent<HTMLElement>,
-  ) => {
-    if (
-      event.defaultPrevented
-      || item.kind !== "pending-worktree"
-    ) return;
-    openModal(appHandle, RenameChatDialog, {
-      initialValue: item.title,
-      requireNonEmpty: true,
-      onSave: (label) => {
-        if (!item.pendingWorktreeId) return;
-        void invoke(
-          "codex:pending-worktree:rename",
-          item.hostId,
-          item.pendingWorktreeId,
-          label,
-        ).catch(() => {
-          toast.danger("Failed to rename task");
-        });
-      },
-    });
-  }, [appHandle]);
-
-  const archiveSession = useCallback(async (
-    session: ProjectSession,
-    options: { showToast?: boolean } = {},
-  ) => {
-    try {
-      const refreshedPresentations = await catalog.archive(session);
-      try {
-        await refreshSidebarThreadSnapshot();
-        if (activeSessionId === session.id) {
-          const sessions = refreshedPresentations.map(
-            presentWorkbenchSession,
-          );
-          const fallbackSession = sessions[0]
-            ?? (session.projectId === null
-              ? activeSessions[0] ?? null
-              : null);
-          if (fallbackSession) {
-            selectSession(fallbackSession);
-          } else {
-            workbenchWindow.selectProject(session.projectId);
-          }
-        }
-      } finally {
-        panelController.pruneSession(session.id);
-        await documentSessionRegistry.disposeProjectSession(
-          session.id,
-        );
-      }
-      return true;
-    } catch {
-      if (options.showToast !== false) {
-        toast.danger("Failed to archive chat");
-      }
-      return false;
-    }
-  }, [
-    activeSessionId,
-    activeSessions,
-    catalog,
-    panelController,
-    refreshSidebarThreadSnapshot,
-    selectSession,
-    workbenchWindow,
-  ]);
-
-  const resolveSidebarArchivePendingKeyForSession = useCallback((
-    session: ProjectSession,
-  ) => {
-    for (const [key, item] of sidebarThreadModel.threadItemsByKey) {
-      if (item.sessionId === session.id) return key;
-      if (
-        session.thread
-        && item.threadId === session.thread.threadId
-      ) return key;
-    }
-    return `local:session:${session.id}`;
-  }, [sidebarThreadModel.threadItemsByKey]);
-
-  const archiveSessionWithSidebarPendingState = useCallback(async (
-    session: ProjectSession,
-  ) => {
-    const pendingKey =
-      resolveSidebarArchivePendingKeyForSession(session);
-    if (!beginArchive(pendingKey)) return;
-
-    try {
-      const archived = await archiveSession(
-        session,
-        { showToast: false },
-      );
-      if (!archived) toast.danger("Failed to archive chat");
-    } finally {
-      finishArchive(pendingKey);
-    }
-  }, [
-    archiveSession,
-    beginArchive,
-    finishArchive,
-    resolveSidebarArchivePendingKeyForSession,
-  ]);
-
-  const archiveSidebarThreadItem = useCallback(async (
-    item: CodexSidebarThreadItem,
-  ) => {
-    if (item.disabled || !beginArchive(item.key)) return;
-
-    try {
-      if (item.kind === "pending-worktree") {
-        if (!item.pendingWorktreeId) return;
-        await invoke(
-          "codex:pending-worktree:cancel",
-          item.hostId,
-          item.pendingWorktreeId,
-        );
-        if (item.threadId === pendingWorktreeClientThreadId) {
-          closePendingWorktreeRoute();
-        }
-        return;
-      }
-
-      const session = item.sessionId
-        ? knownSessions.find(
-            (candidate) => candidate.id === item.sessionId,
-          ) ?? null
-        : knownSessions.find(
-            (candidate) =>
-              candidate.thread?.threadId === item.threadId,
-          ) ?? null;
-      if (session) {
-        const archived = await archiveSession(
-          session,
-          { showToast: false },
-        );
-        if (!archived) toast.danger("Failed to archive chat");
-        return;
-      }
-
-      await invoke("codex:thread:archive", item.threadId);
-      await refreshSidebarThreadSnapshot();
-    } catch {
-      toast.danger(
-        item.kind === "pending-worktree"
-          ? "Failed to cancel worktree setup"
-          : "Failed to archive chat",
-      );
-    } finally {
-      finishArchive(item.key);
-    }
-  }, [
-    archiveSession,
-    beginArchive,
-    closePendingWorktreeRoute,
-    finishArchive,
-    knownSessions,
-    pendingWorktreeClientThreadId,
-    refreshSidebarThreadSnapshot,
-  ]);
-
-  const archiveSidebarThreadItemQuiet = useCallback(async (
-    item: CodexSidebarThreadItem,
-  ): Promise<boolean> => {
-    if (
-      item.disabled
-      || item.kind === "pending-worktree"
-    ) return false;
-    if (!beginArchive(item.key)) return false;
-
-    try {
-      const session = item.sessionId
-        ? knownSessions.find(
-            (candidate) => candidate.id === item.sessionId,
-          ) ?? null
-        : knownSessions.find(
-            (candidate) =>
-              candidate.thread?.threadId === item.threadId,
-          ) ?? null;
-      if (session) {
-        return await archiveSession(
-          session,
-          { showToast: false },
-        );
-      }
-
-      await invoke("codex:thread:archive", item.threadId);
-      return true;
-    } catch {
-      return false;
-    } finally {
-      finishArchive(item.key);
-    }
-  }, [
-    archiveSession,
-    beginArchive,
-    finishArchive,
-    knownSessions,
-  ]);
-
-  const markSidebarThreadItemRead = useCallback(async (
-    item: CodexSidebarThreadItem,
-  ) => {
-    const session = item.sessionId
-      ? knownSessions.find(
-          (candidate) => candidate.id === item.sessionId,
-        ) ?? null
-      : knownSessions.find(
-          (candidate) => candidate.thread?.threadId === item.threadId,
-        ) ?? null;
-    if (session?.thread?.threadId) {
-      await codexControl.markConversationAsRead(
-        session.thread.threadId,
-      );
-      mergeSessionInState({ ...session, unread: false });
-      return;
-    }
-    if (session) {
-      const updated = await catalog.markUnread(session, false);
-      if (updated) mergeSessionInState(updated);
-      return;
-    }
-    await codexControl.markConversationAsRead(item.threadId);
-  }, [catalog, codexControl, knownSessions, mergeSessionInState]);
-
-  const toggleSessionUnread = useCallback(async (
-    session: ProjectSession,
-  ) => {
-    const hasUnreadTurn = !session.unread;
-    try {
-      if (session.thread?.threadId) {
-        if (hasUnreadTurn) {
-          await codexControl.markConversationAsUnread(
-            session.thread.threadId,
-          );
-        } else {
-          await codexControl.markConversationAsRead(
-            session.thread.threadId,
-          );
-        }
-        mergeSessionInState({ ...session, unread: hasUnreadTurn });
-        return;
-      }
-      const updated = await catalog.markUnread(
-        session,
-        hasUnreadTurn,
-      );
-      if (updated) mergeSessionInState(updated);
-    } catch {
-      toast.danger(
-        hasUnreadTurn
-          ? "Failed to mark chat unread"
-          : "Failed to mark chat read",
-      );
-    }
-  }, [catalog, codexControl, mergeSessionInState]);
-
-  const revealSession = useCallback(async (
-    session: ProjectSession,
-  ) => {
-    const project = projects.find(
-      (candidate) => candidate.id === session.projectId,
-    ) ?? null;
-    const revealPath = resolveSessionRevealPath({
-      session,
-      projectWorkspacePath: projectWorkspaceRootOrNull(project),
-    });
-    if (!revealPath) return;
-    try {
-      const opened = await invoke(
-        "shell:open-file-link",
-        { path: revealPath },
-        "fileManager",
-      ) as boolean;
-      if (!opened) toast.danger("Failed to reveal chat folder");
-    } catch {
-      toast.danger("Failed to reveal chat folder");
-    }
-  }, [projects]);
-
-  const copySessionText = useCallback(async (
-    text: string,
-    successMessage: string,
-    errorMessage: string,
-  ) => {
-    const copied = await writeTextToClipboard(text);
-    if (copied) {
-      toast.success(successMessage);
-      return;
-    }
-    toast.danger(errorMessage);
-  }, []);
-
-  const forkSession = useCallback(async (
-    session: ProjectSession,
-    target: "local" | "newWorktree",
-  ) => {
-    try {
-      const localEnvironmentConfigPath = target === "newWorktree"
-        ? await resolveForkLocalEnvironmentConfigPath(
-            session.thread?.cwd,
-          )
-        : null;
-      const result = await catalog.fork(session, {
-        target,
-        localEnvironmentConfigPath,
-        browserViewScopeId: windowSessionId,
+        },
       });
-      if ("pendingWorktreeId" in result) {
-        setPendingWorktreeClientThreadId(result.clientThreadId);
-        return;
-      }
-      selectSession(result.session);
-    } catch {
-      toast.danger(
-        target === "newWorktree"
-          ? "Failed to fork chat into new worktree"
-          : "Failed to fork chat",
-      );
-    }
-  }, [
-    catalog,
-    resolveForkLocalEnvironmentConfigPath,
-    selectSession,
-    setPendingWorktreeClientThreadId,
-    windowSessionId,
-  ]);
+    },
+    [appHandle, catalog],
+  );
 
-  const handleSessionContextMenuAction = useCallback(async (
-    session: ProjectSession,
-    actionId: string,
-  ) => {
-    const moveTargetProjectId = readSessionMoveToProjectActionId(actionId);
-    if (
-      moveTargetProjectId
-      || actionId === SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject
-    ) {
-      const threadId = session.thread?.threadId;
-      if (!threadId) return;
-      const containers = resolveSessionProjectMoveContainers(
-        session,
-        moveTargetProjectId,
-      );
-      await moveSidebarThreadInputForSidebar({
-        hostId: "local",
-        threadId,
-        ...containers,
-        beforeThreadId: null,
-      });
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.togglePin) {
-      await toggleSessionPin(session);
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.rename) {
+  const handleSessionTitleDoubleClick = useCallback(
+    (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => {
+      if (event.defaultPrevented) return;
+      if (activeSessionId !== session.id) return;
+      if (!(event.target instanceof Element)) return;
+      if (!event.target.closest("[data-thread-title]")) return;
+
+      const pointerCancelEvent =
+        typeof PointerEvent === "function"
+          ? new PointerEvent("pointercancel", { bubbles: true, cancelable: true })
+          : new Event("pointercancel", { bubbles: true, cancelable: true });
+      event.currentTarget.dispatchEvent(pointerCancelEvent);
       openRenameSessionDialog(session);
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.archive) {
-      await archiveSessionWithSidebarPendingState(session);
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread) {
-      await toggleSessionUnread(session);
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.reveal) {
-      await revealSession(session);
-      return;
-    }
-    if (
-      actionId
-      === SESSION_CONTEXT_MENU_ACTION_IDS.copyWorkingDirectory
-    ) {
-      await copySessionText(
-        session.thread?.cwd ?? "",
-        "Copied working directory",
-        "Failed to copy working directory",
-      );
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copySessionId) {
-      await copySessionText(
-        session.id,
-        "Copied session ID",
-        "Failed to copy session ID",
-      );
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copyDeeplink) {
-      await copySessionText(
-        buildSessionDeepLink({ sessionId: session.id }),
-        "Copied deeplink",
-        "Failed to copy deeplink",
-      );
-      return;
-    }
-    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.forkLocal) {
-      await forkSession(session, "local");
-      return;
-    }
-    if (
-      actionId
-      === SESSION_CONTEXT_MENU_ACTION_IDS.forkNewWorktree
-    ) {
-      await forkSession(session, "newWorktree");
-      return;
-    }
-    if (
-      actionId
-      === SESSION_CONTEXT_MENU_ACTION_IDS.openInNewWindow
-    ) {
-      await onOpenProjectSessionInNewWindow?.(session);
-    }
-  }, [
-    archiveSessionWithSidebarPendingState,
-    copySessionText,
-    forkSession,
-    moveSidebarThreadInputForSidebar,
-    onOpenProjectSessionInNewWindow,
-    openRenameSessionDialog,
-    revealSession,
-    toggleSessionPin,
-    toggleSessionUnread,
-  ]);
+    },
+    [activeSessionId, openRenameSessionDialog],
+  );
 
-  const openSessionContextMenu = useCallback(async (
-    session: ProjectSession,
-    event: ReactMouseEvent<HTMLElement>,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX > 0 ? event.clientX : rect.right;
-    const y = event.clientY > 0 ? event.clientY : rect.bottom;
-    const project = projects.find(
-      (candidate) => candidate.id === session.projectId,
-    ) ?? null;
-    const isGitRepository =
-      await resolveSessionHasGitRepository(session);
-    const items = buildSessionContextMenuItems({
-      session,
-      projects,
-      projectWorkspacePath: projectWorkspaceRootOrNull(project),
-      platform: readRendererPlatform(),
-      isGitRepository,
-    });
+  const handlePendingWorktreeTitleDoubleClick = useCallback(
+    (item: CodexSidebarThreadItem, event: ReactMouseEvent<HTMLElement>) => {
+      if (event.defaultPrevented || item.kind !== "pending-worktree") return;
+      openModal(appHandle, RenameChatDialog, {
+        initialValue: item.title,
+        requireNonEmpty: true,
+        onSave: (label) => {
+          if (!item.pendingWorktreeId) return;
+          void invoke(
+            "codex:pending-worktree:rename",
+            item.hostId,
+            item.pendingWorktreeId,
+            label,
+          ).catch(() => {
+            toast.danger("Failed to rename task");
+          });
+        },
+      });
+    },
+    [appHandle],
+  );
 
-    beginContextMenu(session.id);
-    try {
-      const selectedId = await showNativeContextMenu(
-        items,
-        { x, y },
-      );
-      if (!selectedId) return;
-      await handleSessionContextMenuAction(
+  const archiveSession = useCallback(
+    async (session: ProjectSession, options: { showToast?: boolean } = {}) => {
+      try {
+        const refreshedPresentations = await catalog.archive(session);
+        try {
+          await refreshSidebarThreadSnapshot();
+          if (activeSessionId === session.id) {
+            const sessions = refreshedPresentations.map(presentWorkbenchSession);
+            const fallbackSession =
+              sessions[0] ?? (session.projectId === null ? (activeSessions[0] ?? null) : null);
+            if (fallbackSession) {
+              selectSession(fallbackSession);
+            } else {
+              workbenchWindow.selectProject(session.projectId);
+            }
+          }
+        } finally {
+          panelController.pruneSession(session.id);
+          await documentSessionRegistry.disposeProjectSession(session.id);
+        }
+        return true;
+      } catch {
+        if (options.showToast !== false) {
+          toast.danger("Failed to archive chat");
+        }
+        return false;
+      }
+    },
+    [
+      activeSessionId,
+      activeSessions,
+      catalog,
+      panelController,
+      refreshSidebarThreadSnapshot,
+      selectSession,
+      workbenchWindow,
+    ],
+  );
+
+  const resolveSidebarArchivePendingKeyForSession = useCallback(
+    (session: ProjectSession) => {
+      for (const [key, item] of sidebarThreadModel.threadItemsByKey) {
+        if (item.sessionId === session.id) return key;
+        if (session.thread && item.threadId === session.thread.threadId) return key;
+      }
+      return `local:session:${session.id}`;
+    },
+    [sidebarThreadModel.threadItemsByKey],
+  );
+
+  const archiveSessionWithSidebarPendingState = useCallback(
+    async (session: ProjectSession) => {
+      const pendingKey = resolveSidebarArchivePendingKeyForSession(session);
+      if (!beginArchive(pendingKey)) return;
+
+      try {
+        const archived = await archiveSession(session, { showToast: false });
+        if (!archived) toast.danger("Failed to archive chat");
+      } finally {
+        finishArchive(pendingKey);
+      }
+    },
+    [archiveSession, beginArchive, finishArchive, resolveSidebarArchivePendingKeyForSession],
+  );
+
+  const archiveSidebarThreadItem = useCallback(
+    async (item: CodexSidebarThreadItem) => {
+      if (item.disabled || !beginArchive(item.key)) return;
+
+      try {
+        if (item.kind === "pending-worktree") {
+          if (!item.pendingWorktreeId) return;
+          await invoke("codex:pending-worktree:cancel", item.hostId, item.pendingWorktreeId);
+          if (item.threadId === pendingWorktreeClientThreadId) {
+            closePendingWorktreeRoute();
+          }
+          return;
+        }
+
+        const session = item.sessionId
+          ? (knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null)
+          : (knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ??
+            null);
+        if (session) {
+          const archived = await archiveSession(session, { showToast: false });
+          if (!archived) toast.danger("Failed to archive chat");
+          return;
+        }
+
+        await invoke("codex:thread:archive", item.threadId);
+        await refreshSidebarThreadSnapshot();
+      } catch {
+        toast.danger(
+          item.kind === "pending-worktree"
+            ? "Failed to cancel worktree setup"
+            : "Failed to archive chat",
+        );
+      } finally {
+        finishArchive(item.key);
+      }
+    },
+    [
+      archiveSession,
+      beginArchive,
+      closePendingWorktreeRoute,
+      finishArchive,
+      knownSessions,
+      pendingWorktreeClientThreadId,
+      refreshSidebarThreadSnapshot,
+    ],
+  );
+
+  const archiveSidebarThreadItemQuiet = useCallback(
+    async (item: CodexSidebarThreadItem): Promise<boolean> => {
+      if (item.disabled || item.kind === "pending-worktree") return false;
+      if (!beginArchive(item.key)) return false;
+
+      try {
+        const session = item.sessionId
+          ? (knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null)
+          : (knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ??
+            null);
+        if (session) {
+          return await archiveSession(session, { showToast: false });
+        }
+
+        await invoke("codex:thread:archive", item.threadId);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        finishArchive(item.key);
+      }
+    },
+    [archiveSession, beginArchive, finishArchive, knownSessions],
+  );
+
+  const markSidebarThreadItemRead = useCallback(
+    async (item: CodexSidebarThreadItem) => {
+      const session = item.sessionId
+        ? (knownSessions.find((candidate) => candidate.id === item.sessionId) ?? null)
+        : (knownSessions.find((candidate) => candidate.thread?.threadId === item.threadId) ?? null);
+      if (session?.thread?.threadId) {
+        await codexControl.markConversationAsRead(session.thread.threadId);
+        mergeSessionInState({ ...session, unread: false });
+        return;
+      }
+      if (session) {
+        const updated = await catalog.markUnread(session, false);
+        if (updated) mergeSessionInState(updated);
+        return;
+      }
+      await codexControl.markConversationAsRead(item.threadId);
+    },
+    [catalog, codexControl, knownSessions, mergeSessionInState],
+  );
+
+  const toggleSessionUnread = useCallback(
+    async (session: ProjectSession) => {
+      const hasUnreadTurn = !session.unread;
+      try {
+        if (session.thread?.threadId) {
+          if (hasUnreadTurn) {
+            await codexControl.markConversationAsUnread(session.thread.threadId);
+          } else {
+            await codexControl.markConversationAsRead(session.thread.threadId);
+          }
+          mergeSessionInState({ ...session, unread: hasUnreadTurn });
+          return;
+        }
+        const updated = await catalog.markUnread(session, hasUnreadTurn);
+        if (updated) mergeSessionInState(updated);
+      } catch {
+        toast.danger(hasUnreadTurn ? "Failed to mark chat unread" : "Failed to mark chat read");
+      }
+    },
+    [catalog, codexControl, mergeSessionInState],
+  );
+
+  const revealSession = useCallback(
+    async (session: ProjectSession) => {
+      const project = projects.find((candidate) => candidate.id === session.projectId) ?? null;
+      const revealPath = resolveSessionRevealPath({
         session,
-        selectedId,
-      );
-    } catch {
-      toast.danger("Native context menu is unavailable");
-    } finally {
-      finishContextMenu();
-    }
-  }, [
-    beginContextMenu,
-    finishContextMenu,
-    handleSessionContextMenuAction,
-    projects,
-    resolveSessionHasGitRepository,
-  ]);
+        projectWorkspacePath: projectWorkspaceRootOrNull(project),
+      });
+      if (!revealPath) return;
+      try {
+        const opened = (await invoke(
+          "shell:open-file-link",
+          { path: revealPath },
+          "fileManager",
+        )) as boolean;
+        if (!opened) toast.danger("Failed to reveal chat folder");
+      } catch {
+        toast.danger("Failed to reveal chat folder");
+      }
+    },
+    [projects],
+  );
+
+  const copySessionText = useCallback(
+    async (text: string, successMessage: string, errorMessage: string) => {
+      const copied = await writeTextToClipboard(text);
+      if (copied) {
+        toast.success(successMessage);
+        return;
+      }
+      toast.danger(errorMessage);
+    },
+    [],
+  );
+
+  const forkSession = useCallback(
+    async (session: ProjectSession, target: "local" | "newWorktree") => {
+      try {
+        const localEnvironmentConfigPath =
+          target === "newWorktree"
+            ? await resolveForkLocalEnvironmentConfigPath(session.thread?.cwd)
+            : null;
+        const result = await catalog.fork(session, {
+          target,
+          localEnvironmentConfigPath,
+          browserViewScopeId: windowSessionId,
+        });
+        if ("pendingWorktreeId" in result) {
+          setPendingWorktreeClientThreadId(result.clientThreadId);
+          return;
+        }
+        selectSession(result.session);
+      } catch {
+        toast.danger(
+          target === "newWorktree"
+            ? "Failed to fork chat into new worktree"
+            : "Failed to fork chat",
+        );
+      }
+    },
+    [
+      catalog,
+      resolveForkLocalEnvironmentConfigPath,
+      selectSession,
+      setPendingWorktreeClientThreadId,
+      windowSessionId,
+    ],
+  );
+
+  const handleSessionContextMenuAction = useCallback(
+    async (session: ProjectSession, actionId: string) => {
+      const moveTargetProjectId = readSessionMoveToProjectActionId(actionId);
+      if (moveTargetProjectId || actionId === SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject) {
+        const threadId = session.thread?.threadId;
+        if (!threadId) return;
+        const containers = resolveSessionProjectMoveContainers(session, moveTargetProjectId);
+        await moveSidebarThreadInputForSidebar({
+          hostId: "local",
+          threadId,
+          ...containers,
+          beforeThreadId: null,
+        });
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.togglePin) {
+        await toggleSessionPin(session);
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.rename) {
+        openRenameSessionDialog(session);
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.archive) {
+        await archiveSessionWithSidebarPendingState(session);
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread) {
+        await toggleSessionUnread(session);
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.reveal) {
+        await revealSession(session);
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copyWorkingDirectory) {
+        await copySessionText(
+          session.thread?.cwd ?? "",
+          "Copied working directory",
+          "Failed to copy working directory",
+        );
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copySessionId) {
+        await copySessionText(session.id, "Copied session ID", "Failed to copy session ID");
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copyDeeplink) {
+        await copySessionText(
+          buildSessionDeepLink({ sessionId: session.id }),
+          "Copied deeplink",
+          "Failed to copy deeplink",
+        );
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.forkLocal) {
+        await forkSession(session, "local");
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.forkNewWorktree) {
+        await forkSession(session, "newWorktree");
+        return;
+      }
+      if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.openInNewWindow) {
+        await onOpenProjectSessionInNewWindow?.(session);
+      }
+    },
+    [
+      archiveSessionWithSidebarPendingState,
+      copySessionText,
+      forkSession,
+      moveSidebarThreadInputForSidebar,
+      onOpenProjectSessionInNewWindow,
+      openRenameSessionDialog,
+      revealSession,
+      toggleSessionPin,
+      toggleSessionUnread,
+    ],
+  );
+
+  const openSessionContextMenu = useCallback(
+    async (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX > 0 ? event.clientX : rect.right;
+      const y = event.clientY > 0 ? event.clientY : rect.bottom;
+      const project = projects.find((candidate) => candidate.id === session.projectId) ?? null;
+      const isGitRepository = await resolveSessionHasGitRepository(session);
+      const items = buildSessionContextMenuItems({
+        session,
+        projects,
+        projectWorkspacePath: projectWorkspaceRootOrNull(project),
+        platform: readRendererPlatform(),
+        isGitRepository,
+      });
+
+      beginContextMenu(session.id);
+      try {
+        const selectedId = await showNativeContextMenu(items, { x, y });
+        if (!selectedId) return;
+        await handleSessionContextMenuAction(session, selectedId);
+      } catch {
+        toast.danger("Native context menu is unavailable");
+      } finally {
+        finishContextMenu();
+      }
+    },
+    [
+      beginContextMenu,
+      finishContextMenu,
+      handleSessionContextMenuAction,
+      projects,
+      resolveSessionHasGitRepository,
+    ],
+  );
 
   return {
     archiveSession,

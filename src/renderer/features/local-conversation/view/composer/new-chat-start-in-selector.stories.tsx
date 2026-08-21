@@ -3,10 +3,7 @@ import { useState } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { NewChatStartInTarget } from "@/lib/new-chat-start-in-selector";
 import type { NewChatStartInSelectorModel, ThreadStageActions } from "../../thread-stage-types";
-import {
-  ComposerContextRail,
-  ComposerContextRailSlot,
-} from "../composer-context-rail";
+import { ComposerContextRail, ComposerContextRailSlot } from "../composer-context-rail";
 import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
 interface StoryArgs {
@@ -36,7 +33,7 @@ function buildActions(onSelect: (target: NewChatStartInTarget) => void): ThreadS
     onEditQueuedFollowUp: noopAsync,
     onEditLastUserTurn: noopAsync,
     onForkFromTurn: noopAsync,
-    onUnarchiveThread: async () => { },
+    onUnarchiveThread: async () => {},
     onOpenTurnDiffReview: () => undefined,
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,
@@ -45,7 +42,10 @@ function buildActions(onSelect: (target: NewChatStartInTarget) => void): ThreadS
   };
 }
 
-function buildModel(target: NewChatStartInTarget, state: StoryArgs["state"]): NewChatStartInSelectorModel {
+function buildModel(
+  target: NewChatStartInTarget,
+  state: StoryArgs["state"],
+): NewChatStartInSelectorModel {
   return {
     target,
     disabled: state === "disabled",
@@ -79,12 +79,16 @@ function buildModel(target: NewChatStartInTarget, state: StoryArgs["state"]): Ne
 function NewChatStartInSelectorStory(args: StoryArgs) {
   const [target, setTarget] = useState<NewChatStartInTarget>({
     runInTarget: args.target,
-    runInEnvironmentPath: args.target === "newWorktree" ? ".codex/environments/ui-polish.toml" : null,
+    runInEnvironmentPath:
+      args.target === "newWorktree" ? ".codex/environments/ui-polish.toml" : null,
   });
 
   return (
     <TooltipProvider>
-      <div className="min-h-[360px] bg-token-main-surface-primary p-8" data-codex-window-type="electron">
+      <div
+        className="min-h-[360px] bg-token-main-surface-primary p-8"
+        data-codex-window-type="electron"
+      >
         <div className="max-w-3xl">
           <ComposerContextRailSlot visible>
             <ComposerContextRail>
@@ -107,7 +111,9 @@ function NewChatStartInSelectorStory(args: StoryArgs) {
           </ComposerContextRailSlot>
           <div className="composer-surface-chrome relative z-10 flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
             <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-              <div className="mb-1 min-h-16 px-3 pt-3 text-sm text-token-input-placeholder-foreground">Do anything</div>
+              <div className="mb-1 min-h-16 px-3 pt-3 text-sm text-token-input-placeholder-foreground">
+                Do anything
+              </div>
               <div className="mb-2 flex items-center gap-1 px-2">
                 <span className="inline-flex size-7 rounded-full bg-token-foreground/5" />
                 <span className="inline-flex h-7 w-28 rounded-full bg-token-foreground/5" />

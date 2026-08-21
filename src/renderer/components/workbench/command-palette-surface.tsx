@@ -1,12 +1,15 @@
-import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
-  ListFilter,
-} from "@/components/shared/icons/generic-icons";
-import {
-  DatabaseIcon,
-  SidePanelSideChatIcon,
-  SidebarVisibleIcon,
-} from "@/components/shared/icons";
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import { ListFilter } from "@/components/shared/icons/generic-icons";
+import { DatabaseIcon, SidePanelSideChatIcon, SidebarVisibleIcon } from "@/components/shared/icons";
 import {
   areCommandPalettePageFiltersEqual,
   cloneCommandPalettePageFilters,
@@ -22,9 +25,7 @@ import {
   type CommandPaletteThread,
   writeCommandPalettePageFilters,
 } from "../../lib/command-palette";
-import {
-  type CommandPaletteHighlightSegment,
-} from "../../lib/command-palette-highlight";
+import { type CommandPaletteHighlightSegment } from "../../lib/command-palette-highlight";
 import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import {
   selectCommandPaletteChatResults,
@@ -45,9 +46,7 @@ import {
   useCommandPalettePageSearch,
   useCommandPalettePageSearchFacets,
 } from "../../lib/command-palette-page-results";
-import {
-  resolveQueryFreshAccept,
-} from "../../lib/query-fresh-picker";
+import { resolveQueryFreshAccept } from "../../lib/query-fresh-picker";
 import { cn } from "../../lib/utils";
 import { ProjectMarker } from "./project-marker";
 import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
@@ -213,16 +212,17 @@ function buildCommandPaletteSectionsModel({
   });
   const threadSearchPlan = getCommandPaletteThreadSearchPlan(mode, query);
   const normalizedQuery = normalizeCommandPaletteSearchText(query);
-  const currentThreadSearchBatch = threadSearchBatch
-    && normalizeCommandPaletteSearchText(threadSearchBatch.query) === normalizedQuery
+  const currentThreadSearchBatch =
+    threadSearchBatch &&
+    normalizeCommandPaletteSearchText(threadSearchBatch.query) === normalizedQuery
       ? threadSearchBatch
       : null;
   const threadSearchPending = Boolean(
-    threadSearchPlan?.includeContentResults
-    && (!currentThreadSearchBatch || currentThreadSearchBatch.loading),
+    threadSearchPlan?.includeContentResults &&
+    (!currentThreadSearchBatch || currentThreadSearchBatch.loading),
   );
   const threadSearchError = threadSearchPlan?.includeContentResults
-    ? currentThreadSearchBatch?.error ?? null
+    ? (currentThreadSearchBatch?.error ?? null)
     : null;
   const visibleThreads = threadSearchPlan
     ? selectCommandPaletteChatResults({
@@ -248,23 +248,22 @@ function buildCommandPaletteSectionsModel({
   let showPageSearchStatus = false;
   const sections: PaletteSectionModel[] = (() => {
     if (mode === "root") {
-      const commandSections = COMMAND_GROUP_ORDER
-        .map((title) => ({
-          title,
-          items: results.commands.filter((item) => item.group === title),
-        }))
-        .filter((section) => section.items.length > 0);
-      const sectionsWithChats = visibleThreads.length > 0
-        ? [...commandSections, { title: "Chats", items: visibleThreads }]
-        : commandSections;
+      const commandSections = COMMAND_GROUP_ORDER.map((title) => ({
+        title,
+        items: results.commands.filter((item) => item.group === title),
+      })).filter((section) => section.items.length > 0);
+      const sectionsWithChats =
+        visibleThreads.length > 0
+          ? [...commandSections, { title: "Chats", items: visibleThreads }]
+          : commandSections;
       if (!pageSearchPlan || threadSearchPending) return sectionsWithChats;
 
       const threadStatusRows = threadSearchPending || threadSearchError ? 1 : 0;
       const remainingRows = Math.max(
-        ROOT_DISCOVERY_ROW_BUDGET
-          - results.commands.length
-          - visibleThreads.length
-          - threadStatusRows,
+        ROOT_DISCOVERY_ROW_BUDGET -
+          results.commands.length -
+          visibleThreads.length -
+          threadStatusRows,
         0,
       );
       showPageSearchStatus = remainingRows > 0 && (pageSearchPending || pageSearchError !== null);
@@ -294,8 +293,7 @@ function buildCommandPaletteSectionsModel({
     pageSearchPending,
     showPageSearchStatus,
     showThreadSearchStatus: Boolean(
-      threadSearchPlan?.includeContentResults
-      && (threadSearchPending || threadSearchError),
+      threadSearchPlan?.includeContentResults && (threadSearchPending || threadSearchError),
     ),
     threadSearchError,
     threadSearchPending,
@@ -303,48 +301,45 @@ function buildCommandPaletteSectionsModel({
 }
 
 function getCommandGlyph(id: string) {
-  if (id === NAVIGATE_BACK_COMMAND_ID) return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="search" {...props} />
-  );
-  if (id === NAVIGATE_FORWARD_COMMAND_ID) return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="search" {...props} />
-  );
-  if (id === "newThread" || id === "newThreadInProject" || id === "quickChat") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="compose" {...props} />
-  );
+  if (id === NAVIGATE_BACK_COMMAND_ID)
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="search" {...props} />;
+  if (id === NAVIGATE_FORWARD_COMMAND_ID)
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="search" {...props} />;
+  if (id === "newThread" || id === "newThreadInProject" || id === "quickChat")
+    return (props: { className?: string }) => (
+      <CommandMenuReferenceIcon name="compose" {...props} />
+    );
   if (id === TOGGLE_SIDEBAR_COMMAND_ID) return SidebarVisibleIcon;
-  if (id === RENAME_THREAD_COMMAND_ID) return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="compose" {...props} />
-  );
-  if (id === "archiveThread") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="archive" {...props} />
-  );
-  if (id === "toggleThreadPin") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="pin" {...props} />
-  );
-  if (id === "openThreadInNewWindow") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="search" {...props} />
-  );
-  if (id === "toggleFileTreePanel" || id === "openFolder" || id === "searchFiles") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="folder" {...props} />
-  );
-  if (id === "openBrowserTab" || id === "focusBrowserAddressBar") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="globe" {...props} />
-  );
-  if (id === "toggleTerminal" || id === "installPrimaryRuntime") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="terminal" {...props} />
-  );
-  if (id === "searchChats" || id === "searchPages" || id === "findInThread") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="search" {...props} />
-  );
+  if (id === RENAME_THREAD_COMMAND_ID)
+    return (props: { className?: string }) => (
+      <CommandMenuReferenceIcon name="compose" {...props} />
+    );
+  if (id === "archiveThread")
+    return (props: { className?: string }) => (
+      <CommandMenuReferenceIcon name="archive" {...props} />
+    );
+  if (id === "toggleThreadPin")
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="pin" {...props} />;
+  if (id === "openThreadInNewWindow")
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="search" {...props} />;
+  if (id === "toggleFileTreePanel" || id === "openFolder" || id === "searchFiles")
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="folder" {...props} />;
+  if (id === "openBrowserTab" || id === "focusBrowserAddressBar")
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="globe" {...props} />;
+  if (id === "toggleTerminal" || id === "installPrimaryRuntime")
+    return (props: { className?: string }) => (
+      <CommandMenuReferenceIcon name="terminal" {...props} />
+    );
+  if (id === "searchChats" || id === "searchPages" || id === "findInThread")
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="search" {...props} />;
   if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return DatabaseIcon;
   if (id === "openSideChat") return SidePanelSideChatIcon;
-  if (id === "settings" || id === "showKeyboardShortcuts" || id.endsWith("Settings")) return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="settings" {...props} />
-  );
-  if (id === "openAvatarOverlay" || id === "tuckAwayPetOverlay" || id === "personalitySettings") return (props: { className?: string }) => (
-    <CommandMenuReferenceIcon name="avatar" {...props} />
-  );
+  if (id === "settings" || id === "showKeyboardShortcuts" || id.endsWith("Settings"))
+    return (props: { className?: string }) => (
+      <CommandMenuReferenceIcon name="settings" {...props} />
+    );
+  if (id === "openAvatarOverlay" || id === "tuckAwayPetOverlay" || id === "personalitySettings")
+    return (props: { className?: string }) => <CommandMenuReferenceIcon name="avatar" {...props} />;
   return (props: { className?: string }) => <CommandMenuReferenceIcon name="search" {...props} />;
 }
 
@@ -364,11 +359,13 @@ function CommandRow({
 
   return (
     <div className={cn("flex w-full gap-2", displaySubtitle ? "items-start" : "items-center")}>
-      <Glyph className={cn(
-        "size-4 shrink-0 text-token-description-foreground",
-        selected && "text-token-foreground",
-        displaySubtitle && "mt-0.5",
-      )} />
+      <Glyph
+        className={cn(
+          "size-4 shrink-0 text-token-description-foreground",
+          selected && "text-token-foreground",
+          displaySubtitle && "mt-0.5",
+        )}
+      />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex min-w-0 items-center gap-1.5">
           <div className="min-w-0 truncate text-token-foreground">
@@ -391,9 +388,7 @@ function CommandRow({
           </div>
         ) : null}
       </div>
-      {item.shortcut ? (
-        <ShortcutKeycaps keys={[item.shortcut]} density="compact" />
-      ) : null}
+      {item.shortcut ? <ShortcutKeycaps keys={[item.shortcut]} density="compact" /> : null}
     </div>
   );
 }
@@ -416,16 +411,15 @@ function getCwdLabel(cwd: string | null): string {
   return parts.at(-1) ?? cwd;
 }
 
-function renderSegments(
-  segments: Array<CommandPaletteHighlightSegment>,
-  keyPrefix: string,
-) {
+function renderSegments(segments: Array<CommandPaletteHighlightSegment>, keyPrefix: string) {
   return segments.map((segment, index) => (
     <span
       key={`${keyPrefix}:${index}`}
-      className={segment.highlight
-        ? "font-medium text-token-foreground"
-        : "text-token-description-foreground/75"}
+      className={
+        segment.highlight
+          ? "font-medium text-token-foreground"
+          : "text-token-description-foreground/75"
+      }
     >
       {segment.text}
     </span>
@@ -447,11 +441,13 @@ function PageRow({
   const decorations = item.searchDecorations;
   return (
     <div className={cn("flex w-full gap-2", hasPreview ? "items-start" : "items-center")}>
-      <div className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5",
-        selected && "bg-token-foreground/10 text-token-foreground",
-        hasPreview && "mt-0.5",
-      )}>
+      <div
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5",
+          selected && "bg-token-foreground/10 text-token-foreground",
+          hasPreview && "mt-0.5",
+        )}
+      >
         <ProjectMarker appearance={item.projectAppearance} />
       </div>
       <div className="min-w-0 flex-1">
@@ -505,10 +501,12 @@ function PageRow({
           </div>
         ) : null}
         {item.searchPreview ? (
-          <div className={cn(
-            "mt-1 text-xs/relaxed wrap-break-word text-token-description-foreground/90",
-            compact ? "line-clamp-1" : "line-clamp-3",
-          )}>
+          <div
+            className={cn(
+              "mt-1 text-xs/relaxed wrap-break-word text-token-description-foreground/90",
+              compact ? "line-clamp-1" : "line-clamp-3",
+            )}
+          >
             {renderSegments(item.searchPreview.segments, `${item.id}:preview`)}
           </div>
         ) : null}
@@ -517,13 +515,7 @@ function PageRow({
   );
 }
 
-function ThreadRow({
-  item,
-  selected,
-}: {
-  item: CommandPaletteThread;
-  selected: boolean;
-}) {
+function ThreadRow({ item, selected }: { item: CommandPaletteThread; selected: boolean }) {
   const hasPreview = Boolean(item.searchPreview);
   const decorations = item.searchDecorations;
   const cwdLabel = getCwdLabel(item.cwd);
@@ -532,11 +524,13 @@ function ThreadRow({
 
   return (
     <div className={cn("flex w-full gap-2", hasPreview ? "items-start" : "items-center")}>
-      <div className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5 text-token-description-foreground",
-        selected && "bg-token-foreground/10 text-token-foreground",
-        hasPreview && "mt-0.5",
-      )}>
+      <div
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5 text-token-description-foreground",
+          selected && "bg-token-foreground/10 text-token-foreground",
+          hasPreview && "mt-0.5",
+        )}
+      >
         <ThreadsIcon className="size-3.5" />
       </div>
       <div className="min-w-0 flex-1">
@@ -601,7 +595,12 @@ function PaletteSection({
   if (items.length === 0) return null;
 
   return (
-    <section cmdk-group="" role="presentation" className="flex flex-col gap-[var(--spacing)]" data-value={title}>
+    <section
+      cmdk-group=""
+      role="presentation"
+      className="flex flex-col gap-[var(--spacing)]"
+      data-value={title}
+    >
       <div cmdk-group-heading="" aria-hidden="true">
         <span className="block px-2 pt-2 text-sm text-token-description-foreground">{title}</span>
       </div>
@@ -625,25 +624,27 @@ function PaletteSection({
               disabled={item.kind === "command" && item.disabled}
               className={cn(
                 "flex min-h-[calc(var(--spacing)*6)] w-full cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-left text-sm text-token-foreground opacity-75 outline-none",
-                (item.kind === "page" || item.kind === "thread") && item.searchPreview && "py-[calc(var(--padding-row-y)+2px)]",
+                (item.kind === "page" || item.kind === "thread") &&
+                  item.searchPreview &&
+                  "py-[calc(var(--padding-row-y)+2px)]",
                 item.kind === "command" && item.disabled
                   ? "cursor-not-allowed opacity-40 hover:bg-transparent hover:opacity-40"
-                  : selected ? "bg-token-list-hover-background opacity-100" : "hover:bg-token-list-hover-background hover:opacity-100",
+                  : selected
+                    ? "bg-token-list-hover-background opacity-100"
+                    : "hover:bg-token-list-hover-background hover:opacity-100",
               )}
             >
               {item.kind === "command" ? (
                 <CommandRow item={item} selected={selected} showSubtitle={showSubtitle} />
+              ) : item.kind === "page" ? (
+                <PageRow
+                  compact={compactPages}
+                  item={item}
+                  selected={selected}
+                  showSubtitle={showSubtitle}
+                />
               ) : (
-                item.kind === "page" ? (
-                  <PageRow
-                    compact={compactPages}
-                    item={item}
-                    selected={selected}
-                    showSubtitle={showSubtitle}
-                  />
-                ) : (
-                  <ThreadRow item={item} selected={selected} />
-                )
+                <ThreadRow item={item} selected={selected} />
               )}
             </button>
           );
@@ -692,7 +693,9 @@ export function CommandPaletteSurface({
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const previousModeRef = useRef<CommandMenuMode>(mode);
   const [query, setQuery] = useState("");
-  const [pageFilters, setPageFilters] = useState<CommandPalettePageFilters>(() => readCommandPalettePageFilters());
+  const [pageFilters, setPageFilters] = useState<CommandPalettePageFilters>(() =>
+    readCommandPalettePageFilters(),
+  );
   const [filterOpen, setFilterOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const threadSearchPlan = getCommandPaletteThreadSearchPlan(mode, deferredQuery);
@@ -703,11 +706,17 @@ export function CommandPaletteSurface({
   });
   const threadSearchBatch = injectedThreadSearchBatch ?? fetchedThreadSearchBatch;
   const availableProjects = useMemo(
-    () => projects.length > 0
-      ? projects.map((project) => ({ id: project.id, label: project.name || "Untitled" }))
-      : Array.from(new Map(
-          pages.map((item) => [item.projectId, { id: item.projectId, label: item.projectName }] as const),
-        ).values()),
+    () =>
+      projects.length > 0
+        ? projects.map((project) => ({ id: project.id, label: project.name || "Untitled" }))
+        : Array.from(
+            new Map(
+              pages.map(
+                (item) =>
+                  [item.projectId, { id: item.projectId, label: item.projectName }] as const,
+              ),
+            ).values(),
+          ),
     [pages, projects],
   );
   const allProjectIdsForSearch = useMemo(
@@ -725,13 +734,16 @@ export function CommandPaletteSurface({
       .map((label) => ({ id: label, label, option: null }));
   }, [facetBatch.facets, pages, projects.length]);
   const availableAssignees = useMemo(
-    () => projects.length > 0
-      ? [...facetBatch.facets.assignees]
-      : Array.from(new Set(
-          pages
-            .map((item) => item.page.assignee?.trim() ?? "")
-            .filter((value) => value.length > 0),
-        )).sort((left, right) => left.localeCompare(right)),
+    () =>
+      projects.length > 0
+        ? [...facetBatch.facets.assignees]
+        : Array.from(
+            new Set(
+              pages
+                .map((item) => item.page.assignee?.trim() ?? "")
+                .filter((value) => value.length > 0),
+            ),
+          ).sort((left, right) => left.localeCompare(right)),
     [facetBatch.facets.assignees, pages, projects.length],
   );
   const projectNameById = useMemo(
@@ -743,16 +755,24 @@ export function CommandPaletteSurface({
     [availableTags],
   );
   const normalizedPageFilters = useMemo(
-    () => normalizeCommandPalettePageFilters(pageFilters, {
-      allowedTags: projects.length === 0 || facetBatch.status === "success"
-        ? availableTags.map((tag) => tag.id)
-        : undefined,
-      allowedAssignees: projects.length === 0 || facetBatch.status === "success"
-        ? availableAssignees
-        : undefined,
-      allowedProjectIds: availableProjects.map((project) => project.id),
-    }),
-    [availableAssignees, availableProjects, availableTags, facetBatch.status, pageFilters, projects.length],
+    () =>
+      normalizeCommandPalettePageFilters(pageFilters, {
+        allowedTags:
+          projects.length === 0 || facetBatch.status === "success"
+            ? availableTags.map((tag) => tag.id)
+            : undefined,
+        allowedAssignees:
+          projects.length === 0 || facetBatch.status === "success" ? availableAssignees : undefined,
+        allowedProjectIds: availableProjects.map((project) => project.id),
+      }),
+    [
+      availableAssignees,
+      availableProjects,
+      availableTags,
+      facetBatch.status,
+      pageFilters,
+      projects.length,
+    ],
   );
   const filteredProjectIdsForSearch = useMemo(() => {
     const allProjectIds = availableProjects.map((project) => project.id);
@@ -764,9 +784,8 @@ export function CommandPaletteSurface({
     return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
   }, [availableProjects, normalizedPageFilters.projectIds]);
   const pageSearchPlan = getCommandPalettePageSearchPlan(mode, query);
-  const projectIdsForSearch = mode === "pages"
-    ? filteredProjectIdsForSearch
-    : allProjectIdsForSearch;
+  const projectIdsForSearch =
+    mode === "pages" ? filteredProjectIdsForSearch : allProjectIdsForSearch;
   const pageSearchScopeKey = useMemo(
     () => buildCommandPalettePageSearchScopeKey(projectIdsForSearch),
     [projectIdsForSearch],
@@ -782,20 +801,21 @@ export function CommandPaletteSurface({
   });
   const pageSearchBatch = injectedPageSearchBatch ?? fetchedPageSearchBatch;
   const visibleModel = useMemo(
-    () => buildCommandPaletteSectionsModel({
-      query,
-      mode,
-      commands,
-      projects,
-      activeProjectId,
-      recentPageIds,
-      pages,
-      threads,
-      threadSearchIndex,
-      pageSearchBatch: pageSearchBatch,
-      pageSearchScopeKey,
-      threadSearchBatch,
-    }),
+    () =>
+      buildCommandPaletteSectionsModel({
+        query,
+        mode,
+        commands,
+        projects,
+        activeProjectId,
+        recentPageIds,
+        pages,
+        threads,
+        threadSearchIndex,
+        pageSearchBatch: pageSearchBatch,
+        pageSearchScopeKey,
+        threadSearchBatch,
+      }),
     [
       pageSearchScopeKey,
       activeProjectId,
@@ -889,41 +909,44 @@ export function CommandPaletteSurface({
     );
   }, [pageFilters, normalizedPageFilters]);
 
-  const buildFlatItemsForQuery = useCallback((nextQuery: string): readonly PaletteItem[] => (
-    buildCommandPaletteSectionsModel({
-      query: nextQuery,
-      mode,
-      commands,
-      projects,
-      activeProjectId,
-      recentPageIds,
-      pages,
-      threads,
-      threadSearchIndex,
-      pageSearchBatch: pageSearchBatch,
+  const buildFlatItemsForQuery = useCallback(
+    (nextQuery: string): readonly PaletteItem[] =>
+      buildCommandPaletteSectionsModel({
+        query: nextQuery,
+        mode,
+        commands,
+        projects,
+        activeProjectId,
+        recentPageIds,
+        pages,
+        threads,
+        threadSearchIndex,
+        pageSearchBatch: pageSearchBatch,
+        pageSearchScopeKey,
+        threadSearchBatch,
+      }).flatItems,
+    [
       pageSearchScopeKey,
+      activeProjectId,
+      pages,
+      commands,
+      pageSearchBatch,
+      mode,
+      projects,
+      recentPageIds,
       threadSearchBatch,
-    }).flatItems
-  ), [
-    pageSearchScopeKey,
-    activeProjectId,
-    pages,
-    commands,
-    pageSearchBatch,
-    mode,
-    projects,
-    recentPageIds,
-    threadSearchBatch,
-    threadSearchIndex,
-    threads,
-  ]);
-  const visibleRowsLoading = mode === "pages"
-    ? pagesLoading || visibleModel.pageSearchPending
-    : mode === "chats"
-      ? chatsLoading || visibleModel.threadSearchPending
-      : mode === "root"
-        ? loading || visibleModel.threadSearchPending || visibleModel.pageSearchPending
-        : loading;
+      threadSearchIndex,
+      threads,
+    ],
+  );
+  const visibleRowsLoading =
+    mode === "pages"
+      ? pagesLoading || visibleModel.pageSearchPending
+      : mode === "chats"
+        ? chatsLoading || visibleModel.threadSearchPending
+        : mode === "root"
+          ? loading || visibleModel.threadSearchPending || visibleModel.pageSearchPending
+          : loading;
 
   useEffect(() => {
     if (flatItems.length === 0) {
@@ -940,7 +963,9 @@ export function CommandPaletteSurface({
 
   useEffect(() => {
     if (selectedIndex < 0) return;
-    const next = scrollViewportRef.current?.querySelector<HTMLElement>(`[data-palette-index="${selectedIndex}"]`);
+    const next = scrollViewportRef.current?.querySelector<HTMLElement>(
+      `[data-palette-index="${selectedIndex}"]`,
+    );
     next?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
@@ -959,33 +984,34 @@ export function CommandPaletteSurface({
     return () => observer.disconnect();
   }, [sections]);
 
-  const handleExecute = useCallback((item: PaletteItem) => {
-    if (isPaletteItemDisabled(item)) return;
-    if (item.kind === "command" && item.id === "searchChats") {
-      onChangeMode("chats");
-      return;
-    }
+  const handleExecute = useCallback(
+    (item: PaletteItem) => {
+      if (isPaletteItemDisabled(item)) return;
+      if (item.kind === "command" && item.id === "searchChats") {
+        onChangeMode("chats");
+        return;
+      }
 
-    if (item.kind === "command" && item.id === "searchPages") {
-      onChangeMode("pages");
-      return;
-    }
+      if (item.kind === "command" && item.id === "searchPages") {
+        onChangeMode("pages");
+        return;
+      }
 
-    if (item.kind === "command" && item.id === "searchFiles") {
-      onChangeMode("files");
-      return;
-    }
+      if (item.kind === "command" && item.id === "searchFiles") {
+        onChangeMode("files");
+        return;
+      }
 
-    onRequestClose();
-    onExecute(item);
-  }, [onChangeMode, onExecute, onRequestClose]);
+      onRequestClose();
+      onExecute(item);
+    },
+    [onChangeMode, onExecute, onRequestClose],
+  );
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     const moveSelection = (direction: -1 | 1) => {
       if (flatItems.length === 0) return;
-      const currentIndex = selectedIndex < 0
-        ? direction > 0 ? -1 : 0
-        : selectedIndex;
+      const currentIndex = selectedIndex < 0 ? (direction > 0 ? -1 : 0) : selectedIndex;
       const nextIndex = resolveSelectableIndex(flatItems, currentIndex + direction, direction);
       if (nextIndex < 0) return;
       setSelectedIndex(nextIndex);
@@ -1039,9 +1065,10 @@ export function CommandPaletteSurface({
     event.preventDefault();
     setQuery("");
   };
-  const activeDescendantId = selectedIndex >= 0 && selectedIndex < flatItems.length
-    ? getPaletteItemDomId(listId, selectedIndex)
-    : undefined;
+  const activeDescendantId =
+    selectedIndex >= 0 && selectedIndex < flatItems.length
+      ? getPaletteItemDomId(listId, selectedIndex)
+      : undefined;
   const showThreadSearchStatus = visibleModel.showThreadSearchStatus;
   const showPageSearchStatus = visibleModel.showPageSearchStatus;
   const hasVisibleSearchStatus = showThreadSearchStatus || showPageSearchStatus;
@@ -1102,7 +1129,9 @@ export function CommandPaletteSurface({
             availableAssignees={availableAssignees}
             availableProjects={availableProjects}
             disabled={false}
-            onChange={(update) => setPageFilters((prev) => update(cloneCommandPalettePageFilters(prev)))}
+            onChange={(update) =>
+              setPageFilters((prev) => update(cloneCommandPalettePageFilters(prev)))
+            }
           >
             <NodexIconButton
               icon={ListFilter}
@@ -1170,8 +1199,15 @@ export function CommandPaletteSurface({
           <SearchStatusRow>Full Page search is unavailable</SearchStatusRow>
         ) : null}
         {flatItems.length === 0 && !hasVisibleSearchStatus ? (
-          <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">
-            {getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "pages" ? pagesLoading : loading)}
+          <div
+            data-cmdk-empty
+            className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground"
+          >
+            {getEmptyMessage(
+              mode,
+              visibleModel.query,
+              mode === "chats" ? chatsLoading : mode === "pages" ? pagesLoading : loading,
+            )}
           </div>
         ) : null}
       </div>

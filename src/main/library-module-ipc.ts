@@ -24,11 +24,7 @@ type LibraryModuleIpcChannel =
 export interface LibraryModuleIpcDependencies {
   readonly registerHandle: (
     channel: LibraryModuleIpcChannel,
-    listener: (
-      event: unknown,
-      accessContext: unknown,
-      request: unknown,
-    ) => Promise<unknown>,
+    listener: (event: unknown, accessContext: unknown, request: unknown) => Promise<unknown>,
   ) => void;
   readonly isTrustedEvent: (event: unknown) => boolean;
   readonly read: (
@@ -58,9 +54,7 @@ export const registerLibraryModuleIpcHandler = (
     LIBRARY_MODULE_READ_IPC_CHANNEL,
     async (event, rawAccessContext, rawRequest) => {
       if (!dependencies.isTrustedEvent(event)) {
-        return failure(
-          "Library reads are restricted to a trusted application window",
-        );
+        return failure("Library reads are restricted to a trusted application window");
       }
       let accessContext: ContentAccessContext;
       let request: LibraryModuleReadRequest;
@@ -68,9 +62,7 @@ export const registerLibraryModuleIpcHandler = (
         accessContext = parseContentAccessContext(rawAccessContext);
         request = bindLibraryModuleRead(rawRequest);
       } catch (error) {
-        return failure(
-          error instanceof Error ? error.message : "Library read is invalid",
-        );
+        return failure(error instanceof Error ? error.message : "Library read is invalid");
       }
       try {
         return await dependencies.read(accessContext, request);
@@ -79,9 +71,7 @@ export const registerLibraryModuleIpcHandler = (
           ok: false,
           error: libraryModuleFailure(
             "unknown",
-            error instanceof Error
-              ? error.message
-              : "The durable Library reader is unavailable",
+            error instanceof Error ? error.message : "The durable Library reader is unavailable",
             true,
           ),
         };
@@ -92,9 +82,7 @@ export const registerLibraryModuleIpcHandler = (
     LIBRARY_MODULE_APPLY_IPC_CHANNEL,
     async (event, rawAccessContext, rawRequest) => {
       if (!dependencies.isTrustedEvent(event)) {
-        return applyFailure(
-          "Library writes are restricted to a trusted application window",
-        );
+        return applyFailure("Library writes are restricted to a trusted application window");
       }
       let accessContext: ContentAccessContext;
       let request: LibraryModuleApplyRequest;
@@ -102,9 +90,7 @@ export const registerLibraryModuleIpcHandler = (
         accessContext = parseContentAccessContext(rawAccessContext);
         request = bindLibraryModuleApply(rawRequest);
       } catch (error) {
-        return applyFailure(
-          error instanceof Error ? error.message : "Library write is invalid",
-        );
+        return applyFailure(error instanceof Error ? error.message : "Library write is invalid");
       }
       try {
         return await dependencies.apply(accessContext, request);
@@ -113,9 +99,7 @@ export const registerLibraryModuleIpcHandler = (
           ok: false,
           error: libraryModuleFailure(
             "unknown",
-            error instanceof Error
-              ? error.message
-              : "The durable Library writer is unavailable",
+            error instanceof Error ? error.message : "The durable Library writer is unavailable",
             true,
           ),
         };

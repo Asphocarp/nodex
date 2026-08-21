@@ -17,30 +17,35 @@ const SETTINGS: ManagedWorktreeSettings = {
   autoDeleteLimit: 15,
 };
 
-const INVENTORY: ManagedWorktreeRecord[] = [{
-  hostId: "local",
-  path: "/managed/alpha/a1b2/alpha",
-  exists: true,
-  repositoryPath: "/repositories/alpha",
-  createdAtMs: 100,
-  conversations: [{
-    threadId: "thread-alpha",
-    projectId: "project-alpha",
-    projectName: "Alpha",
-    sessionId: "session-alpha",
-    sessionTitle: "Investigate parser",
-    threadName: "Parser task",
-    archived: false,
-    updatedAt: 200,
-  }],
-}, {
-  hostId: "ssh:build-box",
-  path: "/srv/worktrees/c3d4/beta",
-  exists: true,
-  repositoryPath: "/repositories/beta",
-  createdAtMs: 90,
-  conversations: [],
-}];
+const INVENTORY: ManagedWorktreeRecord[] = [
+  {
+    hostId: "local",
+    path: "/managed/alpha/a1b2/alpha",
+    exists: true,
+    repositoryPath: "/repositories/alpha",
+    createdAtMs: 100,
+    conversations: [
+      {
+        threadId: "thread-alpha",
+        projectId: "project-alpha",
+        projectName: "Alpha",
+        sessionId: "session-alpha",
+        sessionTitle: "Investigate parser",
+        threadName: "Parser task",
+        archived: false,
+        updatedAt: 200,
+      },
+    ],
+  },
+  {
+    hostId: "ssh:build-box",
+    path: "/srv/worktrees/c3d4/beta",
+    exists: true,
+    repositoryPath: "/repositories/beta",
+    createdAtMs: 90,
+    conversations: [],
+  },
+];
 
 function createService(input?: {
   settings?: ManagedWorktreeSettings;

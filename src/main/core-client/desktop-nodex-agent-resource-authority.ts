@@ -27,19 +27,20 @@ type CoreAgentPlan = components["schemas"]["AgentResourceAccessPlan"];
 export const toCoreAgentTurnProvenance = (
   profileId: string,
   authority: FrozenNodexAgentTurnAuthority,
-) => ({
-  profile_id: profileId,
-  authority: {
-    thread_id: authority.threadId,
-    turn_id: authority.turnId,
-    root_thread_id: authority.rootThreadId,
-    actor_project_id: authority.actorProjectId,
-    library_id: authority.libraryId,
-    store_epoch: authority.storeEpoch,
-    scope: authority.scope,
-    source: authority.source,
-  },
-}) as const;
+) =>
+  ({
+    profile_id: profileId,
+    authority: {
+      thread_id: authority.threadId,
+      turn_id: authority.turnId,
+      root_thread_id: authority.rootThreadId,
+      actor_project_id: authority.actorProjectId,
+      library_id: authority.libraryId,
+      store_epoch: authority.storeEpoch,
+      scope: authority.scope,
+      source: authority.source,
+    },
+  }) as const;
 
 const toCoreTarget = (target: NodexAgentAuthorizationTarget): CoreAgentTarget => {
   switch (target.kind) {
@@ -75,9 +76,7 @@ const fromCoreTarget = (target: CoreAgentTarget): NodexAgentAuthorizationTarget 
   }
 };
 
-const toCoreGrantRoot = (
-  root: NodexAgentResourceGrantRoot,
-): CoreAgentGrant["root"] => {
+const toCoreGrantRoot = (root: NodexAgentResourceGrantRoot): CoreAgentGrant["root"] => {
   switch (root.kind) {
     case "page":
       return { kind: root.kind, page_id: root.pageId };
@@ -88,9 +87,7 @@ const toCoreGrantRoot = (
   }
 };
 
-const fromCoreGrantRoot = (
-  root: CoreAgentGrant["root"],
-): NodexAgentResourceGrantRoot => {
+const fromCoreGrantRoot = (root: CoreAgentGrant["root"]): NodexAgentResourceGrantRoot => {
   switch (root.kind) {
     case "page":
       return { kind: root.kind, pageId: root.page_id };
@@ -121,9 +118,7 @@ const fromCoreGrant = (grant: CoreAgentGrant): NodexAgentResourceGrantSpec => {
   };
 };
 
-const toCoreOverlay = (
-  overlay: NodexAgentResourceAccessOverlay,
-): CoreAgentOverlay => ({
+const toCoreOverlay = (overlay: NodexAgentResourceAccessOverlay): CoreAgentOverlay => ({
   kind: overlay.kind,
   scope: overlay.scope,
   ...(overlay.scope === "call"
@@ -138,9 +133,7 @@ const toCoreOverlay = (
   library_id: overlay.libraryId,
   store_epoch: overlay.storeEpoch,
   grants: canonicalizeNodexAgentResourceGrantSpecs(overlay.grants).map(toCoreGrant),
-  ...(overlay.persistResultingPageGrants
-    ? { persist_resulting_page_grants: true }
-    : {}),
+  ...(overlay.persistResultingPageGrants ? { persist_resulting_page_grants: true } : {}),
 });
 
 export const toCoreAgentExecutionAuthorization = (
@@ -154,21 +147,15 @@ export const toCoreAgentExecutionAuthorization = (
   ...(resourceAccess ? { resource_access: toCoreOverlay(resourceAccess) } : {}),
 });
 
-const fromCoreOverlay = (
-  overlay: CoreAgentOverlay,
-): NodexAgentResourceAccessOverlay => {
+const fromCoreOverlay = (overlay: CoreAgentOverlay): NodexAgentResourceAccessOverlay => {
   const base = {
     kind: overlay.kind,
     rootThreadId: overlay.root_thread_id,
     actorProjectId: overlay.actor_project_id,
     libraryId: overlay.library_id,
     storeEpoch: overlay.store_epoch,
-    grants: canonicalizeNodexAgentResourceGrantSpecs(
-      overlay.grants.map(fromCoreGrant),
-    ),
-    ...(overlay.persist_resulting_page_grants
-      ? { persistResultingPageGrants: true }
-      : {}),
+    grants: canonicalizeNodexAgentResourceGrantSpecs(overlay.grants.map(fromCoreGrant)),
+    ...(overlay.persist_resulting_page_grants ? { persistResultingPageGrants: true } : {}),
   } as const;
   if (overlay.scope === "task") {
     if (overlay.kind !== "consent") {
@@ -205,9 +192,7 @@ const fromCorePlan = (plan: CoreAgentPlan): NodexAgentResourceAccessPlan => {
     case "authorized":
       return {
         kind: plan.kind,
-        ...(plan.resource_access
-          ? { resourceAccess: fromCoreOverlay(plan.resource_access) }
-          : {}),
+        ...(plan.resource_access ? { resourceAccess: fromCoreOverlay(plan.resource_access) } : {}),
       };
     case "consent_required":
       return {
@@ -235,20 +220,18 @@ const assertOverlayBoundary = (
   overlay: NodexAgentResourceAccessOverlay,
 ): void => {
   if (
-    overlay.rootThreadId !== authority.rootThreadId
-    || overlay.actorProjectId !== authority.actorProjectId
-    || overlay.libraryId !== authority.libraryId
-    || overlay.storeEpoch !== authority.storeEpoch
+    overlay.rootThreadId !== authority.rootThreadId ||
+    overlay.actorProjectId !== authority.actorProjectId ||
+    overlay.libraryId !== authority.libraryId ||
+    overlay.storeEpoch !== authority.storeEpoch
   ) {
     throw new Error("Core Agent resource access escaped its Turn authority");
   }
   if (
-    overlay.scope === "call"
-    && (
-      overlay.threadId !== authority.threadId
-      || overlay.turnId !== authority.turnId
-      || overlay.callId !== callId
-    )
+    overlay.scope === "call" &&
+    (overlay.threadId !== authority.threadId ||
+      overlay.turnId !== authority.turnId ||
+      overlay.callId !== callId)
   ) {
     throw new Error("Core Agent call access escaped its exact call coordinates");
   }
@@ -264,33 +247,24 @@ const assertPlanBoundary = (
     return;
   }
   if (plan.kind === "consent_required") {
-    if (
-      plan.inspectionAccess.kind !== "inspection"
-      || plan.inspectionAccess.scope !== "call"
-    ) {
+    if (plan.inspectionAccess.kind !== "inspection" || plan.inspectionAccess.scope !== "call") {
       throw new Error("Core consent plan omitted exact inspection access");
     }
     assertOverlayBoundary(authority, callId, plan.inspectionAccess);
   }
 };
 
-const createCorePort = (
-  runtime: RustDataAuthorityRuntime,
-): NodexAgentResourceAuthorityPort => {
+const createCorePort = (runtime: RustDataAuthorityRuntime): NodexAgentResourceAuthorityPort => {
   const plan = async (
     input: PlanNodexAgentResourceAccessInput,
   ): Promise<NodexAgentResourceAccessPlan> => {
-    const snapshot = await runtime.clientForProject(input.authority.actorProjectId)
-      .libraryRead({
-        kind: "plan_agent_resource_access",
-        provenance: toCoreAgentTurnProvenance(
-          runtime.identity.profileId,
-          input.authority,
-        ),
-        call_id: input.callId,
-        intents: input.intents.map(toCoreIntent),
-        task_access: input.taskAccess ? toCoreOverlay(input.taskAccess) : null,
-      });
+    const snapshot = await runtime.clientForProject(input.authority.actorProjectId).libraryRead({
+      kind: "plan_agent_resource_access",
+      provenance: toCoreAgentTurnProvenance(runtime.identity.profileId, input.authority),
+      call_id: input.callId,
+      intents: input.intents.map(toCoreIntent),
+      task_access: input.taskAccess ? toCoreOverlay(input.taskAccess) : null,
+    });
     if (snapshot.value.kind !== "agent_resource_access_plan") {
       throw new Error("Core returned the wrong Agent resource plan variant");
     }
@@ -305,25 +279,20 @@ const createCorePort = (
   return {
     plan,
     persistProjectGrants: async (input) => {
-      const committed = await runtime.clientForProject(
-        input.authority.actorProjectId,
-      ).libraryApply({
-        operationId: input.operationId,
-        intent: {
-          kind: "persist_agent_project_resource_grants",
-          provenance: toCoreAgentTurnProvenance(
-            runtime.identity.profileId,
-            input.authority,
-          ),
-          grants: canonicalizeNodexAgentResourceGrantSpecs(input.grants)
-            .map(toCoreGrant),
-        },
-      });
+      const committed = await runtime
+        .clientForProject(input.authority.actorProjectId)
+        .libraryApply({
+          operationId: input.operationId,
+          intent: {
+            kind: "persist_agent_project_resource_grants",
+            provenance: toCoreAgentTurnProvenance(runtime.identity.profileId, input.authority),
+            grants: canonicalizeNodexAgentResourceGrantSpecs(input.grants).map(toCoreGrant),
+          },
+        });
       if (
-        applyResultStoreEpoch(committed) !== input.authority.storeEpoch
-        || committed.receipt.operation_id !== input.operationId
-        || committed.receipt.operation_kind
-          !== "persist_agent_project_resource_grants"
+        applyResultStoreEpoch(committed) !== input.authority.storeEpoch ||
+        committed.receipt.operation_id !== input.operationId ||
+        committed.receipt.operation_kind !== "persist_agent_project_resource_grants"
       ) {
         throw new Error("Core Agent Project grants escaped their receipt boundary");
       }
@@ -347,7 +316,6 @@ export const createDesktopNodexAgentResourceAuthorityPort = (
   };
   return {
     plan: async (request) => await (await resolve()).plan(request),
-    persistProjectGrants: async (request) =>
-      await (await resolve()).persistProjectGrants(request),
+    persistProjectGrants: async (request) => await (await resolve()).persistProjectGrants(request),
   };
 };

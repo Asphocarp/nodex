@@ -126,14 +126,14 @@ export function AutomaticApprovalReviewSurface({ item }: { item: CodexConversati
     <ThreadActivityDisclosure
       icon={<AutomaticApprovalReviewShield />}
       status={isInProgress ? "running" : "completed"}
-      summary={(
+      summary={
         <CodexShimmerText
           active={isInProgress}
           className="min-w-0 truncate text-token-foreground/30 group-hover/activity-header:text-token-foreground"
         >
           {actionSummary}
         </CodexShimmerText>
-      )}
+      }
     >
       <AutomaticApprovalReviewRow item={item} />
     </ThreadActivityDisclosure>

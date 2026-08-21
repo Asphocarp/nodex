@@ -21,31 +21,34 @@ const address = {
   project_id: "project-1",
 };
 
-const packet = (commitSeq: number) => createCoreLocalCommitFixture({
-  commitSeq,
-  authorizationScope: address,
-  projectionEffects: [{
-    scope: {
-      schema_version: 1,
-      canonical_key: "page:project-1:page-1",
-      scope: {
-        kind: "page",
-        project_id: "project-1",
-        page_id: "page-1",
+const packet = (commitSeq: number) =>
+  createCoreLocalCommitFixture({
+    commitSeq,
+    authorizationScope: address,
+    projectionEffects: [
+      {
+        scope: {
+          schema_version: 1,
+          canonical_key: "page:project-1:page-1",
+          scope: {
+            kind: "page",
+            project_id: "project-1",
+            page_id: "page-1",
+          },
+        },
+        base_revision: 0,
+        result_revision: 1,
+        covered_commit_seq: commitSeq,
+        patch: {
+          kind: "page_changed",
+          project_id: "project-1",
+          page_id: "page-1",
+        },
+        requires_read_at_least: false,
+        effect_hash: "b".repeat(64),
       },
-    },
-    base_revision: 0,
-    result_revision: 1,
-    covered_commit_seq: commitSeq,
-    patch: {
-      kind: "page_changed",
-      project_id: "project-1",
-      page_id: "page-1",
-    },
-    requires_read_at_least: false,
-    effect_hash: "b".repeat(64),
-  }],
-});
+    ],
+  });
 
 const envelope = (commitSeq: number): RecipientDeliveryEnvelope => ({
   version: 2,
@@ -82,9 +85,8 @@ describe("Electron renderer recipient delivery", () => {
   test("ACKs only after a complete packet entered process-wide admission", async () => {
     const target = harness();
     const observed: ProjectionStreamMessage[] = [];
-    const release = target.transport.subscribeProjectionStream(
-      scope,
-      (message) => observed.push(message),
+    const release = target.transport.subscribeProjectionStream(scope, (message) =>
+      observed.push(message),
     );
 
     target.deliver(envelope(41));
@@ -107,9 +109,8 @@ describe("Electron renderer recipient delivery", () => {
   test("NACKs an envelope whose address diverges from the packet", async () => {
     const target = harness();
     const observed: ProjectionStreamMessage[] = [];
-    const release = target.transport.subscribeProjectionStream(
-      scope,
-      (message) => observed.push(message),
+    const release = target.transport.subscribeProjectionStream(scope, (message) =>
+      observed.push(message),
     );
     const divergent = {
       ...envelope(42),

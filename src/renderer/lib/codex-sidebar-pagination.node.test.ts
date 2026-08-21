@@ -79,13 +79,9 @@ describe("paginateCodexSidebarItems", () => {
       suppressedKeys: new Set(["item-1", "item-3"]),
     });
 
-    expect(JSON.stringify(result.visibleItems)).toBe(JSON.stringify([
-      "item-2",
-      "item-4",
-      "item-5",
-      "item-6",
-      "item-7",
-    ]));
+    expect(JSON.stringify(result.visibleItems)).toBe(
+      JSON.stringify(["item-2", "item-4", "item-5", "item-6", "item-7"]),
+    );
     expect(result.showPager).toBe(false);
   });
 
@@ -99,14 +95,9 @@ describe("paginateCodexSidebarItems", () => {
       forcedVisibleKey: "item-8",
     });
 
-    expect(JSON.stringify(result.visibleItems)).toBe(JSON.stringify([
-      "item-1",
-      "item-2",
-      "item-3",
-      "item-4",
-      "item-5",
-      "item-8",
-    ]));
+    expect(JSON.stringify(result.visibleItems)).toBe(
+      JSON.stringify(["item-1", "item-2", "item-3", "item-4", "item-5", "item-8"]),
+    );
     expect(result.showPager).toBe(true);
   });
 
@@ -120,14 +111,9 @@ describe("paginateCodexSidebarItems", () => {
       forcedVisibleKey: "item-1",
     });
 
-    expect(JSON.stringify(result.visibleItems)).toBe(JSON.stringify([
-      "item-1",
-      "item-2",
-      "item-3",
-      "item-4",
-      "item-5",
-      "item-6",
-    ]));
+    expect(JSON.stringify(result.visibleItems)).toBe(
+      JSON.stringify(["item-1", "item-2", "item-3", "item-4", "item-5", "item-6"]),
+    );
     expect(result.showPager).toBe(true);
   });
 });

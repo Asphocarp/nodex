@@ -51,8 +51,7 @@ export async function deleteBoardPage(input: {
       storeEpoch: committed.receipt.storeEpoch,
       commitSeq: committed.receipt.commitSeq,
     }),
-    isCommitMaterialized: (canonicalBoard) =>
-      !boardContainsPageIds(canonicalBoard, [input.pageId]),
+    isCommitMaterialized: (canonicalBoard) => !boardContainsPageIds(canonicalBoard, [input.pageId]),
   });
   return outcome.ok && outcome.result?.receipt.lifecycle === "deleted";
 }
@@ -68,9 +67,11 @@ export async function moveBoardPage(input: {
     input.store.setError("The Database View is not loaded");
     return false;
   }
-  const fallbackCards = input.store.getSnapshot().board?.columns
-    .flatMap((column) => column.cards)
-    .filter((card) => card.id === input.move.pageId) ?? [];
+  const fallbackCards =
+    input.store
+      .getSnapshot()
+      .board?.columns.flatMap((column) => column.cards)
+      .filter((card) => card.id === input.move.pageId) ?? [];
   const outcome = await input.store.runOptimisticMutation<DatabaseApplyReceiptV2>({
     kind: "database:position",
     conflictKeys: conflictKeysForMove(input.move),
@@ -108,9 +109,11 @@ export async function moveBoardPages(input: {
     return false;
   }
   const movingPageIds = new Set(input.move.pageIds);
-  const fallbackCards = input.store.getSnapshot().board?.columns
-    .flatMap((column) => column.cards)
-    .filter((card) => movingPageIds.has(card.id)) ?? [];
+  const fallbackCards =
+    input.store
+      .getSnapshot()
+      .board?.columns.flatMap((column) => column.cards)
+      .filter((card) => movingPageIds.has(card.id)) ?? [];
   const outcome = await input.store.runOptimisticMutation<DatabaseApplyReceiptV2>({
     kind: "database:position-many",
     conflictKeys: conflictKeysForMoveMany(input.move),

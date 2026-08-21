@@ -56,7 +56,8 @@ export const createDatabaseListPageDragPreviewElement = ({
 
   if (itemCount > 1) {
     const badge = element.ownerDocument.createElement("div");
-    badge.className = "absolute -top-1.5 -right-1.5 rounded-full bg-(--foreground) px-1.75 py-0.75 text-sm font-medium text-(--background) shadow-lg";
+    badge.className =
+      "absolute -top-1.5 -right-1.5 rounded-full bg-(--foreground) px-1.75 py-0.75 text-sm font-medium text-(--background) shadow-lg";
     badge.textContent = String(itemCount);
     preview.append(badge);
   }
@@ -70,9 +71,7 @@ const projectDatabasePageSummary = ({
   readonly model: DatabaseViewRenderModel;
   readonly row: DatabaseViewRenderRow;
 }): DatabasePageSummary | null => {
-  const authority = model.query.rows.find(
-    (candidate) => candidate.page.pageId === row.pageId,
-  );
+  const authority = model.query.rows.find((candidate) => candidate.page.pageId === row.pageId);
   if (!authority) return null;
 
   return {
@@ -93,10 +92,9 @@ const projectDatabasePageSummary = ({
     ...(row.scheduledEnd ? { scheduledEnd: row.scheduledEnd } : {}),
     ...(row.assignee ? { assignee: row.assignee } : {}),
     created: row.createdAt,
-    order: authority.position?.order
-      ?? model.query.rows.findIndex(
-        (candidate) => candidate.page.pageId === row.pageId,
-      ),
+    order:
+      authority.position?.order ??
+      model.query.rows.findIndex((candidate) => candidate.page.pageId === row.pageId),
   };
 };
 
@@ -120,20 +118,23 @@ export const buildDatabaseViewPageDragData = ({
   if (model.accessContext.kind !== "project") return null;
 
   const draggedRows = selectedPageIds.has(row.pageId)
-    ? allRows.filter((candidate, index) =>
-        selectedPageIds.has(candidate.pageId)
-        && allRows.findIndex((entry) => entry.pageId === candidate.pageId) === index
+    ? allRows.filter(
+        (candidate, index) =>
+          selectedPageIds.has(candidate.pageId) &&
+          allRows.findIndex((entry) => entry.pageId === candidate.pageId) === index,
       )
     : [row];
   const dragItems = draggedRows.flatMap((candidate) => {
     const card = projectDatabasePageSummary({ model, row: candidate });
     if (!card) return [];
     const columnId: WorkflowStatus = candidate.status ?? DEFAULT_WORKFLOW_STATUS;
-    return [{
-      card,
-      columnId,
-      columnName: candidate.groupKey ?? "Unassigned",
-    }];
+    return [
+      {
+        card,
+        columnId,
+        columnName: candidate.groupKey ?? "Unassigned",
+      },
+    ];
   });
   const sourcePage = projectDatabasePageSummary({ model, row });
   if (!sourcePage || dragItems.length === 0) return null;
@@ -167,10 +168,11 @@ export const useDatabaseViewPageDragSource = (
   const dragHandle = options.dragHandle ?? null;
   const nativePreview = options.nativePreview ?? "disabled";
   const [element, setElement] = useState<HTMLElement | null>(null);
-  const [previewPortal, setPreviewPortal] =
-    useState<DatabaseViewPageDragPreviewPortal | null>(null);
+  const [previewPortal, setPreviewPortal] = useState<DatabaseViewPageDragPreviewPortal | null>(
+    null,
+  );
   const setElementRef = useCallback((next: HTMLElement | null) => {
-    setElement((current) => current === next ? current : next);
+    setElement((current) => (current === next ? current : next));
   }, []);
 
   useEffect(() => {

@@ -25,9 +25,7 @@ export type CodexPendingWorktreeIpcChannel =
   | "codex:pending-worktree:clear-attention"
   | "codex:pending-worktree:resolve-thread";
 
-export type CodexPendingWorktreeIpcHandler<
-  Channel extends CodexPendingWorktreeIpcChannel,
-> = (
+export type CodexPendingWorktreeIpcHandler<Channel extends CodexPendingWorktreeIpcChannel> = (
   event: unknown,
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
@@ -48,9 +46,7 @@ export interface CodexPendingWorktreeIpcService {
   workLocallyFromPendingWorktree: (
     hostId: string,
     pendingWorktreeId: string,
-  ) =>
-    | { readonly threadId: string }
-    | Promise<{ readonly threadId: string }>;
+  ) => { readonly threadId: string } | Promise<{ readonly threadId: string }>;
   continuePendingWorktree: (hostId: string, pendingWorktreeId: string) => void | Promise<void>;
   cancelPendingWorktree: (hostId: string, pendingWorktreeId: string) => void | Promise<void>;
   dismissPendingWorktree: (hostId: string, pendingWorktreeId: string) => void | Promise<void>;
@@ -90,9 +86,7 @@ export interface CodexPendingWorktreeIpcRegistration {
   subscribePendingWorktreesChanged?: (
     listener: (entries: CodexPendingWorktreesChangedEvent) => void,
   ) => void;
-  broadcastPendingWorktreesChanged?: (
-    entries: CodexPendingWorktreesChangedEvent,
-  ) => void;
+  broadcastPendingWorktreesChanged?: (entries: CodexPendingWorktreesChangedEvent) => void;
 }
 
 function requireIdentifier(value: string, label: string): string {
@@ -110,12 +104,12 @@ function requireLabel(value: string): string {
 
 function requireAgentMode(value: CodexAgentMode): CodexAgentMode {
   if (
-    value !== "read-only"
-    && value !== "auto"
-    && value !== "granular"
-    && value !== "guardian-approvals"
-    && value !== "full-access"
-    && value !== "custom"
+    value !== "read-only" &&
+    value !== "auto" &&
+    value !== "granular" &&
+    value !== "guardian-approvals" &&
+    value !== "full-access" &&
+    value !== "custom"
   ) {
     throw new Error("Agent mode is invalid");
   }
@@ -137,7 +131,9 @@ function requireSourceWorkspaceRoots(
   return value;
 }
 
-function requireCreateInput(value: CodexPendingWorktreeCreateInput): CodexPendingWorktreeCreateInput {
+function requireCreateInput(
+  value: CodexPendingWorktreeCreateInput,
+): CodexPendingWorktreeCreateInput {
   if (!value || typeof value !== "object") {
     throw new Error("Pending worktree create input is required");
   }
@@ -149,9 +145,9 @@ function requireCreateInput(value: CodexPendingWorktreeCreateInput): CodexPendin
     requireCodexWorktreeEnvironmentConfigPath(value.localEnvironmentConfigPath);
   }
   if (
-    value.launchMode !== "create-stable-worktree"
-    && value.launchMode !== "fork-conversation"
-    && value.launchMode !== "start-conversation"
+    value.launchMode !== "create-stable-worktree" &&
+    value.launchMode !== "fork-conversation" &&
+    value.launchMode !== "start-conversation"
   ) {
     throw new Error("Pending worktree launch mode is invalid");
   }
@@ -177,7 +173,8 @@ export function registerCodexPendingWorktreeIpcHandlers(
   });
 
   options.registerHandle("codex:pending-worktree:create", (_, input) =>
-    options.service.createPendingWorktree(requireCreateInput(input)));
+    options.service.createPendingWorktree(requireCreateInput(input)),
+  );
 
   options.registerHandle(
     "codex:pending-worktree:auto-fix",
@@ -206,12 +203,15 @@ export function registerCodexPendingWorktreeIpcHandlers(
     },
   );
 
-  options.registerHandle("codex:pending-worktree:continue", async (_, hostId, pendingWorktreeId) => {
-    await options.service.continuePendingWorktree(
-      requireIdentifier(hostId, "Host id"),
-      requireIdentifier(pendingWorktreeId, "Pending worktree id"),
-    );
-  });
+  options.registerHandle(
+    "codex:pending-worktree:continue",
+    async (_, hostId, pendingWorktreeId) => {
+      await options.service.continuePendingWorktree(
+        requireIdentifier(hostId, "Host id"),
+        requireIdentifier(pendingWorktreeId, "Pending worktree id"),
+      );
+    },
+  );
 
   options.registerHandle("codex:pending-worktree:cancel", async (_, hostId, pendingWorktreeId) => {
     await options.service.cancelPendingWorktree(
@@ -270,12 +270,10 @@ export function registerCodexPendingWorktreeIpcHandlers(
     },
   );
 
-  options.registerHandle(
-    "codex:pending-worktree:resolve-thread",
-    (_, clientThreadId) =>
-      options.service.resolvePendingWorktreeThread(
-        requireIdentifier(clientThreadId, "Client thread id"),
-      ),
+  options.registerHandle("codex:pending-worktree:resolve-thread", (_, clientThreadId) =>
+    options.service.resolvePendingWorktreeThread(
+      requireIdentifier(clientThreadId, "Client thread id"),
+    ),
   );
 
   if (!options.subscribePendingWorktreesChanged || !options.broadcastPendingWorktreesChanged) {

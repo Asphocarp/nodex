@@ -67,9 +67,7 @@ function authorizationInput(
   };
 }
 
-function createRouter(
-  decisions: Array<"allow_once" | "allow_task" | "allow_project" | "deny">,
-) {
+function createRouter(decisions: Array<"allow_once" | "allow_task" | "allow_project" | "deny">) {
   const sendRequest = vi.fn(async () => ({
     decision: decisions.shift() ?? "deny",
   }));
@@ -94,20 +92,24 @@ describe("NodexAgentAuthorizationBroker", () => {
       resourceAccess: {
         kind: "consent",
         scope: "task",
-        grants: [{
-          root: { kind: "page", pageId: "page-1" },
-          access: "read_write",
-        }],
+        grants: [
+          {
+            root: { kind: "page", pageId: "page-1" },
+            access: "read_write",
+          },
+        ],
       },
     });
     expect(broker.getTaskAccess(authority)).toMatchObject({
       scope: "task",
       grants: [{ root: { kind: "page", pageId: "page-1" } }],
     });
-    broker.extendTaskAccess(authority, [{
-      root: { kind: "page", pageId: "page-created" },
-      access: "read_write",
-    }]);
+    broker.extendTaskAccess(authority, [
+      {
+        root: { kind: "page", pageId: "page-created" },
+        access: "read_write",
+      },
+    ]);
     expect(broker.getTaskAccess(authority)?.grants).toEqual([
       { root: { kind: "page", pageId: "page-1" }, access: "read_write" },
       { root: { kind: "page", pageId: "page-created" }, access: "read_write" },
@@ -132,9 +134,13 @@ describe("NodexAgentAuthorizationBroker", () => {
       readStoreEpoch: () => "store-1",
     });
 
-    await expect(broker.authorize(authorizationInput({
-      effect: "destructive",
-    }))).resolves.toMatchObject({
+    await expect(
+      broker.authorize(
+        authorizationInput({
+          effect: "destructive",
+        }),
+      ),
+    ).resolves.toMatchObject({
       decision: "allow_task",
       resourceAccess: { scope: "task" },
     });
@@ -155,10 +161,12 @@ describe("NodexAgentAuthorizationBroker", () => {
     expect(persistProjectGrants).toHaveBeenCalledWith({
       operationId: expect.stringMatching(/^nodex-agent-grants:[a-f0-9]{64}$/u),
       authority,
-      grants: [{
-        root: { kind: "page", pageId: "page-1" },
-        access: "read_write",
-      }],
+      grants: [
+        {
+          root: { kind: "page", pageId: "page-1" },
+          access: "read_write",
+        },
+      ],
     });
   });
 
@@ -176,22 +184,28 @@ describe("NodexAgentAuthorizationBroker", () => {
       libraryActions: ["create_child" as const],
     };
 
-    await expect(broker.authorize(authorizationInput({
-      tool: "create_pages",
-      requirements: [{
-        intent: {
-          target: { kind: "library", libraryId: "library-1" },
-          action: "create_child",
-        },
-        grant: libraryGrant,
-        reason: "library_consent_required",
-        persistable: false,
-      }],
-      inspectionAccess: {
-        ...authorizationInput().inspectionAccess,
-        grants: [libraryGrant],
-      },
-    }))).resolves.toMatchObject({
+    await expect(
+      broker.authorize(
+        authorizationInput({
+          tool: "create_pages",
+          requirements: [
+            {
+              intent: {
+                target: { kind: "library", libraryId: "library-1" },
+                action: "create_child",
+              },
+              grant: libraryGrant,
+              reason: "library_consent_required",
+              persistable: false,
+            },
+          ],
+          inspectionAccess: {
+            ...authorizationInput().inspectionAccess,
+            grants: [libraryGrant],
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({
       decision: "allow_project",
       resourceAccess: {
         scope: "call",
@@ -211,9 +225,13 @@ describe("NodexAgentAuthorizationBroker", () => {
       persistProjectGrants,
     });
 
-    await expect(broker.authorize(authorizationInput({
-      isAuthorityCurrent: async () => false,
-    }))).resolves.toBe("unavailable");
+    await expect(
+      broker.authorize(
+        authorizationInput({
+          isAuthorityCurrent: async () => false,
+        }),
+      ),
+    ).resolves.toBe("unavailable");
     expect(persistProjectGrants).not.toHaveBeenCalled();
   });
 
@@ -225,13 +243,15 @@ describe("NodexAgentAuthorizationBroker", () => {
       readStoreEpoch: () => "store-1",
       persistProjectGrants,
     });
-    const isAuthorityCurrent = vi.fn()
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false);
+    const isAuthorityCurrent = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 
-    await expect(broker.authorize(authorizationInput({
-      isAuthorityCurrent,
-    }))).resolves.toBe("unavailable");
+    await expect(
+      broker.authorize(
+        authorizationInput({
+          isAuthorityCurrent,
+        }),
+      ),
+    ).resolves.toBe("unavailable");
     expect(persistProjectGrants).toHaveBeenCalledTimes(1);
     expect(isAuthorityCurrent).toHaveBeenCalledTimes(2);
   });
@@ -262,35 +282,34 @@ describe("NodexAgentAuthorizationBroker", () => {
       rendererClientRouter: router,
       readStoreEpoch: () => null,
     });
-    await expect(missingStore.authorize(authorizationInput())).resolves.toBe(
-      "unavailable",
-    );
+    await expect(missingStore.authorize(authorizationInput())).resolves.toBe("unavailable");
     expect(sendRequest).not.toHaveBeenCalled();
 
     const noPresentation = new NodexAgentAuthorizationBroker({
       rendererClientRouter: router,
       readStoreEpoch: () => "store-1",
     });
-    await expect(noPresentation.authorize(authorizationInput({
-      presentation: null,
-    }))).resolves.toBe("unavailable");
+    await expect(
+      noPresentation.authorize(
+        authorizationInput({
+          presentation: null,
+        }),
+      ),
+    ).resolves.toBe("unavailable");
 
-    await expect(noPresentation.authorize(authorizationInput())).resolves.toBe(
-      "unavailable",
-    );
+    await expect(noPresentation.authorize(authorizationInput())).resolves.toBe("unavailable");
   });
 
   test("uses independent opaque occurrences for concurrent prompts", async () => {
     const pending: Array<(value: unknown) => void> = [];
     const sentRequests: unknown[] = [];
-    const sendRequest = vi.fn(async (
-      _clientId: string,
-      _method: string,
-      request: unknown,
-    ) => await new Promise<unknown>((resolve) => {
-      sentRequests.push(request);
-      pending.push(resolve);
-    }));
+    const sendRequest = vi.fn(
+      async (_clientId: string, _method: string, request: unknown) =>
+        await new Promise<unknown>((resolve) => {
+          sentRequests.push(request);
+          pending.push(resolve);
+        }),
+    );
     const broker = new NodexAgentAuthorizationBroker({
       rendererClientRouter: { sendRequest } as Pick<RendererClientRouter, "sendRequest">,
       readStoreEpoch: () => "store-1",

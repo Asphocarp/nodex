@@ -45,16 +45,13 @@ import {
 
 export type PrimaryPageBlockDocumentDescriptor = ReadyPageBlockDocumentDescriptor;
 
-export type PrimaryOwnedBlockDocumentDescriptor =
-  OwnedDocumentDescriptor & {
-    readonly ownerLifecycle: "active";
-    readonly readiness: "ready";
-    readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
-  };
+export type PrimaryOwnedBlockDocumentDescriptor = OwnedDocumentDescriptor & {
+  readonly ownerLifecycle: "active";
+  readonly readiness: "ready";
+  readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
+};
 
-export type BlockDocumentLocalAwarenessState = Readonly<
-  Record<string, unknown>
->;
+export type BlockDocumentLocalAwarenessState = Readonly<Record<string, unknown>>;
 
 export interface BlockDocumentSurfaceValue extends PageDocumentEnvelope {
   readonly descriptor: PrimaryPageBlockDocumentDescriptor;
@@ -73,9 +70,7 @@ export type OwnedBlockDocumentSurfaceValue = OwnedDocumentEnvelope & {
 };
 
 export interface BlockDocumentSurfaceDependencies {
-  readonly createAdapter?: (
-    accessContext: ContentAccessContext,
-  ) => DocumentSyncAdapter;
+  readonly createAdapter?: (accessContext: ContentAccessContext) => DocumentSyncAdapter;
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
@@ -90,18 +85,14 @@ export interface BlockDocumentSurfaceProps {
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
   /** Optional lease used when multiple views share one canonical provider. */
   readonly awarenessLease?: EditorSurfaceAwarenessLease;
-  readonly onReload?: (
-    context?: BlockDocumentSurfaceReloadContext,
-  ) => void | Promise<void>;
+  readonly onReload?: (context?: BlockDocumentSurfaceReloadContext) => void | Promise<void>;
   readonly dependencies?: BlockDocumentSurfaceDependencies;
   /** Read-only integration seam for flush/checkpoint before closing a stage. */
   readonly runtimeRef?: MutableRefObject<BlockDocumentSurfaceRuntime | null>;
   /** Surface-specific first-sync placeholder; defaults to the generic status text. */
   readonly pendingFallback?: ReactNode;
   /** Surface-specific error composition; defaults to the generic recovery panel. */
-  readonly failureFallback?: (
-    failure: BlockDocumentSurfaceFailureStateProps,
-  ) => ReactNode;
+  readonly failureFallback?: (failure: BlockDocumentSurfaceFailureStateProps) => ReactNode;
   readonly children: (surface: BlockDocumentSurfaceValue) => ReactNode;
 }
 
@@ -126,9 +117,8 @@ const DEFAULT_DEPENDENCIES: BlockDocumentSurfaceDependencies = {};
 const toError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
-const createRuntime = (
-  options: BlockDocumentSurfaceRuntimeOptions,
-): BlockDocumentSurfaceRuntime => new BlockDocumentSurfaceRuntime(options);
+const createRuntime = (options: BlockDocumentSurfaceRuntimeOptions): BlockDocumentSurfaceRuntime =>
+  new BlockDocumentSurfaceRuntime(options);
 
 function SurfacePending({
   phase,
@@ -138,8 +128,7 @@ function SurfacePending({
   readonly fallback?: ReactNode;
 }) {
   if (fallback !== undefined) return fallback;
-  const label =
-    phase === "connecting" ? "Connecting content…" : "Opening content…";
+  const label = phase === "connecting" ? "Connecting content…" : "Opening content…";
   return (
     <div
       role="status"
@@ -161,9 +150,7 @@ export function BlockDocumentSurfaceFailureState({
 }: BlockDocumentSurfaceFailureStateProps) {
   const detailsId = useId();
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [copyState, setCopyState] = useState<
-    "idle" | "copied" | "failed"
-  >("idle");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const presentation = resolveBlockDocumentSurfaceFailure({
     descriptor,
     error,
@@ -180,11 +167,7 @@ export function BlockDocumentSurfaceFailureState({
   };
 
   return (
-    <div
-      role="alert"
-      data-block-document-surface-state={reason}
-      className="py-8 text-sm"
-    >
+    <div role="alert" data-block-document-surface-state={reason} className="py-8 text-sm">
       <div className="max-w-xl">
         <div className="flex items-start gap-2">
           <CircleAlert
@@ -231,10 +214,7 @@ export function BlockDocumentSurfaceFailureState({
         </div>
 
         {detailsOpen ? (
-          <div
-            id={detailsId}
-            className="mt-2.5 ml-5 rounded-md bg-token-foreground/5 p-2.5"
-          >
+          <div id={detailsId} className="mt-2.5 ml-5 rounded-md bg-token-foreground/5 p-2.5">
             <div className="mb-1.5 flex justify-end">
               <NodexButton
                 type="button"
@@ -280,9 +260,7 @@ const makeActiveAwarenessState = (
       ...retainedNodex,
       ...configuredNodex,
       accessContext,
-      ...(accessContext.kind === "project"
-        ? { projectId: accessContext.projectId }
-        : {}),
+      ...(accessContext.kind === "project" ? { projectId: accessContext.projectId } : {}),
       ownerBlockId: descriptor.ownerBlockId,
       clientSessionId: runtime.clientSessionId,
     },
@@ -334,10 +312,7 @@ const useSurfaceAwareness = (
       readonly added: readonly number[];
       readonly updated: readonly number[];
     }): void => {
-      if (
-        !changes.added.includes(localClientId) &&
-        !changes.updated.includes(localClientId)
-      ) {
+      if (!changes.added.includes(localClientId) && !changes.updated.includes(localClientId)) {
         return;
       }
       clearPresence();
@@ -374,11 +349,7 @@ export function OwnedBlockDocumentRuntimeSurface({
   failureFallback,
   children,
 }: OwnedBlockDocumentRuntimeSurfaceProps) {
-  const status = useSyncExternalStore(
-    runtime.subscribe,
-    runtime.getStatus,
-    runtime.getStatus,
-  );
+  const status = useSyncExternalStore(runtime.subscribe, runtime.getStatus, runtime.getStatus);
   const [reloading, setReloading] = useState(false);
   const reloadInFlightRef = useRef(false);
   useSurfaceAwareness(
@@ -427,7 +398,9 @@ export function OwnedBlockDocumentRuntimeSurface({
       error: failure,
       reason: accessRevoked
         ? "access-revoked"
-        : status.phase === "reset-required" ? "reset-required" : "fatal",
+        : status.phase === "reset-required"
+          ? "reset-required"
+          : "fatal",
       reloading,
       ...(accessRevoked ? {} : { reload }),
     };
@@ -481,14 +454,11 @@ function RuntimeOwner({
   restart,
 }: RuntimeOwnerProps) {
   const [descriptor] = useState(descriptorProp);
-  const [ownerState, setOwnerState] = useState<RuntimeOwnerState>(
-    EMPTY_RUNTIME_OWNER_STATE,
-  );
+  const [ownerState, setOwnerState] = useState<RuntimeOwnerState>(EMPTY_RUNTIME_OWNER_STATE);
   const closeTailRef = useRef<Promise<void>>(Promise.resolve());
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
-  const adapterFactory =
-    dependencies.createAdapter ?? createDocumentSyncAdapterForContentAccess;
+  const adapterFactory = dependencies.createAdapter ?? createDocumentSyncAdapterForContentAccess;
   const runtimeFactory = dependencies.createRuntime ?? createRuntime;
 
   useLayoutEffect(() => {
@@ -525,9 +495,7 @@ function RuntimeOwner({
       live = false;
       if (runtimeRef?.current === ownedRuntime) runtimeRef.current = null;
       setOwnerState((current) =>
-        current.runtime === ownedRuntime
-          ? EMPTY_RUNTIME_OWNER_STATE
-          : current,
+        current.runtime === ownedRuntime ? EMPTY_RUNTIME_OWNER_STATE : current,
       );
       if (!ownedRuntime) return;
       closeTailRef.current = ownedRuntime.close().then(
@@ -592,9 +560,7 @@ function RuntimeOwner({
   );
 }
 
-const surfaceIdentity = (
-  descriptor: PrimaryOwnedBlockDocumentDescriptor,
-): string =>
+const surfaceIdentity = (descriptor: PrimaryOwnedBlockDocumentDescriptor): string =>
   [
     descriptor.libraryId,
     JSON.stringify(descriptor.accessContext),
@@ -608,9 +574,7 @@ const surfaceIdentity = (
  * The authoritative roots are withheld until the initial state-vector sync and
  * schema validation have completed.
  */
-export function OwnedBlockDocumentSurface(
-  props: OwnedBlockDocumentSurfaceProps,
-) {
+export function OwnedBlockDocumentSurface(props: OwnedBlockDocumentSurfaceProps) {
   const [revision, setRevision] = useState(0);
   const identity = surfaceIdentity(props.descriptor);
   return (
@@ -628,9 +592,7 @@ export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
     <OwnedBlockDocumentSurface {...props}>
       {(surface) => {
         if (surface.kind !== "page") {
-          throw new TypeError(
-            "Page surface resolved a non-Page Document schema",
-          );
+          throw new TypeError("Page surface resolved a non-Page Document schema");
         }
         const pageSurface = {
           ...surface,
@@ -654,7 +616,5 @@ export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
 
 export const isPrimaryOwnedBlockDocumentModel = (
   model: OwnedBlockDocumentModel,
-): model is Extract<
-  OwnedBlockDocumentModel,
-  { readonly status: "ready" }
-> => model.status === "ready";
+): model is Extract<OwnedBlockDocumentModel, { readonly status: "ready" }> =>
+  model.status === "ready";

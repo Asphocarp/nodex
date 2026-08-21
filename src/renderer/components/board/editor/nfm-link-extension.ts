@@ -17,11 +17,7 @@ function shouldAutoLinkWhileTyping(url: string): boolean {
   return shouldAutoLinkValue(url, settings);
 }
 
-function shouldAutoLinkPasteMatch(
-  fullText: string,
-  startIndex: number,
-  value: string,
-): boolean {
+function shouldAutoLinkPasteMatch(fullText: string, startIndex: number, value: string): boolean {
   const settings = readNfmAutolinkSettings();
   if (!settings.autoLinkOnPaste) return false;
   return shouldAutoLinkMatchInText(fullText, startIndex, value, settings);

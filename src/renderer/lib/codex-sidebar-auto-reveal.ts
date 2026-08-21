@@ -21,14 +21,11 @@ export const CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION = {
   duration: 0,
 } as const;
 
-export const CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS =
-  `pointer-events-auto fixed bottom-0 left-0 ${APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS} min-h-0`;
+export const CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS = `pointer-events-auto fixed bottom-0 left-0 ${APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS} min-h-0`;
 
-export const CODEX_SIDEBAR_FLOATING_OUTER_CLASS =
-  `${CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS} top-0`;
+export const CODEX_SIDEBAR_FLOATING_OUTER_CLASS = `${CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS} top-0`;
 
-export const CODEX_SIDEBAR_FLOATING_OUTER_APPLICATION_MENU_CLASS =
-  `${CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS} top-(--height-toolbar-sm)`;
+export const CODEX_SIDEBAR_FLOATING_OUTER_APPLICATION_MENU_CLASS = `${CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS} top-(--height-toolbar-sm)`;
 
 export const CODEX_SIDEBAR_FLOATING_ASIDE_CLASS =
   "flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-token-main-surface-primary shadow-[1px_0_0_0_var(--color-token-border-default),0_20px_25px_-5px_rgb(0_0_0/0.1),0_8px_10px_-6px_rgb(0_0_0/0.1)]";
@@ -93,10 +90,7 @@ export interface CodexSidebarToggleInput {
 
 export function clampCodexSidebarWidth(width: number): number {
   if (!Number.isFinite(width)) return CODEX_SIDEBAR_WIDTH_DEFAULT_PX;
-  return Math.min(
-    Math.max(width, CODEX_SIDEBAR_WIDTH_MIN_PX),
-    CODEX_SIDEBAR_WIDTH_MAX_PX,
-  );
+  return Math.min(Math.max(width, CODEX_SIDEBAR_WIDTH_MIN_PX), CODEX_SIDEBAR_WIDTH_MAX_PX);
 }
 
 export function shouldCollapseCodexSidebarResizeWidth(width: number): boolean {
@@ -124,15 +118,12 @@ export function resolveCodexSidebarWidth(input: {
 }
 
 export function isCodexSidebarEdgeEnterX(x: number | null): boolean {
-  return x !== null
-    && x >= CODEX_SIDEBAR_EDGE_ENTER_MIN_X_PX
-    && x <= CODEX_SIDEBAR_EDGE_ENTER_MAX_X_PX;
+  return (
+    x !== null && x >= CODEX_SIDEBAR_EDGE_ENTER_MIN_X_PX && x <= CODEX_SIDEBAR_EDGE_ENTER_MAX_X_PX
+  );
 }
 
-export function isCodexSidebarKeepOpenX(
-  x: number | null,
-  leftPanelWidthPx: number,
-): boolean {
+export function isCodexSidebarKeepOpenX(x: number | null, leftPanelWidthPx: number): boolean {
   return x !== null && x >= 0 && x <= leftPanelWidthPx;
 }
 
@@ -180,10 +171,7 @@ export function deriveCodexSidebarFloatingVisibility(
   if (input.sidebarOpen || input.sidebarAnimating) return false;
   if (input.hoverSuppressed) return false;
 
-  const keepOpen = isCodexSidebarKeepOpenX(
-    input.pointerX,
-    input.leftPanelWidthPx,
-  );
+  const keepOpen = isCodexSidebarKeepOpenX(input.pointerX, input.leftPanelWidthPx);
   const explicitKeepOpen = input.focusOverride || input.hoverSurfaceActive === true;
   if (input.currentlyVisible) return keepOpen || explicitKeepOpen;
 
@@ -201,15 +189,14 @@ export function normalizeCodexSidebarPointer(
   const previousX = previous.x;
   const previousY = previous.y;
   const previousUpdatedAt = previous.updatedAt;
-  const deltaSeconds = previousUpdatedAt !== null
-    ? Math.max((input.updatedAt - previousUpdatedAt) / 1000, 0)
-    : 0;
+  const deltaSeconds =
+    previousUpdatedAt !== null ? Math.max((input.updatedAt - previousUpdatedAt) / 1000, 0) : 0;
 
   if (
-    previousX === null
-    || previousY === null
-    || previousUpdatedAt === null
-    || deltaSeconds === 0
+    previousX === null ||
+    previousY === null ||
+    previousUpdatedAt === null ||
+    deltaSeconds === 0
   ) {
     return {
       x,
@@ -238,10 +225,10 @@ export function shouldResetCodexSidebarPointerOnWindowMouseOut(
 ): boolean {
   if (input.relatedTarget !== null) return false;
   return !(
-    input.clientX >= 0
-    && input.clientX < input.innerWidth
-    && input.clientY >= 0
-    && input.clientY < input.innerHeight
+    input.clientX >= 0 &&
+    input.clientX < input.innerWidth &&
+    input.clientY >= 0 &&
+    input.clientY < input.innerHeight
   );
 }
 

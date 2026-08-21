@@ -1,7 +1,13 @@
 import type { PageRunInTarget } from "./types";
 import type { CodexPendingWorktreeStartingState } from "../../shared/codex-pending-worktree";
 
-export type NewChatStartInIconKey = "local" | "worktree" | "codexWeb" | "cloud" | "usage" | "external";
+export type NewChatStartInIconKey =
+  | "local"
+  | "worktree"
+  | "codexWeb"
+  | "cloud"
+  | "usage"
+  | "external";
 
 export interface NewChatStartInTarget {
   runInTarget: PageRunInTarget;

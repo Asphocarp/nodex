@@ -57,14 +57,15 @@ const property = (
   name: key,
   ...testPropertySemantics(valueType, valueType === "multi_select" ? 2 : 0),
   valueType,
-  config: valueType === "multi_select"
-    ? {
-        options: [
-          { id: uiOptionId, name: "ui" },
-          { id: backendOptionId, name: "backend" },
-        ],
-      }
-    : {},
+  config:
+    valueType === "multi_select"
+      ? {
+          options: [
+            { id: uiOptionId, name: "ui" },
+            { id: backendOptionId, name: "backend" },
+          ],
+        }
+      : {},
   rankKey: key,
   lifecycle: "active",
   revision: 1,
@@ -236,17 +237,19 @@ const metadataSuccess = (
   },
 });
 
-const dependencies = (input: {
-  readonly detail?: PageDetail;
-  readonly requests?: BlockPropertyMutationRequestV2[];
-  readonly refreshes?: string[];
-  readonly results?: BlockPropertyMutationCommandResultV2[];
-  readonly databaseRequests?: DatabaseApplyV2[];
-  readonly databaseResults?: DatabaseApplyResultV2[];
-  readonly metadataRequests?: LibraryModuleApplyRequest[];
-  readonly metadataResults?: LibraryModuleApplyResult[];
-  readonly refreshDetail?: PageDetailMetadataRuntimeDependencies["refreshDetail"];
-} = {}): PageDetailMetadataRuntimeDependencies => ({
+const dependencies = (
+  input: {
+    readonly detail?: PageDetail;
+    readonly requests?: BlockPropertyMutationRequestV2[];
+    readonly refreshes?: string[];
+    readonly results?: BlockPropertyMutationCommandResultV2[];
+    readonly databaseRequests?: DatabaseApplyV2[];
+    readonly databaseResults?: DatabaseApplyResultV2[];
+    readonly metadataRequests?: LibraryModuleApplyRequest[];
+    readonly metadataResults?: LibraryModuleApplyResult[];
+    readonly refreshDetail?: PageDetailMetadataRuntimeDependencies["refreshDetail"];
+  } = {},
+): PageDetailMetadataRuntimeDependencies => ({
   readDetail: async () => input.detail ?? detail(),
   mutateProperties: async (_projectId, request) => {
     input.requests?.push(request);
@@ -254,34 +257,38 @@ const dependencies = (input: {
   },
   applyDatabase: async (_projectId, request) => {
     input.databaseRequests?.push(request);
-    return input.databaseResults?.shift() ?? {
-      ok: true,
-      localCommit: noOpLocalCommit(request.storeEpoch),
-      value: {
-        operationId: request.operationId,
-        projectId: request.projectId,
-        libraryId: "library-1",
-        storeEpoch: request.storeEpoch,
-        duplicate: false,
-        operationKinds: request.operations.map((operation) => operation.kind),
-        operationOutcomes: [],
-        affectedDatabaseIds: [databaseId],
-        affectedDataSourceIds: [dataSourceId],
-        affectedPageIds: ["page-1"],
-        affectedViewIds: [],
-        committedRevisions: {},
-        commitSeq: 5,
-        committedAt: timestamp,
-      },
-    };
+    return (
+      input.databaseResults?.shift() ?? {
+        ok: true,
+        localCommit: noOpLocalCommit(request.storeEpoch),
+        value: {
+          operationId: request.operationId,
+          projectId: request.projectId,
+          libraryId: "library-1",
+          storeEpoch: request.storeEpoch,
+          duplicate: false,
+          operationKinds: request.operations.map((operation) => operation.kind),
+          operationOutcomes: [],
+          affectedDatabaseIds: [databaseId],
+          affectedDataSourceIds: [dataSourceId],
+          affectedPageIds: ["page-1"],
+          affectedViewIds: [],
+          committedRevisions: {},
+          commitSeq: 5,
+          committedAt: timestamp,
+        },
+      }
+    );
   },
   applyMetadataProperties: async (_projectId, request) => {
     input.metadataRequests?.push(request);
     return input.metadataResults?.shift() ?? metadataSuccess(request);
   },
-  refreshDetail: input.refreshDetail ?? (async (_projectId, pageId) => {
-    input.refreshes?.push(pageId);
-  }),
+  refreshDetail:
+    input.refreshDetail ??
+    (async (_projectId, pageId) => {
+      input.refreshes?.push(pageId);
+    }),
 });
 
 const libraryDependencies = (input: {
@@ -398,19 +405,23 @@ describe("Page Detail metadata runtime", () => {
     expect(databaseRequests).toHaveLength(1);
     expect(databaseRequests[0]).toMatchObject({
       operationId: "library-set-priority",
-      operations: [{
-        kind: "edit_property_values",
-        edits: [{
-          pageId: "page-1",
-          dataSourceId,
-          propertyId: "priority",
-          edit: {
-            kind: "replace",
-            expectedValueRevision: 7,
-            value: { kind: "select", optionId: "p1-high" },
-          },
-        }],
-      }],
+      operations: [
+        {
+          kind: "edit_property_values",
+          edits: [
+            {
+              pageId: "page-1",
+              dataSourceId,
+              propertyId: "priority",
+              edit: {
+                kind: "replace",
+                expectedValueRevision: 7,
+                value: { kind: "select", optionId: "p1-high" },
+              },
+            },
+          ],
+        },
+      ],
     });
     expect("projectId" in databaseRequests[0]!).toBe(false);
     expect("actor" in databaseRequests[0]!).toBe(false);
@@ -421,12 +432,14 @@ describe("Page Detail metadata runtime", () => {
   test("rejects execution metadata without an explicit Project context", async () => {
     const requests: LibraryBlockPropertyMutationRequestV2[] = [];
 
-    await expect(commitLibraryPageDetailMetadataPatch({
-      pageId: "page-1",
-      operationId: "library-set-run-target",
-      patch: { runInTarget: "newWorktree" },
-      dependencies: libraryDependencies({ requests }),
-    })).rejects.toThrow("require an explicit Project context");
+    await expect(
+      commitLibraryPageDetailMetadataPatch({
+        pageId: "page-1",
+        operationId: "library-set-run-target",
+        patch: { runInTarget: "newWorktree" },
+        dependencies: libraryDependencies({ requests }),
+      }),
+    ).rejects.toThrow("require an explicit Project context");
 
     expect(requests).toHaveLength(0);
   });
@@ -452,19 +465,23 @@ describe("Page Detail metadata runtime", () => {
       operationId: "set-priority",
       projectId: "project-1",
       storeEpoch: "epoch-1",
-      operations: [{
-        kind: "edit_property_values",
-        edits: [{
-          pageId: "page-1",
-          dataSourceId,
-          propertyId: "priority",
-          edit: {
-            kind: "replace",
-            expectedValueRevision: 7,
-            value: { kind: "select", optionId: "p1-high" },
-          },
-        }],
-      }],
+      operations: [
+        {
+          kind: "edit_property_values",
+          edits: [
+            {
+              pageId: "page-1",
+              dataSourceId,
+              propertyId: "priority",
+              edit: {
+                kind: "replace",
+                expectedValueRevision: 7,
+                value: { kind: "select", optionId: "p1-high" },
+              },
+            },
+          ],
+        },
+      ],
     });
     expect("clientSessionId" in databaseRequests[0]!).toBe(false);
     expect(refreshes).toEqual(["page-1"]);
@@ -486,19 +503,23 @@ describe("Page Detail metadata runtime", () => {
     expect(databaseRequests[0]).toMatchObject({
       operationId: "set-confidence",
       actor: { kind: "page_stage" },
-      operations: [{
-        kind: "edit_property_values",
-        edits: [{
-          pageId: "page-1",
-          dataSourceId,
-          propertyId: "p_C0nf1d3n",
-          edit: {
-            kind: "replace",
-            expectedValueRevision: 1,
-            value: { kind: "number", value: 0.82 },
-          },
-        }],
-      }],
+      operations: [
+        {
+          kind: "edit_property_values",
+          edits: [
+            {
+              pageId: "page-1",
+              dataSourceId,
+              propertyId: "p_C0nf1d3n",
+              edit: {
+                kind: "replace",
+                expectedValueRevision: 1,
+                value: { kind: "number", value: 0.82 },
+              },
+            },
+          ],
+        },
+      ],
     });
     expect("clientSessionId" in databaseRequests[0]!).toBe(false);
   });
@@ -548,12 +569,14 @@ describe("Page Detail metadata runtime", () => {
       },
       {
         kind: "edit_property_values",
-        edits: [{
-          edit: {
-            kind: "patch_set",
-            delta: { addOptionIds: ["o_CCCCCCCC"], removeOptionIds: [] },
+        edits: [
+          {
+            edit: {
+              kind: "patch_set",
+              delta: { addOptionIds: ["o_CCCCCCCC"], removeOptionIds: [] },
+            },
           },
-        }],
+        ],
       },
     ]);
   });
@@ -574,22 +597,26 @@ describe("Page Detail metadata runtime", () => {
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(databaseRequests[0]?.operations).toEqual([{
-      kind: "edit_property_values",
-      edits: [{
-        pageId: "page-1",
-        dataSourceId,
-        propertyId: "tags",
-        edit: {
-          kind: "patch_set",
-          delta: {
-            kind: "multi_select",
-            addOptionIds: [backendOptionId],
-            removeOptionIds: [],
+    expect(databaseRequests[0]?.operations).toEqual([
+      {
+        kind: "edit_property_values",
+        edits: [
+          {
+            pageId: "page-1",
+            dataSourceId,
+            propertyId: "tags",
+            edit: {
+              kind: "patch_set",
+              delta: {
+                kind: "multi_select",
+                addOptionIds: [backendOptionId],
+                removeOptionIds: [],
+              },
+            },
           },
-        },
-      }],
-    }]);
+        ],
+      },
+    ]);
   });
 
   test("writes Page intrinsic fields without inventing Data Source coordinates", async () => {
@@ -612,13 +639,15 @@ describe("Page Detail metadata runtime", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       mutationId: "set-base-branch",
-      fields: [{
-        scope: "intrinsic",
-        blockId: "page-1",
-        propertyKey: "run.baseBranch",
-        expectedRevision: 3,
-        value: "main",
-      }],
+      fields: [
+        {
+          scope: "intrinsic",
+          blockId: "page-1",
+          propertyKey: "run.baseBranch",
+          expectedRevision: 3,
+          value: "main",
+        },
+      ],
     });
     expect(refreshes).toEqual(["page-1"]);
   });
@@ -632,15 +661,17 @@ describe("Page Detail metadata runtime", () => {
       patch: { priority: "p1-high" },
       dependencies: dependencies({
         refreshes,
-        databaseResults: [{
-          ok: false,
-          error: {
-            code: "revision_conflict",
-            message: "stale value",
-            retryable: false,
-            operationId: "stale-priority",
+        databaseResults: [
+          {
+            ok: false,
+            error: {
+              code: "revision_conflict",
+              message: "stale value",
+              retryable: false,
+              operationId: "stale-priority",
+            },
           },
-        }],
+        ],
       }),
     });
 
@@ -649,13 +680,15 @@ describe("Page Detail metadata runtime", () => {
   });
 
   test("rejects a Data Source field on a standalone Page", async () => {
-    await expect(commitPageDetailMetadataPatch({
-      projectId: "project-1",
-      pageId: "page-1",
-      operationId: "standalone-priority",
-      patch: { priority: "p1-high" },
-      dependencies: dependencies({ detail: detail(false) }),
-    })).rejects.toThrow("This Page has no Data Source properties");
+    await expect(
+      commitPageDetailMetadataPatch({
+        projectId: "project-1",
+        pageId: "page-1",
+        operationId: "standalone-priority",
+        patch: { priority: "p1-high" },
+        dependencies: dependencies({ detail: detail(false) }),
+      }),
+    ).rejects.toThrow("This Page has no Data Source properties");
   });
 
   test("does not write an already represented value", async () => {
@@ -712,31 +745,36 @@ describe("Page Detail metadata runtime", () => {
 
     expect(result).toEqual({ status: "updated", didMutate: true });
     expect(requests).toHaveLength(0);
-    expect(databaseRequests[0]?.operations).toEqual([{
-      kind: "edit_property_values",
-      edits: [
-      expect.objectContaining({
-        propertyId: "tags",
-        edit: {
-          kind: "patch_set",
-          delta: {
-            kind: "multi_select",
-            addOptionIds: [backendOptionId],
-            removeOptionIds: [uiOptionId],
-          },
-        },
-      }),
-    ]}]);
+    expect(databaseRequests[0]?.operations).toEqual([
+      {
+        kind: "edit_property_values",
+        edits: [
+          expect.objectContaining({
+            propertyId: "tags",
+            edit: {
+              kind: "patch_set",
+              delta: {
+                kind: "multi_select",
+                addOptionIds: [backendOptionId],
+                removeOptionIds: [uiOptionId],
+              },
+            },
+          }),
+        ],
+      },
+    ]);
   });
 
   test("rejects tag display names at the Property identity boundary", async () => {
-    await expect(commitPageDetailMetadataPatch({
-      projectId: "project-1",
-      pageId: "page-1",
-      operationId: "reject-tag-name",
-      patch: { tags: ["backend"] },
-      dependencies: dependencies({ requests: [], databaseRequests: [] }),
-    })).rejects.toThrow("requires canonical option IDs");
+    await expect(
+      commitPageDetailMetadataPatch({
+        projectId: "project-1",
+        pageId: "page-1",
+        operationId: "reject-tag-name",
+        patch: { tags: ["backend"] },
+        dependencies: dependencies({ requests: [], databaseRequests: [] }),
+      }),
+    ).rejects.toThrow("requires canonical option IDs");
   });
 
   test("retries the exact v2 request once after a retryable outage", async () => {
@@ -750,15 +788,17 @@ describe("Page Detail metadata runtime", () => {
       dependencies: dependencies({
         requests,
         databaseRequests,
-        databaseResults: [{
-          ok: false,
-          error: {
-            code: "unknown",
-            message: "worker unavailable",
-            retryable: true,
-            operationId: "retry-priority",
+        databaseResults: [
+          {
+            ok: false,
+            error: {
+              code: "unknown",
+              message: "worker unavailable",
+              retryable: true,
+              operationId: "retry-priority",
+            },
           },
-        }],
+        ],
       }),
     });
 

@@ -39,7 +39,6 @@ describe("requestsExplicitNewWindow", () => {
   test("distinguishes an explicit new-window launch from an ordinary second instance", () => {
     expect(requestsExplicitNewWindow(["nodex", "--new-window"])).toBe(true);
     expect(requestsExplicitNewWindow(["nodex", "--new-window=false"])).toBe(false);
-    expect(requestsExplicitNewWindow(["nodex", "--original-process-start-time=1"]))
-      .toBe(false);
+    expect(requestsExplicitNewWindow(["nodex", "--original-process-start-time=1"])).toBe(false);
   });
 });

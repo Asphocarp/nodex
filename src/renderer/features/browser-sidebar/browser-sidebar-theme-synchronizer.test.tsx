@@ -34,25 +34,19 @@ describe("BrowserSidebarThemeSynchronizer", () => {
   test("keeps Main-owned live guests synchronized outside the workbench route", async () => {
     const view = render(<BrowserSidebarThemeSynchronizer />);
     await waitFor(() => {
-      expect(invoke).toHaveBeenLastCalledWith(
-        "browser-sidebar-command",
-        {
-          type: "sync-theme",
-          themeVariant: "light",
-        },
-      );
+      expect(invoke).toHaveBeenLastCalledWith("browser-sidebar-command", {
+        type: "sync-theme",
+        themeVariant: "light",
+      });
     });
 
     resolvedTheme = "dark";
     view.rerender(<BrowserSidebarThemeSynchronizer />);
     await waitFor(() => {
-      expect(invoke).toHaveBeenLastCalledWith(
-        "browser-sidebar-command",
-        {
-          type: "sync-theme",
-          themeVariant: "dark",
-        },
-      );
+      expect(invoke).toHaveBeenLastCalledWith("browser-sidebar-command", {
+        type: "sync-theme",
+        themeVariant: "dark",
+      });
     });
   });
 });

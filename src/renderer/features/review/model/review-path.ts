@@ -1,7 +1,4 @@
-import {
-  normalizePathSegments,
-  stripPatchPrefix,
-} from "@/lib/file-path";
+import { normalizePathSegments, stripPatchPrefix } from "@/lib/file-path";
 import type { CanonicalReviewPath } from "./review-view-state";
 
 export interface ReviewPathCandidate {
@@ -49,7 +46,7 @@ export function resolveReviewPathCandidate<T extends ReviewPathCandidate>(
     ),
   );
   if (exactMatches.length > 0) {
-    return exactMatches.length === 1 ? exactMatches[0] ?? null : null;
+    return exactMatches.length === 1 ? (exactMatches[0] ?? null) : null;
   }
 
   const aliasMatches = candidates.filter((candidate) =>
@@ -57,22 +54,20 @@ export function resolveReviewPathCandidate<T extends ReviewPathCandidate>(
       ? canonicalizeReviewPath(candidate.previousPath, roots) === targetPath
       : false,
   );
-  return aliasMatches.length === 1 ? aliasMatches[0] ?? null : null;
+  return aliasMatches.length === 1 ? (aliasMatches[0] ?? null) : null;
 }
 
 function relativePathWithinRoot(
   normalizedPath: string,
   root: string | null | undefined,
 ): string | null {
-  const normalizedRoot = root
-    ? normalizePathSegments(stripPatchPrefix(root.trim()))
-    : "";
+  const normalizedRoot = root ? normalizePathSegments(stripPatchPrefix(root.trim())) : "";
   if (!normalizedRoot || !isAbsolutePath(normalizedPath) || !isAbsolutePath(normalizedRoot)) {
     return null;
   }
 
-  const caseInsensitive = /^[a-zA-Z]:\//.test(normalizedPath)
-    || /^[a-zA-Z]:\//.test(normalizedRoot);
+  const caseInsensitive =
+    /^[a-zA-Z]:\//.test(normalizedPath) || /^[a-zA-Z]:\//.test(normalizedRoot);
   const comparablePath = caseInsensitive ? normalizedPath.toLowerCase() : normalizedPath;
   const comparableRoot = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
   if (comparablePath === comparableRoot) return "";

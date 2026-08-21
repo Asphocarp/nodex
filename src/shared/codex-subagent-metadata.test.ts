@@ -35,18 +35,20 @@ describe("codex-subagent-metadata", () => {
       },
     });
 
-    expect(JSON.stringify(camelCaseSource)).toBe(JSON.stringify({
-      parentThreadId: "parent-1",
-      depth: 1,
-      agentPath: "agents/@Scout",
-      agentNickname: "@Euclid",
-      agentRole: "explorer",
-      hasParentThreadId: true,
-      hasAgentNickname: true,
-      hasAgentRole: true,
-      hasAgentPath: true,
-      hasAnySubagentSource: true,
-    }));
+    expect(JSON.stringify(camelCaseSource)).toBe(
+      JSON.stringify({
+        parentThreadId: "parent-1",
+        depth: 1,
+        agentPath: "agents/@Scout",
+        agentNickname: "@Euclid",
+        agentRole: "explorer",
+        hasParentThreadId: true,
+        hasAgentNickname: true,
+        hasAgentRole: true,
+        hasAgentPath: true,
+        hasAnySubagentSource: true,
+      }),
+    );
     expect(protocolStyle.parentThreadId).toBe("parent-2");
     expect(protocolStyle.agentNickname).toBe("Nash");
     expect(protocolStyle.agentRole).toBe("worker");

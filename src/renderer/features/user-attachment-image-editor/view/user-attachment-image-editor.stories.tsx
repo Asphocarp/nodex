@@ -65,11 +65,7 @@ const SEEDED_COMMENT: ImageComment = {
   y: 0.42,
 };
 
-function uploadedFixture(
-  id: string,
-  alt: string,
-  src: string,
-): EditableImageDescriptor {
+function uploadedFixture(id: string, alt: string, src: string): EditableImageDescriptor {
   return {
     id,
     alt,
@@ -84,22 +80,18 @@ function uploadedFixture(
 const PORTRAIT_IMAGE = uploadedFixture(
   "portrait-fixture",
   "Portrait attachment",
-  imageFixture(
-    "Portrait",
-    "#6192f6",
-    "rect x='154' y='130' width='460' height='680' rx='96'",
-    { height: 1024, width: 768 },
-  ),
+  imageFixture("Portrait", "#6192f6", "rect x='154' y='130' width='460' height='680' rx='96'", {
+    height: 1024,
+    width: 768,
+  }),
 );
 const LANDSCAPE_IMAGE = uploadedFixture(
   "landscape-fixture",
   "Landscape attachment",
-  imageFixture(
-    "Landscape",
-    "#72b68c",
-    "rect x='250' y='100' width='780' height='420' rx='96'",
-    { height: 640, width: 1280 },
-  ),
+  imageFixture("Landscape", "#72b68c", "rect x='250' y='100' width='780' height='420' rx='96'", {
+    height: 640,
+    width: 1280,
+  }),
 );
 
 function SingleStory({
@@ -137,8 +129,8 @@ function SingleStory({
 
 function FocusedGeneratedStory() {
   const [activeImageId, setActiveImageId] = useState(GENERATED_IMAGES[0]!.id);
-  const activeImage = GENERATED_IMAGES.find((image) => image.id === activeImageId)
-    ?? GENERATED_IMAGES[0]!;
+  const activeImage =
+    GENERATED_IMAGES.find((image) => image.id === activeImageId) ?? GENERATED_IMAGES[0]!;
   return (
     <div className="flex h-[760px] w-[620px] overflow-hidden border border-token-border bg-token-bg-primary">
       <GeneratedImageRail
@@ -333,10 +325,7 @@ function AccentSendStatesStory() {
       <section aria-label="Light theme" className="bg-token-bg-primary">
         {states}
       </section>
-      <section
-        aria-label="Dark theme"
-        className="dark bg-token-bg-primary"
-      >
+      <section aria-label="Dark theme" className="dark bg-token-bg-primary">
         {states}
       </section>
     </div>
@@ -354,9 +343,7 @@ async function openNewCommentAtBottomRight(canvasElement: HTMLElement) {
     detail: 1,
   });
   await waitFor(() => {
-    const input = canvasElement.querySelector(
-      'input[name="image-comment-instruction"]',
-    );
+    const input = canvasElement.querySelector('input[name="image-comment-instruction"]');
     if (!input) throw new Error("Expected the image comment editor");
     return input;
   });
@@ -439,9 +426,7 @@ export const LocalFileControls: Story = {
   render: () => <LocalFileControlsStory />,
 };
 export const CommentMode: Story = {
-  render: () => (
-    <SingleStory initialComments={[SEEDED_COMMENT]} initialTool="comment" />
-  ),
+  render: () => <SingleStory initialComments={[SEEDED_COMMENT]} initialTool="comment" />,
 };
 export const CommentHoverMarker: Story = {
   render: () => <SingleStory initialTool="comment" />,
@@ -455,9 +440,7 @@ export const CommentHoverMarker: Story = {
       clientY: rect.top + rect.height * 0.28,
     });
     await waitFor(() => {
-      const marker = canvasElement.querySelector(
-        '[data-testid="image-comment-hover-marker"]',
-      );
+      const marker = canvasElement.querySelector('[data-testid="image-comment-hover-marker"]');
       if (!marker) throw new Error("Expected the hover marker");
     });
   },
@@ -469,17 +452,15 @@ export const NewCommentCornerClamp: Story = {
   },
 };
 export const EditExistingComment: Story = {
-  render: () => (
-    <SingleStory initialComments={[SEEDED_COMMENT]} initialTool="comment" />
-  ),
+  render: () => <SingleStory initialComments={[SEEDED_COMMENT]} initialTool="comment" />,
   play: async ({ canvasElement }) => {
-    fireEvent.click(getByRole(canvasElement, "button", {
-      name: "Edit comment 1",
-    }));
+    fireEvent.click(
+      getByRole(canvasElement, "button", {
+        name: "Edit comment 1",
+      }),
+    );
     await waitFor(() => {
-      const editor = canvasElement.querySelector(
-        'textarea[name="image-comment-instruction"]',
-      );
+      const editor = canvasElement.querySelector('textarea[name="image-comment-instruction"]');
       if (!editor) throw new Error("Expected the saved-comment editor");
     });
   },
@@ -506,20 +487,18 @@ export const ResizeMenu: Story = {
   play: async ({ canvasElement }) => {
     const trigger = getByRole(canvasElement, "button", { name: "Resize" });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    await waitFor(() => getByRole(document.body, "menuitem", {
-      name: /Square.*1:1/u,
-    }));
+    await waitFor(() =>
+      getByRole(document.body, "menuitem", {
+        name: /Square.*1:1/u,
+      }),
+    );
   },
 };
 export const LoadingImage: Story = {
-  render: () => (
-    <SingleStory image={{ ...GENERATED_IMAGES[0]!, loading: true }} />
-  ),
+  render: () => <SingleStory image={{ ...GENERATED_IMAGES[0]!, loading: true }} />,
 };
 export const FailedImage: Story = {
-  render: () => (
-    <SingleStory image={{ ...GENERATED_IMAGES[0]!, error: true }} />
-  ),
+  render: () => <SingleStory image={{ ...GENERATED_IMAGES[0]!, error: true }} />,
 };
 export const GeneratedCanvas: Story = { render: () => <PlaygroundStory /> };
 export const GeneratedCanvasNarrow: Story = {
@@ -543,16 +522,18 @@ export const GeneratedCanvasSelection: Story = {
   render: () => <PlaygroundStory initialTool="select" />,
 };
 export const GeneratedCanvasPendingAndFailed: Story = {
-  render: () => (
-    <PlaygroundStory images={[...GENERATED_IMAGES, PENDING_IMAGE, FAILED_IMAGE]} />
-  ),
+  render: () => <PlaygroundStory images={[...GENERATED_IMAGES, PENDING_IMAGE, FAILED_IMAGE]} />,
 };
 export const CanvasViewCoachmark: Story = {
   render: () => <CoachmarkStory />,
   play: async () => {
-    await waitFor(() => getByRole(document.body, "dialog", {
-      name: "Try Canvas view",
-    }), { timeout: 5_000 });
+    await waitFor(
+      () =>
+        getByRole(document.body, "dialog", {
+          name: "Try Canvas view",
+        }),
+      { timeout: 5_000 },
+    );
   },
 };
 export const GeneratedCanvasReducedMotion: Story = {
@@ -569,9 +550,9 @@ export const GeneratedCanvasDark: Story = {
 export const AccentSendStates: Story = {
   render: () => <AccentSendStatesStory />,
   play: async ({ canvasElement }) => {
-    const enabled = Array.from(
-      canvasElement.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent === "Send" && !button.disabled);
+    const enabled = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent === "Send" && !button.disabled,
+    );
     enabled?.focus();
   },
 };

@@ -1,17 +1,9 @@
 import type { MutableRefObject, ReactNode } from "react";
-import type {
-  PageInput,
-  WorkflowStatus,
-  CodexPromptInput,
-  CodexThreadSummary,
-} from "@/lib/types";
+import type { PageInput, WorkflowStatus, CodexPromptInput, CodexThreadSummary } from "@/lib/types";
 import type { ReadyPageBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import type { BlockDocumentSurfaceDependencies } from "@/components/block-documents/block-document-surface";
 import type { PageTitleResourceIdentity } from "@/lib/page-title-projection-context";
-import type {
-  PageStagePageModel,
-  PageStageMetadataMutationResult,
-} from "@/lib/page-stage-page";
+import type { PageStagePageModel, PageStageMetadataMutationResult } from "@/lib/page-stage-page";
 import type { PageStageBreadcrumbProps } from "./breadcrumb";
 import type { DatabaseId } from "../../../../shared/database-identities";
 import type {

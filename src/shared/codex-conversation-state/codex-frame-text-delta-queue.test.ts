@@ -59,10 +59,7 @@ interface SequencedDelta extends CodexFrameTextDeltaUpdate {
   readonly sequence: number;
 }
 
-function delta(
-  deltaText: string,
-  overrides: Partial<SequencedDelta> = {},
-): SequencedDelta {
+function delta(deltaText: string, overrides: Partial<SequencedDelta> = {}): SequencedDelta {
   return {
     conversationId: "conversation-a",
     turnId: "turn-a",
@@ -79,10 +76,14 @@ describe("CodexFrameTextDeltaQueue", () => {
     expect(buildCodexFrameTextDeltaKey(delta("x"))).toBe(
       "conversation-a:turn-a:item-a:agentMessage",
     );
-    expect(buildCodexFrameTextDeltaKey(delta("x", {
-      turnId: null,
-      target: { type: "reasoningContent", contentIndex: 2 },
-    }))).toBe("conversation-a:null:item-a:reasoningContent:2");
+    expect(
+      buildCodexFrameTextDeltaKey(
+        delta("x", {
+          turnId: null,
+          target: { type: "reasoningContent", contentIndex: 2 },
+        }),
+      ),
+    ).toBe("conversation-a:null:item-a:reasoningContent:2");
   });
 
   test("coalesces exact keys without moving Map order and retains newest metadata", () => {
@@ -94,11 +95,13 @@ describe("CodexFrameTextDeltaQueue", () => {
     });
 
     queue.enqueue(delta("A1", { sequence: 1 }));
-    queue.enqueue(delta("B1", {
-      conversationId: "conversation-b",
-      itemId: "item-b",
-      sequence: 2,
-    }));
+    queue.enqueue(
+      delta("B1", {
+        conversationId: "conversation-b",
+        itemId: "item-b",
+        sequence: 2,
+      }),
+    );
     queue.enqueue(delta("A2", { sequence: 3 }));
     scheduler.runNextFrame();
 
@@ -121,15 +124,21 @@ describe("CodexFrameTextDeltaQueue", () => {
 
     queue.enqueue(delta("agent"));
     queue.enqueue(delta("plan", { target: { type: "plan" } }));
-    queue.enqueue(delta("summary-0", {
-      target: { type: "reasoningSummary", summaryIndex: 0 },
-    }));
-    queue.enqueue(delta("summary-1", {
-      target: { type: "reasoningSummary", summaryIndex: 1 },
-    }));
-    queue.enqueue(delta("content-0", {
-      target: { type: "reasoningContent", contentIndex: 0 },
-    }));
+    queue.enqueue(
+      delta("summary-0", {
+        target: { type: "reasoningSummary", summaryIndex: 0 },
+      }),
+    );
+    queue.enqueue(
+      delta("summary-1", {
+        target: { type: "reasoningSummary", summaryIndex: 1 },
+      }),
+    );
+    queue.enqueue(
+      delta("content-0", {
+        target: { type: "reasoningContent", contentIndex: 0 },
+      }),
+    );
     scheduler.runNextFrame();
 
     expect(flushed.length).toBe(5);
@@ -211,10 +220,12 @@ describe("CodexFrameTextDeltaQueue", () => {
     });
 
     queue.enqueue(delta("a".repeat(13)));
-    queue.enqueue(delta("b".repeat(13), {
-      conversationId: "conversation-b",
-      itemId: "item-b",
-    }));
+    queue.enqueue(
+      delta("b".repeat(13), {
+        conversationId: "conversation-b",
+        itemId: "item-b",
+      }),
+    );
     const deferred = queue.drainBefore(() => order.push("completed"));
 
     expect(deferred).toBe(true);
@@ -280,18 +291,14 @@ describe("CodexFrameTextDeltaQueue", () => {
     });
 
     queue.enqueue(delta("a".repeat(30)));
-    queue.enqueue(delta("b".repeat(30), {
-      conversationId: "conversation-b",
-      itemId: "item-b",
-    }));
-    expect(queue.drainBefore(
-      () => callbacks.push("a-completed"),
-      "conversation-a",
-    )).toBe(true);
-    expect(queue.drainBefore(
-      () => callbacks.push("b-completed"),
-      "conversation-b",
-    )).toBe(true);
+    queue.enqueue(
+      delta("b".repeat(30), {
+        conversationId: "conversation-b",
+        itemId: "item-b",
+      }),
+    );
+    expect(queue.drainBefore(() => callbacks.push("a-completed"), "conversation-a")).toBe(true);
+    expect(queue.drainBefore(() => callbacks.push("b-completed"), "conversation-b")).toBe(true);
 
     queue.discardConversation("conversation-a");
     expect(flushed.length).toBe(0);
@@ -315,14 +322,8 @@ describe("CodexFrameTextDeltaQueue", () => {
     });
 
     queue.enqueue(delta("a".repeat(30)));
-    expect(queue.drainBefore(
-      () => callbacks.push("discarded"),
-      "conversation-a",
-    )).toBe(true);
-    expect(queue.drainBefore(
-      () => callbacks.push("survivor"),
-      "conversation-b",
-    )).toBe(true);
+    expect(queue.drainBefore(() => callbacks.push("discarded"), "conversation-a")).toBe(true);
+    expect(queue.drainBefore(() => callbacks.push("survivor"), "conversation-b")).toBe(true);
 
     queue.discardConversation("conversation-a");
 

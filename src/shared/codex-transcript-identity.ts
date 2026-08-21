@@ -16,10 +16,7 @@ type CodexTranscriptTextIdentityInput = Pick<
 
 function isTextIdentityKind(kind: string | undefined): boolean {
   return (
-    kind === "userMessage" ||
-    kind === "assistantMessage" ||
-    kind === "plan" ||
-    kind === "reasoning"
+    kind === "userMessage" || kind === "assistantMessage" || kind === "plan" || kind === "reasoning"
   );
 }
 
@@ -49,7 +46,8 @@ export function canMergeSyntheticTranscriptDuplicate(
   incoming: CodexTranscriptTextIdentityInput,
 ): boolean {
   const samePrimary =
-    resolveCodexTranscriptPrimaryIdentityKey(existing) === resolveCodexTranscriptPrimaryIdentityKey(incoming);
+    resolveCodexTranscriptPrimaryIdentityKey(existing) ===
+    resolveCodexTranscriptPrimaryIdentityKey(incoming);
   if (samePrimary) return true;
 
   const oneSynthetic =
@@ -85,21 +83,26 @@ export function mergeCodexTranscriptEntry(
     goal: incoming.goal ?? existing.goal,
     userAttachments: incoming.userAttachments ?? existing.userAttachments,
     callId: incoming.callId ?? existing.callId,
-    commandExecutionItemId:
-      incoming.commandExecutionItemId ?? existing.commandExecutionItemId,
+    commandExecutionItemId: incoming.commandExecutionItemId ?? existing.commandExecutionItemId,
     command: incoming.command !== undefined ? incoming.command : existing.command,
     cmd: incoming.cmd ?? existing.cmd,
     cwd: incoming.cwd !== undefined ? incoming.cwd : existing.cwd,
     processId: incoming.processId !== undefined ? incoming.processId : existing.processId,
-    commandActions: incoming.commandActions !== undefined ? incoming.commandActions : existing.commandActions,
-    aggregatedOutput: incoming.aggregatedOutput !== undefined ? incoming.aggregatedOutput : existing.aggregatedOutput,
+    commandActions:
+      incoming.commandActions !== undefined ? incoming.commandActions : existing.commandActions,
+    aggregatedOutput:
+      incoming.aggregatedOutput !== undefined
+        ? incoming.aggregatedOutput
+        : existing.aggregatedOutput,
     exitCode: incoming.exitCode !== undefined ? incoming.exitCode : existing.exitCode,
     durationMs: incoming.durationMs !== undefined ? incoming.durationMs : existing.durationMs,
     startedAtMs: incoming.startedAtMs ?? existing.startedAtMs,
     executionStatus: incoming.executionStatus ?? existing.executionStatus,
     parsedCmd: incoming.parsedCmd ?? existing.parsedCmd,
     approvalRequestId:
-      incoming.approvalRequestId !== undefined ? incoming.approvalRequestId : existing.approvalRequestId,
+      incoming.approvalRequestId !== undefined
+        ? incoming.approvalRequestId
+        : existing.approvalRequestId,
     approvalReason:
       incoming.approvalReason !== undefined ? incoming.approvalReason : existing.approvalReason,
     networkApprovalContext:

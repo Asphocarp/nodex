@@ -15,8 +15,7 @@ export {
 export const COMPOSER_PICKED_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
 
 export function resolveComposerFileMimeType(filePath: string): string {
-  return resolveComposerImageMimeType({ filename: filePath })
-    ?? "application/octet-stream";
+  return resolveComposerImageMimeType({ filename: filePath }) ?? "application/octet-stream";
 }
 
 export async function prepareComposerPickedFile(filePath: string): Promise<ComposerPickedFile> {
@@ -52,7 +51,9 @@ export async function prepareComposerPickedFile(filePath: string): Promise<Compo
   };
 }
 
-export async function prepareComposerPickedFiles(filePaths: readonly string[]): Promise<ComposerPickedFile[]> {
+export async function prepareComposerPickedFiles(
+  filePaths: readonly string[],
+): Promise<ComposerPickedFile[]> {
   const preparedFiles: ComposerPickedFile[] = [];
 
   for (const filePath of filePaths) {

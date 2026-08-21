@@ -4,11 +4,7 @@ import {
   type InlineContentSchema,
   type StyleSchema,
 } from "@blocknote/core";
-import {
-  useBlockNoteEditor,
-  useComponentsContext,
-  useEditorState,
-} from "./copy-image-button-deps";
+import { useBlockNoteEditor, useComponentsContext, useEditorState } from "./copy-image-button-deps";
 import { Copy } from "@/components/shared/icons/generic-icons";
 import { useCallback } from "react";
 import { toast } from "@/components/ui/toast";
@@ -21,11 +17,7 @@ export function CopyImageButton({
   copyImageToClipboardImpl?: typeof copyImageToClipboard;
 }) {
   const Components = useComponentsContext()!;
-  const editor = useBlockNoteEditor<
-    BlockSchema,
-    InlineContentSchema,
-    StyleSchema
-  >();
+  const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
 
   const block = useEditorState({
     editor,
@@ -54,20 +46,19 @@ export function CopyImageButton({
   const onClick = useCallback(() => {
     if (!block) return;
 
-    void copyImageToClipboardImpl(block.props.url)
-      .then((result) => {
-        if (!result.ok) {
-          toast.danger(result.message, {
-            id: "editor-copy-image",
-          });
-          return;
-        }
-
-        toast.success("Copied image to clipboard.", {
+    void copyImageToClipboardImpl(block.props.url).then((result) => {
+      if (!result.ok) {
+        toast.danger(result.message, {
           id: "editor-copy-image",
         });
-        editor.focus();
+        return;
+      }
+
+      toast.success("Copied image to clipboard.", {
+        id: "editor-copy-image",
       });
+      editor.focus();
+    });
   }, [block, copyImageToClipboardImpl, editor]);
 
   if (!block) return null;

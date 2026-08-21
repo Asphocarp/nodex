@@ -3,7 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2";
 import { NODEX_QUERY_DEFAULT_OPTIONS } from "@/lib/query-client";
-import { WorkbenchProcessManagerDialog, type WorkbenchProcessManagerControl } from "./workbench-process-manager-dialog";
+import {
+  WorkbenchProcessManagerDialog,
+  type WorkbenchProcessManagerControl,
+} from "./workbench-process-manager-dialog";
 import type { CodexBackgroundProcessRow } from "../../../shared/types";
 
 const THREADS = [
@@ -45,7 +48,11 @@ const TERMINALS: Record<string, ThreadBackgroundTerminal[]> = {
   ],
 };
 
-function rowFromTerminal(threadId: string, threadTitle: string, terminal: ThreadBackgroundTerminal): CodexBackgroundProcessRow {
+function rowFromTerminal(
+  threadId: string,
+  threadTitle: string,
+  terminal: ThreadBackgroundTerminal,
+): CodexBackgroundProcessRow {
   return {
     id: `${threadId}:${terminal.itemId}`,
     threadId,
@@ -69,7 +76,7 @@ function rowFromTerminal(threadId: string, threadTitle: string, terminal: Thread
 const PROCESS_ROWS: Record<string, CodexBackgroundProcessRow[]> = {
   "thread-dev-server": [
     ...TERMINALS["thread-dev-server"].map((terminal) =>
-      rowFromTerminal("thread-dev-server", "Local dev server parity", terminal)
+      rowFromTerminal("thread-dev-server", "Local dev server parity", terminal),
     ),
     {
       id: "thread-dev-server:item-last",
@@ -91,7 +98,7 @@ const PROCESS_ROWS: Record<string, CodexBackgroundProcessRow[]> = {
     },
   ],
   "thread-docs": TERMINALS["thread-docs"].map((terminal) =>
-    rowFromTerminal("thread-docs", "Docs preview", terminal)
+    rowFromTerminal("thread-docs", "Docs preview", terminal),
   ),
 };
 
@@ -113,12 +120,15 @@ function createStoryQueryClient(): QueryClient {
 function ProcessManagerStory({ empty = false }: { empty?: boolean }) {
   const [open, setOpen] = useState(true);
   const queryClient = useMemo(createStoryQueryClient, []);
-  const control = useMemo<WorkbenchProcessManagerControl>(() => ({
-    listBackgroundProcesses: async (threadId) => empty ? [] : PROCESS_ROWS[threadId] ?? [],
-    runBackgroundProcess: async () => [],
-    stopBackgroundProcess: async () => true,
-    terminateBackgroundTerminal: async () => true,
-  }), [empty]);
+  const control = useMemo<WorkbenchProcessManagerControl>(
+    () => ({
+      listBackgroundProcesses: async (threadId) => (empty ? [] : (PROCESS_ROWS[threadId] ?? [])),
+      runBackgroundProcess: async () => [],
+      stopBackgroundProcess: async () => true,
+      terminateBackgroundTerminal: async () => true,
+    }),
+    [empty],
+  );
 
   return (
     <QueryClientProvider client={queryClient}>

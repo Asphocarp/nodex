@@ -102,11 +102,7 @@ describe("ThreadSummaryPanelRow", () => {
   test("shows trailing content when requested", async () => {
     const { ThreadSummaryPanelRow } = await import("./thread-summary-panel-row");
     const { container } = render(
-      <ThreadSummaryPanelRow
-        label="Changes"
-        trailing={<span>+12 -4</span>}
-        trailingVisible
-      />,
+      <ThreadSummaryPanelRow label="Changes" trailing={<span>+12 -4</span>} trailingVisible />,
     );
 
     const content = textContent(container);
@@ -124,7 +120,7 @@ describe("ThreadSummaryPanelRow", () => {
         onClick={() => {
           rowClicks += 1;
         }}
-        accessory={(
+        accessory={
           <span
             role="button"
             tabIndex={0}
@@ -134,7 +130,7 @@ describe("ThreadSummaryPanelRow", () => {
           >
             select
           </span>
-        )}
+        }
       />,
     );
 
@@ -154,7 +150,7 @@ describe("ThreadSummaryPanelRow", () => {
         onClick={() => {
           rowClicks += 1;
         }}
-        actions={(
+        actions={
           <button
             type="button"
             onClick={() => {
@@ -163,7 +159,7 @@ describe("ThreadSummaryPanelRow", () => {
           >
             stop
           </button>
-        )}
+        }
       />,
     );
 

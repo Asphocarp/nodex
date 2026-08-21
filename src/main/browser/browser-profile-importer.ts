@@ -88,26 +88,23 @@ export class BrowserProfileImporter {
   }
 
   async listProfiles(): Promise<ImportableBrowserProfile[]> {
-    const profiles = this.sourceDefinitions()
-      .flatMap((definition) => discoverProfiles(definition));
+    const profiles = this.sourceDefinitions().flatMap((definition) => discoverProfiles(definition));
     return profiles.sort((left, right) => {
       if (left.source !== right.source) return left.source === "atlas" ? -1 : 1;
       return left.profileName.localeCompare(right.profileName);
     });
   }
 
-  async import(
-    input: BrowserProfileImportInput,
-  ): Promise<BrowserProfileImportResult> {
+  async import(input: BrowserProfileImportInput): Promise<BrowserProfileImportResult> {
     if (!input.importCookies && !input.importPasswords) {
       throw new Error("Select cookies, passwords, or both to import");
     }
     if (!input.importCookies && input.cookieDomainAllowlist !== undefined) {
       throw new Error("Cookie domain selection requires cookie import");
     }
-    const profile = (await this.listProfiles()).find((candidate) =>
-      candidate.source === input.source
-      && candidate.profilePath === input.profilePath
+    const profile = (await this.listProfiles()).find(
+      (candidate) =>
+        candidate.source === input.source && candidate.profilePath === input.profilePath,
     );
     if (!profile) {
       throw new Error("Browser Profile is no longer importable");
@@ -144,11 +141,7 @@ export class BrowserProfileImporter {
   ): Promise<BrowserProfileImportDataResult> {
     const existing = new Map(
       (await this.cookieStore.get({})).map((cookie) => [
-        cookieKey(
-          cookie.domain ?? "",
-          cookie.name,
-          cookie.path ?? "/",
-        ),
+        cookieKey(cookie.domain ?? "", cookie.name, cookie.path ?? "/"),
         cookie.value,
       ]),
     );
@@ -160,8 +153,8 @@ export class BrowserProfileImporter {
       const host = cookie.domain.replace(/^\./u, "");
       const expirationDate = cookie.expirationDate ?? undefined;
       if (
-        !isSafeCookieHost(host)
-        || (expirationDate !== undefined && expirationDate <= this.now() / 1_000)
+        !isSafeCookieHost(host) ||
+        (expirationDate !== undefined && expirationDate <= this.now() / 1_000)
       ) {
         skippedInvalid += 1;
         continue;
@@ -236,22 +229,20 @@ export class BrowserProfileImporter {
       {
         source: "atlas",
         appName: "ChatGPT Atlas",
-        rootPath: this.sourceRoots.atlas
-          ?? path.join(applicationSupport, "com.openai.atlas", "browser-data", "host"),
+        rootPath:
+          this.sourceRoots.atlas ??
+          path.join(applicationSupport, "com.openai.atlas", "browser-data", "host"),
       },
       {
         source: "chrome",
         appName: "Google Chrome",
-        rootPath: this.sourceRoots.chrome
-          ?? path.join(applicationSupport, "Google", "Chrome"),
+        rootPath: this.sourceRoots.chrome ?? path.join(applicationSupport, "Google", "Chrome"),
       },
     ];
   }
 }
 
-function discoverProfiles(
-  definition: BrowserSourceDefinition,
-): ImportableBrowserProfile[] {
+function discoverProfiles(definition: BrowserSourceDefinition): ImportableBrowserProfile[] {
   const rootMetadata = safeLstat(definition.rootPath);
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink()) return [];
   const rootPath = safeRealpath(definition.rootPath);
@@ -286,19 +277,16 @@ function discoverProfiles(
   return profiles;
 }
 
-function readProfileInfoCache(
-  localStatePath: string,
-): Record<string, Record<string, unknown>> {
+function readProfileInfoCache(localStatePath: string): Record<string, Record<string, unknown>> {
   try {
     const value = JSON.parse(fs.readFileSync(localStatePath, "utf8")) as unknown;
     if (!isRecord(value) || !isRecord(value.profile) || !isRecord(value.profile.info_cache)) {
       return {};
     }
     return Object.fromEntries(
-      Object.entries(value.profile.info_cache)
-        .filter((entry): entry is [string, Record<string, unknown>] =>
-          isRecord(entry[1])
-        ),
+      Object.entries(value.profile.info_cache).filter(
+        (entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]),
+      ),
     );
   } catch {
     return {};
@@ -325,15 +313,17 @@ function isSourceBrowserOpen(rootPath: string): boolean {
   }
 }
 
-function importDataResult(input: Omit<BrowserProfileImportDataResult, "status">):
-BrowserProfileImportDataResult {
+function importDataResult(
+  input: Omit<BrowserProfileImportDataResult, "status">,
+): BrowserProfileImportDataResult {
   return {
     ...input,
-    status: input.failed > 0
-      ? input.imported > 0 || input.skippedExisting > 0
-        ? "partial-success"
-        : "failed"
-      : "success",
+    status:
+      input.failed > 0
+        ? input.imported > 0 || input.skippedExisting > 0
+          ? "partial-success"
+          : "failed"
+        : "success",
   };
 }
 
@@ -347,11 +337,11 @@ function normalizeCookiePath(value: string): string {
 
 function isSafeCookieHost(value: string): boolean {
   return (
-    value.length > 0
-    && value.length <= 253
-    && !value.includes("/")
-    && !value.includes(":")
-    && !/\s/u.test(value)
+    value.length > 0 &&
+    value.length <= 253 &&
+    !value.includes("/") &&
+    !value.includes(":") &&
+    !/\s/u.test(value)
   );
 }
 

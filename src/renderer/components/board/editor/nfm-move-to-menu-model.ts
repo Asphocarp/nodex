@@ -233,39 +233,26 @@ export function buildNfmMoveToSections({
 
   if (resultScope === "all" && normalizedQuery && resolvedSearchResult) {
     pageRows.push(
-      ...resolvedSearchResult.pageHits
-        .slice(0, pageLimit)
-        .map(createPageRowFromSearchHit),
+      ...resolvedSearchResult.pageHits.slice(0, pageLimit).map(createPageRowFromSearchHit),
     );
   }
 
   const dbSection = { key: "db", label: "DB", rows: dbRows } satisfies NfmMoveToSection;
   if (resultScope === "db-only") return [dbSection];
 
-  return [
-    dbSection,
-    { key: "page", label: "Page", rows: pageRows },
-  ];
+  return [dbSection, { key: "page", label: "Page", rows: pageRows }];
 }
 
-export function flattenNfmMoveToRows(
-  sections: readonly NfmMoveToSection[],
-): NfmMoveToRow[] {
+export function flattenNfmMoveToRows(sections: readonly NfmMoveToSection[]): NfmMoveToRow[] {
   return sections.flatMap((section) => section.rows);
 }
 
-export function getInitialNfmMoveToFocusIndex(
-  query: string,
-  rows: readonly NfmMoveToRow[],
-) {
+export function getInitialNfmMoveToFocusIndex(query: string, rows: readonly NfmMoveToRow[]) {
   if (!normalizeSearchText(query)) return -1;
   return rows.length > 0 ? 0 : -1;
 }
 
-export function getInitialNfmMoveToFocusedRowId(
-  query: string,
-  rows: readonly NfmMoveToRow[],
-) {
+export function getInitialNfmMoveToFocusedRowId(query: string, rows: readonly NfmMoveToRow[]) {
   if (!normalizeSearchText(query)) return null;
   return rows[0]?.id ?? null;
 }
@@ -303,9 +290,7 @@ export function moveNfmMoveToFocusedRowId(
 ) {
   if (rows.length === 0) return null;
 
-  const currentIndex = focusedRowId
-    ? rows.findIndex((row) => row.id === focusedRowId)
-    : -1;
+  const currentIndex = focusedRowId ? rows.findIndex((row) => row.id === focusedRowId) : -1;
   const nextIndex = moveNfmMoveToFocus(currentIndex, direction, rows);
   return rows[nextIndex]?.id ?? null;
 }

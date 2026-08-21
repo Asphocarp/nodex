@@ -33,9 +33,10 @@ export function useWorkspaceFileSearch(
   input: WorkspaceFileSearchInput,
   options: QueryEnabledOptions = {},
 ) {
-  const enabled = options.enabled !== false
-    && input.workspaceRoot.trim().length > 0
-    && input.query.trim().length > 0;
+  const enabled =
+    options.enabled !== false &&
+    input.workspaceRoot.trim().length > 0 &&
+    input.query.trim().length > 0;
   return useQuery({
     ...workspaceFileSearchQueryOptions(input),
     enabled,

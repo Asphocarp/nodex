@@ -60,15 +60,10 @@ export class PageHistoryContractError extends Error {
   }
 }
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const readRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new PageHistoryContractError(`${label} must be an object`);
 };
@@ -90,11 +85,7 @@ const assertExactKeys = (
   }
 };
 
-const readStringValue = (
-  value: unknown,
-  label: string,
-  maximumLength = MAX_ID_LENGTH,
-): string => {
+const readStringValue = (value: unknown, label: string, maximumLength = MAX_ID_LENGTH): string => {
   if (
     typeof value === "string" &&
     value.length > 0 &&
@@ -103,9 +94,7 @@ const readStringValue = (
   ) {
     return value;
   }
-  throw new PageHistoryContractError(
-    `${label} must be a non-empty bounded string`,
-  );
+  throw new PageHistoryContractError(`${label} must be a non-empty bounded string`);
 };
 
 const readNullableStringValue = (
@@ -145,15 +134,10 @@ const readNullableSafeIntegerValue = (
 
 const readCanonicalTimestamp = (value: unknown, label: string): string => {
   const timestamp = readStringValue(value, label, 256);
-  if (
-    Number.isFinite(Date.parse(timestamp)) &&
-    new Date(timestamp).toISOString() === timestamp
-  ) {
+  if (Number.isFinite(Date.parse(timestamp)) && new Date(timestamp).toISOString() === timestamp) {
     return timestamp;
   }
-  throw new PageHistoryContractError(
-    `${label} must be a canonical ISO timestamp`,
-  );
+  throw new PageHistoryContractError(`${label} must be a canonical ISO timestamp`);
 };
 
 const readHash = (value: unknown, label: string): string => {
@@ -169,10 +153,7 @@ export const parsePageHistoryCursor = (
   if (record.source === "document_version") {
     assertExactKeys(record, label, ["occurredAt", "source", "versionId"]);
     return {
-      occurredAt: readCanonicalTimestamp(
-        record.occurredAt,
-        `${label}.occurredAt`,
-      ),
+      occurredAt: readCanonicalTimestamp(record.occurredAt, `${label}.occurredAt`),
       source: "document_version",
       versionId: readStringValue(record.versionId, `${label}.versionId`),
     };
@@ -180,32 +161,18 @@ export const parsePageHistoryCursor = (
   if (record.source === "change_log") {
     assertExactKeys(record, label, ["occurredAt", "source", "changeSeq"]);
     return {
-      occurredAt: readCanonicalTimestamp(
-        record.occurredAt,
-        `${label}.occurredAt`,
-      ),
+      occurredAt: readCanonicalTimestamp(record.occurredAt, `${label}.occurredAt`),
       source: "change_log",
-      changeSeq: readSafeIntegerValue(
-        record.changeSeq,
-        `${label}.changeSeq`,
-        1,
-      ),
+      changeSeq: readSafeIntegerValue(record.changeSeq, `${label}.changeSeq`, 1),
     };
   }
   throw new PageHistoryContractError(`${label}.source is unsupported`);
 };
 
-export const parseListPageHistoryRequest = (
-  value: unknown,
-): ListPageHistoryRequest => {
+export const parseListPageHistoryRequest = (value: unknown): ListPageHistoryRequest => {
   const label = "listPageHistory";
   const record = readRecord(value, label);
-  assertExactKeys(
-    record,
-    label,
-    ["requestingProjectId", "pageId"],
-    ["before", "pageSize"],
-  );
+  assertExactKeys(record, label, ["requestingProjectId", "pageId"], ["before", "pageSize"]);
   const before =
     record.before === undefined
       ? undefined
@@ -213,21 +180,13 @@ export const parseListPageHistoryRequest = (
   const pageSize =
     record.pageSize === undefined
       ? undefined
-      : readSafeIntegerValue(
-          record.pageSize,
-          `${label}.pageSize`,
-          1,
-          MAX_PAGE_HISTORY_PAGE_SIZE,
-        );
+      : readSafeIntegerValue(record.pageSize, `${label}.pageSize`, 1, MAX_PAGE_HISTORY_PAGE_SIZE);
   return {
     requestingProjectId: readStringValue(
       record.requestingProjectId,
       `${label}.requestingProjectId`,
     ),
-    pageId: readStringValue(
-      record.pageId,
-      `${label}.pageId`,
-    ),
+    pageId: readStringValue(record.pageId, `${label}.pageId`),
     ...(before === undefined ? {} : { before }),
     ...(pageSize === undefined ? {} : { pageSize }),
   };
@@ -244,16 +203,8 @@ const parseDisplay = (value: unknown, label: string): PageHistoryDisplay => {
   }
   return {
     category: record.category as PageHistoryCategory,
-    title: readStringValue(
-      record.title,
-      `${label}.title`,
-      MAX_DISPLAY_TITLE_LENGTH,
-    ),
-    detail: readNullableStringValue(
-      record.detail,
-      `${label}.detail`,
-      MAX_DISPLAY_DETAIL_LENGTH,
-    ),
+    title: readStringValue(record.title, `${label}.title`, MAX_DISPLAY_TITLE_LENGTH),
+    detail: readNullableStringValue(record.detail, `${label}.detail`, MAX_DISPLAY_DETAIL_LENGTH),
     actorLabel: readNullableStringValue(
       record.actorLabel,
       `${label}.actorLabel`,
@@ -372,9 +323,7 @@ const parseVersionEntry = (
     revisionKind !== "restore" &&
     revisionKind !== "safety"
   ) {
-    throw new PageHistoryContractError(
-      `${metadataLabel}.revisionKind is not supported`,
-    );
+    throw new PageHistoryContractError(`${metadataLabel}.revisionKind is not supported`);
   }
   if (typeof metadata.pinned !== "boolean") {
     throw new PageHistoryContractError(`${metadataLabel}.pinned must be boolean`);
@@ -383,36 +332,17 @@ const parseVersionEntry = (
     ...base,
     kind: "document_version",
     versionMetadata: {
-      versionId: readStringValue(
-        metadata.versionId,
-        `${metadataLabel}.versionId`,
-      ),
-      generation: readSafeIntegerValue(
-        metadata.generation,
-        `${metadataLabel}.generation`,
-        1,
-      ),
-      baseHeadSeq: readSafeIntegerValue(
-        metadata.baseHeadSeq,
-        `${metadataLabel}.baseHeadSeq`,
-        0,
-      ),
-      schemaKey: readStringValue(
-        metadata.schemaKey,
-        `${metadataLabel}.schemaKey`,
-        128,
-      ),
+      versionId: readStringValue(metadata.versionId, `${metadataLabel}.versionId`),
+      generation: readSafeIntegerValue(metadata.generation, `${metadataLabel}.generation`, 1),
+      baseHeadSeq: readSafeIntegerValue(metadata.baseHeadSeq, `${metadataLabel}.baseHeadSeq`, 0),
+      schemaKey: readStringValue(metadata.schemaKey, `${metadataLabel}.schemaKey`, 128),
       schemaVersion: readSafeIntegerValue(
         metadata.schemaVersion,
         `${metadataLabel}.schemaVersion`,
         1,
       ),
       cause: readStringValue(metadata.cause, `${metadataLabel}.cause`, 128),
-      label: readNullableStringValue(
-        metadata.label,
-        `${metadataLabel}.label`,
-        512,
-      ),
+      label: readNullableStringValue(metadata.label, `${metadataLabel}.label`, 512),
       revisionKind,
       sourceMutationId: readNullableStringValue(
         metadata.sourceMutationId,
@@ -425,15 +355,8 @@ const parseVersionEntry = (
         1,
       ),
       pinned: metadata.pinned,
-      checkpointHash: readHash(
-        metadata.checkpointHash,
-        `${metadataLabel}.checkpointHash`,
-      ),
-      byteLength: readSafeIntegerValue(
-        metadata.byteLength,
-        `${metadataLabel}.byteLength`,
-        1,
-      ),
+      checkpointHash: readHash(metadata.checkpointHash, `${metadataLabel}.checkpointHash`),
+      byteLength: readSafeIntegerValue(metadata.byteLength, `${metadataLabel}.byteLength`, 1),
     },
   };
 };
@@ -454,16 +377,8 @@ const parseMutationEntry = (
     ...parseEntryBase(record, label),
     kind: "block_mutation",
     changeSeq: readSafeIntegerValue(record.changeSeq, `${label}.changeSeq`, 1),
-    mutationId: readNullableStringValue(
-      record.mutationId,
-      `${label}.mutationId`,
-      MAX_ID_LENGTH,
-    ),
-    mutationKind: readNullableStringValue(
-      record.mutationKind,
-      `${label}.mutationKind`,
-      128,
-    ),
+    mutationId: readNullableStringValue(record.mutationId, `${label}.mutationId`, MAX_ID_LENGTH),
+    mutationKind: readNullableStringValue(record.mutationKind, `${label}.mutationKind`, 128),
     affectedBlockCount: readNullableSafeIntegerValue(
       record.affectedBlockCount,
       `${label}.affectedBlockCount`,
@@ -541,10 +456,7 @@ const cursorForEntry = (entry: PageHistoryEntry): PageHistoryCursor =>
         changeSeq: entry.changeSeq,
       };
 
-const sameCursor = (
-  left: PageHistoryCursor,
-  right: PageHistoryCursor,
-): boolean => {
+const sameCursor = (left: PageHistoryCursor, right: PageHistoryCursor): boolean => {
   if (left.source !== right.source || left.occurredAt !== right.occurredAt) {
     return false;
   }
@@ -561,13 +473,7 @@ const sameCursor = (
 export const parsePageHistoryPage = (value: unknown): PageHistoryPage => {
   const label = "pageHistoryPage";
   const record = readRecord(value, label);
-  assertExactKeys(record, label, [
-    "libraryId",
-    "pageId",
-    "documentId",
-    "entries",
-    "nextCursor",
-  ]);
+  assertExactKeys(record, label, ["libraryId", "pageId", "documentId", "entries", "nextCursor"]);
   if (!Array.isArray(record.entries)) {
     throw new PageHistoryContractError(`${label}.entries must be an array`);
   }
@@ -575,10 +481,7 @@ export const parsePageHistoryPage = (value: unknown): PageHistoryPage => {
     throw new PageHistoryContractError(`${label}.entries exceeds the page budget`);
   }
   const libraryId = readStringValue(record.libraryId, `${label}.libraryId`);
-  const pageId = readStringValue(
-    record.pageId,
-    `${label}.pageId`,
-  );
+  const pageId = readStringValue(record.pageId, `${label}.pageId`);
   const documentId = readStringValue(record.documentId, `${label}.documentId`);
   const entries = record.entries.map((entry, index) =>
     parseEntry(entry, `${label}.entries[${index}]`),
@@ -590,9 +493,7 @@ export const parsePageHistoryPage = (value: unknown): PageHistoryPage => {
   if (
     !entries.every(
       (entry) =>
-        entry.libraryId === libraryId &&
-        entry.pageId === pageId &&
-        entry.documentId === documentId,
+        entry.libraryId === libraryId && entry.pageId === pageId && entry.documentId === documentId,
     )
   ) {
     throw new PageHistoryContractError(`${label}.entries escaped their scope`);
@@ -603,9 +504,7 @@ export const parsePageHistoryPage = (value: unknown): PageHistoryPage => {
       : parsePageHistoryCursor(record.nextCursor, `${label}.nextCursor`);
   const lastEntry = entries.at(-1);
   if (nextCursor && (!lastEntry || !sameCursor(nextCursor, cursorForEntry(lastEntry)))) {
-    throw new PageHistoryContractError(
-      `${label}.nextCursor must identify the final entry`,
-    );
+    throw new PageHistoryContractError(`${label}.nextCursor must identify the final entry`);
   }
   return {
     libraryId,
@@ -637,18 +536,12 @@ const parseCommandError = (value: unknown): PageHistoryCommandError => {
   }
   return {
     code: record.code as PageHistoryCommandErrorCode,
-    message: readStringValue(
-      record.message,
-      `${label}.message`,
-      MAX_ERROR_MESSAGE_LENGTH,
-    ),
+    message: readStringValue(record.message, `${label}.message`, MAX_ERROR_MESSAGE_LENGTH),
     retryable: record.retryable,
   };
 };
 
-export const parsePageHistoryCommandResult = (
-  value: unknown,
-): PageHistoryCommandResult => {
+export const parsePageHistoryCommandResult = (value: unknown): PageHistoryCommandResult => {
   const label = "pageHistoryResult";
   const record = readRecord(value, label);
   if (record.ok === true) {
@@ -662,9 +555,7 @@ export const parsePageHistoryCommandResult = (
   throw new PageHistoryContractError(`${label}.ok must be boolean`);
 };
 
-export const pageHistoryHttpStatus = (
-  result: PageHistoryCommandResult,
-): 200 | 400 | 404 | 500 => {
+export const pageHistoryHttpStatus = (result: PageHistoryCommandResult): 200 | 400 | 404 | 500 => {
   if (result.ok) return 200;
   if (result.error.code === "page_not_found") return 404;
   if (result.error.code === "page_history_corrupt") return 500;
@@ -674,9 +565,5 @@ export const pageHistoryHttpStatus = (
 
 export const pageHistoryTransportFailure = (): PageHistoryCommandResult => ({
   ok: false,
-  error: pageHistoryFailure(
-    "unknown",
-    "The durable Page history reader is unavailable",
-    true,
-  ),
+  error: pageHistoryFailure("unknown", "The durable Page history reader is unavailable", true),
 });

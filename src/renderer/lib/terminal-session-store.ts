@@ -206,10 +206,7 @@ export class TerminalSessionStore {
     });
 
     if (!hasApi()) return null;
-    const result = await window.api!.invoke(
-      "terminal-create",
-      input,
-    ) as TerminalViewLeaseResult;
+    const result = (await window.api!.invoke("terminal-create", input)) as TerminalViewLeaseResult;
     this.applyLeaseResult(input.sessionId, result);
     return result;
   }
@@ -224,23 +221,21 @@ export class TerminalSessionStore {
     });
 
     if (!hasApi()) return null;
-    const result = await window.api!.invoke(
+    const result = (await window.api!.invoke(
       "terminal-acquire-view",
       input,
-    ) as TerminalViewLeaseResult;
+    )) as TerminalViewLeaseResult;
     this.applyLeaseResult(input.sessionId, result);
     return result;
   }
 
-  async takeOver(
-    input: TerminalTakeOverViewRequest,
-  ): Promise<TerminalViewLeaseResult | null> {
+  async takeOver(input: TerminalTakeOverViewRequest): Promise<TerminalViewLeaseResult | null> {
     this.ensureEventSubscriptions();
     if (!hasApi()) return null;
-    const result = await window.api!.invoke(
+    const result = (await window.api!.invoke(
       "terminal-take-over-view",
       input,
-    ) as TerminalViewLeaseResult;
+    )) as TerminalViewLeaseResult;
     this.applyLeaseResult(input.sessionId, result);
     return result;
   }
@@ -337,10 +332,7 @@ export class TerminalSessionStore {
     return record;
   }
 
-  private mergeSnapshot(
-    sessionId: string,
-    partial: Partial<TerminalSessionSnapshot>,
-  ): void {
+  private mergeSnapshot(sessionId: string, partial: Partial<TerminalSessionSnapshot>): void {
     const record = this.getRecord(sessionId);
     record.snapshot = { ...record.snapshot, ...partial, sessionId };
     this.emitVersionChanged();
@@ -443,10 +435,7 @@ export class TerminalSessionStore {
     this.emitVersionChanged();
   }
 
-  private applyLeaseResult(
-    sessionId: string,
-    result: TerminalViewLeaseResult,
-  ): void {
+  private applyLeaseResult(sessionId: string, result: TerminalViewLeaseResult): void {
     const record = this.getRecord(sessionId);
     if (result.status === "not_found") {
       record.attached = false;

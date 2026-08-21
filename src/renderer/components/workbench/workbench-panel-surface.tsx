@@ -1,38 +1,21 @@
-import type {
-  MutableRefObject,
-  RefObject,
-} from "react";
+import type { MutableRefObject, RefObject } from "react";
 import type { MotionValue } from "motion/react";
 import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
-import {
-  WorkspaceFilesPanel,
-  type WorkspaceFilesTab,
-} from "@/features/workspace-files";
+import { WorkspaceFilesPanel, type WorkspaceFilesTab } from "@/features/workspace-files";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
 import type { BrowserSettingsDestination } from "@/features/browser-sidebar/browser-settings-pages";
 import type { BrowserSidebarOpenNewTabRequest } from "../../../shared/browser-sidebar";
 import { ConnectedReviewDiffPanel } from "@/features/local-conversation";
-import {
-  resolveLeafIdForPanelTab,
-} from "@/lib/workbench-panel-placement";
+import { resolveLeafIdForPanelTab } from "@/lib/workbench-panel-placement";
 import type { WorkbenchTabProjectionPanelTab } from "@/lib/workbench-panel-tab-model";
 import {
   projectWorkspaceRootOrNull,
   resolveSessionTerminalCwd,
 } from "@/lib/workbench-workspace-context";
-import type {
-  PanelId,
-  Project,
-  WorkbenchTabProjection,
-} from "@/lib/types";
+import type { PanelId, Project, WorkbenchTabProjection } from "@/lib/types";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
-import type {
-  OpenPageInNewChatInput,
-  SendPageToChatInput,
-} from "@/lib/page-chat-actions";
-import type {
-  WorkbenchSurfaceUpdatePatch,
-} from "@/lib/workbench-scene-presentation";
+import type { OpenPageInNewChatInput, SendPageToChatInput } from "@/lib/page-chat-actions";
+import type { WorkbenchSurfaceUpdatePatch } from "@/lib/workbench-scene-presentation";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { DbViewSessionTab } from "./workbench-db-view-panel";
 import { WorkbenchCanvasStagePanel } from "./workbench-canvas-stage-panel";
@@ -87,19 +70,13 @@ export function WorkbenchTabProjectionPanel({
   presentedPageIds: ReadonlySet<string>;
   pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
   pageStagePersistRef?: MutableRefObject<(() => Promise<void>) | null>;
-  pageStageSessionSnapshotRef?: MutableRefObject<
-    PageStageSessionSnapshot | null
-  >;
+  pageStageSessionSnapshotRef?: MutableRefObject<PageStageSessionSnapshot | null>;
   taskSearchOpenTick: number;
   setSearchQuery: (projectId: string, value: string) => void;
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onOpenPageTab: OpenPageTabHandler;
-  onOpenPageInNewChat?: (
-    input: OpenPageInNewChatInput,
-  ) => Promise<void> | void;
-  onSendPageToChat?: (
-    input: SendPageToChatInput,
-  ) => Promise<void> | void;
+  onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenFileTab: (input: {
     path: string;
@@ -111,26 +88,14 @@ export function WorkbenchTabProjectionPanel({
     projectId: string,
     options?: { select?: boolean },
   ) => Promise<WorkbenchSessionRenderProjection>;
-  onRefreshSessions: (
-    projectId: string | null,
-  ) => Promise<WorkbenchSessionRenderProjection[]>;
+  onRefreshSessions: (projectId: string | null) => Promise<WorkbenchSessionRenderProjection[]>;
   onCloseTab: (tabId: string) => Promise<void>;
-  onUpdateTab: (
-    tabId: string,
-    patch: WorkbenchSurfaceUpdatePatch,
-  ) => WorkbenchTabProjection | null;
-  onOpenBrowserTab?: (
-    request: BrowserSidebarOpenNewTabRequest,
-  ) => void | Promise<void>;
-  onCreateTerminalTab: (
-    panelId: PanelId,
-    leafId: string,
-  ) => Promise<void> | void;
+  onUpdateTab: (tabId: string, patch: WorkbenchSurfaceUpdatePatch) => WorkbenchTabProjection | null;
+  onOpenBrowserTab?: (request: BrowserSidebarOpenNewTabRequest) => void | Promise<void>;
+  onCreateTerminalTab: (panelId: PanelId, leafId: string) => Promise<void> | void;
   onOpenThread: (threadId: string) => Promise<void>;
   pageStageHistoryModal: PageStageHistoryModalContext | null;
-  onTogglePageStageHistoryModal: (
-    context: PageStageHistoryModalContext,
-  ) => void;
+  onTogglePageStageHistoryModal: (context: PageStageHistoryModalContext) => void;
   browserBoundsSyncTrigger?: MotionValue<number>;
   onOpenBrowserSettings: (sectionId: BrowserSettingsDestination) => void;
   isActivePanelTab: boolean;
@@ -151,11 +116,7 @@ export function WorkbenchTabProjectionPanel({
         onOpenPageInNewChat={onOpenPageInNewChat}
         onSendPageToChat={onSendPageToChat}
         onOpenCanvasStage={onOpenCanvasStage}
-        targetLeafId={resolveLeafIdForPanelTab(
-          activeSession,
-          tab.panelId,
-          tab.id,
-        )}
+        targetLeafId={resolveLeafIdForPanelTab(activeSession, tab.panelId, tab.id)}
       />
     );
   }
@@ -171,9 +132,7 @@ export function WorkbenchTabProjectionPanel({
           projectId: tab.config.projectId,
         },
         canvasBlockId: tab.config.canvasBlockId,
-        ...(tab.config.titleSnapshot
-          ? { titleSnapshot: tab.config.titleSnapshot }
-          : {}),
+        ...(tab.config.titleSnapshot ? { titleSnapshot: tab.config.titleSnapshot } : {}),
       },
       stateKey: tab.stateKey,
       state: tab.state,
@@ -192,11 +151,7 @@ export function WorkbenchTabProjectionPanel({
     );
   }
 
-  if (
-    tab.kind === "page_stage"
-    && "pageId" in tab.config
-    && "projectId" in tab.config
-  ) {
+  if (tab.kind === "page_stage" && "pageId" in tab.config && "projectId" in tab.config) {
     const pageTab = tab as WorkbenchTabProjection & {
       config: {
         projectId: string;
@@ -207,28 +162,21 @@ export function WorkbenchTabProjectionPanel({
     return (
       <PageStageSessionTab
         tab={pageTab}
-        project={
-          projects.find((item) => item.id === pageTab.config.projectId)
-            ?? null
-        }
+        project={projects.find((item) => item.id === pageTab.config.projectId) ?? null}
         closeRef={pageStageCloseRef}
         persistRef={pageStagePersistRef}
         sessionSnapshotRef={pageStageSessionSnapshotRef}
         sessionId={activeSession.id}
-        sessionThread={activeSession.thread
-          ? projectSessionThreadLinkToSummary(activeSession.thread)
-          : null}
+        sessionThread={
+          activeSession.thread ? projectSessionThreadLinkToSummary(activeSession.thread) : null
+        }
         canStartThreadInSession={
-          !activeSession.thread
-          && activeSession.projectId === pageTab.config.projectId
+          !activeSession.thread && activeSession.projectId === pageTab.config.projectId
         }
         onLeavePage={onLeavePageStage}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
-          await onCreateTerminalTab(
-            "bottom",
-            activeSession.panels.bottom.layout.activeLeafId,
-          );
+          await onCreateTerminalTab("bottom", activeSession.panels.bottom.layout.activeLeafId);
         }}
         onEnsureDefaultDraftSessionForProject={onEnsureDefaultDraftSessionForProject}
         onRefreshSessions={onRefreshSessions}
@@ -236,11 +184,11 @@ export function WorkbenchTabProjectionPanel({
         onOpenCanvasStage={onOpenCanvasStage}
         onOpenThread={onOpenThread}
         historyPanelActive={Boolean(
-          pageStageHistoryModal
-          && pageStageHistoryModal.sessionId === activeSession.id
-          && pageStageHistoryModal.tabId === pageTab.id
-          && pageStageHistoryModal.projectId === pageTab.config.projectId
-          && pageStageHistoryModal.pageId === pageTab.config.pageId,
+          pageStageHistoryModal &&
+          pageStageHistoryModal.sessionId === activeSession.id &&
+          pageStageHistoryModal.tabId === pageTab.id &&
+          pageStageHistoryModal.projectId === pageTab.config.projectId &&
+          pageStageHistoryModal.pageId === pageTab.config.pageId,
         )}
         onToggleHistoryPanel={onTogglePageStageHistoryModal}
         isActivePanelTab={isActivePanelTab}
@@ -250,11 +198,7 @@ export function WorkbenchTabProjectionPanel({
 
   if (tab.kind === "terminal" && "terminalSessionId" in tab.config) {
     const cwd = resolveSessionTerminalCwd(activeSession, tab, projects);
-    const leafId = resolveLeafIdForPanelTab(
-      activeSession,
-      tab.panelId,
-      tab.id,
-    );
+    const leafId = resolveLeafIdForPanelTab(activeSession, tab.panelId, tab.id);
     if (!cwd) {
       return (
         <div className="flex h-full min-h-0 items-center justify-center bg-token-main-surface-primary px-3 text-sm text-token-text-secondary">
@@ -278,8 +222,7 @@ export function WorkbenchTabProjectionPanel({
   }
 
   if (tab.kind === "review") {
-    const project =
-      projects.find((item) => item.id === tab.projectId) ?? null;
+    const project = projects.find((item) => item.id === tab.projectId) ?? null;
     return (
       <ConnectedReviewDiffPanel
         threadId={activeSession.thread?.threadId ?? null}
@@ -311,9 +254,7 @@ export function WorkbenchTabProjectionPanel({
       <WorkspaceFilesPanel
         tab={tab as WorkspaceFilesTab}
         activeSession={activeSession}
-        project={
-          projects.find((item) => item.id === tab.projectId) ?? null
-        }
+        project={projects.find((item) => item.id === tab.projectId) ?? null}
         onOpenFileTab={onOpenFileTab}
         onUpdateTabState={(state) => {
           onUpdateTab(tab.id, { state });

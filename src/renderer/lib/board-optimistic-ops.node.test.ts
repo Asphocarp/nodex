@@ -74,19 +74,9 @@ describe("board optimistic ops", () => {
     const board = createBoard();
     const card = createPageSummary("new", 0);
 
-    const nextBoard = buildCreateCardTransform(
-      "build",
-      card,
-      { beforePageId: "c" },
-    )(board);
+    const nextBoard = buildCreateCardTransform("build", card, { beforePageId: "c" })(board);
 
-    expect(nextBoard.columns[2]?.cards.map((item) => item.id)).toEqual([
-      "a",
-      "b",
-      "new",
-      "c",
-      "d",
-    ]);
+    expect(nextBoard.columns[2]?.cards.map((item) => item.id)).toEqual(["a", "b", "new", "c", "d"]);
   });
 
   test("treats an existing Page identity as a converged create", () => {
@@ -96,18 +86,15 @@ describe("board optimistic ops", () => {
       title: "Optimistic title",
       richTitle: plainTextToPortableRichText("Optimistic title"),
     };
-    const transform = buildCreateCardTransform(
-      "build",
-      optimisticCard,
-      "top",
-    );
+    const transform = buildCreateCardTransform("build", optimisticCard, "top");
 
     const created = transform(board);
     const reapplied = transform(created);
 
     expect(reapplied).toBe(created);
     expect(
-      reapplied.columns.flatMap((column) => column.cards)
+      reapplied.columns
+        .flatMap((column) => column.cards)
         .filter((card) => card.id === optimisticCard.id),
     ).toHaveLength(1);
   });
@@ -123,9 +110,7 @@ describe("board optimistic ops", () => {
     const board: BoardSummary = {
       ...baseBoard,
       columns: baseBoard.columns.map((column) =>
-        column.id === "build"
-          ? { ...column, cards: [...column.cards, canonicalCard] }
-          : column
+        column.id === "build" ? { ...column, cards: [...column.cards, canonicalCard] } : column,
       ),
     };
     const optimisticCard = {
@@ -135,11 +120,7 @@ describe("board optimistic ops", () => {
       revision: undefined,
     };
 
-    const projected = buildCreateCardTransform(
-      "build",
-      optimisticCard,
-      "top",
-    )(board);
+    const projected = buildCreateCardTransform("build", optimisticCard, "top")(board);
 
     expect(projected.columns[2]?.cards[0]).toMatchObject({
       id: canonicalCard.id,
@@ -159,10 +140,12 @@ describe("board optimistic ops", () => {
   test("treats equivalent projected title and structured values as a no-op", () => {
     const board = createBoard();
 
-    expect(buildPatchPageTransform("build", "a", {
-      title: "a",
-      tags: [],
-    })(board)).toBe(board);
+    expect(
+      buildPatchPageTransform("build", "a", {
+        title: "a",
+        tags: [],
+      })(board),
+    ).toBe(board);
 
     const renamed = buildPatchPageTransform("build", "a", {
       title: "Renamed",
@@ -238,12 +221,14 @@ describe("board optimistic ops", () => {
   test("move-many does not project a partial run", () => {
     const board = createBoard();
 
-    expect(buildMovePagesTransform({
-      pageIds: ["a", "missing"],
-      fromStatus: "build",
-      toStatus: "ship",
-      newOrder: 0,
-    })(board)).toBe(board);
+    expect(
+      buildMovePagesTransform({
+        pageIds: ["a", "missing"],
+        fromStatus: "build",
+        toStatus: "ship",
+        newOrder: 0,
+      })(board),
+    ).toBe(board);
   });
 
   test("move-card applies the drag field patch before reinserting", () => {
@@ -294,10 +279,15 @@ describe("board optimistic ops", () => {
     });
 
     expect(overlap(first, second)).toBe(false);
-    expect(overlap(first, conflictKeysForMove({
-      pageId: "a",
-      fromStatus: "build",
-      toStatus: "plan",
-    }))).toBe(true);
+    expect(
+      overlap(
+        first,
+        conflictKeysForMove({
+          pageId: "a",
+          fromStatus: "build",
+          toStatus: "plan",
+        }),
+      ),
+    ).toBe(true);
   });
 });

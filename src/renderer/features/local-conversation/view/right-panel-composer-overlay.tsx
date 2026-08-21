@@ -32,10 +32,7 @@ interface RightPanelComposerOverlayProps {
   onPointerDownOutside?: () => void;
 }
 
-export type RightPanelComposerOverlayAttention =
-  | "none"
-  | "activity"
-  | "request";
+export type RightPanelComposerOverlayAttention = "none" | "activity" | "request";
 
 export type RightPanelComposerOverlayVisibility =
   | { readonly kind: "always" }
@@ -91,16 +88,12 @@ function readWindowZoom(target: HTMLElement): number {
   const view = target.ownerDocument.defaultView;
   if (!view) return 1;
 
-  const rawZoom = view.getComputedStyle(target)
-    .getPropertyValue("--codex-window-zoom");
+  const rawZoom = view.getComputedStyle(target).getPropertyValue("--codex-window-zoom");
   const zoom = Number.parseFloat(rawZoom);
   return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 }
 
-function findInlineCustomPropertyOwner(
-  target: HTMLElement,
-  property: string,
-): HTMLElement | null {
+function findInlineCustomPropertyOwner(target: HTMLElement, property: string): HTMLElement | null {
   let current: HTMLElement | null = target;
   while (current) {
     if (current.style.getPropertyValue(property).trim()) return current;
@@ -109,18 +102,12 @@ function findInlineCustomPropertyOwner(
   return null;
 }
 
-function writeRightPanelComposerOverlayVars(
-  target: HTMLElement,
-  reservePx: number,
-) {
+function writeRightPanelComposerOverlayVars(target: HTMLElement, reservePx: number) {
   target.style.setProperty(
     RIGHT_PANEL_COMPOSER_OVERLAY_HEIGHT_VAR,
     `${RIGHT_PANEL_COMPOSER_OVERLAY_HEIGHT_PX}px`,
   );
-  target.style.setProperty(
-    RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_VAR,
-    `${reservePx}px`,
-  );
+  target.style.setProperty(RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_VAR, `${reservePx}px`);
 }
 
 function removeRightPanelComposerOverlayVars(target: HTMLElement) {
@@ -134,14 +121,11 @@ function isOpenComposerMenuTarget(
 ): boolean {
   if (!(target instanceof Element)) return false;
   if (!target.closest("[data-radix-popper-content-wrapper]")) return false;
-  return composer
-    ?.querySelector('[aria-haspopup="menu"][data-state="open"]') != null;
+  return composer?.querySelector('[aria-haspopup="menu"][data-state="open"]') != null;
 }
 
 function hasFocusedComposerDraft(composer: HTMLElement | null): boolean {
-  const editor = composer?.querySelector<HTMLElement>(
-    '[data-codex-composer="true"]',
-  );
+  const editor = composer?.querySelector<HTMLElement>('[data-codex-composer="true"]');
   if (!editor?.textContent?.trim()) return false;
 
   const activeElement = editor.ownerDocument.activeElement;
@@ -169,8 +153,7 @@ function useAnchoredBodyPortalGeometry(
   bottomPanelHeight: string;
   geometry: RightPanelComposerPortalGeometry | null;
 } {
-  const [geometry, setGeometry] =
-    useState<RightPanelComposerPortalGeometry | null>(null);
+  const [geometry, setGeometry] = useState<RightPanelComposerPortalGeometry | null>(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState("0px");
 
   const syncGeometry = useEffectEvent(() => {
@@ -178,15 +161,16 @@ function useAnchoredBodyPortalGeometry(
     const view = target.ownerDocument.defaultView;
     if (!view) return;
 
-    setGeometry(resolveRightPanelComposerPortalGeometry({
-      rect: target.getBoundingClientRect(),
-      viewportHeight: view.innerHeight,
-      zoom: readWindowZoom(target),
-    }));
+    setGeometry(
+      resolveRightPanelComposerPortalGeometry({
+        rect: target.getBoundingClientRect(),
+        viewportHeight: view.innerHeight,
+        zoom: readWindowZoom(target),
+      }),
+    );
     const computedStyle = view.getComputedStyle(target);
     setBottomPanelHeight(
-      computedStyle.getPropertyValue("--app-shell-bottom-panel-height").trim()
-        || "0px",
+      computedStyle.getPropertyValue("--app-shell-bottom-panel-height").trim() || "0px",
     );
   });
 
@@ -206,17 +190,17 @@ function useAnchoredBodyPortalGeometry(
     const view = target.ownerDocument.defaultView;
     if (!view) return;
 
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(syncGeometry);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(syncGeometry);
     resizeObserver?.observe(target);
-    const mutationObserver = typeof MutationObserver === "undefined"
-      ? null
-      : new MutationObserver(syncGeometry);
-    const observedStyleOwners = new Set([
-      findInlineCustomPropertyOwner(target, "--app-shell-bottom-panel-height"),
-      findInlineCustomPropertyOwner(target, "--codex-window-zoom"),
-    ].filter((owner): owner is HTMLElement => owner !== null));
+    const mutationObserver =
+      typeof MutationObserver === "undefined" ? null : new MutationObserver(syncGeometry);
+    const observedStyleOwners = new Set(
+      [
+        findInlineCustomPropertyOwner(target, "--app-shell-bottom-panel-height"),
+        findInlineCustomPropertyOwner(target, "--codex-window-zoom"),
+      ].filter((owner): owner is HTMLElement => owner !== null),
+    );
     for (const owner of observedStyleOwners) {
       mutationObserver?.observe(owner, {
         attributes: true,
@@ -241,46 +225,40 @@ export function RightPanelComposerOverlay({
   children,
   onPointerDownOutside,
 }: RightPanelComposerOverlayProps) {
-  const [hiddenReason, setHiddenReason] =
-    useState<"manual" | "document-bottom" | null>(null);
+  const [hiddenReason, setHiddenReason] = useState<"manual" | "document-bottom" | null>(null);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const interactiveRef = useRef<HTMLDivElement | null>(null);
   const revealButtonRef = useRef<HTMLButtonElement | null>(null);
   const focusRevealAfterHideRef = useRef(false);
-  const documentBottomKey = visibility.kind === "browser-auto"
-    || visibility.kind === "controlled-browser-auto"
-    ? visibility.documentBottomKey
-    : null;
-  const isAtDocumentBottom = visibility.kind === "browser-auto"
-    || visibility.kind === "controlled-browser-auto"
-    ? visibility.isAtDocumentBottom
-    : false;
+  const documentBottomKey =
+    visibility.kind === "browser-auto" || visibility.kind === "controlled-browser-auto"
+      ? visibility.documentBottomKey
+      : null;
+  const isAtDocumentBottom =
+    visibility.kind === "browser-auto" || visibility.kind === "controlled-browser-auto"
+      ? visibility.isAtDocumentBottom
+      : false;
   const previousDocumentBottomRef = useRef({
     key: documentBottomKey,
     value: false,
   });
-  const contentVisible = visibility.kind === "controlled"
-    ? visibility.visible
-    : visibility.kind === "controlled-browser-auto"
-      ? visibility.visible && hiddenReason === null
-    : visibility.kind === "browser-auto"
-      ? hiddenReason === null
-      : true;
+  const contentVisible =
+    visibility.kind === "controlled"
+      ? visibility.visible
+      : visibility.kind === "controlled-browser-auto"
+        ? visibility.visible && hiddenReason === null
+        : visibility.kind === "browser-auto"
+          ? hiddenReason === null
+          : true;
   const canHide = visibility.kind !== "always";
-  const controlledFocusRequestKey = visibility.kind === "controlled"
-    ? visibility.focusRequestKey ?? 0
-    : 0;
+  const controlledFocusRequestKey =
+    visibility.kind === "controlled" ? (visibility.focusRequestKey ?? 0) : 0;
   const consumedControlledFocusRequestKeyRef = useRef<number | null>(null);
-  const reservePx = contentVisible && !compact
-    ? RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_PX
-    : 0;
-  const { bottomPanelHeight, geometry } =
-    useAnchoredBodyPortalGeometry(target, reservePx);
+  const reservePx = contentVisible && !compact ? RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_PX : 0;
+  const { bottomPanelHeight, geometry } = useAnchoredBodyPortalGeometry(target, reservePx);
 
-  const presentation = compact
-    ? resolvePresentation({ focused, hovered })
-    : "default";
+  const presentation = compact ? resolvePresentation({ focused, hovered }) : "default";
 
   const handleDocumentPointerDown = useEffectEvent((event: PointerEvent) => {
     if (!contentVisible || !onPointerDownOutside) return;
@@ -302,10 +280,7 @@ export function RightPanelComposerOverlay({
   }, [target]);
 
   useLayoutEffect(() => {
-    if (
-      visibility.kind !== "browser-auto"
-      && visibility.kind !== "controlled-browser-auto"
-    ) {
+    if (visibility.kind !== "browser-auto" && visibility.kind !== "controlled-browser-auto") {
       previousDocumentBottomRef.current = {
         key: documentBottomKey,
         value: false,
@@ -323,35 +298,28 @@ export function RightPanelComposerOverlay({
     };
 
     if (
-      isAtDocumentBottom
-      && !wasAtDocumentBottom
-      && !hasFocusedComposerDraft(interactiveRef.current)
+      isAtDocumentBottom &&
+      !wasAtDocumentBottom &&
+      !hasFocusedComposerDraft(interactiveRef.current)
     ) {
       setHiddenReason((current) => current ?? "document-bottom");
       return;
     }
     if (!isAtDocumentBottom) {
-      setHiddenReason((current) =>
-        current === "document-bottom" ? null : current
-      );
+      setHiddenReason((current) => (current === "document-bottom" ? null : current));
     }
   }, [documentBottomKey, isAtDocumentBottom, visibility.kind]);
 
   useLayoutEffect(() => {
     if (!contentVisible || controlledFocusRequestKey <= 0) return;
-    if (
-      consumedControlledFocusRequestKeyRef.current
-      === controlledFocusRequestKey
-    ) return;
+    if (consumedControlledFocusRequestKeyRef.current === controlledFocusRequestKey) return;
 
     const frame = requestAnimationFrame(() => {
-      const editor = interactiveRef.current
-        ?.querySelector<HTMLElement>('[data-codex-composer="true"]')
-        ?? null;
+      const editor =
+        interactiveRef.current?.querySelector<HTMLElement>('[data-codex-composer="true"]') ?? null;
       if (!editor) return;
       editor.focus();
-      consumedControlledFocusRequestKeyRef.current =
-        controlledFocusRequestKey;
+      consumedControlledFocusRequestKeyRef.current = controlledFocusRequestKey;
     });
     return () => cancelAnimationFrame(frame);
   }, [contentVisible, controlledFocusRequestKey, target]);
@@ -367,12 +335,11 @@ export function RightPanelComposerOverlay({
 
   const handleBlurCapture = (event: ReactFocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
-    const NodeConstructor =
-      event.currentTarget.ownerDocument.defaultView?.Node;
+    const NodeConstructor = event.currentTarget.ownerDocument.defaultView?.Node;
     if (
-      NodeConstructor
-      && nextTarget instanceof NodeConstructor
-      && event.currentTarget.contains(nextTarget as Node)
+      NodeConstructor &&
+      nextTarget instanceof NodeConstructor &&
+      event.currentTarget.contains(nextTarget as Node)
     ) {
       return;
     }
@@ -387,18 +354,13 @@ export function RightPanelComposerOverlay({
   };
 
   const handleReveal = () => {
-    if (
-      visibility.kind === "controlled"
-      || visibility.kind === "controlled-browser-auto"
-    ) {
+    if (visibility.kind === "controlled" || visibility.kind === "controlled-browser-auto") {
       visibility.onVisibleChange(true);
     }
     setHiddenReason(null);
     setFocused(true);
     requestAnimationFrame(() => {
-      interactiveRef.current
-        ?.querySelector<HTMLElement>('[data-codex-composer="true"]')
-        ?.focus();
+      interactiveRef.current?.querySelector<HTMLElement>('[data-codex-composer="true"]')?.focus();
     });
   };
 
@@ -421,8 +383,7 @@ export function RightPanelComposerOverlay({
     <div
       data-testid="right-panel-composer-overlay-host"
       data-overlay-attention={
-        visibility.kind === "controlled"
-        || visibility.kind === "controlled-browser-auto"
+        visibility.kind === "controlled" || visibility.kind === "controlled-browser-auto"
           ? visibility.attention
           : "none"
       }
@@ -473,9 +434,7 @@ export function RightPanelComposerOverlay({
                 )}
                 inert={!contentVisible}
               >
-                <RightPanelComposerPresentationProvider
-                  presentation={presentation}
-                >
+                <RightPanelComposerPresentationProvider presentation={presentation}>
                   {children}
                 </RightPanelComposerPresentationProvider>
               </div>
@@ -498,8 +457,8 @@ export function RightPanelComposerOverlay({
                     event.currentTarget.blur();
                     setFocused(false);
                     if (
-                      visibility.kind === "controlled"
-                      || visibility.kind === "controlled-browser-auto"
+                      visibility.kind === "controlled" ||
+                      visibility.kind === "controlled-browser-auto"
                     ) {
                       visibility.onVisibleChange(false);
                     } else {

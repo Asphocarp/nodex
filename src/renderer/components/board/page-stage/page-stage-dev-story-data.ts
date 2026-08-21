@@ -38,7 +38,8 @@ export const PAGE_STAGE_STORY_PRESETS: PageStageStoryPreset[] = [
   {
     id: "overview",
     name: "Overview",
-    description: "Balanced page stage with linked threads, tags, schedule, and all major chrome visible.",
+    description:
+      "Balanced page stage with linked threads, tags, schedule, and all major chrome visible.",
     controls: {
       runInTarget: "localProject",
       threadDensity: "few",
@@ -70,7 +71,8 @@ export const PAGE_STAGE_STORY_PRESETS: PageStageStoryPreset[] = [
   {
     id: "new-worktree-setup",
     name: "New Worktree",
-    description: "Fresh worktree state with branch and environment selectors visible before a thread starts.",
+    description:
+      "Fresh worktree state with branch and environment selectors visible before a thread starts.",
     controls: {
       runInTarget: "newWorktree",
       threadDensity: "none",
@@ -86,7 +88,8 @@ export const PAGE_STAGE_STORY_PRESETS: PageStageStoryPreset[] = [
   {
     id: "existing-worktree",
     name: "Existing Worktree",
-    description: "Existing managed worktree plus a couple linked threads so the reset affordance can be tuned.",
+    description:
+      "Existing managed worktree plus a couple linked threads so the reset affordance can be tuned.",
     controls: {
       runInTarget: "newWorktree",
       threadDensity: "few",
@@ -102,7 +105,8 @@ export const PAGE_STAGE_STORY_PRESETS: PageStageStoryPreset[] = [
   {
     id: "cloud-collapsed",
     name: "Cloud Collapsed",
-    description: "Cloud target copy plus collapsed threads defaults to inspect hidden-property affordances.",
+    description:
+      "Cloud target copy plus collapsed threads defaults to inspect hidden-property affordances.",
     controls: {
       runInTarget: "cloud",
       threadDensity: "few",
@@ -143,13 +147,17 @@ export function buildPageStageStoryThreads(
   controls: Pick<PageStageStoryControls, "threadDensity" | "previewMode">,
   extraThreadCount = 0,
 ): PageStageLinkedThread[] {
-  const total = Math.max(0, countForDensity(controls.threadDensity) + Math.max(0, extraThreadCount));
+  const total = Math.max(
+    0,
+    countForDensity(controls.threadDensity) + Math.max(0, extraThreadCount),
+  );
 
   return Array.from({ length: total }, (_, index) => ({
     threadId: `story-thread-${index + 1}`,
-    title: index === 0
-      ? "Polish page stage thread affordances"
-      : `Page detail iteration ${String(index + 1).padStart(2, "0")}`,
+    title:
+      index === 0
+        ? "Polish page stage thread affordances"
+        : `Page detail iteration ${String(index + 1).padStart(2, "0")}`,
     preview: buildThreadPreview(index, controls.previewMode),
     statusType: index === 0 ? "active" : "idle",
     statusActiveFlags: [],
@@ -158,7 +166,9 @@ export function buildPageStageStoryThreads(
   }));
 }
 
-export function buildPageStageStoryPage(controls: Pick<PageStageStoryControls, "runInTarget" | "existingWorktree">): DatabasePage {
+export function buildPageStageStoryPage(
+  controls: Pick<PageStageStoryControls, "runInTarget" | "existingWorktree">,
+): DatabasePage {
   const isLocalProject = controls.runInTarget === "localProject";
   const isNewWorktree = controls.runInTarget === "newWorktree";
 
@@ -193,9 +203,8 @@ export function buildPageStageStoryPage(controls: Pick<PageStageStoryControls, "
     runInTarget: controls.runInTarget,
     runInLocalPath: isLocalProject ? "src/renderer/components/board" : undefined,
     runInBaseBranch: isNewWorktree ? "main" : undefined,
-    runInWorktreePath: isNewWorktree && controls.existingWorktree
-      ? PAGE_STAGE_STORY_WORKTREE_PATH
-      : undefined,
+    runInWorktreePath:
+      isNewWorktree && controls.existingWorktree ? PAGE_STAGE_STORY_WORKTREE_PATH : undefined,
     runInEnvironmentPath: isNewWorktree ? ".codex/environments/ui-polish.toml" : undefined,
     created: new Date("2026-03-04T09:30:00.000Z"),
     order: 0,
@@ -203,7 +212,10 @@ export function buildPageStageStoryPage(controls: Pick<PageStageStoryControls, "
 }
 
 export function buildPageStageStoryCollapsedProperties(
-  controls: Pick<PageStageStoryControls, "collapseThreadsByDefault" | "collapseSecondaryProperties">,
+  controls: Pick<
+    PageStageStoryControls,
+    "collapseThreadsByDefault" | "collapseSecondaryProperties"
+  >,
 ): PageStageCollapsibleProperty[] {
   const properties: PageStageCollapsibleProperty[] = [];
 
@@ -219,5 +231,7 @@ export function buildPageStageStoryCollapsedProperties(
 }
 
 export function resolvePageStageStoryPreset(id: string): PageStageStoryPreset {
-  return PAGE_STAGE_STORY_PRESETS.find((preset) => preset.id === id) ?? PAGE_STAGE_STORY_DEFAULT_PRESET;
+  return (
+    PAGE_STAGE_STORY_PRESETS.find((preset) => preset.id === id) ?? PAGE_STAGE_STORY_DEFAULT_PRESET
+  );
 }

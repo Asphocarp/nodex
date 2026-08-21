@@ -1,7 +1,4 @@
-import type {
-  CodexThreadGoalDraftInput,
-  CodexThreadGoalMaterializedDraft,
-} from "@/lib/types";
+import type { CodexThreadGoalDraftInput, CodexThreadGoalMaterializedDraft } from "@/lib/types";
 import { invoke } from "@/lib/api";
 
 const THREAD_GOAL_LONG_OBJECTIVE_THRESHOLD = 4000;
@@ -22,9 +19,10 @@ function normalizeMaterializedDraftResponse(response: unknown): CodexThreadGoalM
 
   return {
     objective: materialized.objective,
-    attachmentDirectory: typeof materialized.attachmentDirectory === "string"
-      ? materialized.attachmentDirectory
-      : null,
+    attachmentDirectory:
+      typeof materialized.attachmentDirectory === "string"
+        ? materialized.attachmentDirectory
+        : null,
   };
 }
 
@@ -37,7 +35,10 @@ export async function materializeThreadGoalDraft(
     throw new Error("Goal objective must not be empty");
   }
 
-  if (!hasAttachments && Array.from(trimmedObjective).length <= THREAD_GOAL_LONG_OBJECTIVE_THRESHOLD) {
+  if (
+    !hasAttachments &&
+    Array.from(trimmedObjective).length <= THREAD_GOAL_LONG_OBJECTIVE_THRESHOLD
+  ) {
     return {
       objective: trimmedObjective,
       attachmentDirectory: null,
@@ -54,10 +55,7 @@ export async function cleanupMaterializedThreadGoalDraft(
 ): Promise<void> {
   if (!materialized?.attachmentDirectory) return;
   await runBestEffortThreadGoalCleanup(async () => {
-    await invoke(
-      "codex:thread:goal:materialized-cleanup",
-      materialized.attachmentDirectory,
-    );
+    await invoke("codex:thread:goal:materialized-cleanup", materialized.attachmentDirectory);
   });
 }
 

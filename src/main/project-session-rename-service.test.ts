@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import type { ProjectSession, ProjectSessionRenameInput } from "../shared/types";
-import { renameProjectSessionChat, type ProjectSessionRenameServiceDeps } from "./project-session-rename-service";
+import {
+  renameProjectSessionChat,
+  type ProjectSessionRenameServiceDeps,
+} from "./project-session-rename-service";
 
 function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   return {
@@ -47,7 +50,11 @@ describe("renameProjectSessionChat", () => {
   test("returns the existing session without effects for whitespace-only titles", async () => {
     const events: string[] = [];
     const session = makeSession();
-    const renamed = await renameProjectSessionChat("session-1", { title: " \n\t " }, makeDeps(session, events));
+    const renamed = await renameProjectSessionChat(
+      "session-1",
+      { title: " \n\t " },
+      makeDeps(session, events),
+    );
 
     expect(renamed?.id).toBe("session-1");
     expect(renamed?.displayTitle).toBe("Current title");

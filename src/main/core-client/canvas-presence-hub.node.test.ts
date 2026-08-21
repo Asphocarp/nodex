@@ -3,10 +3,7 @@ import {
   CANVAS_PRESENCE_TTL_MS,
   type CanvasPresenceRealtimeEvent,
 } from "../../shared/block-documents/document-presence";
-import {
-  createCanvasPresenceHub,
-  type CanvasPresenceHubBinding,
-} from "../canvas-presence-hub";
+import { createCanvasPresenceHub, type CanvasPresenceHubBinding } from "../canvas-presence-hub";
 
 const state = (x: number) => ({
   pointer: {
@@ -46,13 +43,15 @@ describe("CanvasPresenceHub", () => {
     hub.adoptBoundary("b", 3);
     events.clear();
 
-    expect(hub.publish("a", {
-      engine: "canvas_scene",
-      documentId: "document-1",
-      generation: 3,
-      clock: 1,
-      state: state(1),
-    })).toEqual({ accepted: true, applied: true });
+    expect(
+      hub.publish("a", {
+        engine: "canvas_scene",
+        documentId: "document-1",
+        generation: 3,
+        clock: 1,
+        state: state(1),
+      }),
+    ).toEqual({ accepted: true, applied: true });
     expect(events.get("a")).toBeUndefined();
     expect(events.get("b")?.at(-1)).toMatchObject({
       type: "canvas_presence_updated",
@@ -63,20 +62,24 @@ describe("CanvasPresenceHub", () => {
       },
     });
 
-    expect(hub.publish("a", {
-      engine: "canvas_scene",
-      documentId: "document-1",
-      generation: 3,
-      clock: 1,
-      state: state(2),
-    }).applied).toBe(false);
-    expect(hub.publish("a", {
-      engine: "canvas_scene",
-      documentId: "document-1",
-      generation: 3,
-      clock: 2,
-      state: state(2),
-    }).applied).toBe(true);
+    expect(
+      hub.publish("a", {
+        engine: "canvas_scene",
+        documentId: "document-1",
+        generation: 3,
+        clock: 1,
+        state: state(2),
+      }).applied,
+    ).toBe(false);
+    expect(
+      hub.publish("a", {
+        engine: "canvas_scene",
+        documentId: "document-1",
+        generation: 3,
+        clock: 2,
+        state: state(2),
+      }).applied,
+    ).toBe(true);
 
     hub.register(binding("c", 3));
     hub.adoptBoundary("c", 3);
@@ -96,20 +99,24 @@ describe("CanvasPresenceHub", () => {
       presence: { clock: 2, state: null },
     });
 
-    expect(hub.publish("a", {
-      engine: "canvas_scene",
-      documentId: "document-1",
-      generation: 3,
-      clock: 2,
-      state: state(3),
-    }).applied).toBe(false);
-    expect(hub.publish("a", {
-      engine: "canvas_scene",
-      documentId: "document-1",
-      generation: 3,
-      clock: 3,
-      state: state(3),
-    }).applied).toBe(true);
+    expect(
+      hub.publish("a", {
+        engine: "canvas_scene",
+        documentId: "document-1",
+        generation: 3,
+        clock: 2,
+        state: state(3),
+      }).applied,
+    ).toBe(false);
+    expect(
+      hub.publish("a", {
+        engine: "canvas_scene",
+        documentId: "document-1",
+        generation: 3,
+        clock: 3,
+        state: state(3),
+      }).applied,
+    ).toBe(true);
     hub.unregister("a");
     expect(events.get("b")?.at(-1)).toMatchObject({
       presence: { clock: 3, state: null },

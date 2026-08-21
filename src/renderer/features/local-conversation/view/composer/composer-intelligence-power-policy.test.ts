@@ -64,9 +64,7 @@ describe("composer intelligence Power policy", () => {
   });
 
   test("finds only an exact model/effort pair", () => {
-    const policy = resolveComposerPowerPolicy([
-      model("gpt-5.6-terra", ["low", "medium", "high"]),
-    ]);
+    const policy = resolveComposerPowerPolicy([model("gpt-5.6-terra", ["low", "medium", "high"])]);
     if (!policy) throw new Error("Expected fallback Power policy");
 
     expect(findComposerPowerChoiceIndex(policy.choices, "gpt-5.6-terra", "medium")).toBe(1);

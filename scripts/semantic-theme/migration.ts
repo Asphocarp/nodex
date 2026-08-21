@@ -1,8 +1,5 @@
 import { Visitor } from "oxc-parser";
-import {
-  parseTypeScriptSource,
-  sourcePosition,
-} from "../lib/oxc-source";
+import { parseTypeScriptSource, sourcePosition } from "../lib/oxc-source";
 
 export interface SemanticMigrationPolicy {
   readonly path: string;
@@ -15,8 +12,7 @@ export interface SemanticMigrationViolation {
   readonly column: number;
 }
 
-const collectClassTokens = (value: string): readonly string[] =>
-  value.split(/\s+/).filter(Boolean);
+const collectClassTokens = (value: string): readonly string[] => value.split(/\s+/).filter(Boolean);
 
 export const collectSemanticMigrationViolations = (
   sourceText: string,
@@ -31,11 +27,13 @@ export const collectSemanticMigrationViolations = (
     if (matches.length === 0) return;
 
     const position = sourcePosition(sourceText, offset);
-    violations.push(...matches.map((className) => ({
-      className,
-      line: position.line,
-      column: position.column,
-    })));
+    violations.push(
+      ...matches.map((className) => ({
+        className,
+        line: position.line,
+        column: position.column,
+      })),
+    );
   };
 
   new Visitor({

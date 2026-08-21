@@ -85,15 +85,21 @@ async function ensureGitRepository(cwd: string, signal?: AbortSignal): Promise<v
   }
 }
 
-async function branchExists(cwd: string, branchName: string, signal?: AbortSignal): Promise<boolean> {
+async function branchExists(
+  cwd: string,
+  branchName: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
   const exists = await runGitCommand(
     ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
     cwd,
     { signal },
-  ).then(() => true).catch(() => {
-    throwIfRequestAborted(signal);
-    return false;
-  });
+  )
+    .then(() => true)
+    .catch(() => {
+      throwIfRequestAborted(signal);
+      return false;
+    });
   return exists;
 }
 
@@ -129,7 +135,9 @@ async function resolveDefaultBaseRef(
   const normalizedPreferred = preferredBaseBranch?.trim() || "";
   if (normalizedPreferred) {
     await runGitCommand(["check-ref-format", "--branch", normalizedPreferred], cwd, { signal });
-    await runGitCommand(["rev-parse", "--verify", `${normalizedPreferred}^{commit}`], cwd, { signal });
+    await runGitCommand(["rev-parse", "--verify", `${normalizedPreferred}^{commit}`], cwd, {
+      signal,
+    });
     throwIfRequestAborted(signal);
     return normalizedPreferred;
   }
@@ -174,10 +182,12 @@ async function remoteBranchExists(
     ["show-ref", "--verify", "--quiet", `refs/remotes/${remote}/${branch}`],
     repositoryPath,
     { signal },
-  ).then(() => true).catch(() => {
-    throwIfRequestAborted(signal);
-    return false;
-  });
+  )
+    .then(() => true)
+    .catch(() => {
+      throwIfRequestAborted(signal);
+      return false;
+    });
 }
 
 async function resolvePendingDefaultBranch(
@@ -196,9 +206,10 @@ async function resolveKnownRemoteDefaultBranch(
     .split(/\r?\n/)
     .map((remote) => remote.trim())
     .filter((remote) => remote.length > 0);
-  const orderedRemotes = remotes.includes("origin") && remotes.length > 1
-    ? ["origin", ...remotes.filter((remote) => remote !== "origin")]
-    : remotes;
+  const orderedRemotes =
+    remotes.includes("origin") && remotes.length > 1
+      ? ["origin", ...remotes.filter((remote) => remote !== "origin")]
+      : remotes;
 
   for (const remote of orderedRemotes) {
     const remoteDefault = await resolveRemoteDefaultBranch(repositoryPath, remote, signal);
@@ -241,11 +252,9 @@ async function resolveSourceWorkspace(
   const sourceWorkspaceRoot = await ensureDirectory(repositoryPath, signal);
   await ensureGitRepository(sourceWorkspaceRoot, signal);
   const [gitRootResult, prefixResult] = await Promise.all([
-    runGitCommand(
-      ["rev-parse", "--path-format=absolute", "--show-toplevel"],
-      sourceWorkspaceRoot,
-      { signal },
-    ),
+    runGitCommand(["rev-parse", "--path-format=absolute", "--show-toplevel"], sourceWorkspaceRoot, {
+      signal,
+    }),
     runGitCommand(["rev-parse", "--show-prefix"], sourceWorkspaceRoot, { signal }),
   ]);
   throwIfRequestAborted(signal);
@@ -262,10 +271,7 @@ async function resolveSourceWorkspace(
   };
 }
 
-function resolveWorktreeWorkspaceRoot(
-  worktreeGitRoot: string,
-  workspacePrefix: string,
-): string {
+function resolveWorktreeWorkspaceRoot(worktreeGitRoot: string, workspacePrefix: string): string {
   if (!workspacePrefix) return worktreeGitRoot;
   return path.join(worktreeGitRoot, ...workspacePrefix.split("/").filter(Boolean));
 }
@@ -294,11 +300,9 @@ async function withTemporaryGitIndex<T>(
     const temporaryIndexPath = path.join(directoryPath, "index");
     await runAbortChecked(signal, () => copyFile(sourceIndexPath, temporaryIndexPath));
 
-    const sharedIndexResult = await runGitCommand(
-      ["rev-parse", "--shared-index-path"],
-      cwd,
-      { signal },
-    ).catch(() => {
+    const sharedIndexResult = await runGitCommand(["rev-parse", "--shared-index-path"], cwd, {
+      signal,
+    }).catch(() => {
       throwIfRequestAborted(signal);
       return null;
     });
@@ -332,11 +336,10 @@ async function captureTrackedWorkingTreeDiff(
 ): Promise<string> {
   const unifiedDiff = await withTemporaryGitIndex(repositoryPath, signal, async ({ env }) => {
     await runGitCommand(["add", "-u"], repositoryPath, { env, signal });
-    const result = await runGitCommand(
-      [...UNIFIED_DIFF_ARGS, "--cached"],
-      repositoryPath,
-      { env, signal },
-    );
+    const result = await runGitCommand([...UNIFIED_DIFF_ARGS, "--cached"], repositoryPath, {
+      env,
+      signal,
+    });
     return result.stdout;
   });
   throwIfRequestAborted(signal);
@@ -408,7 +411,9 @@ async function resolveWorkingTreeStartingRef(
     throwIfRequestAborted(signal);
     return null;
   });
-  const remoteDefaultName = normalizeBranchName(remoteDefault?.stdout ?? "").split("/").at(-1);
+  const remoteDefaultName = normalizeBranchName(remoteDefault?.stdout ?? "")
+    .split("/")
+    .at(-1);
   if (remoteDefaultName) return remoteDefaultName;
 
   await runGitCommand(["rev-parse", "--verify", "HEAD^{commit}"], repositoryPath, { signal });
@@ -419,11 +424,9 @@ async function resolveCurrentBranchName(
   repositoryPath: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const headBranch = await runGitCommand(
-    ["rev-parse", "--abbrev-ref", "HEAD"],
-    repositoryPath,
-    { signal },
-  );
+  const headBranch = await runGitCommand(["rev-parse", "--abbrev-ref", "HEAD"], repositoryPath, {
+    signal,
+  });
   const headBranchName = normalizeBranchName(headBranch.stdout);
   if (headBranchName && headBranchName !== "HEAD") return headBranchName;
 
@@ -461,12 +464,13 @@ async function resolveDetachedStartingState(input: {
   signal?: AbortSignal;
 }): Promise<ResolvedDetachedStartingState> {
   if (input.startingState.type === "branch") {
-    const startingRef = input.startingState.remoteRef
-      ?? await resolveSpecifiedBranchRef(
+    const startingRef =
+      input.startingState.remoteRef ??
+      (await resolveSpecifiedBranchRef(
         input.repositoryPath,
         input.startingState.branchName,
         input.signal,
-      );
+      ));
     return {
       startingDiff: null,
       startingRef,
@@ -520,38 +524,28 @@ async function applyWorkingTreeDiff(input: {
     stream: "info",
     data: "[info] Applying working tree diff to new worktree\n",
   });
-  await withTemporaryGitIndex(
-    input.worktreePath,
-    input.signal,
-    async ({ directoryPath, env }) => {
-      const existingPaths: string[] = [];
-      for (const relativePath of collectUnifiedDiffPaths(input.unifiedDiff)) {
-        throwIfRequestAborted(input.signal);
-        const entry = await stat(path.join(input.worktreePath, relativePath)).catch(() => null);
-        if (entry) existingPaths.push(relativePath);
-      }
-      if (existingPaths.length > 0) {
-        await runGitCommand(["add", "--", ...existingPaths], input.worktreePath, {
-          env,
-          signal: input.signal,
-        });
-      }
+  await withTemporaryGitIndex(input.worktreePath, input.signal, async ({ directoryPath, env }) => {
+    const existingPaths: string[] = [];
+    for (const relativePath of collectUnifiedDiffPaths(input.unifiedDiff)) {
+      throwIfRequestAborted(input.signal);
+      const entry = await stat(path.join(input.worktreePath, relativePath)).catch(() => null);
+      if (entry) existingPaths.push(relativePath);
+    }
+    if (existingPaths.length > 0) {
+      await runGitCommand(["add", "--", ...existingPaths], input.worktreePath, {
+        env,
+        signal: input.signal,
+      });
+    }
 
-      const patchPath = path.join(directoryPath, "working-tree.patch");
-      await runAbortChecked(input.signal, () =>
-        writeFile(patchPath, input.unifiedDiff, "utf8"),
-      );
-      await runGitCommand(
-        ["apply", "--binary", "--3way", patchPath],
-        input.worktreePath,
-        {
-          env,
-          onOutput: input.onLog,
-          signal: input.signal,
-        },
-      );
-    },
-  );
+    const patchPath = path.join(directoryPath, "working-tree.patch");
+    await runAbortChecked(input.signal, () => writeFile(patchPath, input.unifiedDiff, "utf8"));
+    await runGitCommand(["apply", "--binary", "--3way", patchPath], input.worktreePath, {
+      env,
+      onOutput: input.onLog,
+      signal: input.signal,
+    });
+  });
   throwIfRequestAborted(input.signal);
 }
 
@@ -570,7 +564,7 @@ async function createMissingLocalTrackingBranch(input: {
   if (!input.startingRef.startsWith(REMOTE_TRACKING_REF_PREFIX)) return null;
 
   const branchName = input.startingRef.slice(REMOTE_TRACKING_REF_PREFIX.length);
-  if (!branchName || await branchExists(input.repositoryPath, branchName, input.signal)) {
+  if (!branchName || (await branchExists(input.repositoryPath, branchName, input.signal))) {
     return null;
   }
 
@@ -591,10 +585,7 @@ async function createMissingLocalTrackingBranch(input: {
 }
 
 function hasNodeErrorCode(error: unknown, code: string): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === code;
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 function splitNullDelimitedPaths(value: string): string[] {
@@ -606,10 +597,10 @@ function resolveWorkspaceCopyPath(workspaceRoot: string, relativePath: string): 
   const resolvedPath = path.resolve(resolvedRoot, relativePath);
   const normalizedRelativePath = path.relative(resolvedRoot, resolvedPath);
   if (
-    !normalizedRelativePath
-    || normalizedRelativePath === ".."
-    || normalizedRelativePath.startsWith(`..${path.sep}`)
-    || path.isAbsolute(normalizedRelativePath)
+    !normalizedRelativePath ||
+    normalizedRelativePath === ".." ||
+    normalizedRelativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(normalizedRelativePath)
   ) {
     throw new Error("Cannot copy a workspace file outside its workspace root");
   }
@@ -639,11 +630,14 @@ async function findIgnoredCodexOverrideFiles(
     });
   });
 
-  return [...new Set(
-    splitNullDelimitedPaths(result.stdout).filter((relativePath) =>
-      relativePath === CODEX_OVERRIDE_FILE
-      || relativePath.endsWith(`/${CODEX_OVERRIDE_FILE}`)),
-  )];
+  return [
+    ...new Set(
+      splitNullDelimitedPaths(result.stdout).filter(
+        (relativePath) =>
+          relativePath === CODEX_OVERRIDE_FILE || relativePath.endsWith(`/${CODEX_OVERRIDE_FILE}`),
+      ),
+    ),
+  ];
 }
 
 async function findWorktreeIncludedFiles(
@@ -665,13 +659,7 @@ async function findWorktreeIncludedFiles(
       { signal },
     ),
     runGitCommand(
-      [
-        "ls-files",
-        "--others",
-        "--ignored",
-        `--exclude-from=${WORKTREE_INCLUDE_FILE}`,
-        "-z",
-      ],
+      ["ls-files", "--others", "--ignored", `--exclude-from=${WORKTREE_INCLUDE_FILE}`, "-z"],
       sourceGitRoot,
       { signal },
     ),
@@ -683,10 +671,13 @@ async function findWorktreeIncludedFiles(
   });
   const ignoredPaths = new Set(splitNullDelimitedPaths(ignoredResult.stdout));
 
-  return [...new Set(
-    splitNullDelimitedPaths(includedResult.stdout).filter((relativePath) =>
-      ignoredPaths.has(relativePath)),
-  )];
+  return [
+    ...new Set(
+      splitNullDelimitedPaths(includedResult.stdout).filter((relativePath) =>
+        ignoredPaths.has(relativePath),
+      ),
+    ),
+  ];
 }
 
 async function ensureSafeCopyDestinationParent(
@@ -698,9 +689,9 @@ async function ensureSafeCopyDestinationParent(
   const destinationParent = path.dirname(destinationPath);
   const parentRelativePath = path.relative(worktreeGitRoot, destinationParent);
   if (
-    parentRelativePath === ".."
-    || parentRelativePath.startsWith(`..${path.sep}`)
-    || path.isAbsolute(parentRelativePath)
+    parentRelativePath === ".." ||
+    parentRelativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(parentRelativePath)
   ) {
     throw new Error("Cannot copy a workspace file outside the worktree");
   }
@@ -737,11 +728,7 @@ async function copyWorkspaceFile(input: {
     throw error;
   }
 
-  await ensureSafeCopyDestinationParent(
-    input.worktreeGitRoot,
-    destinationPath,
-    input.signal,
-  );
+  await ensureSafeCopyDestinationParent(input.worktreeGitRoot, destinationPath, input.signal);
   try {
     await runAbortChecked(input.signal, () =>
       copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL),
@@ -763,28 +750,32 @@ async function copyWorkspaceFiles(input: {
   let copiedCount = 0;
   const failures: unknown[] = [];
   const workerCount = Math.min(MAX_WORKSPACE_COPY_CONCURRENCY, input.relativePaths.length);
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    for (;;) {
-      if (failures.length > 0) return;
-      const index = nextIndex;
-      nextIndex += 1;
-      const relativePath = input.relativePaths[index];
-      if (relativePath === undefined) return;
-      try {
-        throwIfRequestAborted(input.signal);
-        if (await copyWorkspaceFile({
-          sourceGitRoot: input.sourceGitRoot,
-          worktreeGitRoot: input.worktreeGitRoot,
-          relativePath,
-          signal: input.signal,
-        })) {
-          copiedCount += 1;
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        if (failures.length > 0) return;
+        const index = nextIndex;
+        nextIndex += 1;
+        const relativePath = input.relativePaths[index];
+        if (relativePath === undefined) return;
+        try {
+          throwIfRequestAborted(input.signal);
+          if (
+            await copyWorkspaceFile({
+              sourceGitRoot: input.sourceGitRoot,
+              worktreeGitRoot: input.worktreeGitRoot,
+              relativePath,
+              signal: input.signal,
+            })
+          ) {
+            copiedCount += 1;
+          }
+        } catch (error) {
+          failures.push(error);
         }
-      } catch (error) {
-        failures.push(error);
       }
-    }
-  }));
+    }),
+  );
   if (failures.length > 0) throw failures[0];
   return copiedCount;
 }
@@ -860,18 +851,20 @@ async function persistSelectedWorktreeEnvironment(input: {
 
   let result = await writeConfig();
   if (
-    !result.success
-    && result.error instanceof Error
-    && result.error.message.toLowerCase().includes("worktreeconfig")
+    !result.success &&
+    result.error instanceof Error &&
+    result.error.message.toLowerCase().includes("worktreeconfig")
   ) {
     const enabled = await runGitCommand(
       ["config", "extensions.worktreeConfig", "true"],
       input.worktreeWorkspaceRoot,
       { signal: input.signal },
-    ).then(() => true).catch(() => {
-      throwIfRequestAborted(input.signal);
-      return false;
-    });
+    )
+      .then(() => true)
+      .catch(() => {
+        throwIfRequestAborted(input.signal);
+        return false;
+      });
     if (enabled) result = await writeConfig();
   }
 
@@ -924,11 +917,9 @@ async function persistSyncedBranchMetadata(input: {
   const branchRef = input.syncedBranch.startsWith("refs/")
     ? input.syncedBranch
     : `refs/heads/${input.syncedBranch}`;
-  const tree = await runGitCommand(
-    ["rev-parse", `${branchRef}^{tree}`],
-    input.sourceGitRoot,
-    { signal: input.signal },
-  );
+  const tree = await runGitCommand(["rev-parse", `${branchRef}^{tree}`], input.sourceGitRoot, {
+    signal: input.signal,
+  });
   const gitPath = await runGitCommand(
     ["rev-parse", "--path-format=absolute", "--git-path", "codex-synced-branch.json"],
     input.worktreeGitRoot,
@@ -936,14 +927,20 @@ async function persistSyncedBranchMetadata(input: {
   );
   const configPath = resolveGitOutputPath(input.worktreeGitRoot, gitPath.stdout.trim());
   await runAbortChecked(input.signal, () => mkdir(path.dirname(configPath), { recursive: true }));
-  await runAbortChecked(input.signal, () => writeFile(
-    configPath,
-    `${JSON.stringify({
-      branch: branchRef,
-      lastSyncedTreeRef: tree.stdout.trim(),
-    }, null, 2)}\n`,
-    "utf8",
-  ));
+  await runAbortChecked(input.signal, () =>
+    writeFile(
+      configPath,
+      `${JSON.stringify(
+        {
+          branch: branchRef,
+          lastSyncedTreeRef: tree.stdout.trim(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    ),
+  );
 }
 
 async function resolveWorktreeRepositoryPath(worktreePath: string): Promise<string | null> {
@@ -1036,11 +1033,13 @@ export async function setManagedWorktreeOwnerThread(
   );
   const configPath = resolveGitOutputPath(resolvedRoot, gitPath.stdout.trim());
   await runAbortChecked(signal, () => mkdir(path.dirname(configPath), { recursive: true }));
-  await runAbortChecked(signal, () => writeFile(
-    configPath,
-    `${JSON.stringify({ version: 1, ownerThreadId: normalizedOwnerThreadId }, null, 2)}\n`,
-    "utf8",
-  ));
+  await runAbortChecked(signal, () =>
+    writeFile(
+      configPath,
+      `${JSON.stringify({ version: 1, ownerThreadId: normalizedOwnerThreadId }, null, 2)}\n`,
+      "utf8",
+    ),
+  );
 }
 
 export async function readManagedWorktreeOwnerThread(
@@ -1055,11 +1054,13 @@ export async function readManagedWorktreeOwnerThread(
     { signal },
   );
   const configPath = resolveGitOutputPath(resolvedRoot, gitPath.stdout.trim());
-  const raw = await runAbortChecked(signal, async () =>
-    await readFile(configPath, "utf8").catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return null;
-      throw error;
-    })
+  const raw = await runAbortChecked(
+    signal,
+    async () =>
+      await readFile(configPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      }),
   );
   if (raw === null) return null;
   const parsed: unknown = JSON.parse(raw);
@@ -1096,7 +1097,9 @@ export async function removeManagedWorktree(worktreePath: string): Promise<void>
   const removedByGit = await runGitCommand(
     ["worktree", "remove", "--force", resolvedPath],
     repositoryPath,
-  ).then(() => true).catch(() => false);
+  )
+    .then(() => true)
+    .catch(() => false);
 
   if (!removedByGit) {
     await rm(resolvedPath, { recursive: true, force: true });
@@ -1106,7 +1109,9 @@ export async function removeManagedWorktree(worktreePath: string): Promise<void>
   await cleanupEmptyWorktreeTokenDir(resolvedPath);
 }
 
-export async function createManagedWorktree(input: CreateManagedWorktreeInput): Promise<CreateManagedWorktreeResult> {
+export async function createManagedWorktree(
+  input: CreateManagedWorktreeInput,
+): Promise<CreateManagedWorktreeResult> {
   const signal = input.signal;
   throwIfRequestAborted(signal);
   const sourceWorkspace = await resolveSourceWorkspace(input.repositoryPath, signal);

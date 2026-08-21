@@ -7,9 +7,11 @@ import { CodexLocalExecutionHostFileTransfer } from "./codex-execution-host-file
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map(async (root) => {
-    await rm(root, { recursive: true, force: true });
-  }));
+  await Promise.all(
+    roots.splice(0).map(async (root) => {
+      await rm(root, { recursive: true, force: true });
+    }),
+  );
 });
 
 describe("CodexLocalExecutionHostFileTransfer", () => {
@@ -60,9 +62,11 @@ describe("CodexLocalExecutionHostFileTransfer", () => {
     await writeFile(source, "after");
 
     await expect(transfer.describe(outside)).rejects.toThrow("outside the authorized host roots");
-    await expect(transfer.download({
-      source: descriptor,
-      destinationPath: path.join(root, "copy.txt"),
-    })).rejects.toThrow("changed before transfer");
+    await expect(
+      transfer.download({
+        source: descriptor,
+        destinationPath: path.join(root, "copy.txt"),
+      }),
+    ).rejects.toThrow("changed before transfer");
   });
 });

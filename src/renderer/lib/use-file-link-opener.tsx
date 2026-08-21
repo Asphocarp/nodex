@@ -1,17 +1,7 @@
 import { createContext, useCallback, useContext, type ReactNode } from "react";
-import {
-  DEFAULT_FILE_LINK_OPENER_ID,
-  type FileLinkOpenerId,
-} from "../../shared/file-link-openers";
-import {
-  readFileLinkOpener,
-  writeFileLinkOpener,
-} from "./file-link-opener-settings";
-import {
-  appScope,
-  scopedAtomWithInitializer,
-  useScopedAtom,
-} from "./maitai";
+import { DEFAULT_FILE_LINK_OPENER_ID, type FileLinkOpenerId } from "../../shared/file-link-openers";
+import { readFileLinkOpener, writeFileLinkOpener } from "./file-link-opener-settings";
+import { appScope, scopedAtomWithInitializer, useScopedAtom } from "./maitai";
 
 interface FileLinkOpenerContextValue {
   opener: FileLinkOpenerId;
@@ -23,19 +13,20 @@ const FileLinkOpenerContext = createContext<FileLinkOpenerContextValue>({
   setOpener: () => undefined,
 });
 
-const fileLinkOpenerAtom = scopedAtomWithInitializer(
-  appScope,
-  readFileLinkOpener,
-  { debugLabel: "file-link-opener" },
-);
+const fileLinkOpenerAtom = scopedAtomWithInitializer(appScope, readFileLinkOpener, {
+  debugLabel: "file-link-opener",
+});
 
 function useFileLinkOpenerInternal(): FileLinkOpenerContextValue {
   const [opener, setOpenerState] = useScopedAtom(fileLinkOpenerAtom);
 
-  const setOpener = useCallback((value: FileLinkOpenerId) => {
-    const next = writeFileLinkOpener(value);
-    setOpenerState(next);
-  }, [setOpenerState]);
+  const setOpener = useCallback(
+    (value: FileLinkOpenerId) => {
+      const next = writeFileLinkOpener(value);
+      setOpenerState(next);
+    },
+    [setOpenerState],
+  );
 
   return { opener, setOpener };
 }
@@ -47,11 +38,7 @@ function useFileLinkOpenerInternal(): FileLinkOpenerContextValue {
  */
 export function FileLinkOpenerProvider({ children }: { children: ReactNode }) {
   const value = useFileLinkOpenerInternal();
-  return (
-    <FileLinkOpenerContext.Provider value={value}>
-      {children}
-    </FileLinkOpenerContext.Provider>
-  );
+  return <FileLinkOpenerContext.Provider value={value}>{children}</FileLinkOpenerContext.Provider>;
 }
 
 export function useFileLinkOpener(): FileLinkOpenerContextValue {

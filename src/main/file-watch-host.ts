@@ -1,9 +1,7 @@
 import { watch, type WatchEventType } from "node:fs";
 import path from "node:path";
 
-export type FileWatchRenameEventHandling =
-  | "changed-path"
-  | "changed-path-with-parent-directory";
+export type FileWatchRenameEventHandling = "changed-path" | "changed-path-with-parent-directory";
 
 export interface FileWatchChange {
   readonly changedPaths: readonly string[];
@@ -40,17 +38,11 @@ interface NativeFileWatcher {
 export type NativeFileWatchFactory = (
   watchPath: string,
   options: { readonly recursive: boolean },
-  listener: (
-    eventType: WatchEventType,
-    filename: string | Buffer<ArrayBufferLike> | null,
-  ) => void,
+  listener: (eventType: WatchEventType, filename: string | Buffer<ArrayBufferLike> | null) => void,
 ) => NativeFileWatcher;
 
-const defaultWatchFactory: NativeFileWatchFactory = (
-  watchPath,
-  options,
-  listener,
-) => watch(watchPath, options, listener);
+const defaultWatchFactory: NativeFileWatchFactory = (watchPath, options, listener) =>
+  watch(watchPath, options, listener);
 
 function deferred<T>(): {
   readonly promise: Promise<T>;
@@ -64,9 +56,7 @@ function deferred<T>(): {
 }
 
 export class NodeFileWatchHost implements FileWatchHost {
-  constructor(
-    private readonly watchFactory: NativeFileWatchFactory = defaultWatchFactory,
-  ) {}
+  constructor(private readonly watchFactory: NativeFileWatchFactory = defaultWatchFactory) {}
 
   async startFileWatch(input: {
     readonly path: string;
@@ -80,16 +70,14 @@ export class NodeFileWatchHost implements FileWatchHost {
       input.path,
       { recursive: input.recursive },
       (eventType, filename) => {
-        const changedPath = filename === null
-          ? null
-          : path.join(input.path, ...filename.toString().split(path.sep));
+        const changedPath =
+          filename === null ? null : path.join(input.path, ...filename.toString().split(path.sep));
         const changedPaths = changedPath === null ? [] : [changedPath];
 
         if (
-          changedPath !== null
-          && eventType === "rename"
-          && input.renameEventHandling
-            === "changed-path-with-parent-directory"
+          changedPath !== null &&
+          eventType === "rename" &&
+          input.renameEventHandling === "changed-path-with-parent-directory"
         ) {
           changedPaths.push(path.dirname(changedPath));
         }

@@ -6,19 +6,12 @@ export const NFM_CODE_THEMES = {
   dark: "github-dark",
 } as const;
 
-export const NFM_CODE_THEME_PAIR = [
-  NFM_CODE_THEMES.light,
-  NFM_CODE_THEMES.dark,
-] as const;
+export const NFM_CODE_THEME_PAIR = [NFM_CODE_THEMES.light, NFM_CODE_THEMES.dark] as const;
 
 const shikiParserSymbol = Symbol.for("blocknote.shikiParser");
-const shikiHighlighterPromiseSymbol = Symbol.for(
-  "blocknote.shikiHighlighterPromise",
-);
+const shikiHighlighterPromiseSymbol = Symbol.for("blocknote.shikiHighlighterPromise");
 
-type BlockNoteCreateHighlighter = NonNullable<
-  typeof codeBlockOptions.createHighlighter
->;
+type BlockNoteCreateHighlighter = NonNullable<typeof codeBlockOptions.createHighlighter>;
 type BlockNoteHighlighter = Awaited<ReturnType<BlockNoteCreateHighlighter>>;
 type BlockNoteParser = ReturnType<typeof createParser>;
 
@@ -49,12 +42,15 @@ export async function preloadBlockNoteDualThemeParser(): Promise<BlockNoteHighli
   const highlighter = await getSharedBlockNoteCodeHighlighter();
   const globalState = getGlobalThisForBlockNoteShiki();
 
-  globalState[shikiParserSymbol] = createParser(highlighter as never, {
-    themes: {
-      light: NFM_CODE_THEMES.light,
-      dark: NFM_CODE_THEMES.dark,
-    },
-  } as never);
+  globalState[shikiParserSymbol] = createParser(
+    highlighter as never,
+    {
+      themes: {
+        light: NFM_CODE_THEMES.light,
+        dark: NFM_CODE_THEMES.dark,
+      },
+    } as never,
+  );
 
   return highlighter;
 }

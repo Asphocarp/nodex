@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-import {
-  CoreApiError,
-  readDatabaseListWindow,
-  readLibraryDatabaseListWindow,
-} from "@/lib/api";
+import { CoreApiError, readDatabaseListWindow, readLibraryDatabaseListWindow } from "@/lib/api";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import type {
   DatabaseViewPresentationOverride,
@@ -60,8 +56,7 @@ const EMPTY_WINDOW_STATE: DatabaseListWindowState = Object.freeze({
 /** A List request must never inherit the currently visible Board layout. */
 export const databaseListPresentationOverride = (
   effective: EffectiveDatabaseViewPresentation,
-): DatabaseViewPresentationOverride =>
-  databaseViewGesturePresentationOverride(effective, "list");
+): DatabaseViewPresentationOverride => databaseViewGesturePresentationOverride(effective, "list");
 
 const projectionIdentity = (snapshot: AnyDatabaseListWindowSnapshot): string =>
   JSON.stringify({
@@ -101,8 +96,8 @@ export const mergeDatabaseListWindow = (
   next: AnyDatabaseListWindowSnapshot,
 ): DatabaseListWindowMergeResult => {
   if (
-    projectionIdentity(currentSnapshot) !== projectionIdentity(next)
-    || next.windowStart !== current.rows.length
+    projectionIdentity(currentSnapshot) !== projectionIdentity(next) ||
+    next.windowStart !== current.rows.length
   ) {
     return { kind: "restart" };
   }
@@ -192,10 +187,7 @@ const readWindow = async (
   request: DatabaseListWindowRequest,
 ): Promise<AnyDatabaseListWindowSnapshot> => {
   if (request.accessContext.kind === "project") {
-    return await readDatabaseListWindow(
-      request.accessContext.projectId,
-      request.input,
-    );
+    return await readDatabaseListWindow(request.accessContext.projectId, request.input);
   }
   return await readLibraryDatabaseListWindow(request.input);
 };
@@ -205,11 +197,11 @@ const assertWindowIdentity = (
   snapshot: AnyDatabaseListWindowSnapshot,
 ): void => {
   if (
-    snapshot.libraryId !== expected.libraryId
-    || snapshot.databaseId !== expected.databaseId
-    || snapshot.dataSourceId !== expected.dataSourceId
-    || snapshot.viewId !== expected.viewId
-    || snapshot.storeEpoch !== expected.storeEpoch
+    snapshot.libraryId !== expected.libraryId ||
+    snapshot.databaseId !== expected.databaseId ||
+    snapshot.dataSourceId !== expected.dataSourceId ||
+    snapshot.viewId !== expected.viewId ||
+    snapshot.storeEpoch !== expected.storeEpoch
   ) {
     throw new Error("Database List window returned mismatched resource identity");
   }
@@ -256,9 +248,9 @@ export class DatabaseListWindowStore {
     this.onAccess();
     this.listeners.add(listener);
     if (
-      this.listeners.size === 1
-      && this.descriptor
-      && this.acceptedRequestIdentity !== this.descriptor.identity
+      this.listeners.size === 1 &&
+      this.descriptor &&
+      this.acceptedRequestIdentity !== this.descriptor.identity
     ) {
       this.requestFirstWindow(this.state.active);
     }
@@ -278,10 +270,7 @@ export class DatabaseListWindowStore {
     this.listeners.clear();
   }
 
-  setRequest(
-    model: DatabaseViewRenderModel,
-    effective: EffectiveDatabaseViewPresentation,
-  ): void {
+  setRequest(model: DatabaseViewRenderModel, effective: EffectiveDatabaseViewPresentation): void {
     if (model.authorization === null) {
       this.clearUnavailableAuthority();
       return;
@@ -289,15 +278,16 @@ export class DatabaseListWindowStore {
     const descriptor = descriptorFor(model, effective);
     if (descriptor.identity === this.descriptor?.identity) return;
     if (
-      this.descriptor
-      && descriptor.resource.storeEpoch === this.descriptor.resource.storeEpoch
-      && descriptor.presentationIdentity === this.descriptor.presentationIdentity
-      && descriptor.commitSeq < this.descriptor.commitSeq
+      this.descriptor &&
+      descriptor.resource.storeEpoch === this.descriptor.resource.storeEpoch &&
+      descriptor.presentationIdentity === this.descriptor.presentationIdentity &&
+      descriptor.commitSeq < this.descriptor.commitSeq
     ) {
       return;
     }
-    const storeEpochChanged = this.descriptor !== null
-      && descriptor.resource.storeEpoch !== this.descriptor.resource.storeEpoch;
+    const storeEpochChanged =
+      this.descriptor !== null &&
+      descriptor.resource.storeEpoch !== this.descriptor.resource.storeEpoch;
     this.descriptor = descriptor;
     if (storeEpochChanged) {
       this.acceptedRequestIdentity = null;
@@ -314,13 +304,13 @@ export class DatabaseListWindowStore {
     const descriptor = this.descriptor;
     const firstSnapshot = this.firstSnapshot;
     if (
-      !descriptor
-      || this.acceptedRequestIdentity !== descriptor.identity
-      || !current.active
-      || current.isComplete
-      || !current.nextCursor
-      || !firstSnapshot
-      || this.inFlightContinuation
+      !descriptor ||
+      this.acceptedRequestIdentity !== descriptor.identity ||
+      !current.active ||
+      current.isComplete ||
+      !current.nextCursor ||
+      !firstSnapshot ||
+      this.inFlightContinuation
     ) {
       return;
     }
@@ -340,11 +330,7 @@ export class DatabaseListWindowStore {
         });
         if (generation !== this.generation) return;
         assertWindowIdentity(descriptor.resource, nextWindow);
-        const merged = mergeDatabaseListWindow(
-          this.state,
-          firstSnapshot,
-          nextWindow,
-        );
+        const merged = mergeDatabaseListWindow(this.state, firstSnapshot, nextWindow);
         if (merged.kind === "restart") {
           this.requestFirstWindow(true);
           return;
@@ -352,10 +338,7 @@ export class DatabaseListWindowStore {
         this.publish(merged.state);
       } catch (cause) {
         if (generation !== this.generation) return;
-        if (
-          cause instanceof CoreApiError
-          && cause.isCursorRejection({ requestHadCursor: true })
-        ) {
+        if (cause instanceof CoreApiError && cause.isCursorRejection({ requestHadCursor: true })) {
           this.requestFirstWindow(true);
           return;
         }
@@ -374,9 +357,9 @@ export class DatabaseListWindowStore {
     const descriptor = this.descriptor;
     if (!descriptor) return;
     if (
-      this.acceptedRequestIdentity === descriptor.identity
-      && this.state.active
-      && this.state.nextCursor
+      this.acceptedRequestIdentity === descriptor.identity &&
+      this.state.active &&
+      this.state.nextCursor
     ) {
       this.loadMore();
       return;
@@ -410,9 +393,11 @@ export class DatabaseListWindowStore {
     this.inFlightContinuation = false;
     this.firstWindowRequested = true;
     this.preserveRowsForNextFirstWindow ||= preserveRows;
-    this.publish(preserveRows && this.state.active
-      ? { ...this.state, loading: true, loadingMore: false, error: null }
-      : { ...EMPTY_WINDOW_STATE, loading: true });
+    this.publish(
+      preserveRows && this.state.active
+        ? { ...this.state, loading: true, loadingMore: false, error: null }
+        : { ...EMPTY_WINDOW_STATE, loading: true },
+    );
 
     if (this.firstWindowDrain) return;
     this.startFirstWindowDrain();
@@ -437,10 +422,7 @@ export class DatabaseListWindowStore {
 
       try {
         const snapshot = await this.dependencies.readWindow(descriptor.request);
-        if (
-          generation !== this.generation
-          || descriptor.identity !== this.descriptor?.identity
-        ) {
+        if (generation !== this.generation || descriptor.identity !== this.descriptor?.identity) {
           continue;
         }
         assertWindowIdentity(descriptor.resource, snapshot);
@@ -451,16 +433,11 @@ export class DatabaseListWindowStore {
         this.acceptedRequestIdentity = descriptor.identity;
         this.publish(stateFromFirstWindow(snapshot));
       } catch {
-        if (
-          generation !== this.generation
-          || descriptor.identity !== this.descriptor?.identity
-        ) {
+        if (generation !== this.generation || descriptor.identity !== this.descriptor?.identity) {
           continue;
         }
         this.publish({
-          ...(preserveRows && this.state.active
-            ? this.state
-            : EMPTY_WINDOW_STATE),
+          ...(preserveRows && this.state.active ? this.state : EMPTY_WINDOW_STATE),
           loading: false,
           loadingMore: false,
           error: "Couldn’t load the authoritative List window.",
@@ -485,10 +462,13 @@ const storeIdentityFor = (model: DatabaseViewRenderModel): string =>
   ]);
 
 export class DatabaseListWindowStoreRegistry {
-  private readonly stores = new Map<string, {
-    readonly store: DatabaseListWindowStore;
-    lastAccess: number;
-  }>();
+  private readonly stores = new Map<
+    string,
+    {
+      readonly store: DatabaseListWindowStore;
+      lastAccess: number;
+    }
+  >();
 
   private accessSequence = 0;
 
@@ -541,10 +521,11 @@ export class DatabaseListWindowStoreRegistry {
 
 export const createDatabaseListWindowStoreRegistry = (
   dependencies: Partial<DatabaseListWindowStoreDependencies> = {},
-): DatabaseListWindowStoreRegistry => new DatabaseListWindowStoreRegistry({
-  readWindow,
-  ...dependencies,
-});
+): DatabaseListWindowStoreRegistry =>
+  new DatabaseListWindowStoreRegistry({
+    readWindow,
+    ...dependencies,
+  });
 
 const sharedListWindowRegistry = createDatabaseListWindowStoreRegistry();
 
@@ -570,11 +551,7 @@ export const useDatabaseListWindow = (input: {
   useEffect(() => {
     store.setRequest(model, effective);
   }, [effective, model, store]);
-  const state = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-    store.getSnapshot,
-  );
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   return {
     ...state,
     loadMore: store.loadMore,

@@ -5,12 +5,8 @@ import { plainTextToPortableRichText } from "../../../../shared/block-documents"
 import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../../shared/testing/authorized-read-stamp-example";
 import type { DatabasePageSummary } from "@/lib/types";
 import { DatabaseViewReferenceSurface } from "@/components/block-documents/reference-block-surfaces";
-import {
-  BlockDisclosureStateStore,
-} from "@/lib/block-disclosure-state";
-import {
-  ReferenceSurfaceActivationBudget,
-} from "@/lib/reference-surface-state";
+import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
+import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
 
 const makeCard = (
   id: string,
@@ -66,9 +62,7 @@ const VIEW: DatabaseViewReadModel = {
 
 function DatabaseViewReferenceStory() {
   const [disclosureStore] = useState(() => new BlockDisclosureStateStore());
-  const [activationBudget] = useState(
-    () => new ReferenceSurfaceActivationBudget(2),
-  );
+  const [activationBudget] = useState(() => new ReferenceSurfaceActivationBudget(2));
   return (
     <main className="min-h-screen bg-token-bg-primary p-8 text-token-text-primary">
       <div className="mx-auto max-w-3xl">

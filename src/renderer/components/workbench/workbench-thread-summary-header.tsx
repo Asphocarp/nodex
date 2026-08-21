@@ -1,16 +1,8 @@
-import {
-  ThreadSummaryPanelHeaderAction,
-} from "@/features/local-conversation";
+import { ThreadSummaryPanelHeaderAction } from "@/features/local-conversation";
 import type { Project } from "@/lib/types";
-import {
-  projectWorkspaceRootOrNull,
-} from "@/lib/workbench-workspace-context";
-import type {
-  WorkbenchThreadSummaryModel,
-} from "@/lib/use-workbench-thread-summary";
-import type {
-  WorkbenchSessionRenderProjection,
-} from "@/lib/workbench-session-presentation";
+import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
+import type { WorkbenchThreadSummaryModel } from "@/lib/use-workbench-thread-summary";
+import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 
 interface WorkbenchThreadSummaryHeaderProps {
   readonly activeProject: Project | null;
@@ -32,9 +24,7 @@ export function WorkbenchThreadSummaryHeader({
   return (
     <ThreadSummaryPanelHeaderAction
       activeThreadId={activeSession.thread?.threadId ?? null}
-      activeThreadIsManagedWorktree={Boolean(
-        activeSession.thread?.managedWorktreePath,
-      )}
+      activeThreadIsManagedWorktree={Boolean(activeSession.thread?.managedWorktreePath)}
       onPopoverOpenChange={summary.setPopoverOpen}
       projectWorkspacePath={projectWorkspaceRootOrNull(activeProject)}
       mode={summary.mode}

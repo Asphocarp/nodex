@@ -3,10 +3,7 @@ import type { CodexConversationItem, CodexConversationTurn } from "@/lib/types";
 import type { VisibleConversationTurnEntry } from "./selectors";
 import { renderConversationMarkdown } from "./conversation-markdown";
 
-function item(
-  itemId: string,
-  overrides: Partial<CodexConversationItem>,
-): CodexConversationItem {
+function item(itemId: string, overrides: Partial<CodexConversationItem>): CodexConversationItem {
   return {
     threadId: "thread-1",
     turnId: "turn-1",
@@ -43,114 +40,126 @@ describe("renderConversationMarkdown", () => {
     const markdown = renderConversationMarkdown({
       cwd: "/Users/asc/project",
       title: "  Review   #42  ",
-      turns: [entry([
-        item("user", {
-          type: "userMessage",
-          kind: "userMessage",
-          semanticKind: "userMessage",
-          role: "user",
-          markdownText: "Inspect [the file](/Users/asc/project/src/app.ts:12).\n\n<details>unsafe</details>",
-        }),
-        item("assistant", {
-          type: "assistantMessage",
-          kind: "assistantMessage",
-          semanticKind: "assistantMessage",
-          role: "assistant",
-          markdownText: "Done.",
-        }),
-      ])],
+      turns: [
+        entry([
+          item("user", {
+            type: "userMessage",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            markdownText:
+              "Inspect [the file](/Users/asc/project/src/app.ts:12).\n\n<details>unsafe</details>",
+          }),
+          item("assistant", {
+            type: "assistantMessage",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            markdownText: "Done.",
+          }),
+        ]),
+      ],
     });
 
-    expect(markdown).toBe([
-      "# Review \\#42",
-      "",
-      "> Inspect [the file](./src/app.ts:12).",
-      ">",
-      "> &lt;details&gt;unsafe&lt;/details&gt;",
-      "",
-      "Done.",
-      "",
-    ].join("\n"));
+    expect(markdown).toBe(
+      [
+        "# Review \\#42",
+        "",
+        "> Inspect [the file](./src/app.ts:12).",
+        ">",
+        "> &lt;details&gt;unsafe&lt;/details&gt;",
+        "",
+        "Done.",
+        "",
+      ].join("\n"),
+    );
   });
 
   test("groups command, patch, MCP, plan, and diff activity before the assistant response", () => {
     const markdown = renderConversationMarkdown({
       title: "Tool fidelity",
       cwd: "/Users/asc/project",
-      turns: [entry([
-        item("user", {
-          type: "userMessage",
-          kind: "userMessage",
-          semanticKind: "userMessage",
-          role: "user",
-          markdownText: "Make the change",
-          userAttachments: [{
-            type: "file",
-            id: "file-1",
-            label: "app.ts",
-            path: "/Users/asc/project/src/app.ts",
-            sourceKind: "mention",
-          }],
-        }),
-        item("command", {
-          type: "commandExecution",
-          kind: "commandExecution",
-          semanticKind: "exec",
-          command: "pnpm test",
-          aggregatedOutput: "all good",
-          exitCode: 0,
-          executionStatus: "completed",
-        }),
-        item("patch", {
-          type: "fileChange",
-          kind: "fileChange",
-          semanticKind: "patch",
-          fileChange: {
-            changes: {
-              "/Users/asc/project/src/app.ts": {
-                type: "update",
-                unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n-old\n+new",
-                movePath: null,
+      turns: [
+        entry(
+          [
+            item("user", {
+              type: "userMessage",
+              kind: "userMessage",
+              semanticKind: "userMessage",
+              role: "user",
+              markdownText: "Make the change",
+              userAttachments: [
+                {
+                  type: "file",
+                  id: "file-1",
+                  label: "app.ts",
+                  path: "/Users/asc/project/src/app.ts",
+                  sourceKind: "mention",
+                },
+              ],
+            }),
+            item("command", {
+              type: "commandExecution",
+              kind: "commandExecution",
+              semanticKind: "exec",
+              command: "pnpm test",
+              aggregatedOutput: "all good",
+              exitCode: 0,
+              executionStatus: "completed",
+            }),
+            item("patch", {
+              type: "fileChange",
+              kind: "fileChange",
+              semanticKind: "patch",
+              fileChange: {
+                changes: {
+                  "/Users/asc/project/src/app.ts": {
+                    type: "update",
+                    unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n-old\n+new",
+                    movePath: null,
+                  },
+                },
               },
-            },
-          },
-        }),
-        item("mcp", {
-          type: "toolCall",
-          kind: "toolCall",
-          semanticKind: "mcpToolCall",
-          mcpToolCall: {
-            callId: "mcp",
-            functionName: "search",
-            pluginId: null,
-            readOnlyHint: true,
-            mcpAppResourceUri: undefined,
-            source: null,
-            invocation: { server: "docs", tool: "search", arguments: { q: "Radix" } },
-            result: {
-              type: "success",
-              content: [{ type: "text", text: "Found it" }],
-              structuredContent: null,
-              raw: { content: [], structuredContent: null, _meta: null },
-            },
-            durationMs: 10,
-            completed: true,
-          },
-        }),
-        item("plan", {
-          type: "plan",
-          kind: "plan",
-          semanticKind: "todoList",
-          markdownText: "- [x] Inspect\n- [ ] Verify",
-        }),
-        item("assistant", {
-          type: "assistantMessage",
-          kind: "assistantMessage",
-          semanticKind: "assistantMessage",
-          role: "assistant",
-          markdownText: "Implemented.",
-        }),
-      ], "diff --git a/src/app.ts b/src/app.ts\n+new")],
+            }),
+            item("mcp", {
+              type: "toolCall",
+              kind: "toolCall",
+              semanticKind: "mcpToolCall",
+              mcpToolCall: {
+                callId: "mcp",
+                functionName: "search",
+                pluginId: null,
+                readOnlyHint: true,
+                mcpAppResourceUri: undefined,
+                source: null,
+                invocation: { server: "docs", tool: "search", arguments: { q: "Radix" } },
+                result: {
+                  type: "success",
+                  content: [{ type: "text", text: "Found it" }],
+                  structuredContent: null,
+                  raw: { content: [], structuredContent: null, _meta: null },
+                },
+                durationMs: 10,
+                completed: true,
+              },
+            }),
+            item("plan", {
+              type: "plan",
+              kind: "plan",
+              semanticKind: "todoList",
+              markdownText: "- [x] Inspect\n- [ ] Verify",
+            }),
+            item("assistant", {
+              type: "assistantMessage",
+              kind: "assistantMessage",
+              semanticKind: "assistantMessage",
+              role: "assistant",
+              markdownText: "Implemented.",
+            }),
+          ],
+          "diff --git a/src/app.ts b/src/app.ts\n+new",
+        ),
+      ],
     });
 
     expect(markdown).toContain("<details><summary>5 previous messages</summary>");
@@ -165,13 +174,17 @@ describe("renderConversationMarkdown", () => {
     const longMessage = "x".repeat(80_500);
     const markdown = renderConversationMarkdown({
       title: "Long transcript",
-      turns: [entry([item("assistant", {
-        type: "assistantMessage",
-        kind: "assistantMessage",
-        semanticKind: "assistantMessage",
-        role: "assistant",
-        markdownText: longMessage,
-      })])],
+      turns: [
+        entry([
+          item("assistant", {
+            type: "assistantMessage",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            markdownText: longMessage,
+          }),
+        ]),
+      ],
     });
 
     expect(markdown.endsWith(`${longMessage}\n`)).toBe(true);

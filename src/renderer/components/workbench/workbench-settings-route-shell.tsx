@@ -10,13 +10,7 @@ import {
   useState,
   type ComponentType,
 } from "react";
-import {
-  Monitor,
-  Moon,
-  RotateCcw,
-  Sun,
-  Trash2,
-} from "@/components/shared/icons/generic-icons";
+import { Monitor, Moon, RotateCcw, Sun, Trash2 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDropdownButtonTrigger,
@@ -27,11 +21,7 @@ import {
 } from "@/components/ui/dropdown";
 import { Input } from "../ui/input";
 import { invoke } from "./workbench-settings-overlay-deps";
-import {
-  handleFormSubmit,
-  resolveFormErrorMessage,
-  resolveZodErrorMessage,
-} from "../../lib/forms";
+import { handleFormSubmit, resolveFormErrorMessage, resolveZodErrorMessage } from "../../lib/forms";
 import type { CardPropertyPosition } from "../../lib/card-property-position";
 import { FILE_LINK_OPENER_ICON_URLS } from "../../lib/file-link-opener-icons";
 import {
@@ -226,11 +216,7 @@ function SegmentedControl<T extends string>({
   );
 }
 
-function ToggleGroup<T extends string>({
-  selectedValues,
-  onToggle,
-  options,
-}: ToggleGroupProps<T>) {
+function ToggleGroup<T extends string>({ selectedValues, onToggle, options }: ToggleGroupProps<T>) {
   const selected = new Set(selectedValues);
 
   return (
@@ -312,20 +298,20 @@ function ThreadNotificationTurnModeControl({
   onChange: (value: ThreadNotificationTurnMode) => void;
   disabled: boolean;
 }) {
-  const selectedLabel = THREAD_NOTIFICATION_TURN_MODE_OPTIONS.find(
-    (option) => option.value === value,
-  )?.label ?? "Only when unfocused";
+  const selectedLabel =
+    THREAD_NOTIFICATION_TURN_MODE_OPTIONS.find((option) => option.value === value)?.label ??
+    "Only when unfocused";
 
   return (
     <NodexDropdownMenu
       disabled={disabled}
       contentWidth="menuWide"
       align="end"
-      triggerButton={(
+      triggerButton={
         <NodexSettingsDropdownTrigger className="min-w-52">
           <span className="truncate">{selectedLabel}</span>
         </NodexSettingsDropdownTrigger>
-      )}
+      }
     >
       {THREAD_NOTIFICATION_TURN_MODE_OPTIONS.map((option) => (
         <NodexDropdownItem
@@ -393,7 +379,9 @@ export function ThreadNotificationSettingControl({ open }: { open: boolean }) {
       try {
         await updateSettings(nextSettings);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not save thread notification settings.");
+        setError(
+          err instanceof Error ? err.message : "Could not save thread notification settings.",
+        );
       } finally {
         setBusy(false);
       }
@@ -497,14 +485,16 @@ export function WindowRestoreSettingControl() {
 }
 
 function hasDiagnosticsEnvOverride(settings: DiagnosticsSettings): boolean {
-  return settings.envOverrides.enabled
-    || settings.envOverrides.dsn
-    || settings.envOverrides.environment
-    || settings.envOverrides.release
-    || settings.envOverrides.tracesSampleRate
-    || settings.envOverrides.replayEnabled
-    || settings.envOverrides.replaysSessionSampleRate
-    || settings.envOverrides.replaysOnErrorSampleRate;
+  return (
+    settings.envOverrides.enabled ||
+    settings.envOverrides.dsn ||
+    settings.envOverrides.environment ||
+    settings.envOverrides.release ||
+    settings.envOverrides.tracesSampleRate ||
+    settings.envOverrides.replayEnabled ||
+    settings.envOverrides.replaysSessionSampleRate ||
+    settings.envOverrides.replaysOnErrorSampleRate
+  );
 }
 
 function toDiagnosticsUpdateInput(
@@ -550,53 +540,59 @@ export function DiagnosticsSettingControl({ open }: { open: boolean }) {
     void load();
   }, [load, open]);
 
-  const handleEnabledChange = useCallback(async (enabled: boolean) => {
-    const previous = settings;
-    const nextSettings = { ...settings, enabled };
-    setSettings(nextSettings);
-    setBusy(true);
-    setError(null);
+  const handleEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      const previous = settings;
+      const nextSettings = { ...settings, enabled };
+      setSettings(nextSettings);
+      setBusy(true);
+      setError(null);
 
-    try {
-      const result = await invoke(
-        "settings:diagnostics:update",
-        toDiagnosticsUpdateInput(settings, { enabled }),
-      );
-      if (!isDiagnosticsSettings(result)) {
-        throw new Error("Could not save diagnostics settings.");
+      try {
+        const result = await invoke(
+          "settings:diagnostics:update",
+          toDiagnosticsUpdateInput(settings, { enabled }),
+        );
+        if (!isDiagnosticsSettings(result)) {
+          throw new Error("Could not save diagnostics settings.");
+        }
+        setSettings(result);
+      } catch (err) {
+        setSettings(previous);
+        setError(err instanceof Error ? err.message : "Could not save diagnostics settings.");
+      } finally {
+        setBusy(false);
       }
-      setSettings(result);
-    } catch (err) {
-      setSettings(previous);
-      setError(err instanceof Error ? err.message : "Could not save diagnostics settings.");
-    } finally {
-      setBusy(false);
-    }
-  }, [settings]);
+    },
+    [settings],
+  );
 
-  const handleReplayEnabledChange = useCallback(async (replayEnabled: boolean) => {
-    const previous = settings;
-    const nextSettings = { ...settings, replayEnabled };
-    setSettings(nextSettings);
-    setBusy(true);
-    setError(null);
+  const handleReplayEnabledChange = useCallback(
+    async (replayEnabled: boolean) => {
+      const previous = settings;
+      const nextSettings = { ...settings, replayEnabled };
+      setSettings(nextSettings);
+      setBusy(true);
+      setError(null);
 
-    try {
-      const result = await invoke(
-        "settings:diagnostics:update",
-        toDiagnosticsUpdateInput(settings, { replayEnabled }),
-      );
-      if (!isDiagnosticsSettings(result)) {
-        throw new Error("Could not save diagnostics settings.");
+      try {
+        const result = await invoke(
+          "settings:diagnostics:update",
+          toDiagnosticsUpdateInput(settings, { replayEnabled }),
+        );
+        if (!isDiagnosticsSettings(result)) {
+          throw new Error("Could not save diagnostics settings.");
+        }
+        setSettings(result);
+      } catch (err) {
+        setSettings(previous);
+        setError(err instanceof Error ? err.message : "Could not save diagnostics settings.");
+      } finally {
+        setBusy(false);
       }
-      setSettings(result);
-    } catch (err) {
-      setSettings(previous);
-      setError(err instanceof Error ? err.message : "Could not save diagnostics settings.");
-    } finally {
-      setBusy(false);
-    }
-  }, [settings]);
+    },
+    [settings],
+  );
 
   const hasEnvOverride = hasDiagnosticsEnvOverride(settings);
   const summary = settings.envOverrides.enabled
@@ -611,18 +607,13 @@ export function DiagnosticsSettingControl({ open }: { open: boolean }) {
       : settings.replayEnabled
         ? "Session replays are enabled after restart."
         : "Session replays are off.";
-  const replayDisabled =
-    busy
-    || !settings.enabled
-    || settings.envOverrides.replayEnabled;
+  const replayDisabled = busy || !settings.enabled || settings.envOverrides.replayEnabled;
 
   return (
     <div className="flex max-w-80 flex-col items-end gap-2 text-right">
       <div className="flex flex-col items-end gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-(--foreground-secondary)">
-            Share crash reports
-          </span>
+          <span className="text-xs text-(--foreground-secondary)">Share crash reports</span>
           <TogglePill
             ariaLabel="Share crash reports"
             value={settings.enabled}
@@ -638,9 +629,7 @@ export function DiagnosticsSettingControl({ open }: { open: boolean }) {
       </div>
       <div className="flex flex-col items-end gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-(--foreground-secondary)">
-            Share session replays
-          </span>
+          <span className="text-xs text-(--foreground-secondary)">Share session replays</span>
           <TogglePill
             ariaLabel="Share session replays"
             value={settings.replayEnabled && settings.enabled}
@@ -650,24 +639,20 @@ export function DiagnosticsSettingControl({ open }: { open: boolean }) {
             }}
           />
         </div>
-        <div className="max-w-72 text-xs text-(--foreground-secondary)">
-          {replaySummary}
-        </div>
+        <div className="max-w-72 text-xs text-(--foreground-secondary)">{replaySummary}</div>
       </div>
-      {error ? (
-        <span className="max-w-72 text-xs text-(--red-text)">
-          {error}
-        </span>
-      ) : null}
+      {error ? <span className="max-w-72 text-xs text-(--red-text)">{error}</span> : null}
     </div>
   );
 }
 
 function hasTelemetryEnvOverride(settings: TelemetrySettings): boolean {
-  return settings.envOverrides.enabled
-    || settings.envOverrides.clientKey
-    || settings.envOverrides.environment
-    || settings.envOverrides.autoCaptureEnabled;
+  return (
+    settings.envOverrides.enabled ||
+    settings.envOverrides.clientKey ||
+    settings.envOverrides.environment ||
+    settings.envOverrides.autoCaptureEnabled
+  );
 }
 
 function toTelemetryUpdateInput(
@@ -709,53 +694,59 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
     void load();
   }, [load, open]);
 
-  const handleEnabledChange = useCallback(async (enabled: boolean) => {
-    const previous = settings;
-    const nextSettings = { ...settings, enabled };
-    setSettings(nextSettings);
-    setBusy(true);
-    setError(null);
+  const handleEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      const previous = settings;
+      const nextSettings = { ...settings, enabled };
+      setSettings(nextSettings);
+      setBusy(true);
+      setError(null);
 
-    try {
-      const result = await invoke(
-        "settings:telemetry:update",
-        toTelemetryUpdateInput(settings, { enabled }),
-      );
-      if (!isTelemetrySettings(result)) {
-        throw new Error("Could not save telemetry settings.");
+      try {
+        const result = await invoke(
+          "settings:telemetry:update",
+          toTelemetryUpdateInput(settings, { enabled }),
+        );
+        if (!isTelemetrySettings(result)) {
+          throw new Error("Could not save telemetry settings.");
+        }
+        setSettings(result);
+      } catch (err) {
+        setSettings(previous);
+        setError(err instanceof Error ? err.message : "Could not save telemetry settings.");
+      } finally {
+        setBusy(false);
       }
-      setSettings(result);
-    } catch (err) {
-      setSettings(previous);
-      setError(err instanceof Error ? err.message : "Could not save telemetry settings.");
-    } finally {
-      setBusy(false);
-    }
-  }, [settings]);
+    },
+    [settings],
+  );
 
-  const handleAutoCaptureEnabledChange = useCallback(async (autoCaptureEnabled: boolean) => {
-    const previous = settings;
-    const nextSettings = { ...settings, autoCaptureEnabled };
-    setSettings(nextSettings);
-    setBusy(true);
-    setError(null);
+  const handleAutoCaptureEnabledChange = useCallback(
+    async (autoCaptureEnabled: boolean) => {
+      const previous = settings;
+      const nextSettings = { ...settings, autoCaptureEnabled };
+      setSettings(nextSettings);
+      setBusy(true);
+      setError(null);
 
-    try {
-      const result = await invoke(
-        "settings:telemetry:update",
-        toTelemetryUpdateInput(settings, { autoCaptureEnabled }),
-      );
-      if (!isTelemetrySettings(result)) {
-        throw new Error("Could not save telemetry settings.");
+      try {
+        const result = await invoke(
+          "settings:telemetry:update",
+          toTelemetryUpdateInput(settings, { autoCaptureEnabled }),
+        );
+        if (!isTelemetrySettings(result)) {
+          throw new Error("Could not save telemetry settings.");
+        }
+        setSettings(result);
+      } catch (err) {
+        setSettings(previous);
+        setError(err instanceof Error ? err.message : "Could not save telemetry settings.");
+      } finally {
+        setBusy(false);
       }
-      setSettings(result);
-    } catch (err) {
-      setSettings(previous);
-      setError(err instanceof Error ? err.message : "Could not save telemetry settings.");
-    } finally {
-      setBusy(false);
-    }
-  }, [settings]);
+    },
+    [settings],
+  );
 
   const hasEnvOverride = hasTelemetryEnvOverride(settings);
   const summary = settings.envOverrides.enabled
@@ -770,18 +761,13 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
       : settings.autoCaptureEnabled
         ? "Web analytics are enabled after restart."
         : "Web analytics are off.";
-  const autoCaptureDisabled =
-    busy
-    || !settings.enabled
-    || settings.envOverrides.autoCaptureEnabled;
+  const autoCaptureDisabled = busy || !settings.enabled || settings.envOverrides.autoCaptureEnabled;
 
   return (
     <div className="flex max-w-80 flex-col items-end gap-2 text-right">
       <div className="flex flex-col items-end gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-(--foreground-secondary)">
-            Share product telemetry
-          </span>
+          <span className="text-xs text-(--foreground-secondary)">Share product telemetry</span>
           <TogglePill
             ariaLabel="Share product telemetry"
             value={settings.enabled}
@@ -797,9 +783,7 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
       </div>
       <div className="flex flex-col items-end gap-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-(--foreground-secondary)">
-            Share web analytics
-          </span>
+          <span className="text-xs text-(--foreground-secondary)">Share web analytics</span>
           <TogglePill
             ariaLabel="Share web analytics"
             value={settings.autoCaptureEnabled && settings.enabled}
@@ -809,15 +793,9 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
             }}
           />
         </div>
-        <div className="max-w-72 text-xs text-(--foreground-secondary)">
-          {autoCaptureSummary}
-        </div>
+        <div className="max-w-72 text-xs text-(--foreground-secondary)">{autoCaptureSummary}</div>
       </div>
-      {error ? (
-        <span className="max-w-72 text-xs text-(--red-text)">
-          {error}
-        </span>
-      ) : null}
+      {error ? <span className="max-w-72 text-xs text-(--red-text)">{error}</span> : null}
     </div>
   );
 }
@@ -825,7 +803,9 @@ export function TelemetrySettingControl({ open }: { open: boolean }) {
 export function SpellcheckSettingControl() {
   const { spellcheck, toggleSpellcheck } = useSpellcheck();
 
-  return <TogglePill ariaLabel="Spellcheck" value={spellcheck} onChange={() => toggleSpellcheck()} />;
+  return (
+    <TogglePill ariaLabel="Spellcheck" value={spellcheck} onChange={() => toggleSpellcheck()} />
+  );
 }
 
 export function NfmAutolinkTypingSettingControl() {
@@ -959,39 +939,39 @@ const THREAD_DETAIL_LEVEL_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-    {
-      value: "STEPS_PROSE",
-      label: "Steps",
-      description: "Hide commands and outputs.",
-    },
-    {
-      value: "STEPS_COMMANDS",
-      label: "Steps with code commands",
-      description: "Show commands, collapse output.",
-    },
-    {
-      value: "STEPS_EXECUTION",
-      label: "Steps with code output",
-      description: "Show commands and expand output.",
-    },
-  ];
+  {
+    value: "STEPS_PROSE",
+    label: "Steps",
+    description: "Hide commands and outputs.",
+  },
+  {
+    value: "STEPS_COMMANDS",
+    label: "Steps with code commands",
+    description: "Show commands, collapse output.",
+  },
+  {
+    value: "STEPS_EXECUTION",
+    label: "Steps with code output",
+    description: "Show commands and expand output.",
+  },
+];
 
 export function ThreadDetailLevelSettingControl() {
   const { settings, setThreadDetailLevel } = useCodexThreadSettings();
   const selectedValue = settings.detailLevel ?? "STEPS_COMMANDS";
-  const selectedOption = THREAD_DETAIL_LEVEL_OPTIONS.find((option) => option.value === selectedValue)
-    ?? THREAD_DETAIL_LEVEL_OPTIONS[1];
+  const selectedOption =
+    THREAD_DETAIL_LEVEL_OPTIONS.find((option) => option.value === selectedValue) ??
+    THREAD_DETAIL_LEVEL_OPTIONS[1];
 
   return (
     <NodexDropdownMenu
-      triggerButton={(
-        <NodexSettingsDropdownTrigger
-          aria-label="Thread detail"
-          className="min-w-56 text-base/4.5"
-        >
-          <span className="truncate">{formatCodexThreadDetailLevelLabel(selectedOption.value)}</span>
+      triggerButton={
+        <NodexSettingsDropdownTrigger aria-label="Thread detail" className="min-w-56 text-base/4.5">
+          <span className="truncate">
+            {formatCodexThreadDetailLevelLabel(selectedOption.value)}
+          </span>
         </NodexSettingsDropdownTrigger>
-      )}
+      }
       align="end"
       contentWidth="workspace"
       contentMaxHeight="tall"
@@ -1108,12 +1088,12 @@ export function CodeFontSizeSettingControl() {
 
 export function FileLinkOpenerSettingControl() {
   const { opener, setOpener } = useFileLinkOpener();
-  const selectedOption = FILE_LINK_OPENER_OPTIONS.find((option) => option.id === opener)
-    ?? FILE_LINK_OPENER_OPTIONS[0];
+  const selectedOption =
+    FILE_LINK_OPENER_OPTIONS.find((option) => option.id === opener) ?? FILE_LINK_OPENER_OPTIONS[0];
 
   return (
     <NodexDropdownMenu
-      triggerButton={(
+      triggerButton={
         <NodexSettingsDropdownTrigger
           aria-label={`Open markdown file links in ${selectedOption.label}`}
           className="min-w-50 text-base/4.5"
@@ -1128,7 +1108,7 @@ export function FileLinkOpenerSettingControl() {
             <span className="truncate">{selectedOption.label}</span>
           </span>
         </NodexSettingsDropdownTrigger>
-      )}
+      }
       align="end"
       contentWidth="sm"
       contentMaxHeight="tall"
@@ -1137,14 +1117,14 @@ export function FileLinkOpenerSettingControl() {
         <NodexDropdownItem
           key={option.id}
           onSelect={() => setOpener(normalizeFileLinkOpenerId(option.id))}
-          leftSlot={(
+          leftSlot={
             <img
               src={FILE_LINK_OPENER_ICON_URLS[option.id]}
               alt=""
               className="size-4 shrink-0 object-contain"
               aria-hidden="true"
             />
-          )}
+          }
           rightSlot={option.id === selectedOption.id ? <NodexDropdownSelectedIcon /> : null}
         >
           {option.label}
@@ -1255,7 +1235,9 @@ export function TaskShorthandPagePromotionSettingControl({
   value: boolean;
   onChange: (value: boolean) => void;
 }) {
-  return <TogglePill ariaLabel="Task shorthand on Block to Page" value={value} onChange={onChange} />;
+  return (
+    <TogglePill ariaLabel="Task shorthand on Block to Page" value={value} onChange={onChange} />
+  );
 }
 
 export function ComposerEnterBehaviorControl({
@@ -1312,9 +1294,9 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
   const [createSafetyBackup, setCreateSafetyBackup] = useState(true);
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"refresh" | "save" | "create" | "restore" | "delete" | null>(
-    null,
-  );
+  const [busyAction, setBusyAction] = useState<
+    "refresh" | "save" | "create" | "restore" | "delete" | null
+  >(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scheduleForm = useForm({
@@ -1336,13 +1318,17 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       setStatus(null);
 
       try {
-        const updated = await invoke("settings:backup:update", {
-          autoEnabled: settings.envOverrides.autoEnabled ? settings.autoEnabled : parsed.autoEnabled,
-          intervalHours: settings.envOverrides.intervalHours ? settings.intervalHours : parsed.intervalHours,
+        const updated = (await invoke("settings:backup:update", {
+          autoEnabled: settings.envOverrides.autoEnabled
+            ? settings.autoEnabled
+            : parsed.autoEnabled,
+          intervalHours: settings.envOverrides.intervalHours
+            ? settings.intervalHours
+            : parsed.intervalHours,
           retentionCount: settings.envOverrides.retentionCount
             ? settings.retentionCount
             : parsed.retentionCount,
-        }) as BackupSettings;
+        })) as BackupSettings;
         setSettings(updated);
         scheduleForm.reset({
           autoEnabled: updated.autoEnabled,
@@ -1376,11 +1362,11 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       setStatus(null);
 
       try {
-        const updated = await invoke("settings:history:update", {
+        const updated = (await invoke("settings:history:update", {
           retentionCount: historySettings.envOverrides.retentionCount
             ? historySettings.retentionCount
             : parsed.retentionCount,
-        }) as HistorySettings;
+        })) as HistorySettings;
         setHistorySettings(updated);
         historyForm.reset({
           retentionCount: String(updated.retentionCount),
@@ -1421,7 +1407,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
   const snapshotValues = useStore(snapshotForm.store, (state) => state.values);
 
   const loadBackupSettings = useCallback(async () => {
-    const data = await invoke("settings:backup:get") as BackupSettings;
+    const data = (await invoke("settings:backup:get")) as BackupSettings;
     setSettings(data);
     scheduleForm.reset({
       autoEnabled: data.autoEnabled,
@@ -1431,7 +1417,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
   }, [scheduleForm]);
 
   const loadBackups = useCallback(async () => {
-    const list = await invoke("backup:list") as BackupRecord[];
+    const list = (await invoke("backup:list")) as BackupRecord[];
     if (!Array.isArray(list)) {
       setBackups([]);
       return;
@@ -1440,7 +1426,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
   }, []);
 
   const loadHistorySettings = useCallback(async () => {
-    const data = await invoke("settings:history:get") as HistorySettings;
+    const data = (await invoke("settings:history:get")) as HistorySettings;
     setHistorySettings(data);
     historyForm.reset({
       retentionCount: String(data.retentionCount),
@@ -1545,7 +1531,10 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
   return (
     <div className="flex flex-col gap-[var(--padding-panel)]">
       <SectionBlock title="Automatic snapshots">
-        <SettingRow label="Auto backups" description="Schedule background snapshots for the local store.">
+        <SettingRow
+          label="Auto backups"
+          description="Schedule background snapshots for the local store."
+        >
           <TogglePill
             ariaLabel="Auto backups"
             value={scheduleValues.autoEnabled}
@@ -1646,12 +1635,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
             onChange={(event) => snapshotForm.setFieldValue("label", event.target.value)}
             className="min-w-0 flex-1"
           />
-          <NodexButton
-            type="submit"
-            variant="secondary"
-            size="sm"
-            disabled={busyAction !== null}
-          >
+          <NodexButton type="submit" variant="secondary" size="sm" disabled={busyAction !== null}>
             Create snapshot
           </NodexButton>
         </form>
@@ -1667,15 +1651,10 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
         </SettingRow>
         <div className="flex flex-col">
           {backups.length === 0 ? (
-            <div className="px-3 py-3 text-sm text-token-text-secondary">
-              No snapshots yet.
-            </div>
+            <div className="px-3 py-3 text-sm text-token-text-secondary">No snapshots yet.</div>
           ) : (
             backups.map((backup) => (
-              <div
-                key={backup.id}
-                className="flex items-center justify-between gap-3 p-3"
-              >
+              <div key={backup.id} className="flex items-center justify-between gap-3 p-3">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm text-token-text-primary">
                     {backup.label?.trim() || backup.id}
@@ -1737,9 +1716,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
         </div>
       </SectionBlock>
 
-      {status ? (
-        <p className="text-sm text-token-text-secondary">{status}</p>
-      ) : null}
+      {status ? <p className="text-sm text-token-text-secondary">{status}</p> : null}
       {error ? <p className="text-sm text-token-error-foreground">{error}</p> : null}
     </div>
   );
@@ -1769,13 +1746,7 @@ export interface SettingsRouteShellProps {
   onTaskShorthandPagePromotionEnabledChange: (value: boolean) => void;
 }
 
-function SettingsPlaceholderPage({
-  label,
-  message,
-}: {
-  label: string;
-  message: string;
-}) {
+function SettingsPlaceholderPage({ label, message }: { label: string; message: string }) {
   return (
     <SettingsPageSurface title={label} subtitle={message}>
       <SectionBlock title={label}>
@@ -1806,11 +1777,11 @@ function isEditableEscapeElement(element: Element | null): boolean {
 
 function isEditableEscapeTarget(target: EventTarget | null): boolean {
   const targetElement = target instanceof Element ? target : null;
-  const activeElement = targetElement?.ownerDocument.activeElement
-    ?? (typeof document === "undefined" ? null : document.activeElement);
+  const activeElement =
+    targetElement?.ownerDocument.activeElement ??
+    (typeof document === "undefined" ? null : document.activeElement);
 
-  return isEditableEscapeElement(targetElement)
-    || isEditableEscapeElement(activeElement);
+  return isEditableEscapeElement(targetElement) || isEditableEscapeElement(activeElement);
 }
 
 function SettingsMobileHeader({
@@ -1824,7 +1795,8 @@ function SettingsMobileHeader({
   onBack: () => void;
   onSelectSection: (sectionId: SettingsSectionId) => void;
 }) {
-  const activeSection = sections.find((section) => section.id === activeSectionId) ?? sections[0] ?? null;
+  const activeSection =
+    sections.find((section) => section.id === activeSectionId) ?? sections[0] ?? null;
 
   return (
     <div className="absolute inset-x-0 top-0 z-20 flex h-toolbar items-center justify-between gap-2 border-b border-token-border bg-token-main-surface-primary px-panel md:hidden">
@@ -1837,7 +1809,7 @@ function SettingsMobileHeader({
       </button>
       <NodexDropdownMenu
         align="end"
-        triggerButton={(
+        triggerButton={
           <NodexDropdownButtonTrigger
             size="sm"
             chrome="transparent"
@@ -1845,7 +1817,7 @@ function SettingsMobileHeader({
           >
             <span className="truncate">{activeSection?.label ?? "Settings"}</span>
           </NodexDropdownButtonTrigger>
-        )}
+        }
       >
         {sections.map((section) => (
           <NodexDropdownItem
@@ -1885,7 +1857,8 @@ export function SettingsRouteShell({
   taskShorthandPagePromotionEnabled,
   onTaskShorthandPagePromotionEnabledChange,
 }: SettingsRouteShellProps) {
-  const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
+  const isMacPlatform =
+    typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const shellRef = useRef<HTMLDivElement>(null);
   const {
     activeSectionId,
@@ -1928,9 +1901,10 @@ export function SettingsRouteShell({
   const ActiveSectionComponent = activeSection
     ? SETTINGS_PAGE_COMPONENTS[activeSection.pageKey]
     : null;
-  const shouldRenderPlaceholder = !ActiveSectionComponent
-    || activeSection?.placeholderKind === "unavailable"
-    || activeSection?.placeholderKind === "external";
+  const shouldRenderPlaceholder =
+    !ActiveSectionComponent ||
+    activeSection?.placeholderKind === "unavailable" ||
+    activeSection?.placeholderKind === "external";
 
   return (
     <div
@@ -1996,9 +1970,11 @@ export function SettingsRouteShell({
                 browserDetail={browserDetail}
                 onOpenBrowserDetail={(destination, anchor) => {
                   startTransition(() => {
-                    onPathChange(destination === "browser"
-                      ? buildBrowserSettingsPath(undefined, anchor)
-                      : buildBrowserSettingsPath(destination));
+                    onPathChange(
+                      destination === "browser"
+                        ? buildBrowserSettingsPath(undefined, anchor)
+                        : buildBrowserSettingsPath(destination),
+                    );
                   });
                 }}
                 isMacPlatform={isMacPlatform}
@@ -2017,7 +1993,9 @@ export function SettingsRouteShell({
                 worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
                 onWorktreeAutoBranchPrefixChange={onWorktreeAutoBranchPrefixChange}
                 taskShorthandPagePromotionEnabled={taskShorthandPagePromotionEnabled}
-                onTaskShorthandPagePromotionEnabledChange={onTaskShorthandPagePromotionEnabledChange}
+                onTaskShorthandPagePromotionEnabledChange={
+                  onTaskShorthandPagePromotionEnabledChange
+                }
               />
             )}
           </Suspense>

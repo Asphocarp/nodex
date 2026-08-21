@@ -53,21 +53,36 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
       case "numberedListItem": {
         const text = serializeInlinePlainText(block.content);
         const start = orderedListStarts[index] ?? 1;
-        pushPrefixedMultiline(lines, prefix + `${start}. `, text + colorSuffix(block.color), prefix);
+        pushPrefixedMultiline(
+          lines,
+          prefix + `${start}. `,
+          text + colorSuffix(block.color),
+          prefix,
+        );
         break;
       }
 
       case "checkListItem": {
         const check = block.checked ? "x" : " ";
         const text = serializeInlinePlainText(block.content);
-        pushPrefixedMultiline(lines, prefix + `- [${check}] `, text + colorSuffix(block.color), prefix);
+        pushPrefixedMultiline(
+          lines,
+          prefix + `- [${check}] `,
+          text + colorSuffix(block.color),
+          prefix,
+        );
         break;
       }
 
       case "toggle": {
         const toggleMarker = block.isOpen ? "▼" : "▶";
         const text = serializeInlinePlainText(block.content);
-        pushPrefixedMultiline(lines, prefix + toggleMarker + " ", text + colorSuffix(block.color), prefix);
+        pushPrefixedMultiline(
+          lines,
+          prefix + toggleMarker + " ",
+          text + colorSuffix(block.color),
+          prefix,
+        );
         break;
       }
 

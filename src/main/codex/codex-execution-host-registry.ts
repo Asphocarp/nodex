@@ -69,9 +69,9 @@ export class CodexExecutionHostRegistry {
         managedRoot,
         ...(registration.knownManagedRoots ?? []).map((root) => root.trim()).filter(Boolean),
       ]),
-      repositoryRoots: [...new Set(
-        (registration.repositoryRoots ?? []).map((root) => root.trim()).filter(Boolean),
-      )],
+      repositoryRoots: [
+        ...new Set((registration.repositoryRoots ?? []).map((root) => root.trim()).filter(Boolean)),
+      ],
       worktreeWorker: registration.worktreeWorker,
       fileTransfer: registration.fileTransfer ?? null,
       capabilities: new Set(registration.capabilities),
@@ -124,13 +124,15 @@ export class CodexExecutionHostRegistry {
 
   requireRepositoryRoots(hostId: string): readonly string[] {
     const registration = this.#hosts.get(hostId.trim());
-    if (!registration) throw new Error(`Execution host is unavailable: ${hostId.trim() || "<empty>"}`);
+    if (!registration)
+      throw new Error(`Execution host is unavailable: ${hostId.trim() || "<empty>"}`);
     return [...registration.repositoryRoots];
   }
 
   requireFileTransfer(hostId: string): CodexExecutionHostFileTransferPort {
     const registration = this.#hosts.get(hostId.trim());
-    if (!registration) throw new Error(`Execution host is unavailable: ${hostId.trim() || "<empty>"}`);
+    if (!registration)
+      throw new Error(`Execution host is unavailable: ${hostId.trim() || "<empty>"}`);
     if (!registration.fileTransfer) {
       throw new Error(`Execution host ${hostId.trim()} does not support file transfer`);
     }
@@ -206,10 +208,7 @@ export class CodexExecutionHostRegistry {
     this.#hosts.set(normalizedHostId, {
       ...registration,
       managedRoot: normalizedManagedRoot,
-      knownManagedRoots: new Set([
-        ...registration.knownManagedRoots,
-        normalizedManagedRoot,
-      ]),
+      knownManagedRoots: new Set([...registration.knownManagedRoots, normalizedManagedRoot]),
     });
   }
 
@@ -223,9 +222,7 @@ export class CodexExecutionHostRegistry {
       throw new Error(`Execution host is unavailable: ${normalizedHostId || "<empty>"}`);
     }
     if (!registration.capabilities.has(operation)) {
-      throw new Error(
-        `Execution host ${normalizedHostId} does not support worktree ${operation}`,
-      );
+      throw new Error(`Execution host ${normalizedHostId} does not support worktree ${operation}`);
     }
     return registration.worktreeWorker;
   }

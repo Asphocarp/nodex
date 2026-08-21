@@ -1,10 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { parseNfm } from "../nfm/parser";
-import {
-  blockNoteToNfm,
-  nfmToBlockNote,
-  nfmToBlockNoteWithIds,
-} from "./nfm-blocknote-adapter";
+import { blockNoteToNfm, nfmToBlockNote, nfmToBlockNoteWithIds } from "./nfm-blocknote-adapter";
 
 describe("NFM BlockNote genesis adapter", () => {
   test("allocates one stable application identity for every nested Block", () => {
@@ -29,9 +25,7 @@ describe("NFM BlockNote genesis adapter", () => {
       message = (error as Error).message;
     }
 
-    expect(message).toBe(
-      "Block ID allocator returned an invalid or duplicate identity",
-    );
+    expect(message).toBe("Block ID allocator returned an invalid or duplicate identity");
   });
 
   test("round-trips a Canvas owner as a childless identity shell", () => {

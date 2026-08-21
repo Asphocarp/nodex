@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  computeNativeDropIndex,
-  computeNativeDropIndexFromSurface,
-} from "./native-drop-index";
+import { computeNativeDropIndex, computeNativeDropIndexFromSurface } from "./native-drop-index";
 
 describe("native drop index", () => {
   test("returns 0 for empty columns", () => {

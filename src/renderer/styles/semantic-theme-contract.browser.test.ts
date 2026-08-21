@@ -87,7 +87,9 @@ describe("semantic theme contract in the renderer build", () => {
   test("keeps the browser toolbar override independent from the electron default", () => {
     setWindowTheme("browser", "light");
 
-    expect(getComputedStyle(document.documentElement).getPropertyValue("--height-toolbar").trim()).toBe("56px");
+    expect(
+      getComputedStyle(document.documentElement).getPropertyValue("--height-toolbar").trim(),
+    ).toBe("56px");
   });
 
   test("resolves production shimmer and sidebar surfaces in both electron schemes", () => {
@@ -100,11 +102,14 @@ describe("semantic theme contract in the renderer build", () => {
 
       expect(shimmerStyle.backgroundImage).not.toBe("none");
       expect(shimmerStyle.webkitTextFillColor).toBe("rgba(0, 0, 0, 0)");
-      expect(sidebarStyle.backgroundColor, JSON.stringify({
-        token: sidebarStyle.getPropertyValue("--color-token-editor-background"),
-        vscode: sidebarStyle.getPropertyValue("--vscode-editor-background"),
-        editor: sidebarStyle.getPropertyValue("--color-background-editor-opaque"),
-      })).not.toBe("rgba(0, 0, 0, 0)");
+      expect(
+        sidebarStyle.backgroundColor,
+        JSON.stringify({
+          token: sidebarStyle.getPropertyValue("--color-token-editor-background"),
+          vscode: sidebarStyle.getPropertyValue("--vscode-editor-background"),
+          editor: sidebarStyle.getPropertyValue("--color-background-editor-opaque"),
+        }),
+      ).not.toBe("rgba(0, 0, 0, 0)");
       shimmer.remove();
       sidebar.remove();
     }

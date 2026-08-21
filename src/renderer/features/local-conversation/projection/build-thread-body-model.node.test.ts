@@ -223,16 +223,18 @@ describe("buildThreadBodyModel", () => {
       activeThreadId: conversation.threadId,
       conversation: buildConversation({
         turns: conversation.turns,
-        canonicalRequests: [{
-          id: "option_active",
-          method: "item/tool/requestOptionPicker",
-          params: {
-            threadId: conversation.threadId,
-            turnId: "turn_1",
-            question: "Choose the next slice",
-            options: [{ label: "UI" }],
+        canonicalRequests: [
+          {
+            id: "option_active",
+            method: "item/tool/requestOptionPicker",
+            params: {
+              threadId: conversation.threadId,
+              turnId: "turn_1",
+              question: "Choose the next slice",
+              options: [{ label: "UI" }],
+            },
           },
-        }],
+        ],
       }),
       parentTurns: [],
       isNewThreadTab: false,
@@ -246,13 +248,9 @@ describe("buildThreadBodyModel", () => {
   });
 
   test("keeps one active shell entry when live fileChange rows coexist with turn diff", () => {
-    const liveDiff = [
-      "--- a/src/app.ts",
-      "+++ b/src/app.ts",
-      "@@ -1 +1 @@",
-      "-old",
-      "+new",
-    ].join("\n");
+    const liveDiff = ["--- a/src/app.ts", "+++ b/src/app.ts", "@@ -1 +1 @@", "-old", "+new"].join(
+      "\n",
+    );
     const model = buildThreadBodyModel({
       activeThreadId: "thread_1",
       conversation: buildConversation({
@@ -279,12 +277,14 @@ describe("buildThreadBodyModel", () => {
                 semanticKind: "patch",
                 status: "inProgress",
                 fileChange: {
-                  changes: buildCodexFileChangeMap([{
-                    type: "update",
-                    path: "src/app.ts",
-                    unifiedDiff: liveDiff,
-                    movePath: null,
-                  }]),
+                  changes: buildCodexFileChangeMap([
+                    {
+                      type: "update",
+                      path: "src/app.ts",
+                      unifiedDiff: liveDiff,
+                      movePath: null,
+                    },
+                  ]),
                   label: "Edited src/app.ts",
                 },
               }),
@@ -451,22 +451,30 @@ describe("buildThreadBodyModel", () => {
   });
 
   test("classifies thread start progress presentation by target and phase", () => {
-    expect(resolveThreadStartProgressPresentation({
-      runInTarget: "localProject",
-      phase: "startingThread",
-    })).toBe("hidden");
-    expect(resolveThreadStartProgressPresentation({
-      runInTarget: "localProject",
-      phase: "failed",
-    })).toBe("panel");
-    expect(resolveThreadStartProgressPresentation({
-      runInTarget: "newWorktree",
-      phase: "runningSetup",
-    })).toBe("panel");
-    expect(resolveThreadStartProgressPresentation({
-      runInTarget: "newWorktree",
-      phase: "ready",
-    })).toBe("hidden");
+    expect(
+      resolveThreadStartProgressPresentation({
+        runInTarget: "localProject",
+        phase: "startingThread",
+      }),
+    ).toBe("hidden");
+    expect(
+      resolveThreadStartProgressPresentation({
+        runInTarget: "localProject",
+        phase: "failed",
+      }),
+    ).toBe("panel");
+    expect(
+      resolveThreadStartProgressPresentation({
+        runInTarget: "newWorktree",
+        phase: "runningSetup",
+      }),
+    ).toBe("panel");
+    expect(
+      resolveThreadStartProgressPresentation({
+        runInTarget: "newWorktree",
+        phase: "ready",
+      }),
+    ).toBe("hidden");
   });
 
   test("keeps true resumed empty threads as empty", () => {

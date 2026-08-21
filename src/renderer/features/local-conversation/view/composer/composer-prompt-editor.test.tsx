@@ -57,10 +57,7 @@ function renderPromptEditor({
   };
 }
 
-function createFileClipboardData(
-  files: readonly File[],
-  initial: Record<string, string> = {},
-) {
+function createFileClipboardData(files: readonly File[], initial: Record<string, string> = {}) {
   const { clipboardData, data } = createClipboardData(initial);
   return {
     data,
@@ -95,13 +92,12 @@ describe("ComposerPromptEditor", () => {
     const editor = document.createElement("div");
     editor.textContent = "A prompt that may wrap";
     editor.style.minHeight = "1.25rem";
-    const measurement = vi.spyOn(editor, "getBoundingClientRect")
-      .mockImplementation(() => {
-        expect(editor.style.position).toBe("fixed");
-        expect(editor.style.visibility).toBe("hidden");
-        expect(editor.style.width).toBe("max-content");
-        return new DOMRect(0, 0, 428, 20);
-      });
+    const measurement = vi.spyOn(editor, "getBoundingClientRect").mockImplementation(() => {
+      expect(editor.style.position).toBe("fixed");
+      expect(editor.style.visibility).toBe("hidden");
+      expect(editor.style.width).toBe("max-content");
+      return new DOMRect(0, 0, 428, 20);
+    });
 
     expect(measureComposerPromptIntrinsicWidth(editor)).toBe(428);
     expect(editor.getAttribute("style")).toBe("min-height: 1.25rem;");
@@ -183,7 +179,7 @@ describe("ComposerPromptEditor", () => {
     });
     const { clipboardData } = createFileClipboardData([image], {
       "text/plain": "Keep this note",
-      "text/html": "<p>Keep this note</p><img src=\"data:image/png;base64,aQ==\">",
+      "text/html": '<p>Keep this note</p><img src="data:image/png;base64,aQ==">',
     });
 
     act(() => editorRef.current?.focusAtEnd());
@@ -344,9 +340,9 @@ describe("ComposerPromptEditor", () => {
   });
 
   test("keeps synthetic context suggestions inside the editor while the query changes", () => {
-    const suggestionStates: Array<ReturnType<
-      NonNullable<ComposerPromptEditorHandle["getSuggestionState"]>
-    >> = [];
+    const suggestionStates: Array<
+      ReturnType<NonNullable<ComposerPromptEditorHandle["getSuggestionState"]>>
+    > = [];
     const { editor, editorRef } = renderPromptEditor({
       value: "",
       onSuggestionStateChange: (state) => suggestionStates.push(state),
@@ -405,9 +401,7 @@ describe("ComposerPromptEditor", () => {
       });
     });
 
-    const mention = editor.querySelector(
-      "[plugin-mention-path='plugin://browser@openai-bundled']",
-    );
+    const mention = editor.querySelector("[plugin-mention-path='plugin://browser@openai-bundled']");
     expect(mention?.getAttribute("contenteditable")).toBe("false");
     expect(mention?.getAttribute("data-prompt-link-label")).toBe("@Browser");
     expect(mention?.textContent).toBe("Browser");
@@ -415,9 +409,7 @@ describe("ComposerPromptEditor", () => {
       "Use [@Browser](plugin://browser@openai-bundled) ",
     );
     expect(editorRef.current?.getSuggestionState().active).toBe(false);
-    expect(onChange).toHaveBeenLastCalledWith(
-      "Use [@Browser](plugin://browser@openai-bundled) ",
-    );
+    expect(onChange).toHaveBeenLastCalledWith("Use [@Browser](plugin://browser@openai-bundled) ");
   });
 
   test("keeps a dismissed typed match closed while its query continues", () => {
@@ -476,11 +468,8 @@ describe("ComposerPromptEditor", () => {
       });
     });
 
-    const mention = editor.querySelector(
-      "[app-mention-path='app://plugin-management']",
-    );
-    expect(mention?.getAttribute("data-prompt-link-label"))
-      .toBe("$plugin-management");
+    const mention = editor.querySelector("[app-mention-path='app://plugin-management']");
+    expect(mention?.getAttribute("data-prompt-link-label")).toBe("$plugin-management");
     expect(mention?.textContent).toBe("Plugin Management");
     expect(editorRef.current?.getPersistedText()).toBe(
       "Use [$plugin-management](app://plugin-management) ",
@@ -497,50 +486,49 @@ describe("ComposerPromptEditor", () => {
 
     act(() => {
       editorRef.current?.syncMentionMetadata({
-        apps: [{
-          id: "plugin-management",
-          name: "Plugin Management",
-          description: "Manage plugins",
-          logoUrl: null,
-          logoUrlDark: null,
-        }],
-        plugins: [{
-          name: "Browser",
-          displayName: "Browser",
-          description: "Control the browser",
-          path: "plugin://browser@openai-bundled",
-          iconUrl: null,
-          iconUrlDark: null,
-          brandColor: "#4b8df8",
-        }],
-        skills: [{
-          name: "plugin-creator",
-          displayName: "Plugin Creator",
-          description: "Create plugins",
-          iconUrl: null,
-          brandColor: null,
-          path: "/skills/plugin-creator/SKILL.md",
-        }],
+        apps: [
+          {
+            id: "plugin-management",
+            name: "Plugin Management",
+            description: "Manage plugins",
+            logoUrl: null,
+            logoUrlDark: null,
+          },
+        ],
+        plugins: [
+          {
+            name: "Browser",
+            displayName: "Browser",
+            description: "Control the browser",
+            path: "plugin://browser@openai-bundled",
+            iconUrl: null,
+            iconUrlDark: null,
+            brandColor: "#4b8df8",
+          },
+        ],
+        skills: [
+          {
+            name: "plugin-creator",
+            displayName: "Plugin Creator",
+            description: "Create plugins",
+            iconUrl: null,
+            brandColor: null,
+            path: "/skills/plugin-creator/SKILL.md",
+          },
+        ],
       });
     });
 
+    expect(editor.querySelector("[app-mention-path='app://plugin-management']")?.textContent).toBe(
+      "Plugin Management",
+    );
     expect(
-      editor.querySelector("[app-mention-path='app://plugin-management']")
-        ?.textContent,
-    ).toBe("Plugin Management");
-    expect(
-      editor.querySelector(
-        "[skill-mention-path='/skills/plugin-creator/SKILL.md']",
-      )?.textContent,
+      editor.querySelector("[skill-mention-path='/skills/plugin-creator/SKILL.md']")?.textContent,
     ).toBe("Plugin Creator");
     expect(
-      editor.querySelector(
-        "[plugin-mention-path='plugin://browser@openai-bundled']",
-      )?.textContent,
+      editor.querySelector("[plugin-mention-path='plugin://browser@openai-bundled']")?.textContent,
     ).toBe("Browser");
-    expect(editorRef.current?.getPersistedText()).toBe(
-      value.replace("[@browser]", "[@Browser]"),
-    );
+    expect(editorRef.current?.getPersistedText()).toBe(value.replace("[@browser]", "[@Browser]"));
   });
 
   test("uses slash submenu transactions for source reset and synthetic dismissal", () => {
@@ -603,20 +591,12 @@ describe("ComposerPromptEditor", () => {
     const { editor, editorRef } = renderPromptEditor({ value });
 
     expect(
-      editor.querySelector(
-        "[plugin-mention-path='plugin://browser@openai-bundled']",
-      ),
+      editor.querySelector("[plugin-mention-path='plugin://browser@openai-bundled']"),
     ).not.toBeNull();
+    expect(editor.querySelector("[skill-mention-path='/skills/pdf/SKILL.md']")).not.toBeNull();
+    expect(editor.querySelector("[at-mention-path='docs/notes.md']")).not.toBeNull();
     expect(
-      editor.querySelector("[skill-mention-path='/skills/pdf/SKILL.md']"),
-    ).not.toBeNull();
-    expect(
-      editor.querySelector("[at-mention-path='docs/notes.md']"),
-    ).not.toBeNull();
-    expect(
-      editor.querySelector(
-        "[sites-project-mention-path='sites-project://site-1']",
-      ),
+      editor.querySelector("[sites-project-mention-path='sites-project://site-1']"),
     ).not.toBeNull();
     expect(editorRef.current?.getPersistedText()).toBe(value);
   });

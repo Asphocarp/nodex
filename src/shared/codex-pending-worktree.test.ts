@@ -21,9 +21,7 @@ describe("codex pending worktree label", () => {
     ].join("\n");
 
     expect(extractCodexUserRequestSection(prompt)).toBe("Build the exact pending lifecycle");
-    expect(summarizeCodexPendingWorktreeLabel(prompt)).toBe(
-      "Build the exact pending lifecycle",
-    );
+    expect(summarizeCodexPendingWorktreeLabel(prompt)).toBe("Build the exact pending lifecycle");
   });
 
   test("collapses prompt whitespace and uses the exact empty fallback", () => {
@@ -151,15 +149,19 @@ describe("codex pending worktree setup repair", () => {
     };
 
     expect(canCreateCodexPendingWorktreeSetupRepair(entry)).toBe(true);
-    expect(buildCodexPendingWorktreeSetupRepairPrompt(entry)).toBe([
-      "Fix this project's local environment setup.",
-      "The original worktree setup failed before its thread could start. Do not continue the original user request. Start a one-off repair task in this new worktree without running the broken setup automatically. Paths in the failure output refer to the original source or failed worktree, so edit the corresponding files in this current repair worktree. Inspect the selected local environment config and related setup files, reproduce the failure manually if useful, make the smallest source-controlled fix, verify the setup succeeds, and leave the proposed fix here for user review before they retry the original task. If the fix should not be made automatically, explain exactly what the user should change.",
-      "Selected local environment config: .codex/environments/dev.toml\nOriginal setup error: setup exited 1",
-      "Original setup output:\n```text\ndependency failed\n\n```",
-    ].join("\n\n"));
-    expect(canCreateCodexPendingWorktreeSetupRepair({
-      ...entry,
-      worktreeGitRoot: null,
-    })).toBe(false);
+    expect(buildCodexPendingWorktreeSetupRepairPrompt(entry)).toBe(
+      [
+        "Fix this project's local environment setup.",
+        "The original worktree setup failed before its thread could start. Do not continue the original user request. Start a one-off repair task in this new worktree without running the broken setup automatically. Paths in the failure output refer to the original source or failed worktree, so edit the corresponding files in this current repair worktree. Inspect the selected local environment config and related setup files, reproduce the failure manually if useful, make the smallest source-controlled fix, verify the setup succeeds, and leave the proposed fix here for user review before they retry the original task. If the fix should not be made automatically, explain exactly what the user should change.",
+        "Selected local environment config: .codex/environments/dev.toml\nOriginal setup error: setup exited 1",
+        "Original setup output:\n```text\ndependency failed\n\n```",
+      ].join("\n\n"),
+    );
+    expect(
+      canCreateCodexPendingWorktreeSetupRepair({
+        ...entry,
+        worktreeGitRoot: null,
+      }),
+    ).toBe(false);
   });
 });

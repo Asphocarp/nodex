@@ -7,10 +7,7 @@ import {
   ETagSchema,
   SiblingAnchorSchema,
 } from "./base-schemas";
-import {
-  BlockUpdatePatchSchema,
-  NewBlockDraftSchema,
-} from "./write-schemas";
+import { BlockUpdatePatchSchema, NewBlockDraftSchema } from "./write-schemas";
 import {
   PageDestinationV3Schema,
   PageLocationV3Schema,
@@ -30,32 +27,34 @@ const CreatePageDraftV3Schema = z.strictObject({
   values: z.array(DatabaseValueDraftV3Schema).max(512).optional(),
 });
 
-export const CreatePagesV3InputSchema = z.strictObject({
-  destination: PageDestinationV3Schema,
-  pages: z.array(CreatePageDraftV3Schema).min(1).max(16),
-  return: uniqueSelectorList(["block_ids", "etags"]).optional(),
-}).superRefine((input, context) => {
-  const bodyBytes = input.pages.reduce(
-    (total, page) => total + new TextEncoder().encode(page.markdown ?? "").byteLength,
-    0,
-  );
-  if (bodyBytes > 2 * 1024 * 1024) {
-    context.addIssue({
-      code: "custom",
-      message: "The Page batch exceeds the 2 MiB aggregate Nested Markdown limit",
-      path: ["pages"],
-    });
-  }
-  if (input.destination.kind === "data_source") return;
-  input.pages.forEach((page, index) => {
-    if (page.values === undefined) return;
-    context.addIssue({
-      code: "custom",
-      message: "Initial values require a Data Source destination",
-      path: ["pages", index, "values"],
+export const CreatePagesV3InputSchema = z
+  .strictObject({
+    destination: PageDestinationV3Schema,
+    pages: z.array(CreatePageDraftV3Schema).min(1).max(16),
+    return: uniqueSelectorList(["block_ids", "etags"]).optional(),
+  })
+  .superRefine((input, context) => {
+    const bodyBytes = input.pages.reduce(
+      (total, page) => total + new TextEncoder().encode(page.markdown ?? "").byteLength,
+      0,
+    );
+    if (bodyBytes > 2 * 1024 * 1024) {
+      context.addIssue({
+        code: "custom",
+        message: "The Page batch exceeds the 2 MiB aggregate Nested Markdown limit",
+        path: ["pages"],
+      });
+    }
+    if (input.destination.kind === "data_source") return;
+    input.pages.forEach((page, index) => {
+      if (page.values === undefined) return;
+      context.addIssue({
+        code: "custom",
+        message: "Initial values require a Data Source destination",
+        path: ["pages", index, "values"],
+      });
     });
   });
-});
 
 const PageMutationEtagsV3Schema = z.strictObject({
   title: ETagSchema,
@@ -78,7 +77,10 @@ export const CreatePagesV3DataSchema = z.strictObject({
 export const CreatePagesV3OutputSchema = createToolSuccessSchema(CreatePagesV3DataSchema);
 
 const ExactMarkdownPatchV3Schema = z.strictObject({
-  oldMarkdown: z.string().min(1).max(2 * 1024 * 1024),
+  oldMarkdown: z
+    .string()
+    .min(1)
+    .max(2 * 1024 * 1024),
   newMarkdown: NestedMarkdownSchema,
   expectedMatches: z.number().int().min(1).max(100).optional(),
 });
@@ -100,51 +102,57 @@ export const PageBodyUpdateV3Schema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-const PageUpdateReturnV3Schema = uniqueSelectorList([
-  "markdown",
-  "block_ids",
-  "etags",
-]);
+const PageUpdateReturnV3Schema = uniqueSelectorList(["markdown", "block_ids", "etags"]);
 
-export const UpdatePageV3InputSchema = z.strictObject({
-  pageId: BlockIdSchema,
-  title: z.strictObject({
-    markdown: InlineMarkdownTitleSchema,
-    ifMatch: ETagSchema,
-  }).optional(),
-  body: PageBodyUpdateV3Schema.optional(),
-  safety: z.strictObject({
-    allowDeletingOwnedBlocks: z.boolean().optional(),
-  }).optional(),
-  return: PageUpdateReturnV3Schema.optional(),
-}).refine(
-  (input) => input.title !== undefined || input.body !== undefined,
-  "update_page requires title or body",
-);
+export const UpdatePageV3InputSchema = z
+  .strictObject({
+    pageId: BlockIdSchema,
+    title: z
+      .strictObject({
+        markdown: InlineMarkdownTitleSchema,
+        ifMatch: ETagSchema,
+      })
+      .optional(),
+    body: PageBodyUpdateV3Schema.optional(),
+    safety: z
+      .strictObject({
+        allowDeletingOwnedBlocks: z.boolean().optional(),
+      })
+      .optional(),
+    return: PageUpdateReturnV3Schema.optional(),
+  })
+  .refine(
+    (input) => input.title !== undefined || input.body !== undefined,
+    "update_page requires title or body",
+  );
 
 const PageUpdateEffectsV3Schema = z.strictObject({
   created: z.number().int().min(0),
   updated: z.number().int().min(0),
   moved: z.number().int().min(0),
   deleted: z.number().int().min(0),
-  blockIds: z.strictObject({
-    created: z.array(BlockIdSchema),
-    local: z.record(z.string(), BlockIdSchema),
-    copied: BlockIdMapV3Schema,
-    updated: z.array(BlockIdSchema),
-    moved: z.array(BlockIdSchema),
-    deleted: z.array(BlockIdSchema),
-  }).optional(),
+  blockIds: z
+    .strictObject({
+      created: z.array(BlockIdSchema),
+      local: z.record(z.string(), BlockIdSchema),
+      copied: BlockIdMapV3Schema,
+      updated: z.array(BlockIdSchema),
+      moved: z.array(BlockIdSchema),
+      deleted: z.array(BlockIdSchema),
+    })
+    .optional(),
 });
 
 export const PageUpdateV3DataSchema = z.strictObject({
   pageId: BlockIdSchema,
   effects: PageUpdateEffectsV3Schema,
-  body: z.strictObject({
-    format: z.literal("markdown"),
-    markdown: z.string(),
-    contentHash: z.string().min(1).max(512),
-  }).optional(),
+  body: z
+    .strictObject({
+      format: z.literal("markdown"),
+      markdown: z.string(),
+      contentHash: z.string().min(1).max(512),
+    })
+    .optional(),
   etags: PageMutationEtagsV3Schema.optional(),
 });
 
@@ -177,15 +185,15 @@ export const StableBlockEditV3Schema = z.discriminatedUnion("kind", [
 export const AdvancedUpdatePageV3InputSchema = z.strictObject({
   pageId: BlockIdSchema,
   edits: z.array(StableBlockEditV3Schema).min(1).max(512),
-  safety: z.strictObject({
-    allowDeletingOwnedBlocks: z.boolean().optional(),
-  }).optional(),
+  safety: z
+    .strictObject({
+      allowDeletingOwnedBlocks: z.boolean().optional(),
+    })
+    .optional(),
   return: PageUpdateReturnV3Schema.optional(),
 });
 
-export const AdvancedUpdatePageV3OutputSchema = createToolSuccessSchema(
-  PageUpdateV3DataSchema,
-);
+export const AdvancedUpdatePageV3OutputSchema = createToolSuccessSchema(PageUpdateV3DataSchema);
 
 const MovePagesDestinationV3Schema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("library"), at: SiblingAnchorSchema.optional() }),
@@ -203,10 +211,11 @@ const MovePagesDestinationV3Schema = z.discriminatedUnion("kind", [
 ]);
 
 export const MovePagesV3InputSchema = z.strictObject({
-  pageIds: z.array(BlockIdSchema).min(1).max(16).refine(
-    (ids) => new Set(ids).size === ids.length,
-    "pageIds must be unique",
-  ),
+  pageIds: z
+    .array(BlockIdSchema)
+    .min(1)
+    .max(16)
+    .refine((ids) => new Set(ids).size === ids.length, "pageIds must be unique"),
   destination: MovePagesDestinationV3Schema,
 });
 

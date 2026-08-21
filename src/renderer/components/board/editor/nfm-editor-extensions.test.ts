@@ -19,13 +19,15 @@ describe("nfm editor extensions", () => {
   });
 
   test("reuses the shared empty thread-section block shape", () => {
-    expect(JSON.stringify(createEmptyThreadSectionBlock())).toBe(JSON.stringify({
-      type: "threadSection",
-      props: {
-        label: "",
-        threadId: "",
-      },
-    }));
+    expect(JSON.stringify(createEmptyThreadSectionBlock())).toBe(
+      JSON.stringify({
+        type: "threadSection",
+        props: {
+          label: "",
+          threadId: "",
+        },
+      }),
+    );
   });
 
   test("guards generic paste replacement of a typed owner", () => {

@@ -40,10 +40,9 @@ function makeHarness() {
   };
   const service = new BrowserCredentialService({
     vault,
-    resolveGuest: (candidate) =>
-      candidate.browserTabId === identity.browserTabId ? guest : null,
-    resolveGuestIdentity: (guestId) => guestId === 42 ? identity : null,
-    resolveGuestOwner: (guestId) => guestId === 42 ? 7 : null,
+    resolveGuest: (candidate) => (candidate.browserTabId === identity.browserTabId ? guest : null),
+    resolveGuestIdentity: (guestId) => (guestId === 42 ? identity : null),
+    resolveGuestOwner: (guestId) => (guestId === 42 ? 7 : null),
     now: () => 1_000,
   });
   return {
@@ -104,10 +103,12 @@ describe("BrowserCredentialService", () => {
       username: "person@example.com",
     });
     expect(JSON.stringify(candidate)).not.toContain("top-secret");
-    expect(await service.actOnCandidate(7, {
-      candidateId: candidate!.candidateId,
-      action: "save",
-    })).toEqual({ ok: true });
+    expect(
+      await service.actOnCandidate(7, {
+        candidateId: candidate!.candidateId,
+        action: "save",
+      }),
+    ).toEqual({ ok: true });
     expect(await service.listForTab(identity)).toHaveLength(1);
   });
 
@@ -118,10 +119,12 @@ describe("BrowserCredentialService", () => {
       username: "person",
       password: "top-secret",
     });
-    expect(await service.fill({
-      ...identity,
-      credentialId: summary.id,
-    })).toEqual({ ok: true });
+    expect(
+      await service.fill({
+        ...identity,
+        credentialId: summary.id,
+      }),
+    ).toEqual({ ok: true });
     expect(send).toHaveBeenCalledWith("browser-credential-fill", {
       origin: "https://example.com",
       username: "person",
@@ -130,10 +133,12 @@ describe("BrowserCredentialService", () => {
     });
 
     setUrl("https://other.example");
-    expect(await service.fill({
-      ...identity,
-      credentialId: summary.id,
-    })).toMatchObject({ ok: false });
+    expect(
+      await service.fill({
+        ...identity,
+        credentialId: summary.id,
+      }),
+    ).toMatchObject({ ok: false });
     expect(send).toHaveBeenCalledTimes(1);
   });
 
@@ -152,10 +157,12 @@ describe("BrowserCredentialService", () => {
       country: "China",
     });
 
-    expect(await service.fillContactInfo({
-      ...identity,
-      contactInfoId: contact.id,
-    })).toEqual({ ok: true });
+    expect(
+      await service.fillContactInfo({
+        ...identity,
+        contactInfoId: contact.id,
+      }),
+    ).toEqual({ ok: true });
     expect(send).toHaveBeenCalledWith("browser-contact-info-fill", {
       origin: "https://example.com",
       contactInfo: {
@@ -178,10 +185,12 @@ describe("BrowserCredentialService", () => {
       username: "person",
       password: "top-secret",
     });
-    expect(await service.actOnCandidate(8, {
-      candidateId: candidate!.candidateId,
-      action: "save",
-    })).toMatchObject({ ok: false });
+    expect(
+      await service.actOnCandidate(8, {
+        candidateId: candidate!.candidateId,
+        action: "save",
+      }),
+    ).toMatchObject({ ok: false });
   });
 
   test("does not prompt again when the submitted credential is unchanged", async () => {
@@ -191,9 +200,11 @@ describe("BrowserCredentialService", () => {
       username: "person",
       password: "top-secret",
     });
-    expect(await service.captureGuestCandidate(42, {
-      username: "person",
-      password: "top-secret",
-    })).toBeNull();
+    expect(
+      await service.captureGuestCandidate(42, {
+        username: "person",
+        password: "top-secret",
+      }),
+    ).toBeNull();
   });
 });

@@ -83,90 +83,91 @@ const REFERENCE_MOCK_ACTION_KEYS = new Set<NfmSideMenuActionKey>([
   "ask-ai",
 ]);
 
-const REFERENCE_ACTIONS: readonly Omit<NfmSideMenuAction, "section" | "enabled" | "mockReason">[] = [
-  {
-    key: "turn-into",
-    label: "Turn into",
-    kind: "submenu",
-    visualGroup: "block-shape",
-    submenu: "turn-into",
-    keywords: ["convert", "type", "block"],
-  },
-  {
-    key: "color",
-    label: "Color",
-    kind: "submenu",
-    visualGroup: "block-shape",
-    submenu: "color",
-    keywords: ["colour", "background", "text"],
-  },
-  {
-    key: "copy-link-to-block",
-    label: "Copy link to block",
-    kind: "action",
-    visualGroup: "block-move",
-    shortcut: "⌘⌃L",
-    keywords: ["url", "anchor"],
-  },
-  {
-    key: "duplicate",
-    label: "Duplicate",
-    kind: "action",
-    visualGroup: "block-move",
-    shortcut: "⌘D",
-    keywords: ["copy"],
-  },
-  {
-    key: "move-to",
-    label: "Move to",
-    kind: "submenu",
-    visualGroup: "block-move",
-    submenu: "move-to",
-    shortcut: "⌘⇧P",
-    keywords: ["relocate", "page", "page", "database", "db", "nodex"],
-  },
-  {
-    key: "delete",
-    label: "Delete",
-    kind: "action",
-    visualGroup: "block-move",
-    shortcut: "Del",
-    keywords: ["remove", "trash"],
-  },
-  {
-    key: "comment",
-    label: "Comment",
-    kind: "action",
-    visualGroup: "collaboration",
-    shortcut: "⌘⇧M",
-    keywords: ["note"],
-  },
-  {
-    key: "suggest-edits",
-    label: "Suggest edits",
-    kind: "action",
-    visualGroup: "collaboration",
-    shortcut: "⌘⇧⌥X",
-    keywords: ["review", "proposal"],
-  },
-  {
-    key: "present-from-here",
-    label: "Present from here",
-    kind: "action",
-    visualGroup: "presentation",
-    shortcut: "⌘⌥P",
-    badge: "Beta",
-    keywords: ["presentation", "play"],
-  },
-  {
-    key: "ask-ai",
-    label: "Ask AI",
-    kind: "action",
-    visualGroup: "ai",
-    shortcut: "⌘J",
-    keywords: ["assistant", "codex"],
-  },
-] as const;
+const REFERENCE_ACTIONS: readonly Omit<NfmSideMenuAction, "section" | "enabled" | "mockReason">[] =
+  [
+    {
+      key: "turn-into",
+      label: "Turn into",
+      kind: "submenu",
+      visualGroup: "block-shape",
+      submenu: "turn-into",
+      keywords: ["convert", "type", "block"],
+    },
+    {
+      key: "color",
+      label: "Color",
+      kind: "submenu",
+      visualGroup: "block-shape",
+      submenu: "color",
+      keywords: ["colour", "background", "text"],
+    },
+    {
+      key: "copy-link-to-block",
+      label: "Copy link to block",
+      kind: "action",
+      visualGroup: "block-move",
+      shortcut: "⌘⌃L",
+      keywords: ["url", "anchor"],
+    },
+    {
+      key: "duplicate",
+      label: "Duplicate",
+      kind: "action",
+      visualGroup: "block-move",
+      shortcut: "⌘D",
+      keywords: ["copy"],
+    },
+    {
+      key: "move-to",
+      label: "Move to",
+      kind: "submenu",
+      visualGroup: "block-move",
+      submenu: "move-to",
+      shortcut: "⌘⇧P",
+      keywords: ["relocate", "page", "page", "database", "db", "nodex"],
+    },
+    {
+      key: "delete",
+      label: "Delete",
+      kind: "action",
+      visualGroup: "block-move",
+      shortcut: "Del",
+      keywords: ["remove", "trash"],
+    },
+    {
+      key: "comment",
+      label: "Comment",
+      kind: "action",
+      visualGroup: "collaboration",
+      shortcut: "⌘⇧M",
+      keywords: ["note"],
+    },
+    {
+      key: "suggest-edits",
+      label: "Suggest edits",
+      kind: "action",
+      visualGroup: "collaboration",
+      shortcut: "⌘⇧⌥X",
+      keywords: ["review", "proposal"],
+    },
+    {
+      key: "present-from-here",
+      label: "Present from here",
+      kind: "action",
+      visualGroup: "presentation",
+      shortcut: "⌘⌥P",
+      badge: "Beta",
+      keywords: ["presentation", "play"],
+    },
+    {
+      key: "ask-ai",
+      label: "Ask AI",
+      kind: "action",
+      visualGroup: "ai",
+      shortcut: "⌘J",
+      keywords: ["assistant", "codex"],
+    },
+  ] as const;
 
 function toNumberProp(props: Record<string, unknown> | undefined, key: string) {
   const value = props?.[key];
@@ -202,9 +203,7 @@ function resolveSingleBlockScopeTitle(block: NfmSideMenuTargetBlockDescriptor) {
   return "Block";
 }
 
-export function resolveNfmSideMenuScopeTitle(
-  blocks: readonly NfmSideMenuTargetBlockDescriptor[],
-) {
+export function resolveNfmSideMenuScopeTitle(blocks: readonly NfmSideMenuTargetBlockDescriptor[]) {
   if (blocks.length === 0) return "Block";
   if (blocks.length > 1) return `${blocks.length} blocks`;
   return resolveSingleBlockScopeTitle(blocks[0]!);
@@ -232,24 +231,27 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
     if (isMockAction && !input.showMockActions) return [];
 
     const enabled = enabledForReferenceAction(action, input);
-    const label = action.key === "copy-link-to-block" && input.selectedTopLevelBlockCount > 1
-      ? "Copy links to all"
-      : action.label;
-    return [{
-      ...action,
-      label,
-      section: "selection" as const,
-      enabled: isMockAction ? false : enabled,
-      mockReason: isMockAction ? SIDE_MENU_MOCK_REASON : undefined,
-    }];
+    const label =
+      action.key === "copy-link-to-block" && input.selectedTopLevelBlockCount > 1
+        ? "Copy links to all"
+        : action.label;
+    return [
+      {
+        ...action,
+        label,
+        section: "selection" as const,
+        enabled: isMockAction ? false : enabled,
+        mockReason: isMockAction ? SIDE_MENU_MOCK_REASON : undefined,
+      },
+    ];
   });
 
   const nodexRows: NfmSideMenuAction[] = [];
   if (
-    input.currentBlockId
-    && input.currentBlockType === "divider"
-    && input.selectedTopLevelBlockCount === 1
-    && input.hasConvertDividerToThreadSection
+    input.currentBlockId &&
+    input.currentBlockType === "divider" &&
+    input.selectedTopLevelBlockCount === 1 &&
+    input.hasConvertDividerToThreadSection
   ) {
     nodexRows.push({
       key: "convert-divider-to-thread-section",
@@ -262,76 +264,77 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
     });
   }
 
-  const tableRows: NfmSideMenuAction[] = input.currentBlockId
-    && input.isTableBlock
-    && input.canUseTableHeaders
-    && input.selectedTopLevelBlockCount === 1
-    ? [
-        {
-          key: "table-header-row",
-          label: "Header row",
-          kind: "action",
-          section: "table",
-          visualGroup: "table",
-          enabled: input.isEditable,
-          keywords: ["table"],
-        },
-        {
-          key: "table-header-column",
-          label: "Header column",
-          kind: "action",
-          section: "table",
-          visualGroup: "table",
-          enabled: input.isEditable,
-          keywords: ["table"],
-        },
-        ...(input.showMockActions
-          ? [
-              {
-                key: "table-fit-width",
-                label: "Fit table width",
-                kind: "action",
-                section: "table",
-                visualGroup: "table",
-                enabled: false,
-                mockReason: SIDE_MENU_MOCK_REASON,
-                keywords: ["resize", "fit", "page"],
-              },
-              {
-                key: "table-row-color",
-                label: "Row color",
-                kind: "action",
-                section: "table",
-                visualGroup: "table",
-                enabled: false,
-                mockReason: SIDE_MENU_MOCK_REASON,
-                keywords: ["table", "row", "background"],
-              },
-              {
-                key: "table-column-color",
-                label: "Column color",
-                kind: "action",
-                section: "table",
-                visualGroup: "table",
-                enabled: false,
-                mockReason: SIDE_MENU_MOCK_REASON,
-                keywords: ["table", "column", "background"],
-              },
-              {
-                key: "table-create-cards-from-rows",
-                label: "Create cards from rows",
-                kind: "action",
-                section: "table",
-                visualGroup: "nodex",
-                enabled: false,
-                mockReason: SIDE_MENU_MOCK_REASON,
-                badge: "Nodex",
-                keywords: ["table", "cards", "rows", "nodex"],
-              },
-            ] satisfies NfmSideMenuAction[]
-          : []),
-      ]
-    : [];
+  const tableRows: NfmSideMenuAction[] =
+    input.currentBlockId &&
+    input.isTableBlock &&
+    input.canUseTableHeaders &&
+    input.selectedTopLevelBlockCount === 1
+      ? [
+          {
+            key: "table-header-row",
+            label: "Header row",
+            kind: "action",
+            section: "table",
+            visualGroup: "table",
+            enabled: input.isEditable,
+            keywords: ["table"],
+          },
+          {
+            key: "table-header-column",
+            label: "Header column",
+            kind: "action",
+            section: "table",
+            visualGroup: "table",
+            enabled: input.isEditable,
+            keywords: ["table"],
+          },
+          ...(input.showMockActions
+            ? ([
+                {
+                  key: "table-fit-width",
+                  label: "Fit table width",
+                  kind: "action",
+                  section: "table",
+                  visualGroup: "table",
+                  enabled: false,
+                  mockReason: SIDE_MENU_MOCK_REASON,
+                  keywords: ["resize", "fit", "page"],
+                },
+                {
+                  key: "table-row-color",
+                  label: "Row color",
+                  kind: "action",
+                  section: "table",
+                  visualGroup: "table",
+                  enabled: false,
+                  mockReason: SIDE_MENU_MOCK_REASON,
+                  keywords: ["table", "row", "background"],
+                },
+                {
+                  key: "table-column-color",
+                  label: "Column color",
+                  kind: "action",
+                  section: "table",
+                  visualGroup: "table",
+                  enabled: false,
+                  mockReason: SIDE_MENU_MOCK_REASON,
+                  keywords: ["table", "column", "background"],
+                },
+                {
+                  key: "table-create-cards-from-rows",
+                  label: "Create cards from rows",
+                  kind: "action",
+                  section: "table",
+                  visualGroup: "nodex",
+                  enabled: false,
+                  mockReason: SIDE_MENU_MOCK_REASON,
+                  badge: "Nodex",
+                  keywords: ["table", "cards", "rows", "nodex"],
+                },
+              ] satisfies NfmSideMenuAction[])
+            : []),
+        ]
+      : [];
 
   const sections: NfmSideMenuSection[] = [
     { key: "selection", label: input.selectionTitle, rows: referenceRows },
@@ -350,12 +353,9 @@ function rowMatchesQuery(row: NfmSideMenuAction, query: string) {
   const normalizedQuery = normalizeQueryPart(query);
   if (!normalizedQuery) return true;
 
-  const haystack = normalizeQueryPart([
-    row.label,
-    row.shortcut ?? "",
-    row.badge ?? "",
-    ...(row.keywords ?? []),
-  ].join(" "));
+  const haystack = normalizeQueryPart(
+    [row.label, row.shortcut ?? "", row.badge ?? "", ...(row.keywords ?? [])].join(" "),
+  );
 
   return haystack.includes(normalizedQuery);
 }
@@ -375,10 +375,12 @@ export function filterNfmSideMenuSections(
 export function flattenNfmSideMenuRows(
   sections: readonly NfmSideMenuSection[],
 ): NfmSideMenuFlatRow[] {
-  return sections.flatMap((section) => section.rows.map((row) => ({
-    sectionKey: section.key,
-    row,
-  })));
+  return sections.flatMap((section) =>
+    section.rows.map((row) => ({
+      sectionKey: section.key,
+      row,
+    })),
+  );
 }
 
 export function shouldRenderNfmSideMenuSeparatorBefore(

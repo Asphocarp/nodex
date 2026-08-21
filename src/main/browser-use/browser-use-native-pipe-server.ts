@@ -35,8 +35,7 @@ export interface BrowserUseNativePipeRequestEvent {
   notification: boolean;
 }
 
-export interface BrowserUseNativePipeRequestCompletedEvent
-  extends BrowserUseNativePipeRequestEvent {
+export interface BrowserUseNativePipeRequestCompletedEvent extends BrowserUseNativePipeRequestEvent {
   durationMs: number;
   outcome: "error" | "success";
 }
@@ -72,10 +71,10 @@ function boundedErrorMessage(error: unknown): string {
 function requestLabel(request: BrowserUseRpcRequest): string {
   if (request.method !== "executeCdp") return request.method;
   if (
-    typeof request.params !== "object"
-    || request.params === null
-    || !("method" in request.params)
-    || typeof request.params.method !== "string"
+    typeof request.params !== "object" ||
+    request.params === null ||
+    !("method" in request.params) ||
+    typeof request.params.method !== "string"
   ) {
     return request.method;
   }
@@ -109,9 +108,9 @@ async function removeOwnedUnixPipe(pipePath: string): Promise<void> {
     await fs.unlink(pipePath);
   } catch (error) {
     if (
-      error instanceof Error
-      && "code" in error
-      && (error as NodeJS.ErrnoException).code === "ENOENT"
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
     ) {
       return;
     }
@@ -132,14 +131,14 @@ export class BrowserUseNativePipeServer {
     this.events = options.events ?? {};
     this.handler = options.handler;
     this.socketPeerAuthorizer = options.socketPeerAuthorizer;
-    this.pipePath = options.pipePath ?? (
-      process.platform === "win32"
+    this.pipePath =
+      options.pipePath ??
+      (process.platform === "win32"
         ? `${options.nativePipeDirectory ?? resolveBrowserUseNativePipeDirectory()}-${randomUUID()}`
         : path.join(
             options.nativePipeDirectory ?? resolveBrowserUseNativePipeDirectory(),
             `${randomUUID()}.sock`,
-          )
-    );
+          ));
   }
 
   async start(): Promise<void> {
@@ -176,11 +175,13 @@ export class BrowserUseNativePipeServer {
   }
 
   broadcast(method: string, params?: unknown): void {
-    const frame = encodeBrowserUseNativePipeFrame(JSON.stringify({
-      jsonrpc: "2.0",
-      method,
-      ...(params === undefined ? {} : { params }),
-    }));
+    const frame = encodeBrowserUseNativePipeFrame(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method,
+        ...(params === undefined ? {} : { params }),
+      }),
+    );
     for (const connection of this.connections.values()) {
       if (!connection.socket.destroyed) connection.socket.write(frame);
     }
@@ -239,10 +240,7 @@ export class BrowserUseNativePipeServer {
     });
   }
 
-  private handleSocketData(
-    connection: BrowserUseNativePipeConnection,
-    chunk: Buffer,
-  ): void {
+  private handleSocketData(connection: BrowserUseNativePipeConnection, chunk: Buffer): void {
     let messages: string[];
     try {
       messages = connection.decoder.push(chunk);
@@ -287,9 +285,11 @@ export class BrowserUseNativePipeServer {
         outcome: "success",
       });
       if (notification || connection.socket.destroyed) return;
-      connection.socket.write(encodeBrowserUseNativePipeFrame(
-        JSON.stringify(makeBrowserUseRpcResult(request.id!, result)),
-      ));
+      connection.socket.write(
+        encodeBrowserUseNativePipeFrame(
+          JSON.stringify(makeBrowserUseRpcResult(request.id!, result)),
+        ),
+      );
     } catch (error) {
       this.events.onRequestCompleted?.({
         ...requestEvent,
@@ -297,13 +297,11 @@ export class BrowserUseNativePipeServer {
         outcome: "error",
       });
       if (notification || connection.socket.destroyed) return;
-      connection.socket.write(encodeBrowserUseNativePipeFrame(
-        JSON.stringify(makeBrowserUseRpcError(
-          request.id!,
-          1,
-          boundedErrorMessage(error),
-        )),
-      ));
+      connection.socket.write(
+        encodeBrowserUseNativePipeFrame(
+          JSON.stringify(makeBrowserUseRpcError(request.id!, 1, boundedErrorMessage(error))),
+        ),
+      );
     }
   }
 }

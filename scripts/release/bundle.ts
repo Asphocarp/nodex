@@ -67,11 +67,16 @@ export interface ArchitectureBuildManifest {
 
 export interface ReleaseBundleManifest {
   readonly agentSkills: AgentSkillsIdentity;
-  readonly architectures: Readonly<Record<MacArchitecture, {
-    readonly manifestSha256: string;
-    readonly preparedBuildGeneration: string;
-    readonly updateManifestSha256: string;
-  }>>;
+  readonly architectures: Readonly<
+    Record<
+      MacArchitecture,
+      {
+        readonly manifestSha256: string;
+        readonly preparedBuildGeneration: string;
+        readonly updateManifestSha256: string;
+      }
+    >
+  >;
   readonly assets: readonly ReleaseArtifactIdentity[];
   readonly runtimeLocks: ArchitectureBuildManifest["runtimeLocks"];
   readonly schemaVersion: 2;
@@ -119,10 +124,10 @@ const legacyStableIdentity = (options: {
 });
 
 const parseAgentSkillsIdentity = (value: unknown, label: string): AgentSkillsIdentity => {
-  if (!isRecord(value) || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([
-    "manifestSha256",
-    "treeSha256",
-  ])) {
+  if (
+    !isRecord(value) ||
+    JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(["manifestSha256", "treeSha256"])
+  ) {
     throw new Error(`${label} has an unsupported shape.`);
   }
   return {
@@ -161,14 +166,14 @@ const parseArtifact = (value: unknown): ReleaseArtifactIdentity => {
   if (!isRecord(value)) throw new Error("Release artifact identity is invalid.");
   const architecture = value.architecture;
   if (
-    typeof value.name !== "string"
-    || basename(value.name) !== value.name
-    || !Number.isSafeInteger(value.bytes)
-    || (value.bytes as number) <= 0
-    || typeof value.sha256 !== "string"
-    || typeof value.role !== "string"
-    || !ARTIFACT_ROLES.has(value.role as ReleaseArtifactIdentity["role"])
-    || (architecture !== undefined && architecture !== "arm64" && architecture !== "x64")
+    typeof value.name !== "string" ||
+    basename(value.name) !== value.name ||
+    !Number.isSafeInteger(value.bytes) ||
+    (value.bytes as number) <= 0 ||
+    typeof value.sha256 !== "string" ||
+    typeof value.role !== "string" ||
+    !ARTIFACT_ROLES.has(value.role as ReleaseArtifactIdentity["role"]) ||
+    (architecture !== undefined && architecture !== "arm64" && architecture !== "x64")
   ) {
     throw new Error("Release artifact identity is invalid.");
   }
@@ -185,32 +190,40 @@ export function parseArchitectureBuildManifest(value: unknown): ArchitectureBuil
   if (!isRecord(value)) throw new Error("Architecture build manifest is invalid.");
   const candidate = value as Partial<ArchitectureBuildManifest>;
   if (
-    candidate.schemaVersion !== 2
-    || (candidate.architecture !== "arm64" && candidate.architecture !== "x64")
-    || typeof candidate.version !== "string"
-    || typeof candidate.tag !== "string"
-    || typeof candidate.sourceSha !== "string"
-    || typeof candidate.sourceTree !== "string"
-    || !candidate.preparedBuild
-    || candidate.preparedBuild.state !== "clean"
-    || !candidate.runtimeLocks
-    || typeof candidate.packageProvenanceSha256 !== "string"
-    || !Array.isArray(candidate.artifacts)
-    || !candidate.runner
+    candidate.schemaVersion !== 2 ||
+    (candidate.architecture !== "arm64" && candidate.architecture !== "x64") ||
+    typeof candidate.version !== "string" ||
+    typeof candidate.tag !== "string" ||
+    typeof candidate.sourceSha !== "string" ||
+    typeof candidate.sourceTree !== "string" ||
+    !candidate.preparedBuild ||
+    candidate.preparedBuild.state !== "clean" ||
+    !candidate.runtimeLocks ||
+    typeof candidate.packageProvenanceSha256 !== "string" ||
+    !Array.isArray(candidate.artifacts) ||
+    !candidate.runner
   ) {
     throw new Error("Architecture build manifest is invalid.");
   }
   const version = normalizeReleaseVersion(candidate.version);
   const releaseIdentity = candidate.releaseIdentity
     ? parseReleaseIdentity(candidate.releaseIdentity)
-    : legacyStableIdentity({ sourceSha: candidate.sourceSha, sourceTree: candidate.sourceTree, version });
+    : legacyStableIdentity({
+        sourceSha: candidate.sourceSha,
+        sourceTree: candidate.sourceTree,
+        version,
+      });
   if (
-    candidate.tag !== releaseIdentity.tag
-    || version !== releaseIdentity.version
-    || candidate.sourceSha !== releaseIdentity.sourceSha
-    || candidate.sourceTree !== releaseIdentity.sourceTree
-  ) throw new Error("Architecture build source identity does not match its release identity.");
-  if (!/^[a-f0-9]{40}$/u.test(candidate.sourceSha) || !/^[a-f0-9]{40}$/u.test(candidate.sourceTree)) {
+    candidate.tag !== releaseIdentity.tag ||
+    version !== releaseIdentity.version ||
+    candidate.sourceSha !== releaseIdentity.sourceSha ||
+    candidate.sourceTree !== releaseIdentity.sourceTree
+  )
+    throw new Error("Architecture build source identity does not match its release identity.");
+  if (
+    !/^[a-f0-9]{40}$/u.test(candidate.sourceSha) ||
+    !/^[a-f0-9]{40}$/u.test(candidate.sourceTree)
+  ) {
     throw new Error("Architecture build source identity is invalid.");
   }
   assertSha(candidate.preparedBuild.generation, "prepared build generation");
@@ -221,7 +234,10 @@ export function parseArchitectureBuildManifest(value: unknown): ArchitectureBuil
   assertSha(candidate.packageProvenanceSha256, "package provenance");
   return {
     ...candidate,
-    agentSkills: parseAgentSkillsIdentity(candidate.agentSkills, "Architecture Agent Skills identity"),
+    agentSkills: parseAgentSkillsIdentity(
+      candidate.agentSkills,
+      "Architecture Agent Skills identity",
+    ),
     artifacts: candidate.artifacts.map(parseArtifact),
     version,
     releaseIdentity,
@@ -232,15 +248,15 @@ export function parseReleaseBundleManifest(value: unknown): ReleaseBundleManifes
   if (!isRecord(value)) throw new Error("Release Bundle manifest is invalid.");
   const candidate = value as Partial<ReleaseBundleManifest>;
   if (
-    candidate.schemaVersion !== 2
-    || typeof candidate.version !== "string"
-    || typeof candidate.tag !== "string"
-    || typeof candidate.sourceSha !== "string"
-    || typeof candidate.sourceTree !== "string"
-    || !candidate.architectures?.arm64
-    || !candidate.architectures.x64
-    || !candidate.runtimeLocks
-    || !Array.isArray(candidate.assets)
+    candidate.schemaVersion !== 2 ||
+    typeof candidate.version !== "string" ||
+    typeof candidate.tag !== "string" ||
+    typeof candidate.sourceSha !== "string" ||
+    typeof candidate.sourceTree !== "string" ||
+    !candidate.architectures?.arm64 ||
+    !candidate.architectures.x64 ||
+    !candidate.runtimeLocks ||
+    !Array.isArray(candidate.assets)
   ) {
     throw new Error("Release Bundle manifest is invalid.");
   }
@@ -248,54 +264,84 @@ export function parseReleaseBundleManifest(value: unknown): ReleaseBundleManifes
   const hasEmbeddedIdentity = candidate.releaseIdentity !== undefined;
   const releaseIdentity = candidate.releaseIdentity
     ? parseReleaseIdentity(candidate.releaseIdentity)
-    : legacyStableIdentity({ sourceSha: candidate.sourceSha, sourceTree: candidate.sourceTree, version });
+    : legacyStableIdentity({
+        sourceSha: candidate.sourceSha,
+        sourceTree: candidate.sourceTree,
+        version,
+      });
   if (
-    candidate.tag !== releaseIdentity.tag
-    || version !== releaseIdentity.version
-    || candidate.sourceSha !== releaseIdentity.sourceSha
-    || candidate.sourceTree !== releaseIdentity.sourceTree
-  ) throw new Error("Release Bundle source identity does not match its release identity.");
-  if (!/^[a-f0-9]{40}$/u.test(candidate.sourceSha) || !/^[a-f0-9]{40}$/u.test(candidate.sourceTree)) {
+    candidate.tag !== releaseIdentity.tag ||
+    version !== releaseIdentity.version ||
+    candidate.sourceSha !== releaseIdentity.sourceSha ||
+    candidate.sourceTree !== releaseIdentity.sourceTree
+  )
+    throw new Error("Release Bundle source identity does not match its release identity.");
+  if (
+    !/^[a-f0-9]{40}$/u.test(candidate.sourceSha) ||
+    !/^[a-f0-9]{40}$/u.test(candidate.sourceTree)
+  ) {
     throw new Error("Release Bundle source identity is invalid.");
   }
-  const agentSkills = parseAgentSkillsIdentity(candidate.agentSkills, "Release Bundle Agent Skills identity");
+  const agentSkills = parseAgentSkillsIdentity(
+    candidate.agentSkills,
+    "Release Bundle Agent Skills identity",
+  );
   for (const architecture of ["arm64", "x64"] as const) {
-    assertSha(candidate.architectures[architecture].manifestSha256, `${architecture} architecture manifest`);
-    assertSha(candidate.architectures[architecture].preparedBuildGeneration, `${architecture} prepared build generation`);
-    assertSha(candidate.architectures[architecture].updateManifestSha256, `${architecture} update manifest`);
+    assertSha(
+      candidate.architectures[architecture].manifestSha256,
+      `${architecture} architecture manifest`,
+    );
+    assertSha(
+      candidate.architectures[architecture].preparedBuildGeneration,
+      `${architecture} prepared build generation`,
+    );
+    assertSha(
+      candidate.architectures[architecture].updateManifestSha256,
+      `${architecture} update manifest`,
+    );
   }
   assertSha(candidate.runtimeLocks.agentSha256, "Release Bundle Agent runtime lock");
   assertSha(candidate.runtimeLocks.browserSha256, "Release Bundle Browser runtime lock");
   assertSha(candidate.runtimeLocks.sparkleSha256, "Release Bundle Sparkle runtime lock");
   const assets = candidate.assets.map(parseArtifact);
   const names = assets.map(({ name }) => name);
-  if (new Set(names).size !== names.length) throw new Error("Release Bundle contains duplicate asset names.");
+  if (new Set(names).size !== names.length)
+    throw new Error("Release Bundle contains duplicate asset names.");
   const required = [
-    ...(releaseIdentity.channel === "stable" ? [
-      ["Nodex-latest-arm64.dmg", "dmg", "arm64"],
-      ["Nodex-latest-x64.dmg", "dmg", "x64"],
-    ] as const : [
-      [`Nodex-${version}-arm64.dmg`, "dmg", "arm64"],
-      [`Nodex-${version}-x64.dmg`, "dmg", "x64"],
-    ] as const),
+    ...(releaseIdentity.channel === "stable"
+      ? ([
+          ["Nodex-latest-arm64.dmg", "dmg", "arm64"],
+          ["Nodex-latest-x64.dmg", "dmg", "x64"],
+        ] as const)
+      : ([
+          [`Nodex-${version}-arm64.dmg`, "dmg", "arm64"],
+          [`Nodex-${version}-x64.dmg`, "dmg", "x64"],
+        ] as const)),
     [`Nodex-${version}-arm64.zip`, "sparkle-full", "arm64"],
     [`Nodex-${version}-x64.zip`, "sparkle-full", "x64"],
     [`Nodex-${version}-appcast-arm64.xml`, "sparkle-appcast", "arm64"],
     [`Nodex-${version}-appcast-x64.xml`, "sparkle-appcast", "x64"],
     [`Nodex-${version}-update-arm64.json`, "sparkle-update-manifest", "arm64"],
     [`Nodex-${version}-update-x64.json`, "sparkle-update-manifest", "x64"],
-    ...(hasEmbeddedIdentity ? [["release-identity.json", "release-identity", undefined] as const] : []),
+    ...(hasEmbeddedIdentity
+      ? [["release-identity.json", "release-identity", undefined] as const]
+      : []),
   ] as const;
-  if (required.some(([name, role, architecture]) => !assets.some((asset) => (
-    asset.name === name && asset.role === role && asset.architecture === architecture
-  )))) {
+  if (
+    required.some(
+      ([name, role, architecture]) =>
+        !assets.some(
+          (asset) =>
+            asset.name === name && asset.role === role && asset.architecture === architecture,
+        ),
+    )
+  ) {
     throw new Error("Release Bundle is missing a required stable application asset.");
   }
   const requiredNames = new Set<string>(required.map(([name]) => name));
   for (const asset of assets) {
     if (requiredNames.has(asset.name)) continue;
-    const match = /^Nodex-(.+)-to-(.+)-(arm64|x64)\.delta$/u
-      .exec(asset.name);
+    const match = /^Nodex-(.+)-to-(.+)-(arm64|x64)\.delta$/u.exec(asset.name);
     let fromVersion: string | null = null;
     try {
       fromVersion = match ? normalizeReleaseVersion(match[1]) : null;
@@ -303,11 +349,11 @@ export function parseReleaseBundleManifest(value: unknown): ReleaseBundleManifes
       fromVersion = null;
     }
     if (
-      asset.role !== "sparkle-delta"
-      || !match
-      || !fromVersion
-      || match[2] !== version
-      || match[3] !== asset.architecture
+      asset.role !== "sparkle-delta" ||
+      !match ||
+      !fromVersion ||
+      match[2] !== version ||
+      match[3] !== asset.architecture
     ) {
       throw new Error(`Release Bundle contains an unsupported asset: ${asset.name}.`);
     }
@@ -330,7 +376,9 @@ const commandVersion = (command: string, args: readonly string[]): string => {
     return execFileSync(command, [...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-    }).trim().split("\n")[0];
+    })
+      .trim()
+      .split("\n")[0];
   } catch {
     return "unavailable";
   }
@@ -350,8 +398,14 @@ export function recordArchitectureBuild(options: {
   const sourceSha = releaseIdentity.sourceSha;
   if (!/^[a-f0-9]{40}$/u.test(sourceSha)) throw new Error("Source SHA must be a full commit SHA.");
   const actualHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
-  const sourceTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd, encoding: "utf8" }).trim();
-  const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd, encoding: "utf8" }).trim();
+  const sourceTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+    cwd,
+    encoding: "utf8",
+  }).trim();
+  const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], {
+    cwd,
+    encoding: "utf8",
+  }).trim();
   if (actualHead !== sourceSha || sourceTree !== releaseIdentity.sourceTree || status) {
     throw new Error("Architecture build must come from the exact clean release identity.");
   }
@@ -361,10 +415,12 @@ export function recordArchitectureBuild(options: {
 
   const output = resolve(options.outputDirectory);
   ensureEmptyDirectory(output);
-  const artifacts = ([
-    [`Nodex-${version}-${options.architecture}.dmg`, "dmg"],
-    [`Nodex-${version}-${options.architecture}.zip`, "sparkle-full"],
-  ] as const).map(([name, role]) => {
+  const artifacts = (
+    [
+      [`Nodex-${version}-${options.architecture}.dmg`, "dmg"],
+      [`Nodex-${version}-${options.architecture}.zip`, "sparkle-full"],
+    ] as const
+  ).map(([name, role]) => {
     const target = join(output, name);
     copyFileSync(join(resolve(options.distDirectory), name), target);
     return artifactIdentity(target, role, options.architecture);
@@ -375,19 +431,26 @@ export function recordArchitectureBuild(options: {
     readonly generationId?: unknown;
     readonly product?: { readonly version?: unknown };
     readonly releaseIdentity?: unknown;
-    readonly source?: { readonly baseCommit?: unknown; readonly baseTree?: unknown; readonly state?: unknown };
+    readonly source?: {
+      readonly baseCommit?: unknown;
+      readonly baseTree?: unknown;
+      readonly state?: unknown;
+    };
   };
   if (
-    typeof prepared.generationId !== "string"
-    || prepared.product?.version !== version
-    || JSON.stringify(prepared.releaseIdentity) !== JSON.stringify(releaseIdentity)
-    || prepared.source?.state !== "clean"
-    || prepared.source.baseCommit !== sourceSha
-    || prepared.source.baseTree !== sourceTree
+    typeof prepared.generationId !== "string" ||
+    prepared.product?.version !== version ||
+    JSON.stringify(prepared.releaseIdentity) !== JSON.stringify(releaseIdentity) ||
+    prepared.source?.state !== "clean" ||
+    prepared.source.baseCommit !== sourceSha ||
+    prepared.source.baseTree !== sourceTree
   ) {
     throw new Error("Prepared Electron build does not match the architecture release identity.");
   }
-  const provenancePath = join(resolve(options.appPath), "Contents/Resources/nodex-build-provenance.json");
+  const provenancePath = join(
+    resolve(options.appPath),
+    "Contents/Resources/nodex-build-provenance.json",
+  );
   const provenance = readJson(provenancePath) as { readonly agentSkills?: unknown };
   const manifest: ArchitectureBuildManifest = {
     agentSkills: parseAgentSkillsIdentity(provenance.agentSkills, "Packaged Agent Skills identity"),
@@ -418,7 +481,11 @@ export function recordArchitectureBuild(options: {
     tag: releaseIdentity.tag,
     version,
   };
-  writeFileSync(join(output, "architecture-build.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  writeFileSync(
+    join(output, "architecture-build.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    "utf8",
+  );
   return manifest;
 }
 
@@ -431,10 +498,16 @@ const readArchitectureDirectory = (directory: string): ArchitectureBuildManifest
   ];
   const actual = manifest.artifacts.map(({ name, role }) => [name, role]);
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${manifest.architecture} architecture artifacts do not match the release allowlist.`);
+    throw new Error(
+      `${manifest.architecture} architecture artifacts do not match the release allowlist.`,
+    );
   }
   for (const artifact of manifest.artifacts) {
-    const actualIdentity = artifactIdentity(join(root, artifact.name), artifact.role, artifact.architecture);
+    const actualIdentity = artifactIdentity(
+      join(root, artifact.name),
+      artifact.role,
+      artifact.architecture,
+    );
     if (actualIdentity.bytes !== artifact.bytes || actualIdentity.sha256 !== artifact.sha256) {
       throw new Error(`Architecture artifact ${artifact.name} does not match its manifest.`);
     }
@@ -442,11 +515,7 @@ const readArchitectureDirectory = (directory: string): ArchitectureBuildManifest
   return manifest;
 };
 
-const readUpdateDirectory = (
-  directory: string,
-  architecture: MacArchitecture,
-  version: string,
-) => {
+const readUpdateDirectory = (directory: string, architecture: MacArchitecture, version: string) => {
   const root = resolve(directory);
   const manifestName = `Nodex-${version}-update-${architecture}.json`;
   const manifestPath = join(root, manifestName);
@@ -461,10 +530,7 @@ const readUpdateDirectory = (
       throw new Error(`Sparkle artifact ${identity.name} does not match its update manifest.`);
     }
   }
-  verifySparkleAppcastContract(
-    readFileSync(join(root, manifest.appcast.name), "utf8"),
-    manifest,
-  );
+  verifySparkleAppcastContract(readFileSync(join(root, manifest.appcast.name), "utf8"), manifest);
   return { manifest, manifestName, manifestPath, root };
 };
 
@@ -478,7 +544,9 @@ export function assembleReleaseBundle(options: {
   readonly x64Directory: string;
   readonly x64UpdateDirectory: string;
 }): ReleaseBundleManifest {
-  const legacyArchitecture = readJson(join(resolve(options.arm64Directory), "architecture-build.json")) as {
+  const legacyArchitecture = readJson(
+    join(resolve(options.arm64Directory), "architecture-build.json"),
+  ) as {
     readonly releaseIdentity?: unknown;
     readonly sourceTree?: unknown;
   };
@@ -487,10 +555,10 @@ export function assembleReleaseBundle(options: {
     : legacyArchitecture.releaseIdentity
       ? parseReleaseIdentity(legacyArchitecture.releaseIdentity)
       : legacyStableIdentity({
-        sourceSha: options.sourceSha ?? "",
-        sourceTree: String(legacyArchitecture.sourceTree ?? ""),
-        version: options.version ?? "",
-      });
+          sourceSha: options.sourceSha ?? "",
+          sourceTree: String(legacyArchitecture.sourceTree ?? ""),
+          version: options.version ?? "",
+        });
   const version = releaseIdentity.version;
   const sourceSha = releaseIdentity.sourceSha;
   const output = resolve(options.outputDirectory);
@@ -502,22 +570,22 @@ export function assembleReleaseBundle(options: {
   const arm64Update = readUpdateDirectory(options.arm64UpdateDirectory, "arm64", version);
   const x64Update = readUpdateDirectory(options.x64UpdateDirectory, "x64", version);
   if (
-    arm64.sourceSha !== sourceSha
-    || x64.sourceSha !== sourceSha
-    || arm64.sourceTree !== releaseIdentity.sourceTree
-    || x64.sourceTree !== releaseIdentity.sourceTree
-    || JSON.stringify(arm64.releaseIdentity) !== JSON.stringify(releaseIdentity)
-    || JSON.stringify(x64.releaseIdentity) !== JSON.stringify(releaseIdentity)
-    || arm64.sourceTree !== x64.sourceTree
-    || arm64Update.manifest.sourceSha !== sourceSha
-    || x64Update.manifest.sourceSha !== sourceSha
-    || arm64Update.manifest.channel !== releaseIdentity.channel
-    || x64Update.manifest.channel !== releaseIdentity.channel
-    || arm64Update.manifest.target.buildVersion !== releaseIdentity.buildVersion
-    || x64Update.manifest.target.buildVersion !== releaseIdentity.buildVersion
-    || arm64Update.manifest.target.teamIdentifier !== x64Update.manifest.target.teamIdentifier
-    || JSON.stringify(arm64.agentSkills) !== JSON.stringify(x64.agentSkills)
-    || JSON.stringify(arm64.runtimeLocks) !== JSON.stringify(x64.runtimeLocks)
+    arm64.sourceSha !== sourceSha ||
+    x64.sourceSha !== sourceSha ||
+    arm64.sourceTree !== releaseIdentity.sourceTree ||
+    x64.sourceTree !== releaseIdentity.sourceTree ||
+    JSON.stringify(arm64.releaseIdentity) !== JSON.stringify(releaseIdentity) ||
+    JSON.stringify(x64.releaseIdentity) !== JSON.stringify(releaseIdentity) ||
+    arm64.sourceTree !== x64.sourceTree ||
+    arm64Update.manifest.sourceSha !== sourceSha ||
+    x64Update.manifest.sourceSha !== sourceSha ||
+    arm64Update.manifest.channel !== releaseIdentity.channel ||
+    x64Update.manifest.channel !== releaseIdentity.channel ||
+    arm64Update.manifest.target.buildVersion !== releaseIdentity.buildVersion ||
+    x64Update.manifest.target.buildVersion !== releaseIdentity.buildVersion ||
+    arm64Update.manifest.target.teamIdentifier !== x64Update.manifest.target.teamIdentifier ||
+    JSON.stringify(arm64.agentSkills) !== JSON.stringify(x64.agentSkills) ||
+    JSON.stringify(arm64.runtimeLocks) !== JSON.stringify(x64.runtimeLocks)
   ) {
     throw new Error("Architecture and Sparkle builds do not share one release identity.");
   }
@@ -545,8 +613,8 @@ export function assembleReleaseBundle(options: {
     const fullName = `Nodex-${version}-${architecture}.zip`;
     const fullPath = join(architectureRoot, fullName);
     if (
-      lstatSync(fullPath).size !== update.manifest.full.bytes
-      || sha256File(fullPath) !== update.manifest.full.sha256
+      lstatSync(fullPath).size !== update.manifest.full.bytes ||
+      sha256File(fullPath) !== update.manifest.full.sha256
     ) {
       throw new Error(`${architecture} full update does not match its Sparkle manifest.`);
     }
@@ -568,10 +636,11 @@ export function assembleReleaseBundle(options: {
   const identityTarget = join(output, "release-identity.json");
   writeFileSync(identityTarget, `${JSON.stringify(releaseIdentity, null, 2)}\n`, "utf8");
   const assets = [
-    ...publicFiles.map(({ architecture, path: filePath, role }) => artifactIdentity(filePath, role, architecture)),
+    ...publicFiles.map(({ architecture, path: filePath, role }) =>
+      artifactIdentity(filePath, role, architecture),
+    ),
     artifactIdentity(identityTarget, "release-identity"),
-  ]
-    .sort((left, right) => left.name.localeCompare(right.name));
+  ].sort((left, right) => left.name.localeCompare(right.name));
   const manifest: ReleaseBundleManifest = {
     agentSkills: arm64.agentSkills,
     architectures: {

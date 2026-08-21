@@ -17,10 +17,12 @@ const DEFAULT_FEATURE_CONFIG_EXCLUSIONS = new Set([
 
 export type CodexThreadLaunchConfig = NonNullable<ThreadStartParams["config"]>;
 
-export type CodexLaunchPermissionParams = Partial<Pick<
-  ThreadStartParams,
-  "approvalPolicy" | "approvalsReviewer" | "sandbox" | "permissions" | "runtimeWorkspaceRoots"
->>;
+export type CodexLaunchPermissionParams = Partial<
+  Pick<
+    ThreadStartParams,
+    "approvalPolicy" | "approvalsReviewer" | "sandbox" | "permissions" | "runtimeWorkspaceRoots"
+  >
+>;
 
 export interface CodexStoredShellEnvironment {
   readonly version: 1;
@@ -43,15 +45,11 @@ export interface CodexThreadLaunchContextDependencies {
     readonly modelProvider: string;
     readonly config: CodexThreadLaunchConfig;
   } | null>;
-  readonly buildMcpCodexConfig: (
-    cwd: string | null,
-  ) => Promise<CodexThreadLaunchConfig | null>;
+  readonly buildMcpCodexConfig: (cwd: string | null) => Promise<CodexThreadLaunchConfig | null>;
   readonly readWorktreeShellEnvironment?: (
     cwd: string,
   ) => Promise<CodexStoredShellEnvironment | null>;
-  readonly readEffectiveConfig?: (
-    cwd: string,
-  ) => Promise<CodexThreadLaunchConfig>;
+  readonly readEffectiveConfig?: (cwd: string) => Promise<CodexThreadLaunchConfig>;
   readonly loadDynamicTools: (input: {
     readonly featureOverrides: CodexThreadLaunchConfig | null;
     readonly mode: string;
@@ -106,8 +104,9 @@ function stringArray(value: unknown): string[] {
 function stringRecord(value: unknown): Record<string, string> {
   if (!isRecord(value)) return {};
   return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, string] =>
-      typeof entry[1] === "string"),
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
   );
 }
 
@@ -198,9 +197,7 @@ function serializeCodexShellEnvironmentPolicy(
     ...(Array.isArray(policy.exclude)
       ? { "shell_environment_policy.exclude": [...policy.exclude] }
       : {}),
-    ...(policy.set
-      ? { "shell_environment_policy.set": { ...policy.set } }
-      : {}),
+    ...(policy.set ? { "shell_environment_policy.set": { ...policy.set } } : {}),
   };
 }
 
@@ -259,10 +256,9 @@ async function applyCodexWorktreeShellEnvironment(
     const currentConfig = params.config ?? {};
     const effectiveConfig = readCodexShellEnvironmentPolicy(currentConfig)
       ? null
-      : await dependencies.readEffectiveConfig?.(cwd) ?? null;
-    const basePolicy = readCodexShellEnvironmentPolicy(currentConfig)
-      ?? readCodexShellEnvironmentPolicy(effectiveConfig)
-      ?? { inherit: "all" };
+      : ((await dependencies.readEffectiveConfig?.(cwd)) ?? null);
+    const basePolicy = readCodexShellEnvironmentPolicy(currentConfig) ??
+      readCodexShellEnvironmentPolicy(effectiveConfig) ?? { inherit: "all" };
     const mergedPolicy = mergeCodexShellEnvironmentPolicy(basePolicy, stored);
     const config = { ...currentConfig };
     delete config.shell_environment_policy;
@@ -282,10 +278,7 @@ async function applyCodexWorktreeShellEnvironment(
 
 export function loadCodexDynamicToolsWithTimeout(
   load: () => Promise<DynamicToolSpec[]>,
-  options: Pick<
-    CodexThreadLaunchContextDependencies,
-    "scheduleTimeout" | "cancelTimeout"
-  > = {},
+  options: Pick<CodexThreadLaunchContextDependencies, "scheduleTimeout" | "cancelTimeout"> = {},
 ): Promise<DynamicToolSpec[]> {
   const scheduleTimeout = options.scheduleTimeout ?? setTimeout;
   const cancelTimeout = options.cancelTimeout ?? clearTimeout;
@@ -321,10 +314,11 @@ export async function buildCodexNewConversationParams(
 ): Promise<ThreadStartParams> {
   const profile = input.executionProfile ?? null;
   const requestedServiceTier = profile?.serviceTier ?? input.serviceTier;
-  const serviceTier = profile && profile.providerId !== "openai"
-    ? requestedServiceTier
-    : await resolveCodexLaunchServiceTier(requestedServiceTier, dependencies);
-  const provider = await dependencies.resolveModelProviderConfig?.() ?? null;
+  const serviceTier =
+    profile && profile.providerId !== "openai"
+      ? requestedServiceTier
+      : await resolveCodexLaunchServiceTier(requestedServiceTier, dependencies);
+  const provider = (await dependencies.resolveModelProviderConfig?.()) ?? null;
   const mcpConfig = await dependencies.buildMcpCodexConfig(input.cwd);
   const model = profile?.modelId ?? input.model;
   const permissions = input.permissions;
@@ -338,9 +332,7 @@ export async function buildCodexNewConversationParams(
       ...(provider?.config ?? {}),
       ...(mcpConfig ?? {}),
       ...(profile?.harnessId ? { harness: profile.harnessId } : {}),
-      ...(profile?.reasoningEffort
-        ? { model_reasoning_effort: profile.reasoningEffort }
-        : {}),
+      ...(profile?.reasoningEffort ? { model_reasoning_effort: profile.reasoningEffort } : {}),
     },
     ...(permissions?.approvalsReviewer == null
       ? {}
@@ -378,11 +370,12 @@ export async function buildCodexNewConversationParams(
     params = {
       ...params,
       dynamicTools: await loadCodexDynamicToolsWithTimeout(
-        () => dependencies.loadDynamicTools({
-          featureOverrides: input.defaultFeatureOverrides,
-          mode: input.mode ?? "default",
-          threadStartKind: input.threadStartKind ?? "default",
-        }),
+        () =>
+          dependencies.loadDynamicTools({
+            featureOverrides: input.defaultFeatureOverrides,
+            mode: input.mode ?? "default",
+            threadStartKind: input.threadStartKind ?? "default",
+          }),
         dependencies,
       ),
     };
@@ -402,10 +395,10 @@ export async function buildCodexNewConversationParams(
   }
 
   if (
-    input.includeDeveloperInstructions !== false
-    && input.defaultFeatureOverrides?.writing_blocks === true
-    && input.isEverydayWorkMode === true
-    && input.writingBlocksDeveloperInstructions
+    input.includeDeveloperInstructions !== false &&
+    input.defaultFeatureOverrides?.writing_blocks === true &&
+    input.isEverydayWorkMode === true &&
+    input.writingBlocksDeveloperInstructions
   ) {
     params = {
       ...params,
@@ -415,8 +408,10 @@ export async function buildCodexNewConversationParams(
     };
   }
 
-  if (input.additionalDeveloperInstructions !== null
-    && input.additionalDeveloperInstructions !== undefined) {
+  if (
+    input.additionalDeveloperInstructions !== null &&
+    input.additionalDeveloperInstructions !== undefined
+  ) {
     params = {
       ...params,
       developerInstructions: params.developerInstructions
@@ -426,10 +421,10 @@ export async function buildCodexNewConversationParams(
   }
 
   if (
-    permissions === null
-    || (typeof permissions.approvalPolicy === "object"
-      && permissions.approvalPolicy !== null
-      && "granular" in permissions.approvalPolicy)
+    permissions === null ||
+    (typeof permissions.approvalPolicy === "object" &&
+      permissions.approvalPolicy !== null &&
+      "granular" in permissions.approvalPolicy)
   ) {
     params = {
       ...params,

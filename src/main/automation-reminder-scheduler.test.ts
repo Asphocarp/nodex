@@ -1,15 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 
-import {
-  startAutomationReminderScheduler,
-} from "./automation-reminder-scheduler";
+import { startAutomationReminderScheduler } from "./automation-reminder-scheduler";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 
 type ReminderAuthority = Pick<
   DesktopAutomationModulePort,
-  | "claimDueReminders"
-  | "completeReminderLease"
-  | "failReminderLease"
+  "claimDueReminders" | "completeReminderLease" | "failReminderLease"
 >;
 
 const claim = {
@@ -34,9 +30,7 @@ describe("Automation reminder scheduler", () => {
   test("delivers claimed reminders and completes their native leases", async () => {
     const automation = authority();
     const onReminder = vi.fn();
-    const timer = { unref: vi.fn() } as unknown as ReturnType<
-      typeof setInterval
-    >;
+    const timer = { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
     let intervalMs = 0;
     let cleared = false;
     let authorityAvailable = false;
@@ -66,9 +60,7 @@ describe("Automation reminder scheduler", () => {
     authorityAvailable = true;
     await scheduler.runNow();
     await vi.waitFor(() => {
-      expect(automation.completeReminderLease).toHaveBeenCalledWith(
-        "reminder-lease:1",
-      );
+      expect(automation.completeReminderLease).toHaveBeenCalledWith("reminder-lease:1");
     });
     expect(automation.claimDueReminders).toHaveBeenCalledWith(7, 45_000);
     expect(onReminder).toHaveBeenCalledWith({
@@ -95,9 +87,7 @@ describe("Automation reminder scheduler", () => {
         throw deliveryError;
       },
       retryDelayMs: 12_000,
-      setIntervalImpl: () => (
-        { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>
-      ),
+      setIntervalImpl: () => ({ unref: vi.fn() }) as unknown as ReturnType<typeof setInterval>,
       clearIntervalImpl: vi.fn(),
       logger: {
         debug: vi.fn(),
@@ -119,12 +109,15 @@ describe("Automation reminder scheduler", () => {
 
   test("defers claimed reminders if Core authority is lost before delivery", async () => {
     let authorityAvailable = true;
-    let resolveClaims: (claims: typeof claim[]) => void = () => undefined;
+    let resolveClaims: (claims: (typeof claim)[]) => void = () => undefined;
     const automation: ReminderAuthority = {
       ...authority(),
-      claimDueReminders: vi.fn(async () => await new Promise<typeof claim[]>((resolve) => {
-        resolveClaims = resolve;
-      })),
+      claimDueReminders: vi.fn(
+        async () =>
+          await new Promise<(typeof claim)[]>((resolve) => {
+            resolveClaims = resolve;
+          }),
+      ),
     };
     const onReminder = vi.fn();
     const scheduler = startAutomationReminderScheduler({
@@ -132,9 +125,7 @@ describe("Automation reminder scheduler", () => {
       isAuthorityAvailable: () => authorityAvailable,
       onReminder,
       retryDelayMs: 9_000,
-      setIntervalImpl: () => (
-        { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>
-      ),
+      setIntervalImpl: () => ({ unref: vi.fn() }) as unknown as ReturnType<typeof setInterval>,
       clearIntervalImpl: vi.fn(),
       logger: {
         debug: vi.fn(),

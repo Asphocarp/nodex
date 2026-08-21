@@ -20,16 +20,9 @@ import {
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "./control-chrome";
-import {
-  NodexFloatingLayerProvider,
-  useNodexFloatingLayerIndex,
-} from "./floating-layer";
+import { NodexFloatingLayerProvider, useNodexFloatingLayerIndex } from "./floating-layer";
 import { nodexMenuSurfaceClassName } from "./menu-surface";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "./popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "./popover";
 import { NodexTooltip } from "./tooltip";
 
 export type NodexDropdownSurface = "menu" | "panel";
@@ -51,21 +44,14 @@ const CONTENT_BOUNDARY_STYLE: CSSProperties = {
   maxHeight: "min(var(--radix-dropdown-menu-content-available-height), calc(100vh - 16px))",
 };
 
-function NodexDropdownRoot(
-  props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>,
-) {
+function NodexDropdownRoot(props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root modal={false} {...props} />;
 }
 
 const NodexDropdownTrigger = forwardRef<
   HTMLButtonElement,
   ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
->(function NodexDropdownTrigger({
-  asChild,
-  className,
-  disabled,
-  ...props
-}, ref) {
+>(function NodexDropdownTrigger({ asChild, className, disabled, ...props }, ref) {
   return (
     <DropdownMenuPrimitive.Trigger
       ref={ref}
@@ -78,15 +64,11 @@ const NodexDropdownTrigger = forwardRef<
   );
 });
 
-function NodexDropdownPortal(
-  props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Portal>,
-) {
+function NodexDropdownPortal(props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Portal>) {
   return <DropdownMenuPrimitive.Portal data-slot="dropdown-portal" {...props} />;
 }
 
-function NodexDropdownSubmenu(
-  props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>,
-) {
+function NodexDropdownSubmenu(props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>) {
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-submenu" {...props} />;
 }
 
@@ -151,9 +133,7 @@ const NodexDropdownSubmenuContent = forwardRef<
       {...props}
       data-nodex-keyboard-scope="local"
     >
-      <NodexFloatingLayerProvider zIndex={layerIndex}>
-        {children}
-      </NodexFloatingLayerProvider>
+      <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
     </DropdownMenuPrimitive.SubContent>
   );
 });
@@ -207,7 +187,9 @@ function resolveDropdownWidthClass(width?: NodexDropdownContentWidth): string {
   return dropdownAdaptiveWidthClassName;
 }
 
-function resolveDropdownMaxHeightClass(maxHeight?: NodexDropdownContentMaxHeight): string | undefined {
+function resolveDropdownMaxHeightClass(
+  maxHeight?: NodexDropdownContentMaxHeight,
+): string | undefined {
   if (maxHeight === "list") return "max-h-[250px]";
   if (maxHeight === "tall") return "max-h-[350px]";
   return undefined;
@@ -226,8 +208,12 @@ export interface NodexDropdownMenuProps {
   align?: "start" | "center" | "end";
   sideOffset?: number;
   alignOffset?: number;
-  onCloseAutoFocus?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>["onCloseAutoFocus"];
-  onEscapeKeyDown?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>["onEscapeKeyDown"];
+  onCloseAutoFocus?: ComponentPropsWithoutRef<
+    typeof DropdownMenuPrimitive.Content
+  >["onCloseAutoFocus"];
+  onEscapeKeyDown?: ComponentPropsWithoutRef<
+    typeof DropdownMenuPrimitive.Content
+  >["onEscapeKeyDown"];
   contentClassName?: string;
   contentStyle?: CSSProperties;
   surface?: NodexDropdownSurface;
@@ -267,12 +253,10 @@ export function NodexDropdownMenu({
   );
 
   return (
-    <NodexDropdownRoot
-      dir={dir}
-      open={open}
-      onOpenChange={onOpenChange}
-    >
-      {triggerTooltipContent == null ? trigger : (
+    <NodexDropdownRoot dir={dir} open={open} onOpenChange={onOpenChange}>
+      {triggerTooltipContent == null ? (
+        trigger
+      ) : (
         <NodexTooltip
           tooltipContent={triggerTooltipContent}
           shortcutLabel={triggerTooltipShortcutLabel}
@@ -308,54 +292,52 @@ export function NodexDropdownMenu({
   );
 }
 
-export interface NodexDropdownContentProps
-  extends ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> {
+export interface NodexDropdownContentProps extends ComponentPropsWithoutRef<
+  typeof DropdownMenuPrimitive.Content
+> {
   surface?: NodexDropdownSurface;
   motion?: "default" | "none";
 }
 
-export const NodexDropdownContent = forwardRef<
-  HTMLDivElement,
-  NodexDropdownContentProps
->(function NodexDropdownContent(
-  {
-    children,
-    className,
-    align = "start",
-    surface = "menu",
-    motion = "default",
-    style,
-    collisionPadding = 6,
-    ...props
-  },
-  ref,
-) {
-  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+export const NodexDropdownContent = forwardRef<HTMLDivElement, NodexDropdownContentProps>(
+  function NodexDropdownContent(
+    {
+      children,
+      className,
+      align = "start",
+      surface = "menu",
+      motion = "default",
+      style,
+      collisionPadding = 6,
+      ...props
+    },
+    ref,
+  ) {
+    const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
 
-  return (
-    <DropdownMenuPrimitive.Content
-      ref={ref}
-      align={align}
-      collisionPadding={collisionPadding}
-      style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
-      className={cn(
-        dropdownContentSurfaceClassName,
-        motion === "default"
-          ? dropdownContentMotionClassName
-          : "data-[state=closed]:invisible data-[state=closed]:pointer-events-none",
-        "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)]",
-        resolveDropdownSurfaceClass(surface),
-        className,
-      )}
-      {...props}
-      data-nodex-keyboard-scope="local"
-    >
-      <NodexFloatingLayerProvider zIndex={layerIndex}>
-        {children}
-      </NodexFloatingLayerProvider>
-    </DropdownMenuPrimitive.Content>
-  );
-});
+    return (
+      <DropdownMenuPrimitive.Content
+        ref={ref}
+        align={align}
+        collisionPadding={collisionPadding}
+        style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
+        className={cn(
+          dropdownContentSurfaceClassName,
+          motion === "default"
+            ? dropdownContentMotionClassName
+            : "data-[state=closed]:invisible data-[state=closed]:pointer-events-none",
+          "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)]",
+          resolveDropdownSurfaceClass(surface),
+          className,
+        )}
+        {...props}
+        data-nodex-keyboard-scope="local"
+      >
+        <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
+      </DropdownMenuPrimitive.Content>
+    );
+  },
+);
 
 export type NodexDropdownButtonTriggerProps = ComponentPropsWithoutRef<"button"> & {
   size?: "xs" | "sm" | "default" | "settings";
@@ -402,17 +384,15 @@ export const NodexDropdownButtonTrigger = forwardRef<
           ? "h-6 rounded-md px-2 py-0 text-xs [&_svg]:size-4"
           : size === "sm"
             ? "h-7 rounded-lg px-2 py-0 text-sm/4.5"
-          : size === "settings"
-            ? "h-token-button-composer rounded-lg px-3 py-0 text-base leading-[18px]"
-            : "h-7 rounded-lg px-2 py-0 text-sm/4.5",
+            : size === "settings"
+              ? "h-token-button-composer rounded-lg px-3 py-0 text-base leading-[18px]"
+              : "h-7 rounded-lg px-2 py-0 text-sm/4.5",
         shape === "pill" && "rounded-full pl-1 pr-2",
         className,
       )}
       {...props}
     >
-      <span className="flex min-w-0 items-center gap-1">
-        {children}
-      </span>
+      <span className="flex min-w-0 items-center gap-1">{children}</span>
       {showChevron ? <ChevronDownIcon className="icon-2xs" /> : null}
     </button>
   );
@@ -425,8 +405,9 @@ export const NodexSettingsDropdownTrigger = forwardRef<
   return <NodexDropdownButtonTrigger ref={ref} chrome="outline" size="settings" {...props} />;
 });
 
-export interface NodexDropdownItemProps
-  extends ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> {
+export interface NodexDropdownItemProps extends ComponentPropsWithoutRef<
+  typeof DropdownMenuPrimitive.Item
+> {
   leftSlot?: ReactNode;
   rightSlot?: ReactNode;
   subText?: ReactNode;
@@ -440,98 +421,99 @@ export interface NodexDropdownItemProps
   alignSlotsToStart?: boolean;
 }
 
-export const NodexDropdownItem = forwardRef<
-  HTMLDivElement,
-  NodexDropdownItemProps
->(function NodexDropdownItem(
-  {
-    children,
-    leftSlot,
-    rightSlot,
-    subText,
-    keyboardShortcut,
-    tooltipText,
-    tooltipTextClassName,
-    tooltipSide = "right",
-    tooltipAlign,
-    allowWrap = false,
-    subTextAllowWrap = false,
-    alignSlotsToStart = false,
-    className,
-    disabled = false,
-    onClick,
-    onSelect,
-    ...props
-  },
-  ref,
-) {
-  const item = (
-    <DropdownMenuPrimitive.Item
-      ref={ref}
-      disabled={disabled}
-      onClick={disabled ? undefined : onClick}
-      onSelect={disabled ? undefined : onSelect}
-      className={cn(
-        "no-drag",
-        dropdownItemBaseClassName,
-        !disabled && dropdownItemInteractiveClassName,
-        "group flex flex-col",
-        disabled && "cursor-default opacity-50",
-        className,
-      )}
-      {...props}
-    >
-      <div className={cn("flex w-full items-center gap-1.5", alignSlotsToStart && "items-start")}>
-        {leftSlot ? (
-          <span
-            className={cn(
-              dropdownItemLeftSlotClassName,
-              !disabled && dropdownItemLeftSlotInteractiveClassName,
-            )}
-          >
-            {leftSlot}
+export const NodexDropdownItem = forwardRef<HTMLDivElement, NodexDropdownItemProps>(
+  function NodexDropdownItem(
+    {
+      children,
+      leftSlot,
+      rightSlot,
+      subText,
+      keyboardShortcut,
+      tooltipText,
+      tooltipTextClassName,
+      tooltipSide = "right",
+      tooltipAlign,
+      allowWrap = false,
+      subTextAllowWrap = false,
+      alignSlotsToStart = false,
+      className,
+      disabled = false,
+      onClick,
+      onSelect,
+      ...props
+    },
+    ref,
+  ) {
+    const item = (
+      <DropdownMenuPrimitive.Item
+        ref={ref}
+        disabled={disabled}
+        onClick={disabled ? undefined : onClick}
+        onSelect={disabled ? undefined : onSelect}
+        className={cn(
+          "no-drag",
+          dropdownItemBaseClassName,
+          !disabled && dropdownItemInteractiveClassName,
+          "group flex flex-col",
+          disabled && "cursor-default opacity-50",
+          className,
+        )}
+        {...props}
+      >
+        <div className={cn("flex w-full items-center gap-1.5", alignSlotsToStart && "items-start")}>
+          {leftSlot ? (
+            <span
+              className={cn(
+                dropdownItemLeftSlotClassName,
+                !disabled && dropdownItemLeftSlotInteractiveClassName,
+              )}
+            >
+              {leftSlot}
+            </span>
+          ) : null}
+          <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
+            <span
+              className={cn("flex items-center gap-1", subText && "flex-col items-start gap-0.5")}
+            >
+              <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
+              {subText ? (
+                <span
+                  className={cn(
+                    "min-w-0 text-token-description-foreground",
+                    subTextAllowWrap ? "whitespace-normal text-sm" : "truncate text-xs",
+                  )}
+                >
+                  {subText}
+                </span>
+              ) : null}
+            </span>
           </span>
-        ) : null}
-        <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
-          <span className={cn("flex items-center gap-1", subText && "flex-col items-start gap-0.5")}>
-            <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
-            {subText ? (
-              <span className={cn(
-                "min-w-0 text-token-description-foreground",
-                subTextAllowWrap ? "whitespace-normal text-sm" : "truncate text-xs",
-              )}>
-                {subText}
-              </span>
-            ) : null}
-          </span>
-        </span>
-        {keyboardShortcut ? (
-          <span className="ml-2 shrink-0 text-xs text-token-description-foreground">
-            {keyboardShortcut}
-          </span>
-        ) : null}
-        {rightSlot ? <span className="shrink-0">{rightSlot}</span> : null}
-      </div>
-    </DropdownMenuPrimitive.Item>
-  );
-
-  if (!tooltipText) return item;
-
-  return (
-    <NodexTooltip
-      tooltipContent={(
-        <div className={cn("max-w-64 text-pretty", tooltipTextClassName)}>
-          {tooltipText}
+          {keyboardShortcut ? (
+            <span className="ml-2 shrink-0 text-xs text-token-description-foreground">
+              {keyboardShortcut}
+            </span>
+          ) : null}
+          {rightSlot ? <span className="shrink-0">{rightSlot}</span> : null}
         </div>
-      )}
-      side={tooltipSide}
-      align={tooltipAlign}
-      tooltipBodyClassName={tooltipTextClassName}
-    >
-      {item}
-    </NodexTooltip>
-  );
-});
+      </DropdownMenuPrimitive.Item>
+    );
+
+    if (!tooltipText) return item;
+
+    return (
+      <NodexTooltip
+        tooltipContent={
+          <div className={cn("max-w-64 text-pretty", tooltipTextClassName)}>{tooltipText}</div>
+        }
+        side={tooltipSide}
+        align={tooltipAlign}
+        tooltipBodyClassName={tooltipTextClassName}
+      >
+        {item}
+      </NodexTooltip>
+    );
+  },
+);
 
 export function NodexDropdownRadioGroup(
   props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>,
@@ -539,67 +521,67 @@ export function NodexDropdownRadioGroup(
   return <DropdownMenuPrimitive.RadioGroup {...props} />;
 }
 
-export interface NodexDropdownRadioItemProps
-  extends ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem> {
+export interface NodexDropdownRadioItemProps extends ComponentPropsWithoutRef<
+  typeof DropdownMenuPrimitive.RadioItem
+> {
   leftSlot?: ReactNode;
   rightSlot?: ReactElement;
   allowWrap?: boolean;
 }
 
-export const NodexDropdownRadioItem = forwardRef<
-  HTMLDivElement,
-  NodexDropdownRadioItemProps
->(function NodexDropdownRadioItem(
-  {
-    children,
-    leftSlot,
-    rightSlot,
-    allowWrap = false,
-    className,
-    disabled = false,
-    onClick,
-    onSelect,
-    ...props
-  },
-  ref,
-) {
-  return (
-    <DropdownMenuPrimitive.RadioItem
-      ref={ref}
-      disabled={disabled}
-      onClick={disabled ? undefined : onClick}
-      onSelect={disabled ? undefined : onSelect}
-      className={cn(
-        "no-drag",
-        dropdownItemBaseClassName,
-        !disabled && dropdownItemInteractiveClassName,
-        "group flex flex-col",
-        disabled && "cursor-default opacity-50",
-        className,
-      )}
-      {...props}
-    >
-      <div className="flex w-full items-center gap-1.5">
-        {leftSlot ? (
-          <span
-            className={cn(
-              dropdownItemLeftSlotClassName,
-              !disabled && dropdownItemLeftSlotInteractiveClassName,
-            )}
-          >
-            {leftSlot}
+export const NodexDropdownRadioItem = forwardRef<HTMLDivElement, NodexDropdownRadioItemProps>(
+  function NodexDropdownRadioItem(
+    {
+      children,
+      leftSlot,
+      rightSlot,
+      allowWrap = false,
+      className,
+      disabled = false,
+      onClick,
+      onSelect,
+      ...props
+    },
+    ref,
+  ) {
+    return (
+      <DropdownMenuPrimitive.RadioItem
+        ref={ref}
+        disabled={disabled}
+        onClick={disabled ? undefined : onClick}
+        onSelect={disabled ? undefined : onSelect}
+        className={cn(
+          "no-drag",
+          dropdownItemBaseClassName,
+          !disabled && dropdownItemInteractiveClassName,
+          "group flex flex-col",
+          disabled && "cursor-default opacity-50",
+          className,
+        )}
+        {...props}
+      >
+        <div className="flex w-full items-center gap-1.5">
+          {leftSlot ? (
+            <span
+              className={cn(
+                dropdownItemLeftSlotClassName,
+                !disabled && dropdownItemLeftSlotInteractiveClassName,
+              )}
+            >
+              {leftSlot}
+            </span>
+          ) : null}
+          <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
+            <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
           </span>
-        ) : null}
-        <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
-          <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
-        </span>
-        <DropdownMenuPrimitive.ItemIndicator asChild>
-          {rightSlot ?? <NodexDropdownSelectedIcon />}
-        </DropdownMenuPrimitive.ItemIndicator>
-      </div>
-    </DropdownMenuPrimitive.RadioItem>
-  );
-});
+          <DropdownMenuPrimitive.ItemIndicator asChild>
+            {rightSlot ?? <NodexDropdownSelectedIcon />}
+          </DropdownMenuPrimitive.ItemIndicator>
+        </div>
+      </DropdownMenuPrimitive.RadioItem>
+    );
+  },
+);
 
 export type NodexOptionPickerSearchMode = "none" | "filter";
 
@@ -707,12 +689,11 @@ const stringNode = (value: ReactNode): string => {
 };
 
 const optionPickerSearchValue = (option: NodexOptionPickerOption): string =>
-  normalizeOptionPickerSearchText([
-    option.searchText,
-    stringNode(option.label),
-    stringNode(option.subText),
-    option.value,
-  ].filter((value): value is string => Boolean(value)).join(" "));
+  normalizeOptionPickerSearchText(
+    [option.searchText, stringNode(option.label), stringNode(option.subText), option.value]
+      .filter((value): value is string => Boolean(value))
+      .join(" "),
+  );
 
 const filterOptionPickerOptions = (
   options: readonly NodexOptionPickerOption[],
@@ -766,8 +747,18 @@ function NodexFilterOptionButton({
             {option.leftSlot}
           </span>
         ) : null}
-        <span className={cn("min-w-0 flex-1 text-left", option.allowWrap ? "whitespace-normal" : "truncate")}>
-          <span className={cn("flex min-w-0 items-center gap-1", option.subText && "flex-col items-start gap-0.5")}>
+        <span
+          className={cn(
+            "min-w-0 flex-1 text-left",
+            option.allowWrap ? "whitespace-normal" : "truncate",
+          )}
+        >
+          <span
+            className={cn(
+              "flex min-w-0 items-center gap-1",
+              option.subText && "flex-col items-start gap-0.5",
+            )}
+          >
             <span className={cn("min-w-0", !option.allowWrap && "truncate")}>{option.label}</span>
             {option.subText ? (
               <span className="min-w-0 truncate text-xs text-token-description-foreground">
@@ -866,7 +857,8 @@ function NodexFilterOptionPicker({
 
   const handleOptionKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     const optionElements = Array.from(
-      listboxRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [],
+      listboxRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ??
+        [],
     );
     const currentIndex = optionElements.indexOf(event.currentTarget);
     if (event.key === "ArrowDown") {
@@ -947,16 +939,18 @@ function NodexFilterOptionPicker({
               <NodexDropdownMessage compact>{emptyMessage}</NodexDropdownMessage>
             ) : filteredOptions.length === 0 ? (
               <NodexDropdownMessage compact>{noResultsMessage}</NodexDropdownMessage>
-            ) : filteredOptions.map((option, index) => (
-              <NodexFilterOptionButton
-                key={option.value}
-                id={`${listboxId}-option-${index}`}
-                option={option}
-                selected={option.value === value}
-                onKeyDown={handleOptionKeyDown}
-                onSelect={() => chooseOption(option)}
-              />
-            ))}
+            ) : (
+              filteredOptions.map((option, index) => (
+                <NodexFilterOptionButton
+                  key={option.value}
+                  id={`${listboxId}-option-${index}`}
+                  option={option}
+                  selected={option.value === value}
+                  onKeyDown={handleOptionKeyDown}
+                  onSelect={() => chooseOption(option)}
+                />
+              ))
+            )}
           </div>
         </NodexPopoverContent>
       )}
@@ -975,31 +969,30 @@ export function NodexOptionPicker({
   return <NodexStaticOptionPicker {...pickerProps} />;
 }
 
-export const NodexDropdownInput = forwardRef<
-  HTMLInputElement,
-  ComponentPropsWithoutRef<"input">
->(function NodexDropdownInput({ className, onKeyDown, ...props }, ref) {
-  return (
-    <input
-      ref={ref}
-      autoFocus
-      className={cn(
-        "text-md w-full min-w-0 rounded-sm border border-none px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm !outline-none",
-        className,
-      )}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
-          event.preventDefault();
-          event.currentTarget.select();
-          return;
-        }
-        onKeyDown?.(event);
-      }}
-      {...props}
-    />
-  );
-});
+export const NodexDropdownInput = forwardRef<HTMLInputElement, ComponentPropsWithoutRef<"input">>(
+  function NodexDropdownInput({ className, onKeyDown, ...props }, ref) {
+    return (
+      <input
+        ref={ref}
+        autoFocus
+        className={cn(
+          "text-md w-full min-w-0 rounded-sm border border-none px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm !outline-none",
+          className,
+        )}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+            event.preventDefault();
+            event.currentTarget.select();
+            return;
+          }
+          onKeyDown?.(event);
+        }}
+        {...props}
+      />
+    );
+  },
+);
 
 export const NodexDropdownSearchInput = forwardRef<
   HTMLInputElement,
@@ -1007,15 +1000,7 @@ export const NodexDropdownSearchInput = forwardRef<
     inputClassName?: string;
     trailingContent?: ReactNode;
   }
->(function NodexDropdownSearchInput(
-  {
-    className,
-    inputClassName,
-    trailingContent,
-    ...props
-  },
-  ref,
-) {
+>(function NodexDropdownSearchInput({ className, inputClassName, trailingContent, ...props }, ref) {
   return (
     <div
       className={cn(
@@ -1051,50 +1036,41 @@ export function NodexDropdownSeparator({
   );
 }
 
-export const NodexDropdownSurface = forwardRef<
-  HTMLDivElement,
-  ComponentPropsWithoutRef<"div">
->(function NodexDropdownSurface({ children, className, style, ...props }, ref) {
-  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+export const NodexDropdownSurface = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<"div">>(
+  function NodexDropdownSurface({ children, className, style, ...props }, ref) {
+    const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
 
-  return (
-    <div
-      ref={ref}
-      className={cn(dropdownContentSurfaceClassName, className)}
-      style={{ zIndex: layerIndex, ...style }}
-      {...props}
-    >
-      <NodexFloatingLayerProvider zIndex={layerIndex}>
+    return (
+      <div
+        ref={ref}
+        className={cn(dropdownContentSurfaceClassName, className)}
+        style={{ zIndex: layerIndex, ...style }}
+        {...props}
+      >
+        <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
+      </div>
+    );
+  },
+);
+
+export const NodexDropdownScrollList = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<"div">>(
+  function NodexDropdownScrollList({ children, className, ...props }, ref) {
+    return (
+      <div
+        ref={ref}
+        className={cn("flex max-h-[250px] flex-col overflow-y-auto", className)}
+        {...props}
+      >
         {children}
-      </NodexFloatingLayerProvider>
-    </div>
-  );
-});
-
-export const NodexDropdownScrollList = forwardRef<
-  HTMLDivElement,
-  ComponentPropsWithoutRef<"div">
->(function NodexDropdownScrollList({ children, className, ...props }, ref) {
-  return (
-    <div
-      ref={ref}
-      className={cn("flex max-h-[250px] flex-col overflow-y-auto", className)}
-      {...props}
-    >
-      {children}
-    </div>
-  );
-});
+      </div>
+    );
+  },
+);
 
 export const NodexDropdownActionRow = forwardRef<
   HTMLButtonElement,
   ComponentPropsWithoutRef<"button">
->(function NodexDropdownActionRow({
-  children,
-  className,
-  disabled = false,
-  ...props
-}, ref) {
+>(function NodexDropdownActionRow({ children, className, disabled = false, ...props }, ref) {
   return (
     <button
       ref={ref}
@@ -1122,11 +1098,7 @@ export function NodexDropdownSectionLabel({
   children: ReactNode;
   className?: string;
 }) {
-  return (
-    <div className={cn(dropdownSectionLabelClassName, className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn(dropdownSectionLabelClassName, className)}>{children}</div>;
 }
 
 export function NodexDropdownMessage({
@@ -1164,11 +1136,7 @@ export function NodexDropdownTitle({
   children: ReactNode;
   className?: string;
 }) {
-  return (
-    <div className={cn(dropdownTitleClassName, className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn(dropdownTitleClassName, className)}>{children}</div>;
 }
 
 export function NodexDropdownSection({
@@ -1312,7 +1280,7 @@ export function NodexDropdownSummarySubmenuItem({
       contentClassName={contentClassName}
       tooltipText={tooltipText}
       onOpenChange={onOpenChange}
-      triggerContent={(
+      triggerContent={
         <div className="flex w-full min-w-0 items-center gap-3">
           <span className="shrink-0">{label}</span>
           <span className="flex min-w-0 flex-1 justify-end text-token-text-tertiary">
@@ -1320,7 +1288,7 @@ export function NodexDropdownSummarySubmenuItem({
           </span>
           <ChevronRightIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground" />
         </div>
-      )}
+      }
     >
       {children}
     </NodexDropdownFlyoutSubmenuItem>

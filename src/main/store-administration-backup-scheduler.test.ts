@@ -62,21 +62,25 @@ describe("Store Administration backup scheduler", () => {
     let resolveBackup: () => void = () => undefined;
     const port: DesktopStoreAdministrationPort = {
       ...administration(),
-      createBackup: vi.fn(async () => await new Promise<
-        Awaited<ReturnType<DesktopStoreAdministrationPort["createBackup"]>>
-      >((resolve) => {
-        resolveBackup = () => resolve({
-          version: 2,
-          id: "backup:auto",
-          createdAt: "2026-07-19T20:00:00.000Z",
-          trigger: "auto" as const,
-          label: null,
-          includesAssets: true,
-          dbBytes: 100,
-          assetsBytes: 20,
-          totalBytes: 120,
-        });
-      })),
+      createBackup: vi.fn(
+        async () =>
+          await new Promise<Awaited<ReturnType<DesktopStoreAdministrationPort["createBackup"]>>>(
+            (resolve) => {
+              resolveBackup = () =>
+                resolve({
+                  version: 2,
+                  id: "backup:auto",
+                  createdAt: "2026-07-19T20:00:00.000Z",
+                  trigger: "auto" as const,
+                  label: null,
+                  includesAssets: true,
+                  dbBytes: 100,
+                  assetsBytes: 20,
+                  totalBytes: 120,
+                });
+            },
+          ),
+      ),
     };
     const scheduler = startStoreAdministrationBackupScheduler({
       administration: port,

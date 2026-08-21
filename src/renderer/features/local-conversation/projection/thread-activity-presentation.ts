@@ -1,7 +1,4 @@
-import type {
-  ProtocolAppInfo,
-  ProtocolListMcpServerStatusResponse,
-} from "../../../lib/types";
+import type { ProtocolAppInfo, ProtocolListMcpServerStatusResponse } from "../../../lib/types";
 import {
   attachAutomaticApprovalReviewsToToolTargets,
   buildV2AgentActivityGroupBlock,
@@ -74,10 +71,12 @@ function resolveThreadExplorationState(
     hasTrailingExploration = false;
     trailingExplorationInProgress = false;
   }
-  return input.isTurnInProgress
-    && !input.isBlocked
-    && hasTrailingExploration
-    && trailingExplorationInProgress;
+  return (
+    input.isTurnInProgress &&
+    !input.isBlocked &&
+    hasTrailingExploration &&
+    trailingExplorationInProgress
+  );
 }
 
 function toTranscriptEntries(
@@ -123,12 +122,14 @@ export function projectThreadActivityPresentation(
     hasPostAssistantUnits: input.hasPostAssistantUnits,
   });
   const unitContexts = buildThreadAgentActivityUnitContexts({
-    slices: [{
-      kind: "main",
-      units: activityUnits,
-      isActivitySliceClosed: isThreadActivitySliceClosed(liveActivity.mainSlice),
-      isExploring,
-    }],
+    slices: [
+      {
+        kind: "main",
+        units: activityUnits,
+        isActivitySliceClosed: isThreadActivitySliceClosed(liveActivity.mainSlice),
+        isExploring,
+      },
+    ],
     isTurnInProgress: input.isTurnInProgress,
     isTurnCancelled: input.isTurnCancelled,
   });
@@ -160,23 +161,21 @@ export function projectThreadActivityPresentation(
       };
     }
 
-    const body = filterThreadAgentActivityGroupBodyItems(
-      renderUnit.items,
-      input.isTurnCancelled,
-    );
+    const body = filterThreadAgentActivityGroupBodyItems(renderUnit.items, input.isTurnCancelled);
     const block = buildV2AgentActivityGroupBlock(
       toTranscriptEntries(renderUnit.items, "worked-for cannot be groupable in activity topology"),
       renderUnit.key,
       {
-        bodyEntries: toTranscriptEntries(body.items, "worked-for cannot be visible in an activity group body"),
+        bodyEntries: toTranscriptEntries(
+          body.items,
+          "worked-for cannot be visible in an activity group body",
+        ),
         canExpand: body.canExpand,
         resolvedApps: input.mcpApps,
         state,
-        thinkingFallbackMessage: liveActivity.fallback.owner === "group"
-          ? liveActivity.fallback.message
-          : null,
-        shouldAnimateInitialCollapse: context.isLatestVisibleUnit
-          && context.isActivitySliceOpen,
+        thinkingFallbackMessage:
+          liveActivity.fallback.owner === "group" ? liveActivity.fallback.message : null,
+        shouldAnimateInitialCollapse: context.isLatestVisibleUnit && context.isActivitySliceOpen,
       },
     );
     return { kind: "agentActivityGroup", targetAttributes, block };

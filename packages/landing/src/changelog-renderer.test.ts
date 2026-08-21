@@ -49,7 +49,9 @@ test("parseChangelog renders dated releases with categories and bullets", () => 
   expect(release?.date).toBe("2026-03-13");
   expect(release?.categories.length).toBe(2);
   expect(release?.categories[0]?.title).toBe("Added");
-  expect(release?.categories[0]?.items[0]?.text).toBe("Added release automation with `bun run release`.");
+  expect(release?.categories[0]?.items[0]?.text).toBe(
+    "Added release automation with `bun run release`.",
+  );
 });
 
 test("renderChangelogHtml omits empty category sections", () => {

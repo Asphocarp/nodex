@@ -2,10 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { BoardSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { emptyCardSelection, toggleCardSelection } from "./card-selection";
-import {
-  buildBoardCardDragData,
-  canDropOnBoardCard,
-} from "./pragmatic-drag-data";
+import { buildBoardCardDragData, canDropOnBoardCard } from "./pragmatic-drag-data";
 
 const board: BoardSummary = {
   columns: [
@@ -84,20 +81,26 @@ describe("pragmatic drag data", () => {
       columnId: "build",
     });
 
-    expect(canDropOnBoardCard({
-      targetPageId: "card-1",
-      source: dragData,
-      instanceId,
-    })).toBe(false);
-    expect(canDropOnBoardCard({
-      targetPageId: "card-2",
-      source: dragData,
-      instanceId,
-    })).toBe(false);
-    expect(canDropOnBoardCard({
-      targetPageId: "card-3",
-      source: dragData,
-      instanceId,
-    })).toBe(true);
+    expect(
+      canDropOnBoardCard({
+        targetPageId: "card-1",
+        source: dragData,
+        instanceId,
+      }),
+    ).toBe(false);
+    expect(
+      canDropOnBoardCard({
+        targetPageId: "card-2",
+        source: dragData,
+        instanceId,
+      }),
+    ).toBe(false);
+    expect(
+      canDropOnBoardCard({
+        targetPageId: "card-3",
+        source: dragData,
+        instanceId,
+      }),
+    ).toBe(true);
   });
 });

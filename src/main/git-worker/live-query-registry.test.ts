@@ -53,7 +53,7 @@ class FakeLiveRepository implements LiveQueryRepository {
   }): Promise<Result> {
     const key = JSON.stringify(input.key);
     const existing = this.#runs.get(key);
-    if (existing) return await existing as Result;
+    if (existing) return (await existing) as Result;
     this.queryRuns += 1;
     const controller = new AbortController();
     const promise = input.run(controller.signal).finally(() => {
@@ -71,14 +71,10 @@ class FakeLiveRepository implements LiveQueryRepository {
 
 describe("GitLiveQueryRegistry", () => {
   test("defines an exhaustive semantic invalidation matrix", () => {
-    expect(shouldRefreshGitLiveQuery("review-summary", "working-tree"))
-      .toBe(true);
-    expect(shouldRefreshGitLiveQuery("branch-diff-stats", "index"))
-      .toBe(true);
-    expect(shouldRefreshGitLiveQuery("base-branch", "working-tree"))
-      .toBe(false);
-    expect(shouldRefreshGitLiveQuery("branch-commits", "remote-refs"))
-      .toBe(true);
+    expect(shouldRefreshGitLiveQuery("review-summary", "working-tree")).toBe(true);
+    expect(shouldRefreshGitLiveQuery("branch-diff-stats", "index")).toBe(true);
+    expect(shouldRefreshGitLiveQuery("base-branch", "working-tree")).toBe(false);
+    expect(shouldRefreshGitLiveQuery("branch-commits", "remote-refs")).toBe(true);
   });
 
   test("coalesces identical subscriptions and publishes tracked before complete", async () => {
@@ -100,7 +96,7 @@ describe("GitLiveQueryRegistry", () => {
     const registry = new GitLiveQueryRegistry({
       registry: { get: async () => repository },
       execute,
-      publish: (event) => publications.push(event as typeof publications[number]),
+      publish: (event) => publications.push(event as (typeof publications)[number]),
     });
     const query = {
       method: "review-summary" as const,
@@ -120,10 +116,7 @@ describe("GitLiveQueryRegistry", () => {
     });
 
     expect(repository.queryRuns).toBe(2);
-    expect(publications.map(({ event }) => event.phase)).toEqual([
-      "tracked",
-      "tracked",
-    ]);
+    expect(publications.map(({ event }) => event.phase)).toEqual(["tracked", "tracked"]);
 
     complete.resolve({
       type: "success",
@@ -132,8 +125,7 @@ describe("GitLiveQueryRegistry", () => {
       snapshotGeneration: 1,
     });
     await vi.waitFor(() => {
-      expect(publications.filter(({ event }) => event.phase === "complete"))
-        .toHaveLength(2);
+      expect(publications.filter(({ event }) => event.phase === "complete")).toHaveLength(2);
     });
     registry.dispose();
   });
@@ -161,7 +153,7 @@ describe("GitLiveQueryRegistry", () => {
           errorMessage: null,
         };
       },
-      publish: (event) => publications.push(event as typeof publications[number]),
+      publish: (event) => publications.push(event as (typeof publications)[number]),
     });
     await registry.subscribe({
       subscriptionId: "branch",

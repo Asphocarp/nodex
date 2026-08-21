@@ -1,6 +1,16 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -32,17 +42,22 @@ const tempRoots: string[] = [];
 
 function runCommand(command: string, args: string[], cwd: string): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { cwd, encoding: "utf8", windowsHide: true }, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+    execFile(
+      command,
+      args,
+      { cwd, encoding: "utf8", windowsHide: true },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+          return;
+        }
 
-      resolve({
-        stdout: typeof stdout === "string" ? stdout : "",
-        stderr: typeof stderr === "string" ? stderr : "",
-      });
-    });
+        resolve({
+          stdout: typeof stdout === "string" ? stdout : "",
+          stderr: typeof stderr === "string" ? stderr : "",
+        });
+      },
+    );
   });
 }
 
@@ -114,11 +129,7 @@ describe("createManagedWorktree starting state", () => {
     await runCommand("git", ["add", "release.txt"], repositoryPath);
     await runCommand("git", ["commit", "-m", "test: add remote default"], repositoryPath);
     await runCommand("git", ["push", "origin", "release/default"], repositoryPath);
-    await runCommand(
-      "git",
-      ["symbolic-ref", "HEAD", "refs/heads/release/default"],
-      remotePath,
-    );
+    await runCommand("git", ["symbolic-ref", "HEAD", "refs/heads/release/default"], remotePath);
     await runCommand("git", ["checkout", "main"], repositoryPath);
 
     const startingState = await resolveManagedWorktreeDefaultStartingState(repositoryPath);
@@ -173,11 +184,9 @@ describe("createManagedWorktree starting state", () => {
       },
     });
 
-    const childHead = (await runCommand(
-      "git",
-      ["rev-parse", "HEAD"],
-      result.worktreeWorkspaceRoot,
-    )).stdout.trim();
+    const childHead = (
+      await runCommand("git", ["rev-parse", "HEAD"], result.worktreeWorkspaceRoot)
+    ).stdout.trim();
     const childBranch = (
       await runCommand("git", ["branch", "--show-current"], result.worktreeWorkspaceRoot)
     ).stdout.trim();
@@ -220,7 +229,9 @@ describe("createManagedWorktree starting state", () => {
     await runCommand("git", ["add", "remote-only.txt"], repositoryPath);
     await runCommand("git", ["commit", "-m", "test: add remote-only branch"], repositoryPath);
     await runCommand("git", ["push", "origin", "remote-only"], repositoryPath);
-    const remoteHead = (await runCommand("git", ["rev-parse", "HEAD"], repositoryPath)).stdout.trim();
+    const remoteHead = (
+      await runCommand("git", ["rev-parse", "HEAD"], repositoryPath)
+    ).stdout.trim();
     await runCommand("git", ["checkout", "main"], repositoryPath);
     await runCommand("git", ["branch", "-D", "remote-only"], repositoryPath);
 
@@ -263,7 +274,11 @@ describe("createManagedWorktree starting state", () => {
     expect(childHead).toBe(remoteHead);
     expect(trackingHead).toBe(remoteHead);
     expect(upstream).toBe(remoteRef);
-    expect(await stat(syncedConfigPath).then(() => true).catch(() => false)).toBe(false);
+    expect(
+      await stat(syncedConfigPath)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(false);
   });
 
   test("accepts tags, remote refs, and commit SHAs when synced metadata is disabled", async () => {
@@ -274,7 +289,9 @@ describe("createManagedWorktree starting state", () => {
     await runCommand("git", ["remote", "add", "origin", remotePath], repositoryPath);
     await runCommand("git", ["push", "origin", "main"], repositoryPath);
     await runCommand("git", ["tag", "fixture-tag"], repositoryPath);
-    const commitSha = (await runCommand("git", ["rev-parse", "HEAD"], repositoryPath)).stdout.trim();
+    const commitSha = (
+      await runCommand("git", ["rev-parse", "HEAD"], repositoryPath)
+    ).stdout.trim();
     const startingRefs = ["fixture-tag", "origin/main", commitSha];
 
     for (const [index, startingRef] of startingRefs.entries()) {
@@ -320,15 +337,11 @@ describe("createManagedWorktree starting state", () => {
     });
 
     expect(path.basename(result.worktreeGitRoot)).toBe(path.basename(repositoryPath));
-    expect(result.worktreeWorkspaceRoot).toBe(
-      path.join(result.worktreeGitRoot, "packages", "app"),
-    );
+    expect(result.worktreeWorkspaceRoot).toBe(path.join(result.worktreeGitRoot, "packages", "app"));
     expect(await readFile(path.join(result.worktreeWorkspaceRoot, "app.txt"), "utf8")).toBe(
       "nested workspace\n",
     );
-    expect(await readFile(path.join(result.worktreeGitRoot, "README.md"), "utf8")).toBe(
-      "base\n",
-    );
+    expect(await readFile(path.join(result.worktreeGitRoot, "README.md"), "utf8")).toBe("base\n");
   });
 
   test("retries UUID-prefix collisions when allocating the worktree path", async () => {
@@ -348,9 +361,7 @@ describe("createManagedWorktree starting state", () => {
       startingState: { type: "branch", branchName: "main" },
     });
 
-    expect(result.worktreeGitRoot).toBe(
-      path.join(nodexHome, "worktrees", "c3d4", "repository"),
-    );
+    expect(result.worktreeGitRoot).toBe(path.join(nodexHome, "worktrees", "c3d4", "repository"));
   });
 
   test("publishes allocated roots before Git creation and cleans them when canceled", async () => {
@@ -364,27 +375,33 @@ describe("createManagedWorktree starting state", () => {
     let worktreeExistedAtAllocation = true;
     let tokenDirectoryExistedAtAllocation = false;
 
-    await expect(createManagedWorktree({
-      repositoryPath,
-      nodexHome,
-      projectId: "project-path-event",
-      targetId: "target-path-event",
-      mode: "detachedHead",
-      startingState: { type: "branch", branchName: "main" },
-      onPathAllocated: (roots) => {
-        allocatedRoots = roots;
-        worktreeExistedAtAllocation = existsSync(roots.worktreeGitRoot);
-        tokenDirectoryExistedAtAllocation = existsSync(path.dirname(roots.worktreeGitRoot));
-        controller.abort();
-      },
-      signal: controller.signal,
-    })).rejects.toThrow("Request canceled");
+    await expect(
+      createManagedWorktree({
+        repositoryPath,
+        nodexHome,
+        projectId: "project-path-event",
+        targetId: "target-path-event",
+        mode: "detachedHead",
+        startingState: { type: "branch", branchName: "main" },
+        onPathAllocated: (roots) => {
+          allocatedRoots = roots;
+          worktreeExistedAtAllocation = existsSync(roots.worktreeGitRoot);
+          tokenDirectoryExistedAtAllocation = existsSync(path.dirname(roots.worktreeGitRoot));
+          controller.abort();
+        },
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("Request canceled");
 
     expect(allocatedRoots).not.toBe(null);
     expect(worktreeExistedAtAllocation).toBe(false);
     expect(tokenDirectoryExistedAtAllocation).toBe(true);
     expect((await readdir(path.join(nodexHome, "worktrees"))).length).toBe(0);
-    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    const worktreeList = await runCommand(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      repositoryPath,
+    );
     expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
   });
 
@@ -458,9 +475,11 @@ describe("createManagedWorktree starting state", () => {
     expect(selectedEnvironment).toBe("__none__");
     expect(logs.some((entry) => entry.data === "Copied 1 file from .worktreeinclude\n")).toBe(true);
     expect(
-      logs.some((entry) =>
-        entry.stream === "info"
-        && entry.data === `Worktree created at ${result.worktreeWorkspaceRoot}\n`),
+      logs.some(
+        (entry) =>
+          entry.stream === "info" &&
+          entry.data === `Worktree created at ${result.worktreeWorkspaceRoot}\n`,
+      ),
     ).toBe(true);
     expect(logs.some((entry) => entry.data === "No local environment selected\n")).toBe(true);
   });
@@ -578,7 +597,11 @@ describe("createManagedWorktree starting state", () => {
         )
       ).stdout.trim();
 
-      expect(await stat(syncedConfigPath).then(() => true).catch(() => false)).toBe(false);
+      expect(
+        await stat(syncedConfigPath)
+          .then(() => true)
+          .catch(() => false),
+      ).toBe(false);
     }
   });
 
@@ -593,20 +616,15 @@ describe("createManagedWorktree starting state", () => {
 
     await writeFile(path.join(repositoryPath, "README.md"), "unstaged edit\n", "utf8");
     await writeFile(path.join(repositoryPath, "binary.bin"), changedBinary);
-    await writeFile(
-      path.join(repositoryPath, "tracked-staged.txt"),
-      "staged edit\n",
-      "utf8",
-    );
+    await writeFile(path.join(repositoryPath, "tracked-staged.txt"), "staged edit\n", "utf8");
     await runCommand("git", ["add", "tracked-staged.txt"], repositoryPath);
     await writeFile(path.join(repositoryPath, "staged-new.txt"), "staged new\n", "utf8");
     await runCommand("git", ["add", "staged-new.txt"], repositoryPath);
     await writeFile(path.join(repositoryPath, "untracked.txt"), "untracked edit\n", "utf8");
     const untrackedBinary = Buffer.from([128, 0, 255, 64, 1, 2, 3]);
     await writeFile(path.join(repositoryPath, "untracked.bin"), untrackedBinary);
-    const sourceStatusBefore = (
-      await runCommand("git", ["status", "--porcelain"], repositoryPath)
-    ).stdout;
+    const sourceStatusBefore = (await runCommand("git", ["status", "--porcelain"], repositoryPath))
+      .stdout;
     const logs: string[] = [];
 
     const result = await createManagedWorktree({
@@ -628,10 +646,12 @@ describe("createManagedWorktree starting state", () => {
     expect(await readFile(path.join(result.worktreeWorkspaceRoot, "README.md"), "utf8")).toBe(
       "unstaged edit\n",
     );
-    expect((await readFile(path.join(result.worktreeWorkspaceRoot, "binary.bin"))).equals(changedBinary)).toBe(true);
-    expect(await readFile(path.join(result.worktreeWorkspaceRoot, "tracked-staged.txt"), "utf8")).toBe(
-      "staged edit\n",
-    );
+    expect(
+      (await readFile(path.join(result.worktreeWorkspaceRoot, "binary.bin"))).equals(changedBinary),
+    ).toBe(true);
+    expect(
+      await readFile(path.join(result.worktreeWorkspaceRoot, "tracked-staged.txt"), "utf8"),
+    ).toBe("staged edit\n");
     expect(await readFile(path.join(result.worktreeWorkspaceRoot, "staged-new.txt"), "utf8")).toBe(
       "staged new\n",
     );
@@ -645,9 +665,8 @@ describe("createManagedWorktree starting state", () => {
     ).toBe(true);
     expect(logs.some((entry) => entry.includes("Applying working tree diff"))).toBe(true);
     expect(logs.some((entry) => entry.includes("Copying untracked files"))).toBe(true);
-    const sourceStatusAfter = (
-      await runCommand("git", ["status", "--porcelain"], repositoryPath)
-    ).stdout;
+    const sourceStatusAfter = (await runCommand("git", ["status", "--porcelain"], repositoryPath))
+      .stdout;
     expect(sourceStatusAfter).toBe(sourceStatusBefore);
   });
 
@@ -669,17 +688,23 @@ describe("createManagedWorktree starting state", () => {
     );
     await chmod(hookPath, 0o755);
 
-    await expect(createManagedWorktree({
-      repositoryPath,
-      nodexHome,
-      projectId: "project-untracked-copy-conflict",
-      targetId: "target-untracked-copy-conflict",
-      mode: "detachedHead",
-      startingState: { type: "working-tree" },
-    })).rejects.toThrow("Failed to copy all untracked working tree files");
+    await expect(
+      createManagedWorktree({
+        repositoryPath,
+        nodexHome,
+        projectId: "project-untracked-copy-conflict",
+        targetId: "target-untracked-copy-conflict",
+        mode: "detachedHead",
+        startingState: { type: "working-tree" },
+      }),
+    ).rejects.toThrow("Failed to copy all untracked working tree files");
 
     expect((await readdir(path.join(nodexHome, "worktrees"))).length).toBe(0);
-    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    const worktreeList = await runCommand(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      repositoryPath,
+    );
     expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
     expect(await readFile(sourceUntrackedPath, "utf8")).toBe("source remains\n");
   });
@@ -692,14 +717,16 @@ describe("createManagedWorktree starting state", () => {
     await writeFile(outsidePath, "outside remains\n", "utf8");
     await symlink(outsidePath, path.join(repositoryPath, "untracked-link"));
 
-    await expect(createManagedWorktree({
-      repositoryPath,
-      nodexHome,
-      projectId: "project-untracked-symlink",
-      targetId: "target-untracked-symlink",
-      mode: "detachedHead",
-      startingState: { type: "working-tree" },
-    })).rejects.toThrow("Failed to copy all untracked working tree files");
+    await expect(
+      createManagedWorktree({
+        repositoryPath,
+        nodexHome,
+        projectId: "project-untracked-symlink",
+        targetId: "target-untracked-symlink",
+        mode: "detachedHead",
+        startingState: { type: "working-tree" },
+      }),
+    ).rejects.toThrow("Failed to copy all untracked working tree files");
 
     expect(await readFile(outsidePath, "utf8")).toBe("outside remains\n");
     expect((await readdir(path.join(nodexHome, "worktrees"))).length).toBe(0);
@@ -715,21 +742,35 @@ describe("createManagedWorktree starting state", () => {
     await rm(sourceIndexPath);
     const nodexHome = path.join(root, "server");
 
-    await expect(createManagedWorktree({
-      repositoryPath,
-      nodexHome,
-      projectId: "project-failed-working-tree-capture",
-      targetId: "target-failed-working-tree-capture",
-      mode: "detachedHead",
-      startingState: { type: "working-tree" },
-    })).rejects.toThrow();
+    await expect(
+      createManagedWorktree({
+        repositoryPath,
+        nodexHome,
+        projectId: "project-failed-working-tree-capture",
+        targetId: "target-failed-working-tree-capture",
+        mode: "detachedHead",
+        startingState: { type: "working-tree" },
+      }),
+    ).rejects.toThrow();
 
-    expect(await stat(path.join(nodexHome, "worktrees")).then(() => true).catch(() => false)).toBe(false);
-    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    expect(
+      await stat(path.join(nodexHome, "worktrees"))
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(false);
+    const worktreeList = await runCommand(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      repositoryPath,
+    );
     expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
     expect(await readFile(sourceReadmePath, "utf8")).toBe("source edit remains\n");
     expect(await readFile(sourceOnlyPath, "utf8")).toBe("source only remains\n");
-    expect(await stat(sourceIndexPath).then(() => true).catch(() => false)).toBe(false);
+    expect(
+      await stat(sourceIndexPath)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(false);
   });
 
   test("lets Git report an invalid explicit starting ref", async () => {
@@ -778,7 +819,11 @@ describe("createManagedWorktree cancellation", () => {
     }
 
     expect(message).toBe("Request canceled");
-    expect(await stat(nodexHome).then(() => true).catch(() => false)).toBe(false);
+    expect(
+      await stat(nodexHome)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(false);
   });
 
   test("does not swallow cancellation while capturing the working tree diff", async () => {
@@ -791,7 +836,11 @@ describe("createManagedWorktree cancellation", () => {
     const nodexHome = path.join(root, "server");
     const filteredPath = path.join(repositoryPath, "capture.txt");
     const sourceIndexPath = path.join(repositoryPath, ".git", "index");
-    await writeFile(path.join(repositoryPath, ".gitattributes"), "capture.txt filter=slow-capture\n", "utf8");
+    await writeFile(
+      path.join(repositoryPath, ".gitattributes"),
+      "capture.txt filter=slow-capture\n",
+      "utf8",
+    );
     await writeFile(filteredPath, "base capture\n", "utf8");
     await runCommand("git", ["add", ".gitattributes", "capture.txt"], repositoryPath);
     await runCommand("git", ["commit", "-m", "test: add capture fixture"], repositoryPath);
@@ -834,7 +883,10 @@ describe("createManagedWorktree cancellation", () => {
       signal: controller.signal,
     });
     await waitFor(
-      () => stat(captureStartedPath).then(() => true).catch(() => false),
+      () =>
+        stat(captureStartedPath)
+          .then(() => true)
+          .catch(() => false),
       "the blocking clean filter",
     );
     const capturePid = Number.parseInt(await readFile(capturePidPath, "utf8"), 10);
@@ -849,8 +901,16 @@ describe("createManagedWorktree cancellation", () => {
 
     expect(message).toBe("Request canceled");
     await waitFor(async () => !isProcessAlive(capturePid), "the canceled clean filter to exit");
-    expect(await stat(path.join(nodexHome, "worktrees")).then(() => true).catch(() => false)).toBe(false);
-    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    expect(
+      await stat(path.join(nodexHome, "worktrees"))
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(false);
+    const worktreeList = await runCommand(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      repositoryPath,
+    );
     expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
     expect(await readFile(filteredPath, "utf8")).toBe("source capture edit remains\n");
     expect((await readFile(sourceIndexPath)).equals(sourceIndexBefore)).toBe(true);
@@ -892,7 +952,10 @@ describe("createManagedWorktree cancellation", () => {
       signal: controller.signal,
     });
     await waitFor(
-      () => stat(hookStartedPath).then(() => true).catch(() => false),
+      () =>
+        stat(hookStartedPath)
+          .then(() => true)
+          .catch(() => false),
       "the blocking post-checkout hook",
     );
     const hookPid = Number.parseInt(await readFile(hookPidPath, "utf8"), 10);
@@ -909,7 +972,11 @@ describe("createManagedWorktree cancellation", () => {
     await waitFor(async () => !isProcessAlive(hookPid), "the canceled git hook process to exit");
     const worktreesRoot = path.join(nodexHome, "worktrees");
     expect((await readdir(worktreesRoot)).length).toBe(0);
-    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    const worktreeList = await runCommand(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      repositoryPath,
+    );
     expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
   });
 
@@ -961,7 +1028,10 @@ describe("createManagedWorktree cancellation", () => {
       signal: controller.signal,
     });
     await waitFor(
-      () => stat(hookStartedPath).then(() => true).catch(() => false),
+      () =>
+        stat(hookStartedPath)
+          .then(() => true)
+          .catch(() => false),
       "the second blocking post-checkout hook",
     );
     const hookPid = Number.parseInt(await readFile(hookPidPath, "utf8"), 10);
@@ -984,13 +1054,15 @@ describe("createManagedWorktree cancellation", () => {
     expect(await readFile(path.join(existing.worktreeWorkspaceRoot, "README.md"), "utf8")).toBe(
       "base\n",
     );
-    expect(await readFile(path.join(repositoryPath, "README.md"), "utf8")).toBe(
-      "source remains\n",
-    );
+    expect(await readFile(path.join(repositoryPath, "README.md"), "utf8")).toBe("source remains\n");
     expect(await readFile(path.join(repositoryPath, "untracked-remains.txt"), "utf8")).toBe(
       "source only\n",
     );
-    const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
+    const worktreeList = await runCommand(
+      "git",
+      ["worktree", "list", "--porcelain"],
+      repositoryPath,
+    );
     expect(worktreeList.stdout.includes(existing.worktreeGitRoot)).toBe(true);
     const worktreeTokens = await readdir(path.join(nodexHome, "worktrees"));
     expect(worktreeTokens.length).toBe(1);

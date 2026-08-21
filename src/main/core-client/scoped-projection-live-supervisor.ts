@@ -33,12 +33,10 @@ interface ActiveLease {
 
 const MAX_OPENING_BUFFER = 512;
 
-const canonicalScopes = (
-  scopes: readonly ProjectionScope[],
-): readonly ProjectionScope[] => {
-  const canonical = [...new Map(
-    scopes.map((scope) => [projectionScopeKey(scope), scope]),
-  ).entries()]
+const canonicalScopes = (scopes: readonly ProjectionScope[]): readonly ProjectionScope[] => {
+  const canonical = [
+    ...new Map(scopes.map((scope) => [projectionScopeKey(scope), scope])).entries(),
+  ]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([, scope]) => scope);
   if (canonical.length > 200) {
@@ -47,13 +45,9 @@ const canonicalScopes = (
   return canonical;
 };
 
-const sameScopes = (
-  left: readonly ProjectionScope[],
-  right: readonly ProjectionScope[],
-): boolean => left.length === right.length
-  && left.every((scope, index) =>
-    projectionScopeKey(scope) === projectionScopeKey(right[index]!)
-  );
+const sameScopes = (left: readonly ProjectionScope[], right: readonly ProjectionScope[]): boolean =>
+  left.length === right.length &&
+  left.every((scope, index) => projectionScopeKey(scope) === projectionScopeKey(right[index]!));
 
 const addedScopes = (
   previous: readonly ProjectionScope[],
@@ -67,10 +61,14 @@ const delay = async (milliseconds: number, signal: AbortSignal): Promise<void> =
   if (signal.aborted) return;
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(resolve, milliseconds);
-    signal.addEventListener("abort", () => {
-      clearTimeout(timeout);
-      resolve();
-    }, { once: true });
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true },
+    );
   });
 };
 
@@ -136,10 +134,7 @@ export class ScopedProjectionLiveSupervisor {
     };
   }
 
-  #startReplacement(
-    generation: number,
-    scopes: readonly ProjectionScope[],
-  ): void {
+  #startReplacement(generation: number, scopes: readonly ProjectionScope[]): void {
     const abort = new AbortController();
     this.#connectingAbort = abort;
     void this.#connect(generation, scopes, abort).catch((error: unknown) => {
@@ -153,11 +148,7 @@ export class ScopedProjectionLiveSupervisor {
     scopes: readonly ProjectionScope[],
     abort: AbortController,
   ): Promise<void> {
-    while (
-      !abort.signal.aborted
-      && !this.#stopped
-      && generation === this.#generation
-    ) {
+    while (!abort.signal.aborted && !this.#stopped && generation === this.#generation) {
       const bufferedPackets: CoreEventEnvelope[] = [];
       const bufferedRepairs: ProjectionLiveRepair[] = [];
       let activated = false;
@@ -174,13 +165,8 @@ export class ScopedProjectionLiveSupervisor {
               return;
             }
             if (generation !== this.#generation || openingFailure) return;
-            if (
-              bufferedPackets.length + bufferedRepairs.length
-              >= MAX_OPENING_BUFFER
-            ) {
-              openingFailure = new Error(
-                "Projection live opening buffer exceeded its bound",
-              );
+            if (bufferedPackets.length + bufferedRepairs.length >= MAX_OPENING_BUFFER) {
+              openingFailure = new Error("Projection live opening buffer exceeded its bound");
               return;
             }
             bufferedPackets.push(event);
@@ -192,33 +178,22 @@ export class ScopedProjectionLiveSupervisor {
               return;
             }
             if (generation !== this.#generation || openingFailure) return;
-            if (
-              bufferedPackets.length + bufferedRepairs.length
-              >= MAX_OPENING_BUFFER
-            ) {
-              openingFailure = new Error(
-                "Projection live opening buffer exceeded its bound",
-              );
+            if (bufferedPackets.length + bufferedRepairs.length >= MAX_OPENING_BUFFER) {
+              openingFailure = new Error("Projection live opening buffer exceeded its bound");
               return;
             }
             bufferedRepairs.push(repair);
           },
           abort.signal,
         );
-        if (
-          abort.signal.aborted
-          || this.#stopped
-          || generation !== this.#generation
-        ) {
+        if (abort.signal.aborted || this.#stopped || generation !== this.#generation) {
           subscription.close();
           return;
         }
         if (openingFailure) throw openingFailure;
 
         const previous = this.#active;
-        const resetScopes = previous
-          ? addedScopes(previous.scopes, scopes)
-          : scopes;
+        const resetScopes = previous ? addedScopes(previous.scopes, scopes) : scopes;
         const lease: ActiveLease = { abort, generation, scopes, subscription };
         this.#input.onBarrier(subscription.barrier, scopes, resetScopes);
         activated = true;
@@ -242,28 +217,17 @@ export class ScopedProjectionLiveSupervisor {
     }
   }
 
-  #leaseEnded(
-    lease: ActiveLease,
-    error: unknown,
-  ): void {
+  #leaseEnded(lease: ActiveLease, error: unknown): void {
     if (this.#active !== lease) return;
     this.#active = null;
     this.#closeLease(lease);
     if (error !== null && !this.#stopped) this.#input.onError?.(error);
-    if (
-      this.#stopped
-      || lease.generation !== this.#generation
-      || this.#scopes.length === 0
-    ) return;
+    if (this.#stopped || lease.generation !== this.#generation || this.#scopes.length === 0) return;
     const generation = lease.generation;
     const reconnectAbort = new AbortController();
     this.#connectingAbort = reconnectAbort;
     void delay(this.#retryDelayMs, reconnectAbort.signal).then(() => {
-      if (
-        reconnectAbort.signal.aborted
-        || generation !== this.#generation
-        || this.#stopped
-      ) return;
+      if (reconnectAbort.signal.aborted || generation !== this.#generation || this.#stopped) return;
       this.#startReplacement(generation, this.#scopes);
     });
   }

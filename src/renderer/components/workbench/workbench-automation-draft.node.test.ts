@@ -42,7 +42,9 @@ const MODELS: CodexModelOption[] = [
   },
 ];
 
-function makeAutomation(overrides: Partial<CodexScheduledAutomation> = {}): CodexScheduledAutomation {
+function makeAutomation(
+  overrides: Partial<CodexScheduledAutomation> = {},
+): CodexScheduledAutomation {
   return {
     id: "automation-1",
     definitionRevision: 1,
@@ -222,10 +224,14 @@ describe("workbench automation draft", () => {
     const draft = createWorkbenchAutomationDraft({ id: "automation-new" });
     draft.rrule = "INTERVAL=2";
 
-    expect(formatWorkbenchAutomationDraftSaveTooltip({
-      draft,
-      action: "create",
-    })).toBe("Create title, add prompt, select project, choose a model, and fix the schedule to create");
+    expect(
+      formatWorkbenchAutomationDraftSaveTooltip({
+        draft,
+        action: "create",
+      }),
+    ).toBe(
+      "Create title, add prompt, select project, choose a model, and fix the schedule to create",
+    );
 
     draft.name = "Weekly triage";
     draft.prompt = "Run the report.";
@@ -233,30 +239,38 @@ describe("workbench automation draft", () => {
     draft.cwds = ["/tmp/project"];
     draft.model = "";
 
-    expect(formatWorkbenchAutomationDraftSaveTooltip({
-      draft,
-      action: "save",
-    })).toBe("Choose a model to save");
+    expect(
+      formatWorkbenchAutomationDraftSaveTooltip({
+        draft,
+        action: "save",
+      }),
+    ).toBe("Choose a model to save");
 
     draft.kind = "heartbeat";
     draft.model = "";
     draft.cwds = [];
     draft.targetThreadId = "";
 
-    expect(formatWorkbenchAutomationDraftSaveTooltip({
-      draft,
-      action: "create",
-    })).toBe("Select chat to create");
+    expect(
+      formatWorkbenchAutomationDraftSaveTooltip({
+        draft,
+        action: "create",
+      }),
+    ).toBe("Select chat to create");
 
     draft.targetThreadId = "thread-1";
-    expect(formatWorkbenchAutomationDraftSaveTooltip({
-      draft,
-      action: "create",
-    })).toBe(null);
+    expect(
+      formatWorkbenchAutomationDraftSaveTooltip({
+        draft,
+        action: "create",
+      }),
+    ).toBe(null);
   });
 
   test("parses project inputs and prefixes generated ids", () => {
-    expect(JSON.stringify(parseWorkbenchAutomationCwds(" /a, /b\n/c "))).toBe(JSON.stringify(["/a", "/b", "/c"]));
+    expect(JSON.stringify(parseWorkbenchAutomationCwds(" /a, /b\n/c "))).toBe(
+      JSON.stringify(["/a", "/b", "/c"]),
+    );
     expect(createCodexScheduledAutomationId(() => "abc").startsWith("automation-")).toBe(true);
   });
 

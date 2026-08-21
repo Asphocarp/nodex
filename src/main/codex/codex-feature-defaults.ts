@@ -1,11 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
@@ -37,22 +31,19 @@ function isRecord(value: unknown): value is UnknownRecord {
 }
 
 function isMissingPathError(error: unknown): boolean {
-  return error instanceof Error
-    && "code" in error
-    && error.code === "ENOENT";
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-export function applyCodexFeatureDefaults(
-  config: UnknownRecord,
-): ApplyCodexFeatureDefaultsResult {
+export function applyCodexFeatureDefaults(config: UnknownRecord): ApplyCodexFeatureDefaultsResult {
   const configuredFeatures = config.features;
   if (configuredFeatures !== undefined && !isRecord(configuredFeatures)) {
     throw new Error("Codex config [features] must be a TOML table");
   }
 
   const features = configuredFeatures ?? {};
-  const added = (Object.keys(CODEX_FEATURE_DEFAULTS) as CodexFeatureDefault[])
-    .filter((feature) => !Object.hasOwn(features, feature));
+  const added = (Object.keys(CODEX_FEATURE_DEFAULTS) as CodexFeatureDefault[]).filter(
+    (feature) => !Object.hasOwn(features, feature),
+  );
   if (added.length === 0) return { added, config };
 
   const defaults = Object.fromEntries(
@@ -79,10 +70,7 @@ async function syncDirectory(directoryPath: string): Promise<void> {
   }
 }
 
-async function writeConfigAtomically(
-  configPath: string,
-  contents: string,
-): Promise<void> {
+async function writeConfigAtomically(configPath: string, contents: string): Promise<void> {
   const directoryPath = dirname(configPath);
   await mkdir(directoryPath, { recursive: true, mode: 0o700 });
   const temporaryPath = join(

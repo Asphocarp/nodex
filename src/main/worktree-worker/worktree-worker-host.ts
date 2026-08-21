@@ -159,10 +159,7 @@ export class CodexWorktreeWorkerHost implements CodexWorktreeWorkerPort {
     input: CodexWorktreeWorkerPrepareHandoffInput,
     options: CodexWorktreeWorkerRequestOptions,
   ): Promise<CodexWorktreeWorkerPreparedHandoff> {
-    const success = await this.#request(
-      { operation: "prepare-handoff", input },
-      options,
-    );
+    const success = await this.#request({ operation: "prepare-handoff", input }, options);
     if (success.operation !== "prepare-handoff") {
       throw new Error("Worktree worker result mismatch");
     }
@@ -173,10 +170,7 @@ export class CodexWorktreeWorkerHost implements CodexWorktreeWorkerPort {
     input: CodexWorktreeWorkerRollbackHandoffInput,
     options: CodexWorktreeWorkerRequestOptions,
   ): Promise<CodexWorktreeWorkerRollbackHandoffResult> {
-    const success = await this.#request(
-      { operation: "rollback-handoff", input },
-      options,
-    );
+    const success = await this.#request({ operation: "rollback-handoff", input }, options);
     if (success.operation !== "rollback-handoff") {
       throw new Error("Worktree worker result mismatch");
     }
@@ -249,9 +243,9 @@ export class CodexWorktreeWorkerHost implements CodexWorktreeWorkerPort {
   ): Promise<CodexWorktreeWorkerSuccess> {
     if (this.#shuttingDown) return Promise.reject(new Error("Worktree worker is shutting down"));
     if (request.input.hostId !== this.hostId) {
-      return Promise.reject(new Error(
-        `Worktree request host ${request.input.hostId} does not match ${this.hostId}`,
-      ));
+      return Promise.reject(
+        new Error(`Worktree request host ${request.input.hostId} does not match ${this.hostId}`),
+      );
     }
     if (options.signal.aborted) return Promise.reject(new Error("Request canceled"));
     const id = `${request.operation}:${randomUUID()}`;

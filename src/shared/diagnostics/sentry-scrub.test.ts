@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  scrubSentryBreadcrumb,
-  scrubSentryData,
-  scrubSentryEvent,
-} from "./sentry-scrub";
+import { scrubSentryBreadcrumb, scrubSentryData, scrubSentryEvent } from "./sentry-scrub";
 
 describe("Sentry diagnostics scrubber", () => {
   test("redacts secret-bearing fields and prompt-like content", () => {
@@ -31,7 +27,9 @@ describe("Sentry diagnostics scrubber", () => {
       },
     });
 
-    expect(scrubbed.message).toBe("Failed at /Users/[user]/work/app.ts with https://example.com/path");
+    expect(scrubbed.message).toBe(
+      "Failed at /Users/[user]/work/app.ts with https://example.com/path",
+    );
     const data = scrubbed.data as Record<string, unknown>;
     expect(data.cwd).toBe("/home/[user]/project");
   });

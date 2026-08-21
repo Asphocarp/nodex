@@ -27,10 +27,7 @@ export const NFM_DATE_MENTION_DATE_FORMATS: NfmDateMentionDateFormat[] = [
   "YYYY/MM/DD",
 ];
 
-export const NFM_DATE_MENTION_TIME_FORMATS: NfmDateMentionTimeFormat[] = [
-  "12h",
-  "24h",
-];
+export const NFM_DATE_MENTION_TIME_FORMATS: NfmDateMentionTimeFormat[] = ["12h", "24h"];
 
 export const NFM_DATE_MENTION_REMINDER_PRESETS = [
   "minute:0",
@@ -41,8 +38,7 @@ export const NFM_DATE_MENTION_REMINDER_PRESETS = [
   "day:1@09:00",
 ] as const;
 
-export type NfmDateMentionReminderPreset =
-  (typeof NFM_DATE_MENTION_REMINDER_PRESETS)[number];
+export type NfmDateMentionReminderPreset = (typeof NFM_DATE_MENTION_REMINDER_PRESETS)[number];
 
 export interface DateMentionFormatOptions {
   now?: Date;
@@ -62,7 +58,8 @@ export interface DateMentionQueryMatch {
 }
 
 const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DATE_TIME_VALUE_RE = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)([zZ]|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+const DATE_TIME_VALUE_RE =
+  /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)([zZ]|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const UTC_OFFSET_RE = /^([zZ]|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 const SHORT_US_DATE_RE = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/;
@@ -240,9 +237,8 @@ export function normalizeDateMention(
     ? repairDateMentionRange(start, end, startParts.kind)
     : { start, end: undefined };
   const format = normalizeDateFormat(input.format);
-  const timeFormat = startParts.kind === "datetime"
-    ? normalizeTimeFormat(input.timeFormat)
-    : undefined;
+  const timeFormat =
+    startParts.kind === "datetime" ? normalizeTimeFormat(input.timeFormat) : undefined;
   const tz = startParts.kind === "datetime" ? normalizeTimeZone(input.tz) : undefined;
   const reminder = normalizeReminder(input.reminder);
 
@@ -353,15 +349,16 @@ export function formatDateMentionLabel(
   if (!endParts) return [startDate, startTime].filter(Boolean).join(" ");
 
   const endDate = formatDatePart(endParts.date, normalized.format, options);
-  const endTime = endParts.time
-    ? formatTimePart(endParts.time, normalized.timeFormat, locale)
-    : "";
+  const endTime = endParts.time ? formatTimePart(endParts.time, normalized.timeFormat, locale) : "";
   const startLabel = [startDate, startTime].filter(Boolean).join(" ");
   const endLabel = [endDate, endTime].filter(Boolean).join(" ");
   return [startLabel, endLabel].filter(Boolean).join(" → ");
 }
 
-export function buildDateMentionQueryMatches(query: string, now = new Date()): DateMentionQueryMatch[] {
+export function buildDateMentionQueryMatches(
+  query: string,
+  now = new Date(),
+): DateMentionQueryMatch[] {
   const normalizedQuery = normalizeQuery(query);
   const today = todayIsoDate(now);
   const tomorrow = addIsoDateDays(today, 1);
@@ -441,7 +438,8 @@ export function buildDateMentionQueryMatches(query: string, now = new Date()): D
     });
   }
 
-  if (!normalizedQuery) return matches.filter((match) => match.key === "date:today" || match.key === "date:now");
+  if (!normalizedQuery)
+    return matches.filter((match) => match.key === "date:today" || match.key === "date:now");
 
   return matches
     .filter((match) => {
@@ -523,11 +521,7 @@ function parseIsoDate(value: string | undefined): Date | null {
   const month = Number.parseInt(match[2] ?? "", 10);
   const day = Number.parseInt(match[3] ?? "", 10);
   const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year
-    || date.getMonth() !== month - 1
-    || date.getDate() !== day
-  ) {
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
     return null;
   }
   return date;
@@ -547,9 +541,12 @@ function formatDatePart(
 
   const parts = splitIsoDate(value);
   if (!parts) return value;
-  if (effectiveFormat === "MM/DD/YYYY") return `${pad2(parts.month)}/${pad2(parts.day)}/${parts.year}`;
-  if (effectiveFormat === "DD/MM/YYYY") return `${pad2(parts.day)}/${pad2(parts.month)}/${parts.year}`;
-  if (effectiveFormat === "YYYY/MM/DD") return `${parts.year}/${pad2(parts.month)}/${pad2(parts.day)}`;
+  if (effectiveFormat === "MM/DD/YYYY")
+    return `${pad2(parts.month)}/${pad2(parts.day)}/${parts.year}`;
+  if (effectiveFormat === "DD/MM/YYYY")
+    return `${pad2(parts.day)}/${pad2(parts.month)}/${parts.year}`;
+  if (effectiveFormat === "YYYY/MM/DD")
+    return `${parts.year}/${pad2(parts.month)}/${pad2(parts.day)}`;
 
   return new Intl.DateTimeFormat(options.locale ?? "en-US", {
     month: "short",
@@ -563,7 +560,9 @@ function formatRelativeDate(value: string, now: Date, locale: string): string {
   if (!target) return value;
   const current = parseIsoDate(todayIsoDate(now));
   if (!current) return formatDatePart(value, "ll", { locale, relative: false });
-  const diff = Math.round((startOfDay(target).getTime() - startOfDay(current).getTime()) / 86_400_000);
+  const diff = Math.round(
+    (startOfDay(target).getTime() - startOfDay(current).getTime()) / 86_400_000,
+  );
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff === -1) return "Yesterday";
@@ -683,7 +682,9 @@ function getUtcOffsetForTimeZone(date: string, time: string, timeZone: string): 
 
   const hour = Number.parseInt(timeMatch[1] ?? "", 10);
   const minute = Number.parseInt(timeMatch[2] ?? "", 10);
-  const utcGuess = new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, hour, minute, 0));
+  const utcGuess = new Date(
+    Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, hour, minute, 0),
+  );
 
   try {
     const formattedParts = new Intl.DateTimeFormat("en-US", {
@@ -720,7 +721,10 @@ function getUtcOffsetForTimeZone(date: string, time: string, timeZone: string): 
   }
 }
 
-function getFormattedPart(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string | null {
+function getFormattedPart(
+  parts: Intl.DateTimeFormatPart[],
+  type: Intl.DateTimeFormatPartTypes,
+): string | null {
   return parts.find((part) => part.type === type)?.value ?? null;
 }
 

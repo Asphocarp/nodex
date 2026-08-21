@@ -40,8 +40,7 @@ export interface ReadyPageBlockDocumentDescriptor extends OwnedDocumentDescripto
   readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
 }
 
-export interface ReadyLibraryPageBlockDocumentDescriptor
-  extends LibraryAccessedDocumentDescriptor {
+export interface ReadyLibraryPageBlockDocumentDescriptor extends LibraryAccessedDocumentDescriptor {
   readonly ownerType: "page";
   readonly ownerLifecycle: "active";
   readonly schemaKey: typeof PAGE_BLOCK_DOCUMENT_SCHEMA_KEY;
@@ -156,22 +155,18 @@ export const unwrapOwnedBlockDocumentPreparationResult = (
   result: DocumentSyncCommandResult<OwnedDocumentDescriptor>,
 ): OwnedDocumentDescriptor => {
   if (result.ok) return result.value;
-  throw new OwnedBlockDocumentBoundaryError(
-    result.error.code,
-    result.error.message,
-    { retryable: result.error.retryable },
-  );
+  throw new OwnedBlockDocumentBoundaryError(result.error.code, result.error.message, {
+    retryable: result.error.retryable,
+  });
 };
 
 export const unwrapLibraryOwnedBlockDocumentPreparationResult = (
   result: DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>,
 ): LibraryAccessedDocumentDescriptor => {
   if (result.ok) return result.value;
-  throw new OwnedBlockDocumentBoundaryError(
-    result.error.code,
-    result.error.message,
-    { retryable: result.error.retryable },
-  );
+  throw new OwnedBlockDocumentBoundaryError(result.error.code, result.error.message, {
+    retryable: result.error.retryable,
+  });
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -180,9 +175,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isExactNonEmptyId = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0 && value.trim() === value;
 
-const requireValidRequest = (
-  request: OwnedBlockDocumentRequest,
-): OwnedBlockDocumentRequest => {
+const requireValidRequest = (request: OwnedBlockDocumentRequest): OwnedBlockDocumentRequest => {
   if (!isExactNonEmptyId(request.ownerBlockId)) {
     throw new OwnedBlockDocumentBoundaryError(
       "invalid_request",
@@ -229,10 +222,7 @@ export const validateOwnedBlockDocumentDescriptor = (
   value: unknown,
 ): ReadyPageBlockDocumentDescriptor => {
   const requested = requireValidRequest(request);
-  const registered = validateRegisteredOwnedBlockDocumentDescriptor(
-    requested,
-    value,
-  );
+  const registered = validateRegisteredOwnedBlockDocumentDescriptor(requested, value);
   if (registered.ownerType !== "page") {
     throw new OwnedBlockDocumentBoundaryError(
       "unsupported_owner_type",
@@ -342,11 +332,9 @@ export const validateRegisteredOwnedBlockDocumentDescriptor = (
     });
   } catch (error) {
     if (!(error instanceof BlockDocumentSchemaError)) throw error;
-    throw new OwnedBlockDocumentBoundaryError(
-      "unsupported_document_schema",
-      error.message,
-      { cause: error },
-    );
+    throw new OwnedBlockDocumentBoundaryError("unsupported_document_schema", error.message, {
+      cause: error,
+    });
   }
   if (!isRecord(value.sync) || value.sync.kind !== registration.syncEngine) {
     throw new OwnedBlockDocumentBoundaryError(
@@ -369,17 +357,12 @@ const fetchDescriptor = async <T>(
   const requested = requireValidRequest(request);
   let descriptor: unknown;
   try {
-    descriptor = await fetcher(
-      requested.accessContext,
-      requested.ownerBlockId,
-    );
+    descriptor = await fetcher(requested.accessContext, requested.ownerBlockId);
   } catch (error) {
     if (error instanceof OwnedBlockDocumentBoundaryError) throw error;
     throw new OwnedBlockDocumentBoundaryError(
       "fetch_failed",
-      error instanceof Error
-        ? error.message
-        : "Could not load the owned Block Document descriptor",
+      error instanceof Error ? error.message : "Could not load the owned Block Document descriptor",
       { cause: error },
     );
   }
@@ -390,27 +373,16 @@ export const fetchOwnedBlockDocumentDescriptor = async (
   request: OwnedBlockDocumentRequest,
   fetcher: OwnedDocumentDescriptorFetcher,
 ): Promise<ReadyPageBlockDocumentDescriptor> => {
-  return fetchDescriptor(
-    request,
-    fetcher,
-    validateOwnedBlockDocumentDescriptor,
-  );
+  return fetchDescriptor(request, fetcher, validateOwnedBlockDocumentDescriptor);
 };
 
 export const fetchRegisteredOwnedBlockDocumentDescriptor = (
   request: OwnedBlockDocumentRequest,
   fetcher: OwnedDocumentDescriptorFetcher,
 ): Promise<ReadyRegisteredOwnedBlockDocumentDescriptor> =>
-  fetchDescriptor(
-    request,
-    fetcher,
-    validateRegisteredOwnedBlockDocumentDescriptor,
-  );
+  fetchDescriptor(request, fetcher, validateRegisteredOwnedBlockDocumentDescriptor);
 
-const toErrorModel = (
-  error: unknown,
-  retrying = false,
-): OwnedBlockDocumentErrorModel => {
+const toErrorModel = (error: unknown, retrying = false): OwnedBlockDocumentErrorModel => {
   if (error instanceof OwnedBlockDocumentBoundaryError) {
     return {
       code: error.code,
@@ -426,9 +398,7 @@ const toErrorModel = (
   return {
     code: "fetch_failed",
     message:
-      error instanceof Error
-        ? error.message
-        : "Could not load the owned Block Document descriptor",
+      error instanceof Error ? error.message : "Could not load the owned Block Document descriptor",
   };
 };
 

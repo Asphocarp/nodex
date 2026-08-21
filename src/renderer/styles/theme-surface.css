@@ -5,40 +5,16 @@
 @supports (color: color-mix(in lab, red, red)) {
   :root,
   :host {
-    --color-text-foreground-secondary: color-mix(
-      in oklab,
-      var(--gray-1000) 70%,
-      transparent
-    );
-    --color-text-foreground-tertiary: color-mix(
-      in oklab,
-      var(--gray-1000) 50%,
-      transparent
-    );
-    --color-icon-secondary: color-mix(
-      in oklab,
-      var(--gray-1000) 70%,
-      transparent
-    );
-    --color-icon-tertiary: color-mix(
-      in oklab,
-      var(--gray-1000) 50%,
-      transparent
-    );
+    --color-text-foreground-secondary: color-mix(in oklab, var(--gray-1000) 70%, transparent);
+    --color-text-foreground-tertiary: color-mix(in oklab, var(--gray-1000) 50%, transparent);
+    --color-icon-secondary: color-mix(in oklab, var(--gray-1000) 70%, transparent);
+    --color-icon-tertiary: color-mix(in oklab, var(--gray-1000) 50%, transparent);
   }
 
   :root.dark,
   .dark {
-    --color-text-foreground-secondary: color-mix(
-      in oklab,
-      var(--gray-0) 70%,
-      transparent
-    );
-    --color-text-foreground-tertiary: color-mix(
-      in oklab,
-      var(--gray-0) 50%,
-      transparent
-    );
+    --color-text-foreground-secondary: color-mix(in oklab, var(--gray-0) 70%, transparent);
+    --color-text-foreground-tertiary: color-mix(in oklab, var(--gray-0) 50%, transparent);
     --color-icon-primary: color-mix(in oklab, var(--white) 90%, transparent);
     --color-icon-secondary: color-mix(in oklab, var(--white) 70%, transparent);
     --color-icon-tertiary: color-mix(in oklab, var(--white) 50%, transparent);
@@ -92,7 +68,8 @@
     --thread-floating-content-top-inset: calc(var(--height-toolbar) + var(--spacing) * 3);
   }
 
-  [data-app-shell-main-content-layout="thread-edge-scroll"] .app-shell-main-content-top-fade[data-app-shell-main-content-top-fade="full-bleed"] {
+  [data-app-shell-main-content-layout="thread-edge-scroll"]
+    .app-shell-main-content-top-fade[data-app-shell-main-content-top-fade="full-bleed"] {
     opacity: 1;
   }
 }
@@ -125,14 +102,12 @@ mark.codex-thread-find-active {
   background-color: var(--color-token-main-surface-primary);
   --tw-shadow: 0px 2px 4px -1px var(--tw-shadow-color, #00000014);
   box-shadow:
-    var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
-    var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+    var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow),
+    var(--tw-ring-shadow), var(--tw-shadow);
   overflow: hidden;
 }
 
-.window-fx-sidebar-surface:where(
-  [data-codex-window-type="electron"] .window-fx-sidebar-surface
-) {
+.window-fx-sidebar-surface:where([data-codex-window-type="electron"] .window-fx-sidebar-surface) {
   background-color: transparent;
 }
 
@@ -154,14 +129,9 @@ mark.codex-thread-find-active {
 }
 
 .electron\:dark\:bg-token-dropdown-background\/25:where(
-  [data-codex-window-type="electron"]
-    .electron\:dark\:bg-token-dropdown-background\/25
+  [data-codex-window-type="electron"] .electron\:dark\:bg-token-dropdown-background\/25
 ) {
-  background-color: color-mix(
-    in oklab,
-    var(--color-token-dropdown-background) 25%,
-    transparent
-  );
+  background-color: color-mix(in oklab, var(--color-token-dropdown-background) 25%, transparent);
 }
 
 .overflow-auto,
@@ -181,8 +151,7 @@ mark.codex-thread-find-active {
   .overflow-x-scroll,
   .overflow-y-scroll
 ):hover {
-  scrollbar-color: var(--color-token-scrollbar-slider-hover-background)
-    transparent;
+  scrollbar-color: var(--color-token-scrollbar-slider-hover-background) transparent;
 }
 
 :is(
@@ -193,8 +162,7 @@ mark.codex-thread-find-active {
   .overflow-x-scroll,
   .overflow-y-scroll
 ):active {
-  scrollbar-color: var(--color-token-scrollbar-slider-active-background)
-    transparent;
+  scrollbar-color: var(--color-token-scrollbar-slider-active-background) transparent;
 }
 
 .docs-story {
@@ -207,11 +175,7 @@ mark.codex-thread-find-active {
 
 @supports (color: color-mix(in lab, red, red)) {
   .sidebar-foreground-muted {
-    --color-token-foreground: color-mix(
-      in oklab,
-      var(--vscode-foreground) 85%,
-      transparent
-    );
+    --color-token-foreground: color-mix(in oklab, var(--vscode-foreground) 85%, transparent);
   }
 }
 
@@ -236,11 +200,7 @@ mark.codex-thread-find-active {
       #above-composer-queue-portal
     )
     :is(.loading-shimmer-pure-text, .loading-shimmer) {
-    --shimmer-text-secondary: color-mix(
-      in srgb,
-      var(--text-primary) 55%,
-      transparent
-    );
+    --shimmer-text-secondary: color-mix(in srgb, var(--text-primary) 55%, transparent);
   }
 }
 
@@ -256,10 +216,7 @@ mark.codex-thread-find-active {
     transparent
   );
   --elevation-stroke: 0 0 0 0.5px var(--color-token-elevation-stroke);
-  --elevation-prominent:
-    var(--elevation-stroke),
-    0 3px 7.5px #0000000a,
-    0 0 20px #0000000d;
+  --elevation-prominent: var(--elevation-stroke), 0 3px 7.5px #0000000a, 0 0 20px #0000000d;
 }
 
 .composer-surface-chrome {
@@ -267,10 +224,11 @@ mark.codex-thread-find-active {
 }
 
 :is(
-  [data-codex-window-type="browser"],
-  [data-codex-window-type="chrome-extension"],
-  [data-codex-window-type="electron"]
-) .composer-surface-chrome {
+    [data-codex-window-type="browser"],
+    [data-codex-window-type="chrome-extension"],
+    [data-codex-window-type="electron"]
+  )
+  .composer-surface-chrome {
   border-style: var(--tw-border-style) !important;
   border-width: 0 !important;
   box-shadow: var(--elevation-prominent);
@@ -278,10 +236,11 @@ mark.codex-thread-find-active {
 
 @media (forced-colors: active) {
   :is(
-    [data-codex-window-type="browser"],
-    [data-codex-window-type="chrome-extension"],
-    [data-codex-window-type="electron"]
-  ) .composer-surface-chrome {
+      [data-codex-window-type="browser"],
+      [data-codex-window-type="chrome-extension"],
+      [data-codex-window-type="electron"]
+    )
+    .composer-surface-chrome {
     box-shadow: none;
     outline: 1px solid canvastext;
   }
@@ -305,8 +264,7 @@ mark.codex-thread-find-active {
   margin-bottom: 5px;
 }
 
-._attachmentsDefault_1u8sk_2[data-composer-spacing="default"]
-  .composer-attachment-surface {
+._attachmentsDefault_1u8sk_2[data-composer-spacing="default"] .composer-attachment-surface {
   border-radius: var(--composer-attachment-border-radius);
 }
 
@@ -316,8 +274,7 @@ mark.codex-thread-find-active {
 
 @supports (corner-shape: superellipse(1.5)) {
   ._multilineSurface_1u8sk_2,
-  ._attachmentsDefault_1u8sk_2[data-composer-spacing="default"]
-    .composer-attachment-surface {
+  ._attachmentsDefault_1u8sk_2[data-composer-spacing="default"] .composer-attachment-surface {
     corner-shape: var(--codex-corner-shape);
   }
 }

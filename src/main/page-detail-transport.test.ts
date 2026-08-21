@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { PageDetailResult } from "../shared/page-detail";
-import {
-  PAGE_DETAIL_IPC_CHANNEL,
-  registerPageDetailIpcHandler,
-} from "./page-detail-ipc";
+import { PAGE_DETAIL_IPC_CHANNEL, registerPageDetailIpcHandler } from "./page-detail-ipc";
 
 const result = (): PageDetailResult => ({
   ok: false,

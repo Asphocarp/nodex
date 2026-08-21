@@ -21,10 +21,7 @@ import {
   type CanvasElementObservationDelta,
   type CanvasElementChangeTracker,
 } from "./canvas-element-change-tracker";
-import type {
-  CanvasSceneProvider,
-  CanvasSceneSubmission,
-} from "./canvas-scene-provider";
+import type { CanvasSceneProvider, CanvasSceneSubmission } from "./canvas-scene-provider";
 
 export interface CanvasLocalSceneObservation {
   /** Must come from ExcalidrawImperativeAPI.getSceneElementsIncludingDeleted. */
@@ -108,15 +105,11 @@ interface PendingObservation {
 const toError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
-const optionalJson = (
-  value: CanvasSceneJsonValue | undefined,
-): CanvasSceneOptionalJson =>
+const optionalJson = (value: CanvasSceneJsonValue | undefined): CanvasSceneOptionalJson =>
   value === undefined ? { kind: "absent" } : { kind: "value", value };
 
-const sameOptionalJson = (
-  left: CanvasSceneOptionalJson,
-  right: CanvasSceneOptionalJson,
-): boolean => canonicalStringifyCanvasScene(left) === canonicalStringifyCanvasScene(right);
+const sameOptionalJson = (left: CanvasSceneOptionalJson, right: CanvasSceneOptionalJson): boolean =>
+  canonicalStringifyCanvasScene(left) === canonicalStringifyCanvasScene(right);
 
 const appStateIntents = (
   before: CanvasSceneAppState,
@@ -139,12 +132,10 @@ const mergeAppStateIntents = (
   const merged = { ...previous };
   for (const [key, nextIntent] of Object.entries(next)) {
     const previousIntent = merged[key];
-    const intent = previousIntent && sameOptionalJson(
-      previousIntent.value,
-      nextIntent.expected,
-    )
-      ? { expected: previousIntent.expected, value: nextIntent.value }
-      : nextIntent;
+    const intent =
+      previousIntent && sameOptionalJson(previousIntent.value, nextIntent.expected)
+        ? { expected: previousIntent.expected, value: nextIntent.value }
+        : nextIntent;
     if (sameOptionalJson(intent.expected, intent.value)) {
       delete merged[key];
     } else {
@@ -165,24 +156,18 @@ const mergeObservations = (
   for (const element of next.elementCandidates) {
     const id = element.id as string;
     const current = elements.get(id);
-    elements.set(
-      id,
-      current ? chooseCanvasSceneElementWinner(current, element) : element,
-    );
+    elements.set(id, current ? chooseCanvasSceneElementWinner(current, element) : element);
   }
   const elementCandidates = [...elements.values()];
   return {
     elementCandidates,
     changedImageCandidates: elementCandidates.filter(
       (element) =>
-        element.isDeleted !== true
-        && element.type === "image"
-        && typeof element.fileId === "string",
+        element.isDeleted !== true &&
+        element.type === "image" &&
+        typeof element.fileId === "string",
     ),
-    appStateIntents: mergeAppStateIntents(
-      previous.appStateIntents,
-      next.appStateIntents,
-    ),
+    appStateIntents: mergeAppStateIntents(previous.appStateIntents, next.appStateIntents),
     binaryFiles: { ...previous.binaryFiles, ...next.binaryFiles },
     waiters: [...previous.waiters, ...next.waiters],
   };
@@ -230,9 +215,7 @@ const createBindingSubmission = (): {
   };
 };
 
-const optionalValue = (
-  value: CanvasSceneOptionalJson,
-): CanvasSceneJsonValue | undefined =>
+const optionalValue = (value: CanvasSceneOptionalJson): CanvasSceneJsonValue | undefined =>
   value.kind === "value" ? value.value : undefined;
 
 const presentAppStateWithPendingIntent = (
@@ -275,16 +258,13 @@ export class CanvasSceneBinding {
   constructor(options: CanvasSceneBindingOptions) {
     this.provider = options.provider;
     this.assetDependencies = options.assetDependencies;
-    this.stagedFiles =
-      options.stagedFileCatalog ?? new CanvasSceneStagedFileCatalog();
+    this.stagedFiles = options.stagedFileCatalog ?? new CanvasSceneStagedFileCatalog();
     this.onRemoteScene = options.onRemoteScene;
     this.onError = options.onError;
     const initialScene = this.provider.getScene();
     this.surfaceAppState = initialScene?.appState ?? {};
     this.hasSeededElements = initialScene !== null;
-    this.elementTracker = createCanvasElementChangeTracker(
-      initialScene?.elements ?? [],
-    );
+    this.elementTracker = createCanvasElementChangeTracker(initialScene?.elements ?? []);
   }
 
   getCurrentScene = (): PortableCanvasScene => {
@@ -297,12 +277,7 @@ export class CanvasSceneBinding {
     if (this.destroyed) return;
     try {
       this.stagedFiles.acknowledge(scene);
-      if (
-        !this.hasSeededElements
-        && !this.pending
-        && !this.inFlight
-        && !this.retryable
-      ) {
+      if (!this.hasSeededElements && !this.pending && !this.inFlight && !this.retryable) {
         this.elementTracker.reset(scene.elements);
         this.hasSeededElements = true;
       }
@@ -310,46 +285,31 @@ export class CanvasSceneBinding {
         this.inFlight?.appStateIntents ?? {},
         this.pending?.appStateIntents ?? {},
       );
-      const appState = presentAppStateWithPendingIntent(
-        scene.appState,
-        pendingIntent,
-      );
+      const appState = presentAppStateWithPendingIntent(scene.appState, pendingIntent);
       this.surfaceAppState = appState;
-      this.onRemoteScene(
-        appState === scene.appState ? scene : { ...scene, appState },
-      );
+      this.onRemoteScene(appState === scene.appState ? scene : { ...scene, appState });
     } catch (error) {
       this.onError?.(toError(error));
     }
   };
 
-  acceptRemotePresentation = (
-    elementsIncludingDeleted: readonly unknown[],
-  ): void => {
+  acceptRemotePresentation = (elementsIncludingDeleted: readonly unknown[]): void => {
     this.hasSeededElements = true;
     this.elementTracker.acceptRemotePresentation(
       elementsIncludingDeleted,
       new Set([
-        ...(this.inFlight?.elementCandidates ?? []).map(
-          (element) => element.id as string,
-        ),
-        ...(this.pending?.elementCandidates ?? []).map(
-          (element) => element.id as string,
-        ),
+        ...(this.inFlight?.elementCandidates ?? []).map((element) => element.id as string),
+        ...(this.pending?.elementCandidates ?? []).map((element) => element.id as string),
       ]),
     );
   };
 
-  submitLocalScene = (
-    observation: CanvasLocalSceneObservation,
-  ): CanvasSceneSubmission => {
+  submitLocalScene = (observation: CanvasLocalSceneObservation): CanvasSceneSubmission => {
     if (this.destroyed) {
       return rejectedSubmission(new Error("Canvas scene binding is destroyed"));
     }
     if (!this.provider.getScene()) {
-      const error = new Error(
-        "Canvas scene provider has not completed its initial sync",
-      );
+      const error = new Error("Canvas scene provider has not completed its initial sync");
       this.onError?.(error);
       return rejectedSubmission(error);
     }
@@ -357,9 +317,7 @@ export class CanvasSceneBinding {
     let nextAppState: CanvasSceneAppState;
     let nextIntents: CanvasSceneAppStateIntents;
     try {
-      elementDelta = this.elementTracker.observeLocal(
-        observation.elementsIncludingDeleted,
-      );
+      elementDelta = this.elementTracker.observeLocal(observation.elementsIncludingDeleted);
       nextAppState = pickPortableCanvasSceneAppState(observation.appState);
       nextIntents = appStateIntents(this.surfaceAppState, nextAppState);
     } catch (error) {
@@ -372,10 +330,7 @@ export class CanvasSceneBinding {
       return rejectedSubmission(failure);
     }
     this.surfaceAppState = nextAppState;
-    if (
-      elementDelta.elementCandidates.length === 0
-      && Object.keys(nextIntents).length === 0
-    ) {
+    if (elementDelta.elementCandidates.length === 0 && Object.keys(nextIntents).length === 0) {
       return resolvedSubmission();
     }
 
@@ -390,9 +345,7 @@ export class CanvasSceneBinding {
     const retryable = this.retryable;
     this.retryable = null;
     const withRetry = retryable ? mergeObservations(retryable, next) : next;
-    this.pending = this.pending
-      ? mergeObservations(this.pending, withRetry)
-      : withRetry;
+    this.pending = this.pending ? mergeObservations(this.pending, withRetry) : withRetry;
     this.startDrain();
     return submission;
   };
@@ -448,9 +401,7 @@ export class CanvasSceneBinding {
             binaryFiles: observation.binaryFiles,
             current: uploadedFiles,
             getAccepted: () => this.getCurrentScene().files,
-            ...(this.assetDependencies
-              ? { dependencies: this.assetDependencies }
-              : {}),
+            ...(this.assetDependencies ? { dependencies: this.assetDependencies } : {}),
           });
           Object.assign(uploadedFiles, fileAdditions);
           if (!this.pending) break;
@@ -480,13 +431,8 @@ export class CanvasSceneBinding {
           (error: unknown) => {
             const failure = toError(error);
             this.elementTracker.markRejected(observation.elementCandidates);
-            this.stagedFiles.reject(
-              uploadedFiles,
-              this.provider.getScene()?.files ?? {},
-            );
-            observation.waiters.forEach((waiter) =>
-              waiter.rejectCommitted(failure)
-            );
+            this.stagedFiles.reject(uploadedFiles, this.provider.getScene()?.files ?? {});
+            observation.waiters.forEach((waiter) => waiter.rejectCommitted(failure));
             try {
               this.onError?.(failure);
             } catch {
@@ -496,17 +442,17 @@ export class CanvasSceneBinding {
           },
         );
         this.commitTasks.add(committed);
-        void committed.catch(() => undefined).finally(() => {
-          this.commitTasks.delete(committed);
-        });
+        void committed
+          .catch(() => undefined)
+          .finally(() => {
+            this.commitTasks.delete(committed);
+          });
       } catch (error) {
         const failure = toError(error);
         this.lastDrainError = failure;
         this.elementTracker.markRejected(observation.elementCandidates);
         const retryable = { ...observation, waiters: [] };
-        this.retryable = this.retryable
-          ? mergeObservations(this.retryable, retryable)
-          : retryable;
+        this.retryable = this.retryable ? mergeObservations(this.retryable, retryable) : retryable;
         const current = this.provider.getScene();
         if (current) this.surfaceAppState = current.appState;
         observation.waiters.forEach((waiter) => {

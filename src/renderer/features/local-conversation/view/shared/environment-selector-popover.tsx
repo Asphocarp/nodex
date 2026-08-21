@@ -1,10 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Star } from "@/components/shared/icons/generic-icons";
-import {
-  ActivitySpinnerIcon,
-  CheckmarkIcon,
-  ConfigStatusIcon,
-} from "@/components/shared/icons";
+import { ActivitySpinnerIcon, CheckmarkIcon, ConfigStatusIcon } from "@/components/shared/icons";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownItem,
@@ -14,10 +10,7 @@ import {
   NodexDropdownTitle,
 } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import type {
-  WorktreeEnvironmentConfigRecord,
-  WorktreeEnvironmentOption,
-} from "@/lib/types";
+import type { WorktreeEnvironmentConfigRecord, WorktreeEnvironmentOption } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface EnvironmentSelectorPopoverProps {
@@ -41,8 +34,10 @@ interface EnvironmentSelectorPopoverProps {
 
 function pathEquals(left: string | null | undefined, right: string | null | undefined): boolean {
   if (!left || !right) return false;
-  return left.replaceAll("\\", "/").replace(/\/+$/, "")
-    === right.replaceAll("\\", "/").replace(/\/+$/, "");
+  return (
+    left.replaceAll("\\", "/").replace(/\/+$/, "") ===
+    right.replaceAll("\\", "/").replace(/\/+$/, "")
+  );
 }
 
 export function EnvironmentSelectorPopover({
@@ -65,57 +60,67 @@ export function EnvironmentSelectorPopover({
 }: EnvironmentSelectorPopoverProps) {
   const [open, setOpen] = useState(defaultOpen);
   const normalizedSelectedPath = selectedPath?.trim() || "";
-  const resolvedConfigs = useMemo<WorktreeEnvironmentConfigRecord[]>(() => (
-    configs ?? options?.map((option) => ({
-      configPath: option.path,
-      fileName: option.path.split(/[\\/]/).at(-1) ?? option.name,
-      state: "success",
-      exists: true,
-      name: option.name,
-      hasSetupScript: option.hasSetupScript,
-      hasCleanupScript: option.hasCleanupScript,
-      actionCount: option.actionCount,
-      parseErrorMessage: null,
-      readErrorMessage: null,
-      tooLargeMessage: null,
-      environment: null,
-    })) ?? []
-  ), [configs, options]);
+  const resolvedConfigs = useMemo<WorktreeEnvironmentConfigRecord[]>(
+    () =>
+      configs ??
+      options?.map((option) => ({
+        configPath: option.path,
+        fileName: option.path.split(/[\\/]/).at(-1) ?? option.name,
+        state: "success",
+        exists: true,
+        name: option.name,
+        hasSetupScript: option.hasSetupScript,
+        hasCleanupScript: option.hasCleanupScript,
+        actionCount: option.actionCount,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+        tooLargeMessage: null,
+        environment: null,
+      })) ??
+      [],
+    [configs, options],
+  );
   const successfulConfigs = useMemo(
     () => resolvedConfigs.filter((config) => config.state === "success"),
     [resolvedConfigs],
   );
-  const defaultConfig = successfulConfigs.find((config) => (
-    pathEquals(config.configPath, defaultPath)
-  )) ?? null;
+  const defaultConfig =
+    successfulConfigs.find((config) => pathEquals(config.configPath, defaultPath)) ?? null;
   const listedConfigs = defaultConfig
     ? successfulConfigs.filter((config) => config.configPath !== defaultConfig.configPath)
     : successfulConfigs;
-  const selectedConfig = successfulConfigs.find((config) => (
-    pathEquals(config.configPath, normalizedSelectedPath)
-  ));
+  const selectedConfig = successfulConfigs.find((config) =>
+    pathEquals(config.configPath, normalizedSelectedPath),
+  );
   const triggerLabel = busy
     ? "Loading environments…"
     : needsAttention
       ? "Needs attention"
-      : selectedConfig?.name ?? "No environment";
+      : (selectedConfig?.name ?? "No environment");
   const isDisabled = disabled;
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen) return;
-    void onRefresh();
-  }, [onRefresh]);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (!nextOpen) return;
+      void onRefresh();
+    },
+    [onRefresh],
+  );
 
-  const handleSelect = useCallback(async (environmentPath: string | null) => {
-    const applied = await onSelect(environmentPath);
-    if (!applied) return;
-    setOpen(false);
-  }, [onSelect]);
+  const handleSelect = useCallback(
+    async (environmentPath: string | null) => {
+      const applied = await onSelect(environmentPath);
+      if (!applied) return;
+      setOpen(false);
+    },
+    [onSelect],
+  );
 
-  const title = showRepositoryName && repositoryName?.trim()
-    ? `Environment · ${repositoryName.trim()}`
-    : "Environment";
+  const title =
+    showRepositoryName && repositoryName?.trim()
+      ? `Environment · ${repositoryName.trim()}`
+      : "Environment";
 
   return (
     <NodexDropdownMenu
@@ -124,7 +129,7 @@ export function EnvironmentSelectorPopover({
       side="top"
       align="start"
       disabled={isDisabled}
-      triggerButton={(
+      triggerButton={
         <NodexDropdownButtonTrigger
           aria-label="Select worktree environment"
           data-composer-navigation-target="environment"
@@ -141,7 +146,7 @@ export function EnvironmentSelectorPopover({
             <span className="max-w-40 truncate text-sm">{triggerLabel}</span>
           </span>
         </NodexDropdownButtonTrigger>
-      )}
+      }
       contentClassName="p-0"
     >
       <div className="flex w-64 flex-col overflow-hidden">
@@ -150,9 +155,11 @@ export function EnvironmentSelectorPopover({
           {!busy && !error ? (
             <NodexDropdownItem
               onSelect={() => void handleSelect(null)}
-              rightSlot={normalizedSelectedPath.length === 0 && !needsAttention
-                ? <CheckmarkIcon className="icon-xs shrink-0" />
-                : null}
+              rightSlot={
+                normalizedSelectedPath.length === 0 && !needsAttention ? (
+                  <CheckmarkIcon className="icon-xs shrink-0" />
+                ) : null
+              }
             >
               Work without environment
             </NodexDropdownItem>
@@ -161,9 +168,11 @@ export function EnvironmentSelectorPopover({
           {defaultConfig ? (
             <NodexDropdownItem
               onSelect={() => void handleSelect(defaultConfig.configPath)}
-              rightSlot={pathEquals(defaultConfig.configPath, normalizedSelectedPath)
-                ? <CheckmarkIcon className="icon-xs shrink-0" />
-                : null}
+              rightSlot={
+                pathEquals(defaultConfig.configPath, normalizedSelectedPath) ? (
+                  <CheckmarkIcon className="icon-xs shrink-0" />
+                ) : null
+              }
             >
               <span className="flex min-w-0 items-center gap-2">
                 <NodexTooltip tooltipContent="Default environment">
@@ -188,9 +197,11 @@ export function EnvironmentSelectorPopover({
                 <NodexDropdownItem
                   key={config.configPath}
                   onSelect={() => void handleSelect(config.configPath)}
-                  rightSlot={pathEquals(config.configPath, normalizedSelectedPath)
-                    ? <CheckmarkIcon className="icon-xs shrink-0" />
-                    : null}
+                  rightSlot={
+                    pathEquals(config.configPath, normalizedSelectedPath) ? (
+                      <CheckmarkIcon className="icon-xs shrink-0" />
+                    ) : null
+                  }
                 >
                   <span className="min-w-0 truncate">{config.name}</span>
                 </NodexDropdownItem>

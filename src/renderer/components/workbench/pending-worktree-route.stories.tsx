@@ -13,9 +13,7 @@ type StartConversationEntry = Extract<
   { readonly launchMode: "start-conversation" }
 >;
 
-function makeEntry(
-  overrides: Partial<StartConversationEntry> = {},
-): StartConversationEntry {
+function makeEntry(overrides: Partial<StartConversationEntry> = {}): StartConversationEntry {
   return {
     id: "local:pending-1",
     hostId: "local",

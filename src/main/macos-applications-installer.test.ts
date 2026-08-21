@@ -21,30 +21,48 @@ function makeEnvironment(
 
 describe("runMacApplicationsInstallerGate", () => {
   test("skips non-mac, unpackaged, and already-installed launches", async () => {
-    expect(await runMacApplicationsInstallerGate(makeEnvironment({ platform: "linux" }))).toBe("continue");
-    expect(await runMacApplicationsInstallerGate(makeEnvironment({ isPackaged: false }))).toBe("continue");
-    expect(await runMacApplicationsInstallerGate(makeEnvironment({ isInApplicationsFolder: () => true }))).toBe("continue");
+    expect(await runMacApplicationsInstallerGate(makeEnvironment({ platform: "linux" }))).toBe(
+      "continue",
+    );
+    expect(await runMacApplicationsInstallerGate(makeEnvironment({ isPackaged: false }))).toBe(
+      "continue",
+    );
+    expect(
+      await runMacApplicationsInstallerGate(
+        makeEnvironment({ isInApplicationsFolder: () => true }),
+      ),
+    ).toBe("continue");
   });
 
   test("honors continue and quit prompt choices", async () => {
-    expect(await runMacApplicationsInstallerGate(makeEnvironment({
-      showInstallPrompt: async () => "continue",
-    }))).toBe("continue");
-    expect(await runMacApplicationsInstallerGate(makeEnvironment({
-      showInstallPrompt: async () => "quit",
-    }))).toBe("quit");
+    expect(
+      await runMacApplicationsInstallerGate(
+        makeEnvironment({
+          showInstallPrompt: async () => "continue",
+        }),
+      ),
+    ).toBe("continue");
+    expect(
+      await runMacApplicationsInstallerGate(
+        makeEnvironment({
+          showInstallPrompt: async () => "quit",
+        }),
+      ),
+    ).toBe("quit");
   });
 
   test("moves to Applications and forwards conflict handling", async () => {
     let conflictHandlerResult = false;
-    const result = await runMacApplicationsInstallerGate(makeEnvironment({
-      showInstallPrompt: async () => "move",
-      confirmMoveConflict: () => true,
-      moveToApplicationsFolder: (options) => {
-        conflictHandlerResult = options.conflictHandler?.("exists") ?? false;
-        return true;
-      },
-    }));
+    const result = await runMacApplicationsInstallerGate(
+      makeEnvironment({
+        showInstallPrompt: async () => "move",
+        confirmMoveConflict: () => true,
+        moveToApplicationsFolder: (options) => {
+          conflictHandlerResult = options.conflictHandler?.("exists") ?? false;
+          return true;
+        },
+      }),
+    );
 
     expect(result).toBe("moved");
     expect(conflictHandlerResult).toBe(true);
@@ -52,17 +70,19 @@ describe("runMacApplicationsInstallerGate", () => {
 
   test("never replaces an installed copy that is still running", async () => {
     let conflictWasReported = false;
-    const result = await runMacApplicationsInstallerGate(makeEnvironment({
-      showInstallPrompt: async () => "move",
-      confirmMoveConflict: (conflictType) => {
-        conflictWasReported = conflictType === "existsAndRunning";
-        return true;
-      },
-      moveToApplicationsFolder: (options) => {
-        expect(options.conflictHandler?.("existsAndRunning")).toBe(false);
-        return false;
-      },
-    }));
+    const result = await runMacApplicationsInstallerGate(
+      makeEnvironment({
+        showInstallPrompt: async () => "move",
+        confirmMoveConflict: (conflictType) => {
+          conflictWasReported = conflictType === "existsAndRunning";
+          return true;
+        },
+        moveToApplicationsFolder: (options) => {
+          expect(options.conflictHandler?.("existsAndRunning")).toBe(false);
+          return false;
+        },
+      }),
+    );
 
     expect(result).toBe("quit");
     expect(conflictWasReported).toBe(true);
@@ -70,24 +90,28 @@ describe("runMacApplicationsInstallerGate", () => {
 
   test("uses the failed-move prompt when move returns false or throws", async () => {
     const failedChoices: MacApplicationsInstallerPromptChoice[] = [];
-    const returnedFalse = await runMacApplicationsInstallerGate(makeEnvironment({
-      showInstallPrompt: async () => "move",
-      showMoveFailedPrompt: async () => {
-        failedChoices.push("continue");
-        return "continue";
-      },
-      moveToApplicationsFolder: () => false,
-    }));
-    const threw = await runMacApplicationsInstallerGate(makeEnvironment({
-      showInstallPrompt: async () => "move",
-      showMoveFailedPrompt: async () => {
-        failedChoices.push("quit");
-        return "quit";
-      },
-      moveToApplicationsFolder: () => {
-        throw new Error("copy failed");
-      },
-    }));
+    const returnedFalse = await runMacApplicationsInstallerGate(
+      makeEnvironment({
+        showInstallPrompt: async () => "move",
+        showMoveFailedPrompt: async () => {
+          failedChoices.push("continue");
+          return "continue";
+        },
+        moveToApplicationsFolder: () => false,
+      }),
+    );
+    const threw = await runMacApplicationsInstallerGate(
+      makeEnvironment({
+        showInstallPrompt: async () => "move",
+        showMoveFailedPrompt: async () => {
+          failedChoices.push("quit");
+          return "quit";
+        },
+        moveToApplicationsFolder: () => {
+          throw new Error("copy failed");
+        },
+      }),
+    );
 
     expect(returnedFalse).toBe("continue");
     expect(threw).toBe("quit");

@@ -21,7 +21,10 @@ const FALLBACK_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
   { reasoningEffort: "low", description: "Prefer quick answers with limited extra reasoning." },
   { reasoningEffort: "medium", description: "Balance speed and deeper reasoning." },
   { reasoningEffort: "high", description: "Spend more time reasoning before answering." },
-  { reasoningEffort: "xhigh", description: "Use the maximum reasoning budget this model supports." },
+  {
+    reasoningEffort: "xhigh",
+    description: "Use the maximum reasoning budget this model supports.",
+  },
 ];
 
 const REASONING_EFFORT_LABELS: Partial<Record<CodexReasoningEffort, string>> = {
@@ -80,15 +83,13 @@ export function getVisibleCodexModels(models: readonly CodexModelOption[]): Code
   return models.filter((model) => !model.hidden);
 }
 
-export function resolveDefaultCodexModel(models: readonly CodexModelOption[]): CodexModelOption | null {
+export function resolveDefaultCodexModel(
+  models: readonly CodexModelOption[],
+): CodexModelOption | null {
   const visibleModels = getVisibleCodexModels(models);
   if (visibleModels.length === 0) return null;
 
-  return (
-    visibleModels.find((model) => model.isDefault) ??
-    visibleModels[0] ??
-    null
-  );
+  return visibleModels.find((model) => model.isDefault) ?? visibleModels[0] ?? null;
 }
 
 function normalizeModelId(value: string | null | undefined): string | null {
@@ -101,9 +102,10 @@ function findVisibleCodexModel(
   modelId: string | null,
 ): CodexModelOption | null {
   if (!modelId) return null;
-  return models.find((model) =>
-    !model.hidden && (model.id === modelId || model.model === modelId)
-  ) ?? null;
+  return (
+    models.find((model) => !model.hidden && (model.id === modelId || model.model === modelId)) ??
+    null
+  );
 }
 
 function isSupportedReasoningEffort(
@@ -124,7 +126,7 @@ export function resolveCodexModelSelection(input: CodexModelSelectionInput): Cod
       model: "",
       reasoningEffort: isSupportedReasoningEffort(input.reasoningEffort)
         ? input.reasoningEffort
-        : input.fallbackReasoningEffort ?? "",
+        : (input.fallbackReasoningEffort ?? ""),
     };
   }
 
@@ -133,8 +135,8 @@ export function resolveCodexModelSelection(input: CodexModelSelectionInput): Cod
   const supportedEfforts = new Set(reasoningOptions.map((option) => option.reasoningEffort));
 
   if (
-    isSupportedReasoningEffort(input.reasoningEffort)
-    && supportedEfforts.has(input.reasoningEffort)
+    isSupportedReasoningEffort(input.reasoningEffort) &&
+    supportedEfforts.has(input.reasoningEffort)
   ) {
     return {
       model,
@@ -218,7 +220,10 @@ export function resolveCodexThreadSettings(
   };
 }
 
-export function formatCodexModelLabel(modelId: string | undefined, models: CodexModelOption[]): string {
+export function formatCodexModelLabel(
+  modelId: string | undefined,
+  models: CodexModelOption[],
+): string {
   if (!modelId) return DEFAULT_MODEL_LABEL;
 
   const selectedModel = models.find((model) => model.id === modelId);

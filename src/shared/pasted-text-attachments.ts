@@ -1,7 +1,4 @@
-import type {
-  CodexLiveFileAttachment,
-  CodexPastedTextAttachment,
-} from "./types";
+import type { CodexLiveFileAttachment, CodexPastedTextAttachment } from "./types";
 
 export const COMPOSER_PASTED_TEXT_MAX_BYTES = 10 * 1024 * 1024;
 

@@ -10,10 +10,7 @@ import {
   filterBrowserUseStateForViewScope,
 } from "./browser-event-routing";
 
-const makeTab = (
-  browserViewScopeId: string,
-  browserTabId: string,
-): BrowserSidebarTabSnapshot => ({
+const makeTab = (browserViewScopeId: string, browserTabId: string): BrowserSidebarTabSnapshot => ({
   browserConversationId: "session-1",
   browserViewScopeId,
   browserTabId,
@@ -82,16 +79,14 @@ const makeBrowserUseTab = (
 describe("Browser event routing", () => {
   test("filters ordinary Browser state by Window Session scope", () => {
     const snapshot: BrowserSidebarStateSnapshot = {
-      tabs: [
-        makeTab("window-session-1", "shared-tab"),
-        makeTab("window-session-2", "shared-tab"),
-      ],
+      tabs: [makeTab("window-session-1", "shared-tab"), makeTab("window-session-2", "shared-tab")],
     };
 
-    expect(filterBrowserStateForViewScope(snapshot, "window-session-2").tabs)
-      .toEqual([expect.objectContaining({
+    expect(filterBrowserStateForViewScope(snapshot, "window-session-2").tabs).toEqual([
+      expect.objectContaining({
         browserViewScopeId: "window-session-2",
-      })]);
+      }),
+    ]);
   });
 
   test("filters Browser Use tabs, cursors, and active ids together", () => {
@@ -128,17 +123,18 @@ describe("Browser event routing", () => {
       },
     };
 
-    expect(filterBrowserUseStateForViewScope(
-      snapshot,
-      "window-session-2",
-    )).toEqual({
-      tabs: [expect.objectContaining({
-        browserViewScopeId: "window-session-2",
-      })],
-      cursors: [expect.objectContaining({
-        browserViewScopeId: "window-session-2",
-        x: 3,
-      })],
+    expect(filterBrowserUseStateForViewScope(snapshot, "window-session-2")).toEqual({
+      tabs: [
+        expect.objectContaining({
+          browserViewScopeId: "window-session-2",
+        }),
+      ],
+      cursors: [
+        expect.objectContaining({
+          browserViewScopeId: "window-session-2",
+          x: 3,
+        }),
+      ],
       activeBrowserTabIdsByConversationScope: {
         "session-1\0window-session-2": "shared-tab",
       },

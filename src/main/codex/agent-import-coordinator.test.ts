@@ -1,17 +1,8 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import {
-  AgentImportCoordinator,
-  agentImportInternals,
-} from "./agent-import-coordinator";
+import { AgentImportCoordinator, agentImportInternals } from "./agent-import-coordinator";
 
 const temporaryRoots: string[] = [];
 
@@ -38,24 +29,30 @@ describe("AgentImportCoordinator", () => {
     mkdirSync(targetHome, { recursive: true });
     mkdirSync(cwd, { recursive: true });
     writeFileSync(path.join(sourceHome, "skills", "reviewer", "SKILL.md"), "# Reviewer\n");
-    writeFileSync(path.join(sourceHome, "config.toml"), [
-      "web_search = \"live\"",
-      "model = \"secret-model\"",
-      "model_provider = \"private-provider\"",
-      "approval_policy = \"never\"",
-      "notify = [\"/tmp/private-hook\"]",
-      "",
-      "[mcp_servers.docs]",
-      "command = \"docs-server\"",
-      "env = { API_KEY = \"must-be-reauthorized\" }",
-      "",
-    ].join("\n"));
+    writeFileSync(
+      path.join(sourceHome, "config.toml"),
+      [
+        'web_search = "live"',
+        'model = "secret-model"',
+        'model_provider = "private-provider"',
+        'approval_policy = "never"',
+        'notify = ["/tmp/private-hook"]',
+        "",
+        "[mcp_servers.docs]",
+        'command = "docs-server"',
+        'env = { API_KEY = "must-be-reauthorized" }',
+        "",
+      ].join("\n"),
+    );
     const rolloutPath = path.join(sourceHome, "sessions", "2026", "07", "22", "rollout.jsonl");
-    writeFileSync(rolloutPath, `${JSON.stringify({
-      payload: { cwd, id: "019c0000-0000-7000-8000-000000000001" },
-      timestamp: "2026-07-22T00:00:00.000Z",
-      type: "session_meta",
-    })}\n`);
+    writeFileSync(
+      rolloutPath,
+      `${JSON.stringify({
+        payload: { cwd, id: "019c0000-0000-7000-8000-000000000001" },
+        timestamp: "2026-07-22T00:00:00.000Z",
+        type: "session_meta",
+      })}\n`,
+    );
 
     const appliedConfigEdits: Array<{ keyPath: string; value: unknown }> = [];
     const coordinator = new AgentImportCoordinator({
@@ -80,18 +77,18 @@ describe("AgentImportCoordinator", () => {
     expect(scan.items.find((item) => item.kind === "sessions")?.defaultSelected).toBe(true);
     expect(scan.items.find((item) => item.kind === "mcpServers")?.defaultSelected).toBe(false);
 
-    const selected = scan.items.filter((item) =>
-      item.kind === "skills" || item.kind === "settings" || item.kind === "mcpServers");
+    const selected = scan.items.filter(
+      (item) => item.kind === "skills" || item.kind === "settings" || item.kind === "mcpServers",
+    );
     await coordinator.apply({ scanId: scan.scanId, itemIds: selected.map((item) => item.id) });
     expect(appliedConfigEdits.map((edit) => edit.keyPath)).toEqual(["web_search", "mcp_servers"]);
     expect(JSON.stringify(appliedConfigEdits)).not.toContain("secret-model");
     expect(JSON.stringify(appliedConfigEdits)).not.toContain("private-provider");
     expect(JSON.stringify(appliedConfigEdits)).not.toContain("private-hook");
     expect(JSON.stringify(appliedConfigEdits)).not.toContain("must-be-reauthorized");
-    expect(readFileSync(
-      path.join(root, "target", ".agents", "skills", "reviewer", "SKILL.md"),
-      "utf8",
-    )).toBe("# Reviewer\n");
+    expect(
+      readFileSync(path.join(root, "target", ".agents", "skills", "reviewer", "SKILL.md"), "utf8"),
+    ).toBe("# Reviewer\n");
   });
 
   test("records imported rollout content and skips an unchanged session on the next scan", async () => {
@@ -103,10 +100,13 @@ describe("AgentImportCoordinator", () => {
     mkdirSync(targetHome, { recursive: true });
     mkdirSync(cwd, { recursive: true });
     const rolloutPath = path.join(sourceHome, "sessions", "rollout.jsonl");
-    writeFileSync(rolloutPath, `${JSON.stringify({
-      payload: { cwd, id: "019c0000-0000-7000-8000-000000000003" },
-      type: "session_meta",
-    })}\n`);
+    writeFileSync(
+      rolloutPath,
+      `${JSON.stringify({
+        payload: { cwd, id: "019c0000-0000-7000-8000-000000000003" },
+        type: "session_meta",
+      })}\n`,
+    );
     const forkSession = vi.fn().mockResolvedValue("019c0000-0000-7000-8000-000000000004");
     const coordinator = new AgentImportCoordinator({
       applyConfigEdits: async () => undefined,
@@ -127,10 +127,9 @@ describe("AgentImportCoordinator", () => {
     const secondScan = await coordinator.scan("open-interpreter", sourceHome);
     expect(secondScan.items.some((item) => item.kind === "sessions")).toBe(false);
     expect(secondScan.skippedAlreadyImportedSessions).toBe(1);
-    const ledger = JSON.parse(readFileSync(
-      path.join(targetHome, "imports", "session-imports-v1.json"),
-      "utf8",
-    )) as { sessions: Array<{ targetThreadId: string }> };
+    const ledger = JSON.parse(
+      readFileSync(path.join(targetHome, "imports", "session-imports-v1.json"), "utf8"),
+    ) as { sessions: Array<{ targetThreadId: string }> };
     expect(ledger.sessions.map((entry) => entry.targetThreadId)).toEqual([
       "019c0000-0000-7000-8000-000000000004",
     ]);
@@ -142,16 +141,19 @@ describe("AgentImportCoordinator", () => {
     const targetHome = path.join(root, "target", "agent");
     mkdirSync(sourceHome, { recursive: true });
     mkdirSync(targetHome, { recursive: true });
-    writeFileSync(path.join(sourceHome, "settings.json"), JSON.stringify({
-      env: { ANTHROPIC_API_KEY: "not-imported" },
-      mcpServers: {
-        docs: {
-          command: "docs-server",
-          env: { API_KEY: "not-imported-either" },
+    writeFileSync(
+      path.join(sourceHome, "settings.json"),
+      JSON.stringify({
+        env: { ANTHROPIC_API_KEY: "not-imported" },
+        mcpServers: {
+          docs: {
+            command: "docs-server",
+            env: { API_KEY: "not-imported-either" },
+          },
         },
-      },
-      sandbox: { enabled: true },
-    }));
+        sandbox: { enabled: true },
+      }),
+    );
     const appliedConfigEdits: Array<{ keyPath: string; value: unknown }> = [];
     const coordinator = new AgentImportCoordinator({
       applyConfigEdits: async (edits) => {
@@ -195,8 +197,6 @@ describe("agent import config policy", () => {
       },
       { features: { search: false } },
     );
-    expect(edits).toEqual([
-      { keyPath: "web_search", label: "web_search", value: "live" },
-    ]);
+    expect(edits).toEqual([{ keyPath: "web_search", label: "web_search", value: "live" }]);
   });
 });

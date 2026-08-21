@@ -56,7 +56,13 @@ describe("page stage collapsed properties", () => {
   test("normalizes persisted values and preserves canonical order", () => {
     expect(
       stringify(
-        normalizePageStageCollapsedProperties(["agentStatus", "tags", "agentBlocked", "invalid", "tags"]),
+        normalizePageStageCollapsedProperties([
+          "agentStatus",
+          "tags",
+          "agentBlocked",
+          "invalid",
+          "tags",
+        ]),
       ),
     ).toBe(stringify(["tags"]));
   });

@@ -34,10 +34,12 @@ The same send also includes an app-server image input item for the image pixels.
 Each valid NFM image block in a sent thread-section prompt is replaced in the cleaned prompt text with a numbered placeholder.
 
 Placeholder formats:
+
 - captionless image: `[Image #N]`
 - captioned image: `[Image #N] (caption: <plain caption text>)`
 
 Rules:
+
 - numbering starts at `1` for each send
 - numbering follows document order after the section body is resolved
 - placeholders are inserted at the original image block position
@@ -66,6 +68,7 @@ After
 ```
 
 Image inputs:
+
 - image 1 source: `/tmp/sidebar.png`, caption: `Sidebar screenshot`
 - image 2 source: `/tmp/dialog.png`
 
@@ -74,6 +77,7 @@ Image inputs:
 The renderer sends image metadata as `promptInput.images[]`. The main process resolves each source into official Codex app-server `turn/start` input items.
 
 Supported source mapping:
+
 - `http://...` and `https://...` -> `{ type: "image", url }`
 - `data:image/...` -> `{ type: "image", url }`
 - absolute local file paths -> `{ type: "localImage", path }`
@@ -86,6 +90,7 @@ Unsupported sources fail during main-process prompt preparation. They must not s
 This behavior applies only to NFM image blocks included in a resolved thread-section prompt body.
 
 The prompt body can include:
+
 - direct children of the `threadSection` marker
 - following sibling blocks until the next sibling `threadSection`
 - nested image blocks inside those included body blocks
@@ -107,11 +112,13 @@ If a thread-section send targets a running turn, the prompt uses the same normal
 NFM image blocks and composer attachments are separate concepts.
 
 NFM image blocks:
+
 - are visible blocks in the rich editor document
 - become numbered placeholders in thread-section prompt text
 - become app-server image input items when sent from a thread section
 
 Image attachments:
+
 - remain attachment inputs
 - do not create `[Image #N]` placeholders in NFM prompt text
 - do not imply an NFM image block in the document
@@ -121,6 +128,7 @@ Plain composer sends remain text/config plus attachment inputs because the plain
 ## Implementation Contract
 
 Thread-section prompt construction should:
+
 - convert BlockNote section blocks to NFM blocks
 - apply existing toggle-state synchronization
 - walk the cleaned NFM tree in document order
@@ -136,6 +144,7 @@ The model-visible text and app-server image input order must stay aligned by con
 ## Test Coverage
 
 Required coverage:
+
 - a captioned image block becomes `[Image #1] (caption: ...)`
 - a captionless image block becomes `[Image #1]`
 - multiple images are numbered in prompt order

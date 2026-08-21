@@ -260,12 +260,14 @@ describe("buildCodexConversationSnapshot", () => {
 
   test("keeps the params input before canonical raw items", () => {
     const detail = buildThreadDetail({
-      turns: [{
-        threadId: "thread_1",
-        turnId: "turn_1",
-        status: "completed",
-        itemIds: ["tool_1", "assistant_1"],
-      }],
+      turns: [
+        {
+          threadId: "thread_1",
+          turnId: "turn_1",
+          status: "completed",
+          itemIds: ["tool_1", "assistant_1"],
+        },
+      ],
       transcript: [
         {
           threadId: "thread_1",

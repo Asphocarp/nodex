@@ -4,19 +4,14 @@ import type { DefaultReactSuggestionItem } from "@blocknote/react";
 
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import { render, settleAsyncRender } from "@/test/dom";
-import {
-  type NfmMentionGetItemsLoaders,
-  useNfmMentionGetItems,
-} from "./nfm-slash-menu";
+import { type NfmMentionGetItemsLoaders, useNfmMentionGetItems } from "./nfm-slash-menu";
 
 type GetItems = (query: string) => Promise<DefaultReactSuggestionItem[]>;
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T) => void;
 };
-type ThreadSearchResults = Awaited<
-  ReturnType<NfmMentionGetItemsLoaders["searchThreads"]>
->;
+type ThreadSearchResults = Awaited<ReturnType<NfmMentionGetItemsLoaders["searchThreads"]>>;
 
 let threadListCalls = 0;
 
@@ -24,9 +19,7 @@ const fakeEditor = {
   insertInlineContent: () => undefined,
 };
 
-function makeThread(
-  overrides: Partial<CommandPaletteThread> = {},
-): CommandPaletteThread {
+function makeThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
   return {
     kind: "thread",
     id: overrides.id ?? "thread:thr-1",
@@ -59,18 +52,17 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-function makeLoaders(
-  options: Partial<NfmMentionGetItemsLoaders> = {},
-): NfmMentionGetItemsLoaders {
+function makeLoaders(options: Partial<NfmMentionGetItemsLoaders> = {}): NfmMentionGetItemsLoaders {
   return {
-    listThreadItems: options.listThreadItems ?? (async () => {
-      threadListCalls += 1;
-      return [makeThread()];
-    }),
+    listThreadItems:
+      options.listThreadItems ??
+      (async () => {
+        threadListCalls += 1;
+        return [makeThread()];
+      }),
     searchThreads: options.searchThreads ?? (async () => []),
     selectChatResults: options.selectChatResults ?? (({ threads }) => threads),
-    createThreadSearchIndex: options.createThreadSearchIndex
-      ?? (() => ({ search: () => [] })),
+    createThreadSearchIndex: options.createThreadSearchIndex ?? (() => ({ search: () => [] })),
   };
 }
 
@@ -106,10 +98,7 @@ describe("useNfmMentionGetItems", () => {
       },
     });
     const view = render(
-      <MentionGetItemsHarness
-        getItemsSnapshots={getItemsSnapshots}
-        loaders={loaders}
-      />,
+      <MentionGetItemsHarness getItemsSnapshots={getItemsSnapshots} loaders={loaders} />,
     );
 
     const firstGetItems = getItemsSnapshots.at(-1);
@@ -117,10 +106,7 @@ describe("useNfmMentionGetItems", () => {
     if (!firstGetItems) return;
 
     view.rerender(
-      <MentionGetItemsHarness
-        getItemsSnapshots={getItemsSnapshots}
-        loaders={loaders}
-      />,
+      <MentionGetItemsHarness getItemsSnapshots={getItemsSnapshots} loaders={loaders} />,
     );
     await settleAsyncRender();
 
@@ -145,11 +131,7 @@ describe("useNfmMentionGetItems", () => {
     expect(typeof refreshedGetItems).toBe("function");
     if (!refreshedGetItems) return;
     const refreshedItems = await refreshedGetItems("");
-    expect(refreshedItems.map((item) => item.title)).toEqual([
-      "Mention thread",
-      "Today",
-      "Now",
-    ]);
+    expect(refreshedItems.map((item) => item.title)).toEqual(["Mention thread", "Today", "Now"]);
   });
 
   test("@now returns the date affordance before a slow chat search resolves", async () => {
@@ -161,12 +143,7 @@ describe("useNfmMentionGetItems", () => {
       searchThreads: async () => threadSearch.promise,
     });
 
-    render(
-      <MentionGetItemsHarness
-        getItemsSnapshots={getItemsSnapshots}
-        loaders={loaders}
-      />,
-    );
+    render(<MentionGetItemsHarness getItemsSnapshots={getItemsSnapshots} loaders={loaders} />);
 
     const getItems = getItemsSnapshots.at(-1);
     expect(typeof getItems).toBe("function");
@@ -184,22 +161,13 @@ describe("useNfmMentionGetItems", () => {
     const nowThreadSearch = createDeferred<ThreadSearchResults>();
     const loaders = makeLoaders({
       listThreadItems: async () => new Promise<CommandPaletteThread[]>(() => undefined),
-      searchThreads: async ({ query }) => (
-        query === "old" ? oldThreadSearch.promise : nowThreadSearch.promise
-      ),
-      selectChatResults: ({ threadSearchBatch }) => (
-        threadSearchBatch
-          ? [makeThread({ title: "Async search thread" })]
-          : []
-      ),
+      searchThreads: async ({ query }) =>
+        query === "old" ? oldThreadSearch.promise : nowThreadSearch.promise,
+      selectChatResults: ({ threadSearchBatch }) =>
+        threadSearchBatch ? [makeThread({ title: "Async search thread" })] : [],
     });
 
-    render(
-      <MentionGetItemsHarness
-        getItemsSnapshots={getItemsSnapshots}
-        loaders={loaders}
-      />,
-    );
+    render(<MentionGetItemsHarness getItemsSnapshots={getItemsSnapshots} loaders={loaders} />);
 
     const getItems = getItemsSnapshots.at(-1);
     expect(typeof getItems).toBe("function");

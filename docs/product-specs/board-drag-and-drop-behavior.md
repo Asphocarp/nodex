@@ -1,13 +1,16 @@
 # Board Drag and Drop Behavior
 
 ## Status
+
 - Active
 - Last updated: 2026-08-17
 
 ## Scope
+
 This spec is the detailed source of truth for drag-and-drop behavior across the Board and its directly connected editor surfaces.
 
 It covers:
+
 - Board card drag within the board
 - Multi-card Board drag
 - Drag behavior while Board search/filter/sort rules are active
@@ -20,21 +23,27 @@ It does not redefine general BlockNote side-menu behavior outside these Board-fa
 ## Terms
 
 ### Visible cards
+
 Cards currently rendered in the active Board view after applying search and toolbar filter/sort rules.
 
 ### Dragged cards
+
 The card or card set currently being moved.
 
 ### Remaining cards
+
 The target column after removing the dragged cards from that column.
 
 ### Visible slot
+
 The insertion slot measured against the visible remaining cards in the rendered column.
 
 ### Persisted order
+
 `newOrder` for Board card moves. This is always the insertion index after removing the dragged card or dragged cards from the target column.
 
 This post-removal contract must stay identical across:
+
 - Drag indicator placement
 - Renderer optimistic transforms
 - Backend `moveCard` / `moveCards` persistence
@@ -42,6 +51,7 @@ This post-removal contract must stay identical across:
 ## Board Card Drag
 
 ### Pickup and preview
+
 - Board card drag uses Atlassian Pragmatic Drag and Drop.
 - Cards register their own draggable behavior locally.
 - Board outcomes are resolved in one board-level monitor.
@@ -51,12 +61,14 @@ This post-removal contract must stay identical across:
 - While dragging, the source card stays rendered as a static ghost in place instead of live-shifting siblings.
 
 ### Same-column reorder
+
 - Same-column reorder is measured against the remaining cards, not the raw pre-removal list.
 - The insertion indicator is rendered from that same remaining-card slot space.
 - Dropping between cards inserts into that exact visible gap.
 - Same-column reorder must never require the user to mentally compensate for the dragged card still being visible as a ghost.
 
 ### Multi-card reorder
+
 - Shift-click creates a temporary multi-selection.
 - Dragging any selected card drags the full selected set.
 - Same-column multi-card reorder preserves the dragged cards' relative order.
@@ -64,6 +76,7 @@ This post-removal contract must stay identical across:
 - Undo/redo treats the move as one grouped action.
 
 ### Cross-column move
+
 - Dragging to another column changes card status to the target column.
 - For same-project board moves, the operation stays local to the board mutation pipeline.
 - Cross-column moves preserve grouped history semantics for multi-card drags.
@@ -71,18 +84,21 @@ This post-removal contract must stay identical across:
 ## Filtered and Sorted Board
 
 ### Search and toolbar filters
+
 - Board card drag remains enabled while search and toolbar filters are active.
 - Reordering in a filtered view maps the visible slot back into the underlying board order.
 - Hidden non-matching cards keep their relative order.
 - If no visible anchor cards remain in a target column, the fallback behavior must be stable and deterministic.
 
 ### Sort-driven drag modes
+
 - Board drag mode is decided by the primary sort key, not by a binary "sorted vs unsorted" check.
 - `board-order` primary sort uses `manual-rank` mode.
 - A writable Property primary sort uses `property-sorted` mode.
 - `created` and `title` primary sorts use `derived-move-only` mode.
 
 ### `manual-rank` mode
+
 - A View with no explicit sort rule exposes its intrinsic ascending fractional
   manual order. An empty sort list never means that Pages have no order.
 - When `board-order` is the primary sort key, same-column and cross-column drag both remain enabled.
@@ -90,6 +106,7 @@ This post-removal contract must stay identical across:
 - The visible slot still maps back to persisted post-removal `newOrder`.
 
 ### `property-sorted` mode
+
 - When a writable Property is the active sort prefix, same-column drag stays enabled.
 - Fractional rank is the final stable tie-break after the writable Property
   tuple, so Pages with equal sorted values remain directly reorderable.
@@ -103,12 +120,14 @@ This post-removal contract must stay identical across:
 - Grouped multi-card drags preserve relative order while sharing the same inferred sort tuple.
 
 ### `derived-move-only` mode
+
 - When `created` or `title` is the primary sort key, same-column manual ranking is blocked.
 - Cross-column status changes remain enabled.
 - The board must explain the block with explicit feedback instead of silently no-oping the drop.
 - In this mode, column drop targets stay active while card drop targets stay disabled.
 
 ### Block import while derived views are active
+
 - Native block-drop import into Board stays blocked while free-text search is active.
 - Structured derived views can still accept block-drop import when the board can explain the result as either an exact visible slot or a column-level create.
 - Exact-slot import is allowed when newly created cards can remain in the active subset using only safe inferred workflow properties, and the resulting placement can be mapped to a persisted insertion anchor.
@@ -121,6 +140,7 @@ This post-removal contract must stay identical across:
 ## Editor Interop
 
 ### NFM block -> Database View
+
 - Task shorthand interpretation, literal fallback, modifiers, and authoring feedback follow [Task Shorthand Page Promotion Behavior](task-shorthand-page-promotion-behavior.md).
 - Native block drag from Card Stage and independently mounted owning/reference editors into Board or List targets the Database parent, not a serialized row snapshot. The custom side-menu starts one window-local drag session only after BlockNote has established the exact root Block selection. The default operation is move; holding Alt/Option at drop time copies instead.
 - Move submits one logical `BlockTransfer`: text-like roots promote to Cards in place, while non-convertible roots receive deterministic wrapper Cards. Copy recursively clones ownership with fresh IDs and leaves the source unchanged. Neither path serializes NFM nor mutates a Card description projection.
@@ -143,6 +163,7 @@ This post-removal contract must stay identical across:
   label, count, and actions), never through that stack.
 
 ### NFM editor -> NFM editor
+
 - An explicit side-menu drag between different Card Documents carries stable root Block IDs and logical Document coordinates through the same window-local session. The destination renders the horizontal block insertion line and suppresses ProseMirror's vertical text caret.
 - The target does not insert a serialized ProseMirror/HTML slice, and the source does not later delete its selection. One `BlockTransfer` commits both Document updates and Block locations or leaves both unchanged.
 - Both mounted editors settle transient drag/focus state and supply causal
@@ -152,6 +173,7 @@ This post-removal contract must stay identical across:
 - In nested Card outliners, the closest `.nfm-editor` to the event target owns the drop. An outer editor capture listener must not steal a drop intended for an embedded Card body.
 
 ### Database Page -> NFM editor
+
 - Dragging one or more ordered Board Cards or List rows into a Card Stage or independently mounted reference editor moves the real same-ID, childless Card shells into the target Document. Their separately owned title/body Documents are unchanged.
 - Move is the default. Holding Alt/Option at drop time copies each recursive ownership closure with fresh application IDs and preserves the source Cards.
 - The target editor shows pending feedback but does not insert or remove authority optimistically. `BlockTransfer` commits the source Database parent, target Y.Doc shells, projections, and receipt together; failure leaves both surfaces unchanged.
@@ -163,10 +185,12 @@ This post-removal contract must stay identical across:
 - Self-drop into the source card/editor context must be blocked.
 
 ### Cross-window transport
+
 - Cross-window native DnD is intentionally unsupported. A drag payload is valid only while the same renderer owns its typed live session; another window fails closed without claiming or mutating it.
 - Cross-window consistency is provided by SQLite/Y.Doc synchronization. Supporting cross-window gestures later would require a trusted live-session handoff into the same `BlockTransfer` command, not a second snapshot transport.
 
 ## Visual Feedback Rules
+
 - Each accepted Board hover resolves one board-owned drop proposal. Cards are
   drag sources, not competing drop targets; the insertion/column feedback,
   Property preview, and final drop all consume the same target and clear on the
@@ -189,6 +213,7 @@ This post-removal contract must stay identical across:
 - Bare column hits still derive a real insertion slot from pointer position when manual ranking is active.
 
 ## Persistence and History Invariants
+
 - `newOrder` is a post-removal insertion index.
 - `moveCard` and `moveCards` must interpret `newOrder` the same way.
 - Renderer optimistic transforms and backend persistence must produce the same column order for identical inputs.
@@ -215,5 +240,6 @@ This post-removal contract must stay identical across:
 - The side-menu selection that starts the gesture is authoritative. Container-level `dragstart` listeners may manage visual cleanup but must never infer or replace the selected Block IDs.
 
 ## Non-Goals
+
 - Copy-style Board-to-Board drag
 - Allowing derived-view block import when insert semantics are ambiguous

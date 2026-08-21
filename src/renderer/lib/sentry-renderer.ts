@@ -1,9 +1,6 @@
 import type { DiagnosticsSettings } from "./types";
 import { invoke } from "./api";
-import {
-  scrubSentryBreadcrumb,
-  scrubSentryEvent,
-} from "../../shared/diagnostics/sentry-scrub";
+import { scrubSentryBreadcrumb, scrubSentryEvent } from "../../shared/diagnostics/sentry-scrub";
 import { isDiagnosticsSettings } from "../../shared/diagnostics/diagnostics-settings";
 
 interface RendererSentryAdapter {
@@ -28,9 +25,7 @@ function toProcessEnv(value: unknown): Record<string, string | undefined> | unde
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 
   return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) =>
-      typeof entry === "string" || entry === undefined
-    ),
+    Object.entries(value).filter(([, entry]) => typeof entry === "string" || entry === undefined),
   ) as Record<string, string | undefined>;
 }
 
@@ -50,8 +45,7 @@ function isTestRuntime(): boolean {
   const rendererProcess = getRendererProcess();
   const env = rendererProcess?.env ?? {};
   const argv = rendererProcess?.argv ?? [];
-  return env.NODE_ENV === "test"
-    || argv.some((value) => value.toLowerCase().includes("test"));
+  return env.NODE_ENV === "test" || argv.some((value) => value.toLowerCase().includes("test"));
 }
 
 function shouldForceTestInitialization(): boolean {
@@ -91,13 +85,12 @@ export async function initializeRendererSentry(
   const settings = await (input.getSettings ?? loadDiagnosticsSettings)();
   if (!settings?.enabled) return false;
 
-  const adapter = input.adapter ?? await loadDefaultAdapter();
+  const adapter = input.adapter ?? (await loadDefaultAdapter());
   const initOptions: Record<string, unknown> = {
     sendDefaultPii: false,
     tracesSampleRate: settings.tracesSampleRate,
     attachScreenshot: false,
-    beforeSend: (event: unknown) =>
-      scrubSentryEvent(event as Record<string, unknown>),
+    beforeSend: (event: unknown) => scrubSentryEvent(event as Record<string, unknown>),
     beforeBreadcrumb: (breadcrumb: { category?: string } & Record<string, unknown>) => {
       if (breadcrumb.category === "console") return null;
       return scrubSentryBreadcrumb(breadcrumb);

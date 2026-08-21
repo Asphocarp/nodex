@@ -22,11 +22,13 @@ export function resolveChildConversationIds(
   activeThreadId: string | null,
   memberships: readonly CodexConversationChildMembership[],
 ): string[] {
-  return Array.from(new Set(
-    memberships
-      .map((membership) => membership.threadId.trim())
-      .filter((threadId) => threadId.length > 0 && threadId !== activeThreadId),
-  ));
+  return Array.from(
+    new Set(
+      memberships
+        .map((membership) => membership.threadId.trim())
+        .filter((threadId) => threadId.length > 0 && threadId !== activeThreadId),
+    ),
+  );
 }
 
 /** Resolves the effective composer settings without coupling the rule to React. */
@@ -57,26 +59,25 @@ export function resolveEffectiveThreadStageSettings({
   const fallback = {
     selectedCollaborationMode: fallbackMode,
     selectedModel: threadExecutionProfile?.modelId ?? fallbackModel,
-    selectedReasoningEffort:
-      threadExecutionProfile?.reasoningEffort ?? fallbackReasoningEffort,
+    selectedReasoningEffort: threadExecutionProfile?.reasoningEffort ?? fallbackReasoningEffort,
   };
   if (!activeThreadId || !isKnownCollaborationMode(candidateMode)) {
     return fallback;
   }
 
-  const selectedCollaborationMode = availableModes.length === 0
-    || availableModes.some((mode) => mode.mode === candidateMode)
-    ? candidateMode
-    : fallbackMode;
+  const selectedCollaborationMode =
+    availableModes.length === 0 || availableModes.some((mode) => mode.mode === candidateMode)
+      ? candidateMode
+      : fallbackMode;
   return {
     selectedCollaborationMode,
     selectedModel:
-      normalizeSelectedModel(liveThreadSettings?.model)
-      ?? threadExecutionProfile?.modelId
-      ?? fallbackModel,
+      normalizeSelectedModel(liveThreadSettings?.model) ??
+      threadExecutionProfile?.modelId ??
+      fallbackModel,
     selectedReasoningEffort:
-      liveThreadSettings?.reasoningEffort
-      ?? threadExecutionProfile?.reasoningEffort
-      ?? fallbackReasoningEffort,
+      liveThreadSettings?.reasoningEffort ??
+      threadExecutionProfile?.reasoningEffort ??
+      fallbackReasoningEffort,
   };
 }

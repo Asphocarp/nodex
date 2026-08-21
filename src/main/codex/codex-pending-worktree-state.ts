@@ -18,8 +18,7 @@ export type {
   CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
 
-export const CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT =
-  "[info] Starting worktree creation\n";
+export const CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT = "[info] Starting worktree creation\n";
 export const CODEX_PENDING_WORKTREE_CONTINUE_WITHOUT_SETUP_OUTPUT =
   "[info] Continuing without local environment setup\n";
 
@@ -174,10 +173,7 @@ export function createCodexPendingWorktreeState(): CodexPendingWorktreeState {
   };
 }
 
-export function appendCodexPendingWorktreeOutputTail(
-  current: string,
-  output: string,
-): string {
+export function appendCodexPendingWorktreeOutputTail(current: string, output: string): string {
   if (!output) return current;
   return appendTextTail({
     current,
@@ -189,8 +185,7 @@ export function appendCodexPendingWorktreeOutputTail(
 export function getCodexPendingWorktreeSnapshot(
   state: CodexPendingWorktreeState,
 ): readonly CodexPendingWorktreeEntry[] {
-  return [...state.entriesById.values()].sort((left, right) =>
-    left.createdAt - right.createdAt);
+  return [...state.entriesById.values()].sort((left, right) => left.createdAt - right.createdAt);
 }
 
 export function getCodexPendingWorktreeConversationStartSnapshot(
@@ -199,13 +194,11 @@ export function getCodexPendingWorktreeConversationStartSnapshot(
   readonly pendingWorktreeId: string;
   readonly clientThreadId: string;
 })[] {
-  return [...state.conversationStartsByPendingWorktreeId].map(
-    ([pendingWorktreeId, start]) => ({
-      pendingWorktreeId,
-      clientThreadId: start.clientThreadId,
-      ...start.value,
-    }),
-  );
+  return [...state.conversationStartsByPendingWorktreeId].map(([pendingWorktreeId, start]) => ({
+    pendingWorktreeId,
+    clientThreadId: start.clientThreadId,
+    ...start.value,
+  }));
 }
 
 function clientThreadIdForEntry(entry: CodexPendingWorktreeEntry): string | null {
@@ -236,11 +229,11 @@ export function resolveCodexPendingWorktreeThread(
     const [pendingWorktreeId, start] = pendingStart;
     if (start.value.state === "failed") {
       return {
-          state: "failed",
-          clientThreadId,
-          pendingWorktreeId,
-          errorMessage: start.value.errorMessage,
-        };
+        state: "failed",
+        clientThreadId,
+        pendingWorktreeId,
+        errorMessage: start.value.errorMessage,
+      };
     }
     return {
       state: start.value.state === "starting" ? "starting" : "waiting",
@@ -255,9 +248,8 @@ export function resolveCodexPendingWorktreeThread(
       state: "failed",
       clientThreadId,
       pendingWorktreeId: entry.id,
-      errorMessage: conversationStart?.state === "failed"
-        ? conversationStart.errorMessage
-        : entry.errorMessage,
+      errorMessage:
+        conversationStart?.state === "failed" ? conversationStart.errorMessage : entry.errorMessage,
     };
   }
   if (conversationStart?.state === "starting") {
@@ -407,11 +399,8 @@ function appendPendingWorktreeOutput(
   output: string,
 ): CodexPendingWorktreeTransition {
   const entry = entryForAttempt(state, pendingWorktreeId, attempt);
-  if (
-    !entry
-    || !output
-    || (entry.phase !== "creating" && entry.phase !== "setting-up")
-  ) return unchanged(state);
+  if (!entry || !output || (entry.phase !== "creating" && entry.phase !== "setting-up"))
+    return unchanged(state);
   if (phase === "setup") {
     return {
       state: withEntry(state, {
@@ -424,10 +413,7 @@ function appendPendingWorktreeOutput(
   return {
     state: withEntry(state, {
       ...entry,
-      worktreeOutputText: appendCodexPendingWorktreeOutputTail(
-        entry.worktreeOutputText,
-        output,
-      ),
+      worktreeOutputText: appendCodexPendingWorktreeOutputTail(entry.worktreeOutputText, output),
     }),
     effects: [],
   };
@@ -438,10 +424,8 @@ function setPendingWorktreeReady(
   action: Extract<CodexPendingWorktreeAction, { readonly type: "worktreeReady" }>,
 ): CodexPendingWorktreeTransition {
   const entry = entryForAttempt(state, action.pendingWorktreeId, action.attempt);
-  if (
-    !entry
-    || (entry.phase !== "creating" && entry.phase !== "setting-up")
-  ) return unchanged(state);
+  if (!entry || (entry.phase !== "creating" && entry.phase !== "setting-up"))
+    return unchanged(state);
   const readyEntry: CodexPendingWorktreeEntry = {
     ...entry,
     phase: "worktree-ready",
@@ -478,10 +462,10 @@ function completeStableWorkspaceRootRegistration(
 ): CodexPendingWorktreeTransition {
   const entry = state.entriesById.get(pendingWorktreeId);
   if (
-    !entry
-    || entry.launchMode !== "create-stable-worktree"
-    || entry.phase !== "worktree-ready"
-    || entry.attempt !== attempt
+    !entry ||
+    entry.launchMode !== "create-stable-worktree" ||
+    entry.phase !== "worktree-ready" ||
+    entry.attempt !== attempt
   ) {
     return unchanged(state);
   }
@@ -500,10 +484,10 @@ function failStableWorkspaceRootRegistration(
 ): CodexPendingWorktreeTransition {
   const entry = state.entriesById.get(pendingWorktreeId);
   if (
-    !entry
-    || entry.launchMode !== "create-stable-worktree"
-    || entry.phase !== "worktree-ready"
-    || entry.attempt !== attempt
+    !entry ||
+    entry.launchMode !== "create-stable-worktree" ||
+    entry.phase !== "worktree-ready" ||
+    entry.attempt !== attempt
   ) {
     return unchanged(state);
   }
@@ -550,9 +534,7 @@ function retryPendingWorktree(
     });
   }
 
-  const effects: CodexPendingWorktreeEffect[] = [
-    { type: "abort", pendingWorktreeId },
-  ];
+  const effects: CodexPendingWorktreeEffect[] = [{ type: "abort", pendingWorktreeId }];
   if (retryCleanupRoot) {
     effects.push({
       type: "delete",
@@ -603,11 +585,7 @@ function workLocallyFromPendingWorktree(
 ): CodexPendingWorktreeTransition {
   const entry = state.entriesById.get(pendingWorktreeId);
   if (!entry || entry.launchMode === "create-stable-worktree") return unchanged(state);
-  if (
-    entry.phase !== "queued"
-    && entry.phase !== "creating"
-    && entry.phase !== "setting-up"
-  ) {
+  if (entry.phase !== "queued" && entry.phase !== "creating" && entry.phase !== "setting-up") {
     return unchanged(state);
   }
 
@@ -662,8 +640,8 @@ function removePendingWorktreeWithEffects(
     };
   }
   const clientThreadId = clientThreadIdForEntry(entry);
-  const shouldDelete = entry.worktreeGitRoot !== null &&
-    (mode === "cancel" || entry.phase === "failed");
+  const shouldDelete =
+    entry.worktreeGitRoot !== null && (mode === "cancel" || entry.phase === "failed");
   const effects: CodexPendingWorktreeEffect[] = [
     ...goalSourceCleanupEffects(entry),
     { type: "abort", pendingWorktreeId },
@@ -827,10 +805,8 @@ export function reduceCodexPendingWorktreeState(
       return setPendingWorktreeReady(state, action);
     case "worktreeFailed": {
       const entry = entryForAttempt(state, action.pendingWorktreeId, action.attempt);
-      if (
-        !entry
-        || (entry.phase !== "creating" && entry.phase !== "setting-up")
-      ) return unchanged(state);
+      if (!entry || (entry.phase !== "creating" && entry.phase !== "setting-up"))
+        return unchanged(state);
       const failed: CodexPendingWorktreeEntry = {
         ...entry,
         phase: "failed",
@@ -893,10 +869,7 @@ export function reduceCodexPendingWorktreeState(
         action.attempt,
       );
     default:
-      return assertNeverCodexPendingWorktreeVariant(
-        action,
-        "Codex pending worktree action",
-      );
+      return assertNeverCodexPendingWorktreeVariant(action, "Codex pending worktree action");
   }
 }
 

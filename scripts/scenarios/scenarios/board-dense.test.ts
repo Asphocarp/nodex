@@ -82,20 +82,14 @@ class RecordingSeedPort implements ScenarioSeedPort {
 describe("board/dense authoritative scenario", () => {
   test("materializes stable logical identities in domain order", async () => {
     const port = new RecordingSeedPort();
-    const manifest = await materializeScenario(
-      BOARD_DENSE_SCENARIO_ID,
-      port,
-      "/tmp/workspace",
-    );
+    const manifest = await materializeScenario(BOARD_DENSE_SCENARIO_ID, port, "/tmp/workspace");
     expect(port.pages.map(({ key, status }) => ({ key, status }))).toEqual(
       BOARD_DENSE_PAGES.map(({ key, status }) => ({ key, status })),
     );
     expect(new Set(port.pages.map((page) => page.pageId)).size).toBe(10);
     expect(new Set(port.pages.map((page) => page.operationId)).size).toBe(10);
     expect(port.replacements).toHaveLength(1);
-    expect(port.replacements[0]?.pageId).toBe(
-      manifest.pageIdsByKey[BOARD_DENSE_PRIMARY_PAGE_KEY],
-    );
+    expect(port.replacements[0]?.pageId).toBe(manifest.pageIdsByKey[BOARD_DENSE_PRIMARY_PAGE_KEY]);
     expect(manifest).toMatchObject({
       version: 1,
       scenarioId: BOARD_DENSE_SCENARIO_ID,
@@ -107,11 +101,7 @@ describe("board/dense authoritative scenario", () => {
 
   test("inspects normalized facts independently from generated UUIDs", async () => {
     const port = new RecordingSeedPort();
-    const manifest = await materializeScenario(
-      BOARD_DENSE_SCENARIO_ID,
-      port,
-      "/tmp/workspace",
-    );
+    const manifest = await materializeScenario(BOARD_DENSE_SCENARIO_ID, port, "/tmp/workspace");
     await expect(inspectScenario(manifest, port)).resolves.toEqual({
       scenarioId: BOARD_DENSE_SCENARIO_ID,
       scenarioRevision: 2,
@@ -127,16 +117,19 @@ describe("board/dense authoritative scenario", () => {
   });
 
   test("rejects malformed retained manifests and facts", () => {
-    expect(() => parseScenarioManifest({ version: 1, scenarioId: "board/dense" }))
-      .toThrow(/Scenario manifest/u);
-    expect(() => parseScenarioFacts({ scenarioId: "board/dense", groups: {} }))
-      .toThrow(/Scenario facts/u);
-    expect(() => requireBoardDenseScenarioFacts({
-      scenarioId: "board/dense",
-      scenarioRevision: 2,
-      groups: {},
-    }))
-      .toThrow(/facts/u);
+    expect(() => parseScenarioManifest({ version: 1, scenarioId: "board/dense" })).toThrow(
+      /Scenario manifest/u,
+    );
+    expect(() => parseScenarioFacts({ scenarioId: "board/dense", groups: {} })).toThrow(
+      /Scenario facts/u,
+    );
+    expect(() =>
+      requireBoardDenseScenarioFacts({
+        scenarioId: "board/dense",
+        scenarioRevision: 2,
+        groups: {},
+      }),
+    ).toThrow(/facts/u);
   });
 
   test("reuses canonical and operation identities for a bounded retry", async () => {

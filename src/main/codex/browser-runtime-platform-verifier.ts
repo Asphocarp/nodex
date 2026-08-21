@@ -1,8 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import type {
-  BrowserRuntimePlatformArtifactVerifier,
-} from "./browser-runtime-bundle";
+import type { BrowserRuntimePlatformArtifactVerifier } from "./browser-runtime-bundle";
 
 type CommandReader = (command: string, args: string[]) => string;
 
@@ -24,23 +22,22 @@ function isMachO(filePath: string): boolean {
     const header = Buffer.alloc(4);
     if (fs.readSync(descriptor, header, 0, header.length, 0) !== header.length) return false;
     const magic = header.readUInt32BE(0);
-    return magic === 0xfeedface
-      || magic === 0xfeedfacf
-      || magic === 0xcefaedfe
-      || magic === 0xcffaedfe
-      || magic === 0xcafebabe
-      || magic === 0xbebafeca
-      || magic === 0xcafebabf
-      || magic === 0xbfbafeca;
+    return (
+      magic === 0xfeedface ||
+      magic === 0xfeedfacf ||
+      magic === 0xcefaedfe ||
+      magic === 0xcffaedfe ||
+      magic === 0xcafebabe ||
+      magic === 0xbebafeca ||
+      magic === 0xcafebabf ||
+      magic === 0xbfbafeca
+    );
   } finally {
     fs.closeSync(descriptor);
   }
 }
 
-function readTeamIdentifier(
-  filePath: string,
-  run: CommandReader,
-): string | null {
+function readTeamIdentifier(filePath: string, run: CommandReader): string | null {
   try {
     const output = run("/usr/bin/codesign", ["-dv", "--verbose=4", filePath]);
     return /^TeamIdentifier=(.+)$/mu.exec(output)?.[1]?.trim() ?? null;
@@ -72,9 +69,7 @@ export function createBrowserRuntimePlatformArtifactVerifier(
 
     let architectures: string[];
     try {
-      architectures = run("/usr/bin/lipo", ["-archs", artifactPath])
-        .split(/\s+/u)
-        .filter(Boolean);
+      architectures = run("/usr/bin/lipo", ["-archs", artifactPath]).split(/\s+/u).filter(Boolean);
     } catch {
       return "could not inspect Mach-O architecture";
     }
@@ -90,8 +85,7 @@ export function createBrowserRuntimePlatformArtifactVerifier(
     const teamIdentifier = readTeamIdentifier(artifactPath, run);
     const computerUse = manifest.capabilities.computerUse;
     const expectedTeamIdentifier =
-      computerUse.status === "available"
-      && artifact.path.startsWith(`${computerUse.appBundle}/`)
+      computerUse.status === "available" && artifact.path.startsWith(`${computerUse.appBundle}/`)
         ? computerUse.signingTeamId
         : manifest.peerAuthorization.signingTeamId;
     if (teamIdentifier !== expectedTeamIdentifier) {

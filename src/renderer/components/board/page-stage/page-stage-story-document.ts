@@ -13,9 +13,7 @@ import type { PageStageProps } from "./types";
 class StoryDocumentSyncAdapter implements DocumentSyncAdapter {
   private headSeq = 0;
 
-  private readonly listeners = new Set<
-    (event: DocumentSyncRealtimeEvent) => void
-  >();
+  private readonly listeners = new Set<(event: DocumentSyncRealtimeEvent) => void>();
 
   constructor(private readonly document: Y.Doc) {}
 

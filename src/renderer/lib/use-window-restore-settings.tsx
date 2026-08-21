@@ -3,10 +3,7 @@ import { useCallback } from "react";
 import { invoke } from "./api";
 import { queryKeys } from "./query-keys";
 import { windowRestoreSettingsQueryOptions } from "./query-options";
-import type {
-  UpdateWindowRestoreSettingsInput,
-  WindowRestoreSettings,
-} from "./types";
+import type { UpdateWindowRestoreSettingsInput, WindowRestoreSettings } from "./types";
 
 const DEFAULT_SETTINGS: WindowRestoreSettings = {
   policy: "all",
@@ -51,10 +48,13 @@ export function useWindowRestoreSettings(): {
     });
   }, [queryClient]);
 
-  const updateSettings = useCallback(async (input: UpdateWindowRestoreSettingsInput) => {
-    const result = await updateSettingsRequest(input);
-    return normalizeWindowRestoreSettings(result);
-  }, [updateSettingsRequest]);
+  const updateSettings = useCallback(
+    async (input: UpdateWindowRestoreSettingsInput) => {
+      const result = await updateSettingsRequest(input);
+      return normalizeWindowRestoreSettings(result);
+    },
+    [updateSettingsRequest],
+  );
 
   return {
     settings: settings ?? DEFAULT_SETTINGS,
@@ -64,5 +64,4 @@ export function useWindowRestoreSettings(): {
   };
 }
 
-export function __resetWindowRestoreSettingsForTests(): void {
-}
+export function __resetWindowRestoreSettingsForTests(): void {}

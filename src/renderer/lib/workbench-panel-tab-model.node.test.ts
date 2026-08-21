@@ -24,9 +24,7 @@ import {
   makeTestWorkbenchTab,
 } from "@/components/workbench/workbench-testkit/panel-fixtures";
 
-function transient(
-  discriminant: string,
-): ProjectSessionRenderableTab {
+function transient(discriminant: string): ProjectSessionRenderableTab {
   return {
     [discriminant]: true,
     id: discriminant,
@@ -66,10 +64,14 @@ describe("workbench panel tab model", () => {
     ]) {
       expect(isTransientPanelTab(transient(discriminant))).toBe(true);
     }
-    expect(isTransientPanelTab(makeTestWorkbenchTab({
-      id: "browser",
-      kind: "browser",
-    }))).toBe(false);
+    expect(
+      isTransientPanelTab(
+        makeTestWorkbenchTab({
+          id: "browser",
+          kind: "browser",
+        }),
+      ),
+    ).toBe(false);
   });
 
   test("keeps loading side chats non-closable", () => {
@@ -86,10 +88,8 @@ describe("workbench panel tab model", () => {
       stateKey: 0,
     } satisfies SideChatPanelTab;
     expect(isPanelTabClosable(sideChat)).toBe(false);
-    expect(isPanelTabClosable({ ...sideChat, status: "ready" }))
-      .toBe(true);
-    expect(isPanelTabClosable({ ...sideChat, status: "expired" }))
-      .toBe(true);
+    expect(isPanelTabClosable({ ...sideChat, status: "ready" })).toBe(true);
+    expect(isPanelTabClosable({ ...sideChat, status: "expired" })).toBe(true);
   });
 
   test("limits root composer overlay eligibility to durable surfaces", () => {
@@ -102,18 +102,17 @@ describe("workbench panel tab model", () => {
         pageId: "page-1",
       }),
     ]) {
-      expect(isRootThreadRightPanelComposerOverlayEligibleTab(tab))
-        .toBe(true);
+      expect(isRootThreadRightPanelComposerOverlayEligibleTab(tab)).toBe(true);
     }
-    expect(isRootThreadRightPanelComposerOverlayEligibleTab(
-      makeTestWorkbenchTab({
-        id: "terminal",
-        kind: "terminal",
-      }),
-    )).toBe(false);
-    expect(isRootThreadRightPanelComposerOverlayEligibleTab(
-      transient("planPanel"),
-    )).toBe(false);
+    expect(
+      isRootThreadRightPanelComposerOverlayEligibleTab(
+        makeTestWorkbenchTab({
+          id: "terminal",
+          kind: "terminal",
+        }),
+      ),
+    ).toBe(false);
+    expect(isRootThreadRightPanelComposerOverlayEligibleTab(transient("planPanel"))).toBe(false);
     const imageTab = {
       ...transient("imageEditor"),
       threadId: "thread-1",
@@ -122,46 +121,46 @@ describe("workbench panel tab model", () => {
         initialView: "single",
       },
     } as ImageEditorPanelTab;
-    expect(isRootThreadRightPanelComposerOverlayEligibleTab(imageTab))
-      .toBe(true);
-    expect(isRootThreadRightPanelComposerOverlayEligibleTab({
-      ...imageTab,
-      threadId: null,
-    } as ImageEditorPanelTab)).toBe(false);
-    expect(isRootThreadRightPanelComposerOverlayEligibleTab({
-      ...imageTab,
-      threadId: null,
-      options: {
-        ...imageTab.options,
-        composerTarget: {
-          channelId: "/new-chat::root",
-          placement: "root",
+    expect(isRootThreadRightPanelComposerOverlayEligibleTab(imageTab)).toBe(true);
+    expect(
+      isRootThreadRightPanelComposerOverlayEligibleTab({
+        ...imageTab,
+        threadId: null,
+      } as ImageEditorPanelTab),
+    ).toBe(false);
+    expect(
+      isRootThreadRightPanelComposerOverlayEligibleTab({
+        ...imageTab,
+        threadId: null,
+        options: {
+          ...imageTab.options,
+          composerTarget: {
+            channelId: "/new-chat::root",
+            placement: "root",
+          },
         },
-      },
-    })).toBe(true);
-    expect(isRootThreadRightPanelComposerOverlayEligibleTab(null))
-      .toBe(false);
+      }),
+    ).toBe(true);
+    expect(isRootThreadRightPanelComposerOverlayEligibleTab(null)).toBe(false);
   });
 
   test("encodes process identities and project-aware side-chat paths", () => {
-    expect(makeProcessOutputPanelTabId("thread:a/b", "item:c d"))
-      .toBe("process-output:thread%3Aa%2Fb:item%3Ac%20d");
-    expect(buildSideChatParentNavigationPath(
-      makeTestWorkbenchSession({ projectId: "project-1" }),
-      "thread-1",
-    )).toBe(
-      "project:project-1/session:session-1/thread:thread-1",
+    expect(makeProcessOutputPanelTabId("thread:a/b", "item:c d")).toBe(
+      "process-output:thread%3Aa%2Fb:item%3Ac%20d",
     );
-    expect(buildSideChatParentNavigationPath(
-      makeTestWorkbenchSession({ projectId: null }),
-      "thread-1",
-    )).toBe("session:session-1/thread:thread-1");
+    expect(
+      buildSideChatParentNavigationPath(
+        makeTestWorkbenchSession({ projectId: "project-1" }),
+        "thread-1",
+      ),
+    ).toBe("project:project-1/session:session-1/thread:thread-1");
+    expect(
+      buildSideChatParentNavigationPath(makeTestWorkbenchSession({ projectId: null }), "thread-1"),
+    ).toBe("session:session-1/thread:thread-1");
   });
 
   test("creates renderer-local image tab identities", () => {
-    expect(makeImageEditorPanelTabId()).toMatch(
-      /^image:[0-9a-f-]{36}$/u,
-    );
+    expect(makeImageEditorPanelTabId()).toMatch(/^image:[0-9a-f-]{36}$/u);
   });
 
   test("updates image chrome without changing tab identity", () => {
@@ -176,11 +175,7 @@ describe("workbench panel tab model", () => {
       id: "image:two",
     } as ImageEditorPanelTab;
 
-    const next = updateImageEditorPanelTabTitle(
-      [tab, sibling],
-      tab.id,
-      "  Generated image 2  ",
-    );
+    const next = updateImageEditorPanelTabTitle([tab, sibling], tab.id, "  Generated image 2  ");
 
     expect(next[0]).toMatchObject({
       id: tab.id,

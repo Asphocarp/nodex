@@ -7,10 +7,7 @@ import {
   NodexDialogDescription,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
-import {
-  ShortcutKeycaps,
-  ShortcutKeycapSequence,
-} from "@/components/ui/shortcut-keycaps";
+import { ShortcutKeycaps, ShortcutKeycapSequence } from "@/components/ui/shortcut-keycaps";
 import {
   createCommandKeymapState,
   formatAcceleratorLabel,
@@ -45,9 +42,9 @@ function ShortcutBinding({
   readonly accelerator: string;
   readonly state: CommandKeymapState;
 }) {
-  const chords = accelerator.split(/\s+/).map((chord) =>
-    formatAcceleratorLabel(chord, state.platform),
-  );
+  const chords = accelerator
+    .split(/\s+/)
+    .map((chord) => formatAcceleratorLabel(chord, state.platform));
   return <ShortcutKeycapSequence chords={chords} density="compact" />;
 }
 
@@ -73,10 +70,13 @@ export function KeyboardShortcutHelpDialog({
   }, [query, state]);
 
   return (
-    <NodexDialog open={open} onOpenChange={(next) => {
-      if (!next) setQuery("");
-      onOpenChange(next);
-    }}>
+    <NodexDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setQuery("");
+        onOpenChange(next);
+      }}
+    >
       <NodexDialogContent
         size="wide"
         className="flex max-h-[min(680px,82vh)] flex-col rounded-2xl"
@@ -107,37 +107,43 @@ export function KeyboardShortcutHelpDialog({
             <div className="px-3 py-10 text-center text-sm text-token-description-foreground">
               No matching shortcuts
             </div>
-          ) : groups.map(({ group, items }) => (
-            <section key={group} className="pb-2">
-              <h3 className="px-3 pt-2 pb-1 text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
-                {GROUP_LABELS[group] ?? group}
-              </h3>
-              {items.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-lg px-3 py-1.5 hover:bg-token-list-hover-background"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm text-token-foreground">
-                      {entry.title}
+          ) : (
+            groups.map(({ group, items }) => (
+              <section key={group} className="pb-2">
+                <h3 className="px-3 pt-2 pb-1 text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
+                  {GROUP_LABELS[group] ?? group}
+                </h3>
+                {items.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-lg px-3 py-1.5 hover:bg-token-list-hover-background"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-token-foreground">
+                        {entry.title}
+                      </span>
+                      <span className="block truncate text-xs text-token-description-foreground">
+                        {entry.description}
+                      </span>
                     </span>
-                    <span className="block truncate text-xs text-token-description-foreground">
-                      {entry.description}
+                    <span className="flex items-center gap-1.5">
+                      {entry.keybindings.flatMap((binding) =>
+                        binding.key
+                          ? [
+                              <ShortcutBinding
+                                key={binding.key}
+                                accelerator={binding.key}
+                                state={state}
+                              />,
+                            ]
+                          : [],
+                      )}
                     </span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    {entry.keybindings.flatMap((binding) => binding.key ? [
-                      <ShortcutBinding
-                        key={binding.key}
-                        accelerator={binding.key}
-                        state={state}
-                      />,
-                    ] : [])}
-                  </span>
-                </div>
-              ))}
-            </section>
-          ))}
+                  </div>
+                ))}
+              </section>
+            ))
+          )}
         </div>
 
         <div className="flex items-center justify-between border-t border-token-border/70 px-4 py-3">

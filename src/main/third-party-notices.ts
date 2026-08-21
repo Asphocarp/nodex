@@ -23,12 +23,14 @@ export function resolveThirdPartyNoticesCandidates({
   }
 
   const generatedResource = resolveBuildResources(cwd).noticesPath;
-  return [...new Set([
-    packagedResource,
-    generatedResource,
-    join(cwd, "assets", THIRD_PARTY_NOTICES_FILENAME),
-    join(cwd, "electron", "assets", THIRD_PARTY_NOTICES_FILENAME),
-  ])];
+  return [
+    ...new Set([
+      packagedResource,
+      generatedResource,
+      join(cwd, "assets", THIRD_PARTY_NOTICES_FILENAME),
+      join(cwd, "electron", "assets", THIRD_PARTY_NOTICES_FILENAME),
+    ]),
+  ];
 }
 
 function isMissingFileError(error: unknown): boolean {

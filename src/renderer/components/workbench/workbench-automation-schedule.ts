@@ -46,7 +46,9 @@ const RRULE_WEEKDAY_TO_CODE: Record<number, WorkbenchAutomationWeekdayCode> = {
   5: "SA",
   6: "SU",
 };
-const WEEKDAY_INDEX = new Map(WORKBENCH_AUTOMATION_ALL_WEEKDAYS.map((weekday, index) => [weekday, index]));
+const WEEKDAY_INDEX = new Map(
+  WORKBENCH_AUTOMATION_ALL_WEEKDAYS.map((weekday, index) => [weekday, index]),
+);
 const WEEKDAY_LABEL: Record<WorkbenchAutomationWeekdayCode, string> = {
   SU: "Sunday",
   MO: "Monday",
@@ -195,51 +197,71 @@ export function updateWorkbenchAutomationScheduleConfig(input: {
   }
 
   if (input.patch.mode === "custom") {
-    const customRrule = input.config.mode === "custom" && input.config.customRrule.trim()
-      ? input.config.customRrule
-      : buildWorkbenchAutomationScheduleRrule({
-          config: input.config,
-          intervalStyle: input.intervalStyle,
-        });
-    return normalizeScheduleConfig({
-      ...merged,
-      mode: "custom",
-      customRrule,
-    }, input.intervalStyle);
+    const customRrule =
+      input.config.mode === "custom" && input.config.customRrule.trim()
+        ? input.config.customRrule
+        : buildWorkbenchAutomationScheduleRrule({
+            config: input.config,
+            intervalStyle: input.intervalStyle,
+          });
+    return normalizeScheduleConfig(
+      {
+        ...merged,
+        mode: "custom",
+        customRrule,
+      },
+      input.intervalStyle,
+    );
   }
 
   if (input.patch.mode === "hourly") {
-    return normalizeScheduleConfig({
-      ...merged,
-      mode: "hourly",
-      intervalHours: sanitizePositiveInteger(input.config.intervalHours, 1),
-      intervalMinutes: input.intervalStyle === "heartbeat"
-        ? sanitizePositiveInteger(input.config.intervalMinutes ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES, DEFAULT_HEARTBEAT_INTERVAL_MINUTES)
-        : null,
-    }, input.intervalStyle);
+    return normalizeScheduleConfig(
+      {
+        ...merged,
+        mode: "hourly",
+        intervalHours: sanitizePositiveInteger(input.config.intervalHours, 1),
+        intervalMinutes:
+          input.intervalStyle === "heartbeat"
+            ? sanitizePositiveInteger(
+                input.config.intervalMinutes ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+                DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+              )
+            : null,
+      },
+      input.intervalStyle,
+    );
   }
 
   if (input.patch.mode === "daily") {
-    return normalizeScheduleConfig({
-      ...merged,
-      mode: "daily",
-      weekdays: [...WORKBENCH_AUTOMATION_ALL_WEEKDAYS],
-    }, input.intervalStyle);
+    return normalizeScheduleConfig(
+      {
+        ...merged,
+        mode: "daily",
+        weekdays: [...WORKBENCH_AUTOMATION_ALL_WEEKDAYS],
+      },
+      input.intervalStyle,
+    );
   }
 
   if (input.patch.mode === "weekdays") {
-    return normalizeScheduleConfig({
-      ...merged,
-      mode: "weekdays",
-      weekdays: [...WORKBENCH_AUTOMATION_WEEKDAYS],
-    }, input.intervalStyle);
+    return normalizeScheduleConfig(
+      {
+        ...merged,
+        mode: "weekdays",
+        weekdays: [...WORKBENCH_AUTOMATION_WEEKDAYS],
+      },
+      input.intervalStyle,
+    );
   }
 
-  return normalizeScheduleConfig({
-    ...merged,
-    mode: "weekly",
-    weekdays: [normalizeWeekday(input.config.weekdays[0]) ?? "MO"],
-  }, input.intervalStyle);
+  return normalizeScheduleConfig(
+    {
+      ...merged,
+      mode: "weekly",
+      weekdays: [normalizeWeekday(input.config.weekdays[0]) ?? "MO"],
+    },
+    input.intervalStyle,
+  );
 }
 
 export function buildWorkbenchAutomationScheduleRrule(input: {
@@ -251,7 +273,10 @@ export function buildWorkbenchAutomationScheduleRrule(input: {
 
   if (config.mode === "hourly") {
     if (input.intervalStyle === "heartbeat") {
-      const minutes = sanitizePositiveInteger(config.intervalMinutes ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES, DEFAULT_HEARTBEAT_INTERVAL_MINUTES);
+      const minutes = sanitizePositiveInteger(
+        config.intervalMinutes ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+        DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+      );
       return `FREQ=MINUTELY;INTERVAL=${minutes}`;
     }
 
@@ -259,12 +284,14 @@ export function buildWorkbenchAutomationScheduleRrule(input: {
     return `FREQ=HOURLY;INTERVAL=${hours};BYMINUTE=0;BYDAY=${WORKBENCH_AUTOMATION_ALL_WEEKDAYS.join(",")}`;
   }
 
-  const clock = parseScheduleTime(config.time) ?? parseScheduleTime(DEFAULT_WORKBENCH_AUTOMATION_SCHEDULE_TIME);
+  const clock =
+    parseScheduleTime(config.time) ?? parseScheduleTime(DEFAULT_WORKBENCH_AUTOMATION_SCHEDULE_TIME);
   if (!clock) return DEFAULT_WORKBENCH_AUTOMATION_RRULE;
   const timeParts = `BYHOUR=${clock.hour};BYMINUTE=${clock.minute}`;
 
   if (config.mode === "daily") return `FREQ=DAILY;${timeParts}`;
-  if (config.mode === "weekdays") return `FREQ=WEEKLY;BYDAY=${WORKBENCH_AUTOMATION_WEEKDAYS.join(",")};${timeParts}`;
+  if (config.mode === "weekdays")
+    return `FREQ=WEEKLY;BYDAY=${WORKBENCH_AUTOMATION_WEEKDAYS.join(",")};${timeParts}`;
 
   const weekday = normalizeWeekday(config.weekdays[0]) ?? "MO";
   return `FREQ=WEEKLY;BYDAY=${weekday};${timeParts}`;
@@ -303,7 +330,12 @@ function parseScheduleRrule(rrule: string): ParsedScheduleRrule | null {
     const rules = ruleSet.rrules();
     const rule = rules[0] ?? null;
     if (!rule || rules.length !== 1) return null;
-    if (ruleSet.rdates().length !== 0 || ruleSet.exrules().length !== 0 || ruleSet.exdates().length !== 0) return null;
+    if (
+      ruleSet.rdates().length !== 0 ||
+      ruleSet.exrules().length !== 0 ||
+      ruleSet.exdates().length !== 0
+    )
+      return null;
 
     const origOptions = normalizeOrigOptions(rule.origOptions as Record<string, unknown>);
     return {
@@ -331,7 +363,8 @@ function resolveIntervalMinutes(parsed: ParsedScheduleRrule): number | null {
 
   const frequency = parsed.fields.get("FREQ");
   const interval = parsePositiveInteger(parsed.fields.get("INTERVAL")) ?? 1;
-  if (frequency === "MINUTELY" && hasOnlyKeys(parsed.origKeys, BASIC_INTERVAL_KEYS)) return interval;
+  if (frequency === "MINUTELY" && hasOnlyKeys(parsed.origKeys, BASIC_INTERVAL_KEYS))
+    return interval;
 
   if (frequency !== "HOURLY" || !hasOnlyKeys(parsed.origKeys, HOURLY_INTERVAL_KEYS)) return null;
 
@@ -374,24 +407,33 @@ function resolveScheduleWeekdays(parsed: ParsedScheduleRrule): WorkbenchAutomati
   return [...WORKBENCH_AUTOMATION_ALL_WEEKDAYS];
 }
 
-function normalizeRruleOptionWeekdays(value: number[] | number | null): WorkbenchAutomationWeekdayCode[] {
+function normalizeRruleOptionWeekdays(
+  value: number[] | number | null,
+): WorkbenchAutomationWeekdayCode[] {
   const values = Array.isArray(value) ? value : value === null ? [] : [value];
-  return sortWeekdays(values
-    .map((weekday) => RRULE_WEEKDAY_TO_CODE[weekday])
-    .filter((weekday): weekday is WorkbenchAutomationWeekdayCode => Boolean(weekday)));
+  return sortWeekdays(
+    values
+      .map((weekday) => RRULE_WEEKDAY_TO_CODE[weekday])
+      .filter((weekday): weekday is WorkbenchAutomationWeekdayCode => Boolean(weekday)),
+  );
 }
 
 function parseWeekdayList(value: string | undefined): WorkbenchAutomationWeekdayCode[] {
   if (!value) return [];
-  return sortWeekdays(value
-    .split(",")
-    .map((part) => normalizeWeekday(part.trim().slice(-2)))
-    .filter((weekday): weekday is WorkbenchAutomationWeekdayCode => weekday !== null));
+  return sortWeekdays(
+    value
+      .split(",")
+      .map((part) => normalizeWeekday(part.trim().slice(-2)))
+      .filter((weekday): weekday is WorkbenchAutomationWeekdayCode => weekday !== null),
+  );
 }
 
-function sortWeekdays(weekdays: readonly WorkbenchAutomationWeekdayCode[]): WorkbenchAutomationWeekdayCode[] {
-  return [...new Set(weekdays)]
-    .sort((left, right) => (WEEKDAY_INDEX.get(left) ?? 0) - (WEEKDAY_INDEX.get(right) ?? 0));
+function sortWeekdays(
+  weekdays: readonly WorkbenchAutomationWeekdayCode[],
+): WorkbenchAutomationWeekdayCode[] {
+  return [...new Set(weekdays)].sort(
+    (left, right) => (WEEKDAY_INDEX.get(left) ?? 0) - (WEEKDAY_INDEX.get(right) ?? 0),
+  );
 }
 
 function sameWeekdays(
@@ -415,7 +457,13 @@ function normalizeScheduleConfig(
   return {
     mode,
     intervalHours: sanitizePositiveInteger(config.intervalHours, fallback.intervalHours),
-    intervalMinutes: config.intervalMinutes === null ? null : sanitizePositiveInteger(config.intervalMinutes, fallback.intervalMinutes ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES),
+    intervalMinutes:
+      config.intervalMinutes === null
+        ? null
+        : sanitizePositiveInteger(
+            config.intervalMinutes,
+            fallback.intervalMinutes ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+          ),
     weekdays,
     time,
     customRrule: config.customRrule,
@@ -437,7 +485,8 @@ function formatClockTime(hour: number, minute: number): string {
 }
 
 function formatScheduleTimeLabel(value: string): string {
-  const time = parseScheduleTime(value) ?? parseScheduleTime(DEFAULT_WORKBENCH_AUTOMATION_SCHEDULE_TIME);
+  const time =
+    parseScheduleTime(value) ?? parseScheduleTime(DEFAULT_WORKBENCH_AUTOMATION_SCHEDULE_TIME);
   if (!time) return "9:00 AM";
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
@@ -457,7 +506,10 @@ function formatIntervalLabel(intervalMinutes: number): string {
 }
 
 function hasMultipleTimeValues(fields: Map<string, string>): boolean {
-  return parseIntegerList(fields.get("BYHOUR")).length > 1 || parseIntegerList(fields.get("BYMINUTE")).length > 1;
+  return (
+    parseIntegerList(fields.get("BYHOUR")).length > 1 ||
+    parseIntegerList(fields.get("BYMINUTE")).length > 1
+  );
 }
 
 function parseIntegerList(value: string | undefined): number[] {
@@ -484,7 +536,15 @@ function sanitizePositiveInteger(value: number | null | undefined, fallback: num
 function normalizeWeekday(value: string | undefined): WorkbenchAutomationWeekdayCode | null {
   if (!value) return null;
   const upper = value.toUpperCase();
-  if (upper === "SU" || upper === "MO" || upper === "TU" || upper === "WE" || upper === "TH" || upper === "FR" || upper === "SA") {
+  if (
+    upper === "SU" ||
+    upper === "MO" ||
+    upper === "TU" ||
+    upper === "WE" ||
+    upper === "TH" ||
+    upper === "FR" ||
+    upper === "SA"
+  ) {
     return upper;
   }
   return null;

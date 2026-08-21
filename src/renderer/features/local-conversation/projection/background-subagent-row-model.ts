@@ -44,7 +44,7 @@ type ThreadMetadata =
   | CodexConversationChildMembership["thread"];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function normalizeOptionalText(value: unknown): string | null {
@@ -57,9 +57,11 @@ function stripLeadingAt(value: string): string {
 }
 
 function resolveThreadDisplayName(thread: ThreadMetadata | null | undefined): string | null {
-  return normalizeOptionalText(thread?.displayName)
-    ?? normalizeOptionalText(thread?.name)
-    ?? normalizeOptionalText(thread?.nickname);
+  return (
+    normalizeOptionalText(thread?.displayName) ??
+    normalizeOptionalText(thread?.name) ??
+    normalizeOptionalText(thread?.nickname)
+  );
 }
 
 function getParentTurnKey(turn: CodexConversationTurn | null | undefined, index: number): string {
@@ -97,7 +99,9 @@ function getInProgressParentTurnKeys(parentTurns: readonly CodexConversationTurn
   return keys;
 }
 
-function normalizeAgentStatus(status: CodexMultiAgentAgentStatus | null | undefined): NormalizedAgentStatus {
+function normalizeAgentStatus(
+  status: CodexMultiAgentAgentStatus | null | undefined,
+): NormalizedAgentStatus {
   switch (status) {
     case "pendingInit":
       return "waiting";
@@ -116,7 +120,9 @@ function normalizeAgentStatus(status: CodexMultiAgentAgentStatus | null | undefi
   }
 }
 
-function mapThreadStatusToAgentStatus(statusType: CodexThreadStatusType): CodexMultiAgentAgentStatus {
+function mapThreadStatusToAgentStatus(
+  statusType: CodexThreadStatusType,
+): CodexMultiAgentAgentStatus {
   switch (statusType) {
     case "active":
       return "running";
@@ -134,7 +140,9 @@ function resolveChildProgress(child: CodexConversationSnapshot | null): ChildPro
     return "notInProgress";
   }
   if (!child || child.turns.length === 0) return "unknown";
-  return child.turns[child.turns.length - 1]?.status === "inProgress" ? "inProgress" : "notInProgress";
+  return child.turns[child.turns.length - 1]?.status === "inProgress"
+    ? "inProgress"
+    : "notInProgress";
 }
 
 function resolveVisibleStatus(input: {
@@ -149,26 +157,22 @@ function resolveVisibleStatus(input: {
   const parentInProgress = input.inProgressParentTurnKeys.has(input.reference.parentTurnKey);
   const isCurrentParentTurn = input.reference.parentTurnKey === input.currentParentTurnKey;
   if (
-    input.childProgress === "inProgress"
-    || (input.reference.usesThreadStatus && normalized === "active")
-    || (!input.reference.usesThreadStatus && normalized === "active" && parentInProgress)
-    || (normalized === "unknown" && isCurrentParentTurn && parentInProgress)
+    input.childProgress === "inProgress" ||
+    (input.reference.usesThreadStatus && normalized === "active") ||
+    (!input.reference.usesThreadStatus && normalized === "active" && parentInProgress) ||
+    (normalized === "unknown" && isCurrentParentTurn && parentInProgress)
   ) {
     return "active";
   }
 
   if (normalized === "waiting" && input.childProgress === "unknown") return "waiting";
-  if (
-    input.childProgress === "unknown"
-    && parentInProgress
-    && normalized !== "done"
-  ) {
+  if (input.childProgress === "unknown" && parentInProgress && normalized !== "done") {
     return "waiting";
   }
   if (
-    normalized === "done"
-    || input.childProgress === "notInProgress"
-    || (!input.reference.usesThreadStatus && normalized === "active" && !parentInProgress)
+    normalized === "done" ||
+    input.childProgress === "notInProgress" ||
+    (!input.reference.usesThreadStatus && normalized === "active" && !parentInProgress)
   ) {
     return "done";
   }
@@ -195,7 +199,9 @@ function normalizeMultiAgentPayloadFromItem(item: CodexConversationItem) {
   });
 }
 
-function buildLatestReferenceMap(input: BuildBackgroundSubagentRowsInput): Map<string, LatestReference> {
+function buildLatestReferenceMap(
+  input: BuildBackgroundSubagentRowsInput,
+): Map<string, LatestReference> {
   const knownChildIds = new Set(input.childMemberships.map((membership) => membership.threadId));
   const latest = new Map<string, LatestReference>();
 
@@ -230,9 +236,10 @@ function buildLatestReferenceMap(input: BuildBackgroundSubagentRowsInput): Map<s
           parentTurnKey,
           thread: receiverThreads.get(receiverThreadId) ?? previous?.thread ?? null,
           agentState: payload.agentsStates[receiverThreadId] ?? previous?.agentState ?? null,
-          spawnModel: payload.action === "spawnAgent"
-            ? (payload.model ?? previous?.spawnModel ?? null)
-            : (previous?.spawnModel ?? null),
+          spawnModel:
+            payload.action === "spawnAgent"
+              ? (payload.model ?? previous?.spawnModel ?? null)
+              : (previous?.spawnModel ?? null),
           usesThreadStatus: previous?.usesThreadStatus ?? false,
           inlineDisplayName: previous?.inlineDisplayName ?? null,
           showInlineActivity: previous?.showInlineActivity ?? false,
@@ -273,12 +280,13 @@ function resolveDisplayName(input: {
   reference: LatestReference;
   child: CodexConversationSnapshot | null;
 }): string {
-  const displayName = normalizeOptionalText(input.membership.displayName)
-    ?? normalizeOptionalText(input.reference.inlineDisplayName)
-    ?? resolveThreadDisplayName(input.reference.thread)
-    ?? resolveThreadDisplayName(input.membership.thread)
-    ?? normalizeOptionalText(input.child?.agentNickname)
-    ?? input.membership.threadId;
+  const displayName =
+    normalizeOptionalText(input.membership.displayName) ??
+    normalizeOptionalText(input.reference.inlineDisplayName) ??
+    resolveThreadDisplayName(input.reference.thread) ??
+    resolveThreadDisplayName(input.membership.thread) ??
+    normalizeOptionalText(input.child?.agentNickname) ??
+    input.membership.threadId;
   return stripLeadingAt(displayName);
 }
 
@@ -287,9 +295,10 @@ function resolveAgentRole(input: {
   reference: LatestReference;
   child: CodexConversationSnapshot | null;
 }): string | null {
-  const role = normalizeOptionalText(input.reference.thread?.agentRole)
-    ?? normalizeOptionalText(input.membership.thread?.agentRole)
-    ?? normalizeOptionalText(input.child?.agentRole);
+  const role =
+    normalizeOptionalText(input.reference.thread?.agentRole) ??
+    normalizeOptionalText(input.membership.thread?.agentRole) ??
+    normalizeOptionalText(input.child?.agentRole);
   return !role || role === "default" ? null : role;
 }
 
@@ -308,7 +317,9 @@ function unwrapMarkdownDelimiters(value: string): string {
   }
 }
 
-export function cleanupBackgroundSubagentStatusSummary(value: string | null | undefined): string | null {
+export function cleanupBackgroundSubagentStatusSummary(
+  value: string | null | undefined,
+): string | null {
   if (value == null) return null;
   let text = value
     .replace(/^\s*(?:>\s*|#{1,6}\s+|(?:[-*+]|\d+\.)\s+)*/u, "")
@@ -355,13 +366,17 @@ function resolveStatusSummary(child: CodexConversationSnapshot | null): string |
 }
 
 function isAssistantMessage(item: CodexConversationItem): boolean {
-  return item.role === "assistant"
-    || item.kind === "assistantMessage"
-    || item.semanticKind === "assistantMessage"
-    || item.type === "agentMessage";
+  return (
+    item.role === "assistant" ||
+    item.kind === "assistantMessage" ||
+    item.semanticKind === "assistantMessage" ||
+    item.type === "agentMessage"
+  );
 }
 
-function resolveLastAssistantMessage(child: CodexConversationSnapshot | null): LastAssistantMessage | null {
+function resolveLastAssistantMessage(
+  child: CodexConversationSnapshot | null,
+): LastAssistantMessage | null {
   if (!child) return null;
   for (let turnIndex = child.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const items = child.turns[turnIndex]?.items ?? [];
@@ -376,7 +391,9 @@ function resolveLastAssistantMessage(child: CodexConversationSnapshot | null): L
   return null;
 }
 
-function summarizeTurnDiff(diff: string | null | undefined): ThreadComposerShellBackgroundAgentRowModel["diffStats"] {
+function summarizeTurnDiff(
+  diff: string | null | undefined,
+): ThreadComposerShellBackgroundAgentRowModel["diffStats"] {
   if (!diff) return null;
   let linesAdded = 0;
   let linesRemoved = 0;
@@ -395,47 +412,54 @@ export function buildBackgroundSubagentRows(
   const currentParentTurnKey = getLatestParentTurnKey(input.parentTurns);
   const inProgressParentTurnKeys = getInProgressParentTurnKeys(input.parentTurns);
 
-  return input.childMemberships.flatMap((membership) => {
-    const child = input.knownConversationsById[membership.threadId] ?? null;
-    if (child?.archived) return [];
+  return input.childMemberships
+    .flatMap((membership) => {
+      const child = input.knownConversationsById[membership.threadId] ?? null;
+      if (child?.archived) return [];
 
-    const reference = references.get(membership.threadId)
-      ?? buildFallbackReference(membership, input.parentTurns, child);
-    const status = resolveVisibleStatus({
-      reference,
-      childProgress: resolveChildProgress(child),
-      currentParentTurnKey,
-      inProgressParentTurnKeys,
-    });
-    if (!status) return [];
+      const reference =
+        references.get(membership.threadId) ??
+        buildFallbackReference(membership, input.parentTurns, child);
+      const status = resolveVisibleStatus({
+        reference,
+        childProgress: resolveChildProgress(child),
+        currentParentTurnKey,
+        inProgressParentTurnKeys,
+      });
+      if (!status) return [];
 
-    const displayName = resolveDisplayName({ membership, reference, child });
-    const lastAssistantMessage = resolveLastAssistantMessage(child);
-    const recencyAtMs = lastAssistantMessage?.updatedAtMs
-      ?? Math.max(
-        child?.updatedAt ?? 0,
-        membership.updatedAtMs ?? 0,
-        child?.createdAt ?? 0,
-        membership.createdAtMs ?? 0,
-      );
-    return [{
-      conversationId: membership.threadId,
-      parentConversationId: membership.parentThreadId,
-      parentTurnKey: reference.parentTurnKey,
-      displayName,
-      actorName: normalizeOptionalText(membership.actorName) ?? displayName,
-      agentRole: resolveAgentRole({ membership, reference, child }),
-      spawnModel: reference.spawnModel,
-      status,
-      statusSummary: status === "active" ? resolveStatusSummary(child) : null,
-      lastAssistantMessage: lastAssistantMessage?.text ?? null,
-      lastAssistantMessageAtMs: lastAssistantMessage?.updatedAtMs ?? null,
-      recencyAtMs,
-      showInlineActivity: membership.showInlineActivity === true
-        || Boolean(membership.agentPath)
-        || reference.showInlineActivity,
-      diffStats: summarizeTurnDiff(child?.turns[child.turns.length - 1]?.diff),
-      role: membership.role,
-    }];
-  }).sort((left, right) => right.recencyAtMs - left.recencyAtMs);
+      const displayName = resolveDisplayName({ membership, reference, child });
+      const lastAssistantMessage = resolveLastAssistantMessage(child);
+      const recencyAtMs =
+        lastAssistantMessage?.updatedAtMs ??
+        Math.max(
+          child?.updatedAt ?? 0,
+          membership.updatedAtMs ?? 0,
+          child?.createdAt ?? 0,
+          membership.createdAtMs ?? 0,
+        );
+      return [
+        {
+          conversationId: membership.threadId,
+          parentConversationId: membership.parentThreadId,
+          parentTurnKey: reference.parentTurnKey,
+          displayName,
+          actorName: normalizeOptionalText(membership.actorName) ?? displayName,
+          agentRole: resolveAgentRole({ membership, reference, child }),
+          spawnModel: reference.spawnModel,
+          status,
+          statusSummary: status === "active" ? resolveStatusSummary(child) : null,
+          lastAssistantMessage: lastAssistantMessage?.text ?? null,
+          lastAssistantMessageAtMs: lastAssistantMessage?.updatedAtMs ?? null,
+          recencyAtMs,
+          showInlineActivity:
+            membership.showInlineActivity === true ||
+            Boolean(membership.agentPath) ||
+            reference.showInlineActivity,
+          diffStats: summarizeTurnDiff(child?.turns[child.turns.length - 1]?.diff),
+          role: membership.role,
+        },
+      ];
+    })
+    .sort((left, right) => right.recencyAtMs - left.recencyAtMs);
 }

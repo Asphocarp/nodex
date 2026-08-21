@@ -8,8 +8,13 @@
 }
 
 @keyframes nodex-generated-image-dot-field-opacity {
-  0%, 100% { opacity: 0.38; }
-  50% { opacity: 0.56; }
+  0%,
+  100% {
+    opacity: 0.38;
+  }
+  50% {
+    opacity: 0.56;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

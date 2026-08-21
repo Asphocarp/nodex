@@ -49,14 +49,10 @@ describe("nfm editor context menu", () => {
       },
     };
 
-    const handled = await runNfmEditorContextCommand(
-      editor,
-      "cut",
-      (command) => {
-        calls.push(command);
-        return true;
-      },
-    );
+    const handled = await runNfmEditorContextCommand(editor, "cut", (command) => {
+      calls.push(command);
+      return true;
+    });
 
     expect(handled).toBe(true);
     expect(calls.join(",")).toBe("focus,cut");
@@ -88,14 +84,10 @@ describe("nfm editor context menu", () => {
     });
 
     try {
-      const handled = await runNfmEditorContextCommand(
-        editor,
-        "paste",
-        (command) => {
-          calls.push(command);
-          return true;
-        },
-      );
+      const handled = await runNfmEditorContextCommand(editor, "paste", (command) => {
+        calls.push(command);
+        return true;
+      });
 
       expect(handled).toBe(true);
       expect(calls.join(",")).toBe("focus,paste:from clipboard");
@@ -142,11 +134,7 @@ describe("nfm editor context menu", () => {
     });
 
     try {
-      const handled = await runNfmEditorContextCommand(
-        editor,
-        "paste",
-        () => true,
-      );
+      const handled = await runNfmEditorContextCommand(editor, "paste", () => true);
 
       expect(handled).toBe(true);
       expect(calls.join(",")).toBe("focus,paste:native clipboard");

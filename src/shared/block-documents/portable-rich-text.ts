@@ -122,14 +122,7 @@ const readStyles = (value: unknown, label: string): PortableRichTextStyles => {
   if (!isRecord(value)) {
     throw new PortableRichTextError(`${label} must be an object`);
   }
-  const allowed = new Set([
-    "bold",
-    "italic",
-    "underline",
-    "strikethrough",
-    "code",
-    "color",
-  ]);
+  const allowed = new Set(["bold", "italic", "underline", "strikethrough", "code", "color"]);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
       throw new PortableRichTextError(`${label}.${key} is not supported`);
@@ -143,13 +136,7 @@ const readStyles = (value: unknown, label: string): PortableRichTextStyles => {
     code?: true;
     color?: NfmColor;
   } = {};
-  for (const key of [
-    "bold",
-    "italic",
-    "underline",
-    "strikethrough",
-    "code",
-  ] as const) {
+  for (const key of ["bold", "italic", "underline", "strikethrough", "code"] as const) {
     if (value[key] === undefined || value[key] === false) continue;
     if (value[key] !== true) {
       throw new PortableRichTextError(`${label}.${key} must be true when present`);
@@ -157,10 +144,7 @@ const readStyles = (value: unknown, label: string): PortableRichTextStyles => {
     result[key] = true;
   }
   if (value.color !== undefined) {
-    if (
-      typeof value.color !== "string" ||
-      !NFM_COLORS.includes(value.color as NfmColor)
-    ) {
+    if (typeof value.color !== "string" || !NFM_COLORS.includes(value.color as NfmColor)) {
       throw new PortableRichTextError(`${label}.color is not supported`);
     }
     result.color = value.color as NfmColor;
@@ -168,8 +152,7 @@ const readStyles = (value: unknown, label: string): PortableRichTextStyles => {
   return result;
 };
 
-const stylesKey = (styles: PortableRichTextStyles): string =>
-  JSON.stringify(styles);
+const stylesKey = (styles: PortableRichTextStyles): string => JSON.stringify(styles);
 
 const appendText = (
   result: PortableRichTextItem[],
@@ -182,8 +165,7 @@ const appendText = (
       if (
         previous?.type === item.type &&
         stylesKey(previous.styles) === stylesKey(item.styles) &&
-        (item.type !== "link" ||
-          (previous.type === "link" && previous.href === item.href))
+        (item.type !== "link" || (previous.type === "link" && previous.href === item.href))
       ) {
         result[result.length - 1] = { ...previous, text: previous.text + piece };
       } else {
@@ -249,10 +231,7 @@ const readItem = (value: unknown, index: number): PortableRichTextItem => {
     assertExactKeys(value, ["type", "targetPageId"], label);
     return {
       type: "pageMention",
-      targetPageId: readBoundedString(
-        value.targetPageId,
-        `${label}.targetPageId`,
-      ),
+      targetPageId: readBoundedString(value.targetPageId, `${label}.targetPageId`),
     };
   }
   if (value.type === "dateMention") {
@@ -266,12 +245,12 @@ const readItem = (value: unknown, index: number): PortableRichTextItem => {
       start: typeof value.start === "string" ? value.start : "",
       end: typeof value.end === "string" ? value.end : undefined,
       tz: typeof value.tz === "string" ? value.tz : undefined,
-      format: typeof value.format === "string"
-        ? (value.format as NfmDateMentionDateFormat)
-        : undefined,
-      timeFormat: typeof value.timeFormat === "string"
-        ? (value.timeFormat as NfmDateMentionTimeFormat)
-        : undefined,
+      format:
+        typeof value.format === "string" ? (value.format as NfmDateMentionDateFormat) : undefined,
+      timeFormat:
+        typeof value.timeFormat === "string"
+          ? (value.timeFormat as NfmDateMentionTimeFormat)
+          : undefined,
       reminder: typeof value.reminder === "string" ? value.reminder : undefined,
     });
     if (!normalized) {
@@ -294,9 +273,8 @@ export const portableRichTextPlainText = (value: PortableRichText): string =>
     })
     .join("");
 
-export const portableRichTextSemanticSource = (
-  value: PortableRichText,
-): string => JSON.stringify(value);
+export const portableRichTextSemanticSource = (value: PortableRichText): string =>
+  JSON.stringify(value);
 
 export const canonicalizePortableRichText = (value: unknown): PortableRichText => {
   if (!Array.isArray(value)) {
@@ -326,7 +304,10 @@ export const canonicalizePortableRichText = (value: unknown): PortableRichText =
       `richTitle plain text exceeds ${MAX_PAGE_TITLE_LENGTH} characters`,
     );
   }
-  if (new TextEncoder().encode(portableRichTextSemanticSource(result)).byteLength > MAX_PORTABLE_RICH_TEXT_BYTES) {
+  if (
+    new TextEncoder().encode(portableRichTextSemanticSource(result)).byteLength >
+    MAX_PORTABLE_RICH_TEXT_BYTES
+  ) {
     throw new PortableRichTextError("richTitle exceeds the portable byte limit");
   }
   return result;
@@ -337,9 +318,7 @@ export const plainTextToPortableRichText = (value: string): PortableRichText =>
     value.length === 0 ? [] : [{ type: "text", text: value, styles: {} }],
   );
 
-const stylesToAttributes = (
-  styles: PortableRichTextStyles,
-): Record<string, unknown> => ({
+const stylesToAttributes = (styles: PortableRichTextStyles): Record<string, unknown> => ({
   ...(styles.bold ? { bold: true } : {}),
   ...(styles.italic ? { italic: true } : {}),
   ...(styles.underline ? { underline: true } : {}),
@@ -378,10 +357,7 @@ const attributesToStyles = (
   }
   const color = attributes.backgroundColor ?? attributes.textColor;
   if (color !== undefined) {
-    if (
-      attributes.backgroundColor !== undefined &&
-      attributes.textColor !== undefined
-    ) {
+    if (attributes.backgroundColor !== undefined && attributes.textColor !== undefined) {
       throw new PortableRichTextError("title Delta cannot contain two color attributes");
     }
     if (typeof color !== "string" || !NFM_COLORS.includes(color as NfmColor)) {
@@ -397,10 +373,7 @@ const attributesToStyles = (
 };
 
 const atomAttribute = (
-  item:
-    | PortableRichTextThreadMention
-    | PortableRichTextPageMention
-    | PortableRichTextDateMention,
+  item: PortableRichTextThreadMention | PortableRichTextPageMention | PortableRichTextDateMention,
 ) => ({
   [ATOM_ATTRIBUTE]: JSON.stringify(item),
 });
@@ -411,9 +384,9 @@ export const portableRichTextToYTextDelta = (
   canonicalizePortableRichText(value).map((item) => {
     if (item.type === "linebreak") return { insert: "\n" };
     if (
-      item.type === "threadMention"
-      || item.type === "pageMention"
-      || item.type === "dateMention"
+      item.type === "threadMention" ||
+      item.type === "pageMention" ||
+      item.type === "dateMention"
     ) {
       return { insert: PORTABLE_RICH_TEXT_ATOM_CHARACTER, attributes: atomAttribute(item) };
     }
@@ -427,9 +400,7 @@ export const portableRichTextToYTextDelta = (
     };
   });
 
-export const portableRichTextFromYTextDelta = (
-  value: unknown,
-): PortableRichText => {
+export const portableRichTextFromYTextDelta = (value: unknown): PortableRichText => {
   if (!Array.isArray(value)) {
     throw new PortableRichTextError("title Delta must be an array");
   }
@@ -439,11 +410,11 @@ export const portableRichTextFromYTextDelta = (
       throw new PortableRichTextError(`title Delta operation ${index} must insert text`);
     }
     assertExactKeys(candidate, ["insert", "attributes"], `title Delta operation ${index}`);
-    const attributes = candidate.attributes === undefined
-      ? {}
-      : candidate.attributes;
+    const attributes = candidate.attributes === undefined ? {} : candidate.attributes;
     if (!isRecord(attributes)) {
-      throw new PortableRichTextError(`title Delta operation ${index} attributes must be an object`);
+      throw new PortableRichTextError(
+        `title Delta operation ${index} attributes must be an object`,
+      );
     }
     for (const key of Object.keys(attributes)) {
       if (ALLOWED_DELTA_ATTRIBUTES.has(key)) continue;
@@ -461,17 +432,17 @@ export const portableRichTextFromYTextDelta = (
       try {
         atom = JSON.parse(attributes[ATOM_ATTRIBUTE]);
       } catch (error) {
-        throw new PortableRichTextError(`title Delta atom ${index} is invalid JSON`, { cause: error });
+        throw new PortableRichTextError(`title Delta atom ${index} is invalid JSON`, {
+          cause: error,
+        });
       }
       const canonical = canonicalizePortableRichText([atom]);
       const parsed = canonical[0];
       if (
-        !parsed
-        || (
-          parsed.type !== "threadMention"
-          && parsed.type !== "pageMention"
-          && parsed.type !== "dateMention"
-        )
+        !parsed ||
+        (parsed.type !== "threadMention" &&
+          parsed.type !== "pageMention" &&
+          parsed.type !== "dateMention")
       ) {
         throw new PortableRichTextError(`title Delta atom ${index} is not title-safe`);
       }

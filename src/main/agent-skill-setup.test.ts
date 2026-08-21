@@ -1,8 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import type {
-  MessageBoxOptions,
-  MessageBoxReturnValue,
-} from "electron";
+import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 
 import {
   AgentSkillCliProcessError,
@@ -14,11 +11,7 @@ import {
 
 const CLI_PATH = "/Applications/Nodex.app/Contents/Resources/bin/nodex";
 
-const target = (
-  agent: string,
-  state: string,
-  outcome = "inspected",
-) => ({
+const target = (agent: string, state: string, outcome = "inspected") => ({
   agent,
   changed: false,
   detected: true,
@@ -27,11 +20,7 @@ const target = (
   state,
 });
 
-const commandResult = (
-  operation: string,
-  targets: unknown[],
-  changed = false,
-) => ({
+const commandResult = (operation: string, targets: unknown[], changed = false) => ({
   version: 1,
   ok: true,
   result: {
@@ -48,42 +37,41 @@ const commandResult = (
   },
 });
 
-const successfulRunner = (
-  invocations: AgentSkillCliInvocation[],
-  statusTargets = [
-    target("codex", "missing"),
-    target("claude-code", "missing"),
-  ],
-): AgentSkillCliRunner => async (invocation) => {
-  invocations.push(invocation);
-  const installing = invocation.argv.includes("install");
-  return {
-    stderr: "",
-    stdout: JSON.stringify(installing
-      ? commandResult(
-        "install",
-        statusTargets.map((entry) => ({
-          ...entry,
-          changed: entry.state === "missing",
-          outcome: entry.state === "missing" ? "installed" : "already-installed",
-          state: "managed-current",
-        })),
-        statusTargets.some((entry) => entry.state === "missing"),
-      )
-      : commandResult("status", statusTargets)),
+const successfulRunner =
+  (
+    invocations: AgentSkillCliInvocation[],
+    statusTargets = [target("codex", "missing"), target("claude-code", "missing")],
+  ): AgentSkillCliRunner =>
+  async (invocation) => {
+    invocations.push(invocation);
+    const installing = invocation.argv.includes("install");
+    return {
+      stderr: "",
+      stdout: JSON.stringify(
+        installing
+          ? commandResult(
+              "install",
+              statusTargets.map((entry) => ({
+                ...entry,
+                changed: entry.state === "missing",
+                outcome: entry.state === "missing" ? "installed" : "already-installed",
+                state: "managed-current",
+              })),
+              statusTargets.some((entry) => entry.state === "missing"),
+            )
+          : commandResult("status", statusTargets),
+      ),
+    };
   };
-};
 
-const messageBox = (
-  responses: number[],
-  calls: MessageBoxOptions[],
-) => vi.fn(async (options: MessageBoxOptions): Promise<MessageBoxReturnValue> => {
-  calls.push(options);
-  return {
-    response: responses.shift() ?? 0,
-    checkboxChecked: false,
-  };
-});
+const messageBox = (responses: number[], calls: MessageBoxOptions[]) =>
+  vi.fn(async (options: MessageBoxOptions): Promise<MessageBoxReturnValue> => {
+    calls.push(options);
+    return {
+      response: responses.shift() ?? 0,
+      checkboxChecked: false,
+    };
+  });
 
 describe("Agent Skill setup", () => {
   test("cancellation performs only the read-only status call", async () => {
@@ -96,11 +84,13 @@ describe("Agent Skill setup", () => {
     });
 
     expect(result.status).toBe("cancelled");
-    expect(invocations).toEqual([{
-      executable: CLI_PATH,
-      argv: ["--json", "skills", "status"],
-      shell: false,
-    }]);
+    expect(invocations).toEqual([
+      {
+        executable: CLI_PATH,
+        argv: ["--json", "skills", "status"],
+        shell: false,
+      },
+    ]);
     expect(dialogs).toHaveLength(1);
   });
 
@@ -164,10 +154,7 @@ describe("Agent Skill setup", () => {
       operation: "status",
       dryRun: false,
       changed: false,
-      targets: [
-        target("codex", "managed-current"),
-        target("future-agent", "future-state"),
-      ],
+      targets: [target("codex", "managed-current"), target("future-agent", "future-state")],
     });
 
     expect(parsed.targets[1]).toMatchObject({

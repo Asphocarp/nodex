@@ -15,7 +15,7 @@ const storageMap = new Map<string, string>();
 
 const mockStorage = {
   getItem(key: string): string | null {
-    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+    return storageMap.has(key) ? (storageMap.get(key) ?? null) : null;
   },
   setItem(key: string, value: string): void {
     storageMap.set(key, value);
@@ -47,10 +47,14 @@ function Probe() {
       { "data-service-tier": serviceTierSettings.serviceTier ?? "standard" },
       serviceTierSettings.serviceTier ?? "standard",
     ),
-    createElement("button", {
-      type: "button",
-      onClick: () => setServiceTier("fast", "settings"),
-    }, "Enable fast"),
+    createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => setServiceTier("fast", "settings"),
+      },
+      "Enable fast",
+    ),
   );
 }
 
@@ -65,14 +69,18 @@ describe("use-codex-service-tier-settings", () => {
     );
     await settleAsyncRender();
 
-    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe("standard");
+    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe(
+      "standard",
+    );
 
     await act(async () => {
       (view.getByText("Enable fast") as HTMLButtonElement).click();
     });
     await settleAsyncRender();
 
-    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe("fast");
+    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe(
+      "fast",
+    );
     expect(localStorageRef.getItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY)).toBe("fast");
   });
 
@@ -86,17 +94,23 @@ describe("use-codex-service-tier-settings", () => {
     );
     await settleAsyncRender();
 
-    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe("standard");
+    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe(
+      "standard",
+    );
 
     await act(async () => {
       writeCodexServiceTier("fast");
-      window.dispatchEvent(new StorageEvent("storage", {
-        key: CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY,
-        newValue: "fast",
-      }));
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY,
+          newValue: "fast",
+        }),
+      );
     });
     await settleAsyncRender();
 
-    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe("fast");
+    expect(textContent(view.container.querySelector("[data-service-tier]") as HTMLElement)).toBe(
+      "fast",
+    );
   });
 });

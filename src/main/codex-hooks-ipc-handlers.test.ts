@@ -43,10 +43,8 @@ describe("Codex hooks IPC", () => {
       patches: [{ key: "hook-1", enabled: false }],
     };
 
-    await expect(harness.invoke("codex:hooks:list", listInput))
-      .resolves.toEqual({ data: [] });
-    await expect(harness.invoke("codex:hooks:state:update", updateInput))
-      .resolves.toBeUndefined();
+    await expect(harness.invoke("codex:hooks:list", listInput)).resolves.toEqual({ data: [] });
+    await expect(harness.invoke("codex:hooks:state:update", updateInput)).resolves.toBeUndefined();
 
     expect(harness.listHooks).toHaveBeenCalledWith(listInput);
     expect(harness.updateHooksState).toHaveBeenCalledWith(updateInput);
@@ -57,10 +55,12 @@ describe("Codex hooks IPC", () => {
     const harness = createHarness();
     harness.updateHooksState.mockRejectedValueOnce(new Error("write failed"));
 
-    await expect(harness.invoke("codex:hooks:state:update", {
-      hostId: "default",
-      patches: [{ key: "hook-1", enabled: true }],
-    })).rejects.toThrow("write failed");
+    await expect(
+      harness.invoke("codex:hooks:state:update", {
+        hostId: "default",
+        patches: [{ key: "hook-1", enabled: true }],
+      }),
+    ).rejects.toThrow("write failed");
 
     expect(harness.broadcastHooksChanged).not.toHaveBeenCalled();
   });

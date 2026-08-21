@@ -25,10 +25,7 @@ export interface ResourceAuthorityQueryResolution {
 }
 
 export interface ResourceAuthorityQueryMetadata {
-  readonly resolve: (
-    queryKey: QueryKey,
-    data: unknown,
-  ) => ResourceAuthorityQueryResolution | null;
+  readonly resolve: (queryKey: QueryKey, data: unknown) => ResourceAuthorityQueryResolution | null;
 }
 
 const MAX_PENDING_ADMISSIONS = 256;
@@ -51,10 +48,7 @@ const releasePendingAdmission = (admission: PendingAuthorityAdmission): void => 
   for (const registration of admission.registrations) registration.release();
 };
 
-const removePendingAdmission = (
-  key: string,
-  admission: PendingAuthorityAdmission,
-): void => {
+const removePendingAdmission = (key: string, admission: PendingAuthorityAdmission): void => {
   const pending = pendingAdmissions.get(key);
   if (!pending) return;
   const next = pending.filter((candidate) => candidate !== admission);
@@ -98,13 +92,12 @@ export const admitResourceAuthorityQuery = async <Data,>(
   };
   try {
     for (const authorization of resolution.authorizations) {
-      registrations.push(await freshnessIndex.registerSnapshot(
-        authorization,
-        () => {
+      registrations.push(
+        await freshnessIndex.registerSnapshot(authorization, () => {
           admission.fenced = true;
           admission.onFence?.();
-        },
-      ));
+        }),
+      );
     }
   } catch (error) {
     for (const registration of registrations) registration.release();
@@ -114,8 +107,10 @@ export const admitResourceAuthorityQuery = async <Data,>(
     for (const registration of registrations) registration.release();
     throw new StaleAuthorizedReadError();
   }
-  const pendingCount = [...pendingAdmissions.values()]
-    .reduce((total, values) => total + values.length, 0);
+  const pendingCount = [...pendingAdmissions.values()].reduce(
+    (total, values) => total + values.length,
+    0,
+  );
   if (pendingCount >= MAX_PENDING_ADMISSIONS) {
     for (const registration of registrations) registration.release();
     throw new AuthorityFreshnessCapacityError();
@@ -145,10 +140,7 @@ const metadataFrom = (meta: unknown): ResourceAuthorityQueryMetadata | null => {
   return typeof resolve === "function" ? { resolve } : null;
 };
 
-const evictExactQuery = (
-  queryClient: QueryClient,
-  queryKey: QueryKey,
-): void => {
+const evictExactQuery = (queryClient: QueryClient, queryKey: QueryKey): void => {
   const query = queryClient.getQueryCache().find({ queryKey, exact: true });
   if (!query) return;
   if (query.getObserversCount() === 0) {
@@ -223,10 +215,7 @@ export class ResourceAuthorityQueryCache {
       return;
     }
 
-    const claimed = claimPendingAdmission(
-      resolution,
-      () => this.#evictQuery(query.queryHash),
-    );
+    const claimed = claimPendingAdmission(resolution, () => this.#evictQuery(query.queryHash));
     if (claimed) {
       this.#removeIndexedQuery(query.queryHash);
       if (claimed.length === 0) return;
@@ -241,9 +230,9 @@ export class ResourceAuthorityQueryCache {
 
     const existing = this.#indexedQueries.get(query.queryHash);
     if (
-      existing
-      && existing.resolution.authorizations.map((stamp) => stamp.stamp_hash).join(":")
-        === resolution.authorizations.map((stamp) => stamp.stamp_hash).join(":")
+      existing &&
+      existing.resolution.authorizations.map((stamp) => stamp.stamp_hash).join(":") ===
+        resolution.authorizations.map((stamp) => stamp.stamp_hash).join(":")
     ) {
       this.#indexedQueries.set(query.queryHash, {
         ...existing,
@@ -260,10 +249,11 @@ export class ResourceAuthorityQueryCache {
       const registrations: AuthorityRegistration[] = [];
       try {
         for (const authorization of resolution.authorizations) {
-          registrations.push(await this.#freshnessIndex.registerSnapshot(
-            authorization,
-            () => this.#evictQuery(query.queryHash),
-          ));
+          registrations.push(
+            await this.#freshnessIndex.registerSnapshot(authorization, () =>
+              this.#evictQuery(query.queryHash),
+            ),
+          );
         }
       } catch (error) {
         for (const registration of registrations) registration.release();
@@ -302,9 +292,8 @@ export class ResourceAuthorityQueryCache {
   ): void {
     const indexed = this.#indexedQueries.get(queryHash);
     const targetKey = queryKey ?? indexed?.queryKey;
-    const related = relatedQueryKeys.length > 0
-      ? relatedQueryKeys
-      : indexed?.resolution.relatedQueryKeys ?? [];
+    const related =
+      relatedQueryKeys.length > 0 ? relatedQueryKeys : (indexed?.resolution.relatedQueryKeys ?? []);
     this.#removeIndexedQuery(queryHash);
     if (targetKey) evictExactQuery(this.#queryClient, targetKey);
     for (const relatedQueryKey of related) {

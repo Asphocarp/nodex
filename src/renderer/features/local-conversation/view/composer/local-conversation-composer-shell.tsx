@@ -1,7 +1,4 @@
-import {
-  NodexDropdownItem,
-  NodexDropdownMenu,
-} from "@/components/ui/dropdown";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import {
   closestCenter,
   DndContext,
@@ -51,10 +48,7 @@ import type {
   ThreadStageActions,
 } from "../../thread-stage-types";
 import { getThreadGoalMessage } from "../../thread-goal-copy";
-import {
-  ModelSelectorDropdown,
-  ThreadComposer,
-} from "./local-conversation-thread-composer";
+import { ModelSelectorDropdown, ThreadComposer } from "./local-conversation-thread-composer";
 import { ComposerAdaptiveFooter } from "./composer-adaptive-footer";
 import {
   useComposerIntelligenceController,
@@ -64,10 +58,7 @@ import {
   shouldShowThreadComposerStatusStrip,
   ThreadComposerStatusStrip,
 } from "./local-conversation-thread-composer-status-strip";
-import {
-  ComposerContextRail,
-  ComposerContextRailSlot,
-} from "../composer-context-rail";
+import { ComposerContextRail, ComposerContextRailSlot } from "../composer-context-rail";
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../shared/thread-motion";
 import {
@@ -95,11 +86,7 @@ import {
   ThreadScope,
   resolveComposerScopeIdentity,
 } from "@/lib/workbench-ui-scopes";
-import {
-  ScopeProvider,
-  useScopeHandle,
-  useScopedAtom,
-} from "@/lib/maitai";
+import { ScopeProvider, useScopeHandle, useScopedAtom } from "@/lib/maitai";
 import { activeComposerFocusNonceAtom } from "./composer-draft-state";
 import { useContextualKeyboardActionTarget } from "@/lib/use-contextual-keyboard-action-target";
 import { markContextualKeyboardActionTargetActive } from "@/lib/contextual-keyboard-actions";
@@ -115,7 +102,12 @@ interface LocalConversationComposerShellProps {
 
 function QueuedMessageReorderGripIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" className={cn("icon-2xs text-token-input-placeholder-foreground/70", className)} fill="none" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className={cn("icon-2xs text-token-input-placeholder-foreground/70", className)}
+      fill="none"
+      aria-hidden="true"
+    >
       <circle cx="9.5" cy="5.5" r="1.5" fill="currentColor" />
       <circle cx="9.5" cy="12" r="1.5" fill="currentColor" />
       <circle cx="9.5" cy="18.5" r="1.5" fill="currentColor" />
@@ -128,7 +120,12 @@ function QueuedMessageReorderGripIcon({ className }: { className?: string }) {
 
 function QueueLaneHandleIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 20 20" className={cn("icon-2xs text-token-input-placeholder-foreground/70", className)} fill="none" aria-hidden="true">
+    <svg
+      viewBox="0 0 20 20"
+      className={cn("icon-2xs text-token-input-placeholder-foreground/70", className)}
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M2.66797 11V3.33301C2.66797 2.96574 2.96574 2.66797 3.33301 2.66797C3.70028 2.66797 3.99805 2.96574 3.99805 3.33301V11C3.99805 11.7109 3.99894 12.2044 4.03027 12.5879C4.06098 12.9634 4.11776 13.175 4.19824 13.333L4.26856 13.459C4.44487 13.7465 4.69781 13.9808 5 14.1348L5.12988 14.1904C5.27366 14.2419 5.46311 14.2797 5.74512 14.3027C6.12864 14.3341 6.62197 14.335 7.33301 14.335H15L15.0674 14.3418L14.1123 13.3867L14.0273 13.2822C13.8571 13.0242 13.8854 12.6735 14.1123 12.4463C14.3397 12.2189 14.6911 12.1906 14.9492 12.3613L15.0537 12.4463L17.1367 14.5293C17.3964 14.7889 17.3963 15.21 17.1367 15.4697L15.0537 17.5537C14.794 17.8134 14.372 17.8134 14.1123 17.5537C13.8526 17.294 13.8526 16.872 14.1123 16.6123L15.0664 15.6582L15 15.665H7.33301C6.64392 15.665 6.08696 15.6647 5.63672 15.6279C5.23614 15.5952 4.87531 15.5309 4.53906 15.3867L4.39649 15.3193C3.87528 15.0538 3.43887 14.6502 3.13477 14.1543L3.0127 13.9365C2.82084 13.5599 2.74153 13.1541 2.7041 12.6963C2.66732 12.2461 2.66797 11.6889 2.66797 11ZM15.665 15C15.665 15.0226 15.6594 15.0444 15.6572 15.0664L15.7256 14.999L15.6572 14.9316C15.6595 14.9541 15.665 14.9769 15.665 15ZM11.666 8.91797L11.8008 8.93164C12.1036 8.99381 12.3311 9.2618 12.3311 9.58301C12.3311 9.90422 12.1036 10.1722 11.8008 10.2344L11.666 10.248H7.5C7.13273 10.248 6.83496 9.95028 6.83496 9.58301C6.83496 9.21574 7.13273 8.91797 7.5 8.91797H11.666ZM14.166 4.33496L14.3008 4.34863C14.6036 4.41083 14.8311 4.67881 14.8311 5C14.8309 5.32109 14.6035 5.58924 14.3008 5.65137L14.166 5.66504H7.5C7.13284 5.66504 6.83514 5.36712 6.83496 5C6.83496 4.63273 7.13273 4.33496 7.5 4.33496H14.166Z"
         fill="currentColor"
@@ -139,7 +136,12 @@ function QueueLaneHandleIcon({ className }: { className?: string }) {
 
 function SteerIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 21 21" className={cn("icon-2xs shrink-0", className)} fill="none" aria-hidden="true">
+    <svg
+      viewBox="0 0 21 21"
+      className={cn("icon-2xs shrink-0", className)}
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M13.1293 7.34753C13.3565 7.12027 13.7081 7.09207 13.9662 7.26257L14.0707 7.34753L18.0707 11.3475C18.3304 11.6072 18.3304 12.0292 18.0707 12.2889L14.0707 16.2889C13.811 16.5486 13.389 16.5486 13.1293 16.2889C12.8696 16.0292 12.8696 15.6072 13.1293 15.3475L15.9935 12.4833H6.59998C4.57585 12.4833 2.93494 10.8424 2.93494 8.81824V5.31824C2.93494 4.95097 3.23271 4.6532 3.59998 4.6532C3.96724 4.6532 4.26501 4.95097 4.26501 5.31824V8.81824C4.26501 10.1078 5.31039 11.1532 6.59998 11.1532H15.9935L13.1293 8.28894L13.0443 8.18445C12.8738 7.92632 12.902 7.5748 13.1293 7.34753Z"
         fill="currentColor"
@@ -150,8 +152,19 @@ function SteerIcon({ className }: { className?: string }) {
 
 function InfoIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="icon-2xs text-token-input-placeholder-foreground/80" fill="none" aria-hidden="true">
-      <path d="M10 14.25V9.5m0-3.75h.0075M17 10a7 7 0 11-14 0 7 7 0 0114 0Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      viewBox="0 0 20 20"
+      className="icon-2xs text-token-input-placeholder-foreground/80"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M10 14.25V9.5m0-3.75h.0075M17 10a7 7 0 11-14 0 7 7 0 0114 0Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -159,7 +172,10 @@ function InfoIcon() {
 function MoreIcon() {
   return (
     <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path d="M5 10a1.25 1.25 0 112.5 0A1.25 1.25 0 015 10Zm3.75 0a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0Zm3.75 0a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0Z" fill="currentColor" />
+      <path
+        d="M5 10a1.25 1.25 0 112.5 0A1.25 1.25 0 015 10Zm3.75 0a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0Zm3.75 0a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -167,7 +183,13 @@ function MoreIcon() {
 function TrashIcon() {
   return (
     <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path d="M6.5 6.5v7m3.5-7v7m3.5-7v7M3.75 5.25h12.5m-9.25 0 .4-1.2A1.25 1.25 0 018.59 3.2h2.82a1.25 1.25 0 011.19.85l.4 1.2m-8.75 0v9A1.75 1.75 0 006 16h8a1.75 1.75 0 001.75-1.75v-9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M6.5 6.5v7m3.5-7v7m3.5-7v7M3.75 5.25h12.5m-9.25 0 .4-1.2A1.25 1.25 0 018.59 3.2h2.82a1.25 1.25 0 011.19.85l.4 1.2m-8.75 0v9A1.75 1.75 0 006 16h8a1.75 1.75 0 001.75-1.75v-9"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -175,15 +197,29 @@ function TrashIcon() {
 function EditIcon() {
   return (
     <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path d="M4.75 13.75 4 16l2.25-.75L14.5 7 13 5.5l-8.25 8.25Zm9-9L15.25 3.5a1.06 1.06 0 011.5 0l.75.75a1.06 1.06 0 010 1.5L16 7.25l-2.25-2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M4.75 13.75 4 16l2.25-.75L14.5 7 13 5.5l-8.25 8.25Zm9-9L15.25 3.5a1.06 1.06 0 011.5 0l.75.75a1.06 1.06 0 010 1.5L16 7.25l-2.25-2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
 function TerminalIcon() {
   return (
-    <svg viewBox="0 0 20 20" className="icon-2xs shrink-0 text-token-input-placeholder-foreground/70" fill="none" aria-hidden="true">
-      <path d="M4.5 5.75C4.5 5.05964 5.05964 4.5 5.75 4.5H14.25C14.9404 4.5 15.5 5.05964 15.5 5.75V14.25C15.5 14.9404 14.9404 15.5 14.25 15.5H5.75C5.05964 15.5 4.5 14.9404 4.5 14.25V5.75Z" fill="currentColor" />
+    <svg
+      viewBox="0 0 20 20"
+      className="icon-2xs shrink-0 text-token-input-placeholder-foreground/70"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M4.5 5.75C4.5 5.05964 5.05964 4.5 5.75 4.5H14.25C14.9404 4.5 15.5 5.05964 15.5 5.75V14.25C15.5 14.9404 14.9404 15.5 14.25 15.5H5.75C5.05964 15.5 4.5 14.9404 4.5 14.25V5.75Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -304,9 +340,7 @@ function clampTransformToRect(
   return nextTransform;
 }
 
-const restrictHorizontalTransform: Modifier = ({
-  transform,
-}) => {
+const restrictHorizontalTransform: Modifier = ({ transform }) => {
   return {
     ...transform,
     x: 0,
@@ -329,8 +363,13 @@ const restrictToScrollableAncestor: Modifier = ({
 function PendingSteerTooltipContent() {
   return (
     <div className="max-w-sm space-y-1 text-pretty whitespace-normal">
-      <p>This steer will be submitted to the model as soon as possible without interrupting it, usually at the next tool call.</p>
-      <p className="text-token-description-foreground">Interrupt the model if you want to give it more immediate input.</p>
+      <p>
+        This steer will be submitted to the model as soon as possible without interrupting it,
+        usually at the next tool call.
+      </p>
+      <p className="text-token-description-foreground">
+        Interrupt the model if you want to give it more immediate input.
+      </p>
     </div>
   );
 }
@@ -349,7 +388,9 @@ function PendingSteerRow({ row }: { row: ThreadComposerShellPendingSteerRowModel
     <div className="flex min-w-0 items-center justify-between gap-2 py-0.5 text-sm">
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         <SteerIcon className="text-token-input-placeholder-foreground/70" />
-        <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">{row.displayText}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">
+          {row.displayText}
+        </span>
       </span>
       <NodexTooltip tooltipContent={<PendingSteerTooltipContent />}>
         <QueueActionButton ariaLabel="Why this steer is pending">
@@ -394,7 +435,12 @@ function QueuedFollowUpRow({
       transition={CODEX_THREAD_ACCORDION_TRANSITION}
       className="overflow-visible"
     >
-      <div className={cn("group flex min-w-0 items-center justify-between gap-2 py-0.5 text-sm", (isDragging) && "opacity-60")}>
+      <div
+        className={cn(
+          "group flex min-w-0 items-center justify-between gap-2 py-0.5 text-sm",
+          isDragging && "opacity-60",
+        )}
+      >
         <span
           ref={setActivatorNodeRef}
           className="relative flex h-4 cursor-grab items-center justify-center active:cursor-grabbing"
@@ -409,9 +455,15 @@ function QueuedFollowUpRow({
           />
           <QueueLaneHandleIcon />
         </span>
-        <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">{row.displayText}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">
+          {row.displayText}
+        </span>
         <div className="flex shrink-0 items-center gap-1">
-          <NodexTooltip side="top" tooltipContent={<QueuedFollowUpTooltipContent />} tooltipBodyClassName="max-w-80 text-center whitespace-normal leading-snug">
+          <NodexTooltip
+            side="top"
+            tooltipContent={<QueuedFollowUpTooltipContent />}
+            tooltipBodyClassName="max-w-80 text-center whitespace-normal leading-snug"
+          >
             <QueueSteerActionButton
               ariaLabel="Steer"
               onClick={() => {
@@ -431,11 +483,11 @@ function QueuedFollowUpRow({
             <TrashIcon />
           </QueueActionButton>
           <NodexDropdownMenu
-            triggerButton={(
+            triggerButton={
               <QueueActionButton ariaLabel="Queued message actions">
                 <MoreIcon />
               </QueueActionButton>
-            )}
+            }
             side="top"
             align="end"
             contentWidth="xs"
@@ -572,7 +624,7 @@ function BackgroundTerminalRow({
 
   return (
     <NodexTooltip
-      tooltipContent={(
+      tooltipContent={
         <div className="max-h-40 max-w-[36rem] overflow-auto font-mono text-sm leading-5">
           <div className="break-all whitespace-pre-wrap">{terminal.command}</div>
           {terminal.previewLine ? (
@@ -581,7 +633,7 @@ function BackgroundTerminalRow({
             </div>
           ) : null}
         </div>
-      )}
+      }
       side="top"
       hoverable
       tooltipBodyClassName="max-w-none"
@@ -628,12 +680,19 @@ function BackgroundTerminalPanel({
             </ComposerGhostIconButton>
           </NodexTooltip>
           <ComposerGhostIconButton
-            ariaLabel={expanded ? "Collapse running terminals details" : "Expand running terminals details"}
+            ariaLabel={
+              expanded ? "Collapse running terminals details" : "Expand running terminals details"
+            }
             onClick={() => {
               setExpanded((current) => !current);
             }}
           >
-            <ChevronRightIcon className={cn("icon-2xs text-current transition-transform duration-300", expanded && "rotate-90")} />
+            <ChevronRightIcon
+              className={cn(
+                "icon-2xs text-current transition-transform duration-300",
+                expanded && "rotate-90",
+              )}
+            />
           </ComposerGhostIconButton>
         </div>
       </div>
@@ -659,7 +718,9 @@ function BackgroundTerminalPanel({
   );
 }
 
-function resolveBackgroundRowStatusText(status: ThreadComposerShellBackgroundAgentRowModel["status"]) {
+function resolveBackgroundRowStatusText(
+  status: ThreadComposerShellBackgroundAgentRowModel["status"],
+) {
   if (status === "active") {
     return "is working";
   }
@@ -669,7 +730,11 @@ function resolveBackgroundRowStatusText(status: ThreadComposerShellBackgroundAge
   return "is done";
 }
 
-function BackgroundAgentRowTooltipContent({ row }: { row: ThreadComposerShellBackgroundAgentRowModel }) {
+function BackgroundAgentRowTooltipContent({
+  row,
+}: {
+  row: ThreadComposerShellBackgroundAgentRowModel;
+}) {
   if (!row.agentRole && !row.spawnModel) return null;
 
   return (
@@ -754,29 +819,26 @@ function BackgroundAgentPanel({
   const canStopAll = stoppableThreadIds.length > 0 && Boolean(actions.onStopBackgroundAgents);
   if (rows.length === 0) return null;
 
-  const aggregateContent = compactModel.displayRows.length > 0 ? (
-    <>
-      <span className="flex shrink-0 items-center gap-1.5">
-        {compactModel.displayRows.map((row) => (
-          <SubagentAvatar
-            key={row.conversationId}
-            seed={row.conversationId}
-            className="size-4"
-          />
-        ))}
-      </span>
-      <span className="text-size-chat min-w-0 truncate leading-4 text-token-foreground">
-        {compactModel.workingCount > 0
-          ? `${compactModel.workingCount} working`
-          : `${compactModel.doneCount} done`}
-      </span>
-      {compactModel.workingCount > 0 && compactModel.doneCount > 0 ? (
-        <span className="text-size-chat shrink-0 text-token-text-tertiary">
-          {compactModel.doneCount} done
+  const aggregateContent =
+    compactModel.displayRows.length > 0 ? (
+      <>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {compactModel.displayRows.map((row) => (
+            <SubagentAvatar key={row.conversationId} seed={row.conversationId} className="size-4" />
+          ))}
         </span>
-      ) : null}
-    </>
-  ) : null;
+        <span className="text-size-chat min-w-0 truncate leading-4 text-token-foreground">
+          {compactModel.workingCount > 0
+            ? `${compactModel.workingCount} working`
+            : `${compactModel.doneCount} done`}
+        </span>
+        {compactModel.workingCount > 0 && compactModel.doneCount > 0 ? (
+          <span className="text-size-chat shrink-0 text-token-text-tertiary">
+            {compactModel.doneCount} done
+          </span>
+        ) : null}
+      </>
+    ) : null;
 
   return (
     <ComposerShellCard showRoundedTop={showRoundedTop}>
@@ -809,11 +871,7 @@ function BackgroundAgentPanel({
       {legacyRows.length > 0 ? (
         <div className="flex flex-col gap-0.5 px-3 pb-2">
           {legacyRows.map((row) => (
-            <BackgroundAgentRow
-              key={row.conversationId}
-              row={row}
-              actions={actions}
-            />
+            <BackgroundAgentRow key={row.conversationId} row={row} actions={actions} />
           ))}
         </div>
       ) : null}
@@ -832,10 +890,9 @@ function RequestCardStack({
   intelligenceController: ComposerIntelligenceController;
   onManualApproval: (conversationId: string) => Promise<void>;
 }) {
-  const entries = [
-    model.composerShell.backgroundRequest,
-    model.composerShell.activeRequest,
-  ].filter((entry) => entry !== null);
+  const entries = [model.composerShell.backgroundRequest, model.composerShell.activeRequest].filter(
+    (entry) => entry !== null,
+  );
 
   return (
     <div className="relative flex flex-col gap-2">
@@ -862,13 +919,13 @@ function RequestCardStack({
           <ComposerAdaptiveFooter
             input={null}
             layout="multiline"
-            leadingControls={(
+            leadingControls={
               <ModelSelectorDropdown
                 model={model}
                 controller={intelligenceController}
                 actions={actions}
               />
-            )}
+            }
             trailingControls={null}
           />
         </div>
@@ -995,9 +1052,10 @@ function ThreadGoalResumeConfirmationDialog({
 }
 
 export function LocalConversationComposerShell(props: LocalConversationComposerShellProps) {
-  const requestedFocusNonce = props.model.composerIntent?.focusNonce
-    ?? props.model.newThreadComposerIntent?.focusNonce
-    ?? null;
+  const requestedFocusNonce =
+    props.model.composerIntent?.focusNonce ??
+    props.model.newThreadComposerIntent?.focusNonce ??
+    null;
   const [activeFocusNonce, setActiveFocusNonce] = useScopedAtom(activeComposerFocusNonceAtom);
   const threadHandle = useScopeHandle(ThreadScope);
   useLayoutEffect(() => {
@@ -1029,17 +1087,16 @@ function ScopedLocalConversationComposerShell({
   const intelligenceController = useComposerIntelligenceController(model, actions);
   const permissionState = model.permissionState;
   const autoReviewNudgeState = useAutoReviewApprovalNudgeState();
-  const {
-    recordManualApproval: recordManualApprovalForNudge,
-    resolveNudge,
-  } = useAutoReviewApprovalNudgeActions();
-  const autoReviewNudgeEligible = permissionState?.mode === "auto"
-    && permissionState.autoReviewAvailable
-    && permissionState.availableModes.includes("guardian-approvals");
+  const { recordManualApproval: recordManualApprovalForNudge, resolveNudge } =
+    useAutoReviewApprovalNudgeActions();
+  const autoReviewNudgeEligible =
+    permissionState?.mode === "auto" &&
+    permissionState.autoReviewAvailable &&
+    permissionState.availableModes.includes("guardian-approvals");
   const hasAutoReviewNudge = Boolean(
-    model.threadId
-    && autoReviewNudgeEligible
-    && autoReviewNudgeState.activeThreadIds[model.threadId] === true,
+    model.threadId &&
+    autoReviewNudgeEligible &&
+    autoReviewNudgeState.activeThreadIds[model.threadId] === true,
   );
   const replacementOwner = resolveComposerReplacementOwner({
     threadId: model.threadId,
@@ -1047,40 +1104,39 @@ function ScopedLocalConversationComposerShell({
     isResponseInProgress: model.isThreadRunning,
     hasRequestCards: model.composerShell.showRequestCards,
   });
-  const selectorAvailable = model.agentProviderCatalog && model.executionProfile
-    ? true
-    : model.availableModels.some((candidate) => !candidate.hidden);
-  const selectorOwnedBySurface = replacementOwner === "normal"
-    || (
-      replacementOwner === "requestStack"
-      && model.composerShell.activeRequest?.request.type === "implementPlan"
-    );
+  const selectorAvailable =
+    model.agentProviderCatalog && model.executionProfile
+      ? true
+      : model.availableModels.some((candidate) => !candidate.hidden);
+  const selectorOwnedBySurface =
+    replacementOwner === "normal" ||
+    (replacementOwner === "requestStack" &&
+      model.composerShell.activeRequest?.request.type === "implementPlan");
   const selectorSurfaceId = `composer-model-picker:${model.composerScopeIdentity?.trim() || model.threadId || "new-thread"}`;
-  const selectorPresentationId = model.composerScopeIdentity?.trim()
-    || model.threadId
-    || selectorSurfaceId;
-  const contextualSelectorTarget = useMemo(() => ({
-    surfaceId: selectorSurfaceId,
-    presentationId: selectorPresentationId,
-    canExecute: (commandId: import("../../../../../shared/command-keybindings").CommandId) => (
-      commandId === "openModelPicker"
-      && selectorAvailable
-      && selectorOwnedBySurface
-    ),
-    execute: (commandId: import("../../../../../shared/command-keybindings").CommandId) => {
-      if (commandId !== "openModelPicker" || !selectorAvailable || !selectorOwnedBySurface) {
-        return false;
-      }
-      intelligenceController.open();
-      return true;
-    },
-  }), [
-    intelligenceController,
-    selectorAvailable,
-    selectorOwnedBySurface,
-    selectorPresentationId,
-    selectorSurfaceId,
-  ]);
+  const selectorPresentationId =
+    model.composerScopeIdentity?.trim() || model.threadId || selectorSurfaceId;
+  const contextualSelectorTarget = useMemo(
+    () => ({
+      surfaceId: selectorSurfaceId,
+      presentationId: selectorPresentationId,
+      canExecute: (commandId: import("../../../../../shared/command-keybindings").CommandId) =>
+        commandId === "openModelPicker" && selectorAvailable && selectorOwnedBySurface,
+      execute: (commandId: import("../../../../../shared/command-keybindings").CommandId) => {
+        if (commandId !== "openModelPicker" || !selectorAvailable || !selectorOwnedBySurface) {
+          return false;
+        }
+        intelligenceController.open();
+        return true;
+      },
+    }),
+    [
+      intelligenceController,
+      selectorAvailable,
+      selectorOwnedBySurface,
+      selectorPresentationId,
+      selectorSurfaceId,
+    ],
+  );
   useContextualKeyboardActionTarget(contextualSelectorTarget);
   useEffect(() => {
     if (!model.threadId || permissionState?.mode === "auto") return;
@@ -1097,14 +1153,17 @@ function ScopedLocalConversationComposerShell({
     fallbackId: LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID,
     conversationId: model.threadId,
   });
-  const showQueuePanel = model.composerShell.pendingSteerRows.length > 0 || model.composerShell.queuedFollowUpRows.length > 0;
+  const showQueuePanel =
+    model.composerShell.pendingSteerRows.length > 0 ||
+    model.composerShell.queuedFollowUpRows.length > 0;
   const threadGoal = model.conversation?.threadGoal ?? null;
   const showThreadGoalStatusRow = threadGoal !== null && threadGoal.status !== "complete";
   const backgroundTerminalThreadId = model.threadId;
   const showBackgroundTerminals =
     backgroundTerminalThreadId !== null && model.composerShell.backgroundTerminalRows.length > 0;
   const showBackgroundAgents = model.composerShell.backgroundAgentRows.length > 0;
-  const showAuxiliaryLaneStack = showQueuePanel || showThreadGoalStatusRow || showBackgroundTerminals || showBackgroundAgents;
+  const showAuxiliaryLaneStack =
+    showQueuePanel || showThreadGoalStatusRow || showBackgroundTerminals || showBackgroundAgents;
   let sectionIndex = hasFixedPortalContent ? 1 : 0;
 
   const resolveRoundedTop = () => {
@@ -1116,11 +1175,7 @@ function ScopedLocalConversationComposerShell({
   const auxiliaryLaneStack = showAuxiliaryLaneStack ? (
     <div className="order-2 flex flex-col">
       {showQueuePanel ? (
-        <QueuePanel
-          model={model}
-          actions={actions}
-          showRoundedTop={resolveRoundedTop()}
-        />
+        <QueuePanel model={model} actions={actions} showRoundedTop={resolveRoundedTop()} />
       ) : null}
       {showThreadGoalStatusRow ? (
         <ThreadGoalStatusRow
@@ -1156,7 +1211,9 @@ function ScopedLocalConversationComposerShell({
       onPointerDownCapture={() => markContextualKeyboardActionTargetActive(selectorSurfaceId)}
     >
       <ThreadGoalResumeConfirmationDialog model={model} actions={actions} />
-      {queuePortalHost && auxiliaryLaneStack ? createPortal(auxiliaryLaneStack, queuePortalHost) : null}
+      {queuePortalHost && auxiliaryLaneStack
+        ? createPortal(auxiliaryLaneStack, queuePortalHost)
+        : null}
       {!showStatusStrip && contextRailLeadingContent ? (
         <ComposerContextRailSlot visible>
           <ComposerContextRail>

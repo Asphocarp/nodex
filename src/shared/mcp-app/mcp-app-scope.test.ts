@@ -8,25 +8,27 @@ import {
 
 function statuses(server = "calendar"): ProtocolListMcpServerStatusResponse {
   return {
-    data: [{
-      name: server,
-      serverInfo: null,
-      authStatus: "unsupported",
-      resources: [{ name: "widget", uri: "ui://calendar/widget" }],
-      resourceTemplates: [],
-      tools: {
-        list: {
-          name: "list",
-          inputSchema: { type: "object" },
-          _meta: { ui: { resourceUri: "ui://calendar/widget" } },
-        },
-        upload: {
-          name: "upload",
-          inputSchema: { type: "object" },
-          _meta: { "openai/fileParams": ["file"] },
+    data: [
+      {
+        name: server,
+        serverInfo: null,
+        authStatus: "unsupported",
+        resources: [{ name: "widget", uri: "ui://calendar/widget" }],
+        resourceTemplates: [],
+        tools: {
+          list: {
+            name: "list",
+            inputSchema: { type: "object" },
+            _meta: { ui: { resourceUri: "ui://calendar/widget" } },
+          },
+          upload: {
+            name: "upload",
+            inputSchema: { type: "object" },
+            _meta: { "openai/fileParams": ["file"] },
+          },
         },
       },
-    }],
+    ],
     nextCursor: null,
   };
 }
@@ -54,8 +56,9 @@ describe("MCP App scope", () => {
       threadId: "thread-1",
     });
 
-    expect(() => requireMcpAppScopedResource(scope, "ui://other/widget"))
-      .toThrow(/outside its widget scope/u);
+    expect(() => requireMcpAppScopedResource(scope, "ui://other/widget")).toThrow(
+      /outside its widget scope/u,
+    );
   });
 
   test("scopes codex_apps tools to the trusted connector target", () => {
@@ -97,7 +100,6 @@ describe("MCP App scope", () => {
     });
 
     expect([...scope.allowedTools.keys()]).toEqual(["origin", "sibling"]);
-    expect(() => requireMcpAppScopedTool(scope, "otherTarget"))
-      .toThrow(/outside its scope/u);
+    expect(() => requireMcpAppScopedTool(scope, "otherTarget")).toThrow(/outside its scope/u);
   });
 });

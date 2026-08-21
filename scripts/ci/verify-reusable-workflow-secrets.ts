@@ -23,21 +23,23 @@ const permissionLevels = new Map([
   ["write", 2],
 ] as const);
 
-const explicitPermissions = (
-  value: unknown,
-  label: string,
-): ReadonlyMap<string, number> => {
+const explicitPermissions = (value: unknown, label: string): ReadonlyMap<string, number> => {
   if (value === undefined) return new Map();
   if (value === "read-all" || value === "write-all") {
     return new Map([["*", value === "read-all" ? 1 : 2]]);
   }
   const permissions = requireRecord(value, label);
-  return new Map(Object.entries(permissions).map(([name, rawLevel]) => {
-    if (typeof rawLevel !== "string" || !permissionLevels.has(rawLevel as "none" | "read" | "write")) {
-      throw new Error(`${label}.${name} must be none, read, or write`);
-    }
-    return [name, permissionLevels.get(rawLevel as "none" | "read" | "write") ?? 0];
-  }));
+  return new Map(
+    Object.entries(permissions).map(([name, rawLevel]) => {
+      if (
+        typeof rawLevel !== "string" ||
+        !permissionLevels.has(rawLevel as "none" | "read" | "write")
+      ) {
+        throw new Error(`${label}.${name} must be none, read, or write`);
+      }
+      return [name, permissionLevels.get(rawLevel as "none" | "read" | "write") ?? 0];
+    }),
+  );
 };
 
 const verifyPermissionCeiling = (
@@ -48,10 +50,7 @@ const verifyPermissionCeiling = (
   target: UnknownRecord,
 ): void => {
   const callerLabel = `${path.relative(repositoryRoot, callerPath)}:${jobName}.permissions`;
-  const callerPermissions = explicitPermissions(
-    job.permissions ?? caller.permissions,
-    callerLabel,
-  );
+  const callerPermissions = explicitPermissions(job.permissions ?? caller.permissions, callerLabel);
   const requested = explicitPermissions(target.permissions, "called workflow permissions");
   const callerDefault = callerPermissions.get("*") ?? 0;
   const insufficient = [...requested.entries()]
@@ -116,7 +115,9 @@ const resolveLocalWorkflow = (callerPath: string, uses: string): string => {
   const target = path.resolve(repositoryRoot, uses.slice(2));
   const relative = path.relative(workflowsDirectory, target);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`${path.relative(repositoryRoot, callerPath)} calls a workflow outside .github/workflows`);
+    throw new Error(
+      `${path.relative(repositoryRoot, callerPath)} calls a workflow outside .github/workflows`,
+    );
   }
   return target;
 };
@@ -194,30 +195,46 @@ export const verifyCall = (
   if (caller) verifyPermissionCeiling(callerPath, jobName, job, caller, target);
 
   const declaredInputs = workflowCallInputs(target);
-  const providedInputs = job.with === undefined
-    ? {}
-    : requireRecord(job.with, `${path.relative(repositoryRoot, callerPath)}:${jobName}.with`);
+  const providedInputs =
+    job.with === undefined
+      ? {}
+      : requireRecord(job.with, `${path.relative(repositoryRoot, callerPath)}:${jobName}.with`);
   const unknownInputs = Object.keys(providedInputs)
     .filter((name) => !Object.hasOwn(declaredInputs, name))
     .sort();
   if (unknownInputs.length > 0) {
-    throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} passes undeclared inputs: ${unknownInputs.join(", ")}`);
+    throw new Error(
+      `${path.relative(repositoryRoot, callerPath)}:${jobName} passes undeclared inputs: ${unknownInputs.join(", ")}`,
+    );
   }
   const missingInputs = Object.entries(declaredInputs)
-    .filter(([, definition]) => isRecord(definition) && definition.required === true && !Object.hasOwn(definition, "default"))
+    .filter(
+      ([, definition]) =>
+        isRecord(definition) &&
+        definition.required === true &&
+        !Object.hasOwn(definition, "default"),
+    )
     .map(([name]) => name)
     .filter((name) => !Object.hasOwn(providedInputs, name))
     .sort();
   if (missingInputs.length > 0) {
-    throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} omits required inputs: ${missingInputs.join(", ")}`);
+    throw new Error(
+      `${path.relative(repositoryRoot, callerPath)}:${jobName} omits required inputs: ${missingInputs.join(", ")}`,
+    );
   }
 
   if (job.secrets === "inherit") {
-    throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} must map secrets explicitly`);
+    throw new Error(
+      `${path.relative(repositoryRoot, callerPath)}:${jobName} must map secrets explicitly`,
+    );
   }
-  const provided = job.secrets === undefined
-    ? {}
-    : requireRecord(job.secrets, `${path.relative(repositoryRoot, callerPath)}:${jobName}.secrets`);
+  const provided =
+    job.secrets === undefined
+      ? {}
+      : requireRecord(
+          job.secrets,
+          `${path.relative(repositoryRoot, callerPath)}:${jobName}.secrets`,
+        );
   const transportedEnvironmentSecrets = Object.keys(provided)
     .filter((name) => environmentSecretNames.has(name))
     .sort();
@@ -227,9 +244,13 @@ export const verifyCall = (
     );
   }
   const declared = workflowCallSecrets(target);
-  const unknown = Object.keys(provided).filter((name) => !Object.hasOwn(declared, name)).sort();
+  const unknown = Object.keys(provided)
+    .filter((name) => !Object.hasOwn(declared, name))
+    .sort();
   if (unknown.length > 0) {
-    throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} passes undeclared secrets: ${unknown.join(", ")}`);
+    throw new Error(
+      `${path.relative(repositoryRoot, callerPath)}:${jobName} passes undeclared secrets: ${unknown.join(", ")}`,
+    );
   }
 
   const missing = Object.entries(declared)
@@ -238,7 +259,9 @@ export const verifyCall = (
     .filter((name) => !Object.hasOwn(provided, name))
     .sort();
   if (missing.length === 0) return;
-  throw new Error(`${path.relative(repositoryRoot, callerPath)}:${jobName} omits required secrets: ${missing.join(", ")}`);
+  throw new Error(
+    `${path.relative(repositoryRoot, callerPath)}:${jobName} omits required secrets: ${missing.join(", ")}`,
+  );
 };
 
 const main = (): void => {
@@ -250,7 +273,9 @@ const main = (): void => {
       verifyCall(filePath, jobName, requireRecord(job, `${jobName} job`), workflows);
     }
   }
-  process.stdout.write(`Verified reusable-workflow secret contracts across ${workflows.size} workflows.\n`);
+  process.stdout.write(
+    `Verified reusable-workflow secret contracts across ${workflows.size} workflows.\n`,
+  );
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {

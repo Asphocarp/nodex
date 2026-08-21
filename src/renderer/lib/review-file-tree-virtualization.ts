@@ -56,7 +56,10 @@ function normalizeViewportHeight(viewportHeight: number): number {
   return viewportHeight > 0 ? viewportHeight : REVIEW_FILE_TREE_VIEWPORT_FALLBACK_PX;
 }
 
-function clampRange(range: ReviewFileTreeVirtualRange, itemCount: number): ReviewFileTreeVirtualRange {
+function clampRange(
+  range: ReviewFileTreeVirtualRange,
+  itemCount: number,
+): ReviewFileTreeVirtualRange {
   if (itemCount <= 0 || range.end < range.start) return EMPTY_RANGE;
   const start = Math.max(0, Math.min(range.start, itemCount - 1));
   return {
@@ -65,14 +68,13 @@ function clampRange(range: ReviewFileTreeVirtualRange, itemCount: number): Revie
   };
 }
 
-function getVisibleRange(
-  input: ReviewFileTreeVisibleRangeInput,
-): ReviewFileTreeVirtualRange {
+function getVisibleRange(input: ReviewFileTreeVisibleRangeInput): ReviewFileTreeVirtualRange {
   const { itemCount } = input;
   if (itemCount <= 0) return EMPTY_RANGE;
 
   const startIndex = Math.floor((input.scrollTop - input.offset) / input.itemHeight);
-  const endIndex = Math.ceil((input.scrollTop - input.offset + input.viewportHeight) / input.itemHeight) - 1;
+  const endIndex =
+    Math.ceil((input.scrollTop - input.offset + input.viewportHeight) / input.itemHeight) - 1;
 
   if (endIndex < 0 || startIndex >= itemCount) return EMPTY_RANGE;
   return {
@@ -115,9 +117,9 @@ export function getReviewFileTreeVirtualRange(
   const clampedPreviousRange = clampRange(previousRange, input.itemCount);
 
   if (
-    clampedPreviousRange.end >= clampedPreviousRange.start
-    && visibleRange.start >= clampedPreviousRange.start
-    && visibleRange.end <= clampedPreviousRange.end
+    clampedPreviousRange.end >= clampedPreviousRange.start &&
+    visibleRange.start >= clampedPreviousRange.start &&
+    visibleRange.end <= clampedPreviousRange.end
   ) {
     return clampedPreviousRange;
   }
@@ -153,9 +155,7 @@ export function getReviewFileTreeVirtualLayout(
   };
 }
 
-export function getReviewFileTreeScrollTopForIndex(
-  input: ReviewFileTreeScrollTargetInput,
-): number {
+export function getReviewFileTreeScrollTopForIndex(input: ReviewFileTreeScrollTargetInput): number {
   const itemHeight = normalizeItemHeight(input.itemHeight);
   const viewportHeight = normalizeViewportHeight(input.viewportHeight);
   const offset = Math.max(0, input.offset ?? 0);
@@ -191,8 +191,9 @@ export function resolveReviewFileTreeItemHeight(
   if (!element) return REVIEW_FILE_TREE_FALLBACK_ITEM_HEIGHT_PX;
 
   const computedStyle = getComputedStyle(element);
-  const cssValue = computedStyle.getPropertyValue("--ft-internal-row-height").trim()
-    || computedStyle.getPropertyValue("--trees-row-height").trim();
+  const cssValue =
+    computedStyle.getPropertyValue("--ft-internal-row-height").trim() ||
+    computedStyle.getPropertyValue("--trees-row-height").trim();
   const parsedHeight = Number.parseFloat(cssValue);
   if (Number.isFinite(parsedHeight) && parsedHeight > 0) return parsedHeight;
 

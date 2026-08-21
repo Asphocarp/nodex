@@ -23,15 +23,17 @@ export interface StartStoreAdministrationMaintenanceSchedulerOptions {
   readonly administration: DesktopStoreAdministrationPort;
   readonly readBlockRetentionCount: () => number;
   readonly isAuthorityAvailable?: () => boolean;
-  readonly setTimeoutImpl?: (
-    callback: () => void,
-    milliseconds: number,
-  ) => MaintenanceTimer;
+  readonly setTimeoutImpl?: (callback: () => void, milliseconds: number) => MaintenanceTimer;
   readonly clearTimeoutImpl?: (timer: MaintenanceTimer) => void;
-  readonly delays?: Partial<Record<MaintenanceLane, {
-    readonly initial: number;
-    readonly interval: number;
-  }>>;
+  readonly delays?: Partial<
+    Record<
+      MaintenanceLane,
+      {
+        readonly initial: number;
+        readonly interval: number;
+      }
+    >
+  >;
   readonly logger?: MaintenanceSchedulerLogger;
 }
 
@@ -57,10 +59,7 @@ const laneInput = (
   }
   return {
     tasks: ["block_retention"],
-    blockRetentionCount: requireNonNegativeInteger(
-      readBlockRetentionCount(),
-      "history retention",
-    ),
+    blockRetentionCount: requireNonNegativeInteger(readBlockRetentionCount(), "history retention"),
   };
 };
 
@@ -68,10 +67,9 @@ export function startStoreAdministrationMaintenanceScheduler(
   options: StartStoreAdministrationMaintenanceSchedulerOptions,
 ): StoreAdministrationMaintenanceScheduler {
   const logger = options.logger ?? getLogger({ subsystem: "maintenance" });
-  const setTimeoutImpl = options.setTimeoutImpl
-    ?? ((callback, milliseconds) => setTimeout(callback, milliseconds));
-  const clearTimeoutImpl = options.clearTimeoutImpl
-    ?? ((timer) => clearTimeout(timer));
+  const setTimeoutImpl =
+    options.setTimeoutImpl ?? ((callback, milliseconds) => setTimeout(callback, milliseconds));
+  const clearTimeoutImpl = options.clearTimeoutImpl ?? ((timer) => clearTimeout(timer));
   const isAuthorityAvailable = options.isAuthorityAvailable ?? (() => true);
   const schedules: Record<MaintenanceLane, { initial: number; interval: number }> = {
     revision: options.delays?.revision ?? {
@@ -95,9 +93,7 @@ export function startStoreAdministrationMaintenanceScheduler(
     if (disposed || runningLane !== null || !isAuthorityAvailable()) return;
     runningLane = lane;
     try {
-      await options.administration.runMaintenance(
-        laneInput(lane, options.readBlockRetentionCount),
-      );
+      await options.administration.runMaintenance(laneInput(lane, options.readBlockRetentionCount));
     } catch (error) {
       logger.warn("Store Administration maintenance pass deferred", {
         lane,
@@ -110,10 +106,7 @@ export function startStoreAdministrationMaintenanceScheduler(
 
   const schedule = (lane: MaintenanceLane, delay: number): void => {
     if (disposed) return;
-    const normalizedDelay = requireNonNegativeInteger(
-      delay,
-      `${lane} maintenance delay`,
-    );
+    const normalizedDelay = requireNonNegativeInteger(delay, `${lane} maintenance delay`);
     const timer = setTimeoutImpl(() => {
       timers.delete(lane);
       void runNow(lane).finally(() => {

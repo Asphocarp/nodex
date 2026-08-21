@@ -18,25 +18,18 @@ export function makeWorkbenchScenePreviewSlotKey(
   panelId: PanelId,
   leafId: string,
 ): string {
-  return makeWorkbenchPanelSlotKey(
-    makeWorkbenchSceneKey(owner),
-    panelId,
-    leafId,
-  );
+  return makeWorkbenchPanelSlotKey(makeWorkbenchSceneKey(owner), panelId, leafId);
 }
 
 export function listWorkbenchScenePreviewEntries(
   scene: WorkbenchSceneSnapshot,
-  previewSurfacesByPanel: Readonly<
-    Record<string, WorkbenchSurfaceDescriptor>
-  >,
+  previewSurfacesByPanel: Readonly<Record<string, WorkbenchSurfaceDescriptor>>,
 ): WorkbenchScenePreviewEntry[] {
   const entries: WorkbenchScenePreviewEntry[] = [];
   for (const panelId of ["right", "bottom"] as const) {
     for (const leaf of listWorkbenchPanelLeaves(scene.panels[panelId].layout)) {
-      const surface = previewSurfacesByPanel[
-        makeWorkbenchScenePreviewSlotKey(scene.owner, panelId, leaf.id)
-      ];
+      const surface =
+        previewSurfacesByPanel[makeWorkbenchScenePreviewSlotKey(scene.owner, panelId, leaf.id)];
       if (!surface || scene.panelSurfacesById[surface.id]) continue;
       entries.push({ panelId, leafId: leaf.id, surface });
     }
@@ -50,17 +43,12 @@ export function listWorkbenchScenePreviewEntries(
  */
 export function projectWorkbenchScenePreviews(
   scene: WorkbenchSceneSnapshot,
-  previewSurfacesByPanel: Readonly<
-    Record<string, WorkbenchSurfaceDescriptor>
-  >,
+  previewSurfacesByPanel: Readonly<Record<string, WorkbenchSurfaceDescriptor>>,
 ): {
   readonly scene: WorkbenchSceneSnapshot;
   readonly previewSurfaceIds: ReadonlySet<string>;
 } {
-  const entries = listWorkbenchScenePreviewEntries(
-    scene,
-    previewSurfacesByPanel,
-  );
+  const entries = listWorkbenchScenePreviewEntries(scene, previewSurfacesByPanel);
   if (entries.length === 0) {
     return { scene, previewSurfaceIds: new Set() };
   }
@@ -80,11 +68,7 @@ export function projectWorkbenchScenePreviews(
         tabId: entry.surface.id,
         targetLeafId: entry.leafId,
       });
-      layout = activateWorkbenchPanelLeaf(
-        layout,
-        entry.leafId,
-        entry.surface.id,
-      );
+      layout = activateWorkbenchPanelLeaf(layout, entry.leafId, entry.surface.id);
       panelSurfacesById[entry.surface.id] = entry.surface;
       previewSurfaceIds.add(entry.surface.id);
     }

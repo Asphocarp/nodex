@@ -20,11 +20,7 @@ import {
   resolveWorkbenchPanelCapabilities,
   type WorkbenchPanelActionKind,
 } from "@/lib/workbench-panel-capabilities";
-import type {
-  PanelId,
-  WorkbenchTabProjection,
-} from "@/lib/types";
-
+import type { PanelId, WorkbenchTabProjection } from "@/lib/types";
 
 export type PanelNewTabActionKind = WorkbenchPanelActionKind;
 
@@ -130,20 +126,13 @@ export const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   },
 ];
 
-export function getPanelNewTabAction(
-  kind: PanelNewTabActionKind,
-): PanelNewTabAction {
-  const action = PANEL_NEW_TAB_ACTIONS.find((candidate) =>
-    candidate.kind === kind
-  );
+export function getPanelNewTabAction(kind: PanelNewTabActionKind): PanelNewTabAction {
+  const action = PANEL_NEW_TAB_ACTIONS.find((candidate) => candidate.kind === kind);
   if (action) return action;
   throw new Error(`Missing panel action presentation for ${kind}`);
 }
 
-export function isPanelActionTargetAllowed(
-  action: PanelNewTabAction,
-  panelId: PanelId,
-): boolean {
+export function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId): boolean {
   return action.targetPanelIds?.includes(panelId) ?? action.defaultPanelId === panelId;
 }
 
@@ -208,8 +197,7 @@ export function resolvePanelActionShortcutLabel(
   commandKeymapState?: CommandKeymapState | null,
 ): string | null {
   if (action.commandId) {
-    const state = commandKeymapState
-      ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+    const state = commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
     const label = formatCommandShortcutLabel(state, action.commandId);
     const entry = getCommandEntry(state, action.commandId);
     if (label && entry?.isCustom !== true && action.shortcut) {
@@ -221,10 +209,7 @@ export function resolvePanelActionShortcutLabel(
 }
 
 export function matchesPanelShortcut(
-  event: Pick<
-    KeyboardEvent,
-    "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
-  >,
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   shortcut: PanelActionShortcut,
   isMac: boolean,
 ): boolean {
@@ -237,42 +222,34 @@ export function matchesPanelShortcut(
     return modifier && !event.altKey && !event.shiftKey && key === "t";
   }
   if (shortcut === "ctrl+shift+g") {
-    return event.ctrlKey
-      && !event.metaKey
-      && !event.altKey
-      && event.shiftKey
-      && key === "g";
+    return event.ctrlKey && !event.metaKey && !event.altKey && event.shiftKey && key === "g";
   }
   if (shortcut === "alt+mod+s") {
     return modifier && event.altKey && !event.shiftKey && key === "s";
   }
-  return event.ctrlKey
-    && !event.metaKey
-    && !event.altKey
-    && !event.shiftKey
-    && (event.key === "`" || event.code === "Backquote");
+  return (
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.key === "`" || event.code === "Backquote")
+  );
 }
 
 export function matchesPanelActionShortcut(
-  event: Pick<
-    KeyboardEvent,
-    "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
-  >,
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   action: PanelNewTabAction,
   isMac: boolean,
   commandKeymapState?: CommandKeymapState | null,
 ): boolean {
   if (action.commandId) {
-    const state = commandKeymapState
-      ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+    const state = commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
     if (matchesKeyboardEventToCommand(event, state, action.commandId)) return true;
   }
   return action.shortcut ? matchesPanelShortcut(event, action.shortcut, isMac) : false;
 }
 
-export function getDefaultPanelIdForTabKind(
-  kind: WorkbenchTabProjection["kind"],
-): PanelId {
+export function getDefaultPanelIdForTabKind(kind: WorkbenchTabProjection["kind"]): PanelId {
   if (kind === "image_editor") return "right";
   return getPanelNewTabAction(kind).defaultPanelId;
 }

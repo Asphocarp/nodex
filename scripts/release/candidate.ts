@@ -12,19 +12,25 @@ import {
 import { detectReleaseTransition, inspectReleaseSourceAtRef } from "./source";
 
 export type NightlyCandidateResolution =
-  | { readonly shouldRelease: false; readonly reason: "source-is-stable-transition"; readonly sourceSha: string }
+  | {
+      readonly shouldRelease: false;
+      readonly reason: "source-is-stable-transition";
+      readonly sourceSha: string;
+    }
   | { readonly shouldRelease: true; readonly identity: ReleaseIdentity };
 
-const git = (cwd: string, args: readonly string[]): string => execFileSync("git", [...args], {
-  cwd,
-  encoding: "utf8",
-  stdio: ["ignore", "pipe", "pipe"],
-}).trim();
+const git = (cwd: string, args: readonly string[]): string =>
+  execFileSync("git", [...args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
 const sourceDateAtRef = (cwd: string, ref: string): string => {
   const timestamp = git(cwd, ["show", "-s", "--format=%cI", ref]);
   const parsed = new Date(timestamp);
-  if (Number.isNaN(parsed.valueOf())) throw new Error(`Git returned an invalid commit date for ${ref}.`);
+  if (Number.isNaN(parsed.valueOf()))
+    throw new Error(`Git returned an invalid commit date for ${ref}.`);
   return parsed.toISOString().slice(0, 10);
 };
 
@@ -36,9 +42,10 @@ export function createReleaseIdentity(options: {
   readonly sourceTree: string;
   readonly sourceVersion: string;
 }): ReleaseIdentity {
-  const version = options.channel === "stable"
-    ? options.sourceVersion
-    : nightlyVersionFor(options.sourceVersion, options.sourceDate, options.mainlineOrdinal);
+  const version =
+    options.channel === "stable"
+      ? options.sourceVersion
+      : nightlyVersionFor(options.sourceVersion, options.sourceDate, options.mainlineOrdinal);
   return parseReleaseIdentity({
     schemaVersion: 1,
     channel: options.channel,
@@ -102,7 +109,8 @@ export function resolveStableReleaseIdentity(options: {
   readonly head: string;
 }): ReleaseIdentity {
   const transition = detectReleaseTransition(options.cwd, options.base, options.head);
-  if (!transition.shouldRelease) throw new Error(`${options.head} is not a stable release transition.`);
+  if (!transition.shouldRelease)
+    throw new Error(`${options.head} is not a stable release transition.`);
   return resolveReleaseIdentity({ channel: "stable", cwd: options.cwd, ref: options.head });
 }
 

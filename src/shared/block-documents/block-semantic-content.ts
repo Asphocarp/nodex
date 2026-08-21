@@ -37,8 +37,7 @@ export const BLOCK_TO_PAGE_TYPE_CAPABILITIES = {
   toggleListInlineView: "unsupported_legacy",
 } as const satisfies Readonly<Record<string, BlockToPageTypeCapability>>;
 
-export type BlockToPageRegisteredType =
-  keyof typeof BLOCK_TO_PAGE_TYPE_CAPABILITIES;
+export type BlockToPageRegisteredType = keyof typeof BLOCK_TO_PAGE_TYPE_CAPABILITIES;
 
 export type BlockSemanticContentAssessment =
   | {
@@ -72,9 +71,7 @@ export class BlockSemanticContentError extends TypeError {
 
 const typeCapability = (blockType: string): BlockToPageTypeCapability => {
   if (Object.hasOwn(BLOCK_TO_PAGE_TYPE_CAPABILITIES, blockType)) {
-    return BLOCK_TO_PAGE_TYPE_CAPABILITIES[
-      blockType as BlockToPageRegisteredType
-    ];
+    return BLOCK_TO_PAGE_TYPE_CAPABILITIES[blockType as BlockToPageRegisteredType];
   }
   throw new BlockSemanticContentError(
     "unknown_block_type",
@@ -82,9 +79,7 @@ const typeCapability = (blockType: string): BlockToPageTypeCapability => {
   );
 };
 
-const presentationPropsForPromotion = (
-  root: BlockTreeNode,
-): Readonly<Record<string, unknown>> => {
+const presentationPropsForPromotion = (root: BlockTreeNode): Readonly<Record<string, unknown>> => {
   const props: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(root.props)) {
     if (
@@ -130,9 +125,7 @@ export const assessBlockSemanticContentForPage = (
     };
   }
   try {
-    const primary = canonicalizePortableRichText(
-      blockNoteInlineToNfm(root.content),
-    );
+    const primary = canonicalizePortableRichText(blockNoteInlineToNfm(root.content));
     return {
       kind: "promote",
       primary,

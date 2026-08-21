@@ -10,31 +10,38 @@ import {
 
 describe("Codex projectless workspace repair", () => {
   test("recognizes only exact generated thread layouts for both brands", () => {
-    expect(resolveGeneratedProjectlessThreadPath(
-      "/Users/test/Documents/Nodex/2026-07-18/example",
-      "/Users/test",
-    )).toMatchObject({
+    expect(
+      resolveGeneratedProjectlessThreadPath(
+        "/Users/test/Documents/Nodex/2026-07-18/example",
+        "/Users/test",
+      ),
+    ).toMatchObject({
       brand: "Nodex",
       dateDirectoryName: "2026-07-18",
       threadDirectoryName: "example",
       workspaceRoot: "/Users/test/Documents/Nodex",
     });
-    expect(resolveGeneratedProjectlessThreadPath(
-      "C:\\Users\\test\\Documents\\Codex\\2026-07-18\\example",
-      "C:\\Users\\test",
-    )).toMatchObject({ brand: "Codex" });
-    expect(resolveGeneratedProjectlessThreadPath(
-      "/Users/test/Documents/Nodex/example",
-      "/Users/test",
-    )).toBe(null);
-    expect(resolveGeneratedProjectlessThreadPath(
-      "/Users/test/Documents/Nodex/2026-07-18/example/outputs",
-      "/Users/test",
-    )).toBe(null);
-    expect(resolveGeneratedProjectlessThreadPath(
-      "/Users/test/Documents/Nodex/2026-07-18/用户目录",
-      "/Users/test",
-    )).toBe(null);
+    expect(
+      resolveGeneratedProjectlessThreadPath(
+        "C:\\Users\\test\\Documents\\Codex\\2026-07-18\\example",
+        "C:\\Users\\test",
+      ),
+    ).toMatchObject({ brand: "Codex" });
+    expect(
+      resolveGeneratedProjectlessThreadPath("/Users/test/Documents/Nodex/example", "/Users/test"),
+    ).toBe(null);
+    expect(
+      resolveGeneratedProjectlessThreadPath(
+        "/Users/test/Documents/Nodex/2026-07-18/example/outputs",
+        "/Users/test",
+      ),
+    ).toBe(null);
+    expect(
+      resolveGeneratedProjectlessThreadPath(
+        "/Users/test/Documents/Nodex/2026-07-18/用户目录",
+        "/Users/test",
+      ),
+    ).toBe(null);
   });
 
   test("migrates only the referenced legacy thread and preserves its contents", async () => {
@@ -65,24 +72,24 @@ describe("Codex projectless workspace repair", () => {
 
       expect(migrated).not.toBe(null);
       expect(migrated?.workspaceRoot).toBe(path.join(homeDirectory, "Documents", "Nodex"));
-      expect(migrated?.cwd).toBe(path.join(
-        homeDirectory,
-        "Documents",
-        "Nodex",
-        "2026-07-18",
-        "example-2",
-      ));
-      expect(await readFile(path.join(migrated?.cwd ?? "", "outputs", "report.md"), "utf8"))
-        .toBe("preserved");
-      expect(await readFile(path.join(destinationCollision, "existing.md"), "utf8"))
-        .toBe("untouched");
+      expect(migrated?.cwd).toBe(
+        path.join(homeDirectory, "Documents", "Nodex", "2026-07-18", "example-2"),
+      );
+      expect(await readFile(path.join(migrated?.cwd ?? "", "outputs", "report.md"), "utf8")).toBe(
+        "preserved",
+      );
+      expect(await readFile(path.join(destinationCollision, "existing.md"), "utf8")).toBe(
+        "untouched",
+      );
       expect((await lstat(unrelatedCwd)).isDirectory()).toBe(true);
-      expect(await migrateLegacyCodexProjectlessWorkspace({
-        browserRoot: migrated?.workspaceRoot ?? null,
-        cwd: migrated?.cwd ?? "",
-        homeDirectory,
-        outputDirectory: migrated?.outputDirectory ?? null,
-      })).toBe(null);
+      expect(
+        await migrateLegacyCodexProjectlessWorkspace({
+          browserRoot: migrated?.workspaceRoot ?? null,
+          cwd: migrated?.cwd ?? "",
+          homeDirectory,
+          outputDirectory: migrated?.outputDirectory ?? null,
+        }),
+      ).toBe(null);
     } finally {
       await rm(homeDirectory, { recursive: true, force: true });
     }
@@ -100,26 +107,30 @@ describe("Codex projectless workspace repair", () => {
         mkdir(browserRoot, { recursive: true }),
       ]);
 
-      await expect(repairCodexProjectlessWorkspace({
-        browserRoot,
-        cwd: current,
-        homeDirectory,
-        outputDirectory: null,
-        prompt: "ignored",
-        writableRoots: [newer],
-      })).resolves.toStrictEqual({
+      await expect(
+        repairCodexProjectlessWorkspace({
+          browserRoot,
+          cwd: current,
+          homeDirectory,
+          outputDirectory: null,
+          prompt: "ignored",
+          writableRoots: [newer],
+        }),
+      ).resolves.toStrictEqual({
         cwd: current,
         outputDirectory: path.join(current, "outputs"),
         workspaceRoot: path.join(homeDirectory, "Documents", "Nodex"),
       });
-      await expect(repairCodexProjectlessWorkspace({
-        browserRoot,
-        cwd: null,
-        homeDirectory,
-        outputDirectory: null,
-        prompt: "ignored",
-        writableRoots: [path.join(homeDirectory, "not-generated")],
-      })).resolves.toStrictEqual({
+      await expect(
+        repairCodexProjectlessWorkspace({
+          browserRoot,
+          cwd: null,
+          homeDirectory,
+          outputDirectory: null,
+          prompt: "ignored",
+          writableRoots: [path.join(homeDirectory, "not-generated")],
+        }),
+      ).resolves.toStrictEqual({
         cwd: browserRoot,
         outputDirectory: browserRoot,
         workspaceRoot: browserRoot,
@@ -170,10 +181,12 @@ describe("Codex projectless workspace repair", () => {
         writableRoots: [],
       });
       expect(repaired?.cwd).toBe(repaired?.outputDirectory);
-      expect(repaired?.cwd).toMatch(new RegExp(
-        `${path.join("Documents", "Nodex").replaceAll("\\", "\\\\")}`
-          + `${path.sep}\\d{4}-\\d{2}-\\d{2}${path.sep}repair-this-missing-workspace$`,
-      ));
+      expect(repaired?.cwd).toMatch(
+        new RegExp(
+          `${path.join("Documents", "Nodex").replaceAll("\\", "\\\\")}` +
+            `${path.sep}\\d{4}-\\d{2}-\\d{2}${path.sep}repair-this-missing-workspace$`,
+        ),
+      );
     } finally {
       await rm(homeDirectory, { recursive: true, force: true });
     }

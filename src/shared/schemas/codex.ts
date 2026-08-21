@@ -30,7 +30,8 @@ const CODEX_REASONING_EFFORT_MAX_LENGTH = 64;
 const CODEX_REASONING_EFFORT_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/u;
 
 /** Runtime-advertised opaque value. Preserve spelling and case (for example, Kimi `Thinking`). */
-export const CodexReasoningEffortSchema: z.ZodType<CodexReasoningEffort> = z.string()
+export const CodexReasoningEffortSchema: z.ZodType<CodexReasoningEffort> = z
+  .string()
   .trim()
   .min(1)
   .max(CODEX_REASONING_EFFORT_MAX_LENGTH)
@@ -42,9 +43,8 @@ export const CodexThreadDetailLevelSchema = z.enum([
   "STEPS_EXECUTION",
 ]) satisfies z.ZodType<CodexThreadDetailLevel>;
 
-export const CodexCollaborationModeKindSchema = createGeneratedCodexSchema<CodexCollaborationModeKind>(
-  modeKindJsonSchema,
-);
+export const CodexCollaborationModeKindSchema =
+  createGeneratedCodexSchema<CodexCollaborationModeKind>(modeKindJsonSchema);
 
 export const CodexPermissionModeSchema = z.enum([
   "auto",
@@ -53,22 +53,20 @@ export const CodexPermissionModeSchema = z.enum([
   "custom",
 ]) satisfies z.ZodType<CodexPermissionMode>;
 
-export const CodexThreadStatusTypeSchema = createGeneratedCodexStringDiscriminatorSchema<CodexThreadStatusType>(
-  threadStatusJsonSchema,
-  "type",
-);
+export const CodexThreadStatusTypeSchema =
+  createGeneratedCodexStringDiscriminatorSchema<CodexThreadStatusType>(
+    threadStatusJsonSchema,
+    "type",
+  );
 
-export const CodexThreadStatusSchema = createGeneratedCodexSchema<CodexThreadRuntimeStatus>(
-  threadStatusJsonSchema,
-);
+export const CodexThreadStatusSchema =
+  createGeneratedCodexSchema<CodexThreadRuntimeStatus>(threadStatusJsonSchema);
 
 export const CodexThreadActiveFlagSchema = createGeneratedCodexSchema<CodexThreadActiveFlag>(
   threadActiveFlagJsonSchema,
 );
 
-export const CodexThreadGoalSchema = createGeneratedCodexSchema<ThreadGoal>(
-  threadGoalJsonSchema,
-);
+export const CodexThreadGoalSchema = createGeneratedCodexSchema<ThreadGoal>(threadGoalJsonSchema);
 
 export const CodexThreadGoalStatusSchema = createGeneratedCodexSchema<ThreadGoalStatus>(
   threadGoalStatusJsonSchema,
@@ -87,7 +85,10 @@ export function parseCodexThreadTokenUsage(value: unknown): CodexThreadTokenUsag
   return parsed.success ? parsed.data : undefined;
 }
 
-const NonEmptyTrimmedStringSchema = z.string().transform((value) => value.trim()).pipe(z.string().min(1));
+const NonEmptyTrimmedStringSchema = z
+  .string()
+  .transform((value) => value.trim())
+  .pipe(z.string().min(1));
 
 export const CodexThreadSettingsSchema = z.record(z.string(), z.unknown()).transform((value) => {
   const next: CodexThreadSettings = {};
@@ -110,27 +111,35 @@ export const CodexThreadSettingsSchema = z.record(z.string(), z.unknown()).trans
   return next;
 }) satisfies z.ZodType<CodexThreadSettings>;
 
-export const CodexPermissionModesByProjectSchema = z.record(z.string(), z.unknown()).transform((value) =>
-  Object.entries(value).reduce<Record<string, CodexPermissionMode>>((acc, [projectId, mode]) => {
-    const parsedMode = CodexPermissionModeSchema.safeParse(mode);
-    if (!parsedMode.success) return acc;
-    acc[projectId] = parsedMode.data;
-    return acc;
-  }, {}),
-);
+export const CodexPermissionModesByProjectSchema = z
+  .record(z.string(), z.unknown())
+  .transform((value) =>
+    Object.entries(value).reduce<Record<string, CodexPermissionMode>>((acc, [projectId, mode]) => {
+      const parsedMode = CodexPermissionModeSchema.safeParse(mode);
+      if (!parsedMode.success) return acc;
+      acc[projectId] = parsedMode.data;
+      return acc;
+    }, {}),
+  );
 
 const CollaborationModeMapSchema = z.record(z.string(), z.unknown()).transform((value) =>
-  Object.entries(value).reduce<Record<string, CodexCollaborationModeKind>>((acc, [contextKey, mode]) => {
-    const parsedMode = CodexCollaborationModeKindSchema.safeParse(mode);
-    if (!parsedMode.success) return acc;
-    acc[contextKey] = parsedMode.data;
-    return acc;
-  }, {}),
+  Object.entries(value).reduce<Record<string, CodexCollaborationModeKind>>(
+    (acc, [contextKey, mode]) => {
+      const parsedMode = CodexCollaborationModeKindSchema.safeParse(mode);
+      if (!parsedMode.success) return acc;
+      acc[contextKey] = parsedMode.data;
+      return acc;
+    },
+    {},
+  ),
 );
 
-export const CodexCollaborationModesByContextSchema = z.record(z.string(), z.unknown()).transform((value) => {
-  const rawModes = typeof value.modes === "object" && value.modes !== null && !Array.isArray(value.modes)
-    ? value.modes as Record<string, unknown>
-    : value;
-  return CollaborationModeMapSchema.parse(rawModes);
-});
+export const CodexCollaborationModesByContextSchema = z
+  .record(z.string(), z.unknown())
+  .transform((value) => {
+    const rawModes =
+      typeof value.modes === "object" && value.modes !== null && !Array.isArray(value.modes)
+        ? (value.modes as Record<string, unknown>)
+        : value;
+    return CollaborationModeMapSchema.parse(rawModes);
+  });

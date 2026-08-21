@@ -11,21 +11,32 @@ test("planPublication creates when no release exists", () => {
 });
 
 test("planPublication resumes only missing draft assets", () => {
-  expect(planPublication({
-    assets: [{ digest: `sha256:${"a".repeat(64)}`, name: "Nodex-latest-arm64.dmg", size: 10 }],
-    draft: true,
-    prerelease: false,
-    tag_name: "v0.2.0",
-  }, expected, false)).toEqual({ kind: "resume-draft", missingAssetNames: ["release-bundle.json"] });
+  expect(
+    planPublication(
+      {
+        assets: [{ digest: `sha256:${"a".repeat(64)}`, name: "Nodex-latest-arm64.dmg", size: 10 }],
+        draft: true,
+        prerelease: false,
+        tag_name: "v0.2.0",
+      },
+      expected,
+      false,
+    ),
+  ).toEqual({ kind: "resume-draft", missingAssetNames: ["release-bundle.json"] });
 });
 
 test("planPublication rejects mismatched assets instead of clobbering", () => {
-  expect(() => planPublication({
-    assets: [{ digest: `sha256:${"c".repeat(64)}`, name: "Nodex-latest-arm64.dmg", size: 10 }],
-    draft: true,
-    prerelease: false,
-    tag_name: "v0.2.0",
-  }, expected)).toThrow("does not match");
+  expect(() =>
+    planPublication(
+      {
+        assets: [{ digest: `sha256:${"c".repeat(64)}`, name: "Nodex-latest-arm64.dmg", size: 10 }],
+        draft: true,
+        prerelease: false,
+        tag_name: "v0.2.0",
+      },
+      expected,
+    ),
+  ).toThrow("does not match");
 });
 
 test("release tag planning never moves an existing tag", () => {

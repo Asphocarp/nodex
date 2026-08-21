@@ -12,6 +12,7 @@ Premium, Linear/Arc-inspired design system. Every pixel intentional. Ultra-refin
 The aesthetic is **luxury tool-grade software** — closer to Linear, Arc, Notion, and Raycast than to generic SaaS. The UI should feel like a finely machined instrument: subdued, information-dense, and quietly confident.
 
 **Key tenets:**
+
 - Every element earns its space — no decorative filler
 - Hierarchy through **opacity and color**, not through borders and boxes
 - Flat, single-surface layouts — no gradient heroes, no nested bordered cards
@@ -26,9 +27,9 @@ Establish foreground/background relationships using **alpha transparency on the 
 
 ```css
 /* ✅ Good — opacity-based hierarchy */
-background: color-mix(in srgb, var(--foreground) 5%, transparent);   /* subtle tint */
-background: color-mix(in srgb, var(--foreground) 10%, transparent);  /* hover state */
-color: color-mix(in srgb, var(--foreground) 50%, transparent);       /* secondary text */
+background: color-mix(in srgb, var(--foreground) 5%, transparent); /* subtle tint */
+background: color-mix(in srgb, var(--foreground) 10%, transparent); /* hover state */
+color: color-mix(in srgb, var(--foreground) 50%, transparent); /* secondary text */
 
 /* ❌ Bad — hard-coded grays or separate border colors */
 background: #f5f5f5;
@@ -37,6 +38,7 @@ color: #999;
 ```
 
 **Practical token pattern** (Tailwind-style):
+
 - `bg-token-foreground/5` — subtle surface tint
 - `bg-token-foreground/10` — hover/active surface
 - `text-token-text-secondary` — de-emphasized text (implemented via opacity)
@@ -69,11 +71,11 @@ cover them with computed-style browser tests.
 
 Use **three levels maximum** in any single view:
 
-| Level | Token / treatment | Usage |
-|-------|------------------|-------|
-| Primary | `text-token-text-primary` / full opacity | Titles, labels, active items |
-| Secondary | `text-token-text-secondary` | Descriptions, body text |
-| Tertiary | `text-token-description-foreground` | Hints, metadata, shortcuts |
+| Level     | Token / treatment                        | Usage                        |
+| --------- | ---------------------------------------- | ---------------------------- |
+| Primary   | `text-token-text-primary` / full opacity | Titles, labels, active items |
+| Secondary | `text-token-text-secondary`              | Descriptions, body text      |
+| Tertiary  | `text-token-description-foreground`      | Hints, metadata, shortcuts   |
 
 ## Surfaces & Containers
 
@@ -84,17 +86,24 @@ Settings panels, grouped form rows, and option lists use a **single flat card** 
 ```css
 /* ✅ Good — flat card, hairline internal dividers */
 .settings-card {
-  background: var(--bg-fog);           /* very subtle tint, e.g. token-bg-fog */
-  border: 0.5px solid var(--border);   /* hairline outer ring */
-  border-radius: var(--radius-lg);     /* 8-10px */
+  background: var(--bg-fog); /* very subtle tint, e.g. token-bg-fog */
+  border: 0.5px solid var(--border); /* hairline outer ring */
+  border-radius: var(--radius-lg); /* 8-10px */
 }
 .settings-card > * + * {
   border-top: 0.5px solid var(--border); /* internal dividers */
 }
 
 /* ❌ Bad — nested bordered boxes */
-.settings-group { border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
-.settings-group .item { border: 1px solid #eee; border-radius: 8px; }
+.settings-group {
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 16px;
+}
+.settings-group .item {
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
 ```
 
 ### Single flat surface — no gradient heroes
@@ -103,14 +112,14 @@ Main content areas use a **solid background**, never a gradient or patterned her
 
 ### Surface patterns from exemplars
 
-| Component | Background | Border | Radius |
-|-----------|-----------|--------|--------|
-| Settings card | `bg-token-bg-fog` | `border-[0.5px] border-token-border` | `rounded-lg` (8px) |
-| Dropdown / popper | `bg-token-dropdown-background/90` | `ring-[0.5px] ring-token-border` | `rounded-xl` (12px) |
-| Sidebar | `bg-token-surface-secondary` | none | — |
-| Main surface | `main-surface` (solid) | none | — |
-| Switch (on) | `bg-token-charts-blue` | none | `rounded-full` |
-| Switch (off) | `bg-token-foreground/10` | none | `rounded-full` |
+| Component         | Background                        | Border                               | Radius              |
+| ----------------- | --------------------------------- | ------------------------------------ | ------------------- |
+| Settings card     | `bg-token-bg-fog`                 | `border-[0.5px] border-token-border` | `rounded-lg` (8px)  |
+| Dropdown / popper | `bg-token-dropdown-background/90` | `ring-[0.5px] ring-token-border`     | `rounded-xl` (12px) |
+| Sidebar           | `bg-token-surface-secondary`      | none                                 | —                   |
+| Main surface      | `main-surface` (solid)            | none                                 | —                   |
+| Switch (on)       | `bg-token-charts-blue`            | none                                 | `rounded-full`      |
+| Switch (off)      | `bg-token-foreground/10`          | none                                 | `rounded-full`      |
 
 ## Spacing
 
@@ -148,29 +157,47 @@ Active/selected items must be **unmistakable** without being garish:
 
 ```css
 /* Sidebar nav */
-.nav-item          { opacity: 0.75; }
-.nav-item:hover    { opacity: 1; background: var(--list-hover-bg); }
-.nav-item[active]  { opacity: 1; background: var(--list-active-bg); font-weight: normal; }
+.nav-item {
+  opacity: 0.75;
+}
+.nav-item:hover {
+  opacity: 1;
+  background: var(--list-hover-bg);
+}
+.nav-item[active] {
+  opacity: 1;
+  background: var(--list-active-bg);
+  font-weight: normal;
+}
 
 /* Segmented control (e.g. Light/Dark/System) */
-.segment           { color: var(--description-fg); }
-.segment[pressed]  { color: var(--foreground); background: var(--foreground-5); }
+.segment {
+  color: var(--description-fg);
+}
+.segment[pressed] {
+  color: var(--foreground);
+  background: var(--foreground-5);
+}
 
 /* Dropdown item */
-.menu-item:hover   { background: var(--list-hover-bg); }
-.menu-item[checked] { /* show checkmark icon, no background change */ }
+.menu-item:hover {
+  background: var(--list-hover-bg);
+}
+.menu-item[checked] {
+  /* show checkmark icon, no background change */
+}
 ```
 
 ### Button styles
 
-| Variant | Background | Border | Shape |
-|---------|-----------|--------|-------|
-| Ghost (toolbar) | transparent | `border-transparent` | `rounded-full` |
-| Ghost hover | `bg-token-foreground/5` | — | — |
-| Tinted | `bg-token-foreground/5` | `border-transparent` | `rounded-lg` |
-| Tinted active | `bg-token-foreground/10` | — | — |
-| Primary (send) | `bg-token-foreground` | — | `rounded-full` |
-| Disabled | same + `opacity-40` | — | — |
+| Variant         | Background               | Border               | Shape          |
+| --------------- | ------------------------ | -------------------- | -------------- |
+| Ghost (toolbar) | transparent              | `border-transparent` | `rounded-full` |
+| Ghost hover     | `bg-token-foreground/5`  | —                    | —              |
+| Tinted          | `bg-token-foreground/5`  | `border-transparent` | `rounded-lg`   |
+| Tinted active   | `bg-token-foreground/10` | —                    | —              |
+| Primary (send)  | `bg-token-foreground`    | —                    | `rounded-full` |
+| Disabled        | same + `opacity-40`      | —                    | —              |
 
 ## Dropdowns & Poppers
 
@@ -179,16 +206,16 @@ Dropdowns are **frosted glass** with a subtle shadow — they float above conten
 ```css
 .dropdown {
   background: color-mix(in srgb, var(--dropdown-bg) 90%, transparent);
-  backdrop-filter: blur(12px);          /* frosted glass */
-  border-radius: 12px;                  /* rounded-xl */
+  backdrop-filter: blur(12px); /* frosted glass */
+  border-radius: 12px; /* rounded-xl */
   box-shadow: var(--shadow-lg);
-  outline: 0.5px solid var(--border);   /* ring-[0.5px] */
-  padding: 4px;                         /* px-1 py-1 */
+  outline: 0.5px solid var(--border); /* ring-[0.5px] */
+  padding: 4px; /* px-1 py-1 */
 }
 .dropdown-item {
-  border-radius: 8px;                   /* rounded-lg */
+  border-radius: 8px; /* rounded-lg */
   padding: var(--row-x) var(--row-y);
-  font-size: 14px;                      /* text-sm */
+  font-size: 14px; /* text-sm */
 }
 .dropdown-item:hover {
   background: var(--list-hover-bg);
@@ -230,11 +257,11 @@ appears under `document.body`.
 
 Use this ownership decision before implementing any modal:
 
-| Surface | Required owner |
-| --- | --- |
-| Form, chooser, manager, or multi-step dialog whose lifetime is independent of its trigger | Open through `src/renderer/lib/modal-registry.tsx`; render only from the renderer-window `NodexModalHost` |
-| Dialog opened from a dropdown command | Record the pending command in `onSelect`, then call `openModal(...)` from `onCloseAutoFocus` after the dropdown closes |
-| Short confirmation that intentionally belongs to one mounted action boundary | May stay local only when that boundary contains the trigger and its portaled descendants and stops pointer/click activation from reaching an interactive ancestor |
+| Surface                                                                                   | Required owner                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Form, chooser, manager, or multi-step dialog whose lifetime is independent of its trigger | Open through `src/renderer/lib/modal-registry.tsx`; render only from the renderer-window `NodexModalHost`                                                         |
+| Dialog opened from a dropdown command                                                     | Record the pending command in `onSelect`, then call `openModal(...)` from `onCloseAutoFocus` after the dropdown closes                                            |
+| Short confirmation that intentionally belongs to one mounted action boundary              | May stay local only when that boundary contains the trigger and its portaled descendants and stops pointer/click activation from reaching an interactive ancestor |
 
 Hard rules:
 
@@ -287,10 +314,10 @@ Right-align keyboard shortcuts in **tertiary color, smaller size**:
 kbd {
   background: color-mix(in srgb, var(--foreground) 5%, transparent);
   color: var(--description-foreground);
-  border-radius: 3px;         /* rounded-sm */
-  padding: 2px 6px;           /* px-1.5 py-0.5 */
+  border-radius: 3px; /* rounded-sm */
+  padding: 2px 6px; /* px-1.5 py-0.5 */
   font-size: 11px;
-  font-family: var(--sans);   /* not monospace */
+  font-family: var(--sans); /* not monospace */
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.025em;
@@ -309,6 +336,7 @@ Hover highlights, background changes, color changes, opacity changes, and expand
 - **Show-on-hover elements (close buttons, actions):** no transition — instant reveal
 
 Reserve transitions only for **meaningful, intentional motion**:
+
 - **Icon transforms** (chevron rotation): `transition-transform duration-150`
 - **Toggles/switches:** `transition-duration: 200ms; transition-timing-function: ease-out`
 - **Dropdown/popover entry:** scale + translate with `will-change: opacity, transform`
@@ -329,7 +357,7 @@ Reserve transitions only for **meaningful, intentional motion**:
 Outer container borders are always `0.5px` — never `1px` or thicker:
 
 ```css
-border: 0.5px solid var(--border-token);   /* outer ring */
+border: 0.5px solid var(--border-token); /* outer ring */
 /* or with Tailwind: */
 /* border-[0.5px] border-token-border */
 /* ring-[0.5px] ring-token-border */
@@ -369,15 +397,15 @@ border-top: 0.5px solid var(--border-token);
 
 Design dark-first. The exemplar palette is:
 
-| Role | Value |
-|------|-------|
-| Editor bg | `#0d0d0d` |
+| Role              | Value     |
+| ----------------- | --------- |
+| Editor bg         | `#0d0d0d` |
 | Surface secondary | `#131313` |
-| Input bg | `#161616` |
-| Muted text | `#414141` |
-| Secondary text | `#8f8f8f` |
-| Foreground | `#fcfcfc` |
-| Accent (blue) | `#0169cc` |
+| Input bg          | `#161616` |
+| Muted text        | `#414141` |
+| Secondary text    | `#8f8f8f` |
+| Foreground        | `#fcfcfc` |
+| Accent (blue)     | `#0169cc` |
 
 All surfaces are **very close in value** — hierarchy comes from subtle shifts, not dramatic contrast between panels.
 

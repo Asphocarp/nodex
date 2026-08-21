@@ -90,9 +90,11 @@ describe("GitWorkerClient", () => {
         },
       },
     });
-    expect(onEvent).toHaveBeenLastCalledWith(expect.objectContaining({
-      type: "git-live-query-event",
-    }));
+    expect(onEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: "git-live-query-event",
+      }),
+    );
     client.dispose();
   });
 

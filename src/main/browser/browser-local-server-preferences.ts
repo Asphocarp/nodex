@@ -9,23 +9,23 @@ import {
 
 const MAX_EXPANDED_PROJECTS = 1_000;
 
-const BrowserLocalServerPreferencesSchema = z.object({
-  schemaVersion: z.literal(1),
-  showMode: z.enum(["online", "all", "hidden"]),
-  sortMode: z.enum(["recently-used", "origin"]),
-  expandedProjectIds: z.array(
-    z.string().trim().min(1).max(512),
-  ).max(MAX_EXPANDED_PROJECTS),
-}).strict();
+const BrowserLocalServerPreferencesSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    showMode: z.enum(["online", "all", "hidden"]),
+    sortMode: z.enum(["recently-used", "origin"]),
+    expandedProjectIds: z.array(z.string().trim().min(1).max(512)).max(MAX_EXPANDED_PROJECTS),
+  })
+  .strict();
 
-function normalizeExpandedProjectIds(
-  values: readonly string[],
-): string[] {
-  return [...new Set(
-    values
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0 && value.length <= 512),
-  )].slice(-MAX_EXPANDED_PROJECTS);
+function normalizeExpandedProjectIds(values: readonly string[]): string[] {
+  return [
+    ...new Set(
+      values
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0 && value.length <= 512),
+    ),
+  ].slice(-MAX_EXPANDED_PROJECTS);
 }
 
 export class BrowserLocalServerPreferencesStore {
@@ -47,15 +47,14 @@ export class BrowserLocalServerPreferencesStore {
     };
   }
 
-  update(
-    input: BrowserLocalServerPreferencesUpdate,
-  ): BrowserLocalServerPreferences {
+  update(input: BrowserLocalServerPreferencesUpdate): BrowserLocalServerPreferences {
     const next: BrowserLocalServerPreferences = {
       showMode: input.showMode ?? this.preferences.showMode,
       sortMode: input.sortMode ?? this.preferences.sortMode,
-      expandedProjectIds: input.expandedProjectIds === undefined
-        ? [...this.preferences.expandedProjectIds]
-        : normalizeExpandedProjectIds(input.expandedProjectIds),
+      expandedProjectIds:
+        input.expandedProjectIds === undefined
+          ? [...this.preferences.expandedProjectIds]
+          : normalizeExpandedProjectIds(input.expandedProjectIds),
     };
     this.persist(next);
     this.preferences = next;
@@ -71,9 +70,7 @@ export class BrowserLocalServerPreferencesStore {
       this.preferences = {
         showMode: parsed.showMode,
         sortMode: parsed.sortMode,
-        expandedProjectIds: normalizeExpandedProjectIds(
-          parsed.expandedProjectIds,
-        ),
+        expandedProjectIds: normalizeExpandedProjectIds(parsed.expandedProjectIds),
       };
     } catch {
       this.quarantineCorruptFile();
@@ -87,10 +84,14 @@ export class BrowserLocalServerPreferencesStore {
     try {
       fs.writeFileSync(
         temporaryPath,
-        `${JSON.stringify({
-          schemaVersion: 1,
-          ...preferences,
-        }, null, 2)}\n`,
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            ...preferences,
+          },
+          null,
+          2,
+        )}\n`,
         { encoding: "utf8", mode: 0o600 },
       );
       const descriptor = fs.openSync(temporaryPath, "r");

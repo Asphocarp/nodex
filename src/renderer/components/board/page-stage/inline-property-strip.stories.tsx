@@ -11,10 +11,7 @@ import {
 import { projectPageDetailToStageModel } from "@/lib/page-stage-page";
 import { PageStageInlinePropertyStrip } from "./inline-property-strip";
 import { buildPageDetailStoryResult } from "./page-stage-story-page-detail";
-import {
-  buildPageStageStoryPage,
-  PAGE_STAGE_STORY_PROJECT_ID,
-} from "./page-stage-dev-story-data";
+import { buildPageStageStoryPage, PAGE_STAGE_STORY_PROJECT_ID } from "./page-stage-dev-story-data";
 import type { PageStagePropertyControls } from "./use-page-stage-properties";
 
 const OPTIONS: Readonly<Record<string, readonly DatabasePropertyOption[]>> = {
@@ -55,60 +52,62 @@ const buildProperties = (): readonly PageStageDataSourceProperty[] => {
 
 function InlinePropertyStripStory() {
   const [properties, setProperties] = useState(buildProperties);
-  const semantic = useMemo(
-    () => readPageStageSemanticProperties(properties),
-    [properties],
+  const semantic = useMemo(() => readPageStageSemanticProperties(properties), [properties]);
+  const controls = useMemo<PageStagePropertyControls>(
+    () => ({
+      pageId: "page:story",
+      properties,
+      primaryProperties: properties.filter((item) =>
+        ["priority", "status", "estimate", "due_date"].includes(item.property.propertyId),
+      ),
+      sectionProperties: pageStageSectionProperties(properties, semantic),
+      semanticValues: pageStageSemanticValues(semantic),
+      hasScheduleCapability: hasPageStageScheduleCapability(semantic),
+      options: OPTIONS,
+      optionRegistryStates: {},
+      requestOptions: () => undefined,
+      requestMoreOptions: () => undefined,
+      optionRegistryHasMore: {},
+      optionRegistryLoadingMore: {},
+      busyPropertyIds: new Set(),
+      errors: {},
+      edit: async (property, edit) => {
+        if (edit.kind === "replace") {
+          setProperties((current) =>
+            current.map((item) =>
+              item.property.propertyId === property.property.propertyId
+                ? {
+                    ...item,
+                    value: edit.value,
+                    valueRevision: item.valueRevision + 1,
+                  }
+                : item,
+            ),
+          );
+        }
+        return { status: "updated", didMutate: true };
+      },
+      patchRelation: async () => ({ status: "updated", didMutate: false }),
+      replaceRelation: async () => ({ status: "updated", didMutate: false }),
+      patchMultiSelect: async () => ({ status: "updated", didMutate: false }),
+      createOptionAndSelect: async () => ({ status: "updated", didMutate: false }),
+      loadRelationTargets: async (property) => ({
+        valueRevision: property.valueRevision,
+        totalCount: 0,
+        targets: [],
+        nextCursor: null,
+        projectionRevision: 0,
+      }),
+      searchRelationCandidates: async () => ({
+        candidates: [],
+        nextCursor: null,
+        projectionRevision: 0,
+      }),
+      loadRelationTargetDescriptor: async () => null,
+      refreshRelationValue: async () => undefined,
+    }),
+    [properties, semantic],
   );
-  const controls = useMemo<PageStagePropertyControls>(() => ({
-    pageId: "page:story",
-    properties,
-    primaryProperties: properties.filter((item) =>
-      ["priority", "status", "estimate", "due_date"].includes(
-        item.property.propertyId,
-      )),
-    sectionProperties: pageStageSectionProperties(properties, semantic),
-    semanticValues: pageStageSemanticValues(semantic),
-    hasScheduleCapability: hasPageStageScheduleCapability(semantic),
-    options: OPTIONS,
-    optionRegistryStates: {},
-    requestOptions: () => undefined,
-    requestMoreOptions: () => undefined,
-    optionRegistryHasMore: {},
-    optionRegistryLoadingMore: {},
-    busyPropertyIds: new Set(),
-    errors: {},
-    edit: async (property, edit) => {
-      if (edit.kind === "replace") {
-        setProperties((current) => current.map((item) =>
-          item.property.propertyId === property.property.propertyId
-            ? {
-                ...item,
-                value: edit.value,
-                valueRevision: item.valueRevision + 1,
-              }
-            : item));
-      }
-      return { status: "updated", didMutate: true };
-    },
-    patchRelation: async () => ({ status: "updated", didMutate: false }),
-    replaceRelation: async () => ({ status: "updated", didMutate: false }),
-    patchMultiSelect: async () => ({ status: "updated", didMutate: false }),
-    createOptionAndSelect: async () => ({ status: "updated", didMutate: false }),
-    loadRelationTargets: async (property) => ({
-      valueRevision: property.valueRevision,
-      totalCount: 0,
-      targets: [],
-      nextCursor: null,
-      projectionRevision: 0,
-    }),
-    searchRelationCandidates: async () => ({
-      candidates: [],
-      nextCursor: null,
-      projectionRevision: 0,
-    }),
-    loadRelationTargetDescriptor: async () => null,
-    refreshRelationValue: async () => undefined,
-  }), [properties, semantic]);
 
   return (
     <div className="min-h-screen bg-(--background) p-8">

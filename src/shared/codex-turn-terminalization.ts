@@ -1,8 +1,4 @@
-import type {
-  CodexItemView,
-  CodexTranscriptEntry,
-  CodexTurnStatus,
-} from "./types";
+import type { CodexItemView, CodexTranscriptEntry, CodexTurnStatus } from "./types";
 
 function resolveEntryKind(entry: CodexItemView | CodexTranscriptEntry): string {
   if ("normalizedKind" in entry && typeof entry.normalizedKind === "string") {

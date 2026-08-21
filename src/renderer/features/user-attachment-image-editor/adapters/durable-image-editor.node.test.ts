@@ -31,31 +31,34 @@ describe("durable image editor config", () => {
       "https://example.com/image.png",
     ];
 
-    expect(sources.map((source) => (
-      createWorkbenchImageEditorSurfaceConfig(uploadedOptions(source))
-        ?.images[0]?.locator.kind
-    ))).toEqual(["managed", "local", "pointer", "remote"]);
+    expect(
+      sources.map(
+        (source) =>
+          createWorkbenchImageEditorSurfaceConfig(uploadedOptions(source))?.images[0]?.locator.kind,
+      ),
+    ).toEqual(["managed", "local", "pointer", "remote"]);
   });
 
   test("refuses transient data and object URLs before materialization", () => {
-    expect(createWorkbenchImageEditorSurfaceConfig(
-      uploadedOptions("data:image/png;base64,AA=="),
-    )).toBeNull();
-    expect(createWorkbenchImageEditorSurfaceConfig(
-      uploadedOptions("blob:https://nodex.local/transient"),
-    )).toBeNull();
-    expect(createWorkbenchImageEditorSurfaceConfig(
-      uploadedOptions("nodex://assets/folder/image.png"),
-    )).toBeNull();
+    expect(
+      createWorkbenchImageEditorSurfaceConfig(uploadedOptions("data:image/png;base64,AA==")),
+    ).toBeNull();
+    expect(
+      createWorkbenchImageEditorSurfaceConfig(
+        uploadedOptions("blob:https://nodex.local/transient"),
+      ),
+    ).toBeNull();
+    expect(
+      createWorkbenchImageEditorSurfaceConfig(uploadedOptions("nodex://assets/folder/image.png")),
+    ).toBeNull();
   });
 
   test("rejects a materializer result that is not a canonical managed asset", async () => {
-    await expect(materializeWorkbenchImageEditorSurfaceConfig(
-      uploadedOptions("data:image/png;base64,AA=="),
-      {
+    await expect(
+      materializeWorkbenchImageEditorSurfaceConfig(uploadedOptions("data:image/png;base64,AA=="), {
         materialize: async () => "nodex://assets/folder/image.png",
-      },
-    )).resolves.toBeNull();
+      }),
+    ).resolves.toBeNull();
   });
 
   test("materializes a data URL once and restores runtime editor options", async () => {
@@ -73,19 +76,18 @@ describe("durable image editor config", () => {
       kind: "managed",
       source: "nodex://assets/materialized-image",
     });
-    expect(restoreNormalizedImageEditorOptions(
-      config!,
-      "Pinned attachment",
-    )).toMatchObject({
+    expect(restoreNormalizedImageEditorOptions(config!, "Pinned attachment")).toMatchObject({
       composerTarget: {
         channelId: "AppScope:app/ThreadScope:session:session-1::root",
         placement: "root",
       },
-      images: [{
-        attachmentSrc: "nodex://assets/materialized-image",
-        managedSource: "nodex://assets/materialized-image",
-        src: "nodex://assets/materialized-image",
-      }],
+      images: [
+        {
+          attachmentSrc: "nodex://assets/materialized-image",
+          managedSource: "nodex://assets/materialized-image",
+          src: "nodex://assets/materialized-image",
+        },
+      ],
       openInEditor: true,
       title: "Pinned attachment",
     });
@@ -114,14 +116,13 @@ describe("durable image editor config", () => {
     });
 
     const config = createWorkbenchImageEditorSurfaceConfig(options);
-    const restored = restoreNormalizedImageEditorOptions(
-      config!,
-      "Generated image 2",
-    );
+    const restored = restoreNormalizedImageEditorOptions(config!, "Generated image 2");
 
     expect(restored.initialView).toBe("playground");
-    expect(restored.generatedImages?.map((image) => image.id))
-      .toEqual(["generated-1", "generated-2"]);
+    expect(restored.generatedImages?.map((image) => image.id)).toEqual([
+      "generated-1",
+      "generated-2",
+    ]);
     expect(restored.generatedImages?.[1]).toMatchObject({
       generatedOrdinal: 2,
       groupId: "turn-1",

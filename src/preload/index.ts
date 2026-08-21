@@ -23,10 +23,7 @@ import {
   type WorkbenchCommandInvocation,
 } from "../shared/workbench-commands";
 import { CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL } from "../shared/clipboard-paste";
-import type {
-  ClipboardPasteInspectionResult,
-  ClipboardPastePayload,
-} from "../shared/types";
+import type { ClipboardPasteInspectionResult, ClipboardPastePayload } from "../shared/types";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
 import {
   FILE_PATH_INSPECT_SYNC_CHANNEL,
@@ -53,10 +50,7 @@ ipcRenderer.on(MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL, (event, message) => {
 });
 
 function resolveManagedAssetPath(source: string): string | null {
-  return ipcRenderer.sendSync(
-    MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL,
-    source,
-  ) as string | null;
+  return ipcRenderer.sendSync(MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL, source) as string | null;
 }
 
 // Multiple editor blocks (toggle-list-inline-view, pageRef) each subscribe to
@@ -64,12 +58,10 @@ function resolveManagedAssetPath(source: string): string | null {
 ipcRenderer.setMaxListeners(50);
 
 contextBridge.exposeInMainWorld("api", {
-  invoke: (channel: string, ...args: unknown[]) =>
-    ipcRenderer.invoke(channel, ...args),
+  invoke: (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args),
 
   on: (event: string, callback: (...args: unknown[]) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, ...args: unknown[]) =>
-      callback(...args);
+    const listener = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args);
     ipcRenderer.on(event, listener);
     return () => {
       ipcRenderer.removeListener(event, listener);
@@ -78,26 +70,19 @@ contextBridge.exposeInMainWorld("api", {
   awaitInitialization: () => ipcRenderer.invoke("app:await-initialization"),
   getCoreAuthorityStatus: () =>
     ipcRenderer.invoke(GET_CORE_AUTHORITY_STATUS_CHANNEL) as Promise<CoreAuthorityStatus>,
-  onCoreAuthorityStatus: (
-    callback: (status: CoreAuthorityStatus) => void,
-  ) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      status: CoreAuthorityStatus,
-    ) => callback(status);
+  onCoreAuthorityStatus: (callback: (status: CoreAuthorityStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: CoreAuthorityStatus) =>
+      callback(status);
     ipcRenderer.on(CORE_AUTHORITY_STATUS_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(CORE_AUTHORITY_STATUS_CHANNEL, listener);
     };
   },
   retryCoreAuthority: () => ipcRenderer.invoke(RETRY_CORE_AUTHORITY_CHANNEL),
-  relaunchForCoreAuthority: () =>
-    ipcRenderer.invoke(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL),
+  relaunchForCoreAuthority: () => ipcRenderer.invoke(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL),
   onInitializationStep: (callback: (step: AppInitializationStep) => void) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      step: AppInitializationStep,
-    ) => callback(step);
+    const listener = (_event: Electron.IpcRendererEvent, step: AppInitializationStep) =>
+      callback(step);
     ipcRenderer.on("app:init-step", listener);
     return () => {
       ipcRenderer.removeListener("app:init-step", listener);
@@ -170,10 +155,8 @@ contextBridge.exposeInMainWorld("api", {
     };
   },
   onWorkbenchCommand: (callback: (invocation: WorkbenchCommandInvocation) => void) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      invocation: WorkbenchCommandInvocation,
-    ) => callback(invocation);
+    const listener = (_event: Electron.IpcRendererEvent, invocation: WorkbenchCommandInvocation) =>
+      callback(invocation);
     ipcRenderer.on(EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL, listener);
@@ -192,10 +175,9 @@ contextBridge.exposeInMainWorld("api", {
       const absolutePath = webUtils.getPathForFile(file);
       if (!absolutePath) return null;
 
-      return ipcRenderer.sendSync(
-        FILE_PATH_INSPECT_SYNC_CHANNEL,
-        absolutePath,
-      ) as ClipboardPasteInspectionResult["items"][number] | null;
+      return ipcRenderer.sendSync(FILE_PATH_INSPECT_SYNC_CHANNEL, absolutePath) as
+        | ClipboardPasteInspectionResult["items"][number]
+        | null;
     } catch {
       return null;
     }
@@ -210,10 +192,8 @@ contextBridge.exposeInMainWorld("api", {
   sendGitWorkerMessage: (message: GitWorkerMessageFromView) =>
     ipcRenderer.invoke(GIT_WORKER_MESSAGE_FROM_VIEW_CHANNEL, message).then(() => undefined),
   onGitWorkerMessage: (callback: (message: GitWorkerMessageForView) => void) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      message: GitWorkerMessageForView,
-    ) => callback(message);
+    const listener = (_event: Electron.IpcRendererEvent, message: GitWorkerMessageForView) =>
+      callback(message);
     ipcRenderer.on(GIT_WORKER_MESSAGE_FOR_VIEW_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(GIT_WORKER_MESSAGE_FOR_VIEW_CHANNEL, listener);

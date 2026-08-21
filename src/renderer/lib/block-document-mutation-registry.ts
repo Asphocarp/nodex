@@ -14,10 +14,7 @@ export interface BlockDocumentStructuralMutationParticipant {
  * Drag payloads carry this renderer-local identity so a target can prepare the
  * actual source editor before Core captures its structural fence.
  */
-const participants = new Map<
-  string,
-  Map<number, BlockDocumentStructuralMutationParticipant>
->();
+const participants = new Map<string, Map<number, BlockDocumentStructuralMutationParticipant>>();
 let nextRegistrationId = 1;
 
 export const registerBlockDocumentStructuralMutationParticipant = (

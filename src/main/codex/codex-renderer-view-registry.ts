@@ -18,10 +18,7 @@ export class CodexRendererViewRegistry {
     string,
     Map<string, Set<string>>
   >();
-  private readonly viewsByConversationId = new Map<
-    string,
-    Map<string, ActiveRendererView>
-  >();
+  private readonly viewsByConversationId = new Map<string, Map<string, ActiveRendererView>>();
   private readonly presentedViewsByConversationId = new Map<
     string,
     Map<string, ActiveRendererView>
@@ -37,8 +34,9 @@ export class CodexRendererViewRegistry {
       return;
     }
 
-    const views = this.viewsByConversationId.get(normalizedConversationId)
-      ?? new Map<string, ActiveRendererView>();
+    const views =
+      this.viewsByConversationId.get(normalizedConversationId) ??
+      new Map<string, ActiveRendererView>();
     this.activationOrder += 1;
     views.set(normalizedClientId, {
       clientId: normalizedClientId,
@@ -52,9 +50,11 @@ export class CodexRendererViewRegistry {
   }
 
   isClientPresenting(conversationId: string, clientId: string): boolean {
-    return this.presentedSurfaceIdsByConversationAndClient
-      .get(conversationId.trim())
-      ?.has(clientId.trim()) === true;
+    return (
+      this.presentedSurfaceIdsByConversationAndClient
+        .get(conversationId.trim())
+        ?.has(clientId.trim()) === true
+    );
   }
 
   setPresented(
@@ -69,9 +69,8 @@ export class CodexRendererViewRegistry {
     if (!normalizedConversationId || !normalizedClientId || !normalizedSurfaceId) return;
 
     if (!presented) {
-      const surfacesByClient = this.presentedSurfaceIdsByConversationAndClient.get(
-        normalizedConversationId,
-      );
+      const surfacesByClient =
+        this.presentedSurfaceIdsByConversationAndClient.get(normalizedConversationId);
       const surfaceIds = surfacesByClient?.get(normalizedClientId);
       if (!surfaceIds?.delete(normalizedSurfaceId)) return;
       if (surfaceIds.size === 0) {
@@ -84,30 +83,24 @@ export class CodexRendererViewRegistry {
       return;
     }
 
-    const surfacesByClient = this.presentedSurfaceIdsByConversationAndClient.get(
-      normalizedConversationId,
-    ) ?? new Map<string, Set<string>>();
+    const surfacesByClient =
+      this.presentedSurfaceIdsByConversationAndClient.get(normalizedConversationId) ??
+      new Map<string, Set<string>>();
     const surfaceIds = surfacesByClient.get(normalizedClientId) ?? new Set<string>();
     const wasClientPresented = surfaceIds.size > 0;
     surfaceIds.add(normalizedSurfaceId);
     surfacesByClient.set(normalizedClientId, surfaceIds);
-    this.presentedSurfaceIdsByConversationAndClient.set(
-      normalizedConversationId,
-      surfacesByClient,
-    );
+    this.presentedSurfaceIdsByConversationAndClient.set(normalizedConversationId, surfacesByClient);
     if (!wasClientPresented) {
-      const presentedViews = this.presentedViewsByConversationId.get(
-        normalizedConversationId,
-      ) ?? new Map<string, ActiveRendererView>();
+      const presentedViews =
+        this.presentedViewsByConversationId.get(normalizedConversationId) ??
+        new Map<string, ActiveRendererView>();
       this.presentationOrder += 1;
       presentedViews.set(normalizedClientId, {
         clientId: normalizedClientId,
         activationOrder: this.presentationOrder,
       });
-      this.presentedViewsByConversationId.set(
-        normalizedConversationId,
-        presentedViews,
-      );
+      this.presentedViewsByConversationId.set(normalizedConversationId, presentedViews);
     }
   }
 
@@ -122,10 +115,8 @@ export class CodexRendererViewRegistry {
     }
 
     const affectedConversationIds: string[] = [];
-    for (
-      const [conversationId, surfacesByClient]
-      of this.presentedSurfaceIdsByConversationAndClient
-    ) {
+    for (const [conversationId, surfacesByClient] of this
+      .presentedSurfaceIdsByConversationAndClient) {
       if (surfacesByClient.has(normalizedClientId)) {
         affectedConversationIds.push(conversationId);
       }
@@ -184,10 +175,8 @@ export class CodexRendererViewRegistry {
       if (!this.removeView(conversationId, normalizedClientId)) continue;
       affectedConversationIds.add(conversationId);
     }
-    for (
-      const [conversationId, surfacesByClient]
-      of this.presentedSurfaceIdsByConversationAndClient
-    ) {
+    for (const [conversationId, surfacesByClient] of this
+      .presentedSurfaceIdsByConversationAndClient) {
       if (!surfacesByClient.delete(normalizedClientId)) continue;
       affectedConversationIds.add(conversationId);
       this.removePresentedView(conversationId, normalizedClientId);

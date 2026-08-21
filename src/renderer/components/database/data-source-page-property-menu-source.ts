@@ -19,9 +19,7 @@ export interface DataSourcePagePropertyMenuSource {
 export const dataSourcePagePropertyMenuSourceFromBindings = (
   bindings: readonly DataSourcePropertyEditorBinding[],
 ): DataSourcePagePropertyMenuSource => {
-  const bindingsById = new Map(
-    bindings.map((binding) => [binding.property.propertyId, binding]),
-  );
+  const bindingsById = new Map(bindings.map((binding) => [binding.property.propertyId, binding]));
   return {
     descriptors: bindings.map((binding) => ({
       property: binding.property,

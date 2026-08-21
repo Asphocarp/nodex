@@ -18,10 +18,7 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
   const listeners = new Set<(...args: unknown[]) => void>();
   const presenceEvents: unknown[] = [];
   const bridge = {
-    invoke: async (
-      channel: string,
-      request: { documentId: string; syncRequestId?: string },
-    ) => {
+    invoke: async (channel: string, request: { documentId: string; syncRequestId?: string }) => {
       calls.push(channel);
       if (channel === "canvas-scene:subscribe") {
         return { ok: true, value: { subscribed: true } };
@@ -58,11 +55,15 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
     libraryId: "library-1",
     accessContext,
   });
-  const unsubscribe = adapter.subscribe({
-    accessContext,
-    documentId: "canvas-1",
-    clientSessionId: "client-1",
-  }, () => undefined, (event) => presenceEvents.push(event));
+  const unsubscribe = adapter.subscribe(
+    {
+      accessContext,
+      documentId: "canvas-1",
+      clientSessionId: "client-1",
+    },
+    () => undefined,
+    (event) => presenceEvents.push(event),
+  );
   const result = await adapter.sync({
     syncRequestId: "sync-1",
     accessContext,
@@ -71,35 +72,41 @@ test("Electron Canvas adapter awaits subscription and carries presence", async (
   });
   expect(result.ok).toBe(true);
   expect(calls.slice(0, 2)).toEqual(["canvas-scene:subscribe", "canvas-scene:sync"]);
-  listeners.forEach((listener) => listener({
-    type: "canvas_presence_snapshot",
-    libraryId: "library-1",
-    accessContext,
-    documentId: "canvas-1",
-    generation: 1,
-    presences: [],
-  }));
-  expect(presenceEvents).toHaveLength(1);
-  listeners.forEach((listener) => listener({
-    type: "canvas_presence_snapshot",
-    libraryId: "library-foreign",
-    accessContext,
-    documentId: "canvas-1",
-    generation: 1,
-    presences: [],
-  }));
-  expect(presenceEvents).toHaveLength(1);
-  await expect(adapter.publishPresence?.({
-    accessContext,
-    clientSessionId: "client-1",
-    publication: {
-      engine: "canvas_scene",
+  listeners.forEach((listener) =>
+    listener({
+      type: "canvas_presence_snapshot",
+      libraryId: "library-1",
+      accessContext,
       documentId: "canvas-1",
       generation: 1,
-      clock: 1,
-      state: { selectedElementIds: [], idle: "active" },
-    },
-  })).resolves.toMatchObject({ ok: true });
+      presences: [],
+    }),
+  );
+  expect(presenceEvents).toHaveLength(1);
+  listeners.forEach((listener) =>
+    listener({
+      type: "canvas_presence_snapshot",
+      libraryId: "library-foreign",
+      accessContext,
+      documentId: "canvas-1",
+      generation: 1,
+      presences: [],
+    }),
+  );
+  expect(presenceEvents).toHaveLength(1);
+  await expect(
+    adapter.publishPresence?.({
+      accessContext,
+      clientSessionId: "client-1",
+      publication: {
+        engine: "canvas_scene",
+        documentId: "canvas-1",
+        generation: 1,
+        clock: 1,
+        state: { selectedElementIds: [], idle: "active" },
+      },
+    }),
+  ).resolves.toMatchObject({ ok: true });
   expect(calls).toContain("canvas-scene:presence:publish");
   unsubscribe();
 });
@@ -111,10 +118,7 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
   });
   const calls: string[] = [];
   const bridge = {
-    invoke: async (
-      channel: string,
-      request: { documentId: string; syncRequestId?: string },
-    ) => {
+    invoke: async (channel: string, request: { documentId: string; syncRequestId?: string }) => {
       calls.push(channel);
       if (channel === "canvas-scene:subscribe") return await subscription;
       if (channel === "canvas-scene:sync") {
@@ -154,10 +158,12 @@ test("Electron Canvas keeps a revived exact session ahead of stale teardown", as
   const closeSecond = adapter.subscribe(request, listener);
 
   resolveSubscription({ ok: true, value: { subscribed: true } });
-  await expect(adapter.sync({
-    syncRequestId: "sync-2",
-    ...request,
-  })).resolves.toMatchObject({
+  await expect(
+    adapter.sync({
+      syncRequestId: "sync-2",
+      ...request,
+    }),
+  ).resolves.toMatchObject({
     ok: true,
   });
   expect(calls).toEqual(["canvas-scene:subscribe", "canvas-scene:sync"]);

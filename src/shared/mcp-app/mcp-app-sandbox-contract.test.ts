@@ -51,18 +51,21 @@ describe("MCP App sandbox contract", () => {
   });
 
   test("accepts the trusted remote transport and rejects extra query keys", () => {
-    const source = appendMcpAppSandboxInitId(buildMcpAppSandboxSourceUrl({
-      subdomain: "mcp-calendar-fixture",
-      locale: "en-US",
-    }), "init_fixture_1");
+    const source = appendMcpAppSandboxInitId(
+      buildMcpAppSandboxSourceUrl({
+        subdomain: "mcp-calendar-fixture",
+        locale: "en-US",
+      }),
+      "init_fixture_1",
+    );
     const withExtra = new URL(source);
     withExtra.searchParams.set("extra", "1");
 
     expect(parseMcpAppSandboxSourceUrl(withExtra.toString())).toBe(null);
-    expect(parseMcpAppSandboxSourceUrl(source.replace("nodex-mcp-sandbox:", "https:")))
-      .not.toBe(null);
-    expect(parseMcpAppSandboxSourceUrl(source.replace("nodex-mcp-sandbox:", "ftp:")))
-      .toBe(null);
+    expect(parseMcpAppSandboxSourceUrl(source.replace("nodex-mcp-sandbox:", "https:"))).not.toBe(
+      null,
+    );
+    expect(parseMcpAppSandboxSourceUrl(source.replace("nodex-mcp-sandbox:", "ftp:"))).toBe(null);
   });
 
   test("accepts only the enumerated complete port set", () => {
@@ -76,14 +79,17 @@ describe("MCP App sandbox contract", () => {
     expect(parseMcpAppSandboxGuestInitMessage(valid)?.portNames).toEqual(
       MCP_APP_REQUIRED_GUEST_PORT_NAMES,
     );
-    expect(parseMcpAppSandboxGuestInitMessage({
-      ...valid,
-      portNames: [...MCP_APP_REQUIRED_GUEST_PORT_NAMES.slice(1)],
-    })).toBe(null);
-    expect(parseMcpAppSandboxGuestInitMessage({
-      ...valid,
-      portNames: [...MCP_APP_REQUIRED_GUEST_PORT_NAMES, "invoke"],
-    })).toBe(null);
+    expect(
+      parseMcpAppSandboxGuestInitMessage({
+        ...valid,
+        portNames: [...MCP_APP_REQUIRED_GUEST_PORT_NAMES.slice(1)],
+      }),
+    ).toBe(null);
+    expect(
+      parseMcpAppSandboxGuestInitMessage({
+        ...valid,
+        portNames: [...MCP_APP_REQUIRED_GUEST_PORT_NAMES, "invoke"],
+      }),
+    ).toBe(null);
   });
-
 });

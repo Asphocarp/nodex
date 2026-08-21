@@ -22,7 +22,7 @@ const MAX_OPEN_TAB_IDS = 256;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -59,10 +59,10 @@ function parseBrowserUseSurface(value: unknown): BrowserUsePipSurface | null {
     const tabId = parseIdentifier(value?.tabId);
     const url = value?.url;
     if (
-      !tabId
-      || typeof url !== "string"
-      || !url.startsWith("data:image/")
-      || url.length > MAX_SCREENSHOT_DATA_URL_LENGTH
+      !tabId ||
+      typeof url !== "string" ||
+      !url.startsWith("data:image/") ||
+      url.length > MAX_SCREENSHOT_DATA_URL_LENGTH
     ) {
       return null;
     }

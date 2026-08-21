@@ -29,10 +29,10 @@ describe("buildRendererItemStream", () => {
           markdownText: [
             "Daily report is ready.",
             "",
-            "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
+            '::inbox-item{title="Daily report ready" summary="Review the clean test summary"}',
             "::archive-thread{}",
             "",
-            "Done. ::inbox-item{title=\"Inline remains visible\"}",
+            'Done. ::inbox-item{title="Inline remains visible"}',
           ].join("\n"),
         }),
       ],
@@ -46,10 +46,10 @@ describe("buildRendererItemStream", () => {
       [
         "Daily report is ready.",
         "",
-        "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
+        '::inbox-item{title="Daily report ready" summary="Review the clean test summary"}',
         "::archive-thread{}",
         "",
-        "Done. ::inbox-item{title=\"Inline remains visible\"}",
+        'Done. ::inbox-item{title="Inline remains visible"}',
       ].join("\n"),
     );
     expect(assistant?.searchableText.includes("Daily report ready")).toBe(false);
@@ -88,7 +88,8 @@ describe("buildRendererItemStream", () => {
           type: "autoReviewInterruptionWarning",
           kind: "systemEvent",
           semanticKind: "autoReviewInterruptionWarning",
-          markdownText: "Automatic approval review rejected too many approval requests for this turn",
+          markdownText:
+            "Automatic approval review rejected too many approval requests for this turn",
         }),
         buildEntry({
           itemId: "steered_1",
@@ -113,7 +114,9 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("todoList,turnDiff,modelRerouted,autoReviewInterruptionWarning,steered,webSearch");
+    expect(items.map((item) => item.type).join(",")).toBe(
+      "todoList,turnDiff,modelRerouted,autoReviewInterruptionWarning,steered,webSearch",
+    );
   });
 
   test("maps bundle-native hook, planImplementation, and userInputResponse families", () => {
@@ -191,12 +194,14 @@ describe("buildRendererItemStream", () => {
           semanticKind: "systemEvent",
           rawItem: { id: "patch_1", type: "fileChange" },
           fileChange: {
-            changes: buildCodexFileChangeMap([{
-              type: "update",
-              path: "src/app.ts",
-              unifiedDiff: "",
-              movePath: null,
-            }]),
+            changes: buildCodexFileChangeMap([
+              {
+                type: "update",
+                path: "src/app.ts",
+                unifiedDiff: "",
+                movePath: null,
+              },
+            ]),
           },
         }),
         buildEntry({
@@ -235,7 +240,9 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("assistantMessage,reasoning,exec,fileChange,mcpToolCall,dynamicToolCall,webSearch,imageView,contextCompaction");
+    expect(items.map((item) => item.type).join(",")).toBe(
+      "assistantMessage,reasoning,exec,fileChange,mcpToolCall,dynamicToolCall,webSearch,imageView,contextCompaction",
+    );
   });
 
   test("preserves canonical consecutive image runs across projected barriers", () => {
@@ -441,13 +448,31 @@ describe("buildRendererItemStream", () => {
       "subagentActivityInlineGroup,assistantMessage,subagentActivityInlineGroup",
     );
     expect(first?.type).toBe("subagentActivityInlineGroup");
-    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.displayName : "").toBe("Scout");
-    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.status : "").toBe("active");
-    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.statusSummary : "").toBe("Scout started working");
-    expect(first && "subagentActivityRows" in first ? first.subagentActivityRows?.[1]?.displayName : "").toBe("Reviewer");
-    expect(first && "subagentActivityStatusLabel" in first ? first.subagentActivityStatusLabel : "").toBe("updated");
-    expect(second && "subagentActivityRows" in second ? second.subagentActivityRows?.[0]?.displayName : "").toBe("Agent");
-    expect(second && "subagentActivityStatusLabel" in second ? second.subagentActivityStatusLabel : "").toBe("interrupted");
+    expect(
+      first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.displayName : "",
+    ).toBe("Scout");
+    expect(
+      first && "subagentActivityRows" in first ? first.subagentActivityRows?.[0]?.status : "",
+    ).toBe("active");
+    expect(
+      first && "subagentActivityRows" in first
+        ? first.subagentActivityRows?.[0]?.statusSummary
+        : "",
+    ).toBe("Scout started working");
+    expect(
+      first && "subagentActivityRows" in first ? first.subagentActivityRows?.[1]?.displayName : "",
+    ).toBe("Reviewer");
+    expect(
+      first && "subagentActivityStatusLabel" in first ? first.subagentActivityStatusLabel : "",
+    ).toBe("updated");
+    expect(
+      second && "subagentActivityRows" in second
+        ? second.subagentActivityRows?.[0]?.displayName
+        : "",
+    ).toBe("Agent");
+    expect(
+      second && "subagentActivityStatusLabel" in second ? second.subagentActivityStatusLabel : "",
+    ).toBe("interrupted");
   });
 
   test("keeps a hidden non-subagent item as an activity-group boundary", () => {
@@ -580,12 +605,14 @@ describe("buildRendererItemStream", () => {
 
     const firstGroup = items[0];
     const finalGroup = items[2];
-    const firstRows = firstGroup?.type === "subagentActivityInlineGroup"
-      ? firstGroup.subagentActivityRows ?? []
-      : [];
-    const finalRows = finalGroup?.type === "subagentActivityInlineGroup"
-      ? finalGroup.subagentActivityRows ?? []
-      : [];
+    const firstRows =
+      firstGroup?.type === "subagentActivityInlineGroup"
+        ? (firstGroup.subagentActivityRows ?? [])
+        : [];
+    const finalRows =
+      finalGroup?.type === "subagentActivityInlineGroup"
+        ? (finalGroup.subagentActivityRows ?? [])
+        : [];
 
     expect(firstRows.map((row) => row.conversationId)).toEqual([
       "thread-child-1",
@@ -601,17 +628,21 @@ describe("buildRendererItemStream", () => {
       activityStatus: "done",
       statusSummary: "Reviewer started working",
     });
-    expect(firstGroup?.type === "subagentActivityInlineGroup"
-      ? firstGroup.subagentActivityStatusLabel
-      : null).toBe("updated");
+    expect(
+      firstGroup?.type === "subagentActivityInlineGroup"
+        ? firstGroup.subagentActivityStatusLabel
+        : null,
+    ).toBe("updated");
     expect(finalRows[0]).toMatchObject({
       status: "done",
       activityStatus: "done",
       statusSummary: "Scout completed the audit",
     });
-    expect(finalGroup?.type === "subagentActivityInlineGroup"
-      ? finalGroup.subagentActivityStatusLabel
-      : null).toBe("finished");
+    expect(
+      finalGroup?.type === "subagentActivityInlineGroup"
+        ? finalGroup.subagentActivityStatusLabel
+        : null,
+    ).toBe("finished");
   });
 
   test("uses fallback state for missing or other-parent agents and preserves group-label precedence", () => {
@@ -690,9 +721,8 @@ describe("buildRendererItemStream", () => {
     });
 
     const group = items[0];
-    const rows = group?.type === "subagentActivityInlineGroup"
-      ? group.subagentActivityRows ?? []
-      : [];
+    const rows =
+      group?.type === "subagentActivityInlineGroup" ? (group.subagentActivityRows ?? []) : [];
 
     expect(rows[0]).toMatchObject({
       status: "done",
@@ -709,9 +739,9 @@ describe("buildRendererItemStream", () => {
       activityStatus: "interrupted",
       statusSummary: "Agent interrupted",
     });
-    expect(group?.type === "subagentActivityInlineGroup"
-      ? group.subagentActivityStatusLabel
-      : null).toBe("interrupted");
+    expect(
+      group?.type === "subagentActivityInlineGroup" ? group.subagentActivityStatusLabel : null,
+    ).toBe("interrupted");
   });
 
   test("renders typed hook feedback and generated images while hiding raw-only markers", () => {
@@ -833,12 +863,14 @@ describe("buildRendererItemStream", () => {
             },
           },
           fileChange: {
-            changes: buildCodexFileChangeMap([{
-              type: "update",
-              path: "src/app.tsx",
-              unifiedDiff: "",
-              movePath: null,
-            }]),
+            changes: buildCodexFileChangeMap([
+              {
+                type: "update",
+                path: "src/app.tsx",
+                unifiedDiff: "",
+                movePath: null,
+              },
+            ]),
           },
         }),
         buildEntry({
@@ -953,23 +985,25 @@ describe("buildRendererItemStream", () => {
   test("indexes the semantic and NFM preview of a Nodex authorization request", () => {
     const items = buildRendererItemStream({
       entries: [],
-      requests: [{
-        type: "nodexAgentAuthorization",
-        requestId: "nodex-auth-1",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "call-1",
-        tool: "edit_document",
-        effect: "write",
-        preview: {
-          title: "Append rollout plan",
-          summary: "Append four Blocks.",
-          details: [{ label: "Document", value: "Launch brief" }],
-          nfmPreview: "## Rollout\n\n- Alpha cohort",
+      requests: [
+        {
+          type: "nodexAgentAuthorization",
+          requestId: "nodex-auth-1",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "call-1",
+          tool: "edit_document",
+          effect: "write",
+          preview: {
+            title: "Append rollout plan",
+            summary: "Append four Blocks.",
+            details: [{ label: "Document", value: "Launch brief" }],
+            nfmPreview: "## Rollout\n\n- Alpha cohort",
+          },
+          createdAt: 5,
         },
-        createdAt: 5,
-      }],
+      ],
       turnStatus: "inProgress",
     });
 
@@ -981,23 +1015,25 @@ describe("buildRendererItemStream", () => {
   test("indexes a v3 Nested Markdown authorization preview", () => {
     const items = buildRendererItemStream({
       entries: [],
-      requests: [{
-        type: "nodexAgentAuthorization",
-        requestId: "nodex-auth-v3",
-        projectId: "project_1",
-        threadId: "thread_1",
-        turnId: "turn_1",
-        itemId: "call-v3",
-        tool: "create_pages",
-        effect: "write",
-        preview: {
-          title: "Create launch Cards",
-          summary: "Create two complete Cards.",
-          details: [{ label: "Destination", value: "Project Space" }],
-          markdownPreview: "## Launch\n\n- Alpha cohort",
+      requests: [
+        {
+          type: "nodexAgentAuthorization",
+          requestId: "nodex-auth-v3",
+          projectId: "project_1",
+          threadId: "thread_1",
+          turnId: "turn_1",
+          itemId: "call-v3",
+          tool: "create_pages",
+          effect: "write",
+          preview: {
+            title: "Create launch Cards",
+            summary: "Create two complete Cards.",
+            details: [{ label: "Destination", value: "Project Space" }],
+            markdownPreview: "## Launch\n\n- Alpha cohort",
+          },
+          createdAt: 6,
         },
-        createdAt: 6,
-      }],
+      ],
       turnStatus: "inProgress",
     });
 

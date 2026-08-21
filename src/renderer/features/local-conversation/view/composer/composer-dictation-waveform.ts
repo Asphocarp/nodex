@@ -25,9 +25,10 @@ export function resolveComposerDictationWaveformGeometry(
   clientWidth: number,
   sampleRateHz = COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ,
 ): ComposerDictationWaveformGeometry {
-  const effectiveSampleRateHz = Number.isFinite(sampleRateHz) && sampleRateHz > 0
-    ? sampleRateHz
-    : COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
+  const effectiveSampleRateHz =
+    Number.isFinite(sampleRateHz) && sampleRateHz > 0
+      ? sampleRateHz
+      : COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
   const bucketCount = Math.max(
     1,
     Math.floor(clientWidth / COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX),
@@ -35,23 +36,20 @@ export function resolveComposerDictationWaveformGeometry(
   const bucketSize = Math.max(
     1,
     Math.floor(
-      effectiveSampleRateHz
-      * COMPOSER_DICTATION_WAVEFORM_BUFFER_DURATION_SECONDS
-      / bucketCount,
+      (effectiveSampleRateHz * COMPOSER_DICTATION_WAVEFORM_BUFFER_DURATION_SECONDS) / bucketCount,
     ),
   );
 
   return { bucketCount, bucketSize };
 }
 
-export function normalizeComposerDictationWaveformSamples(
-  samples: Float32Array,
-): void {
+export function normalizeComposerDictationWaveformSamples(samples: Float32Array): void {
   for (let index = 0; index < samples.length; index += 1) {
     const amplitude = Math.abs(samples[index] ?? 0);
-    samples[index] = amplitude < COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR
-      ? COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR
-      : amplitude;
+    samples[index] =
+      amplitude < COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR
+        ? COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR
+        : amplitude;
   }
 }
 

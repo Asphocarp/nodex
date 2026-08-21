@@ -244,11 +244,13 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       parentElement: root,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageShiftWheelFromCalendar({
-      target,
-      shiftKey: true,
-      ctrlKey: false,
-    })).toBe(true);
+    expect(
+      shouldPreventStageShiftWheelFromCalendar({
+        target,
+        shiftKey: true,
+        ctrlKey: false,
+      }),
+    ).toBe(true);
   });
 
   test("returns false when shift is not pressed", () => {
@@ -256,11 +258,13 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       parentElement: null,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageShiftWheelFromCalendar({
-      target,
-      shiftKey: false,
-      ctrlKey: false,
-    })).toBe(false);
+    expect(
+      shouldPreventStageShiftWheelFromCalendar({
+        target,
+        shiftKey: false,
+        ctrlKey: false,
+      }),
+    ).toBe(false);
   });
 
   test("returns false for ctrl/meta-modified wheel", () => {
@@ -274,11 +278,13 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       parentElement: root,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageShiftWheelFromCalendar({
-      target,
-      shiftKey: true,
-      ctrlKey: true,
-    })).toBe(false);
+    expect(
+      shouldPreventStageShiftWheelFromCalendar({
+        target,
+        shiftKey: true,
+        ctrlKey: true,
+      }),
+    ).toBe(false);
   });
 
   test("returns false for non-calendar targets", () => {
@@ -291,10 +297,12 @@ describe("shouldPreventStageShiftWheelFromCalendar", () => {
       parentElement: root,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageShiftWheelFromCalendar({
-      target,
-      shiftKey: true,
-      ctrlKey: false,
-    })).toBe(false);
+    expect(
+      shouldPreventStageShiftWheelFromCalendar({
+        target,
+        shiftKey: true,
+        ctrlKey: false,
+      }),
+    ).toBe(false);
   });
 });

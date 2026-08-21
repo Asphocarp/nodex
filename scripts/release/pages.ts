@@ -27,7 +27,8 @@ export function latestVersionInAppcast(xml: string): string {
     if (!item) continue;
     const buildVersion = item
       .getElementsByTagNameNS(SPARKLE_NAMESPACE, "version")
-      .item(0)?.textContent?.trim();
+      .item(0)
+      ?.textContent?.trim();
     const version = normalizeAppleBuildVersion(buildVersion || "");
     if (latest === null || compareBuildVersions(version, latest) > 0) latest = version;
   }
@@ -48,7 +49,9 @@ const assertProjectionDoesNotMoveFeedBackwards = (options: {
   const existingVersion = latestVersionInAppcast(readFileSync(options.existingPath, "utf8"));
   const order = compareBuildVersions(options.candidateBuildVersion, existingVersion);
   if (order < 0) {
-    throw new Error(`Sparkle feed projection cannot move build ${existingVersion} back to ${options.candidateBuildVersion}.`);
+    throw new Error(
+      `Sparkle feed projection cannot move build ${existingVersion} back to ${options.candidateBuildVersion}.`,
+    );
   }
   if (order === 0 && sha256File(options.existingPath) !== options.candidateSha256) {
     throw new Error(`Sparkle feed ${existingVersion} already exists with different bytes.`);
@@ -71,35 +74,40 @@ const readBundleInputs = (bundlePath: string) => {
     const asset = bundle.assets.find((candidate) => candidate.name === name);
     const appcastAsset = bundle.assets.find((candidate) => candidate.name === update.appcast.name);
     const fullAsset = bundle.assets.find((candidate) => candidate.name === update.full.name);
-    const deltaAssets = new Map(bundle.assets
-      .filter((candidate) => candidate.architecture === architecture && candidate.role === "sparkle-delta")
-      .map((candidate) => [candidate.name, candidate]));
+    const deltaAssets = new Map(
+      bundle.assets
+        .filter(
+          (candidate) =>
+            candidate.architecture === architecture && candidate.role === "sparkle-delta",
+        )
+        .map((candidate) => [candidate.name, candidate]),
+    );
     if (
-      !asset
-      || asset.architecture !== architecture
-      || asset.role !== "sparkle-update-manifest"
-      || sha256File(updatePath) !== asset.sha256
-      || update.architecture !== architecture
-      || update.sourceSha !== bundle.sourceSha
-      || update.tag !== bundle.tag
-      || update.target.version !== bundle.version
-      || !appcastAsset
-      || appcastAsset.architecture !== architecture
-      || appcastAsset.role !== "sparkle-appcast"
-      || appcastAsset.bytes !== update.appcast.bytes
-      || appcastAsset.sha256 !== update.appcast.sha256
-      || !fullAsset
-      || fullAsset.architecture !== architecture
-      || fullAsset.role !== "sparkle-full"
-      || fullAsset.bytes !== update.full.bytes
-      || fullAsset.sha256 !== update.full.sha256
-      || update.deltas.some((delta) => {
+      !asset ||
+      asset.architecture !== architecture ||
+      asset.role !== "sparkle-update-manifest" ||
+      sha256File(updatePath) !== asset.sha256 ||
+      update.architecture !== architecture ||
+      update.sourceSha !== bundle.sourceSha ||
+      update.tag !== bundle.tag ||
+      update.target.version !== bundle.version ||
+      !appcastAsset ||
+      appcastAsset.architecture !== architecture ||
+      appcastAsset.role !== "sparkle-appcast" ||
+      appcastAsset.bytes !== update.appcast.bytes ||
+      appcastAsset.sha256 !== update.appcast.sha256 ||
+      !fullAsset ||
+      fullAsset.architecture !== architecture ||
+      fullAsset.role !== "sparkle-full" ||
+      fullAsset.bytes !== update.full.bytes ||
+      fullAsset.sha256 !== update.full.sha256 ||
+      update.deltas.some((delta) => {
         const deltaAsset = deltaAssets.get(delta.name);
-        return !deltaAsset
-          || deltaAsset.bytes !== delta.bytes
-          || deltaAsset.sha256 !== delta.sha256;
-      })
-      || deltaAssets.size !== update.deltas.length
+        return (
+          !deltaAsset || deltaAsset.bytes !== delta.bytes || deltaAsset.sha256 !== delta.sha256
+        );
+      }) ||
+      deltaAssets.size !== update.deltas.length
     ) {
       throw new Error(`${architecture} update manifest is not bound by the Release Bundle.`);
     }
@@ -119,7 +127,11 @@ export function projectReleaseAppcasts(options: {
   readonly siteDirectory: string;
 }): {
   readonly bundleSha256: string;
-  readonly feeds: readonly { readonly architecture: "arm64" | "x64"; readonly path: string; readonly sha256: string }[];
+  readonly feeds: readonly {
+    readonly architecture: "arm64" | "x64";
+    readonly path: string;
+    readonly sha256: string;
+  }[];
   readonly tag: string;
 } {
   const { bundle, updates } = readBundleInputs(options.bundlePath);
@@ -188,8 +200,8 @@ export async function verifyPublishedAppcasts(options: {
         );
         const canonicalSha256 = await fetchSha256(feedUrl);
         if (
-          cacheBustedSha256 !== update.appcast.sha256
-          || canonicalSha256 !== update.appcast.sha256
+          cacheBustedSha256 !== update.appcast.sha256 ||
+          canonicalSha256 !== update.appcast.sha256
         ) {
           throw new Error(`${architecture} published appcast does not match the Release Bundle.`);
         }

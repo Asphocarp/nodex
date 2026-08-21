@@ -6,18 +6,14 @@ function readProfileArgument(argv: readonly string[]): string {
   const index = argv.indexOf("--profile");
   const value = index >= 0 ? argv[index + 1] : undefined;
   if (!value) {
-    throw new Error(
-      "Usage: pnpm run core:read-budget-gate -- --profile .generated/<name>",
-    );
+    throw new Error("Usage: pnpm run core:read-budget-gate -- --profile .generated/<name>");
   }
   return value;
 }
 
 async function prepareTarget(rawTarget: string): Promise<string> {
   const repositoryRoot = await realpath(process.cwd());
-  const generatedRoot = await realpath(
-    path.join(repositoryRoot, ".generated"),
-  );
+  const generatedRoot = await realpath(path.join(repositoryRoot, ".generated"));
   const target = path.resolve(repositoryRoot, rawTarget);
   const relative = path.relative(generatedRoot, target);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -33,11 +29,7 @@ async function prepareTarget(rawTarget: string): Promise<string> {
       throw new Error("Gate Profile target must be empty");
     }
   } catch (error) {
-    if (
-      error instanceof Error
-      && "code" in error
-      && error.code === "ENOENT"
-    ) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       await mkdir(target);
     } else {
       throw error;

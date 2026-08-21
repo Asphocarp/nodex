@@ -96,10 +96,7 @@ export function runCodexGitCommand(
       aborted = true;
       terminate();
     }
-    const appendOutput = (
-      stream: "stdout" | "stderr",
-      chunk: Buffer,
-    ) => {
+    const appendOutput = (stream: "stdout" | "stderr", chunk: Buffer) => {
       if (exceededOutputBound) return;
       outputBytes += chunk.byteLength;
       if (outputBytes > maxOutputBytes) {

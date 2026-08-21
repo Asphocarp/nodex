@@ -1,9 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import {
-  NodexHoverCard,
-  NodexHoverCardProvider,
-} from "@/components/ui/hover-card";
+import { NodexHoverCard, NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexFloatingSurface } from "@/components/ui/floating-surface";
 import type { Project } from "@/lib/types";
 import type { ProjectAppearance } from "../../../shared/project-appearance";
@@ -44,20 +41,21 @@ function HoverCardStory({
   missingRepository = false,
 }: {
   project?: Project;
-  activity?: {
-    projectId: string;
-    taskCount: number;
-    waitingCount: number;
-    unreadCount: number;
-    activeCount: number;
-  } | null | undefined;
+  activity?:
+    | {
+        projectId: string;
+        taskCount: number;
+        waitingCount: number;
+        unreadCount: number;
+        activeCount: number;
+      }
+    | null
+    | undefined;
   appearancePending?: boolean;
   markerPickerOpen?: boolean;
   missingRepository?: boolean;
 }) {
-  const [appearance, setAppearance] = useState<ProjectAppearance>(
-    project.appearance,
-  );
+  const [appearance, setAppearance] = useState<ProjectAppearance>(project.appearance);
   const [pinned, setPinned] = useState(project.pinned);
 
   return (
@@ -68,10 +66,14 @@ function HoverCardStory({
           appearance={appearance}
           activity={activity}
           appearancePending={appearancePending}
-          repositoryIdentity={missingRepository ? null : {
-            repositoryRoot: "/Users/asc/repo/nodex2",
-            ownerRepo: { owner: "junyudev", repo: "nodex" },
-          }}
+          repositoryIdentity={
+            missingRepository
+              ? null
+              : {
+                  repositoryRoot: "/Users/asc/repo/nodex2",
+                  ownerRepo: { owner: "junyudev", repo: "nodex" },
+                }
+          }
           pathContext={{ homeDirectory: "/Users/asc", separator: "/" }}
           markerPickerOpen={markerPickerOpen}
           onAppearanceChange={setAppearance}
@@ -86,16 +88,14 @@ function HoverCardStory({
 }
 
 function FloatingHoverCardStory() {
-  const [appearance, setAppearance] = useState<ProjectAppearance>(
-    PROJECT.appearance,
-  );
+  const [appearance, setAppearance] = useState<ProjectAppearance>(PROJECT.appearance);
   return (
     <NodexHoverCardProvider>
       <div className="min-h-screen bg-token-main-surface-primary p-4 text-token-foreground">
         <NodexHoverCard
           ariaLabel="Project details for nodex2"
           defaultOpen
-          hoverCardContent={(
+          hoverCardContent={
             <ProjectHoverCard
               project={{ ...PROJECT, appearance }}
               activity={{
@@ -116,7 +116,7 @@ function FloatingHoverCardStory() {
               onOpenSource={() => undefined}
               onEdit={() => undefined}
             />
-          )}
+          }
         >
           <button type="button" className="rounded-lg px-2 py-1">
             nodex2
@@ -167,13 +167,7 @@ export const MultipleSourcesAndAttention: Story = {
 };
 
 export const LoadingAndReconciliation: Story = {
-  render: () => (
-    <HoverCardStory
-      activity={undefined}
-      appearancePending
-      markerPickerOpen
-    />
-  ),
+  render: () => <HoverCardStory activity={undefined} appearancePending markerPickerOpen />,
 };
 
 export const NarrowViewportWithOuterSurface: Story = {
@@ -194,10 +188,12 @@ export const EmojiAndLongContent: Story = {
           color: "pink",
           marker: { kind: "emoji", emoji: "🪴" },
         },
-        sources: [{
-          root: "/Users/asc/Documents/a/very/long/source/path/that/must/wrap/without/widening/the/card",
-          order: 0,
-        }],
+        sources: [
+          {
+            root: "/Users/asc/Documents/a/very/long/source/path/that/must/wrap/without/widening/the/card",
+            order: 0,
+          },
+        ],
       }}
     />
   ),

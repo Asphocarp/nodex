@@ -12,7 +12,6 @@ export type OwnedDocumentInlineMode = "block_tree" | "scene_view";
 export const resolveOwnedDocumentInlineMode = (
   identity: OwnedDocumentSchemaIdentity,
 ): OwnedDocumentInlineMode =>
-  getOwnedDocumentSchemaRegistration(identity).contentModel ===
-  "block_tree"
+  getOwnedDocumentSchemaRegistration(identity).contentModel === "block_tree"
     ? "block_tree"
     : "scene_view";

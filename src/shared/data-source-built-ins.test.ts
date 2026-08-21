@@ -9,21 +9,27 @@ describe("Data Source built-in Property definitions", () => {
     for (const [propertyId, definition] of Object.entries(
       BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS,
     )) {
-      expect(matchBuiltInDataSourceProperty({
-        propertyId,
-        valueType: definition.valueType,
-      })).toBe(propertyId);
+      expect(
+        matchBuiltInDataSourceProperty({
+          propertyId,
+          valueType: definition.valueType,
+        }),
+      ).toBe(propertyId);
     }
   });
 
   test("does not grant built-in semantics to custom or type-corrupt properties", () => {
-    expect(matchBuiltInDataSourceProperty({
-      propertyId: "p_0123abcd",
-      valueType: "select",
-    })).toBeNull();
-    expect(matchBuiltInDataSourceProperty({
-      propertyId: "status",
-      valueType: "multi_select",
-    })).toBeNull();
+    expect(
+      matchBuiltInDataSourceProperty({
+        propertyId: "p_0123abcd",
+        valueType: "select",
+      }),
+    ).toBeNull();
+    expect(
+      matchBuiltInDataSourceProperty({
+        propertyId: "status",
+        valueType: "multi_select",
+      }),
+    ).toBeNull();
   });
 });

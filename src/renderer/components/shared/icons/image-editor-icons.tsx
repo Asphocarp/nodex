@@ -3,10 +3,7 @@ import { cn } from "@/lib/utils";
 
 type ImageEditorIconProps = JSX.IntrinsicElements["svg"];
 
-export function ImageEditorTabIcon({
-  className,
-  ...props
-}: ImageEditorIconProps) {
+export function ImageEditorTabIcon({ className, ...props }: ImageEditorIconProps) {
   return (
     <svg
       width="24"
@@ -41,10 +38,7 @@ export function ImageEditorTabIcon({
   );
 }
 
-export function ImageCommentIcon({
-  className,
-  ...props
-}: ImageEditorIconProps) {
+export function ImageCommentIcon({ className, ...props }: ImageEditorIconProps) {
   return (
     <svg
       width="20"
@@ -115,10 +109,7 @@ export function ImageRedoIcon({ className, ...props }: ImageEditorIconProps) {
   return <ImageUndoIcon className={cn("-scale-x-100", className)} {...props} />;
 }
 
-export function ImageMultiSelectIcon({
-  className,
-  ...props
-}: ImageEditorIconProps) {
+export function ImageMultiSelectIcon({ className, ...props }: ImageEditorIconProps) {
   return (
     <svg
       width="13"
@@ -138,10 +129,7 @@ export function ImageMultiSelectIcon({
   );
 }
 
-export function ImageCommentMarkerShape({
-  className,
-  ...props
-}: ImageEditorIconProps) {
+export function ImageCommentMarkerShape({ className, ...props }: ImageEditorIconProps) {
   return (
     <svg
       width="26"
@@ -163,10 +151,7 @@ export function ImageCommentMarkerShape({
   );
 }
 
-export function ImageZoomMinusIcon({
-  className,
-  ...props
-}: ImageEditorIconProps) {
+export function ImageZoomMinusIcon({ className, ...props }: ImageEditorIconProps) {
   return (
     <svg
       width="20"
@@ -186,10 +171,7 @@ export function ImageZoomMinusIcon({
   );
 }
 
-export function ImageRemoveBrushTrackShape({
-  className,
-  ...props
-}: ImageEditorIconProps) {
+export function ImageRemoveBrushTrackShape({ className, ...props }: ImageEditorIconProps) {
   return (
     <svg
       width="12"

@@ -21,9 +21,7 @@ export interface PageMentionProps {
 export const normalizePageMentionProps = (
   input: Partial<PageMentionProps> | undefined,
 ): PageMentionProps => ({
-  targetPageId: typeof input?.targetPageId === "string"
-    ? input.targetPageId.trim()
-    : "",
+  targetPageId: typeof input?.targetPageId === "string" ? input.targetPageId.trim() : "",
 });
 
 const shortPageId = (pageId: string): string =>
@@ -59,9 +57,7 @@ export function resolvePageMentionPresentation(input: {
     return {
       label: title,
       tooltipTitle: title,
-      tooltipDetail: input.target.page.lifecycle === "archived"
-        ? "Archived"
-        : null,
+      tooltipDetail: input.target.page.lifecycle === "archived" ? "Archived" : null,
       tooltipPreview: boundedPagePreview(input.target.page.preview),
     };
   }
@@ -96,9 +92,10 @@ export function resolvePageMentionPresentation(input: {
   return {
     label: fallbackLabel,
     tooltipTitle: "Unavailable Page",
-    tooltipDetail: input.error || input.target?.status === "missing"
-      ? "This Page is unavailable here."
-      : "Page details are unavailable in this surface.",
+    tooltipDetail:
+      input.error || input.target?.status === "missing"
+        ? "This Page is unavailable here."
+        : "Page details are unavailable in this surface.",
     tooltipPreview: null,
   };
 }
@@ -109,10 +106,7 @@ function PageMentionTooltipBody({
   readonly presentation: PageMentionPresentation;
 }) {
   return (
-    <div
-      data-page-mention-tooltip="true"
-      className="max-w-[20rem] space-y-0.5 text-left"
-    >
+    <div data-page-mention-tooltip="true" className="max-w-[20rem] space-y-0.5 text-left">
       <div className="truncate text-sm font-medium text-token-foreground">
         {presentation.tooltipTitle}
       </div>
@@ -138,10 +132,7 @@ export function PageMentionInlineContentView({
   const host = useBlockReferenceHostRuntime();
   const props = normalizePageMentionProps(inlineContent.props);
   const accessContext = host?.contentAccessContext ?? libraryContentAccess;
-  const target = usePageTargetReadModel(
-    accessContext,
-    host ? props.targetPageId : "",
-  );
+  const target = usePageTargetReadModel(accessContext, host ? props.targetPageId : "");
   const model = target.data;
   const availablePage = model?.status === "available" ? model.page : null;
   const available = availablePage !== null;
@@ -151,9 +142,9 @@ export function PageMentionInlineContentView({
     availablePage?.pageId ?? null,
   );
   const workflowStatus = readPageDetailWorkflowStatus(detail.detail);
-  const icon = workflowStatus
-    ? <StatusIcon statusId={workflowStatus} className="size-full" />
-    : undefined;
+  const icon = workflowStatus ? (
+    <StatusIcon statusId={workflowStatus} className="size-full" />
+  ) : undefined;
   const presentation = resolvePageMentionPresentation({
     targetPageId: props.targetPageId,
     target: model,
@@ -161,48 +152,42 @@ export function PageMentionInlineContentView({
     error: target.error,
   });
   const canOpen = Boolean(available && host?.openPage);
-  const mention = canOpen
-    ? (
-        <PageMentionInlineVisual
-          as="a"
-          href={availablePage
-            ? buildPageDeepLink({ pageId: availablePage.pageId })
-            : undefined}
-          tabIndex={0}
-          label={presentation.label}
-          icon={icon}
-          withGuards
-          contentEditable={false}
-          data-page-mention-inline-anchor="true"
-          aria-label={`Open Page ${presentation.label}`}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            if (!availablePage) return;
-            void host?.openPage?.({
-              accessContext,
-              pageId: availablePage.pageId,
-              titleSnapshot: availablePage.title,
-            });
-          }}
-        />
-      )
-    : (
-        <PageMentionInlineVisual
-          label={presentation.label}
-          icon={icon}
-          withGuards
-          contentEditable={false}
-          tabIndex={0}
-          aria-label={presentation.tooltipTitle}
-          className="text-token-description-foreground"
-        />
-      );
+  const mention = canOpen ? (
+    <PageMentionInlineVisual
+      as="a"
+      href={availablePage ? buildPageDeepLink({ pageId: availablePage.pageId }) : undefined}
+      tabIndex={0}
+      label={presentation.label}
+      icon={icon}
+      withGuards
+      contentEditable={false}
+      data-page-mention-inline-anchor="true"
+      aria-label={`Open Page ${presentation.label}`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!availablePage) return;
+        void host?.openPage?.({
+          accessContext,
+          pageId: availablePage.pageId,
+          titleSnapshot: availablePage.title,
+        });
+      }}
+    />
+  ) : (
+    <PageMentionInlineVisual
+      label={presentation.label}
+      icon={icon}
+      withGuards
+      contentEditable={false}
+      tabIndex={0}
+      aria-label={presentation.tooltipTitle}
+      className="text-token-description-foreground"
+    />
+  );
   const renderTooltip = (children: ReactNode) => (
     <NodexTooltip
-      tooltipContent={(
-        <PageMentionTooltipBody presentation={presentation} />
-      )}
+      tooltipContent={<PageMentionTooltipBody presentation={presentation} />}
       side="top"
       align="start"
       sideOffset={4}
@@ -213,58 +198,44 @@ export function PageMentionInlineContentView({
     </NodexTooltip>
   );
 
-  const mentionSurface = (
-    <span className="inline align-baseline">
-      {renderTooltip(mention)}
-    </span>
-  );
+  const mentionSurface = <span className="inline align-baseline">{renderTooltip(mention)}</span>;
 
   if (!canOpen) return mentionSurface;
 
   return (
-    <MentionInlineFocusAffordance label="Open page">
-      {mentionSurface}
-    </MentionInlineFocusAffordance>
+    <MentionInlineFocusAffordance label="Open page">{mentionSurface}</MentionInlineFocusAffordance>
   );
 }
 
 export function createReadonlyPageMentionInlineContentSpec() {
-  return createReactInlineContentSpec(
-    pageMentionInlineContentConfig,
-    {
-      render: ({ inlineContent }) => (
-        <PageMentionInlineContentView
-          inlineContent={inlineContent as { props: Partial<PageMentionProps> }}
-        />
-      ),
-    },
-  );
+  return createReactInlineContentSpec(pageMentionInlineContentConfig, {
+    render: ({ inlineContent }) => (
+      <PageMentionInlineContentView
+        inlineContent={inlineContent as { props: Partial<PageMentionProps> }}
+      />
+    ),
+  });
 }
 
 export function createPageMentionInlineContentSpec() {
-  return createReactInlineContentSpec(
-    pageMentionInlineContentConfig,
-    {
-      render: ({ inlineContent }) => (
-        <PageMentionInlineContentView
-          inlineContent={inlineContent as { props: Partial<PageMentionProps> }}
+  return createReactInlineContentSpec(pageMentionInlineContentConfig, {
+    render: ({ inlineContent }) => (
+      <PageMentionInlineContentView
+        inlineContent={inlineContent as { props: Partial<PageMentionProps> }}
+      />
+    ),
+    toExternalHTML: ({ inlineContent }) => {
+      const props = normalizePageMentionProps(
+        (inlineContent as { props: Partial<PageMentionProps> }).props,
+      );
+      return (
+        <PageMentionInlineVisual
+          label={
+            props.targetPageId ? `Page ${shortPageId(props.targetPageId)}` : "Unavailable Page"
+          }
+          title={props.targetPageId ? buildPageDeepLink({ pageId: props.targetPageId }) : undefined}
         />
-      ),
-      toExternalHTML: ({ inlineContent }) => {
-        const props = normalizePageMentionProps(
-          (inlineContent as { props: Partial<PageMentionProps> }).props,
-        );
-        return (
-          <PageMentionInlineVisual
-            label={props.targetPageId
-              ? `Page ${shortPageId(props.targetPageId)}`
-              : "Unavailable Page"}
-            title={props.targetPageId
-              ? buildPageDeepLink({ pageId: props.targetPageId })
-              : undefined}
-          />
-        );
-      },
+      );
     },
-  );
+  });
 }

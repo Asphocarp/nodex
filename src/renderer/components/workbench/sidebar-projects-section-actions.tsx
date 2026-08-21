@@ -38,11 +38,12 @@ export function SidebarProjectsSectionActions({
   openCreateDialogTick: number;
 }) {
   const [removedProjectsOpen, setRemovedProjectsOpen] = useState(false);
-  const collapseActionLabel = projectGroupCollapseAction === "collapse-all"
-    ? "Collapse all"
-    : projectGroupCollapseAction === "reopen-previous"
-      ? "Reopen previous"
-      : null;
+  const collapseActionLabel =
+    projectGroupCollapseAction === "collapse-all"
+      ? "Collapse all"
+      : projectGroupCollapseAction === "reopen-previous"
+        ? "Reopen previous"
+        : null;
 
   return (
     <>
@@ -52,22 +53,19 @@ export function SidebarProjectsSectionActions({
           data-app-action-sidebar-projects-collapse-action={projectGroupCollapseAction}
           onClick={() => onProjectGroupCollapseAction?.(projectGroupCollapseAction)}
         >
-          {projectGroupCollapseAction === "collapse-all"
-            ? <ProjectCollapseAllIcon />
-            : <ProjectReopenPreviousIcon />}
+          {projectGroupCollapseAction === "collapse-all" ? (
+            <ProjectCollapseAllIcon />
+          ) : (
+            <ProjectReopenPreviousIcon />
+          )}
         </CodexSidebarActionButton>
       ) : null}
-      <SidebarProjectOptionsMenu
-        onOpenRemovedProjects={() => setRemovedProjectsOpen(true)}
-      />
+      <SidebarProjectOptionsMenu onOpenRemovedProjects={() => setRemovedProjectsOpen(true)} />
       <SidebarProjectAddButton
         onCreateProject={onCreateProject}
         openDialogTick={openCreateDialogTick}
       />
-      <RemovedProjectsDialog
-        open={removedProjectsOpen}
-        onOpenChange={setRemovedProjectsOpen}
-      />
+      <RemovedProjectsDialog open={removedProjectsOpen} onOpenChange={setRemovedProjectsOpen} />
     </>
   );
 }
@@ -85,14 +83,14 @@ function SidebarProjectOptionsMenu({
       onOpenChange={setOpen}
       side="bottom"
       align="end"
-      triggerButton={(
+      triggerButton={
         <CodexSidebarActionButton
           label="Project sidebar options"
           data-app-action-sidebar-project-options-menu=""
         >
           <ProjectActionsIcon />
         </CodexSidebarActionButton>
-      )}
+      }
     >
       <NodexDropdownItem
         disabled

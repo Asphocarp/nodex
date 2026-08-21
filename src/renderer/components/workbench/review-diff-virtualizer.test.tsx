@@ -180,9 +180,7 @@ describe("Review diff Virtualizer contract", () => {
 
       await act(async () => {
         observers.emit(target, true);
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
 
       expect(onVisibilityChange).toHaveBeenCalledWith(true);
@@ -191,9 +189,7 @@ describe("Review diff Virtualizer contract", () => {
 
       await act(async () => {
         view.unmount();
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
 
       expect(observers.isObserved(target)).toBe(false);
@@ -206,14 +202,16 @@ describe("Review diff Virtualizer contract", () => {
 
   test("drives a real FileDiff body through offscreen and visible states", async () => {
     const observers = installVirtualizerObserverHarness();
-    const fileDiff = parsePatchFiles([
-      "diff --git a/src/example.ts b/src/example.ts",
-      "--- a/src/example.ts",
-      "+++ b/src/example.ts",
-      "@@ -1 +1 @@",
-      "-export const beforeNeedle = true;",
-      "+export const afterNeedle = true;",
-    ].join("\n")).flatMap((patch) => patch.files)[0];
+    const fileDiff = parsePatchFiles(
+      [
+        "diff --git a/src/example.ts b/src/example.ts",
+        "--- a/src/example.ts",
+        "+++ b/src/example.ts",
+        "@@ -1 +1 @@",
+        "-export const beforeNeedle = true;",
+        "+export const afterNeedle = true;",
+      ].join("\n"),
+    ).flatMap((patch) => patch.files)[0];
     if (!fileDiff) throw new Error("Expected a parsed file diff.");
 
     try {
@@ -225,25 +223,18 @@ describe("Review diff Virtualizer contract", () => {
       const target = observers.observedTargets()[0];
       if (!target) throw new Error("Expected FileDiff to connect to Virtualizer.");
 
-      expect(target.shadowRoot?.textContent ?? target.textContent)
-        .not.toContain("afterNeedle");
+      expect(target.shadowRoot?.textContent ?? target.textContent).not.toContain("afterNeedle");
       await act(async () => {
         observers.emit(target, true);
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
-      expect(target.shadowRoot?.textContent ?? target.textContent)
-        .toContain("afterNeedle");
+      expect(target.shadowRoot?.textContent ?? target.textContent).toContain("afterNeedle");
 
       await act(async () => {
         observers.emit(target, false);
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
-      expect(target.shadowRoot?.textContent ?? target.textContent)
-        .not.toContain("afterNeedle");
+      expect(target.shadowRoot?.textContent ?? target.textContent).not.toContain("afterNeedle");
     } finally {
       observers.restore();
     }
@@ -251,22 +242,21 @@ describe("Review diff Virtualizer contract", () => {
 
   test("reconciles collapse as a layout change without disconnecting the FileDiff", async () => {
     const observers = installVirtualizerObserverHarness();
-    const fileDiff = parsePatchFiles([
-      "diff --git a/src/collapsible.ts b/src/collapsible.ts",
-      "--- a/src/collapsible.ts",
-      "+++ b/src/collapsible.ts",
-      "@@ -1 +1 @@",
-      "-export const beforeCollapse = true;",
-      "+export const afterCollapse = true;",
-    ].join("\n")).flatMap((patch) => patch.files)[0];
+    const fileDiff = parsePatchFiles(
+      [
+        "diff --git a/src/collapsible.ts b/src/collapsible.ts",
+        "--- a/src/collapsible.ts",
+        "+++ b/src/collapsible.ts",
+        "@@ -1 +1 @@",
+        "-export const beforeCollapse = true;",
+        "+export const afterCollapse = true;",
+      ].join("\n"),
+    ).flatMap((patch) => patch.files)[0];
     if (!fileDiff) throw new Error("Expected a parsed file diff.");
 
     const renderDiff = (collapsed: boolean) => (
       <Virtualizer config={{ intersectionObserverMargin: 1_000 }}>
-        <FileDiff
-          fileDiff={fileDiff}
-          options={{ disableFileHeader: true, collapsed }}
-        />
+        <FileDiff fileDiff={fileDiff} options={{ disableFileHeader: true, collapsed }} />
       </Virtualizer>
     );
 
@@ -277,33 +267,24 @@ describe("Review diff Virtualizer contract", () => {
 
       await act(async () => {
         observers.emit(target, true);
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
-      expect(target.shadowRoot?.textContent ?? target.textContent)
-        .toContain("afterCollapse");
+      expect(target.shadowRoot?.textContent ?? target.textContent).toContain("afterCollapse");
 
       await act(async () => {
         view.rerender(renderDiff(true));
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
       expect(observers.observedTargets()).toEqual([target]);
       expect(observers.isObserved(target)).toBe(true);
-      expect(target.shadowRoot?.textContent ?? target.textContent)
-        .not.toContain("afterCollapse");
+      expect(target.shadowRoot?.textContent ?? target.textContent).not.toContain("afterCollapse");
 
       await act(async () => {
         view.rerender(renderDiff(false));
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       });
       expect(observers.observedTargets()).toEqual([target]);
-      expect(target.shadowRoot?.textContent ?? target.textContent)
-        .toContain("afterCollapse");
+      expect(target.shadowRoot?.textContent ?? target.textContent).toContain("afterCollapse");
     } finally {
       observers.restore();
     }

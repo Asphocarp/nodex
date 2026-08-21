@@ -16,10 +16,7 @@ describe("FileLinkAnchor", () => {
     const { container } = render(
       <NodexTooltipProvider>
         <FileReferenceRouterProvider openWorkspaceFileTab={openWorkspaceFileTab}>
-          <FileLinkAnchor
-            href="/workspace/project/src/index.ts#L19C4"
-            showLocalFileTooltip
-          >
+          <FileLinkAnchor href="/workspace/project/src/index.ts#L19C4" showLocalFileTooltip>
             src/index.ts:19
           </FileLinkAnchor>
         </FileReferenceRouterProvider>
@@ -27,7 +24,9 @@ describe("FileLinkAnchor", () => {
     );
 
     await settleAsyncRender();
-    const reference = container.querySelector<HTMLButtonElement>("button[data-file-reference='true']");
+    const reference = container.querySelector<HTMLButtonElement>(
+      "button[data-file-reference='true']",
+    );
     expect(reference).not.toBeNull();
 
     await act(async () => {
@@ -52,9 +51,7 @@ describe("FileLinkAnchor", () => {
     const { container } = render(
       <NodexTooltipProvider>
         <FileReferenceRouterProvider openWorkspaceFileTab={openWorkspaceFileTab}>
-          <FileLinkAnchor href="/workspace/project/src/index.ts#L19">
-            index.ts
-          </FileLinkAnchor>
+          <FileLinkAnchor href="/workspace/project/src/index.ts#L19">index.ts</FileLinkAnchor>
         </FileReferenceRouterProvider>
       </NodexTooltipProvider>,
     );
@@ -65,10 +62,12 @@ describe("FileLinkAnchor", () => {
       await Promise.resolve();
     });
 
-    expect(openWorkspaceFileTab).toHaveBeenCalledWith(expect.objectContaining({
-      mode: "durable",
-      location: { line: 19 },
-    }));
+    expect(openWorkspaceFileTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "durable",
+        location: { line: 19 },
+      }),
+    );
   });
 
   test("routes modified and middle clicks to the configured external opener", async () => {
@@ -76,14 +75,14 @@ describe("FileLinkAnchor", () => {
     const { container } = render(
       <NodexTooltipProvider>
         <FileReferenceRouterProvider openWorkspaceFileTab={openWorkspaceFileTab}>
-          <FileLinkAnchor href="/workspace/project/src/index.ts">
-            index.ts
-          </FileLinkAnchor>
+          <FileLinkAnchor href="/workspace/project/src/index.ts">index.ts</FileLinkAnchor>
         </FileReferenceRouterProvider>
       </NodexTooltipProvider>,
     );
     await settleAsyncRender();
-    const reference = container.querySelector<HTMLButtonElement>("button[data-file-reference='true']");
+    const reference = container.querySelector<HTMLButtonElement>(
+      "button[data-file-reference='true']",
+    );
     expect(reference).not.toBeNull();
 
     await act(async () => {
@@ -99,10 +98,7 @@ describe("FileLinkAnchor", () => {
 
     vi.mocked(invoke).mockClear();
     await act(async () => {
-      fireEvent(
-        reference!,
-        new MouseEvent("auxclick", { bubbles: true, button: 1 }),
-      );
+      fireEvent(reference!, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
       await Promise.resolve();
     });
     expect(openWorkspaceFileTab).not.toHaveBeenCalled();

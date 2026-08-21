@@ -1,7 +1,4 @@
-import type {
-  CodexModelOption,
-  CodexScheduledAutomation,
-} from "../shared/types";
+import type { CodexModelOption, CodexScheduledAutomation } from "../shared/types";
 
 export const CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS = `Response MUST end with a remark-directive block.
 
@@ -63,7 +60,8 @@ export function buildCodexProjectlessThreadInstructions(input: {
   workspaceBrowserRoot: string | null;
 }): string {
   const outputRoot = input.outputDirectory ?? input.workspaceBrowserRoot ?? input.cwd;
-  const splitOutputDirectory = input.outputDirectory !== null && input.outputDirectory !== input.cwd;
+  const splitOutputDirectory =
+    input.outputDirectory !== null && input.outputDirectory !== input.cwd;
 
   return [
     "### Projectless Chat",
@@ -76,7 +74,9 @@ export function buildCodexProjectlessThreadInstructions(input: {
       ? `When referring to saved deliverables in the final response, link only files from ${outputRoot}.`
       : null,
     "Do not write directly in the home directory unless the user explicitly asks.",
-  ].filter((line): line is string => line !== null).join("\n");
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 }
 
 export interface CodexScheduledAutomationModelSettings {
@@ -87,9 +87,10 @@ export interface CodexScheduledAutomationModelSettings {
 export function buildCodexScheduledAutomationRunPrompt(
   automation: Pick<CodexScheduledAutomation, "id" | "name" | "prompt" | "lastRunAt">,
 ): string {
-  const lastRun = automation.lastRunAt === null
-    ? "never"
-    : `${new Date(automation.lastRunAt).toISOString()} (${automation.lastRunAt})`;
+  const lastRun =
+    automation.lastRunAt === null
+      ? "never"
+      : `${new Date(automation.lastRunAt).toISOString()} (${automation.lastRunAt})`;
 
   return [
     `Automation: ${automation.name}`,
@@ -129,13 +130,16 @@ export function resolveCodexScheduledAutomationModelSettings(input: {
     };
   }
   const selectedModel = requestedModel
-    ? input.models.find((model) => model.model === requestedModel || model.id === requestedModel) ?? null
+    ? (input.models.find(
+        (model) => model.model === requestedModel || model.id === requestedModel,
+      ) ?? null)
     : null;
-  const fallbackModel = selectedModel
-    ?? input.models.find((model) => model.isDefault)
-    ?? input.models.find((model) => !model.hidden)
-    ?? input.models[0]
-    ?? null;
+  const fallbackModel =
+    selectedModel ??
+    input.models.find((model) => model.isDefault) ??
+    input.models.find((model) => !model.hidden) ??
+    input.models[0] ??
+    null;
   const reasoningEffort = resolveReasoningEffort(
     input.automation.reasoningEffort,
     selectedModel ?? fallbackModel,
@@ -206,7 +210,7 @@ function parseRemarkDirectiveAttributes(source: string): Record<string, string> 
     index += 1;
 
     while (index < source.length && /\s/.test(source[index] ?? "")) index += 1;
-    if (source[index] !== "\"") return null;
+    if (source[index] !== '"') return null;
     index += 1;
 
     let value = "";
@@ -220,7 +224,7 @@ function parseRemarkDirectiveAttributes(source: string): Record<string, string> 
         index += 2;
         continue;
       }
-      if (char === "\"") {
+      if (char === '"') {
         closed = true;
         index += 1;
         break;

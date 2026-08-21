@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import {
-  createPageDocument,
-  openPageDocument,
-} from "../../shared/block-documents";
+import { createPageDocument, openPageDocument } from "../../shared/block-documents";
 import {
   DocumentLocalCheckpointError,
   captureDocumentLocalCheckpoint,

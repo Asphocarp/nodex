@@ -16,9 +16,7 @@ import {
   type PageLifecycleMutationRequestV2,
   type PageLifecycleOperationV2,
 } from "./page-lifecycle-v2";
-import type {
-  DatabaseViewQueryResultV2,
-} from "./database-module-v2";
+import type { DatabaseViewQueryResultV2 } from "./database-module-v2";
 import type { PageParent } from "./page";
 import type { DatabasePage, PageCreateInput, PageCreatePlacement } from "./types";
 import type { ProjectionCursor } from "./projection-stream";
@@ -75,10 +73,9 @@ export interface PageLifecycleCreateDisplayIntent {
   readonly operation: PageLifecycleCreateDisplayOperation;
 }
 
-export type PageLifecycleCreateMutationRequestV2 =
-  PageLifecycleMutationRequestV2 & {
-    readonly operation: CreatePageOperationV2;
-  };
+export type PageLifecycleCreateMutationRequestV2 = PageLifecycleMutationRequestV2 & {
+  readonly operation: CreatePageOperationV2;
+};
 
 interface ExistingTagOption {
   readonly optionId: DataSourceOptionId;
@@ -94,9 +91,7 @@ const canonicalName = (value: unknown, label: string): string => {
   try {
     return canonicalizeTagName(value, { maxLength: MAX_PAGE_TAG_LENGTH });
   } catch (error) {
-    return fail(
-      `${label} is invalid: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    return fail(`${label} is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
@@ -110,11 +105,7 @@ const parseExistingOptions = (
   const seenIds = new Set<string>();
   const seenNames = new Set<string>();
   return rawOptions.map((candidate, index) => {
-    if (
-      typeof candidate !== "object" ||
-      candidate === null ||
-      Array.isArray(candidate)
-    ) {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
       return fail(`The tags Property option at index ${index} must be an object`);
     }
     const option = candidate as Readonly<Record<string, unknown>>;
@@ -135,10 +126,7 @@ const parseExistingOptions = (
       return fail(`The tags Property repeats option identity ${optionId}`);
     }
     seenIds.add(optionId);
-    const name = canonicalName(
-      option.name,
-      `The tags Property option ${optionId} name`,
-    );
+    const name = canonicalName(option.name, `The tags Property option ${optionId} name`);
     if (seenNames.has(name)) {
       return fail(`The tags Property repeats canonical option name ${JSON.stringify(name)}`);
     }
@@ -147,9 +135,7 @@ const parseExistingOptions = (
   });
 };
 
-const validateTagsProperty = (
-  property: PageLifecycleTagsPropertySnapshotV2,
-): void => {
+const validateTagsProperty = (property: PageLifecycleTagsPropertySnapshotV2): void => {
   if (property.propertyId !== "tags") {
     return fail("Page creation requires the reserved tags Property");
   }
@@ -177,9 +163,7 @@ const compileCreateOperation = (input: {
   validateTagsProperty(input.tagsProperty);
   const dataSourceId = parseDataSourceId(input.tagsProperty.dataSourceId);
   const existingOptions = parseExistingOptions(input.tagsProperty);
-  const optionsById = new Map(
-    existingOptions.map((option) => [option.optionId, option] as const),
-  );
+  const optionsById = new Map(existingOptions.map((option) => [option.optionId, option] as const));
   const optionsByName = new Map<string, ExistingTagOption[]>();
   for (const option of existingOptions) {
     const matches = optionsByName.get(option.nameKey);
@@ -221,8 +205,8 @@ const compileCreateOperation = (input: {
 
   const tagOptionIds: DataSourceOptionId[] = [];
   const newTagOptions: CreatePageTagOptionV2[] = [];
-  const sortedRequestedOptions = [...requestedById.entries()].sort(
-    ([left], [right]) => left.localeCompare(right),
+  const sortedRequestedOptions = [...requestedById.entries()].sort(([left], [right]) =>
+    left.localeCompare(right),
   );
   for (const [optionId, name] of sortedRequestedOptions) {
     const existingOption = optionsById.get(optionId);
@@ -232,9 +216,7 @@ const compileCreateOperation = (input: {
     }
     const existingWithName = optionsByName.get(name) ?? [];
     if (existingWithName.length > 0) {
-      return fail(
-        `Tag name ${JSON.stringify(name)} already belongs to another option identity`,
-      );
+      return fail(`Tag name ${JSON.stringify(name)} already belongs to another option identity`);
     }
     tagOptionIds.push(optionId);
     newTagOptions.push({ optionId, name });
@@ -244,9 +226,7 @@ const compileCreateOperation = (input: {
     kind: "create_page",
     pageId: input.operation.pageId,
     title: input.operation.title,
-    ...(input.operation.richTitle === undefined
-      ? {}
-      : { richTitle: input.operation.richTitle }),
+    ...(input.operation.richTitle === undefined ? {} : { richTitle: input.operation.richTitle }),
     nfm: input.operation.nfm,
     status: input.operation.status,
     priority: input.operation.priority ?? null,
@@ -295,9 +275,7 @@ export const compilePageLifecycleCreateRequestV2 = (
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
-    ...(request.clientSessionId
-      ? { clientSessionId: request.clientSessionId }
-      : {}),
+    ...(request.clientSessionId ? { clientSessionId: request.clientSessionId } : {}),
     actor: request.actor,
     operation,
   });
@@ -306,7 +284,6 @@ export const compilePageLifecycleCreateRequestV2 = (
   }
   return compiled as PageLifecycleCreateMutationRequestV2;
 };
-
 
 export interface PageLifecycleDocumentCoordinateV2 {
   readonly documentId: string;
@@ -481,10 +458,7 @@ export interface PageLifecycleExecutionResultV2 {
   readonly boardProjection: DatabasePage | null;
 }
 
-const runtimeFail = (
-  code: PageLifecycleRuntimeErrorCodeV2,
-  message: string,
-): never => {
+const runtimeFail = (code: PageLifecycleRuntimeErrorCodeV2, message: string): never => {
   throw new PageLifecycleRuntimeErrorV2(code, message);
 };
 
@@ -538,10 +512,7 @@ const requireTopLevelPage = (
 ): PageLifecycleOwnedBlockAuthorityV2 => {
   const page = requirePage(preflight, pageId);
   if (page.parent.kind !== "library" || page.libraryRankKey === null) {
-    return runtimeFail(
-      "page_parent_invalid",
-      `Page ${pageId} is not a top-level Library Page`,
-    );
+    return runtimeFail("page_parent_invalid", `Page ${pageId} is not a top-level Library Page`);
   }
   return page;
 };
@@ -552,16 +523,10 @@ const requireLifecyclePage = (
 ): PageLifecycleOwnedBlockAuthorityV2 => {
   const page = requirePage(preflight, pageId);
   if (page.parent.kind === "page") {
-    return runtimeFail(
-      "page_parent_invalid",
-      `Nested Page ${pageId} requires a Block transfer`,
-    );
+    return runtimeFail("page_parent_invalid", `Nested Page ${pageId} requires a Block transfer`);
   }
   if (page.parent.kind === "library" && page.libraryRankKey === null) {
-    return runtimeFail(
-      "page_parent_invalid",
-      `Library Page ${pageId} has no top-level placement`,
-    );
+    return runtimeFail("page_parent_invalid", `Library Page ${pageId} has no top-level placement`);
   }
   if (
     page.parent.kind === "data_source" &&
@@ -628,10 +593,7 @@ export const compilePageLifecycleRequestV2 = (input: {
   readonly preflight: PageLifecyclePreflightSnapshotV2;
 }): PageLifecycleMutationRequestV2 => {
   const { intent, preflight } = input;
-  if (
-    preflight.projectId !== intent.projectId ||
-    !preflight.storeEpoch
-  ) {
+  if (preflight.projectId !== intent.projectId || !preflight.storeEpoch) {
     return runtimeFail(
       "preflight_mismatch",
       "Page lifecycle v2 preflight does not match the requested Project",
@@ -644,9 +606,7 @@ export const compilePageLifecycleRequestV2 = (input: {
       operationId: intent.operationId,
       projectId: intent.projectId,
       storeEpoch: preflight.storeEpoch,
-      ...(intent.clientSessionId
-        ? { clientSessionId: intent.clientSessionId }
-        : {}),
+      ...(intent.clientSessionId ? { clientSessionId: intent.clientSessionId } : {}),
       actor: runtimeActor,
       operation: createDisplayOperation(intent, preflight),
     };
@@ -656,17 +616,11 @@ export const compilePageLifecycleRequestV2 = (input: {
     });
   }
 
-  let operation: Exclude<
-    PageLifecycleOperationV2,
-    { readonly kind: "create_page" }
-  >;
+  let operation: Exclude<PageLifecycleOperationV2, { readonly kind: "create_page" }>;
   if (intent.kind === "archive") {
     const page = requireLifecyclePage(preflight, intent.pageId);
     if (page.lifecycle !== "active") {
-      return runtimeFail(
-        "page_lifecycle_conflict",
-        `Page ${intent.pageId} is not active`,
-      );
+      return runtimeFail("page_lifecycle_conflict", `Page ${intent.pageId} is not active`);
     }
     operation = {
       kind: "archive_page",
@@ -676,10 +630,7 @@ export const compilePageLifecycleRequestV2 = (input: {
   } else if (intent.kind === "unarchive") {
     const page = requireLifecyclePage(preflight, intent.pageId);
     if (page.lifecycle !== "archived") {
-      return runtimeFail(
-        "page_lifecycle_conflict",
-        `Page ${intent.pageId} is not archived`,
-      );
+      return runtimeFail("page_lifecycle_conflict", `Page ${intent.pageId} is not archived`);
     }
     operation = {
       kind: "unarchive_page",
@@ -689,10 +640,7 @@ export const compilePageLifecycleRequestV2 = (input: {
   } else if (intent.kind === "delete") {
     const page = requirePage(preflight, intent.pageId);
     if (page.lifecycle === "deleted") {
-      return runtimeFail(
-        "page_lifecycle_conflict",
-        `Page ${intent.pageId} is already deleted`,
-      );
+      return runtimeFail("page_lifecycle_conflict", `Page ${intent.pageId} is already deleted`);
     }
     operation = {
       kind: "delete_page",
@@ -701,8 +649,9 @@ export const compilePageLifecycleRequestV2 = (input: {
       expectedParentRevision: page.parentRevision,
       ...(page.parent.kind === "page"
         ? {
-            parentDocumentHead: intent.parentDocumentHead
-              ?? runtimeFail(
+            parentDocumentHead:
+              intent.parentDocumentHead ??
+              runtimeFail(
                 "page_parent_invalid",
                 `Nested Page ${intent.pageId} requires the host Page Document head`,
               ),
@@ -719,10 +668,7 @@ export const compilePageLifecycleRequestV2 = (input: {
   } else if (intent.kind === "restore") {
     const page = requirePage(preflight, intent.pageId);
     if (page.lifecycle !== "deleted") {
-      return runtimeFail(
-        "page_lifecycle_conflict",
-        `Page ${intent.pageId} is not deleted`,
-      );
+      return runtimeFail("page_lifecycle_conflict", `Page ${intent.pageId} is not deleted`);
     }
     const evidence = page.restoreEvidence;
     if (!evidence) {
@@ -740,8 +686,9 @@ export const compilePageLifecycleRequestV2 = (input: {
       membership: evidence.membership,
       ...(page.parent.kind === "page"
         ? {
-            parentDocumentHead: intent.parentDocumentHead
-              ?? runtimeFail(
+            parentDocumentHead:
+              intent.parentDocumentHead ??
+              runtimeFail(
                 "page_parent_invalid",
                 `Nested Page ${intent.pageId} requires the host Page Document head`,
               ),
@@ -770,10 +717,7 @@ export const compilePageLifecycleRequestV2 = (input: {
   } else {
     const page = requireTopLevelPage(preflight, intent.pageId);
     if (page.lifecycle === "deleted") {
-      return runtimeFail(
-        "page_lifecycle_conflict",
-        `Page ${intent.pageId} is deleted`,
-      );
+      return runtimeFail("page_lifecycle_conflict", `Page ${intent.pageId} is deleted`);
     }
     operation = {
       kind: "move_page_in_library",
@@ -787,9 +731,7 @@ export const compilePageLifecycleRequestV2 = (input: {
     operationId: intent.operationId,
     projectId: intent.projectId,
     storeEpoch: preflight.storeEpoch,
-    ...(intent.clientSessionId
-      ? { clientSessionId: intent.clientSessionId }
-      : {}),
+    ...(intent.clientSessionId ? { clientSessionId: intent.clientSessionId } : {}),
     actor: runtimeActor,
     operation,
   });
@@ -804,11 +746,10 @@ const readBoardProjection = async (
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let page: DatabasePage | null = null;
     try {
-      page = await dependencies.readBoardProjection(
-        intent.projectId,
-        receipt.pageId,
-        { storeEpoch: receipt.storeEpoch, commitSeq: receipt.commitSeq },
-      );
+      page = await dependencies.readBoardProjection(intent.projectId, receipt.pageId, {
+        storeEpoch: receipt.storeEpoch,
+        commitSeq: receipt.commitSeq,
+      });
     } catch {
       // The mutation receipt is already durable. A transient projection read
       // can improve the immediate renderer result, but must not turn the
@@ -816,8 +757,7 @@ const readBoardProjection = async (
     }
     const matches = expectsDeleted
       ? page === null
-      : page?.id === receipt.pageId &&
-        page.archived === (receipt.lifecycle === "archived");
+      : page?.id === receipt.pageId && page.archived === (receipt.lifecycle === "archived");
     if (matches) return page;
     if (attempt < 2) {
       await (dependencies.waitBeforeCanonicalReadRetry?.() ?? Promise.resolve());
@@ -830,15 +770,9 @@ export const executePageLifecycleIntentV2 = async (
   intent: PageLifecycleIntentV2,
   dependencies: PageLifecycleRuntimeDependenciesV2,
 ): Promise<PageLifecycleExecutionResultV2> => {
-  const preflight = await dependencies.readPreflight(
-    intent.projectId,
-    intent.pageId,
-  );
+  const preflight = await dependencies.readPreflight(intent.projectId, intent.pageId);
   if (!preflight.ok) {
-    throw new PageLifecycleRuntimeErrorV2(
-      "preflight_unavailable",
-      preflight.error.message,
-    );
+    throw new PageLifecycleRuntimeErrorV2("preflight_unavailable", preflight.error.message);
   }
   const request = compilePageLifecycleRequestV2({
     intent,
@@ -856,11 +790,7 @@ export const executePageLifecycleIntentV2 = async (
     result = await dependencies.mutate(intent.projectId, request);
   }
   if (!result.ok) {
-    throw new PageLifecycleRuntimeErrorV2(
-      "mutation_rejected",
-      result.error.message,
-      result.error,
-    );
+    throw new PageLifecycleRuntimeErrorV2("mutation_rejected", result.error.message, result.error);
   }
   return {
     receipt: result.value,

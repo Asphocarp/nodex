@@ -13,17 +13,21 @@ test("resolveLatestMacDownloadUrl returns the stable arm64 alias URL", () => {
 });
 
 test("resolvePreferredMacDownloadArch defaults ambiguous macOS input to arm64", () => {
-  expect(resolvePreferredMacDownloadArch({
-    platform: "MacIntel",
-    userAgent: "Mozilla/5.0 (Macintosh; Mac OS X 14_0) AppleWebKit/605.1.15",
-  })).toBe("arm64");
+  expect(
+    resolvePreferredMacDownloadArch({
+      platform: "MacIntel",
+      userAgent: "Mozilla/5.0 (Macintosh; Mac OS X 14_0) AppleWebKit/605.1.15",
+    }),
+  ).toBe("arm64");
 });
 
 test("resolvePreferredMacDownloadArch uses explicit mac Intel user-agent tokens", () => {
-  expect(resolvePreferredMacDownloadArch({
-    platform: "MacIntel",
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15",
-  })).toBe("x64");
+  expect(
+    resolvePreferredMacDownloadArch({
+      platform: "MacIntel",
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15",
+    }),
+  ).toBe("x64");
 });
 
 test("upgradeLandingDownloadLink prefers arm64 when client hints expose ARM architecture", async () => {

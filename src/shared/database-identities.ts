@@ -4,8 +4,7 @@ import { assertUuidV7, createUuidV7 } from "./uuid-v7";
 
 const MAX_OPAQUE_ID_LENGTH = 512;
 const CUSTOM_ID_BYTE_LENGTH = 6;
-const BASE64URL_ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const CUSTOM_PROPERTY_ID_PATTERN = /^p_[A-Za-z0-9_-]{8}$/u;
 const CUSTOM_OPTION_ID_PATTERN = /^o_[A-Za-z0-9_-]{8}$/u;
 
@@ -18,9 +17,7 @@ type BrandedDatabaseIdentity<Kind extends string> = string & {
 export type DatabaseId = BrandedDatabaseIdentity<"DatabaseId">;
 export type DataSourceId = BrandedDatabaseIdentity<"DataSourceId">;
 export type DatabaseViewId = BrandedDatabaseIdentity<"DatabaseViewId">;
-export type DataSourcePropertyId = BrandedDatabaseIdentity<
-  "DataSourcePropertyId"
->;
+export type DataSourcePropertyId = BrandedDatabaseIdentity<"DataSourcePropertyId">;
 export type DataSourceOptionId = BrandedDatabaseIdentity<"DataSourceOptionId">;
 
 export interface DataSourcePropertyRef {
@@ -55,8 +52,7 @@ export const BUILT_IN_DATA_SOURCE_PROPERTY_IDS = [
   TASK_PARENT_PROPERTY_ID,
 ] as const;
 
-export type BuiltInDataSourcePropertyId =
-  (typeof BUILT_IN_DATA_SOURCE_PROPERTY_IDS)[number];
+export type BuiltInDataSourcePropertyId = (typeof BUILT_IN_DATA_SOURCE_PROPERTY_IDS)[number];
 
 const ESTIMATE_OPTION_IDS = ["xs", "s", "m", "l", "xl"] as const;
 
@@ -67,15 +63,12 @@ export const BUILT_IN_DATA_SOURCE_OPTION_IDS = {
   estimate: ESTIMATE_OPTION_IDS,
 } as const;
 
-export type BuiltInDataSourceOptionOwnerId =
-  keyof typeof BUILT_IN_DATA_SOURCE_OPTION_IDS;
+export type BuiltInDataSourceOptionOwnerId = keyof typeof BUILT_IN_DATA_SOURCE_OPTION_IDS;
 
 export type BuiltInDataSourceOptionId =
   (typeof BUILT_IN_DATA_SOURCE_OPTION_IDS)[BuiltInDataSourceOptionOwnerId][number];
 
-const BUILT_IN_PROPERTY_ID_SET = new Set<string>(
-  BUILT_IN_DATA_SOURCE_PROPERTY_IDS,
-);
+const BUILT_IN_PROPERTY_ID_SET = new Set<string>(BUILT_IN_DATA_SOURCE_PROPERTY_IDS);
 
 const parseOpaqueIdentity = <Kind extends string>(
   value: unknown,
@@ -113,26 +106,16 @@ export const isBuiltInDataSourcePropertyId = (
 ): value is BuiltInDataSourcePropertyId =>
   typeof value === "string" && BUILT_IN_PROPERTY_ID_SET.has(value);
 
-export const isReservedDataSourcePropertyId =
-  isBuiltInDataSourcePropertyId;
+export const isReservedDataSourcePropertyId = isBuiltInDataSourcePropertyId;
 
-export const isCustomDataSourcePropertyId = (
-  value: unknown,
-): value is DataSourcePropertyId =>
+export const isCustomDataSourcePropertyId = (value: unknown): value is DataSourcePropertyId =>
   typeof value === "string" && CUSTOM_PROPERTY_ID_PATTERN.test(value);
 
-export const isCustomDataSourceOptionId = (
-  value: unknown,
-): value is DataSourceOptionId =>
+export const isCustomDataSourceOptionId = (value: unknown): value is DataSourceOptionId =>
   typeof value === "string" && CUSTOM_OPTION_ID_PATTERN.test(value);
 
-export const parseDataSourcePropertyId = (
-  value: unknown,
-): DataSourcePropertyId => {
-  if (
-    isBuiltInDataSourcePropertyId(value) ||
-    isCustomDataSourcePropertyId(value)
-  ) {
+export const parseDataSourcePropertyId = (value: unknown): DataSourcePropertyId => {
+  if (isBuiltInDataSourcePropertyId(value) || isCustomDataSourcePropertyId(value)) {
     return value as DataSourcePropertyId;
   }
   throw new TypeError(
@@ -140,9 +123,7 @@ export const parseDataSourcePropertyId = (
   );
 };
 
-const acceptsCustomOptionId = (
-  propertyId: DataSourcePropertyId,
-): boolean =>
+const acceptsCustomOptionId = (propertyId: DataSourcePropertyId): boolean =>
   propertyId === "tags" || isCustomDataSourcePropertyId(propertyId);
 
 export const isBuiltInDataSourceOptionId = (
@@ -152,10 +133,7 @@ export const isBuiltInDataSourceOptionId = (
   if (
     typeof propertyId !== "string" ||
     typeof value !== "string" ||
-    !Object.prototype.hasOwnProperty.call(
-      BUILT_IN_DATA_SOURCE_OPTION_IDS,
-      propertyId,
-    )
+    !Object.prototype.hasOwnProperty.call(BUILT_IN_DATA_SOURCE_OPTION_IDS, propertyId)
   ) {
     return false;
   }
@@ -173,15 +151,10 @@ export const parseDataSourceOptionId = (input: {
   if (isBuiltInDataSourceOptionId(propertyId, input.value)) {
     return input.value as DataSourceOptionId;
   }
-  if (
-    acceptsCustomOptionId(propertyId) &&
-    isCustomDataSourceOptionId(input.value)
-  ) {
+  if (acceptsCustomOptionId(propertyId) && isCustomDataSourceOptionId(input.value)) {
     return input.value;
   }
-  throw new TypeError(
-    `optionId is not valid for Data Source Property ${propertyId}`,
-  );
+  throw new TypeError(`optionId is not valid for Data Source Property ${propertyId}`);
 };
 
 const secureRandomBytes: DatabaseIdentityByteSource = (length) => {
@@ -199,9 +172,7 @@ const encodeSixBytesAsBase64Url = (bytes: Uint8Array): string => {
   let encoded = "";
   for (let index = 0; index < bytes.length; index += 3) {
     const chunk =
-      ((bytes[index] ?? 0) << 16) |
-      ((bytes[index + 1] ?? 0) << 8) |
-      (bytes[index + 2] ?? 0);
+      ((bytes[index] ?? 0) << 16) | ((bytes[index + 1] ?? 0) << 8) | (bytes[index + 2] ?? 0);
     encoded += BASE64URL_ALPHABET[(chunk >>> 18) & 63];
     encoded += BASE64URL_ALPHABET[(chunk >>> 12) & 63];
     encoded += BASE64URL_ALPHABET[(chunk >>> 6) & 63];
@@ -210,10 +181,7 @@ const encodeSixBytesAsBase64Url = (bytes: Uint8Array): string => {
   return encoded;
 };
 
-const createCompactId = (
-  prefix: "p_" | "o_",
-  byteSource: DatabaseIdentityByteSource,
-): string => {
+const createCompactId = (prefix: "p_" | "o_", byteSource: DatabaseIdentityByteSource): string => {
   const bytes = byteSource(CUSTOM_ID_BYTE_LENGTH);
   if (!(bytes instanceof Uint8Array)) {
     throw new TypeError("Database identity byte source must return Uint8Array");
@@ -223,13 +191,11 @@ const createCompactId = (
 
 export const createCustomPropertyId = (
   byteSource: DatabaseIdentityByteSource = secureRandomBytes,
-): DataSourcePropertyId =>
-  parseDataSourcePropertyId(createCompactId("p_", byteSource));
+): DataSourcePropertyId => parseDataSourcePropertyId(createCompactId("p_", byteSource));
 
 export const createCustomOptionId = (
   byteSource: DatabaseIdentityByteSource = secureRandomBytes,
-): DataSourceOptionId =>
-  createCompactId("o_", byteSource) as DataSourceOptionId;
+): DataSourceOptionId => createCompactId("o_", byteSource) as DataSourceOptionId;
 
 export const createInitialDatabaseIdentities = (
   uuidSource: DatabaseUuidV7Source = createUuidV7,
@@ -255,10 +221,7 @@ export const canonicalizeTagName = (
     throw new TypeError("Tag name must be a string");
   }
   const { maxLength } = options;
-  if (
-    maxLength !== undefined &&
-    (!Number.isSafeInteger(maxLength) || maxLength < 1)
-  ) {
+  if (maxLength !== undefined && (!Number.isSafeInteger(maxLength) || maxLength < 1)) {
     throw new TypeError("Tag name maxLength must be a positive safe integer");
   }
   const canonical = value.normalize("NFC").trim();
@@ -266,9 +229,7 @@ export const canonicalizeTagName = (
     throw new TypeError("Tag name must not be empty");
   }
   if (maxLength !== undefined && canonical.length > maxLength) {
-    throw new RangeError(
-      `Tag name must contain at most ${maxLength} characters`,
-    );
+    throw new RangeError(`Tag name must contain at most ${maxLength} characters`);
   }
   return canonical;
 };

@@ -1,7 +1,4 @@
-import type {
-  Collaborator,
-  SocketId,
-} from "@excalidraw/excalidraw/types";
+import type { Collaborator, SocketId } from "@excalidraw/excalidraw/types";
 import {
   CANVAS_PRESENCE_HEARTBEAT_MS,
   CANVAS_PRESENCE_POINTER_INTERVAL_MS,
@@ -27,30 +24,18 @@ export interface CanvasPresenceController {
 
 export interface CanvasPresenceControllerOptions {
   readonly publish: CanvasPresencePublisher;
-  readonly onCollaborators: (
-    collaborators: ReadonlyMap<SocketId, Collaborator>,
-  ) => void;
+  readonly onCollaborators: (collaborators: ReadonlyMap<SocketId, Collaborator>) => void;
   readonly now?: () => number;
-  readonly schedule?: (
-    callback: () => void,
-    delayMs: number,
-  ) => () => void;
+  readonly schedule?: (callback: () => void, delayMs: number) => () => void;
 }
 
-const defaultSchedule = (
-  callback: () => void,
-  delayMs: number,
-): (() => void) => {
+const defaultSchedule = (callback: () => void, delayMs: number): (() => void) => {
   const timeout = globalThis.setTimeout(callback, delayMs);
   return () => globalThis.clearTimeout(timeout);
 };
 
-const sameSelection = (
-  left: readonly string[],
-  right: readonly string[],
-): boolean =>
-  left.length === right.length
-  && left.every((id, index) => id === right[index]);
+const sameSelection = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((id, index) => id === right[index]);
 
 const toCollaborator = (presence: CanvasPresenceEvent): Collaborator => {
   const state = presence.state;
@@ -64,9 +49,7 @@ const toCollaborator = (presence: CanvasPresenceEvent): Collaborator => {
       background: `${presence.user.color}33`,
       stroke: presence.user.color,
     },
-    selectedElementIds: Object.fromEntries(
-      state.selectedElementIds.map((id) => [id, true]),
-    ),
+    selectedElementIds: Object.fromEntries(state.selectedElementIds.map((id) => [id, true])),
     ...(state.pointer
       ? {
           pointer: {
@@ -141,8 +124,7 @@ export const createCanvasPresenceController = (
       if (closed) return;
       state = { ...state, pointer, idle: "active" };
       if (!enabled || cancelPointer) return;
-      const remaining = CANVAS_PRESENCE_POINTER_INTERVAL_MS
-        - (now() - lastPointerPublishedAt);
+      const remaining = CANVAS_PRESENCE_POINTER_INTERVAL_MS - (now() - lastPointerPublishedAt);
       if (remaining <= 0) {
         lastPointerPublishedAt = now();
         publishCurrent();
@@ -196,10 +178,10 @@ export const createCanvasPresenceController = (
       const current = remote.get(incoming.clientSessionId);
       const newer = !current || incoming.clock > current.clock;
       const equalClockRemoval =
-        current !== undefined
-        && current.state !== null
-        && incoming.state === null
-        && incoming.clock === current.clock;
+        current !== undefined &&
+        current.state !== null &&
+        incoming.state === null &&
+        incoming.clock === current.clock;
       if (!newer && !equalClockRemoval) return;
       if (incoming.state === null) {
         remote.delete(incoming.clientSessionId);

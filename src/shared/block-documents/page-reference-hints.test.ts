@@ -76,9 +76,7 @@ describe("normalizePageReferences", () => {
       renamedNodes: 1,
       blockIds: ["historical-reference", "unresolved-reference"],
     });
-    expect(body.toString()).toContain(
-      '<pageref targetBlockId="target-page"></pageref>',
-    );
+    expect(body.toString()).toContain('<pageref targetBlockId="target-page"></pageref>');
     expect(body.toString()).not.toContain("legacyCardId");
     expect(body.toString()).toContain("<cardref></cardref>");
     expect(normalizePageReferences(body)).toEqual({

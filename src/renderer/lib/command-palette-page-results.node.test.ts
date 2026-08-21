@@ -23,12 +23,14 @@ const result = (overrides: Partial<PageSearchResult> = {}): PageSearchResult => 
   title: "Search authority",
   status: "build",
   priority: "p1-high",
-  tags: [{
-    dataSourceId: "source:one",
-    propertyId: "tags",
-    optionId: "tag:core",
-    label: "Core",
-  }],
+  tags: [
+    {
+      dataSourceId: "source:one",
+      propertyId: "tags",
+      optionId: "tag:core",
+      label: "Core",
+    },
+  ],
   assignee: "Ada",
   locationLabel: "Product / Build",
   titleParts: [
@@ -40,14 +42,16 @@ const result = (overrides: Partial<PageSearchResult> = {}): PageSearchResult => 
     { text: "Search", highlighted: true },
     { text: " evidence from Core", highlighted: false },
   ],
-  matches: [{
-    source: "title",
-    quality: "exact",
-    parts: [
-      { text: "Search", highlighted: true },
-      { text: " authority", highlighted: false },
-    ],
-  }],
+  matches: [
+    {
+      source: "title",
+      quality: "exact",
+      parts: [
+        { text: "Search", highlighted: true },
+        { text: " authority", highlighted: false },
+      ],
+    },
+  ],
   updatedAt: "2026-08-17T00:00:00.000Z",
   ...overrides,
 });
@@ -55,10 +59,7 @@ const result = (overrides: Partial<PageSearchResult> = {}): PageSearchResult => 
 describe("Core-authoritative command palette Page results", () => {
   test("preserves Core order and consumes typed highlight evidence", () => {
     const pages = buildCommandPalettePagesFromSearchResults({
-      results: [
-        result(),
-        result({ pageId: "page:two", title: "Second", pageKey: null }),
-      ],
+      results: [result(), result({ pageId: "page:two", title: "Second", pageKey: null })],
       projects: [project],
       activeProjectId: project.id,
       recentPageIds: ["page:two"],
@@ -74,30 +75,36 @@ describe("Core-authoritative command palette Page results", () => {
 
   test("encodes scoped tag identities before sending filters to Core", () => {
     const filters = getDefaultCommandPalettePageFilters();
-    filters.tags = [pageSearchOptionIdentityKey({
-      dataSourceId: "source:one",
-      propertyId: "tags",
-      optionId: "tag:core",
-    })];
-    filters.tagMode = "all";
-
-    expect(toCorePageSearchFilters(filters)).toMatchObject({
-      tags: [{
+    filters.tags = [
+      pageSearchOptionIdentityKey({
         dataSourceId: "source:one",
         propertyId: "tags",
         optionId: "tag:core",
-      }],
+      }),
+    ];
+    filters.tagMode = "all";
+
+    expect(toCorePageSearchFilters(filters)).toMatchObject({
+      tags: [
+        {
+          dataSourceId: "source:one",
+          propertyId: "tags",
+          optionId: "tag:core",
+        },
+      ],
       tagMode: "all",
     });
   });
 
   test("treats an empty-query Core request as pending until its batch arrives", () => {
-    expect(isCommandPalettePageSearchPending({
-      batch: null,
-      enabled: true,
-      query: "",
-      scopeKey: "project:one",
-    })).toBe(true);
+    expect(
+      isCommandPalettePageSearchPending({
+        batch: null,
+        enabled: true,
+        query: "",
+        scopeKey: "project:one",
+      }),
+    ).toBe(true);
   });
 
   test("shows synchronous metadata rows while complete search is still pending", () => {

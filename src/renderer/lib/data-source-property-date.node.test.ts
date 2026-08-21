@@ -21,8 +21,7 @@ describe("Data Source Property dates", () => {
   });
 
   test("preserves four-digit years below 100", () => {
-    expect(formatLocalDateAsIso(parseIsoDateToLocalDate("0099-08-04")!))
-      .toBe("0099-08-04");
+    expect(formatLocalDateAsIso(parseIsoDateToLocalDate("0099-08-04")!)).toBe("0099-08-04");
   });
 
   test("round-trips a local datetime through canonical ISO", () => {

@@ -22,10 +22,7 @@ export interface EditorForExternalBlockDrop {
   transact?: <T>(fn: () => T) => T;
 }
 
-export function runInEditorTransaction<T>(
-  editor: EditorForExternalBlockDrop,
-  fn: () => T,
-): T {
+export function runInEditorTransaction<T>(editor: EditorForExternalBlockDrop, fn: () => T): T {
   if (!editor.transact) return fn();
   return editor.transact(fn);
 }

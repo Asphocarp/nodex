@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  BoardIcon,
-  CanvasIcon,
-  PageIcon,
-} from "@/components/shared/icons";
+import { BoardIcon, CanvasIcon, PageIcon } from "@/components/shared/icons";
 import { getPanelNewTabAction } from "./workbench-panel-actions";
 
 describe("workbench panel action icons", () => {

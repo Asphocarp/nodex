@@ -77,13 +77,10 @@ function buildTurnParams(): CodexCanonicalTurnParams {
 function buildState(
   options: { readonly hasUnreadTurn?: boolean } = {},
 ): CodexCanonicalConversationState {
-  return createCodexCanonicalConversationState(
-    buildAgentActivityV2CorpusThread([]),
-    {
-      turnParamsById: { [TURN_ID]: buildTurnParams() },
-      hasUnreadTurn: options.hasUnreadTurn,
-    },
-  );
+  return createCodexCanonicalConversationState(buildAgentActivityV2CorpusThread([]), {
+    turnParamsById: { [TURN_ID]: buildTurnParams() },
+    hasUnreadTurn: options.hasUnreadTurn,
+  });
 }
 
 function context(isOpenAIFormElicitationsEnabled?: boolean) {
@@ -133,10 +130,12 @@ describe("Codex 30751 server-request lifecycle", () => {
     const initial = buildState();
     const withCollision: CodexCanonicalConversationState = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        items: [{ type: "contextCompaction", id: collisionId }],
-      }],
+      turns: [
+        {
+          ...initial.turns[0]!,
+          items: [{ type: "contextCompaction", id: collisionId }],
+        },
+      ],
     };
     const pending = reduceCodexConversationServerRequest(
       withCollision,
@@ -200,9 +199,9 @@ describe("Codex 30751 server-request lifecycle", () => {
       expect(completed.state.requests.length).toBe(0);
       expect(completed.selectedRequests[0] === requestCase.request).toBe(true);
       if (requestCase.effect.resolution === "complete-synthetic-and-remove") {
-        expect(completedItem && "completed" in completedItem
-          ? completedItem.completed
-          : false).toBe(true);
+        expect(
+          completedItem && "completed" in completedItem ? completedItem.completed : false,
+        ).toBe(true);
       } else {
         expect(completedItem?.type ?? "none").toBe("none");
       }
@@ -212,24 +211,21 @@ describe("Codex 30751 server-request lifecycle", () => {
   test("executes the seven one-shot corpus rows through the shared reducer", () => {
     expect(agentActivityV2OneShotRequestCases.length).toBe(7);
     for (const requestCase of agentActivityV2OneShotRequestCases) {
-      const requests = requestCase.fixture.events.flatMap((event) => (
-        event.type === "request" ? [event.request] : []
-      ));
+      const requests = requestCase.fixture.events.flatMap((event) =>
+        event.type === "request" ? [event.request] : [],
+      );
       expect(requests.length).toBe(requestCase.effects.length);
       requests.forEach((request, index) => {
-        const result = reduceCodexConversationServerRequest(
-          buildState(),
-          request,
-          context(),
-        );
+        const result = reduceCodexConversationServerRequest(buildState(), request, context());
         const expected = requestCase.effects[index];
-        const expectedDisposition = expected?.ingress === "auto-responded"
-          ? "responded"
-          : expected?.ingress === "dispatched"
-            ? "dispatched"
-            : expected?.ingress === "ignored"
-              ? "ignored"
-              : "stored";
+        const expectedDisposition =
+          expected?.ingress === "auto-responded"
+            ? "responded"
+            : expected?.ingress === "dispatched"
+              ? "dispatched"
+              : expected?.ingress === "ignored"
+                ? "ignored"
+                : "stored";
         expect(result.disposition).toBe(expectedDisposition);
       });
     }
@@ -238,11 +234,7 @@ describe("Codex 30751 server-request lifecycle", () => {
   test("preserves scalar RequestId identity even when numeric and string synthetic IDs collide", () => {
     const numeric = { ...agentActivityV2PermissionRequest, id: 73 } satisfies ServerRequest;
     const string = { ...agentActivityV2PermissionRequest, id: "73" } satisfies ServerRequest;
-    const numericPending = reduceCodexConversationServerRequest(
-      buildState(),
-      numeric,
-      context(),
-    );
+    const numericPending = reduceCodexConversationServerRequest(buildState(), numeric, context());
     const bothPending = reduceCodexConversationServerRequest(
       numericPending.state,
       string,
@@ -267,20 +259,22 @@ describe("Codex 30751 server-request lifecycle", () => {
     const initial = buildState();
     const placeholder: CodexCanonicalConversationState = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        protocol: {
-          ...initial.turns[0]!.protocol,
-          id: null,
-          status: "completed",
-          error: null,
+      turns: [
+        {
+          ...initial.turns[0]!,
+          protocol: {
+            ...initial.turns[0]!.protocol,
+            id: null,
+            status: "completed",
+            error: null,
+          },
+          items: [],
+          sidecar: {
+            ...initial.turns[0]!.sidecar,
+            turnStartedAtMs: null,
+          },
         },
-        items: [],
-        sidecar: {
-          ...initial.turns[0]!.sidecar,
-          turnStartedAtMs: null,
-        },
-      }],
+      ],
     };
     const pending = reduceCodexConversationServerRequest(
       placeholder,
@@ -314,19 +308,15 @@ describe("Codex 30751 server-request lifecycle", () => {
     );
     const completedItem = completed.state.turns[0]?.items[0];
 
+    expect(pendingItem && "elicitation" in pendingItem ? pendingItem.elicitation.kind : null).toBe(
+      "unsupportedOpenAIForm",
+    );
     expect(
-      pendingItem && "elicitation" in pendingItem
-        ? pendingItem.elicitation.kind
-        : null,
-    ).toBe("unsupportedOpenAIForm");
-    expect(
-      completedItem && "elicitation" in completedItem
-        ? completedItem.elicitation.kind
-        : null,
+      completedItem && "elicitation" in completedItem ? completedItem.elicitation.kind : null,
     ).toBe("openaiForm");
-    expect(completedItem && "completed" in completedItem
-      ? completedItem.completed
-      : null).toBe(true);
+    expect(completedItem && "completed" in completedItem ? completedItem.completed : null).toBe(
+      true,
+    );
   });
 
   test("normalizes every OW family and declines only unrenderable MCP requests", () => {
@@ -422,17 +412,21 @@ describe("Codex 30751 server-request lifecycle", () => {
     expect(urlAction?.kind).toBe("urlAction");
     expect(urlAction && "riskLevel" in urlAction ? urlAction.riskLevel : null).toBe("high");
     expect(connectorAuth?.kind).toBe("connectorAuth");
-    expect(connectorAuth && "connector" in connectorAuth
-      ? connectorAuth.connector.install_url
-      : null).toBe("https://chatgpt.com/connect");
+    expect(
+      connectorAuth && "connector" in connectorAuth ? connectorAuth.connector.install_url : null,
+    ).toBe("https://chatgpt.com/connect");
     expect(toolSuggestion?.kind).toBe("toolSuggestion");
     expect(mcpToolCall?.kind).toBe("mcpToolCall");
-    expect(mcpToolCall && "toolParamsDisplay" in mcpToolCall
-      ? mcpToolCall.toolParamsDisplay?.[0]?.displayName
-      : null).toBe("Path");
-    expect(mcpToolCall && "toolParamsDisplay" in mcpToolCall
-      ? mcpToolCall.toolParamsDisplay?.length
-      : null).toBe(1);
+    expect(
+      mcpToolCall && "toolParamsDisplay" in mcpToolCall
+        ? mcpToolCall.toolParamsDisplay?.[0]?.displayName
+        : null,
+    ).toBe("Path");
+    expect(
+      mcpToolCall && "toolParamsDisplay" in mcpToolCall
+        ? mcpToolCall.toolParamsDisplay?.length
+        : null,
+    ).toBe(1);
     expect(computerUse?.kind).toBe("mcpToolCall");
     expect(generic?.kind).toBe("generic");
     expect(form?.kind).toBe("formElicitation");
@@ -451,11 +445,7 @@ describe("Codex 30751 server-request lifecycle", () => {
         elicitationId: "invalid",
       },
     } satisfies ServerRequest;
-    const declined = reduceCodexConversationServerRequest(
-      buildState(),
-      invalid,
-      context(),
-    );
+    const declined = reduceCodexConversationServerRequest(buildState(), invalid, context());
     const unknownModeParams = {
       threadId: THREAD_ID,
       turnId: TURN_ID,
@@ -479,17 +469,17 @@ describe("Codex 30751 server-request lifecycle", () => {
     expect(declined.state.requests.length).toBe(0);
     expect(declined.disposition).toBe("responded");
     expect(effect?.type).toBe("respond");
-    expect(effect?.type === "respond" && "action" in effect.response
-      ? effect.response.action
-      : null).toBe("decline");
+    expect(
+      effect?.type === "respond" && "action" in effect.response ? effect.response.action : null,
+    ).toBe("decline");
     expect(unknownMode).toBe(null);
     expect(unknownDeclined.disposition).toBe("responded");
     expect(unknownDeclined.state.requests.length).toBe(0);
     expect(
-      unknownDeclined.effects[0]?.type === "respond"
-      && "action" in unknownDeclined.effects[0].response
+      unknownDeclined.effects[0]?.type === "respond" &&
+        "action" in unknownDeclined.effects[0].response
         ? unknownDeclined.effects[0].response.action
-        : null
+        : null,
     ).toBe("decline");
   });
 
@@ -568,25 +558,31 @@ describe("Codex 30751 server-request lifecycle", () => {
 
     expect(nullableDisplayMeta?.kind).toBe("urlAction");
     expect(nullableDisplayMeta && "riskLevel" in nullableDisplayMeta).toBe(false);
-    expect(nullableDisplayMeta && "subtitle" in nullableDisplayMeta
-      ? nullableDisplayMeta.subtitle
-      : null).toBe("Review details");
+    expect(
+      nullableDisplayMeta && "subtitle" in nullableDisplayMeta
+        ? nullableDisplayMeta.subtitle
+        : null,
+    ).toBe("Review details");
     expect(invalidDisplayMeta?.kind).toBe("urlAction");
     expect(invalidDisplayMeta && "riskLevel" in invalidDisplayMeta).toBe(false);
     expect(invalidDisplayMeta && "subtitle" in invalidDisplayMeta).toBe(false);
     expect(connectorAuth?.kind).toBe("connectorAuth");
-    expect(connectorAuth && "connector" in connectorAuth
-      ? JSON.stringify(connectorAuth.connector.requested_scopes)
-      : null).toBe(JSON.stringify(["read", "write"]));
+    expect(
+      connectorAuth && "connector" in connectorAuth
+        ? JSON.stringify(connectorAuth.connector.requested_scopes)
+        : null,
+    ).toBe(JSON.stringify(["read", "write"]));
     expect(suggestion?.kind).toBe("toolSuggestion");
-    expect(suggestion && "suggestion" in suggestion
-      ? suggestion.suggestion.remote_plugin_id
-      : null).toBe("remote-plugin");
+    expect(
+      suggestion && "suggestion" in suggestion ? suggestion.suggestion.remote_plugin_id : null,
+    ).toBe("remote-plugin");
     expect(invalidDisplayList?.kind).toBe("mcpToolCall");
     expect(invalidDisplayList && "toolParamsDisplay" in invalidDisplayList).toBe(true);
-    expect(invalidDisplayList && "toolParamsDisplay" in invalidDisplayList
-      ? invalidDisplayList.toolParamsDisplay ?? null
-      : "missing").toBe(null);
+    expect(
+      invalidDisplayList && "toolParamsDisplay" in invalidDisplayList
+        ? (invalidDisplayList.toolParamsDisplay ?? null)
+        : "missing",
+    ).toBe(null);
   });
 
   test("matches OpenAI-form union degradation and image-picker scalar identity", () => {
@@ -687,18 +683,20 @@ describe("Codex 30751 server-request lifecycle", () => {
       postTrimDuplicateIds && "schema" in postTrimDuplicateIds
         ? JSON.stringify(postTrimDuplicateIds.schema)
         : null,
-    ).toBe(JSON.stringify({
-      type: "object",
-      properties: {
-        image: {
-          type: "openai/imagePicker",
-          items: [
-            { id: "image", title: "Image", image: "data:image/png;base64,QQ==" },
-            { id: " image ", title: " Image ", image: "data:image/png;base64,Qg==" },
-          ],
+    ).toBe(
+      JSON.stringify({
+        type: "object",
+        properties: {
+          image: {
+            type: "openai/imagePicker",
+            items: [
+              { id: "image", title: "Image", image: "data:image/png;base64,QQ==" },
+              { id: " image ", title: " Image ", image: "data:image/png;base64,Qg==" },
+            ],
+          },
         },
-      },
-    }));
+      }),
+    );
     expect(exactDuplicateIds?.kind).toBe("unsupportedOpenAIForm");
   });
 
@@ -716,11 +714,7 @@ describe("Codex 30751 server-request lifecycle", () => {
         arguments: { question: "Missing options" },
       },
     } satisfies ServerRequest;
-    const invalid = reduceCodexConversationServerRequest(
-      buildState(),
-      invalidRequest,
-      context(),
-    );
+    const invalid = reduceCodexConversationServerRequest(buildState(), invalidRequest, context());
     const invalidOnboardingRequest = {
       ...agentActivityV2DynamicToolRequest,
       id: "invalid-onboarding",
@@ -729,11 +723,13 @@ describe("Codex 30751 server-request lifecycle", () => {
         namespace: "codex_app",
         tool: "request_onboarding_input",
         arguments: {
-          questions: [{
-            id: "role",
-            question: "Choose a role",
-            options: [{ label: "Only one option" }],
-          }],
+          questions: [
+            {
+              id: "role",
+              question: "Choose a role",
+              options: [{ label: "Only one option" }],
+            },
+          ],
         },
       },
     } satisfies ServerRequest;
@@ -763,11 +759,7 @@ describe("Codex 30751 server-request lifecycle", () => {
       params: { ...setupRole.params, arguments: { step: "role", unexpected: true } },
     } satisfies ServerRequest;
     const role = reduceCodexConversationServerRequest(buildState(), setupRole, context());
-    const complete = reduceCodexConversationServerRequest(
-      buildState(),
-      setupComplete,
-      context(),
-    );
+    const complete = reduceCodexConversationServerRequest(buildState(), setupComplete, context());
     const rejectedSetup = reduceCodexConversationServerRequest(
       buildState(),
       invalidSetup,
@@ -784,27 +776,27 @@ describe("Codex 30751 server-request lifecycle", () => {
     expect(invalid.disposition).toBe("responded");
     expect(invalid.state.requests.length).toBe(0);
     expect(
-      invalid.effects[0]?.type === "respond"
-      && invalid.effects[0].method === "item/tool/call"
-      ? invalid.effects[0].response.success
-      : null).toBe(false);
+      invalid.effects[0]?.type === "respond" && invalid.effects[0].method === "item/tool/call"
+        ? invalid.effects[0].response.success
+        : null,
+    ).toBe(false);
     expect(invalidOnboarding.disposition).toBe("responded");
     expect(invalidOnboarding.state.requests.length).toBe(0);
     expect(
-      invalidOnboarding.effects[0]?.type === "respond"
-      && invalidOnboarding.effects[0].method === "item/tool/call"
-      ? invalidOnboarding.effects[0].response.success
-      : null
+      invalidOnboarding.effects[0]?.type === "respond" &&
+        invalidOnboarding.effects[0].method === "item/tool/call"
+        ? invalidOnboarding.effects[0].response.success
+        : null,
     ).toBe(false);
     expect(role.disposition).toBe("stored");
     expect(complete.effects[0]?.type).toBe("dispatchDynamicToolCall");
     expect(rejectedSetup.disposition).toBe("responded");
     expect(rejectedSetup.state.requests.length).toBe(0);
     expect(
-      rejectedSetup.effects[0]?.type === "respond"
-      && rejectedSetup.effects[0].method === "item/tool/call"
-      ? rejectedSetup.effects[0].response.success
-      : null
+      rejectedSetup.effects[0]?.type === "respond" &&
+        rejectedSetup.effects[0].method === "item/tool/call"
+        ? rejectedSetup.effects[0].response.success
+        : null,
     ).toBe(false);
     expect(ordinary.effects[0]?.type).toBe("dispatchDynamicToolCall");
   });
@@ -830,16 +822,8 @@ describe("Codex 30751 server-request lifecycle", () => {
       },
     } satisfies ServerRequest;
 
-    const setup = reduceCodexConversationServerRequest(
-      buildState(),
-      foreignSetup,
-      context(),
-    );
-    const picker = reduceCodexConversationServerRequest(
-      buildState(),
-      foreignPicker,
-      context(),
-    );
+    const setup = reduceCodexConversationServerRequest(buildState(), foreignSetup, context());
+    const picker = reduceCodexConversationServerRequest(buildState(), foreignPicker, context());
 
     expect(setup.disposition).toBe("dispatched");
     expect(setup.effects[0]?.type).toBe("dispatchDynamicToolCall");
@@ -856,12 +840,14 @@ describe("Codex 30751 server-request lifecycle", () => {
         namespace: "codex_app",
         tool: "request_onboarding_input",
         arguments: {
-          questions: [{
-            id: "role",
-            header: null,
-            question: "Choose a role",
-            options: [{ label: "Engineer" }, { label: "Designer", description: null }],
-          }],
+          questions: [
+            {
+              id: "role",
+              header: null,
+              question: "Choose a role",
+              options: [{ label: "Engineer" }, { label: "Designer", description: null }],
+            },
+          ],
         },
       },
     } satisfies ServerRequest;
@@ -889,10 +875,7 @@ describe("Codex 30751 server-request lifecycle", () => {
       ...pending,
       requests: [wrongTool, onboarding],
     };
-    const ignored = reduceCodexConversationOnboardingInputResponse(
-      wrongFirst,
-      73,
-    );
+    const ignored = reduceCodexConversationOnboardingInputResponse(wrongFirst, 73);
     expect(ignored.disposition).toBe("ignored");
     expect(ignored.state === wrongFirst).toBe(true);
 
@@ -903,26 +886,30 @@ describe("Codex 30751 server-request lifecycle", () => {
         arguments: { replayedWithoutIngressValidation: true },
       },
     } satisfies ServerRequest;
-    const replayedReply = reduceCodexConversationOnboardingInputResponse({
-      ...pending,
-      requests: [replayedMalformedOnboarding],
-    }, 73);
+    const replayedReply = reduceCodexConversationOnboardingInputResponse(
+      {
+        ...pending,
+        requests: [replayedMalformedOnboarding],
+      },
+      73,
+    );
     expect(replayedReply.disposition).toBe("resolved");
     expect(replayedReply.selectedRequests[0] === replayedMalformedOnboarding).toBe(true);
     expect(replayedReply.state.requests.length).toBe(0);
   });
 
   test("validates setup-step replies against the first stored request and original step", () => {
-    const requestFor = (step: "role" | "task" | "context") => ({
-      ...agentActivityV2DynamicToolRequest,
-      id: `setup-${step}`,
-      params: {
-        ...agentActivityV2DynamicToolRequest.params,
-        namespace: "codex_app",
-        tool: "setup_codex_step",
-        arguments: { step },
-      },
-    } satisfies ServerRequest);
+    const requestFor = (step: "role" | "task" | "context") =>
+      ({
+        ...agentActivityV2DynamicToolRequest,
+        id: `setup-${step}`,
+        params: {
+          ...agentActivityV2DynamicToolRequest.params,
+          namespace: "codex_app",
+          tool: "setup_codex_step",
+          arguments: { step },
+        },
+      }) satisfies ServerRequest;
     const cases = [
       {
         request: requestFor("role"),
@@ -1014,18 +1001,21 @@ describe("Codex 30751 server-request lifecycle", () => {
     expect(permission.state.requests.length).toBe(1);
     expect(permission.state.turns.length).toBe(0);
     expect(permission.state.sidecar.hasUnreadTurn).toBe(true);
-    expect(currentTime.effects[0]?.type === "respond"
-      ? "currentTimeAt" in currentTime.effects[0].response
-        ? currentTime.effects[0].response.currentTimeAt
-        : null
-      : null).toBe(1_234);
+    expect(
+      currentTime.effects[0]?.type === "respond"
+        ? "currentTimeAt" in currentTime.effects[0].response
+          ? currentTime.effects[0].response.currentTimeAt
+          : null
+        : null,
+    ).toBe(1_234);
     expect(secondPlan.state.requests.length).toBe(1);
     expect(secondPlan.state.requests[0] === planTwo).toBe(true);
     expect(completedPlan.requests.length).toBe(0);
     expect(completedPlan.sidecar.hasUnreadTurn).toBe(true);
     expect(classifyCodexCanonicalServerRequest(planTwo).source).toBe("private");
-    expect(classifyCodexCanonicalServerRequest(agentActivityV2PermissionRequest).behavior)
-      .toBe("storeAndSynthesize");
+    expect(classifyCodexCanonicalServerRequest(agentActivityV2PermissionRequest).behavior).toBe(
+      "storeAndSynthesize",
+    );
   });
 
   test("replaces identical plan requests at the tail and globally filters stale plans on turn start", () => {
@@ -1069,10 +1059,7 @@ describe("Codex 30751 server-request lifecycle", () => {
     expect(replaced.state.requests[2] === freshCurrent).toBe(true);
     expect(replaced.state.hasUnreadTurn).toBe(true);
 
-    const turnStarted = applyCodexPlanImplementationTurnStartedRawState(
-      replaced.state,
-      TURN_ID,
-    );
+    const turnStarted = applyCodexPlanImplementationTurnStartedRawState(replaced.state, TURN_ID);
     expect(JSON.stringify(turnStarted.requests.map((request) => request.id))).toBe(
       JSON.stringify([unrelated.id, freshCurrent.id]),
     );
@@ -1119,11 +1106,7 @@ describe("Codex 30751 server-request lifecycle", () => {
       params: { threadId: THREAD_ID, turnId: TURN_ID },
     } satisfies CodexCanonicalSetupContextPickerRequest;
 
-    const mcpPending = reduceCodexConversationServerRequest(
-      buildState(),
-      turnlessMcp,
-      context(),
-    );
+    const mcpPending = reduceCodexConversationServerRequest(buildState(), turnlessMcp, context());
     const mcpResolved = reduceCodexConversationServerRequestResolved(
       mcpPending.state,
       resolved(turnlessMcp.id),
@@ -1342,19 +1325,23 @@ describe("Codex 30751 server-request lifecycle", () => {
     expect(approval.selectedRequests[0] === agentActivityV2CommandApprovalRequest).toBe(true);
     expect(approval.selectedRequestIds[0]).toBe(agentActivityV2CommandApprovalRequest.id);
     expect(permission.state.requests.length).toBe(0);
-    expect(permissionItem && "response" in permissionItem
-      ? permissionItem.response === permissionResponse
-      : false).toBe(true);
-    expect(permissionItem && "completed" in permissionItem
-      ? permissionItem.completed
-      : false).toBe(true);
+    expect(
+      permissionItem && "response" in permissionItem
+        ? permissionItem.response === permissionResponse
+        : false,
+    ).toBe(true);
+    expect(permissionItem && "completed" in permissionItem ? permissionItem.completed : false).toBe(
+      true,
+    );
     expect(user.state.requests.length).toBe(0);
-    expect(userItem && "answers" in userItem
-      ? userItem.answers.choice?.[0]
-      : null).toBe("Continue");
-    expect(userItem && "answers" in userItem
-      ? Object.prototype.hasOwnProperty.call(userItem.answers, "omitted")
-      : true).toBe(false);
+    expect(userItem && "answers" in userItem ? userItem.answers.choice?.[0] : null).toBe(
+      "Continue",
+    );
+    expect(
+      userItem && "answers" in userItem
+        ? Object.prototype.hasOwnProperty.call(userItem.answers, "omitted")
+        : true,
+    ).toBe(false);
   });
 
   test("ignores a reply whose first strict-ID request belongs to another family", () => {
@@ -1520,13 +1507,15 @@ describe("Codex 30751 server-request lifecycle", () => {
   test("runs the same ingress contract against minimal raw adapter state", () => {
     const raw: CodexServerRequestRawState = {
       threadId: THREAD_ID,
-      turns: [{
-        turnId: TURN_ID,
-        status: "inProgress",
-        hasError: false,
-        items: [],
-        turnStartedAtMs: null,
-      }],
+      turns: [
+        {
+          turnId: TURN_ID,
+          status: "inProgress",
+          hasError: false,
+          items: [],
+          turnStartedAtMs: null,
+        },
+      ],
       requests: [],
       hasUnreadTurn: false,
     };

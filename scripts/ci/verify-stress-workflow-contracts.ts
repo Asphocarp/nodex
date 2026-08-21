@@ -14,7 +14,8 @@ const requiredStressJobsByWorkflow: Readonly<Record<string, readonly string[]>> 
 };
 const stressWordPattern = /(?:^|[-_\s])stress(?:$|[-_\s])/iu;
 const directStressCommandPattern = /\bpnpm(?:\s+--silent)?\s+run\s+test:stress\b/u;
-const duplicatedSetupCommandPattern = /\b(?:pnpm\s+install|build-resources:prepare|sccache\s+--show-stats)\b/u;
+const duplicatedSetupCommandPattern =
+  /\b(?:pnpm\s+install|build-resources:prepare|sccache\s+--show-stats)\b/u;
 const duplicatedSetupActions = [
   "pnpm/action-setup@",
   "actions/setup-node@",
@@ -30,9 +31,7 @@ const isStressJob = (jobName: string, job: UnknownRecord): boolean => {
 const stepLabel = (filePath: string, jobName: string): string =>
   `${relativeRepositoryPath(filePath)}:${jobName}`;
 
-export const verifyRequiredStressWorkflowFiles = (
-  workflowPaths: ReadonlySet<string>,
-): void => {
+export const verifyRequiredStressWorkflowFiles = (workflowPaths: ReadonlySet<string>): void => {
   for (const requiredPath of Object.keys(requiredStressJobsByWorkflow)) {
     if (!workflowPaths.has(requiredPath)) {
       throw new Error(`Required stress workflow is missing: ${requiredPath}`);
@@ -64,7 +63,8 @@ export const verifyStressWorkflow = (
       throw new Error(`${stepLabel(filePath, jobName)} must provide stress steps`);
     }
     const steps = job.steps.map((step, index) =>
-      requireRecord(step, `${stepLabel(filePath, jobName)}.steps[${index}]`));
+      requireRecord(step, `${stepLabel(filePath, jobName)}.steps[${index}]`),
+    );
     const sharedActionUses = steps.filter((step) => step.uses === sharedStressAction);
     if (sharedActionUses.length !== 1) {
       throw new Error(

@@ -43,12 +43,13 @@ export function DatabaseBoardGroupMarker({
       />
     );
   }
-  const Icon = group.marker.propertyId === null
-    ? dataSourcePropertyTypeIcon(group.marker.valueType)
-    : dataSourcePropertyIcon({
-        propertyId: group.marker.propertyId,
-        valueType: group.marker.valueType,
-      });
+  const Icon =
+    group.marker.propertyId === null
+      ? dataSourcePropertyTypeIcon(group.marker.valueType)
+      : dataSourcePropertyIcon({
+          propertyId: group.marker.propertyId,
+          valueType: group.marker.valueType,
+        });
   return (
     <Icon
       className={cn(

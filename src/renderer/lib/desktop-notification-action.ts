@@ -39,9 +39,7 @@ export function resolveDesktopNotificationParentThreadId(
 ): string | null {
   const path = invocation.navigationPath?.trim() ?? "";
   if (path.length > 0) {
-    const threadSegment = path
-      .split("/")
-      .findLast((segment) => segment.startsWith("thread:"));
+    const threadSegment = path.split("/").findLast((segment) => segment.startsWith("thread:"));
     const encodedThreadId = threadSegment?.slice("thread:".length).trim() ?? "";
     if (encodedThreadId.length > 0) return decodeNavigationSegment(encodedThreadId);
   }
@@ -64,8 +62,7 @@ function resolveLiveApprovalKind(
 ): CodexApprovalKind | null {
   const request = manager
     .readConversation(conversationId)
-    ?.canonicalRequests
-    ?.find((candidate) => candidate.id === requestId);
+    ?.canonicalRequests?.find((candidate) => candidate.id === requestId);
   if (!request) return null;
   if (request.method === "item/commandExecution/requestApproval") return "command";
   if (request.method === "item/fileChange/requestApproval") return "file";
@@ -98,13 +95,14 @@ export async function executeDesktopNotificationAction(
   const kind = resolveLiveApprovalKind(manager, conversationId, requestId);
   if (!kind) return "ignored";
 
-  const decision = invocation.actionType === "approve"
-    ? "accept"
-    : invocation.actionType === "approve-for-session"
-      ? "acceptForSession"
-      : invocation.actionType === "decline"
-        ? "decline"
-        : null;
+  const decision =
+    invocation.actionType === "approve"
+      ? "accept"
+      : invocation.actionType === "approve-for-session"
+        ? "acceptForSession"
+        : invocation.actionType === "decline"
+          ? "decline"
+          : null;
   if (!decision) return "ignored";
 
   await manager.respondApproval(requestId, { kind, decision }, conversationId);

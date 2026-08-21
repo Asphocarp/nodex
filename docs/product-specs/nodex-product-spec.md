@@ -205,19 +205,19 @@ Read [Agent Interface Behavior](agent-interface-behavior.md),
 
 Use the narrowest owner:
 
-| Change | Owning source |
-| --- | --- |
-| Product promise or top-level capability boundary | This document |
-| Feature behavior, labels, action rules, or acceptance | Focused document in [Product Specifications](index.md) |
-| Domain vocabulary and ownership | [CONTEXT.md](../../CONTEXT.md) |
-| Runtime Module, dependency direction, or cross-runtime flow | [ARCHITECTURE.md](../ARCHITECTURE.md) and ADRs |
-| Sync, durability, recovery, backup, and operations | [RELIABILITY.md](../RELIABILITY.md) |
-| Security and trust boundaries | [SECURITY.md](../SECURITY.md) |
-| Cross-feature renderer construction | [FRONTEND.md](../FRONTEND.md) |
-| Exact CLI flags and command schema | Generated `nodex --help` / `--json ... --help`, summarized in [CLI Reference](../CLI.md) |
-| Configuration keys and overrides | Typed config parser/tests, summarized in [Configuration](../CONFIGURATION.md) |
-| Store schema and migration versions | Core schema/migration code and tests |
-| Build, validation, packaging, and release | [Development](../development.md) and [macOS Release Runbook](../release-macos.md) |
+| Change                                                      | Owning source                                                                            |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Product promise or top-level capability boundary            | This document                                                                            |
+| Feature behavior, labels, action rules, or acceptance       | Focused document in [Product Specifications](index.md)                                   |
+| Domain vocabulary and ownership                             | [CONTEXT.md](../../CONTEXT.md)                                                           |
+| Runtime Module, dependency direction, or cross-runtime flow | [ARCHITECTURE.md](../ARCHITECTURE.md) and ADRs                                           |
+| Sync, durability, recovery, backup, and operations          | [RELIABILITY.md](../RELIABILITY.md)                                                      |
+| Security and trust boundaries                               | [SECURITY.md](../SECURITY.md)                                                            |
+| Cross-feature renderer construction                         | [FRONTEND.md](../FRONTEND.md)                                                            |
+| Exact CLI flags and command schema                          | Generated `nodex --help` / `--json ... --help`, summarized in [CLI Reference](../CLI.md) |
+| Configuration keys and overrides                            | Typed config parser/tests, summarized in [Configuration](../CONFIGURATION.md)            |
+| Store schema and migration versions                         | Core schema/migration code and tests                                                     |
+| Build, validation, packaging, and release                   | [Development](../development.md) and [macOS Release Runbook](../release-macos.md)        |
 
 Replace stale statements at their owner. Do not append feature chronology,
 schema inventories, directory trees, or implementation values to this map.

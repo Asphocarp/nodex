@@ -35,6 +35,7 @@ export function sameAuthorizationFootprint(
   left: NodexAgentAuthorizationFootprint,
   right: NodexAgentAuthorizationFootprint,
 ): boolean {
-  return JSON.stringify(authorizationFootprint(left))
-    === JSON.stringify(authorizationFootprint(right));
+  return (
+    JSON.stringify(authorizationFootprint(left)) === JSON.stringify(authorizationFootprint(right))
+  );
 }

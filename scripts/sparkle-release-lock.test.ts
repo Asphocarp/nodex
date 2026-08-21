@@ -37,19 +37,23 @@ describe("Sparkle release lock", () => {
   });
 
   test("rejects a mutable or non-upstream archive URL", () => {
-    expect(() => parseSparkleReleaseLock({
-      ...validLock,
-      archive: {
-        ...validLock.archive,
-        url: "https://github.com/sparkle-project/Sparkle/releases/latest/download/Sparkle-2.9.4.tar.xz",
-      },
-    })).toThrow("official GitHub release asset");
+    expect(() =>
+      parseSparkleReleaseLock({
+        ...validLock,
+        archive: {
+          ...validLock.archive,
+          url: "https://github.com/sparkle-project/Sparkle/releases/latest/download/Sparkle-2.9.4.tar.xz",
+        },
+      }),
+    ).toThrow("official GitHub release asset");
   });
 
   test("rejects a framework architecture inventory that drifts from upstream", () => {
-    expect(() => parseSparkleReleaseLock({
-      ...validLock,
-      framework: { ...validLock.framework, architectures: ["arm64"] },
-    })).toThrow("arm64/x86_64");
+    expect(() =>
+      parseSparkleReleaseLock({
+        ...validLock,
+        framework: { ...validLock.framework, architectures: ["arm64"] },
+      }),
+    ).toThrow("arm64/x86_64");
   });
 });

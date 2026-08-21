@@ -62,11 +62,15 @@ export function ThreadSummaryBranchSetupDialog({
   const [busy, setBusy] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
 
-  const existingBranchNames = useMemo(() => new Set([
-    ...branches,
-    ...(currentBranch ? [currentBranch] : []),
-    ...(defaultBranch ? [defaultBranch] : []),
-  ]), [branches, currentBranch, defaultBranch]);
+  const existingBranchNames = useMemo(
+    () =>
+      new Set([
+        ...branches,
+        ...(currentBranch ? [currentBranch] : []),
+        ...(defaultBranch ? [defaultBranch] : []),
+      ]),
+    [branches, currentBranch, defaultBranch],
+  );
   const normalizedBranchName = branchName.trim();
   const validation = validateCreateBranchName(branchName, existingBranchNames);
   const validationMessage = getCreateBranchValidationMessage(validation);
@@ -78,41 +82,47 @@ export function ThreadSummaryBranchSetupDialog({
     setInlineError(null);
   }, [defaultBranchName, open]);
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    if (!nextOpen && busy) return;
-    if (nextOpen) {
-      setBranchName(defaultBranchName);
-      setInlineError(null);
-    }
-
-    onOpenChange(nextOpen);
-  }, [busy, defaultBranchName, onOpenChange]);
-
-  const handleSubmit = useCallback(async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
-    if (!canSubmit) return;
-
-    setBusy(true);
-    setInlineError(null);
-    onErrorMessage(null);
-
-    try {
-      const didCreate = await onCreateBranch(normalizedBranchName);
-      if (!didCreate) {
-        setInlineError("Could not create branch.");
-        return;
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && busy) return;
+      if (nextOpen) {
+        setBranchName(defaultBranchName);
+        setInlineError(null);
       }
 
-      onCreated(normalizedBranchName);
-      onOpenChange(false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not create branch.";
-      setInlineError(message);
-      onErrorMessage(message);
-    } finally {
-      setBusy(false);
-    }
-  }, [canSubmit, normalizedBranchName, onCreateBranch, onCreated, onErrorMessage, onOpenChange]);
+      onOpenChange(nextOpen);
+    },
+    [busy, defaultBranchName, onOpenChange],
+  );
+
+  const handleSubmit = useCallback(
+    async (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      if (!canSubmit) return;
+
+      setBusy(true);
+      setInlineError(null);
+      onErrorMessage(null);
+
+      try {
+        const didCreate = await onCreateBranch(normalizedBranchName);
+        if (!didCreate) {
+          setInlineError("Could not create branch.");
+          return;
+        }
+
+        onCreated(normalizedBranchName);
+        onOpenChange(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not create branch.";
+        setInlineError(message);
+        onErrorMessage(message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [canSubmit, normalizedBranchName, onCreateBranch, onCreated, onErrorMessage, onOpenChange],
+  );
 
   return (
     <NodexDialog open={open} onOpenChange={handleOpenChange}>
@@ -148,10 +158,7 @@ export function ThreadSummaryBranchSetupDialog({
           </NodexDialogBody>
 
           <NodexDialogFooter>
-            <NodexDialogAction
-              disabled={busy}
-              onClick={() => handleOpenChange(false)}
-            >
+            <NodexDialogAction disabled={busy} onClick={() => handleOpenChange(false)}>
               Close
             </NodexDialogAction>
             <NodexDialogAction tone="primary" type="submit" disabled={!canSubmit}>

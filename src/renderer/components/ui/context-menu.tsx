@@ -15,10 +15,7 @@ import {
 } from "react";
 
 import { cn } from "@/lib/utils";
-import {
-  NodexFloatingLayerProvider,
-  useNodexFloatingLayerIndex,
-} from "./floating-layer";
+import { NodexFloatingLayerProvider, useNodexFloatingLayerIndex } from "./floating-layer";
 import { nodexMenuSurfaceClassName } from "./menu-surface";
 
 const CONTEXT_MENU_BOUNDARY_STYLE: CSSProperties = {
@@ -60,15 +57,11 @@ const createContextMenuSubmenuCoordinator = (): ContextMenuSubmenuCoordinator =>
   };
 };
 
-const ContextMenuSubmenuCoordinatorContext = createContext<
-  ContextMenuSubmenuCoordinator | null
->(null);
+const ContextMenuSubmenuCoordinatorContext = createContext<ContextMenuSubmenuCoordinator | null>(
+  null,
+);
 
-function ContextMenuSubmenuCoordinatorProvider({
-  children,
-}: {
-  readonly children: ReactNode;
-}) {
+function ContextMenuSubmenuCoordinatorProvider({ children }: { readonly children: ReactNode }) {
   const coordinatorRef = useRef<ContextMenuSubmenuCoordinator>(null);
   if (!coordinatorRef.current) {
     coordinatorRef.current = createContextMenuSubmenuCoordinator();
@@ -102,66 +95,57 @@ function NodexContextMenuRowContent({
   return (
     <>
       {leftSlot ? (
-        <span className={cn(
-          "shrink-0 [&_svg]:size-4 [&_svg]:shrink-0",
-          tone === "danger"
-            ? "text-token-error-foreground"
-            : "text-token-text-secondary group-data-[highlighted]:text-token-foreground group-focus:text-token-foreground",
-        )}>
+        <span
+          className={cn(
+            "shrink-0 [&_svg]:size-4 [&_svg]:shrink-0",
+            tone === "danger"
+              ? "text-token-error-foreground"
+              : "text-token-text-secondary group-data-[highlighted]:text-token-foreground group-focus:text-token-foreground",
+          )}
+        >
           {leftSlot}
         </span>
       ) : null}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {rightSlot ? (
-        <span className="ml-2 shrink-0 text-token-description-foreground">
-          {rightSlot}
-        </span>
+        <span className="ml-2 shrink-0 text-token-description-foreground">{rightSlot}</span>
       ) : null}
     </>
   );
 }
 
-export interface NodexContextMenuItemProps
-  extends ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item> {
+export interface NodexContextMenuItemProps extends ComponentPropsWithoutRef<
+  typeof ContextMenuPrimitive.Item
+> {
   readonly leftSlot?: ReactNode;
   readonly rightSlot?: ReactNode;
   readonly tone?: "default" | "danger";
 }
 
-export const NodexContextMenuItem = forwardRef<
-  HTMLDivElement,
-  NodexContextMenuItemProps
->(function NodexContextMenuItem({
-  children,
-  className,
-  leftSlot,
-  rightSlot,
-  tone = "default",
-  ...props
-}, ref) {
-  return (
-    <ContextMenuPrimitive.Item
-      ref={ref}
-      className={cn(
-        CONTEXT_MENU_ITEM_CLASS_NAME,
-        tone === "danger" && "text-token-error-foreground",
-        className,
-      )}
-      {...props}
-    >
-      <NodexContextMenuRowContent
-        leftSlot={leftSlot}
-        rightSlot={rightSlot}
-        tone={tone}
+export const NodexContextMenuItem = forwardRef<HTMLDivElement, NodexContextMenuItemProps>(
+  function NodexContextMenuItem(
+    { children, className, leftSlot, rightSlot, tone = "default", ...props },
+    ref,
+  ) {
+    return (
+      <ContextMenuPrimitive.Item
+        ref={ref}
+        className={cn(
+          CONTEXT_MENU_ITEM_CLASS_NAME,
+          tone === "danger" && "text-token-error-foreground",
+          className,
+        )}
+        {...props}
       >
-        {children}
-      </NodexContextMenuRowContent>
-    </ContextMenuPrimitive.Item>
-  );
-});
+        <NodexContextMenuRowContent leftSlot={leftSlot} rightSlot={rightSlot} tone={tone}>
+          {children}
+        </NodexContextMenuRowContent>
+      </ContextMenuPrimitive.Item>
+    );
+  },
+);
 
-export interface NodexContextMenuSubmenuTriggerProps
-  extends ComponentPropsWithoutRef<"div"> {
+export interface NodexContextMenuSubmenuTriggerProps extends ComponentPropsWithoutRef<"div"> {
   readonly leftSlot?: ReactNode;
   readonly rightSlot?: ReactNode;
 }
@@ -170,13 +154,10 @@ export interface NodexContextMenuSubmenuTriggerProps
 export const NodexContextMenuSubmenuTrigger = forwardRef<
   HTMLDivElement,
   NodexContextMenuSubmenuTriggerProps
->(function NodexContextMenuSubmenuTrigger({
-  children,
-  className,
-  leftSlot,
-  rightSlot,
-  ...props
-}, ref) {
+>(function NodexContextMenuSubmenuTrigger(
+  { children, className, leftSlot, rightSlot, ...props },
+  ref,
+) {
   return (
     <div ref={ref} className={cn(CONTEXT_MENU_ITEM_CLASS_NAME, className)} {...props}>
       <NodexContextMenuRowContent leftSlot={leftSlot} rightSlot={rightSlot}>
@@ -244,8 +225,7 @@ export function NodexContextMenuSubmenu({
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>): void => {
     if (event.pointerType === "touch" || disabled || open) return;
-    const verticalSweep = Math.abs(event.movementX) <= 1
-      && Math.abs(event.movementY) > 1;
+    const verticalSweep = Math.abs(event.movementX) <= 1 && Math.abs(event.movementY) > 1;
     // Radix decides whether this point lies inside its submenu grace polygon
     // later in the same event. Wait for that decision while keeping an
     // unambiguous vertical sweep between sibling triggers immediate.
@@ -288,18 +268,13 @@ export const NodexContextMenuContent = forwardRef<
       ref={ref}
       data-slot="context-menu-content"
       collisionPadding={8}
-      className={cn(
-        nodexMenuSurfaceClassName,
-        className,
-      )}
+      className={cn(nodexMenuSurfaceClassName, className)}
       style={{ ...CONTEXT_MENU_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
       {...props}
       data-nodex-keyboard-scope="local"
     >
       <NodexFloatingLayerProvider zIndex={layerIndex}>
-        <ContextMenuSubmenuCoordinatorProvider>
-          {children}
-        </ContextMenuSubmenuCoordinatorProvider>
+        <ContextMenuSubmenuCoordinatorProvider>{children}</ContextMenuSubmenuCoordinatorProvider>
       </NodexFloatingLayerProvider>
     </ContextMenuPrimitive.Content>
   );
@@ -317,19 +292,13 @@ export const NodexContextMenuSubContent = forwardRef<
       data-slot="context-menu-subcontent"
       sideOffset={0}
       collisionPadding={8}
-      className={cn(
-        nodexMenuSurfaceClassName,
-        CONTEXT_SUBMENU_MOTION_CLASS_NAME,
-        className,
-      )}
+      className={cn(nodexMenuSurfaceClassName, CONTEXT_SUBMENU_MOTION_CLASS_NAME, className)}
       style={{ ...CONTEXT_MENU_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
       {...props}
       data-nodex-keyboard-scope="local"
     >
       <NodexFloatingLayerProvider zIndex={layerIndex}>
-        <ContextMenuSubmenuCoordinatorProvider>
-          {children}
-        </ContextMenuSubmenuCoordinatorProvider>
+        <ContextMenuSubmenuCoordinatorProvider>{children}</ContextMenuSubmenuCoordinatorProvider>
       </NodexFloatingLayerProvider>
     </ContextMenuPrimitive.SubContent>
   );

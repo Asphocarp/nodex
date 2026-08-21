@@ -61,12 +61,12 @@ export function buildPlanImplementationRequestId(turnId: string): string {
   return `implement-plan:${turnId}`;
 }
 
-function isLivePlanImplementationItem(
-  item: CodexConversationItem,
-): boolean {
-  return item.semanticKind === "planImplementation"
-    && item.status !== "completed"
-    && (item.markdownText ?? "").trim().length > 0;
+function isLivePlanImplementationItem(item: CodexConversationItem): boolean {
+  return (
+    item.semanticKind === "planImplementation" &&
+    item.status !== "completed" &&
+    (item.markdownText ?? "").trim().length > 0
+  );
 }
 
 function selectLatestPlanImplementationItem(
@@ -97,12 +97,12 @@ function findMatchingPlanImplementationRequest(
   turnId: string,
   itemId: string,
 ): CodexPlanImplementationServerRequest | null {
-  return conversation.requests.find(
-    (request): request is CodexPlanImplementationServerRequest =>
-      request.type === "implementPlan"
-      && request.turnId === turnId
-      && request.itemId === itemId,
-  ) ?? null;
+  return (
+    conversation.requests.find(
+      (request): request is CodexPlanImplementationServerRequest =>
+        request.type === "implementPlan" && request.turnId === turnId && request.itemId === itemId,
+    ) ?? null
+  );
 }
 
 interface ProjectedPendingRequestBucket {
@@ -179,8 +179,10 @@ function isValidApprovalForTurn(
   if (request.kind === "command") return true;
   const item = [...turn.items].reverse().find((candidate) => candidate.itemId === request.itemId);
   if (!item?.fileChange) return false;
-  return hasCodexFileChangeEntries(item.fileChange.changes)
-    || (item.fileChange.visualizationActivities?.length ?? 0) > 0;
+  return (
+    hasCodexFileChangeEntries(item.fileChange.changes) ||
+    (item.fileChange.visualizationActivities?.length ?? 0) > 0
+  );
 }
 
 function selectApprovalOrPermissionForTurn(
@@ -188,9 +190,11 @@ function selectApprovalOrPermissionForTurn(
   bucket: ProjectedPendingRequestBucket | undefined,
 ): CodexApprovalRequest | CodexPermissionRequest | NodexAgentAuthorizationRequest | null {
   if (!bucket) return null;
-  return bucket.approvalRequests.find((request) => isValidApprovalForTurn(request, turn))
-    ?? bucket.latestNodexAgentAuthorization
-    ?? bucket.latestPermissionRequest;
+  return (
+    bucket.approvalRequests.find((request) => isValidApprovalForTurn(request, turn)) ??
+    bucket.latestNodexAgentAuthorization ??
+    bucket.latestPermissionRequest
+  );
 }
 
 function selectSyntheticUserInputForTurn(
@@ -203,10 +207,11 @@ function selectSyntheticUserInputForTurn(
     if (!item || (item.kind !== "userInputResponse" && item.semanticKind !== "userInputResponse")) {
       continue;
     }
-    const rawCompleted = typeof item.rawItem === "object"
-      && item.rawItem !== null
-      && "completed" in item.rawItem
-      && item.rawItem.completed === true;
+    const rawCompleted =
+      typeof item.rawItem === "object" &&
+      item.rawItem !== null &&
+      "completed" in item.rawItem &&
+      item.rawItem.completed === true;
     if (item.status === "completed" || rawCompleted) continue;
     if (item.requestId === undefined || !item.userInputQuestions) continue;
     return {
@@ -326,10 +331,10 @@ function resolveDerivedConversationRequestSelection(
   const latestPlanTurnId = latestPlanSelection?.turnId ?? null;
   const cached = derivedRequestSelectionsByServerRequestRef.get(conversation.requests);
   if (
-    cached?.turnsRef === conversation.turns
-    && cached.canonicalRequestsRef === conversation.canonicalRequests
-    && cached.latestPlanItemRef === latestPlanItemRef
-    && cached.latestPlanTurnId === latestPlanTurnId
+    cached?.turnsRef === conversation.turns &&
+    cached.canonicalRequestsRef === conversation.canonicalRequests &&
+    cached.latestPlanItemRef === latestPlanItemRef &&
+    cached.latestPlanTurnId === latestPlanTurnId
   ) {
     return cached;
   }
@@ -359,11 +364,11 @@ export function areConversationLiveRequestsEqual(
   }
 
   if (
-    left.requestId !== right.requestId
-    || left.threadId !== right.threadId
-    || left.turnId !== right.turnId
-    || left.itemId !== right.itemId
-    || left.createdAt !== right.createdAt
+    left.requestId !== right.requestId ||
+    left.threadId !== right.threadId ||
+    left.turnId !== right.turnId ||
+    left.itemId !== right.itemId ||
+    left.createdAt !== right.createdAt
   ) {
     return false;
   }
@@ -371,51 +376,54 @@ export function areConversationLiveRequestsEqual(
   switch (left.type) {
     case "approval":
       return (
-        right.type === "approval"
-        &&
-        left.kind === right.kind
-        && left.command === right.command
-        && left.reason === right.reason
-        && left.cwd === right.cwd
+        right.type === "approval" &&
+        left.kind === right.kind &&
+        left.command === right.command &&
+        left.reason === right.reason &&
+        left.cwd === right.cwd
       );
     case "userInput":
       if (right.type !== "userInput") return false;
-      return left.questions === right.questions
-        && left.isBlocking === right.isBlocking
-        && left.isOnboardingDynamicInput === right.isOnboardingDynamicInput
-        && left.autoResolutionMs === right.autoResolutionMs;
+      return (
+        left.questions === right.questions &&
+        left.isBlocking === right.isBlocking &&
+        left.isOnboardingDynamicInput === right.isOnboardingDynamicInput &&
+        left.autoResolutionMs === right.autoResolutionMs
+      );
     case "optionPicker":
-      return right.type === "optionPicker"
-        && left.question === right.question
-        && left.options === right.options
-        && left.allowMultiple === right.allowMultiple
-        && left.submitLabel === right.submitLabel
-        && left.skipLabel === right.skipLabel;
+      return (
+        right.type === "optionPicker" &&
+        left.question === right.question &&
+        left.options === right.options &&
+        left.allowMultiple === right.allowMultiple &&
+        left.submitLabel === right.submitLabel &&
+        left.skipLabel === right.skipLabel
+      );
     case "setupCodexStep":
       return right.type === "setupCodexStep" && left.step === right.step;
     case "mcpServerElicitation":
       return (
-        right.type === "mcpServerElicitation"
-        &&
-        left.kind === right.kind
-        && left.mode === right.mode
-        && left.serverName === right.serverName
-        && left.message === right.message
+        right.type === "mcpServerElicitation" &&
+        left.kind === right.kind &&
+        left.mode === right.mode &&
+        left.serverName === right.serverName &&
+        left.message === right.message
       );
     case "permissionRequest":
       return (
-        right.type === "permissionRequest"
-        &&
-        left.reason === right.reason
-        && left.completed === right.completed
-        && left.permissions === right.permissions
-        && left.response === right.response
+        right.type === "permissionRequest" &&
+        left.reason === right.reason &&
+        left.completed === right.completed &&
+        left.permissions === right.permissions &&
+        left.response === right.response
       );
     case "nodexAgentAuthorization":
-      return right.type === "nodexAgentAuthorization"
-        && left.tool === right.tool
-        && left.effect === right.effect
-        && left.preview === right.preview;
+      return (
+        right.type === "nodexAgentAuthorization" &&
+        left.tool === right.tool &&
+        left.effect === right.effect &&
+        left.preview === right.preview
+      );
     case "implementPlan":
       if (right.type !== "implementPlan") return false;
       return left.planContent === right.planContent;
@@ -491,14 +499,14 @@ export function selectTurnScopedConversationRequests(
   return requestsByTurnId.get(turnId) ?? EMPTY_TURN_REQUESTS;
 }
 
-export function isBlockingConversationRequest(
-  request: CodexConversationLiveRequest,
-): boolean {
-  return request.type === "approval"
-    || (request.type === "userInput" && request.isBlocking)
-    || request.type === "optionPicker"
-    || request.type === "setupCodexStep"
-    || request.type === "mcpServerElicitation"
-    || request.type === "permissionRequest"
-    || request.type === "nodexAgentAuthorization";
+export function isBlockingConversationRequest(request: CodexConversationLiveRequest): boolean {
+  return (
+    request.type === "approval" ||
+    (request.type === "userInput" && request.isBlocking) ||
+    request.type === "optionPicker" ||
+    request.type === "setupCodexStep" ||
+    request.type === "mcpServerElicitation" ||
+    request.type === "permissionRequest" ||
+    request.type === "nodexAgentAuthorization"
+  );
 }

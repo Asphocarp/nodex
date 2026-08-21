@@ -39,9 +39,7 @@ describe("activePagesSceneSurface", () => {
       "bottom",
       { collapsed: false },
     );
-    const bottomLeaf = listWorkbenchPanelLeaves(
-      withBottom.panels.bottom.layout,
-    )[0];
+    const bottomLeaf = listWorkbenchPanelLeaves(withBottom.panels.bottom.layout)[0];
     if (!bottomLeaf) throw new Error("Expected a bottom leaf");
     const focusedBottom = activateWorkbenchSceneSurface(
       withBottom,

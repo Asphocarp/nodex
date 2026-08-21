@@ -2,10 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createDesktopNodexAgentAuthorityPort } from "./desktop-nodex-agent-authority";
-import {
-  createFakeCoreHandshake,
-  FakeCoreClient,
-} from "./testing/fake-core-client";
+import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 
 const project = {
   id: "project:one",
@@ -40,25 +37,24 @@ const authority = {
   source: "project_turn" as const,
 };
 
-const runtimeFor = (
-  client: FakeCoreClient,
-): RustDataAuthorityRuntime => ({
-  backend: "rust",
-  identity: {
-    libraryId: "library:test",
-    profileId: "profile:test",
-    storeEpoch: "epoch:test",
-  },
-  rootClient: Object.assign(client, {
-    handshake: createFakeCoreHandshake({
+const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime =>
+  ({
+    backend: "rust",
+    identity: {
       libraryId: "library:test",
       profileId: "profile:test",
       storeEpoch: "epoch:test",
+    },
+    rootClient: Object.assign(client, {
+      handshake: createFakeCoreHandshake({
+        libraryId: "library:test",
+        profileId: "profile:test",
+        storeEpoch: "epoch:test",
+      }),
     }),
-  }),
-  clientForProject: () => client,
-  close: async () => undefined,
-}) as unknown as RustDataAuthorityRuntime;
+    clientForProject: () => client,
+    close: async () => undefined,
+  }) as unknown as RustDataAuthorityRuntime;
 
 describe("Desktop Nodex Agent Turn authority", () => {
   test("freezes and rereads one exact Turn through Project Workspace Core", async () => {
@@ -149,12 +145,14 @@ describe("Desktop Nodex Agent Turn authority", () => {
       authority: Promise.resolve(runtimeFor(client)),
     });
 
-    await expect(port.capture({
-      threadId: "thread:one",
-      turnId: "turn:one",
-      rootThreadId: "thread:one",
-      actorProjectId: "project:one",
-    })).resolves.toMatchObject({
+    await expect(
+      port.capture({
+        threadId: "thread:one",
+        turnId: "turn:one",
+        rootThreadId: "thread:one",
+        actorProjectId: "project:one",
+      }),
+    ).resolves.toMatchObject({
       scope: "project",
       source: "project_turn",
     });

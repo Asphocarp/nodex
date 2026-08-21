@@ -18,9 +18,7 @@ import type {
   NormalizedUserAttachmentImageEditorOptions,
 } from "../model/types";
 
-function imageLocatorCandidates(
-  image: EditableImageDescriptor,
-): readonly string[] {
+function imageLocatorCandidates(image: EditableImageDescriptor): readonly string[] {
   return [
     image.managedSource,
     image.localPath,
@@ -28,7 +26,7 @@ function imageLocatorCandidates(
     image.attachmentSrc,
     image.downloadSrc,
     image.src,
-  ].flatMap((source) => source?.trim() ? [source.trim()] : []);
+  ].flatMap((source) => (source?.trim() ? [source.trim()] : []));
 }
 
 export function resolveWorkbenchImageAssetLocator(
@@ -69,28 +67,20 @@ function toDurableImage(
   image: EditableImageDescriptor,
   locator: WorkbenchImageAssetLocator,
 ): WorkbenchImageEditorImageConfig {
-  const generated = image.source === "generated"
-    ? image as GeneratedImageDescriptor
-    : null;
+  const generated = image.source === "generated" ? (image as GeneratedImageDescriptor) : null;
   return {
     id: image.id,
     alt: image.alt,
     source: image.source,
     locator,
     ...(image.attachmentId ? { attachmentId: image.attachmentId } : {}),
-    ...(generated?.generatedOrdinal
-      ? { generatedOrdinal: generated.generatedOrdinal }
-      : {}),
+    ...(generated?.generatedOrdinal ? { generatedOrdinal: generated.generatedOrdinal } : {}),
     ...(generated?.groupId ? { groupId: generated.groupId } : {}),
     ...(image.height ? { height: image.height } : {}),
-    ...(image.referrerPolicy === undefined
-      ? {}
-      : { referrerPolicy: image.referrerPolicy }),
+    ...(image.referrerPolicy === undefined ? {} : { referrerPolicy: image.referrerPolicy }),
     ...(image.tabTitle ? { tabTitle: image.tabTitle } : {}),
     ...(image.turnId ? { turnId: image.turnId } : {}),
-    ...(image.turnStartedAtMs === undefined
-      ? {}
-      : { turnStartedAtMs: image.turnStartedAtMs }),
+    ...(image.turnStartedAtMs === undefined ? {} : { turnStartedAtMs: image.turnStartedAtMs }),
     ...(image.width ? { width: image.width } : {}),
   };
 }
@@ -131,18 +121,17 @@ export function createWorkbenchImageEditorSurfaceConfig(
 }
 
 export interface DurableImageEditorMaterializationAdapters {
-  readonly materialize: (
-    image: EditableImageDescriptor,
-  ) => Promise<`nodex://assets/${string}`>;
+  readonly materialize: (image: EditableImageDescriptor) => Promise<`nodex://assets/${string}`>;
 }
 
 async function defaultMaterialize(
   image: EditableImageDescriptor,
 ): Promise<`nodex://assets/${string}`> {
-  const source = image.dataUrl?.trim()
-    || image.previewSrc?.trim()
-    || image.attachmentSrc.trim()
-    || image.src.trim();
+  const source =
+    image.dataUrl?.trim() ||
+    image.previewSrc?.trim() ||
+    image.attachmentSrc.trim() ||
+    image.src.trim();
   const dataUrl = source.startsWith("data:image/")
     ? source
     : await fetchImageSourceAsDataUrl(source);
@@ -213,27 +202,19 @@ function restoreImage(
     previewSrc: source,
     ...(image.attachmentId ? { attachmentId: image.attachmentId } : {}),
     ...(image.height ? { height: image.height } : {}),
-    ...(image.referrerPolicy === undefined
-      ? {}
-      : { referrerPolicy: image.referrerPolicy }),
+    ...(image.referrerPolicy === undefined ? {} : { referrerPolicy: image.referrerPolicy }),
     ...(image.tabTitle ? { tabTitle: image.tabTitle } : {}),
     ...(image.turnId ? { turnId: image.turnId } : {}),
-    ...(image.turnStartedAtMs === undefined
-      ? {}
-      : { turnStartedAtMs: image.turnStartedAtMs }),
+    ...(image.turnStartedAtMs === undefined ? {} : { turnStartedAtMs: image.turnStartedAtMs }),
     ...(image.width ? { width: image.width } : {}),
-    ...(image.locator.kind === "managed"
-      ? { managedSource: image.locator.source }
-      : {}),
+    ...(image.locator.kind === "managed" ? { managedSource: image.locator.source } : {}),
     ...(image.locator.kind === "local"
       ? {
           hostId: image.locator.hostId,
           localPath: image.locator.path,
         }
       : {}),
-    ...(image.locator.kind === "pointer"
-      ? { assetPointer: image.locator.pointer }
-      : {}),
+    ...(image.locator.kind === "pointer" ? { assetPointer: image.locator.pointer } : {}),
   };
   if (image.source !== "generated") return common;
   return {
@@ -250,9 +231,8 @@ export function restoreNormalizedImageEditorOptions(
   title: string,
 ): NormalizedUserAttachmentImageEditorOptions {
   const images = config.images.map(restoreImage);
-  const generatedImages = config.imageSource === "generated"
-    ? images as GeneratedImageDescriptor[]
-    : null;
+  const generatedImages =
+    config.imageSource === "generated" ? (images as GeneratedImageDescriptor[]) : null;
   return {
     availableImageCount: config.availableImageCount,
     composerTarget: config.composerTarget,
@@ -266,8 +246,7 @@ export function restoreNormalizedImageEditorOptions(
     openInEditor: true,
     policy: "edit_button",
     projectId: config.projectId,
-    referrerPolicy: images.find((image) => image.id === config.initialImageId)
-      ?.referrerPolicy,
+    referrerPolicy: images.find((image) => image.id === config.initialImageId)?.referrerPolicy,
     threadId: config.threadId,
     title,
     tooltip: config.tooltip,

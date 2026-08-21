@@ -5,10 +5,7 @@ import type {
   WorkbenchSceneSnapshotV3,
   WorkbenchSceneSnapshotV4,
 } from "./workbench-scene";
-import type {
-  LibraryResourceTarget,
-  LibraryRouteTarget,
-} from "./library-module";
+import type { LibraryResourceTarget, LibraryRouteTarget } from "./library-module";
 
 export type WorkbenchLayoutView = "board" | "list" | "toggle-list" | "calendar";
 export type WorkbenchLayoutStageId = "db" | "pages" | "threads" | "files";
@@ -93,10 +90,7 @@ export type WorkbenchSessionLocationV4 =
 export type WorkbenchLibraryLocationTarget =
   | { readonly kind: "home" }
   | Extract<LibraryRouteTarget, { readonly kind: "page" }>
-  | (Extract<
-      LibraryRouteTarget,
-      { readonly kind: "database" | "canvas" | "view" }
-    > & {
+  | (Extract<LibraryRouteTarget, { readonly kind: "database" | "canvas" | "view" }> & {
       readonly accessProjectId?: string;
     });
 
@@ -125,15 +119,9 @@ export type WorkbenchLocationV4 =
 
 export interface WorkbenchLayoutSnapshotV4 {
   readonly version: 4;
-  readonly location: Exclude<
-    WorkbenchLocationV4,
-    { readonly kind: "pending-worktree" }
-  >;
+  readonly location: Exclude<WorkbenchLocationV4, { readonly kind: "pending-worktree" }>;
   readonly databaseSearchByProject: Record<string, string>;
-  readonly sessionViewsBySessionId: Record<
-    string,
-    WorkbenchSessionViewSnapshot
-  >;
+  readonly sessionViewsBySessionId: Record<string, WorkbenchSessionViewSnapshot>;
 }
 
 export type WorkbenchSceneLocationV5 =
@@ -175,15 +163,9 @@ export type WorkbenchLocationV5 =
 
 export interface WorkbenchLayoutSnapshotV5 {
   readonly version: 5;
-  readonly location: Exclude<
-    WorkbenchLocationV5,
-    { readonly kind: "pending-worktree" }
-  >;
+  readonly location: Exclude<WorkbenchLocationV5, { readonly kind: "pending-worktree" }>;
   readonly databaseSearchByProject: Record<string, string>;
-  readonly scenesByOwnerKey: Record<
-    WorkbenchSceneKey,
-    WorkbenchSceneSnapshotV3
-  >;
+  readonly scenesByOwnerKey: Record<WorkbenchSceneKey, WorkbenchSceneSnapshotV3>;
 }
 
 export type WorkbenchSceneLocationV6 =
@@ -213,20 +195,12 @@ export type WorkbenchLocationV6 =
 
 export interface WorkbenchLayoutSnapshotV6 {
   readonly version: 6;
-  readonly location: Exclude<
-    WorkbenchLocationV6,
-    { readonly kind: "pending-worktree" }
-  >;
+  readonly location: Exclude<WorkbenchLocationV6, { readonly kind: "pending-worktree" }>;
   readonly databaseSearchByProject: Record<string, string>;
-  readonly scenesByOwnerKey: Record<
-    WorkbenchSceneKey,
-    WorkbenchSceneSnapshotV4
-  >;
+  readonly scenesByOwnerKey: Record<WorkbenchSceneKey, WorkbenchSceneSnapshotV4>;
 }
 
-export type WorkbenchSceneLocation =
-  | WorkbenchSceneLocationV5
-  | { readonly kind: "pages" };
+export type WorkbenchSceneLocation = WorkbenchSceneLocationV5 | { readonly kind: "pages" };
 
 export type WorkbenchLocationV7 =
   | WorkbenchSceneLocation
@@ -248,15 +222,9 @@ export type WorkbenchLocationV7 =
 
 export interface WorkbenchLayoutSnapshotV7 {
   readonly version: 7;
-  readonly location: Exclude<
-    WorkbenchLocationV7,
-    { readonly kind: "pending-worktree" }
-  >;
+  readonly location: Exclude<WorkbenchLocationV7, { readonly kind: "pending-worktree" }>;
   readonly databaseSearchByProject: Record<string, string>;
-  readonly scenesByOwnerKey: Record<
-    WorkbenchSceneKey,
-    WorkbenchSceneSnapshot
-  >;
+  readonly scenesByOwnerKey: Record<WorkbenchSceneKey, WorkbenchSceneSnapshot>;
 }
 
 export type WorkbenchLocation = WorkbenchLocationV7;
@@ -372,10 +340,10 @@ export function getWorkbenchSceneReturnLocation(
   location: WorkbenchLocationV7,
 ): WorkbenchSceneLocation {
   if (
-    location.kind === "project"
-    || location.kind === "session"
-    || location.kind === "pages"
-    || location.kind === "empty"
+    location.kind === "project" ||
+    location.kind === "session" ||
+    location.kind === "pages" ||
+    location.kind === "empty"
   ) {
     return location;
   }
@@ -410,5 +378,4 @@ export function getRestorableWorkbenchLocationV7(
   return location.returnTo;
 }
 
-export const getRestorableWorkbenchLocation =
-  getRestorableWorkbenchLocationV7;
+export const getRestorableWorkbenchLocation = getRestorableWorkbenchLocationV7;

@@ -57,18 +57,13 @@ function isHorizontallyScrollable(node: HTMLElement): boolean {
   if (!ownerWindow) return false;
 
   const style = ownerWindow.getComputedStyle(node);
-  const overflowX = style.overflowX === "visible"
-    ? style.overflow
-    : style.overflowX;
+  const overflowX = style.overflowX === "visible" ? style.overflow : style.overflowX;
 
   if (!SCROLLABLE_OVERFLOW_PATTERN.test(overflowX)) return false;
   return node.scrollWidth - node.clientWidth > SCROLL_EPSILON_PX;
 }
 
-function canScrollHorizontallyInDirection(
-  node: HTMLElement,
-  direction: -1 | 1,
-): boolean {
+function canScrollHorizontallyInDirection(node: HTMLElement, direction: -1 | 1): boolean {
   const maxScrollLeft = node.scrollWidth - node.clientWidth;
   if (maxScrollLeft <= SCROLL_EPSILON_PX) return false;
 
@@ -89,10 +84,7 @@ export function shouldDeferStageShiftWheelToNestedScroll({
 
   let node: HTMLElement | null = start;
   while (node && node !== stopAt) {
-    if (
-      isHorizontallyScrollable(node)
-      && canScrollHorizontallyInDirection(node, direction)
-    ) {
+    if (isHorizontallyScrollable(node) && canScrollHorizontallyInDirection(node, direction)) {
       return true;
     }
     node = node.parentElement;

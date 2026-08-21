@@ -1,10 +1,7 @@
 import { act, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
-import type {
-  ProjectionScope,
-  ProjectionStreamMessage,
-} from "../../shared/projection-stream";
+import type { ProjectionScope, ProjectionStreamMessage } from "../../shared/projection-stream";
 import { render } from "../test/dom";
 import {
   ProjectionInvalidationProvider,
@@ -115,12 +112,12 @@ describe("useProjectionRegistration", () => {
 
   test("keeps one semantic subscription while callbacks observe current data", async () => {
     const listeners = new Set<(message: ProjectionStreamMessage) => void>();
-    const subscribeProjection = vi.fn((_scope, listener: (
-      message: ProjectionStreamMessage
-    ) => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    });
+    const subscribeProjection = vi.fn(
+      (_scope, listener: (message: ProjectionStreamMessage) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    );
     const registry = new ProjectionInvalidationRegistry({
       subscribeProjection,
       subscribeRevocations: () => () => undefined,

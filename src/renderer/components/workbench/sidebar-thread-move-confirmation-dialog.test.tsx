@@ -12,10 +12,7 @@ const confirmation = {
   threadId: "thread-1",
   targetProjectId: "project-2",
   targetBindingRevision: 3,
-  missingProjectSources: [
-    "/Users/example/alpha",
-    "/Users/example/a-very-long-source-folder-name",
-  ],
+  missingProjectSources: ["/Users/example/alpha", "/Users/example/a-very-long-source-folder-name"],
   targetProjectName: "Platform",
 };
 
@@ -38,9 +35,7 @@ describe("SidebarThreadMoveConfirmationDialog", () => {
     );
 
     expect(view.getByRole("heading", { name: "Add folders to Platform?" })).toBeTruthy();
-    expect(view.getByText(
-      "All chats in Platform will gain access to these folders:",
-    )).toBeTruthy();
+    expect(view.getByText("All chats in Platform will gain access to these folders:")).toBeTruthy();
     expect(view.getByText("alpha")).toBeTruthy();
     expect(view.getByText("a-very-long-source-folder-name")).toBeTruthy();
     expect(view.getByRole("button", { name: "Cancel" })).toBeTruthy();

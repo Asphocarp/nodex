@@ -93,18 +93,14 @@ const CREATE_PAGE_COMMAND_POLICY: KeyboardActionPolicy = {
   allowRepeat: false,
 };
 
-function toKeyboardActionEvent(
-  event: WorkbenchKeyboardEventLike,
-): KeyboardActionEventLike {
+function toKeyboardActionEvent(event: WorkbenchKeyboardEventLike): KeyboardActionEventLike {
   return {
     target: event.target,
     defaultPrevented: event.defaultPrevented ?? false,
     isComposing: event.isComposing ?? false,
     repeat: event.repeat ?? false,
     keyCode: event.keyCode ?? 0,
-    composedPath: event.composedPath
-      ? () => event.composedPath?.() ?? []
-      : undefined,
+    composedPath: event.composedPath ? () => event.composedPath?.() ?? [] : undefined,
   };
 }
 
@@ -118,7 +114,11 @@ function matchesCommandShortcut(
   commandId: string,
   isMac: boolean,
 ): boolean {
-  return matchesKeyboardEventToCommand(e, actions.commandKeymapState ?? fallbackCommandKeymapState(isMac), commandId);
+  return matchesKeyboardEventToCommand(
+    e,
+    actions.commandKeymapState ?? fallbackCommandKeymapState(isMac),
+    commandId,
+  );
 }
 
 const CONTEXTUAL_COMMAND_IDS = [
@@ -148,9 +148,7 @@ function canExecuteShortcutCommand(
   commandId: CommandId,
   actions: WorkbenchShortcutActions,
 ): boolean {
-  if (CONTEXTUAL_COMMAND_IDS.includes(
-    commandId as (typeof CONTEXTUAL_COMMAND_IDS)[number],
-  )) {
+  if (CONTEXTUAL_COMMAND_IDS.includes(commandId as (typeof CONTEXTUAL_COMMAND_IDS)[number])) {
     return canExecuteContextualKeyboardAction(commandId);
   }
   if (commandId === "goToPages") return Boolean(actions.onRequestGoToPages);
@@ -161,13 +159,8 @@ function canExecuteShortcutCommand(
   return true;
 }
 
-function executeShortcutCommand(
-  commandId: CommandId,
-  actions: WorkbenchShortcutActions,
-): boolean {
-  if (CONTEXTUAL_COMMAND_IDS.includes(
-    commandId as (typeof CONTEXTUAL_COMMAND_IDS)[number],
-  )) {
+function executeShortcutCommand(commandId: CommandId, actions: WorkbenchShortcutActions): boolean {
+  if (CONTEXTUAL_COMMAND_IDS.includes(commandId as (typeof CONTEXTUAL_COMMAND_IDS)[number])) {
     return executeContextualKeyboardAction(commandId);
   }
   if (commandId === "goToPages" && actions.onRequestGoToPages) {
@@ -199,25 +192,15 @@ export function handleWorkbenchShortcut(
   if (!keyboardActionMayRun(actionEvent, APP_COMMAND_POLICY)) return false;
 
   const isBareGesture = !e.metaKey && !e.ctrlKey && !e.altKey;
-  if (
-    isBareGesture
-    && !keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)
-  ) {
+  if (isBareGesture && !keyboardActionMayRun(actionEvent, CREATE_PAGE_COMMAND_POLICY)) {
     runtimeState.sequence = EMPTY_KEYBOARD_SHORTCUT_SEQUENCE_STATE;
     return false;
   }
 
-  const keymapState = actions.commandKeymapState
-    ?? fallbackCommandKeymapState(isMac);
-  const sequence = matchKeyboardShortcutSequence(
-    e,
-    keymapState,
-    runtimeState.sequence,
-    {
-      commandAvailable: (commandId) =>
-        canExecuteShortcutCommand(commandId, actions),
-    },
-  );
+  const keymapState = actions.commandKeymapState ?? fallbackCommandKeymapState(isMac);
+  const sequence = matchKeyboardShortcutSequence(e, keymapState, runtimeState.sequence, {
+    commandAvailable: (commandId) => canExecuteShortcutCommand(commandId, actions),
+  });
   runtimeState.sequence = sequence.state;
   if (sequence.kind === "pending") return true;
   if (sequence.kind === "matched") {
@@ -226,10 +209,7 @@ export function handleWorkbenchShortcut(
 
   const modifier = isMac ? e.metaKey : e.ctrlKey;
   const targetIsEditable = classifyKeyboardActionSurface(actionEvent) === "editable";
-  const targetIsComposerSurface = keyboardActionHasContext(
-    actionEvent,
-    "composer",
-  );
+  const targetIsComposerSurface = keyboardActionHasContext(actionEvent, "composer");
 
   if (matchesCommandShortcut(e, actions, "newWindow", isMac)) {
     actions.onRequestNewWindow?.();
@@ -290,7 +270,9 @@ export function handleWorkbenchShortcut(
 
   if (matchesCommandShortcut(e, actions, "toggleSidebar", isMac)) {
     if (targetIsEditable && !targetIsComposerSurface) return false;
-    actions.onToggleSidebar?.(targetIsComposerSurface ? "composer_sidebar_shortcut" : "keyboard_shortcut");
+    actions.onToggleSidebar?.(
+      targetIsComposerSurface ? "composer_sidebar_shortcut" : "keyboard_shortcut",
+    );
     return true;
   }
 
@@ -305,12 +287,18 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
-  if (matchesCommandShortcut(e, actions, "showKeyboardShortcuts", isMac) && actions.onRequestKeyboardShortcuts) {
+  if (
+    matchesCommandShortcut(e, actions, "showKeyboardShortcuts", isMac) &&
+    actions.onRequestKeyboardShortcuts
+  ) {
     actions.onRequestKeyboardShortcuts();
     return true;
   }
 
-  if (matchesCommandShortcut(e, actions, "openProcessManager", isMac) && actions.onRequestProcessManager) {
+  if (
+    matchesCommandShortcut(e, actions, "openProcessManager", isMac) &&
+    actions.onRequestProcessManager
+  ) {
     actions.onRequestProcessManager();
     return true;
   }
@@ -361,7 +349,10 @@ export function resolveWorkbenchMouseNavigationShortcut(
 
 export function handleWorkbenchMouseNavigationShortcut(
   e: Pick<MouseEvent, "button">,
-  actions: Pick<WorkbenchShortcutActions, "navigateBack" | "navigateForward" | "commandKeymapState">,
+  actions: Pick<
+    WorkbenchShortcutActions,
+    "navigateBack" | "navigateForward" | "commandKeymapState"
+  >,
 ): boolean {
   const direction = resolveWorkbenchMouseNavigationShortcut(e, actions.commandKeymapState);
   if (direction === "back") {

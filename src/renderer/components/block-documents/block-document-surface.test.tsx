@@ -61,9 +61,7 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
   awarenessPublishes = 0;
   headSeq = 0;
 
-  private readonly listeners = new Set<
-    (event: DocumentSyncRealtimeEvent) => void
-  >();
+  private readonly listeners = new Set<(event: DocumentSyncRealtimeEvent) => void>();
 
   constructor(
     server: {
@@ -115,10 +113,7 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
     };
   };
 
-  subscribe = (
-    _request: unknown,
-    listener: (event: DocumentSyncRealtimeEvent) => void,
-  ) => {
+  subscribe = (_request: unknown, listener: (event: DocumentSyncRealtimeEvent) => void) => {
     this.subscriptions += 1;
     this.listeners.add(listener);
     return () => {
@@ -153,9 +148,7 @@ describe("BlockDocumentSurface", () => {
       </BlockDocumentSurface>,
     );
 
-    expect(view.getByText("Card loading shell").textContent).toBe(
-      "Card loading shell",
-    );
+    expect(view.getByText("Card loading shell").textContent).toBe("Card loading shell");
     expect(view.queryByText("Opening content…")).toBe(null);
     await waitFor(() => expect(view.getByText("Synced title")).toBeTruthy());
 
@@ -208,9 +201,7 @@ describe("BlockDocumentSurface", () => {
     );
 
     await waitFor(() => {
-      expect(view.getByText("synced_block:body").textContent).toBe(
-        "synced_block:body",
-      );
+      expect(view.getByText("synced_block:body").textContent).toBe("synced_block:body");
     });
     view.unmount();
     adapter.destroy();
@@ -269,9 +260,7 @@ describe("BlockDocumentSurface", () => {
     await waitFor(() => {
       expect(runtime?.awareness.getLocalState() === null).toBe(false);
     });
-    expect(
-      (runtime?.awareness.getLocalState()?.user as { name?: string }).name,
-    ).toBe("Ada");
+    expect((runtime?.awareness.getLocalState()?.user as { name?: string }).name).toBe("Ada");
 
     await act(async () => {
       await runtime?.persist();
@@ -354,27 +343,19 @@ describe("BlockDocumentSurface", () => {
 
     view.rerender(renderProjects("beta"));
     await waitFor(() => expect(view.getByText("Beta title")).toBeTruthy());
-    await waitFor(() =>
-      expect(firstAlphaRuntime?.getStatus().phase).toBe("closed"),
-    );
+    await waitFor(() => expect(firstAlphaRuntime?.getStatus().phase).toBe("closed"));
     const firstBetaRuntime = betaRuntimes[0];
     expect(firstBetaRuntime).toBeDefined();
 
     view.rerender(renderProjects("alpha"));
     await waitFor(() => expect(view.getByText("Alpha title")).toBeTruthy());
-    await waitFor(() =>
-      expect(firstBetaRuntime?.getStatus().phase).toBe("closed"),
-    );
+    await waitFor(() => expect(firstBetaRuntime?.getStatus().phase).toBe("closed"));
     expect(alphaRuntimes).toHaveLength(2);
     expect(alphaRuntimes[1]).not.toBe(firstAlphaRuntime);
-    expect(alphaRuntimes[1]?.clientSessionId).not.toBe(
-      firstAlphaRuntime?.clientSessionId,
-    );
+    expect(alphaRuntimes[1]?.clientSessionId).not.toBe(firstAlphaRuntime?.clientSessionId);
 
     view.unmount();
-    await waitFor(() =>
-      expect(alphaRuntimes[1]?.getStatus().phase).toBe("closed"),
-    );
+    await waitFor(() => expect(alphaRuntimes[1]?.getStatus().phase).toBe("closed"));
     alphaAdapter.destroy();
     betaAdapter.destroy();
   });
@@ -403,27 +384,17 @@ describe("BlockDocumentSurface", () => {
     };
     try {
       const view = render(
-        <BlockDocumentSurface
-          descriptor={libraryDescriptor}
-          isActive
-          dependencies={dependencies}
-        >
+        <BlockDocumentSurface descriptor={libraryDescriptor} isActive dependencies={dependencies}>
           {() => <div>Should not render</div>}
         </BlockDocumentSurface>,
       );
 
       await waitFor(() => {
-        expect(
-          view.getByText(
-            "Document adapter unavailable",
-          ),
-        ).toBeTruthy();
+        expect(view.getByText("Document adapter unavailable")).toBeTruthy();
       });
       fireEvent.click(view.getByRole("button", { name: "Details" }));
       expect(view.getByText(/Code: runtime_error/)).toBeTruthy();
-      fireEvent.click(
-        view.getByRole("button", { name: "Copy diagnostics" }),
-      );
+      fireEvent.click(view.getByRole("button", { name: "Copy diagnostics" }));
       await waitFor(() => expect(clipboardWrites).toHaveLength(1));
       expect(clipboardWrites[0]).toContain("Library: library-1");
       expect(clipboardWrites[0]).toContain("Access: library");
@@ -464,9 +435,7 @@ describe("BlockDocumentSurface", () => {
       expect(view.getByTestId("embedding-shell")).toBeTruthy();
       expect(view.getByRole("button", { name: "Retry in place" })).toBeTruthy();
     });
-    expect(
-      view.queryByText("Couldn’t open this collaborative content."),
-    ).toBeNull();
+    expect(view.queryByText("Couldn’t open this collaborative content.")).toBeNull();
     view.unmount();
   });
 

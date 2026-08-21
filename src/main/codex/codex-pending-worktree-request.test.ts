@@ -18,19 +18,22 @@ import {
 describe("pending worktree request allocation", () => {
   test("allocates only a host-scoped pending identity for stable worktrees", () => {
     const ids = ["pending-stable"];
-    const allocated = allocateCodexPendingWorktreeRequest({
-      hostId: "local",
-      label: "Persistent project",
-      sourceWorkspaceRoot: "/repo",
-      sourceWorkspaceRoots: ["/repo", "/shared"],
-      startingState: { type: "branch", branchName: "HEAD" },
-      localEnvironmentConfigPath: null,
-      prompt: "Create a persistent project worktree",
-      launchMode: "create-stable-worktree",
-      startConversationParamsInput: null,
-      sourceConversationId: null,
-      sourceCollaborationMode: null,
-    }, () => ids.shift() ?? "unexpected");
+    const allocated = allocateCodexPendingWorktreeRequest(
+      {
+        hostId: "local",
+        label: "Persistent project",
+        sourceWorkspaceRoot: "/repo",
+        sourceWorkspaceRoots: ["/repo", "/shared"],
+        startingState: { type: "branch", branchName: "HEAD" },
+        localEnvironmentConfigPath: null,
+        prompt: "Create a persistent project worktree",
+        launchMode: "create-stable-worktree",
+        startConversationParamsInput: null,
+        sourceConversationId: null,
+        sourceCollaborationMode: null,
+      },
+      () => ids.shift() ?? "unexpected",
+    );
 
     expect(allocated.result.pendingWorktreeId).toBe("local:pending-stable");
     expect(allocated.result.clientThreadId).toBe(null);
@@ -40,21 +43,24 @@ describe("pending worktree request allocation", () => {
 
   test("allocates pending and client identities for conversation modes", () => {
     const ids = ["pending-fork", "client-fork"];
-    const allocated = allocateCodexPendingWorktreeRequest({
-      hostId: "local",
-      label: "Forked task",
-      sourceWorkspaceRoot: "/repo",
-      sourceWorkspaceRoots: ["/repo", "/shared"],
-      startingState: { type: "working-tree" },
-      localEnvironmentConfigPath: null,
-      prompt: "Forking task",
-      launchMode: "fork-conversation",
-      startConversationParamsInput: null,
-      sourceConversationId: "thread-source",
-      sourceCollaborationMode: null,
-      targetTurnId: "turn-older",
-      threadSource: "user",
-    }, () => ids.shift() ?? "unexpected");
+    const allocated = allocateCodexPendingWorktreeRequest(
+      {
+        hostId: "local",
+        label: "Forked task",
+        sourceWorkspaceRoot: "/repo",
+        sourceWorkspaceRoots: ["/repo", "/shared"],
+        startingState: { type: "working-tree" },
+        localEnvironmentConfigPath: null,
+        prompt: "Forking task",
+        launchMode: "fork-conversation",
+        startConversationParamsInput: null,
+        sourceConversationId: "thread-source",
+        sourceCollaborationMode: null,
+        targetTurnId: "turn-older",
+        threadSource: "user",
+      },
+      () => ids.shift() ?? "unexpected",
+    );
 
     expect(allocated.result.pendingWorktreeId).toBe("local:pending-fork");
     expect(allocated.result.clientThreadId).toBe("client-new-thread:client-fork");
@@ -92,48 +98,50 @@ describe("pending worktree frozen start payload", () => {
       projectAssignment: null,
     });
 
-    expect(frozen.workspaceRoots).toEqual([
-      "/repo/primary/packages/app",
-      "/repo/shared",
-    ]);
-    expect(rebaseCodexPendingWorkspaceRoots({
-      sourceWorkspaceRoot: "/repo/primary/packages/app",
-      worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
-      workspaceRoots: frozen.workspaceRoots,
-    })).toEqual([
-      "/worktrees/a1b2/primary/packages/app",
-      "/repo/shared",
-    ]);
+    expect(frozen.workspaceRoots).toEqual(["/repo/primary/packages/app", "/repo/shared"]);
+    expect(
+      rebaseCodexPendingWorkspaceRoots({
+        sourceWorkspaceRoot: "/repo/primary/packages/app",
+        worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
+        workspaceRoots: frozen.workspaceRoots,
+      }),
+    ).toEqual(["/worktrees/a1b2/primary/packages/app", "/repo/shared"]);
   });
 
   test("rebases a nested cwd while leaving unrelated roots unchanged", () => {
-    expect(rebaseCodexPendingWorkspacePath({
-      path: "/repo/primary/packages/app/src",
-      sourceWorkspaceRoot: "/repo/primary/packages/app",
-      worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
-    })).toBe("/worktrees/a1b2/primary/packages/app/src");
-    expect(rebaseCodexPendingWorkspacePath({
-      path: "/repo/shared",
-      sourceWorkspaceRoot: "/repo/primary/packages/app",
-      worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
-    })).toBe("/repo/shared");
+    expect(
+      rebaseCodexPendingWorkspacePath({
+        path: "/repo/primary/packages/app/src",
+        sourceWorkspaceRoot: "/repo/primary/packages/app",
+        worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
+      }),
+    ).toBe("/worktrees/a1b2/primary/packages/app/src");
+    expect(
+      rebaseCodexPendingWorkspacePath({
+        path: "/repo/shared",
+        sourceWorkspaceRoot: "/repo/primary/packages/app",
+        worktreeWorkspaceRoot: "/worktrees/a1b2/primary/packages/app",
+      }),
+    ).toBe("/repo/shared");
   });
 
   test("projects cwd, roots, and project assignment from one immutable launch descriptor", () => {
-    expect(projectCodexPendingWorktreeLaunchLocation({
-      sourceWorkspaceRoot: "/repo/primary",
-      worktreeWorkspaceRoot: "/worktrees/a1b2/primary",
-      params: {
-        cwd: "/repo/primary/packages/app",
-        workspaceRoots: ["/repo/primary", "/repo/shared"],
-        projectAssignment: {
-          projectKind: "local",
-          projectId: "project-1",
-          path: "/repo/primary/packages/app",
-          pendingCoreUpdate: false,
+    expect(
+      projectCodexPendingWorktreeLaunchLocation({
+        sourceWorkspaceRoot: "/repo/primary",
+        worktreeWorkspaceRoot: "/worktrees/a1b2/primary",
+        params: {
+          cwd: "/repo/primary/packages/app",
+          workspaceRoots: ["/repo/primary", "/repo/shared"],
+          projectAssignment: {
+            projectKind: "local",
+            projectId: "project-1",
+            path: "/repo/primary/packages/app",
+            pendingCoreUpdate: false,
+          },
         },
-      },
-    })).toEqual({
+      }),
+    ).toEqual({
       cwd: "/worktrees/a1b2/primary/packages/app",
       workspaceRoots: ["/worktrees/a1b2/primary", "/repo/shared"],
       projectAssignment: {
@@ -146,21 +154,19 @@ describe("pending worktree frozen start payload", () => {
   });
 
   test("keeps an external custom cwd explicit instead of granting the old primary", () => {
-    expect(projectCodexPendingWorktreeLaunchLocation({
-      sourceWorkspaceRoot: "/repo/primary",
-      worktreeWorkspaceRoot: "/worktrees/a1b2/primary",
-      params: {
-        cwd: "/scratch/custom-cwd",
-        workspaceRoots: ["/repo/primary", "/repo/shared"],
-        projectAssignment: null,
-      },
-    })).toEqual({
+    expect(
+      projectCodexPendingWorktreeLaunchLocation({
+        sourceWorkspaceRoot: "/repo/primary",
+        worktreeWorkspaceRoot: "/worktrees/a1b2/primary",
+        params: {
+          cwd: "/scratch/custom-cwd",
+          workspaceRoots: ["/repo/primary", "/repo/shared"],
+          projectAssignment: null,
+        },
+      }),
+    ).toEqual({
       cwd: "/scratch/custom-cwd",
-      workspaceRoots: [
-        "/worktrees/a1b2/primary",
-        "/repo/shared",
-        "/scratch/custom-cwd",
-      ],
+      workspaceRoots: ["/worktrees/a1b2/primary", "/repo/shared", "/scratch/custom-cwd"],
       projectAssignment: null,
     });
   });
@@ -178,25 +184,28 @@ describe("pending worktree frozen start payload", () => {
       startLine: null,
       hostId: "second-host",
     };
-    const pasted = appendCodexPendingPastedTextAttachments([first], [{
-      file: {
-        label: "pasted-text.txt",
-        path: "/attachments/pasted-text.txt",
-        fsPath: "/attachments/pasted-text.txt",
-      },
-      preview: "",
-    }, {
-      file: {
-        label: "pasted-text.txt",
-        path: "/attachments/requirements.txt",
-        fsPath: "/attachments/requirements.txt",
-      },
-      preview: "Requirements excerpt",
-    }]);
-    const normalized = dedupeCodexLiveFileAttachments([
-      ...pasted,
-      duplicate,
-    ]);
+    const pasted = appendCodexPendingPastedTextAttachments(
+      [first],
+      [
+        {
+          file: {
+            label: "pasted-text.txt",
+            path: "/attachments/pasted-text.txt",
+            fsPath: "/attachments/pasted-text.txt",
+          },
+          preview: "",
+        },
+        {
+          file: {
+            label: "pasted-text.txt",
+            path: "/attachments/requirements.txt",
+            fsPath: "/attachments/requirements.txt",
+          },
+          preview: "Requirements excerpt",
+        },
+      ],
+    );
+    const normalized = dedupeCodexLiveFileAttachments([...pasted, duplicate]);
 
     expect(normalized.length).toBe(3);
     expect(normalized[0] === first).toBe(true);
@@ -227,10 +236,12 @@ describe("pending worktree frozen start payload", () => {
       addedFiles: [added, { ...ordinary }],
       threadGoalDraft: {
         objective: "Use the goal source",
-        pastedTextAttachments: [{
-          text: "goal source",
-          file: source,
-        }],
+        pastedTextAttachments: [
+          {
+            text: "goal source",
+            file: source,
+          },
+        ],
         imageAttachments: [],
       },
     });
@@ -241,82 +252,100 @@ describe("pending worktree frozen start payload", () => {
   test("builds the exact attachment-aware pending prompt and pasted-only request sentence", () => {
     const prompt = buildCodexPendingComposerPrompt({
       prompt: "",
-      fileAttachments: [{
-        label: "source.ts",
-        path: "/repo/source.ts",
-        fsPath: "/repo/source.ts",
-        startLine: 4,
-        endLine: 8,
-      }],
-      pastedTextAttachments: [{
-        file: {
-          label: "pasted-text.txt",
-          path: "/attachments/pasted-text.txt",
-          fsPath: "/attachments/pasted-text.txt",
+      fileAttachments: [
+        {
+          label: "source.ts",
+          path: "/repo/source.ts",
+          fsPath: "/repo/source.ts",
+          startLine: 4,
+          endLine: 8,
         },
-        preview: "Pasted request",
-      }],
-      addedFiles: [{
-        label: "added.md",
-        path: "/repo/added.md",
-        fsPath: "/repo/added.md",
-        startLine: 2,
-      }],
+      ],
+      pastedTextAttachments: [
+        {
+          file: {
+            label: "pasted-text.txt",
+            path: "/attachments/pasted-text.txt",
+            fsPath: "/attachments/pasted-text.txt",
+          },
+          preview: "Pasted request",
+        },
+      ],
+      addedFiles: [
+        {
+          label: "added.md",
+          path: "/repo/added.md",
+          fsPath: "/repo/added.md",
+          startLine: 2,
+        },
+      ],
     });
 
-    expect(prompt).toBe([
-      "",
-      "# Files mentioned by the user:",
-      "",
-      "## added.md: /repo/added.md (line 2)",
-      "",
-      "## source.ts: /repo/source.ts (lines 4-8)",
-      "",
-      "## Pasted request: /attachments/pasted-text.txt",
-      "",
-      "The attached pasted text file(s) contain the user's request. Read and act on that content.",
-      "",
-      "## My request for Codex:",
-      "",
-      "",
-    ].join("\n"));
+    expect(prompt).toBe(
+      [
+        "",
+        "# Files mentioned by the user:",
+        "",
+        "## added.md: /repo/added.md (line 2)",
+        "",
+        "## source.ts: /repo/source.ts (lines 4-8)",
+        "",
+        "## Pasted request: /attachments/pasted-text.txt",
+        "",
+        "The attached pasted text file(s) contain the user's request. Read and act on that content.",
+        "",
+        "## My request for Codex:",
+        "",
+        "",
+      ].join("\n"),
+    );
   });
 
   test("preserves raw user-request whitespace in the attachment-aware prompt", () => {
     const rawPrompt = "  first line\nsecond line  \n";
     const prompt = buildCodexPendingComposerPrompt({
       prompt: rawPrompt,
-      fileAttachments: [{
-        label: "source.ts",
-        path: "/repo/source.ts",
-        fsPath: "/repo/source.ts",
-      }],
+      fileAttachments: [
+        {
+          label: "source.ts",
+          path: "/repo/source.ts",
+          fsPath: "/repo/source.ts",
+        },
+      ],
       addedFiles: [],
     });
 
-    expect(prompt).toBe([
-      "",
-      "# Files mentioned by the user:",
-      "",
-      "## source.ts: /repo/source.ts",
-      "",
-      "## My request for Codex:",
-      rawPrompt,
-      "",
-    ].join("\n"));
+    expect(prompt).toBe(
+      [
+        "",
+        "# Files mentioned by the user:",
+        "",
+        "## source.ts: /repo/source.ts",
+        "",
+        "## My request for Codex:",
+        rawPrompt,
+        "",
+      ].join("\n"),
+    );
   });
 
   test("uses app-server permission defaults only for unnamed custom permission state", () => {
-    expect(shouldSendCodexPendingPermissionOverrides({
-      effectivePreset: "custom",
-    })).toBe(false);
-    expect(shouldSendCodexPendingPermissionOverrides({
-      effectivePreset: "custom",
-      permissionProfileId: "team-profile",
-    })).toBe(true);
-    expect(shouldSendCodexPendingPermissionOverrides({
-      effectivePreset: "auto",
-    })).toBe(true);
+    expect(
+      shouldSendCodexPendingPermissionOverrides({
+        effectivePreset: "custom",
+      }),
+    ).toBe(false);
+    expect(
+      shouldSendCodexPendingPermissionOverrides({
+        effectivePreset: "custom",
+        permissionProfileId: "team-profile",
+      }),
+    ).toBe(true);
+    expect(
+      shouldSendCodexPendingPermissionOverrides({
+        effectivePreset: "auto",
+      }),
+    ).toBe(true);
   });
 
   test("forwards exact optional fields while keeping the full config available for permissions", () => {
@@ -405,17 +434,22 @@ describe("pending worktree frozen start payload", () => {
       projectAssignment: null,
     });
 
-    const projected = buildCodexPendingThreadStartConfig({
-      platform_only_marker: "platform",
-      "memories.generate_memories": false,
-    }, frozen);
+    const projected = buildCodexPendingThreadStartConfig(
+      {
+        platform_only_marker: "platform",
+        "memories.generate_memories": false,
+      },
+      frozen,
+    );
 
-    expect(JSON.stringify(projected)).toBe(JSON.stringify({
-      platform_only_marker: "platform",
-      "memories.generate_memories": true,
-      "memories.use_memories": true,
-      override_only_marker: "override",
-    }));
+    expect(JSON.stringify(projected)).toBe(
+      JSON.stringify({
+        platform_only_marker: "platform",
+        "memories.generate_memories": true,
+        "memories.use_memories": true,
+        override_only_marker: "override",
+      }),
+    );
     expect(Object.prototype.hasOwnProperty.call(projected, "expanded_only_marker")).toBe(false);
   });
 
@@ -429,16 +463,21 @@ describe("pending worktree frozen start payload", () => {
         },
       },
     });
+    expect(promoted.defaultFeatureOverrides?.["features.onboarding_interactive_tools"]).toBe(true);
     expect(
-      promoted.defaultFeatureOverrides?.["features.onboarding_interactive_tools"],
+      Object.prototype.hasOwnProperty.call(
+        promoted.configOverrides,
+        "features.onboarding_interactive_tools",
+      ),
+    ).toBe(false);
+    expect(
+      buildCodexPendingThreadStartConfig(
+        {
+          "features.onboarding_interactive_tools": true,
+        },
+        promoted,
+      )["features.onboarding_interactive_tools"],
     ).toBe(true);
-    expect(Object.prototype.hasOwnProperty.call(
-      promoted.configOverrides,
-      "features.onboarding_interactive_tools",
-    )).toBe(false);
-    expect(buildCodexPendingThreadStartConfig({
-      "features.onboarding_interactive_tools": true,
-    }, promoted)["features.onboarding_interactive_tools"]).toBe(true);
     expect(buildCodexPendingThreadStartConfig({}, promoted).ordinary_override).toBe("kept");
 
     const strippedFalse = projectCodexPendingThreadStart({
@@ -451,16 +490,23 @@ describe("pending worktree frozen start payload", () => {
         },
       },
     });
+    expect(strippedFalse.defaultFeatureOverrides?.["features.onboarding_interactive_tools"]).toBe(
+      true,
+    );
     expect(
-      strippedFalse.defaultFeatureOverrides?.["features.onboarding_interactive_tools"],
+      Object.prototype.hasOwnProperty.call(
+        strippedFalse.configOverrides,
+        "features.onboarding_interactive_tools",
+      ),
+    ).toBe(false);
+    expect(
+      buildCodexPendingThreadStartConfig(
+        {
+          "features.onboarding_interactive_tools": true,
+        },
+        strippedFalse,
+      )["features.onboarding_interactive_tools"],
     ).toBe(true);
-    expect(Object.prototype.hasOwnProperty.call(
-      strippedFalse.configOverrides,
-      "features.onboarding_interactive_tools",
-    )).toBe(false);
-    expect(buildCodexPendingThreadStartConfig({
-      "features.onboarding_interactive_tools": true,
-    }, strippedFalse)["features.onboarding_interactive_tools"]).toBe(true);
 
     const absentFalse = projectCodexPendingThreadStart({
       defaultFeatureOverrides: { thread_tools: true },
@@ -470,9 +516,11 @@ describe("pending worktree frozen start payload", () => {
         },
       },
     });
-    expect(Object.prototype.hasOwnProperty.call(
-      buildCodexPendingThreadStartConfig({}, absentFalse),
-      "features.onboarding_interactive_tools",
-    )).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        buildCodexPendingThreadStartConfig({}, absentFalse),
+        "features.onboarding_interactive_tools",
+      ),
+    ).toBe(false);
   });
 });

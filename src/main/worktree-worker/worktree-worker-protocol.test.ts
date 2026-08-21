@@ -44,172 +44,202 @@ describe("worktree worker protocol", () => {
       "/repo/.codex/environments/environment.toml",
       ".codex/environments/../outside.toml",
     ]) {
-      expect(isCodexWorktreeWorkerHostMessage({
-        ...createRequest(),
-        request: {
-          ...createRequest().request,
-          input: {
-            ...createRequest().request.input,
-            localEnvironmentConfigPath,
+      expect(
+        isCodexWorktreeWorkerHostMessage({
+          ...createRequest(),
+          request: {
+            ...createRequest().request,
+            input: {
+              ...createRequest().request.input,
+              localEnvironmentConfigPath,
+            },
           },
-        },
-      })).toBe(false);
+        }),
+      ).toBe(false);
     }
   });
 
   test("rejects version drift, unknown operations, and managed-root escapes", () => {
-    expect(isCodexWorktreeWorkerHostMessage({
-      ...createRequest(),
-      protocolVersion: 1,
-    })).toBe(false);
-    expect(isCodexWorktreeWorkerHostMessage({
-      ...createRequest(),
-      request: { operation: "guess-from-shape", input: createRequest().request.input },
-    })).toBe(false);
-    expect(isCodexWorktreeWorkerHostMessage({
-      type: "request",
-      protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
-      id: "remove:1",
-      request: {
-        operation: "remove",
-        input: {
-          requestId: "remove:1",
-          hostId: "local",
-          managedRoot: "/managed",
-          worktreeGitRoot: "/outside/repo",
-          reason: "cancel",
-          snapshotPolicy: "ephemeral",
+    expect(
+      isCodexWorktreeWorkerHostMessage({
+        ...createRequest(),
+        protocolVersion: 1,
+      }),
+    ).toBe(false);
+    expect(
+      isCodexWorktreeWorkerHostMessage({
+        ...createRequest(),
+        request: { operation: "guess-from-shape", input: createRequest().request.input },
+      }),
+    ).toBe(false);
+    expect(
+      isCodexWorktreeWorkerHostMessage({
+        type: "request",
+        protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
+        id: "remove:1",
+        request: {
+          operation: "remove",
+          input: {
+            requestId: "remove:1",
+            hostId: "local",
+            managedRoot: "/managed",
+            worktreeGitRoot: "/outside/repo",
+            reason: "cancel",
+            snapshotPolicy: "ephemeral",
+          },
         },
-      },
-    })).toBe(false);
+      }),
+    ).toBe(false);
   });
 
   test("requires event and result operations to agree with their payload", () => {
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "ready",
-      epoch: 2,
-      hostId: "local",
-      protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
-    })).toBe(true);
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "event",
-      id: "create:1",
-      operation: "create",
-      event: {
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "ready",
+        epoch: 2,
+        hostId: "local",
+        protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
+      }),
+    ).toBe(true);
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "event",
+        id: "create:1",
         operation: "create",
-        type: "path-allocated",
-        worktreeGitRoot: "/managed/abcd/repo",
-        worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
-      },
-    })).toBe(true);
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "event",
-      id: "prepare-handoff:1",
-      operation: "prepare-handoff",
-      event: {
+        event: {
+          operation: "create",
+          type: "path-allocated",
+          worktreeGitRoot: "/managed/abcd/repo",
+          worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "event",
+        id: "prepare-handoff:1",
         operation: "prepare-handoff",
-        type: "path-allocated",
-        worktreeGitRoot: "/managed/abcd/repo",
-        worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
-      },
-    })).toBe(true);
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "event",
-      id: "create:1",
-      operation: "remove",
-      event: {
-        operation: "create",
-        type: "path-allocated",
-        worktreeGitRoot: "/managed/abcd/repo",
-        worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
-      },
-    })).toBe(false);
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "event",
-      id: "remove:1",
-      operation: "remove",
-      event: {
+        event: {
+          operation: "prepare-handoff",
+          type: "path-allocated",
+          worktreeGitRoot: "/managed/abcd/repo",
+          worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "event",
+        id: "create:1",
         operation: "remove",
-        type: "snapshot-started",
-      },
-    })).toBe(true);
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "result",
-      id: "create:1",
-      operation: "create",
-      result: {
-        type: "ok",
-        success: {
+        event: {
           operation: "create",
-          value: {
-            worktreeGitRoot: "/managed/abcd/repo",
-            worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
-            setupError: null,
-            shellEnvironment: null,
+          type: "path-allocated",
+          worktreeGitRoot: "/managed/abcd/repo",
+          worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "event",
+        id: "remove:1",
+        operation: "remove",
+        event: {
+          operation: "remove",
+          type: "snapshot-started",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "result",
+        id: "create:1",
+        operation: "create",
+        result: {
+          type: "ok",
+          success: {
+            operation: "create",
+            value: {
+              worktreeGitRoot: "/managed/abcd/repo",
+              worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
+              setupError: null,
+              shellEnvironment: null,
+            },
           },
         },
-      },
-    })).toBe(true);
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "result",
-      id: "create:1",
-      operation: "remove",
-      result: {
-        type: "ok",
-        success: {
-          operation: "create",
-          value: {
-            worktreeGitRoot: "/managed/abcd/repo",
-            worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
-            setupError: null,
-            shellEnvironment: null,
+      }),
+    ).toBe(true);
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "result",
+        id: "create:1",
+        operation: "remove",
+        result: {
+          type: "ok",
+          success: {
+            operation: "create",
+            value: {
+              worktreeGitRoot: "/managed/abcd/repo",
+              worktreeWorkspaceRoot: "/managed/abcd/repo/packages/app",
+              setupError: null,
+              shellEnvironment: null,
+            },
           },
         },
-      },
-    })).toBe(false);
+      }),
+    ).toBe(false);
   });
 
   test("accepts filesystem birth timestamps with sub-millisecond precision", () => {
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "result",
-      id: "list:1",
-      operation: "list",
-      result: {
-        type: "ok",
-        success: {
-          operation: "list",
-          value: {
-            entries: [{
-              worktreeGitRoot: "/managed/abcd/repo",
-              repositoryPath: "/repo",
-              createdAtMs: 1_786_664_741_550.375,
-              ownerThreadId: "thread-1",
-              ownerReadFailed: false,
-            }],
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "result",
+        id: "list:1",
+        operation: "list",
+        result: {
+          type: "ok",
+          success: {
+            operation: "list",
+            value: {
+              entries: [
+                {
+                  worktreeGitRoot: "/managed/abcd/repo",
+                  repositoryPath: "/repo",
+                  createdAtMs: 1_786_664_741_550.375,
+                  ownerThreadId: "thread-1",
+                  ownerReadFailed: false,
+                },
+              ],
+            },
           },
         },
-      },
-    })).toBe(true);
-    expect(isCodexWorktreeWorkerThreadMessage({
-      type: "result",
-      id: "list:2",
-      operation: "list",
-      result: {
-        type: "ok",
-        success: {
-          operation: "list",
-          value: {
-            entries: [{
-              worktreeGitRoot: "/managed/abcd/repo",
-              repositoryPath: "/repo",
-              createdAtMs: Number.NaN,
-              ownerThreadId: null,
-              ownerReadFailed: false,
-            }],
+      }),
+    ).toBe(true);
+    expect(
+      isCodexWorktreeWorkerThreadMessage({
+        type: "result",
+        id: "list:2",
+        operation: "list",
+        result: {
+          type: "ok",
+          success: {
+            operation: "list",
+            value: {
+              entries: [
+                {
+                  worktreeGitRoot: "/managed/abcd/repo",
+                  repositoryPath: "/repo",
+                  createdAtMs: Number.NaN,
+                  ownerThreadId: null,
+                  ownerReadFailed: false,
+                },
+              ],
+            },
           },
         },
-      },
-    })).toBe(false);
+      }),
+    ).toBe(false);
   });
 
   test("validates cross-host rollout placement and cleanup containment", () => {
@@ -242,37 +272,41 @@ describe("worktree worker protocol", () => {
       },
     } as const;
     expect(isCodexWorktreeWorkerHostMessage(importRequest)).toBe(true);
-    expect(isCodexWorktreeWorkerHostMessage({
-      ...importRequest,
-      request: {
-        ...importRequest.request,
-        input: {
-          ...importRequest.request.input,
-          rolloutRelativePath: "../../outside.jsonl",
+    expect(
+      isCodexWorktreeWorkerHostMessage({
+        ...importRequest,
+        request: {
+          ...importRequest.request,
+          input: {
+            ...importRequest.request.input,
+            rolloutRelativePath: "../../outside.jsonl",
+          },
         },
-      },
-    })).toBe(false);
+      }),
+    ).toBe(false);
 
-    expect(isCodexWorktreeWorkerHostMessage({
-      type: "request",
-      protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
-      id: "cleanup:1",
-      request: {
-        operation: "cleanup-transfer-handoff",
-        input: {
-          requestId: "cleanup:1",
-          hostId: "ssh:destination",
-          transferId: "transfer-1",
-          stagingRoot: "/remote/.codex/nodex-handoffs",
-          repositoryPath: "/remote/src/repo",
-          temporaryRef: "refs/codex/handoff/destination/transfer-1",
-          managedRoot: "/remote/.nodex/worktrees",
-          createdWorktreePath: "/remote/.nodex/worktrees/abcd/repo",
-          createdRolloutPath: "/remote/.codex/sessions/2026/08/14/thread.jsonl",
-          destinationCodexHome: "/remote/.codex",
-          outcome: "rolled-back",
+    expect(
+      isCodexWorktreeWorkerHostMessage({
+        type: "request",
+        protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
+        id: "cleanup:1",
+        request: {
+          operation: "cleanup-transfer-handoff",
+          input: {
+            requestId: "cleanup:1",
+            hostId: "ssh:destination",
+            transferId: "transfer-1",
+            stagingRoot: "/remote/.codex/nodex-handoffs",
+            repositoryPath: "/remote/src/repo",
+            temporaryRef: "refs/codex/handoff/destination/transfer-1",
+            managedRoot: "/remote/.nodex/worktrees",
+            createdWorktreePath: "/remote/.nodex/worktrees/abcd/repo",
+            createdRolloutPath: "/remote/.codex/sessions/2026/08/14/thread.jsonl",
+            destinationCodexHome: "/remote/.codex",
+            outcome: "rolled-back",
+          },
         },
-      },
-    })).toBe(true);
+      }),
+    ).toBe(true);
   });
 });

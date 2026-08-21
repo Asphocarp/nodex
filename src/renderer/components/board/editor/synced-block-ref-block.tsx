@@ -8,17 +8,14 @@ import { DocumentBearingShellBlock } from "./document-bearing-shell-block";
  * ProseMirror child of the host; an owned-Document boundary may mount it when
  * the reference becomes an interactive surface.
  */
-export const createSyncedBlockRefBlockSpec = createReactBlockSpec(
-  syncedBlockRefBlockConfig,
-  {
-    render: ({ block }) => (
-      <DocumentBearingShellBlock
-        icon={RefreshCw}
-        label="Synced block"
-        detail={block.props.sourceBlockId || "Shared content"}
-        identity={block.props.sourceBlockId}
-        shellBlockId={block.id}
-      />
-    ),
-  },
-);
+export const createSyncedBlockRefBlockSpec = createReactBlockSpec(syncedBlockRefBlockConfig, {
+  render: ({ block }) => (
+    <DocumentBearingShellBlock
+      icon={RefreshCw}
+      label="Synced block"
+      detail={block.props.sourceBlockId || "Shared content"}
+      identity={block.props.sourceBlockId}
+      shellBlockId={block.id}
+    />
+  ),
+});

@@ -139,7 +139,9 @@ describe("NewChatProjectSelector", () => {
     );
 
     await openMenu(view.getByRole("button", { name: "Select project" }));
-    const devtoolsRow = document.body.querySelector("[data-new-chat-project-option='devtools-codex']");
+    const devtoolsRow = document.body.querySelector(
+      "[data-new-chat-project-option='devtools-codex']",
+    );
     if (!(devtoolsRow instanceof HTMLElement)) {
       throw new Error("Expected Devtools Codex row.");
     }
@@ -157,12 +159,14 @@ describe("NewChatProjectSelector", () => {
     const view = await renderSelector(
       {
         ...model,
-        projects: model.projects.map((project) => project.id === "nodex"
-          ? {
-              ...project,
-              appearance: { color: "orange", marker: { kind: "emoji", emoji: "🔥" } },
-            }
-          : project),
+        projects: model.projects.map((project) =>
+          project.id === "nodex"
+            ? {
+                ...project,
+                appearance: { color: "orange", marker: { kind: "emoji", emoji: "🔥" } },
+              }
+            : project,
+        ),
       },
       buildActions({
         onNewThreadProjectChange: (projectId) => {
@@ -179,7 +183,9 @@ describe("NewChatProjectSelector", () => {
     await openMenu(trigger);
     const selectedRow = document.body.querySelector("[data-new-chat-project-option='nodex']");
     expect(selectedRow?.querySelector("[aria-hidden='true']")?.textContent).toBe("🔥");
-    const devtoolsRow = document.body.querySelector("[data-new-chat-project-option='devtools-codex']");
+    const devtoolsRow = document.body.querySelector(
+      "[data-new-chat-project-option='devtools-codex']",
+    );
     if (!(devtoolsRow instanceof HTMLElement)) {
       throw new Error("Expected Devtools Codex row.");
     }

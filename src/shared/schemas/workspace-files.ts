@@ -11,28 +11,38 @@ import type {
 
 const hostIdSchema = z.literal("local").optional();
 const pathSchema = z.string().trim().min(1);
-const positiveByteLimitSchema = z.number().int().positive().max(100 * 1024 * 1024);
+const positiveByteLimitSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(100 * 1024 * 1024);
 
-export const WorkspaceDirectoryEntriesInputSchema = z.object({
-  hostId: hostIdSchema,
-  workspaceRoot: pathSchema,
-  directoryPath: z.string().optional(),
-  includeHidden: z.boolean().optional(),
-  directoriesOnly: z.boolean().optional(),
-}).strict() satisfies z.ZodType<WorkspaceDirectoryEntriesInput>;
+export const WorkspaceDirectoryEntriesInputSchema = z
+  .object({
+    hostId: hostIdSchema,
+    workspaceRoot: pathSchema,
+    directoryPath: z.string().optional(),
+    includeHidden: z.boolean().optional(),
+    directoriesOnly: z.boolean().optional(),
+  })
+  .strict() satisfies z.ZodType<WorkspaceDirectoryEntriesInput>;
 
-export const WorkspaceFileSearchInputSchema = z.object({
-  hostId: hostIdSchema,
-  workspaceRoot: pathSchema,
-  query: z.string().trim().min(1).max(512),
-  maxResults: z.number().int().positive().max(1_000).optional(),
-  maxVisitedEntries: z.number().int().positive().max(1_000_000).optional(),
-}).strict() satisfies z.ZodType<WorkspaceFileSearchInput>;
+export const WorkspaceFileSearchInputSchema = z
+  .object({
+    hostId: hostIdSchema,
+    workspaceRoot: pathSchema,
+    query: z.string().trim().min(1).max(512),
+    maxResults: z.number().int().positive().max(1_000).optional(),
+    maxVisitedEntries: z.number().int().positive().max(1_000_000).optional(),
+  })
+  .strict() satisfies z.ZodType<WorkspaceFileSearchInput>;
 
-export const WorkspaceFileRequestSchema = z.object({
-  hostId: hostIdSchema,
-  path: pathSchema,
-}).strict() satisfies z.ZodType<WorkspaceFileRequest>;
+export const WorkspaceFileRequestSchema = z
+  .object({
+    hostId: hostIdSchema,
+    path: pathSchema,
+  })
+  .strict() satisfies z.ZodType<WorkspaceFileRequest>;
 
 export const WorkspaceFileTextReadInputSchema = WorkspaceFileRequestSchema.extend({
   maxBytes: positiveByteLimitSchema,
@@ -48,6 +58,8 @@ export const WorkspaceFileWriteInputSchema = WorkspaceFileRequestSchema.extend({
   expectedMtimeMs: z.number().finite().nonnegative().nullable(),
 }).strict() satisfies z.ZodType<WorkspaceFileWriteInput>;
 
-export const WorkspaceFileWatchStopInputSchema = z.object({
-  subscriptionId: z.string().uuid(),
-}).strict() satisfies z.ZodType<WorkspaceFileWatchStopInput>;
+export const WorkspaceFileWatchStopInputSchema = z
+  .object({
+    subscriptionId: z.string().uuid(),
+  })
+  .strict() satisfies z.ZodType<WorkspaceFileWatchStopInput>;

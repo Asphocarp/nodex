@@ -59,9 +59,12 @@ export function useReducedMotionPreference(): ReducedMotionPreferenceValue {
   const systemReducedMotion = useScopedAtomValue(systemReducedMotionAtom);
   const resolved = resolveReducedMotionPreference(preference, systemReducedMotion);
 
-  const setPreference = useCallback((nextPreference: ReducedMotionPreference) => {
-    setPreferenceState(writeReducedMotionPreference(nextPreference));
-  }, [setPreferenceState]);
+  const setPreference = useCallback(
+    (nextPreference: ReducedMotionPreference) => {
+      setPreferenceState(writeReducedMotionPreference(nextPreference));
+    },
+    [setPreferenceState],
+  );
 
   return { preference, resolved, setPreference };
 }
@@ -71,9 +74,7 @@ export function useResolvedReducedMotion(): boolean {
   const needsSystemFallback = resolvedPreference === null;
   const systemReducedMotion = useSyncExternalStore(
     needsSystemFallback ? subscribeSystemReducedMotion : subscribeToNothing,
-    needsSystemFallback
-      ? getSystemReducedMotionSnapshot
-      : readMotionAllowedFallback,
+    needsSystemFallback ? getSystemReducedMotionSnapshot : readMotionAllowedFallback,
     readMotionAllowedFallback,
   );
   return resolvedPreference ?? systemReducedMotion;
@@ -82,9 +83,5 @@ export function useResolvedReducedMotion(): boolean {
 /** Keeps the OS media subscription alive at app scope before motion consumers mount. */
 export function ReducedMotionProvider({ children }: { children: ReactNode }) {
   const { resolved } = useReducedMotionPreference();
-  return (
-    <ReducedMotionContext.Provider value={resolved}>
-      {children}
-    </ReducedMotionContext.Provider>
-  );
+  return <ReducedMotionContext.Provider value={resolved}>{children}</ReducedMotionContext.Provider>;
 }

@@ -1,15 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { Layers3, RotateCcw, SlidersHorizontal } from "@/components/shared/icons/generic-icons";
-import {
-  ToggleListRulesBody,
-  ToggleListSummaryBadges,
-} from "./toggle-list-rules-body";
+import { ToggleListRulesBody, ToggleListSummaryBadges } from "./toggle-list-rules-body";
 import { PROJECTION_ACTION_BTN } from "./editor/projection-drag-handle";
-import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "@/components/ui/dropdown";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
 import { getDefaultToggleListSettings } from "@/lib/toggle-list/settings";
 import type { ToggleListSettings } from "@/lib/toggle-list/types";
 import { cn } from "@/lib/utils";
@@ -32,7 +26,9 @@ function StorySurface({ children }: { children: React.ReactNode }) {
 }
 
 function ToggleListRulesStory({ compact = false }: { compact?: boolean }) {
-  const [settings, setSettings] = useState<ToggleListSettings>(() => getDefaultToggleListSettings());
+  const [settings, setSettings] = useState<ToggleListSettings>(() =>
+    getDefaultToggleListSettings(),
+  );
 
   return (
     <StorySurface>
@@ -49,7 +45,9 @@ function ToggleListRulesStory({ compact = false }: { compact?: boolean }) {
 }
 
 function ToggleListInlineToolbarStory() {
-  const [settings, setSettings] = useState<ToggleListSettings>(() => getDefaultToggleListSettings());
+  const [settings, setSettings] = useState<ToggleListSettings>(() =>
+    getDefaultToggleListSettings(),
+  );
   const [sourceProjectId, setSourceProjectId] = useState("default");
   const [rulesPanelExpanded, setRulesPanelExpanded] = useState(true);
 
@@ -57,7 +55,10 @@ function ToggleListInlineToolbarStory() {
     <StorySurface>
       <section className="relative box-border w-full max-w-full rounded-lg bg-transparent p-0">
         <div className="inline-flex items-center gap-1 rounded-lg px-0.5 py-0.5">
-          <button type="button" className={cn(PROJECTION_ACTION_BTN, "w-7 cursor-grab justify-center px-0")}>
+          <button
+            type="button"
+            className={cn(PROJECTION_ACTION_BTN, "w-7 cursor-grab justify-center px-0")}
+          >
             ⋮⋮
           </button>
           <NodexOptionPicker
@@ -67,20 +68,21 @@ function ToggleListInlineToolbarStory() {
             search="filter"
             searchPlaceholder="Search projects…"
             searchAriaLabel="Search projects"
-            triggerButton={(
+            triggerButton={
               <NodexDropdownButtonTrigger className={cn(PROJECTION_ACTION_BTN, "h-7! pr-2")}>
                 <span className="inline-flex items-center gap-1.5">
                   <Layers3 className="size-3.5" />
                   {sourceProjectId}
                 </span>
               </NodexDropdownButtonTrigger>
-            )}
+            }
           />
           <button
             type="button"
             className={cn(
               PROJECTION_ACTION_BTN,
-              rulesPanelExpanded && "border-[color-mix(in_srgb,var(--accent-blue)_55%,var(--border))] bg-[color-mix(in_srgb,var(--accent-blue)_8%,var(--card))] text-(--foreground)",
+              rulesPanelExpanded &&
+                "border-[color-mix(in_srgb,var(--accent-blue)_55%,var(--border))] bg-[color-mix(in_srgb,var(--accent-blue)_8%,var(--card))] text-(--foreground)",
             )}
             onClick={() => setRulesPanelExpanded((current) => !current)}
           >

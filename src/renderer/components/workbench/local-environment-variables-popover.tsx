@@ -10,7 +10,9 @@ export function LocalEnvironmentVariablesPopover() {
   return (
     <NodexPopover>
       <NodexPopoverTrigger asChild>
-        <NodexButton size="composer" variant="secondary">Variables</NodexButton>
+        <NodexButton size="composer" variant="secondary">
+          Variables
+        </NodexButton>
       </NodexPopoverTrigger>
       <NodexPopoverContent
         align="end"

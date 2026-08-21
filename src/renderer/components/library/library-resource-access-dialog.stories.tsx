@@ -22,12 +22,14 @@ const projects: readonly LibraryProjectAccessRow[] = [
     appearance: { color: "green", marker: { kind: "icon", icon: "flask" } },
     lifecycle: "active",
     directGrant: null,
-    inheritedSources: [{
-      kind: "ancestor_page",
-      pageId: "page-strategy",
-      pageTitle: "Strategy",
-      access: "read",
-    }],
+    inheritedSources: [
+      {
+        kind: "ancestor_page",
+        pageId: "page-strategy",
+        pageTitle: "Strategy",
+        access: "read",
+      },
+    ],
     effectiveAccess: "read",
   },
   {
@@ -45,12 +47,14 @@ const projects: readonly LibraryProjectAccessRow[] = [
     appearance: { color: "purple", marker: { kind: "icon", icon: "wrench" } },
     lifecycle: "active",
     directGrant: null,
-    inheritedSources: [{
-      kind: "primary_database",
-      databaseId: parseDatabaseId("database-operations"),
-      databaseName: "Operations",
-      access: "read_write",
-    }],
+    inheritedSources: [
+      {
+        kind: "primary_database",
+        databaseId: parseDatabaseId("database-operations"),
+        databaseName: "Operations",
+        access: "read_write",
+      },
+    ],
     effectiveAccess: "read_write",
   },
 ];

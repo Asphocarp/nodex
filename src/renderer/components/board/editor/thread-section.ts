@@ -1,10 +1,5 @@
 import type { CodexPromptInput } from "@/lib/types";
-import {
-  blockNoteToNfm,
-  extractPlainText,
-  serializeNfm,
-  type NfmBlock,
-} from "../../../lib/nfm";
+import { blockNoteToNfm, extractPlainText, serializeNfm, type NfmBlock } from "../../../lib/nfm";
 import { buildCodexPromptInputFromBlockNoteBlocks } from "./nfm-codex-prompt-input";
 
 export interface ThreadSectionBlockLike {
@@ -71,10 +66,7 @@ export function isThreadSectionBlock(block: ThreadSectionBlockLike | undefined):
   return block?.type === "threadSection";
 }
 
-export function resolveTopLevelBlockId(
-  editor: ThreadSectionParentLookup,
-  blockId: string,
-): string {
+export function resolveTopLevelBlockId(editor: ThreadSectionParentLookup, blockId: string): string {
   let currentId = blockId;
 
   while (currentId.length > 0) {
@@ -111,12 +103,8 @@ export function resolveThreadSections(
       .filter((candidate) => candidate.length > 0);
     const label = normalizeString(block.props?.label).trim();
     const threadId = normalizeString(block.props?.threadId).trim();
-    const markerChildren = Array.isArray(block.children)
-      ? block.children
-      : [];
-    const fallbackTitle = label.length > 0
-      ? label
-      : deriveThreadSectionFallbackTitle(bodyBlocks);
+    const markerChildren = Array.isArray(block.children) ? block.children : [];
+    const fallbackTitle = label.length > 0 ? label : deriveThreadSectionFallbackTitle(bodyBlocks);
 
     sections.push({
       markerBlockId: block.id,
@@ -141,9 +129,7 @@ function resolveThreadSectionForSiblingBlock(
   const explicit = sections.find((section) => section.markerBlockId === siblingBlockId);
   if (explicit) return explicit;
 
-  return sections.find((section) =>
-    section.bodyBlockIds.includes(siblingBlockId),
-  ) ?? null;
+  return sections.find((section) => section.bodyBlockIds.includes(siblingBlockId)) ?? null;
 }
 
 interface BlockPathEntry {
@@ -160,9 +146,7 @@ function findBlockPath(
       return [{ block, siblings: siblingBlocks }];
     }
 
-    const childBlocks = Array.isArray(block.children)
-      ? block.children
-      : [];
+    const childBlocks = Array.isArray(block.children) ? block.children : [];
     const childPath = findBlockPath(childBlocks, targetBlockId);
     if (childPath) {
       return [{ block, siblings: siblingBlocks }, ...childPath];
@@ -204,11 +188,17 @@ export function resolveThreadSectionSendPlan(
 
   const blockPath = findBlockPath(documentBlocks, blockId);
   const currentEntry = blockPath?.[blockPath.length - 1];
-  if (!currentEntry || typeof currentEntry.block.id !== "string" || currentEntry.block.id.length === 0) {
+  if (
+    !currentEntry ||
+    typeof currentEntry.block.id !== "string" ||
+    currentEntry.block.id.length === 0
+  ) {
     return null;
   }
 
-  const markerIndex = currentEntry.siblings.findIndex((candidate) => candidate.id === currentEntry.block.id);
+  const markerIndex = currentEntry.siblings.findIndex(
+    (candidate) => candidate.id === currentEntry.block.id,
+  );
   if (markerIndex < 0) return null;
 
   const nextBoundaryIndex = currentEntry.siblings.findIndex(
@@ -253,12 +243,11 @@ function stripNestedThreadSectionsFromSiblingBlocks(
       continue;
     }
 
-    const childBlocks = Array.isArray(block.children)
-      ? block.children
-      : [];
-    const nextChildren = childBlocks.length > 0
-      ? stripNestedThreadSectionsFromSiblingBlocks(childBlocks)
-      : childBlocks;
+    const childBlocks = Array.isArray(block.children) ? block.children : [];
+    const nextChildren =
+      childBlocks.length > 0
+        ? stripNestedThreadSectionsFromSiblingBlocks(childBlocks)
+        : childBlocks;
 
     if (nextChildren === childBlocks) {
       promptBlocks.push(block);
@@ -297,9 +286,7 @@ export function buildThreadSectionPromptInput(
   return buildCodexPromptInputFromBlockNoteBlocks(promptBlocks, transformNfmBlocks);
 }
 
-export function resolveShortcutBlockId(
-  editor: ThreadSectionCursorLookup,
-): string | null {
+export function resolveShortcutBlockId(editor: ThreadSectionCursorLookup): string | null {
   const selectionBlocks = editor.getSelection?.()?.blocks ?? [];
   const selectedId = selectionBlocks.find(hasBlockId)?.id;
   if (selectedId) return selectedId;
@@ -310,9 +297,7 @@ export function resolveShortcutBlockId(
   return cursorBlockId;
 }
 
-function deriveThreadSectionFallbackTitle(
-  bodyBlocks: ThreadSectionBlockLike[],
-): string {
+function deriveThreadSectionFallbackTitle(bodyBlocks: ThreadSectionBlockLike[]): string {
   if (bodyBlocks.length === 0) return "Untitled section";
 
   try {

@@ -42,20 +42,21 @@ const authority = (
     schemaVersion: 1,
   },
   membership: null,
-  restoreEvidence: lifecycle === "deleted"
-    ? {
-        deleteOperationId: "delete-1",
-        previousLifecycle: "active",
-        membership: {
-          membershipId: "membership-1",
-          databaseId,
-          dataSourceId,
-          status: "triage",
-          position: { viewId },
-        },
-        nestedParent: null,
-      }
-    : null,
+  restoreEvidence:
+    lifecycle === "deleted"
+      ? {
+          deleteOperationId: "delete-1",
+          previousLifecycle: "active",
+          membership: {
+            membershipId: "membership-1",
+            databaseId,
+            dataSourceId,
+            status: "triage",
+            position: { viewId },
+          },
+          nestedParent: null,
+        }
+      : null,
 });
 
 const preflight = (
@@ -123,29 +124,33 @@ const preflight = (
         createdAt: "2026-07-18T00:00:00.000Z",
         updatedAt: "2026-07-18T00:00:00.000Z",
       },
-      properties: [{
-        propertyId: parseDataSourcePropertyId("tags"),
-        dataSourceId,
-        name: "Tags",
-        schema: { kind: "multi_select" },
-        capabilities: {
-          filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"],
-          sortable: true,
-          groupable: true,
+      properties: [
+        {
+          propertyId: parseDataSourcePropertyId("tags"),
+          dataSourceId,
+          name: "Tags",
+          schema: { kind: "multi_select" },
+          capabilities: {
+            filterOperators: ["contains", "not_contains", "is_empty", "is_not_empty"],
+            sortable: true,
+            groupable: true,
+          },
+          valueType: "multi_select",
+          config: { options: [{ id: "o_AAAAAAAA", name: "Release" }] },
+          optionCount: 1,
+          rankKey: "m",
+          lifecycle: "active",
+          revision: 7,
+          createdAt: "2026-07-18T00:00:00.000Z",
+          updatedAt: "2026-07-18T00:00:00.000Z",
         },
-        valueType: "multi_select",
-        config: { options: [{ id: "o_AAAAAAAA", name: "Release" }] },
-        optionCount: 1,
-        rankKey: "m",
-        lifecycle: "active",
-        revision: 7,
-        createdAt: "2026-07-18T00:00:00.000Z",
-        updatedAt: "2026-07-18T00:00:00.000Z",
-      }],
-      rows: [{
-        page: { pageId: "draft-first" },
-        effectiveGroupKey: "triage",
-      }] as unknown as PageLifecyclePreflightSnapshotV2["value"]["defaultView"]["rows"],
+      ],
+      rows: [
+        {
+          page: { pageId: "draft-first" },
+          effectiveGroupKey: "triage",
+        },
+      ] as unknown as PageLifecyclePreflightSnapshotV2["value"]["defaultView"]["rows"],
     },
   },
 });
@@ -318,18 +323,22 @@ describe("Page lifecycle v2 runtime", () => {
       parentDocumentHead: hostHead,
     });
 
-    expect(() => compilePageLifecycleRequestV2({
-      intent: {
-        kind: "delete",
-        projectId: "project-1",
-        operationId: "delete-nested-missing-head",
-        pageId: "page-1",
-      },
-      preflight: preflight(nestedActive),
-    })).toThrowError(new PageLifecycleRuntimeErrorV2(
-      "page_parent_invalid",
-      "Nested Page page-1 requires the host Page Document head",
-    ));
+    expect(() =>
+      compilePageLifecycleRequestV2({
+        intent: {
+          kind: "delete",
+          projectId: "project-1",
+          operationId: "delete-nested-missing-head",
+          pageId: "page-1",
+        },
+        preflight: preflight(nestedActive),
+      }),
+    ).toThrowError(
+      new PageLifecycleRuntimeErrorV2(
+        "page_parent_invalid",
+        "Nested Page page-1 requires the host Page Document head",
+      ),
+    );
 
     const restoreRequest = compilePageLifecycleRequestV2({
       intent: {
@@ -381,10 +390,12 @@ describe("Page lifecycle v2 runtime", () => {
     );
     expect(requests).toHaveLength(2);
     expect(requests[0] === requests[1]).toBe(true);
-    expect(canonicalReadFloors).toEqual([{
-      storeEpoch: "epoch-1",
-      commitSeq: 22,
-    }]);
+    expect(canonicalReadFloors).toEqual([
+      {
+        storeEpoch: "epoch-1",
+        commitSeq: 22,
+      },
+    ]);
     expect(result.boardProjection?.id).toBe("page-1");
   });
 

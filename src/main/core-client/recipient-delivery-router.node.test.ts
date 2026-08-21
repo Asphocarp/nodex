@@ -19,17 +19,22 @@ const lease: AuthorizedRecipientLease = {
   authorization_scope: address,
 };
 
-const packet = (commitSeq: number) => createCoreLocalCommitFixture({
-  commitSeq,
-  authorizationScope: address,
-});
+const packet = (commitSeq: number) =>
+  createCoreLocalCommitFixture({
+    commitSeq,
+    authorizationScope: address,
+  });
 
 const sender = (id = 1) => ({
   id,
   destroyed: false,
   loading: false,
-  isDestroyed() { return this.destroyed; },
-  isLoadingMainFrame() { return this.loading; },
+  isDestroyed() {
+    return this.destroyed;
+  },
+  isLoadingMainFrame() {
+    return this.loading;
+  },
   send: vi.fn(),
 });
 
@@ -59,11 +64,13 @@ describe("RecipientDeliveryRouter", () => {
       kind: "packet",
       packet: { manifest: { identity: { commit_seq: 3 } } },
     });
-    expect(router.admit(target.id, {
-      version: 2,
-      deliveryId: sent[0]!.deliveryId,
-      outcome: "ack",
-    })).toBe(true);
+    expect(
+      router.admit(target.id, {
+        version: 2,
+        deliveryId: sent[0]!.deliveryId,
+        outcome: "ack",
+      }),
+    ).toBe(true);
     expect(router.diagnostics()).toMatchObject({
       pendingAdmissions: 0,
       fencedRecipients: 0,
@@ -120,23 +127,27 @@ describe("RecipientDeliveryRouter", () => {
     recipient.publish(packet(5));
     const deliveryId = sent[0]!.deliveryId;
 
-    expect(router.admit(target.id, {
-      version: 2,
-      deliveryId,
-      outcome: "nack",
-      reason: "capacity",
-    })).toBe(true);
+    expect(
+      router.admit(target.id, {
+        version: 2,
+        deliveryId,
+        outcome: "nack",
+        reason: "capacity",
+      }),
+    ).toBe(true);
     expect(sent.at(-1)?.payload).toMatchObject({
       kind: "reset",
       reset: { reason: "recipient_nack", required_commit_seq: 5 },
     });
 
     const resetId = sent.at(-1)!.deliveryId;
-    expect(router.admit(target.id, {
-      version: 2,
-      deliveryId: resetId,
-      outcome: "ack",
-    })).toBe(true);
+    expect(
+      router.admit(target.id, {
+        version: 2,
+        deliveryId: resetId,
+        outcome: "ack",
+      }),
+    ).toBe(true);
     recipient.publish(packet(6));
     await vi.advanceTimersByTimeAsync(50);
     expect(sent.at(-1)?.payload).toMatchObject({
@@ -179,11 +190,13 @@ describe("RecipientDeliveryRouter", () => {
     recipient.publish(packet(9));
     router.releaseSender(target.id);
 
-    expect(router.admit(target.id, {
-      version: 2,
-      deliveryId: sent[0]!.deliveryId,
-      outcome: "ack",
-    })).toBe(false);
+    expect(
+      router.admit(target.id, {
+        version: 2,
+        deliveryId: sent[0]!.deliveryId,
+        outcome: "ack",
+      }),
+    ).toBe(false);
     expect(router.diagnostics()).toEqual({
       recipients: 0,
       pendingAdmissions: 0,

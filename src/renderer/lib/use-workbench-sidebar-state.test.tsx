@@ -1,10 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import {
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { Project } from "./types";
 import { useWorkbenchSidebarState } from "./use-workbench-sidebar-state";
 
@@ -18,10 +13,12 @@ function makeProject(id: string): Project {
 
 describe("useWorkbenchSidebarState", () => {
   test("initializes and toggles the expanded project lane", () => {
-    const { result } = renderHook(() => useWorkbenchSidebarState({
-      projects: [makeProject("one"), makeProject("two")],
-      activeProjectId: "two",
-    }));
+    const { result } = renderHook(() =>
+      useWorkbenchSidebarState({
+        projects: [makeProject("one"), makeProject("two")],
+        activeProjectId: "two",
+      }),
+    );
 
     expect([...result.current.expandedProjectIds]).toEqual(["two"]);
     act(() => result.current.toggleProjectExpanded("one"));
@@ -31,10 +28,12 @@ describe("useWorkbenchSidebarState", () => {
   });
 
   test("keeps local disclosure state across placement changes", () => {
-    const { result, rerender } = renderHook(() => useWorkbenchSidebarState({
-      projects: [makeProject("one")],
-      activeProjectId: "one",
-    }));
+    const { result, rerender } = renderHook(() =>
+      useWorkbenchSidebarState({
+        projects: [makeProject("one")],
+        activeProjectId: "one",
+      }),
+    );
 
     act(() => result.current.toggleProjectsSection());
     expect(result.current.sections.projects).toBe(true);
@@ -44,27 +43,31 @@ describe("useWorkbenchSidebarState", () => {
 
   test("delegates persisted disclosure changes without a local second writer", () => {
     const setCollapsed = vi.fn();
-    const { result } = renderHook(() => useWorkbenchSidebarState({
-      projects: [],
-      activeProjectId: null,
-      collapsibleSections: {
-        pinned: false,
-        pages: false,
-        projects: true,
-        chats: false,
-      },
-      setCollapsibleSectionCollapsed: setCollapsed,
-    }));
+    const { result } = renderHook(() =>
+      useWorkbenchSidebarState({
+        projects: [],
+        activeProjectId: null,
+        collapsibleSections: {
+          pinned: false,
+          pages: false,
+          projects: true,
+          chats: false,
+        },
+        setCollapsibleSectionCollapsed: setCollapsed,
+      }),
+    );
 
     act(() => result.current.toggleProjectsSection());
     expect(setCollapsed).toHaveBeenCalledWith("projects", false);
   });
 
   test("guards archive intents and owns context-menu selection", () => {
-    const { result } = renderHook(() => useWorkbenchSidebarState({
-      projects: [],
-      activeProjectId: null,
-    }));
+    const { result } = renderHook(() =>
+      useWorkbenchSidebarState({
+        projects: [],
+        activeProjectId: null,
+      }),
+    );
 
     act(() => {
       expect(result.current.beginArchive("session:one")).toBe(true);

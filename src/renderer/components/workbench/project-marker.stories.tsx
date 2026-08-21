@@ -1,9 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import {
-  PROJECT_MARKER_COLORS,
-  type ProjectAppearance,
-} from "../../../shared/project-appearance";
+import { PROJECT_MARKER_COLORS, type ProjectAppearance } from "../../../shared/project-appearance";
 import { ProjectMarker } from "./project-marker";
 import { ProjectMarkerPicker } from "./project-marker-picker";
 

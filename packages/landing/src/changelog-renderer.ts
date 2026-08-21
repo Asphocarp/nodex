@@ -45,7 +45,11 @@ function renderInlineMarkdown(value: string): string {
     output += escapeHtml(value.slice(cursor, openingIndex));
 
     const delimiterLength = countBacktickRun(value, openingIndex);
-    const closingIndex = findMatchingBacktickRun(value, openingIndex + delimiterLength, delimiterLength);
+    const closingIndex = findMatchingBacktickRun(
+      value,
+      openingIndex + delimiterLength,
+      delimiterLength,
+    );
 
     if (closingIndex === -1) {
       output += escapeHtml(value.slice(openingIndex));
@@ -128,7 +132,9 @@ function readMeaningfulReleaseCategories(content: string, heading: string): Chan
   return categories.filter((category) => category.items.length > 0);
 }
 
-function parseReleaseHeading(heading: string): Pick<ChangelogRelease, "date" | "label" | "version"> {
+function parseReleaseHeading(
+  heading: string,
+): Pick<ChangelogRelease, "date" | "label" | "version"> {
   const match = heading.match(releaseHeadingPattern);
   const label = match?.groups?.label;
   const date = match?.groups?.date ?? null;
@@ -199,7 +205,10 @@ export function parseChangelog(content: string): ChangelogRelease[] {
 
   return releaseSections.map((section) => {
     const release = parseReleaseHeading(section.heading);
-    const categories = readMeaningfulReleaseCategories(section.bodyLines.join("\n"), section.heading);
+    const categories = readMeaningfulReleaseCategories(
+      section.bodyLines.join("\n"),
+      section.heading,
+    );
 
     return {
       ...release,
@@ -215,7 +224,7 @@ export function renderChangelogHtml(content: string): string {
     .map((release, index) => {
       const isUnreleased = release.version === null;
       const releaseId = isUnreleased ? "unreleased" : `v${release.version}`;
-      const dateLabel = isUnreleased ? "In development" : release.date ?? "";
+      const dateLabel = isUnreleased ? "In development" : (release.date ?? "");
       const categoriesHtml = release.categories
         .map((category) => {
           const itemsHtml = category.items

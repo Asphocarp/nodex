@@ -17,7 +17,9 @@ interface EditorWithSelectionLike {
   prosemirrorState?: ProsemirrorStateLike;
 }
 
-export function resolveFindShortcutSeedQuery(editor: EditorWithSelectionLike | null | undefined): string {
+export function resolveFindShortcutSeedQuery(
+  editor: EditorWithSelectionLike | null | undefined,
+): string {
   const prosemirrorState = editor?.prosemirrorState;
   if (!prosemirrorState?.selection || !prosemirrorState.doc) return "";
 

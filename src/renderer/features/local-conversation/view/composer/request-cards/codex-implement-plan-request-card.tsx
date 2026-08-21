@@ -9,22 +9,26 @@ import { buildCodexCanonicalRequestIdentityKey } from "../../../../../../shared/
 
 interface CodexImplementPlanRequestCardProps {
   request: CodexPlanImplementationRequest;
-  onRespond: (response: { type: "dismiss" } | { type: "implement" } | { type: "followUp"; prompt: string }) => Promise<void>;
+  onRespond: (
+    response: { type: "dismiss" } | { type: "implement" } | { type: "followUp"; prompt: string },
+  ) => Promise<void>;
 }
 
 function buildPlanComposerRequest(request: CodexPlanImplementationRequest): RequestComposerRequest {
   const questionId = buildCodexCanonicalRequestIdentityKey(request.requestId);
   return {
     requestId: request.requestId,
-    questions: [{
-      id: questionId,
-      header: "Implement this plan?",
-      question: "Implement this plan?",
-      isOther: true,
-      isSecret: false,
-      otherPlaceholder: "No, and tell Nodex what to do differently",
-      options: [{ label: "Yes, implement this plan", description: "" }],
-    }],
+    questions: [
+      {
+        id: questionId,
+        header: "Implement this plan?",
+        question: "Implement this plan?",
+        isOther: true,
+        isSecret: false,
+        otherPlaceholder: "No, and tell Nodex what to do differently",
+        options: [{ label: "Yes, implement this plan", description: "" }],
+      },
+    ],
   };
 }
 
@@ -49,7 +53,7 @@ export function CodexImplementPlanRequestCard({
       onSubmit={async (nextRequest, state) => {
         const questionId = nextRequest.questions[0]?.id;
         const answer = questionId
-          ? buildUserInputAnswers(nextRequest, state)[questionId]?.[0]?.trim() ?? ""
+          ? (buildUserInputAnswers(nextRequest, state)[questionId]?.[0]?.trim() ?? "")
           : "";
         if (!answer) {
           await dismiss();

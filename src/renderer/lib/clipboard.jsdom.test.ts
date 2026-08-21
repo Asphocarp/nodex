@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import {
-  writeTextToClipboard,
-  writeTextToClipboardStrict,
-} from "./clipboard";
+import { writeTextToClipboard, writeTextToClipboardStrict } from "./clipboard";
 
 const originalApi = window.api;
 const originalClipboard = navigator.clipboard;

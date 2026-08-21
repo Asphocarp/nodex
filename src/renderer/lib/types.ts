@@ -449,16 +449,9 @@ export type {
   WindowSessionSaveLayoutInput,
 } from "../../shared/window-session";
 
-import type {
-  DatabasePage,
-  Estimate,
-  PageUpdateResult,
-} from "../../shared/types";
+import type { DatabasePage, Estimate, PageUpdateResult } from "../../shared/types";
 
-export const estimateStyles: Record<
-  Estimate,
-  { label: string; className: string }
-> = {
+export const estimateStyles: Record<Estimate, { label: string; className: string }> = {
   xl: { label: "XL", className: "bg-[var(--red-bg)] text-[var(--red-text)]" },
   l: {
     label: "L",

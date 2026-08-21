@@ -1,9 +1,5 @@
 import { useCallback } from "react";
-import {
-  appScope,
-  scopedAtomWithInitializer,
-  useScopedAtom,
-} from "./maitai";
+import { appScope, scopedAtomWithInitializer, useScopedAtom } from "./maitai";
 
 interface SpellcheckContextValue {
   spellcheck: boolean;

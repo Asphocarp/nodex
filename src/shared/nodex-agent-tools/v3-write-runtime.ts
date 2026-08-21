@@ -35,15 +35,15 @@ export type NodexAgentPageUpdateTool = "update_page" | "advanced_update_page";
 export type PrepareNodexAgentPageUpdateRequest = NodexAgentCallIdentity & {
   readonly projectId: string;
 } & (
-  | {
-      readonly tool: "update_page";
-      readonly input: z.infer<typeof UpdatePageV3InputSchema>;
-    }
-  | {
-      readonly tool: "advanced_update_page";
-      readonly input: z.infer<typeof AdvancedUpdatePageV3InputSchema>;
-    }
-);
+    | {
+        readonly tool: "update_page";
+        readonly input: z.infer<typeof UpdatePageV3InputSchema>;
+      }
+    | {
+        readonly tool: "advanced_update_page";
+        readonly input: z.infer<typeof AdvancedUpdatePageV3InputSchema>;
+      }
+  );
 
 export type NodexAgentPageUpdateOutput =
   | z.infer<typeof UpdatePageV3OutputSchema>

@@ -9,14 +9,9 @@ import {
   PlusIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
-import {
-  NodexDropdownItem,
-  NodexDropdownMenu,
-} from "@/components/ui/dropdown";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { Input } from "@/components/ui/input";
-import {
-  NodexTooltip,
-} from "@/components/ui/tooltip";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { handleFormSubmit } from "@/lib/forms";
 import {
@@ -63,7 +58,8 @@ const ACTION_PLATFORM_OPTIONS: ReadonlyArray<{
   { value: "win32", label: "Windows" },
 ];
 
-const SETUP_PLACEHOLDER = 'cd "$CODEX_WORKTREE_PATH"\npip install -r requirements.txt\nnpm install\n./run/setup.sh';
+const SETUP_PLACEHOLDER =
+  'cd "$CODEX_WORKTREE_PATH"\npip install -r requirements.txt\nnpm install\n./run/setup.sh';
 const WINDOWS_SETUP_PLACEHOLDER = "python -m pip install -r requirements.txt\npnpm install";
 const CLEANUP_PLACEHOLDER = "docker compose down --remove-orphans\nrm -rf .cache/tmp";
 const WINDOWS_CLEANUP_PLACEHOLDER = "docker compose down --remove-orphans";
@@ -108,9 +104,14 @@ function LifecycleEditor({
   const [platform, setPlatform] = useState<LifecyclePlatform>("default");
   const title = kind === "setup" ? "Setup script" : "Cleanup script";
   const textareaId = `local-environment-${kind}-script`;
-  const placeholder = kind === "setup"
-    ? platform === "win32" ? WINDOWS_SETUP_PLACEHOLDER : SETUP_PLACEHOLDER
-    : platform === "win32" ? WINDOWS_CLEANUP_PLACEHOLDER : CLEANUP_PLACEHOLDER;
+  const placeholder =
+    kind === "setup"
+      ? platform === "win32"
+        ? WINDOWS_SETUP_PLACEHOLDER
+        : SETUP_PLACEHOLDER
+      : platform === "win32"
+        ? WINDOWS_CLEANUP_PLACEHOLDER
+        : CLEANUP_PLACEHOLDER;
 
   return (
     <section className="flex flex-col gap-3">
@@ -163,7 +164,7 @@ function ActionIconMenu({
     <NodexDropdownMenu
       contentWidth="icon"
       align="start"
-      triggerButton={(
+      triggerButton={
         <NodexButton
           variant="secondary"
           className="size-12 shrink-0 justify-center px-0"
@@ -171,7 +172,7 @@ function ActionIconMenu({
         >
           <LocalEnvironmentActionIcon icon={action.icon} />
         </NodexButton>
-      )}
+      }
     >
       {LOCAL_ENVIRONMENT_ACTION_ICON_OPTIONS.map((option) => {
         const Icon = option.icon;
@@ -225,7 +226,9 @@ function ActionEditor({
               onChange={(event) => onChange({ ...action, name: event.target.value })}
             />
             {error?.name ? (
-              <p id={nameErrorId} className="text-sm text-token-error-foreground">{error.name}</p>
+              <p id={nameErrorId} className="text-sm text-token-error-foreground">
+                {error.name}
+              </p>
             ) : null}
           </div>
         </div>
@@ -253,7 +256,9 @@ function ActionEditor({
           )}
         />
         {error?.command ? (
-          <p id={commandErrorId} className="text-sm text-token-error-foreground">{error.command}</p>
+          <p id={commandErrorId} className="text-sm text-token-error-foreground">
+            {error.command}
+          </p>
         ) : null}
       </div>
 
@@ -266,19 +271,16 @@ function ActionEditor({
             label={`Platforms for ${action.name || "action"}`}
             value={action.platform ?? "all"}
             options={ACTION_PLATFORM_OPTIONS}
-            onChange={(platform) => onChange({
-              ...action,
-              platform: platform === "all" ? null : platform,
-            })}
+            onChange={(platform) =>
+              onChange({
+                ...action,
+                platform: platform === "all" ? null : platform,
+              })
+            }
           />
         </div>
         <div className="flex justify-end sm:justify-center">
-          <NodexButton
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Delete"
-            onClick={onDelete}
-          >
+          <NodexButton variant="ghost" size="icon-sm" aria-label="Delete" onClick={onDelete}>
             <Trash2 className="icon-sm" />
           </NodexButton>
         </div>
@@ -315,20 +317,24 @@ export function LocalEnvironmentEditor({
     onSubmit: async ({ value }) => {
       const validation = validateLocalEnvironmentDraft(value);
       if (
-        !form.state.isDirty
-        || validation.missingName
-        || validation.incompleteActionIds.length > 0
-        || conflict
-      ) return;
+        !form.state.isDirty ||
+        validation.missingName ||
+        validation.incompleteActionIds.length > 0 ||
+        conflict
+      )
+        return;
 
       setSaveError(false);
       try {
         const result = await onSave(toPersistedLocalEnvironmentDefinition(value));
         if (result.type === "conflict") {
           setConflict(true);
-          toast.warning("This environment changed on disk. Discard your edits before saving again", {
-            id: "local-environment-save-conflict",
-          });
+          toast.warning(
+            "This environment changed on disk. Discard your edits before saving again",
+            {
+              id: "local-environment-save-conflict",
+            },
+          );
           return;
         }
       } catch {
@@ -360,9 +366,10 @@ export function LocalEnvironmentEditor({
   const nameErrorId = "local-environment-name-error";
 
   function updateAction(nextAction: LocalEnvironmentDraftAction): void {
-    form.setFieldValue("actions", values.actions.map((action) => (
-      action.id === nextAction.id ? nextAction : action
-    )));
+    form.setFieldValue(
+      "actions",
+      values.actions.map((action) => (action.id === nextAction.id ? nextAction : action)),
+    );
   }
 
   const saveButton = conflict ? (
@@ -380,14 +387,17 @@ export function LocalEnvironmentEditor({
     <NodexButton
       onClick={() => {
         setReloading(true);
-        void Promise.resolve(onSaved()).then(() => {
-          setSelectionError(false);
-          toast.success("Saved local environment", { id: "local-environment-saved" });
-        }).catch(() => {
-          toast.warning("Saved the environment file, but could not select it", {
-            id: "local-environment-selection-failed",
-          });
-        }).finally(() => setReloading(false));
+        void Promise.resolve(onSaved())
+          .then(() => {
+            setSelectionError(false);
+            toast.success("Saved local environment", { id: "local-environment-saved" });
+          })
+          .catch(() => {
+            toast.warning("Saved the environment file, but could not select it", {
+              id: "local-environment-selection-failed",
+            });
+          })
+          .finally(() => setReloading(false));
       }}
       disabled={reloading}
     >
@@ -405,17 +415,19 @@ export function LocalEnvironmentEditor({
     <form
       className="flex flex-col gap-[var(--padding-panel)]"
       aria-busy={isSubmitting || discarding || reloading}
-      onSubmit={(event) => handleFormSubmit(event, () => {
-        const currentValidation = validateLocalEnvironmentDraft(form.state.values);
-        const currentReason = resolveLocalEnvironmentSaveDisabledReason({
-          dirty: form.state.isDirty,
-          isSaving: form.state.isSubmitting || discarding || reloading,
-          ready: true,
-          validation: currentValidation,
-        });
-        if (currentReason || conflict || selectionError) return;
-        return form.handleSubmit();
-      })}
+      onSubmit={(event) =>
+        handleFormSubmit(event, () => {
+          const currentValidation = validateLocalEnvironmentDraft(form.state.values);
+          const currentReason = resolveLocalEnvironmentSaveDisabledReason({
+            dirty: form.state.isDirty,
+            isSaving: form.state.isSubmitting || discarding || reloading,
+            ready: true,
+            validation: currentValidation,
+          });
+          if (currentReason || conflict || selectionError) return;
+          return form.handleSubmit();
+        })
+      }
     >
       <fieldset disabled={isSubmitting || discarding || reloading} className="contents">
         {parseErrorMessage ? (
@@ -439,7 +451,10 @@ export function LocalEnvironmentEditor({
         ) : null}
 
         <section className="flex flex-col gap-2">
-          <label htmlFor="local-environment-name" className="text-base font-medium text-token-text-primary">
+          <label
+            htmlFor="local-environment-name"
+            className="text-base font-medium text-token-text-primary"
+          >
             Name
           </label>
           <Input
@@ -479,10 +494,12 @@ export function LocalEnvironmentEditor({
             <NodexButton
               size="composer"
               variant="secondary"
-              onClick={() => form.setFieldValue("actions", [
-                ...values.actions,
-                createLocalEnvironmentDraftAction(),
-              ])}
+              onClick={() =>
+                form.setFieldValue("actions", [
+                  ...values.actions,
+                  createLocalEnvironmentDraftAction(),
+                ])
+              }
             >
               <PlusIcon className="icon-xs" />
               Add action
@@ -496,10 +513,12 @@ export function LocalEnvironmentEditor({
                 action={action}
                 error={validation.actionErrors[action.id]}
                 onChange={updateAction}
-                onDelete={() => form.setFieldValue(
-                  "actions",
-                  values.actions.filter((candidate) => candidate.id !== action.id),
-                )}
+                onDelete={() =>
+                  form.setFieldValue(
+                    "actions",
+                    values.actions.filter((candidate) => candidate.id !== action.id),
+                  )
+                }
               />
             ))}
           </div>
@@ -517,7 +536,9 @@ export function LocalEnvironmentEditor({
               {saveButton}
             </span>
           </NodexTooltip>
-        ) : saveButton}
+        ) : (
+          saveButton
+        )}
       </div>
     </form>
   );

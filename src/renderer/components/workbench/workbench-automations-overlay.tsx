@@ -1,4 +1,18 @@
-import { useDeferredValue, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type SetStateAction } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -238,9 +252,9 @@ function applyOptimisticAutomationUpdate(
         ? (update.executionEnvironment ?? automation.executionEnvironment)
         : "worktree",
       localEnvironmentConfigPath: isCron
-        ? (update.localEnvironmentConfigPath === undefined
-            ? automation.localEnvironmentConfigPath
-            : update.localEnvironmentConfigPath)
+        ? update.localEnvironmentConfigPath === undefined
+          ? automation.localEnvironmentConfigPath
+          : update.localEnvironmentConfigPath
         : null,
       nextRunAt: update.status === "PAUSED" ? null : automation.nextRunAt,
       lastRunAt: automation.lastRunAt,
@@ -279,15 +293,24 @@ function areAutomationUpdateInputsEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-const AUTOMATION_FIELD_TRIGGER_CLASS = "border-token-border no-drag flex h-7 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-transparent bg-transparent px-1.5 py-0 text-base leading-[18px] text-token-text-tertiary outline-hidden select-none enabled:cursor-interaction enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40";
-const AUTOMATION_FIELD_INPUT_CLASS = "h-7 w-full min-w-0 rounded-full border border-transparent bg-transparent px-1.5 text-right text-base leading-[18px] text-token-text-primary outline-none hover:bg-token-list-hover-background focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-40";
-const AUTOMATION_SCHEDULE_INPUT_CLASS = "bg-token-input-background text-token-input-foreground placeholder:text-token-input-placeholder-foreground w-full rounded-md border border-token-input-border px-2.5 py-1.5 text-base outline-none focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-50";
-const AUTOMATION_TEXTAREA_CLASS = "min-h-28 w-full resize-none rounded-lg border border-token-input-border bg-token-input-background px-3 py-2 text-base leading-6 text-token-input-foreground outline-none placeholder:text-token-text-tertiary focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-50";
-const AUTOMATION_TOOLBAR_BUTTON_BASE_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px]";
-const AUTOMATION_TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
-const AUTOMATION_TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
-const AUTOMATION_TOOLBAR_BUTTON_PRIMARY_CLASS = "bg-token-foreground enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80 text-token-dropdown-background border-transparent";
-const AUTOMATION_TOOLBAR_BUTTON_OUTLINE_CLASS = "border-token-border text-token-button-tertiary-foreground bg-token-bg-fog enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border";
+const AUTOMATION_FIELD_TRIGGER_CLASS =
+  "border-token-border no-drag flex h-7 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-transparent bg-transparent px-1.5 py-0 text-base leading-[18px] text-token-text-tertiary outline-hidden select-none enabled:cursor-interaction enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40";
+const AUTOMATION_FIELD_INPUT_CLASS =
+  "h-7 w-full min-w-0 rounded-full border border-transparent bg-transparent px-1.5 text-right text-base leading-[18px] text-token-text-primary outline-none hover:bg-token-list-hover-background focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-40";
+const AUTOMATION_SCHEDULE_INPUT_CLASS =
+  "bg-token-input-background text-token-input-foreground placeholder:text-token-input-placeholder-foreground w-full rounded-md border border-token-input-border px-2.5 py-1.5 text-base outline-none focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-50";
+const AUTOMATION_TEXTAREA_CLASS =
+  "min-h-28 w-full resize-none rounded-lg border border-token-input-border bg-token-input-background px-3 py-2 text-base leading-6 text-token-input-foreground outline-none placeholder:text-token-text-tertiary focus:border-token-focus-border disabled:cursor-not-allowed disabled:opacity-50";
+const AUTOMATION_TOOLBAR_BUTTON_BASE_CLASS =
+  "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px]";
+const AUTOMATION_TOOLBAR_BUTTON_GHOST_CLASS =
+  "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
+const AUTOMATION_TOOLBAR_BUTTON_SECONDARY_CLASS =
+  "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
+const AUTOMATION_TOOLBAR_BUTTON_PRIMARY_CLASS =
+  "bg-token-foreground enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80 text-token-dropdown-background border-transparent";
+const AUTOMATION_TOOLBAR_BUTTON_OUTLINE_CLASS =
+  "border-token-border text-token-button-tertiary-foreground bg-token-bg-fog enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border";
 
 function resolveDraftRunInTarget(draft: WorkbenchAutomationDraft): "local" | "worktree" | "thread" {
   return draft.kind === "heartbeat" ? "thread" : draft.executionEnvironment;
@@ -327,17 +350,21 @@ function AutomationDropdownField({
       side="bottom"
       contentWidth="sm"
       disabled={disabled}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           aria-label={ariaLabel}
           disabled={disabled}
-          className={cn(AUTOMATION_FIELD_TRIGGER_CLASS, "inline-flex max-w-full justify-end", triggerClassName)}
+          className={cn(
+            AUTOMATION_FIELD_TRIGGER_CLASS,
+            "inline-flex max-w-full justify-end",
+            triggerClassName,
+          )}
         >
           <span className="min-w-0 truncate text-token-foreground">{selectedLabel}</span>
           <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
         </button>
-      )}
+      }
     />
   );
 }
@@ -360,7 +387,9 @@ function buildScheduleModeOptions(intervalStyle: WorkbenchAutomationScheduleInte
   value: WorkbenchAutomationScheduleMode;
   label: string;
 }> {
-  return (["hourly", "daily", "weekdays", "weekly", "custom"] as WorkbenchAutomationScheduleMode[]).map((mode) => ({
+  return (
+    ["hourly", "daily", "weekdays", "weekly", "custom"] as WorkbenchAutomationScheduleMode[]
+  ).map((mode) => ({
     value: mode,
     label: formatWorkbenchAutomationScheduleModeLabel({ mode, intervalStyle }),
   }));
@@ -377,7 +406,10 @@ function formatScheduleTimePickerLabel(value: string): string {
   }).format(new Date(2024, 0, 1, hour, minute));
 }
 
-function schedulePopoverWidthClass(config: WorkbenchAutomationScheduleConfig, intervalStyle: WorkbenchAutomationScheduleIntervalStyle): string {
+function schedulePopoverWidthClass(
+  config: WorkbenchAutomationScheduleConfig,
+  intervalStyle: WorkbenchAutomationScheduleIntervalStyle,
+): string {
   if (config.mode === "custom") return "!w-96 min-w-96";
   if (intervalStyle === "heartbeat") return "!w-56 min-w-56";
   return "!w-40 min-w-40";
@@ -422,9 +454,10 @@ function AutomationSchedulePopover({
     setForcedCustomRrule(nextConfig.mode === "custom" ? nextRrule : null);
     onRruleChange(nextRrule);
   };
-  const hasTimeInput = resolvedConfig.mode === "daily"
-    || resolvedConfig.mode === "weekdays"
-    || resolvedConfig.mode === "weekly";
+  const hasTimeInput =
+    resolvedConfig.mode === "daily" ||
+    resolvedConfig.mode === "weekdays" ||
+    resolvedConfig.mode === "weekly";
   const intervalValue = String(resolvedConfig.intervalMinutes ?? 30);
   const intervalSuffix = resolvedConfig.intervalMinutes === 1 ? "minute" : "minutes";
 
@@ -458,12 +491,14 @@ function AutomationSchedulePopover({
             <NodexOptionPicker
               value={resolvedConfig.mode}
               options={modeOptions}
-              onValueChange={(value) => updateSchedule({ mode: value as WorkbenchAutomationScheduleMode })}
+              onValueChange={(value) =>
+                updateSchedule({ mode: value as WorkbenchAutomationScheduleMode })
+              }
               title="Schedule type"
               align="end"
               side="bottom"
               contentWidth="sm"
-              triggerButton={(
+              triggerButton={
                 <button
                   type="button"
                   aria-label="Schedule type"
@@ -477,7 +512,7 @@ function AutomationSchedulePopover({
                   </span>
                   <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
                 </button>
-              )}
+              }
             />
 
             {resolvedConfig.mode === "hourly" && intervalStyle === "heartbeat" ? (
@@ -497,7 +532,8 @@ function AutomationSchedulePopover({
                     updateSchedule({ intervalMinutes: Number.parseInt(digits, 10) });
                   }}
                   onBlur={(event) => {
-                    if (event.currentTarget.value.length === 0) event.currentTarget.value = intervalValue;
+                    if (event.currentTarget.value.length === 0)
+                      event.currentTarget.value = intervalValue;
                   }}
                 />
                 <span className="shrink-0">{intervalSuffix}</span>
@@ -516,12 +552,14 @@ function AutomationSchedulePopover({
                   { value: "FR", label: "Friday" },
                   { value: "SA", label: "Saturday" },
                 ]}
-                onValueChange={(value) => updateSchedule({ weekdays: [value as WorkbenchAutomationWeekdayCode] })}
+                onValueChange={(value) =>
+                  updateSchedule({ weekdays: [value as WorkbenchAutomationWeekdayCode] })
+                }
                 title="Day"
                 align="end"
                 side="bottom"
                 contentWidth="sm"
-                triggerButton={(
+                triggerButton={
                   <button
                     type="button"
                     aria-label="Day"
@@ -532,7 +570,7 @@ function AutomationSchedulePopover({
                     </span>
                     <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
                   </button>
-                )}
+                }
               />
             ) : null}
 
@@ -541,7 +579,10 @@ function AutomationSchedulePopover({
                 <div className="relative w-full">
                   <input
                     aria-label="Time"
-                    className={cn(AUTOMATION_SCHEDULE_INPUT_CLASS, "w-full !pr-8 text-sm [&::-webkit-calendar-picker-indicator]:hidden")}
+                    className={cn(
+                      AUTOMATION_SCHEDULE_INPUT_CLASS,
+                      "w-full !pr-8 text-sm [&::-webkit-calendar-picker-indicator]:hidden",
+                    )}
                     type="time"
                     value={resolvedConfig.time}
                     onInput={(event) => updateSchedule({ time: event.currentTarget.value })}
@@ -566,7 +607,8 @@ function AutomationSchedulePopover({
                   <div
                     className="overflow-y-scroll overscroll-contain rounded-lg border border-token-border bg-token-input-background/70 p-1"
                     style={{
-                      maxHeight: "min(14rem, max(3.5rem, calc(var(--radix-popover-content-available-height) - 9rem)))",
+                      maxHeight:
+                        "min(14rem, max(3.5rem, calc(var(--radix-popover-content-available-height) - 9rem)))",
                     }}
                     onWheel={(event) => event.stopPropagation()}
                   >
@@ -640,7 +682,7 @@ function AutomationProjectDropdown({
       contentWidth="workspace"
       contentMaxHeight="tall"
       disabled={disabled}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           aria-label="Project"
@@ -654,7 +696,7 @@ function AutomationProjectDropdown({
           <span className="min-w-0 truncate text-token-foreground">{triggerLabel}</span>
           <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
         </button>
-      )}
+      }
     >
       <NodexDropdownTitle>Project</NodexDropdownTitle>
       {options.length === 0 ? (
@@ -667,13 +709,19 @@ function AutomationProjectDropdown({
               key={option.value}
               subText={option.description}
               rightSlot={selected ? <NodexDropdownSelectedIcon /> : null}
-              tooltipText={option.isFallback ? "This saved folder is not in the current project list." : undefined}
+              tooltipText={
+                option.isFallback
+                  ? "This saved folder is not in the current project list."
+                  : undefined
+              }
               onSelect={(event) => {
                 event.preventDefault();
-                onSelectedRootsChange(toggleWorkbenchAutomationProjectRoot({
-                  selectedRoots,
-                  root: option.value,
-                }));
+                onSelectedRootsChange(
+                  toggleWorkbenchAutomationProjectRoot({
+                    selectedRoots,
+                    root: option.value,
+                  }),
+                );
               }}
             >
               {option.label}
@@ -706,9 +754,13 @@ function localEnvironmentOptionLabel(option: WorktreeEnvironmentOption): string 
 function resolveDefaultAutomationEnvironmentOption(
   options: readonly WorktreeEnvironmentOption[],
 ): WorktreeEnvironmentOption | null {
-  return options.find((option) => localEnvironmentPathFileName(option.path) === DEFAULT_LOCAL_ENVIRONMENT_FILE_NAME)
-    ?? options[0]
-    ?? null;
+  return (
+    options.find(
+      (option) => localEnvironmentPathFileName(option.path) === DEFAULT_LOCAL_ENVIRONMENT_FILE_NAME,
+    ) ??
+    options[0] ??
+    null
+  );
 }
 
 function AutomationEnvironmentDropdown({
@@ -736,16 +788,19 @@ function AutomationEnvironmentDropdown({
   });
   const environments = environmentsQuery.data ?? [];
   const normalizedSelectedPath = normalizeAutomationEnvironmentPath(selectedConfigPath);
-  const selectedEnvironment = environments.find(
-    (environment) => normalizeAutomationEnvironmentPath(environment.path) === normalizedSelectedPath,
-  ) ?? null;
+  const selectedEnvironment =
+    environments.find(
+      (environment) =>
+        normalizeAutomationEnvironmentPath(environment.path) === normalizedSelectedPath,
+    ) ?? null;
   const defaultEnvironment = resolveDefaultAutomationEnvironmentOption(environments);
   const defaultEnvironmentPath = defaultEnvironment
     ? normalizeAutomationEnvironmentPath(defaultEnvironment.path)
     : "";
   const otherEnvironments = defaultEnvironment
-    ? environments.filter((environment) =>
-        normalizeAutomationEnvironmentPath(environment.path) !== defaultEnvironmentPath
+    ? environments.filter(
+        (environment) =>
+          normalizeAutomationEnvironmentPath(environment.path) !== defaultEnvironmentPath,
       )
     : environments;
   const isLoading = project !== null && environmentsQuery.isLoading;
@@ -770,7 +825,7 @@ function AutomationEnvironmentDropdown({
       side="bottom"
       contentClassName="w-64"
       disabled={disabled}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           aria-label="Environment"
@@ -788,7 +843,7 @@ function AutomationEnvironmentDropdown({
             <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
           )}
         </button>
-      )}
+      }
     >
       <NodexDropdownTitle>Local environment</NodexDropdownTitle>
       <div className="vertical-scroll-fade-mask flex max-h-[220px] flex-col overflow-y-auto">
@@ -802,15 +857,16 @@ function AutomationEnvironmentDropdown({
         ) : null}
         {canShowChoices && defaultEnvironment ? (
           <NodexDropdownItem
-            leftSlot={(
+            leftSlot={
               <span title="Default environment">
                 <AutomationTemplateColorIcon iconName="star-app" className="icon-xxs shrink-0" />
               </span>
-            )}
+            }
             rightSlot={
-              normalizedSelectedPath.length > 0 && defaultEnvironmentPath === normalizedSelectedPath
-                ? <NodexDropdownSelectedIcon />
-                : null
+              normalizedSelectedPath.length > 0 &&
+              defaultEnvironmentPath === normalizedSelectedPath ? (
+                <NodexDropdownSelectedIcon />
+              ) : null
             }
             onSelect={() => onSelectedConfigPathChange(defaultEnvironment.path)}
           >
@@ -825,9 +881,10 @@ function AutomationEnvironmentDropdown({
                 <NodexDropdownItem
                   key={environment.path}
                   rightSlot={
-                    normalizedSelectedPath.length > 0 && environmentPath === normalizedSelectedPath
-                      ? <NodexDropdownSelectedIcon />
-                      : null
+                    normalizedSelectedPath.length > 0 &&
+                    environmentPath === normalizedSelectedPath ? (
+                      <NodexDropdownSelectedIcon />
+                    ) : null
                   }
                   onSelect={() => onSelectedConfigPathChange(environment.path)}
                 >
@@ -842,7 +899,9 @@ function AutomationEnvironmentDropdown({
             <AutomationLoadingIcon className="icon-xxs text-token-description-foreground" />
           </div>
         ) : hasError ? (
-          <NodexDropdownMessage compact tone="error">Error loading environments</NodexDropdownMessage>
+          <NodexDropdownMessage compact tone="error">
+            Error loading environments
+          </NodexDropdownMessage>
         ) : environments.length === 0 ? (
           <NodexDropdownMessage compact>No environments found</NodexDropdownMessage>
         ) : null}
@@ -863,13 +922,15 @@ function AutomationEnvironmentDropdown({
 function isAutomationCodexReasoningEffort(
   reasoningEffort: string,
 ): reasoningEffort is CodexScheduledAutomationReasoningEffort {
-  return reasoningEffort === "none"
-    || reasoningEffort === "minimal"
-    || reasoningEffort === "low"
-    || reasoningEffort === "medium"
-    || reasoningEffort === "high"
-    || reasoningEffort === "xhigh"
-    || reasoningEffort === "max";
+  return (
+    reasoningEffort === "none" ||
+    reasoningEffort === "minimal" ||
+    reasoningEffort === "low" ||
+    reasoningEffort === "medium" ||
+    reasoningEffort === "high" ||
+    reasoningEffort === "xhigh" ||
+    reasoningEffort === "max"
+  );
 }
 
 function resolveAutomationSelectorReasoningEffort(
@@ -884,13 +945,18 @@ function resolveAutomationReasoningForModelChange(input: {
   models: readonly CodexModelOption[];
   nextModelId: string;
 }): CodexScheduledAutomationReasoningEffort {
-  const selectedModel = input.models.find((candidate) =>
-    candidate.id === input.nextModelId && !candidate.hidden
-  ) ?? null;
-  const supportedOptions = resolveCodexReasoningEffortOptions(input.nextModelId, [...input.models])
-    .filter((option): option is typeof option & {
+  const selectedModel =
+    input.models.find((candidate) => candidate.id === input.nextModelId && !candidate.hidden) ??
+    null;
+  const supportedOptions = resolveCodexReasoningEffortOptions(input.nextModelId, [
+    ...input.models,
+  ]).filter(
+    (
+      option,
+    ): option is typeof option & {
       reasoningEffort: CodexScheduledAutomationReasoningEffort;
-    } => isAutomationCodexReasoningEffort(option.reasoningEffort));
+    } => isAutomationCodexReasoningEffort(option.reasoningEffort),
+  );
   const supportedEfforts = new Set(supportedOptions.map((option) => option.reasoningEffort));
 
   if (supportedEfforts.has(input.currentReasoningEffort)) {
@@ -932,24 +998,30 @@ function LegacyAutomationModelReasoningDropdown({
   onSelect: (model: string, reasoningEffort: CodexScheduledAutomationReasoningEffort) => void;
 }) {
   const visibleModels = useMemo(() => getVisibleCodexModels(models), [models]);
-  const effectiveReasoningEffort = resolveAutomationSelectorReasoningEffort(selectedReasoningEffort);
+  const effectiveReasoningEffort =
+    resolveAutomationSelectorReasoningEffort(selectedReasoningEffort);
   const reasoningOptions = useMemo(
-    () => resolveCodexReasoningEffortOptions(selectedModel, [...models])
-      .filter((option): option is typeof option & {
-        reasoningEffort: CodexScheduledAutomationReasoningEffort;
-      } => isAutomationCodexReasoningEffort(option.reasoningEffort)),
+    () =>
+      resolveCodexReasoningEffortOptions(selectedModel, [...models]).filter(
+        (
+          option,
+        ): option is typeof option & {
+          reasoningEffort: CodexScheduledAutomationReasoningEffort;
+        } => isAutomationCodexReasoningEffort(option.reasoningEffort),
+      ),
     [models, selectedModel],
   );
   const hasModelChoices = visibleModels.length > 0;
   const selectedModelMissing = selectedModel.trim().length === 0;
   const triggerDisabled = disabled || modelsLoading || selectedModelMissing || !hasModelChoices;
-  const modelLabel = modelsLoading || selectedModelMissing
-    ? "Loading model"
-    : hasModelChoices
-      ? formatCodexModelLabel(selectedModel, [...models])
-      : modelsError
-        ? "Model unavailable"
-        : "No models available";
+  const modelLabel =
+    modelsLoading || selectedModelMissing
+      ? "Loading model"
+      : hasModelChoices
+        ? formatCodexModelLabel(selectedModel, [...models])
+        : modelsError
+          ? "Model unavailable"
+          : "No models available";
   const reasoningLabel = formatCodexReasoningEffortLabel(effectiveReasoningEffort);
 
   return (
@@ -958,7 +1030,7 @@ function LegacyAutomationModelReasoningDropdown({
       side="bottom"
       contentWidth="menu"
       disabled={triggerDisabled}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           aria-label="Model and reasoning"
@@ -982,13 +1054,17 @@ function LegacyAutomationModelReasoningDropdown({
             <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
           )}
         </button>
-      )}
+      }
     >
       <NodexDropdownTitle>Reasoning</NodexDropdownTitle>
       {reasoningOptions.map((option) => (
         <NodexDropdownItem
           key={option.reasoningEffort}
-          rightSlot={option.reasoningEffort === effectiveReasoningEffort ? <NodexDropdownSelectedIcon /> : null}
+          rightSlot={
+            option.reasoningEffort === effectiveReasoningEffort ? (
+              <NodexDropdownSelectedIcon />
+            ) : null
+          }
           tooltipText={option.description}
           onSelect={() => onSelect(selectedModel, option.reasoningEffort)}
         >
@@ -1072,10 +1148,14 @@ function AgentAutomationModelReasoningDropdown({
   if (!profile || !provider) return null;
 
   const normalizedQuery = deferredQuery.trim().toLocaleLowerCase();
-  const matchingModels = provider.models.filter((candidate) => (
-    !candidate.hidden
-    && (!normalizedQuery || `${candidate.displayName} ${candidate.modelId}`.toLocaleLowerCase().includes(normalizedQuery))
-  ));
+  const matchingModels = provider.models.filter(
+    (candidate) =>
+      !candidate.hidden &&
+      (!normalizedQuery ||
+        `${candidate.displayName} ${candidate.modelId}`
+          .toLocaleLowerCase()
+          .includes(normalizedQuery)),
+  );
   const visibleModels = [
     ...matchingModels.filter((candidate) => candidate.modelId === profile.modelId),
     ...matchingModels.filter((candidate) => candidate.modelId !== profile.modelId),
@@ -1090,7 +1170,7 @@ function AgentAutomationModelReasoningDropdown({
       side="bottom"
       contentWidth="menu"
       disabled={disabled}
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           aria-label="Provider, model, and reasoning"
@@ -1102,14 +1182,16 @@ function AgentAutomationModelReasoningDropdown({
           )}
         >
           <span className="flex max-w-56 min-w-0 items-center gap-1.5 text-left">
-            <span className="min-w-0 truncate text-token-foreground">{provider.displayName} · {modelLabel}</span>
+            <span className="min-w-0 truncate text-token-foreground">
+              {provider.displayName} · {modelLabel}
+            </span>
             <span className="shrink-0 text-token-description-foreground">
               {formatCodexReasoningEffortLabel(profile.reasoningEffort ?? undefined)}
             </span>
           </span>
           <CompactChevronDownIcon className="icon-2xs shrink-0 text-token-text-tertiary" />
         </button>
-      )}
+      }
     >
       <NodexDropdownTitle>Provider</NodexDropdownTitle>
       {catalog.providers.map((candidate) => {
@@ -1118,7 +1200,9 @@ function AgentAutomationModelReasoningDropdown({
         return (
           <NodexDropdownItem
             key={candidate.id}
-            disabled={!isCurrent && (!credentialReady || candidate.models.every((model) => model.hidden))}
+            disabled={
+              !isCurrent && (!credentialReady || candidate.models.every((model) => model.hidden))
+            }
             rightSlot={isCurrent ? <NodexDropdownSelectedIcon /> : null}
             subText={formatAutomationProviderStatus(candidate)}
             onSelect={() => {
@@ -1134,19 +1218,23 @@ function AgentAutomationModelReasoningDropdown({
       <NodexDropdownTitle>Reasoning</NodexDropdownTitle>
       {reasoningOptions.length === 0 ? (
         <NodexDropdownMessage compact>Runtime default</NodexDropdownMessage>
-      ) : reasoningOptions.map((option) => (
-        <NodexDropdownItem
-          key={option.value}
-          rightSlot={option.value === profile.reasoningEffort ? <NodexDropdownSelectedIcon /> : null}
-          subText={option.description ?? undefined}
-          onSelect={() => {
-            const next = selectAgentReasoningEffort(catalog, profile, option.value);
-            if (next) onSelect(next);
-          }}
-        >
-          {formatCodexReasoningEffortLabel(option.value)}
-        </NodexDropdownItem>
-      ))}
+      ) : (
+        reasoningOptions.map((option) => (
+          <NodexDropdownItem
+            key={option.value}
+            rightSlot={
+              option.value === profile.reasoningEffort ? <NodexDropdownSelectedIcon /> : null
+            }
+            subText={option.description ?? undefined}
+            onSelect={() => {
+              const next = selectAgentReasoningEffort(catalog, profile, option.value);
+              if (next) onSelect(next);
+            }}
+          >
+            {formatCodexReasoningEffortLabel(option.value)}
+          </NodexDropdownItem>
+        ))
+      )}
       <NodexDropdownSeparator />
       <NodexDropdownTitle>Model</NodexDropdownTitle>
       {provider.models.filter((candidate) => !candidate.hidden).length > 8 ? (
@@ -1159,16 +1247,20 @@ function AgentAutomationModelReasoningDropdown({
       <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
         {visibleModels.length === 0 ? (
           <NodexDropdownMessage compact>No matching models</NodexDropdownMessage>
-        ) : visibleModels.map((candidate) => (
-          <NodexDropdownItem
-            key={`${candidate.providerId}:${candidate.modelId}`}
-            rightSlot={candidate.modelId === profile.modelId ? <NodexDropdownSelectedIcon /> : null}
-            subText={candidate.description ?? undefined}
-            onSelect={() => onSelect(selectAgentModel(candidate, profile))}
-          >
-            {candidate.displayName}
-          </NodexDropdownItem>
-        ))}
+        ) : (
+          visibleModels.map((candidate) => (
+            <NodexDropdownItem
+              key={`${candidate.providerId}:${candidate.modelId}`}
+              rightSlot={
+                candidate.modelId === profile.modelId ? <NodexDropdownSelectedIcon /> : null
+              }
+              subText={candidate.description ?? undefined}
+              onSelect={() => onSelect(selectAgentModel(candidate, profile))}
+            >
+              {candidate.displayName}
+            </NodexDropdownItem>
+          ))
+        )}
         {hiddenCount > 0 ? (
           <NodexDropdownMessage compact centered>
             Refine the search to see {hiddenCount} more models
@@ -1233,17 +1325,13 @@ function AutomationDetailSection({
   );
 }
 
-function AutomationDetailRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function AutomationDetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid h-[1.875rem] w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 overflow-x-hidden rounded-lg text-base leading-[18px] text-token-foreground">
       <div className="min-w-0 pl-1 pr-2 text-left">{label}</div>
-      <div className="flex min-w-0 justify-end justify-self-stretch overflow-hidden">{children}</div>
+      <div className="flex min-w-0 justify-end justify-self-stretch overflow-hidden">
+        {children}
+      </div>
     </div>
   );
 }
@@ -1290,10 +1378,7 @@ function AutomationArchiveRunsDialog({
 }) {
   const count = rows.length;
   return (
-    <NodexDialog
-      open={count > 0}
-      onOpenChange={onOpenChange}
-    >
+    <NodexDialog open={count > 0} onOpenChange={onOpenChange}>
       <NodexDialogContent size="compact" showCloseButton={false}>
         <NodexDialogFrame>
           <NodexDialogHeader>
@@ -1307,9 +1392,7 @@ function AutomationArchiveRunsDialog({
             </NodexDialogDescription>
           </NodexDialogHeader>
           <NodexDialogFooter>
-            <NodexDialogAction onClick={() => onOpenChange(false)}>
-              Cancel
-            </NodexDialogAction>
+            <NodexDialogAction onClick={() => onOpenChange(false)}>Cancel</NodexDialogAction>
             <NodexDialogAction tone="danger" onClick={() => void onConfirm()}>
               {count === 1 ? "Archive" : "Archive all"}
             </NodexDialogAction>
@@ -1320,11 +1403,7 @@ function AutomationArchiveRunsDialog({
   );
 }
 
-function AutomationPreviousRunStatusIcon({
-  row,
-}: {
-  row: WorkbenchAutomationPreviousRunRowModel;
-}) {
+function AutomationPreviousRunStatusIcon({ row }: { row: WorkbenchAutomationPreviousRunRowModel }) {
   if (row.isInProgress) {
     return <AutomationLoadingIcon className="icon-xs" />;
   }
@@ -1345,11 +1424,12 @@ function AutomationPreviousRunStatusIcon({
     return <AutomationArchiveIcon className="icon-xs text-token-text-tertiary" />;
   }
 
-  return <span aria-hidden="true" className="size-2 rounded-full bg-token-description-foreground" />;
+  return (
+    <span aria-hidden="true" className="size-2 rounded-full bg-token-description-foreground" />
+  );
 }
 
-const AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE =
-  "data-automation-previous-run-menu-target";
+const AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE = "data-automation-previous-run-menu-target";
 
 function AutomationPreviousRunsContextMenu({
   rows,
@@ -1368,9 +1448,8 @@ function AutomationPreviousRunsContextMenu({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [targetThreadId, setTargetThreadId] = useState<string | null>(null);
-  const targetRow = targetThreadId === null
-    ? null
-    : rows.find((row) => row.threadId === targetThreadId) ?? null;
+  const targetRow =
+    targetThreadId === null ? null : (rows.find((row) => row.threadId === targetThreadId) ?? null);
 
   const handleMenuOpenChange = (open: boolean): void => {
     setMenuOpen(open);
@@ -1385,13 +1464,8 @@ function AutomationPreviousRunsContextMenu({
     const target = event.target.closest<HTMLElement>(
       `[${AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE}]`,
     );
-    const nextTargetThreadId = target?.getAttribute(
-      AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE,
-    );
-    if (
-      !nextTargetThreadId
-      || !rows.some((row) => row.threadId === nextTargetThreadId)
-    ) {
+    const nextTargetThreadId = target?.getAttribute(AUTOMATION_PREVIOUS_RUN_MENU_TARGET_ATTRIBUTE);
+    if (!nextTargetThreadId || !rows.some((row) => row.threadId === nextTargetThreadId)) {
       event.stopPropagation();
       return;
     }
@@ -1479,7 +1553,9 @@ function AutomationPreviousRunRow({
         onKeyDown={handleKeyDown}
         className={cn(
           "flex min-h-11 min-w-0 items-center gap-2 rounded-md py-2 pr-3 pl-1 text-base outline-none",
-          canOpen ? "cursor-interaction hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-2" : "cursor-default",
+          canOpen
+            ? "cursor-interaction hover:bg-token-list-hover-background focus-visible:ring-token-focus focus-visible:ring-2"
+            : "cursor-default",
           row.isArchived && "opacity-65 hover:opacity-100 focus-within:opacity-100",
         )}
       >
@@ -1515,10 +1591,12 @@ function AutomationPreviousRunRow({
               Unarchive
             </button>
           ) : null}
-          <span className={cn(
-            "text-sm whitespace-nowrap text-token-description-foreground tabular-nums",
-            row.canUnarchive && "group-focus-within:opacity-0 group-hover:opacity-0",
-          )}>
+          <span
+            className={cn(
+              "text-sm whitespace-nowrap text-token-description-foreground tabular-nums",
+              row.canUnarchive && "group-focus-within:opacity-0 group-hover:opacity-0",
+            )}
+          >
             {row.relativeTimeLabel}
           </span>
         </span>
@@ -1541,7 +1619,10 @@ function AutomationPreviousRunsSection({
   loading: boolean;
   actionBusy: boolean;
   onOpenRun?: (row: WorkbenchAutomationPreviousRunRowModel) => void;
-  onArchiveRuns: (rows: WorkbenchAutomationPreviousRunRowModel[], options?: { showSuccessToast?: boolean }) => Promise<void>;
+  onArchiveRuns: (
+    rows: WorkbenchAutomationPreviousRunRowModel[],
+    options?: { showSuccessToast?: boolean },
+  ) => Promise<void>;
   onUnarchiveRun: (row: WorkbenchAutomationPreviousRunRowModel) => void;
   onMarkRunsRead: (rows: WorkbenchAutomationPreviousRunRowModel[], readAt: number) => Promise<void>;
   onMarkReadState: (row: WorkbenchAutomationPreviousRunRowModel, readAt: number | null) => void;
@@ -1581,7 +1662,7 @@ function AutomationPreviousRunsSection({
       align="end"
       side="bottom"
       contentWidth="menuFixed"
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
           aria-label="Previous runs actions"
@@ -1589,7 +1670,7 @@ function AutomationPreviousRunsSection({
         >
           <AutomationMoreIcon className="icon-xs" />
         </button>
-      )}
+      }
     >
       <NodexDropdownItem
         leftSlot={<NodexDropdownSelectedIcon className="icon-xs" />}
@@ -1616,9 +1697,7 @@ function AutomationPreviousRunsSection({
             <AutomationLoadingIcon className="icon-sm" />
           </div>
         ) : rows.length === 0 ? (
-          <div className="px-1 py-2 text-base text-token-text-tertiary opacity-70">
-            No chats
-          </div>
+          <div className="px-1 py-2 text-base text-token-text-tertiary opacity-70">No chats</div>
         ) : (
           <AutomationPreviousRunsContextMenu
             rows={rows}
@@ -1627,7 +1706,10 @@ function AutomationPreviousRunsSection({
             onUnarchive={onUnarchiveRun}
             onMarkReadState={onMarkReadState}
           >
-            <div role="list" className="vertical-scroll-fade-mask flex max-h-64 min-h-0 flex-col overflow-y-auto [--edge-fade-distance:1rem]">
+            <div
+              role="list"
+              className="vertical-scroll-fade-mask flex max-h-64 min-h-0 flex-col overflow-y-auto [--edge-fade-distance:1rem]"
+            >
               {rows.map((row) => (
                 <AutomationPreviousRunRow
                   key={row.threadId}
@@ -1746,7 +1828,8 @@ function AutomationListRow({
       className={cn(
         "automation-row group relative flex min-h-10 w-full cursor-interaction items-center gap-2 rounded-lg px-3 py-3 text-left text-base outline-none",
         "hover:bg-token-list-active-selection-background focus-visible:ring-token-focus focus-visible:ring-2",
-        active && "bg-token-list-active-selection-background text-token-list-active-selection-foreground",
+        active &&
+          "bg-token-list-active-selection-background text-token-list-active-selection-foreground",
         row.isPaused && !active && "opacity-60 hover:opacity-100 focus-within:opacity-100",
       )}
     >
@@ -1758,7 +1841,9 @@ function AutomationListRow({
       />
       <span className="flex min-w-0 flex-1 flex-col gap-1 pr-24">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-base text-token-foreground">{row.displayName}</span>
+          <span className="min-w-0 truncate text-base text-token-foreground">
+            {row.displayName}
+          </span>
         </span>
         <span
           id={descriptionId}
@@ -1766,9 +1851,13 @@ function AutomationListRow({
         >
           <span className="min-w-0 truncate">{row.workspaceLabel ?? "-"}</span>
           {row.secondaryStatusLabel ? (
-            <span className="shrink-0 text-token-description-foreground">{row.secondaryStatusLabel}</span>
+            <span className="shrink-0 text-token-description-foreground">
+              {row.secondaryStatusLabel}
+            </span>
           ) : null}
-          {row.secondaryStatusLabel ? <span className="shrink-0 text-token-text-tertiary">·</span> : null}
+          {row.secondaryStatusLabel ? (
+            <span className="shrink-0 text-token-text-tertiary">·</span>
+          ) : null}
           <span className="min-w-0 truncate">{row.scheduleLabel}</span>
         </span>
       </span>
@@ -1782,7 +1871,11 @@ function AutomationListRow({
               onRunAutomationNow(row.automation);
             }}
           >
-            {isRunNowPending ? <AutomationLoadingIcon className="icon-sm" /> : <AutomationRunNowIcon className="icon-sm" />}
+            {isRunNowPending ? (
+              <AutomationLoadingIcon className="icon-sm" />
+            ) : (
+              <AutomationRunNowIcon className="icon-sm" />
+            )}
           </AutomationRowAction>
           <AutomationRowAction
             label="Edit scheduled task"
@@ -1839,7 +1932,9 @@ function AutomationPageTabs({
             onClick={() => onSelectTab(tab.id)}
             className={cn(
               AUTOMATION_TOOLBAR_BUTTON_BASE_CLASS,
-              active ? AUTOMATION_TOOLBAR_BUTTON_SECONDARY_CLASS : AUTOMATION_TOOLBAR_BUTTON_GHOST_CLASS,
+              active
+                ? AUTOMATION_TOOLBAR_BUTTON_SECONDARY_CLASS
+                : AUTOMATION_TOOLBAR_BUTTON_GHOST_CLASS,
             )}
           >
             {tab.label}
@@ -1877,7 +1972,7 @@ function CreateAutomationSplitControl({
         align="end"
         side="bottom"
         contentWidth="menuFixed"
-        triggerButton={(
+        triggerButton={
           <button
             type="button"
             aria-label="New scheduled task options"
@@ -1889,7 +1984,7 @@ function CreateAutomationSplitControl({
           >
             <CompactChevronDownIcon className="icon-xs text-token-text-tertiary" />
           </button>
-        )}
+        }
       >
         <NodexDropdownItem
           leftSlot={<SidePanelSideChatIcon className="icon-xs" />}
@@ -1924,9 +2019,10 @@ function AutomationsRouteHeader({
   onCreateManually: () => void;
   onCreateWithChat?: () => void;
 }) {
-  const className = placement === "shell"
-    ? "draggable grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 electron:h-toolbar extension:py-row-y"
-    : "draggable grid h-toolbar w-full shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-token-border px-panel";
+  const className =
+    placement === "shell"
+      ? "draggable grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 electron:h-toolbar extension:py-row-y"
+      : "draggable grid h-toolbar w-full shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-b border-token-border px-panel";
 
   return (
     <header className={className}>
@@ -1997,7 +2093,11 @@ function AutomationDetailRunNowButton({
       onClick={onClick}
       className={cn(AUTOMATION_TOOLBAR_BUTTON_BASE_CLASS, AUTOMATION_TOOLBAR_BUTTON_PRIMARY_CLASS)}
     >
-      {pending ? <AutomationLoadingIcon className="icon-xs" /> : <AutomationRunNowIcon className="icon-xs" />}
+      {pending ? (
+        <AutomationLoadingIcon className="icon-xs" />
+      ) : (
+        <AutomationRunNowIcon className="icon-xs" />
+      )}
       Run now
     </button>
   );
@@ -2021,7 +2121,9 @@ function AutomationsEmptyState({
           {icon}
         </div>
         <div className="text-lg text-token-foreground">{title}</div>
-        {description ? <div className="text-sm leading-5 text-token-text-secondary">{description}</div> : null}
+        {description ? (
+          <div className="text-sm leading-5 text-token-text-secondary">{description}</div>
+        ) : null}
         {action ? <div className="pt-1">{action}</div> : null}
       </div>
     </div>
@@ -2144,11 +2246,12 @@ function AutomationFirstRunSuggestionIcon({
 }: {
   suggestion: WorkbenchAutomationFirstRunSuggestion;
 }) {
-  const templateIconName = suggestion.iconName === "file-text"
-    ? "text-document"
-    : suggestion.iconName === "radar"
-      ? "radar"
-      : "star-app";
+  const templateIconName =
+    suggestion.iconName === "file-text"
+      ? "text-document"
+      : suggestion.iconName === "radar"
+        ? "radar"
+        : "star-app";
 
   return <AutomationTemplateColorIcon iconName={templateIconName} className="icon-sm" />;
 }
@@ -2179,7 +2282,7 @@ function AutomationsFirstRunEmptyState({
       <AutomationsEmptyState
         icon={<AutomationsIcon className="icon-sm" />}
         title="Create your first scheduled task"
-        action={(
+        action={
           <div className="flex flex-wrap items-center justify-center gap-2">
             {onCreateWithChat ? (
               WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS.map((suggestion) => (
@@ -2200,7 +2303,7 @@ function AutomationsFirstRunEmptyState({
               </NodexButton>
             )}
           </div>
-        )}
+        }
       />
     </div>
   );
@@ -2247,12 +2350,16 @@ function AutomationsTasksPanel({
   onCreateWithChat?: (prompt: string) => void;
 }) {
   const [searchValue, setSearchValue] = useState("");
-  const listModel = useMemo(() => buildWorkbenchAutomationListModel({
-    automations,
-    runningAutomationIds,
-    unreadAutomationIds,
-    searchQuery: searchValue,
-  }), [automations, runningAutomationIds, searchValue, unreadAutomationIds]);
+  const listModel = useMemo(
+    () =>
+      buildWorkbenchAutomationListModel({
+        automations,
+        runningAutomationIds,
+        unreadAutomationIds,
+        searchQuery: searchValue,
+      }),
+    [automations, runningAutomationIds, searchValue, unreadAutomationIds],
+  );
   const visibleRowCount = listModel.current.length + listModel.paused.length;
 
   if (loading && automations.length === 0) {
@@ -2270,13 +2377,13 @@ function AutomationsTasksPanel({
 
   return (
     <AutomationsSearchablePageLayout
-        title="Scheduled"
-        subtitle="Manage recurring tasks, reminders, and monitors"
-        searchLabel="Search scheduled tasks"
-        searchValue={searchValue}
-        onSearchValueChange={setSearchValue}
-        contentClassName="gap-8 !pt-6 [&>section]:gap-2"
-      >
+      title="Scheduled"
+      subtitle="Manage recurring tasks, reminders, and monitors"
+      searchLabel="Search scheduled tasks"
+      searchValue={searchValue}
+      onSearchValueChange={setSearchValue}
+      contentClassName="gap-8 !pt-6 [&>section]:gap-2"
+    >
       {loading ? (
         <AutomationsEmptyState
           icon={<AutomationsIcon className="icon-sm" />}
@@ -2321,11 +2428,7 @@ function AutomationsTasksPanel({
   );
 }
 
-function AutomationTemplateIcon({
-  iconName,
-}: {
-  iconName: string;
-}) {
+function AutomationTemplateIcon({ iconName }: { iconName: string }) {
   return <AutomationTemplateColorIcon iconName={iconName} className="icon-sm" />;
 }
 
@@ -2348,7 +2451,9 @@ function AutomationTemplateCard({
       </span>
       <span className="flex min-w-0 flex-col gap-1">
         <span className="text-base font-medium text-token-foreground">{template.name}</span>
-        <span className="line-clamp-2 text-sm leading-5 text-token-text-secondary">{template.prompt}</span>
+        <span className="line-clamp-2 text-sm leading-5 text-token-text-secondary">
+          {template.prompt}
+        </span>
         <span className="text-sm text-token-description-foreground">{template.scheduleLabel}</span>
       </span>
     </button>
@@ -2368,13 +2473,13 @@ function AutomationsTemplatesPanel({
 
   return (
     <AutomationsSearchablePageLayout
-        title="Templates"
-        subtitle="Start with a scheduled task template"
-        searchLabel="Search templates"
-        searchValue={searchValue}
-        onSearchValueChange={setSearchValue}
-        contentClassName="gap-10 !pt-6"
-      >
+      title="Templates"
+      subtitle="Start with a scheduled task template"
+      searchLabel="Search templates"
+      searchValue={searchValue}
+      onSearchValueChange={setSearchValue}
+      contentClassName="gap-10 !pt-6"
+    >
       {templates.length === 0 ? (
         <AutomationsEmptyState
           icon={<SettingsSearchIcon className="icon-sm" />}
@@ -2448,7 +2553,10 @@ function AutomationDetailSurface({
   onSave: (draft: WorkbenchAutomationDraft) => Promise<void>;
   onPersonalizeTemplate?: (template: WorkbenchAutomationTemplate) => Promise<void>;
   onOpenRun?: (row: WorkbenchAutomationPreviousRunRowModel) => void;
-  onArchiveRuns: (rows: WorkbenchAutomationPreviousRunRowModel[], options?: { showSuccessToast?: boolean }) => Promise<void>;
+  onArchiveRuns: (
+    rows: WorkbenchAutomationPreviousRunRowModel[],
+    options?: { showSuccessToast?: boolean },
+  ) => Promise<void>;
   onUnarchiveRun: (row: WorkbenchAutomationPreviousRunRowModel) => void;
   onMarkRunsRead: (rows: WorkbenchAutomationPreviousRunRowModel[], readAt: number) => Promise<void>;
   onMarkRunReadState: (row: WorkbenchAutomationPreviousRunRowModel, readAt: number | null) => void;
@@ -2495,7 +2603,11 @@ function AutomationDetailSurface({
       <AutomationsEmptyState
         icon={<AutomationsIcon className="icon-sm" />}
         title={selectedAutomationId ? "Scheduled task not found" : "Select a scheduled task"}
-        description={selectedAutomationId ? "No local automation matches the selected id." : "Choose a scheduled task to inspect its target and next run."}
+        description={
+          selectedAutomationId
+            ? "No local automation matches the selected id."
+            : "Choose a scheduled task to inspect its target and next run."
+        }
       />
     );
   }
@@ -2580,7 +2692,10 @@ function AutomationDraftEditor({
   onSave: (draft: WorkbenchAutomationDraft) => Promise<void>;
   onPersonalizeTemplate?: (template: WorkbenchAutomationTemplate) => Promise<void>;
   onOpenRun?: (row: WorkbenchAutomationPreviousRunRowModel) => void;
-  onArchiveRuns: (rows: WorkbenchAutomationPreviousRunRowModel[], options?: { showSuccessToast?: boolean }) => Promise<void>;
+  onArchiveRuns: (
+    rows: WorkbenchAutomationPreviousRunRowModel[],
+    options?: { showSuccessToast?: boolean },
+  ) => Promise<void>;
   onUnarchiveRun: (row: WorkbenchAutomationPreviousRunRowModel) => void;
   onMarkRunsRead: (rows: WorkbenchAutomationPreviousRunRowModel[], readAt: number) => Promise<void>;
   onMarkRunReadState: (row: WorkbenchAutomationPreviousRunRowModel, readAt: number | null) => void;
@@ -2595,31 +2710,36 @@ function AutomationDraftEditor({
 }) {
   const canCreate = mode === "create" && validation.canSave && !isMutating;
   const canSubmit = (mode === "create" || manualSubmit) && validation.canSave && !isMutating;
-  const createTooltip = mode === "create"
-    ? formatWorkbenchAutomationDraftSaveTooltip({
-        draft,
-        action: "create",
-      })
-    : null;
-  const canPersonalizeTemplate = mode === "create"
-    && createDraftTemplate !== null
-    && onPersonalizeTemplate !== undefined
-    && !isMutating
-    && !isTemplatePersonalizationPending;
-  const scheduleIntervalStyle: WorkbenchAutomationScheduleIntervalStyle = draft.kind === "heartbeat" ? "heartbeat" : "default";
+  const createTooltip =
+    mode === "create"
+      ? formatWorkbenchAutomationDraftSaveTooltip({
+          draft,
+          action: "create",
+        })
+      : null;
+  const canPersonalizeTemplate =
+    mode === "create" &&
+    createDraftTemplate !== null &&
+    onPersonalizeTemplate !== undefined &&
+    !isMutating &&
+    !isTemplatePersonalizationPending;
+  const scheduleIntervalStyle: WorkbenchAutomationScheduleIntervalStyle =
+    draft.kind === "heartbeat" ? "heartbeat" : "default";
   const scheduleConfig = useMemo(
-    () => resolveWorkbenchAutomationScheduleConfig({
-      rrule: draft.rrule,
-      intervalStyle: scheduleIntervalStyle,
-    }),
+    () =>
+      resolveWorkbenchAutomationScheduleConfig({
+        rrule: draft.rrule,
+        intervalStyle: scheduleIntervalStyle,
+      }),
     [draft.rrule, scheduleIntervalStyle],
   );
   const runInTarget = resolveDraftRunInTarget(draft);
-  const runInOptions: Array<"local" | "worktree" | "thread"> = automation === null
-    ? ["local", "worktree", "thread"]
-    : automation.kind === "heartbeat"
-      ? ["thread"]
-      : ["local", "worktree"];
+  const runInOptions: Array<"local" | "worktree" | "thread"> =
+    automation === null
+      ? ["local", "worktree", "thread"]
+      : automation.kind === "heartbeat"
+        ? ["thread"]
+        : ["local", "worktree"];
   const nextRunLabel = automation
     ? formatCodexScheduledAutomationNextRunLabel(automation.nextRunAt)
     : formatWorkbenchAutomationScheduleLabel(scheduleConfig);
@@ -2816,7 +2936,9 @@ function AutomationDraftEditor({
                     selectedRoot={draft.cwds[0] ?? ""}
                     selectedConfigPath={draft.localEnvironmentConfigPath}
                     disabled={isMutating}
-                    onSelectedConfigPathChange={(localEnvironmentConfigPath) => updateDraft({ localEnvironmentConfigPath })}
+                    onSelectedConfigPathChange={(localEnvironmentConfigPath) =>
+                      updateDraft({ localEnvironmentConfigPath })
+                    }
                     onOpenSettings={onOpenLocalEnvironmentsSettings}
                   />
                 </AutomationDetailRow>
@@ -2850,20 +2972,24 @@ function AutomationDraftEditor({
                 modelsLoading={codexModelsLoading}
                 modelsError={codexModelsError}
                 disabled={isMutating}
-                onSelectLegacy={(model, reasoningEffort) => updateDraft({
-                  model,
-                  modelProvider: "openai",
-                  harnessId: "",
-                  reasoningEffort,
-                  serviceTier: "",
-                })}
-                onSelectProfile={(profile) => updateDraft({
-                  model: profile.modelId,
-                  modelProvider: profile.providerId,
-                  harnessId: profile.harnessId ?? "",
-                  reasoningEffort: profile.reasoningEffort ?? "",
-                  serviceTier: profile.serviceTier ?? "",
-                })}
+                onSelectLegacy={(model, reasoningEffort) =>
+                  updateDraft({
+                    model,
+                    modelProvider: "openai",
+                    harnessId: "",
+                    reasoningEffort,
+                    serviceTier: "",
+                  })
+                }
+                onSelectProfile={(profile) =>
+                  updateDraft({
+                    model: profile.modelId,
+                    modelProvider: profile.providerId,
+                    harnessId: profile.harnessId ?? "",
+                    reasoningEffort: profile.reasoningEffort ?? "",
+                    serviceTier: profile.serviceTier ?? "",
+                  })
+                }
               />
             </AutomationDetailRow>
           ) : null}
@@ -2926,9 +3052,13 @@ export function WorkbenchAutomationSidePanelTab({
   const [mutating, setMutating] = useState(false);
   const targetAutomationId = updateInput?.id ?? automationId ?? null;
   const automations = automationsQuery.data ?? [];
-  const targetAutomation = savedAutomation
-    ?? (targetAutomationId ? automations.find((automation) => automation.id === targetAutomationId) ?? null : null);
-  const isProposal = savedAutomation === null && (mode === "suggested-create" || mode === "suggested-update");
+  const targetAutomation =
+    savedAutomation ??
+    (targetAutomationId
+      ? (automations.find((automation) => automation.id === targetAutomationId) ?? null)
+      : null);
+  const isProposal =
+    savedAutomation === null && (mode === "suggested-create" || mode === "suggested-update");
   const isSuggestedUpdate = isProposal && mode === "suggested-update";
   const draftSeed = useMemo(() => {
     if (!isProposal) return null;
@@ -2978,7 +3108,7 @@ export function WorkbenchAutomationSidePanelTab({
       resolveWorkbenchAutomationDraftModelSettings({
         draft: current,
         models: modelsQuery.data ?? [],
-      })
+      }),
     );
   }, [modelsQuery.data]);
 
@@ -3031,30 +3161,37 @@ export function WorkbenchAutomationSidePanelTab({
       ? queryClient.getQueryData<CodexScheduledAutomation[]>(scheduledQueryKey)
       : undefined;
     if (shouldUpdate && updatePayload) {
-      queryClient.setQueryData<CodexScheduledAutomation[]>(
-        scheduledQueryKey,
-        (current) => applyOptimisticAutomationUpdate(current, updatePayload),
+      queryClient.setQueryData<CodexScheduledAutomation[]>(scheduledQueryKey, (current) =>
+        applyOptimisticAutomationUpdate(current, updatePayload),
       );
     }
     try {
       const response = shouldUpdate
-        ? await invoke("codex:scheduled-automations:update", updatePayload as CodexScheduledAutomationUpdateInput)
-        : await invoke("codex:scheduled-automations:create", createPayload as CodexScheduledAutomationCreateInput);
+        ? await invoke(
+            "codex:scheduled-automations:update",
+            updatePayload as CodexScheduledAutomationUpdateInput,
+          )
+        : await invoke(
+            "codex:scheduled-automations:create",
+            createPayload as CodexScheduledAutomationCreateInput,
+          );
       await upsertSavedAutomation((response as CodexScheduledAutomationMutationResponse).item);
     } catch (error) {
       if (previousAutomations) {
         queryClient.setQueryData(scheduledQueryKey, previousAutomations);
       }
-      const title = shouldUpdate ? "Could not update scheduled task" : "Could not create scheduled task";
+      const title = shouldUpdate
+        ? "Could not update scheduled task"
+        : "Could not create scheduled task";
       const description = showAutomationMutationErrorToast(title, error);
       setMutationError(description ?? `${title}.`);
     } finally {
       setMutating(false);
     }
   };
-  const autoSaveAutomation = useEffectEvent((nextDraft: WorkbenchAutomationDraft) => (
-    saveAutomation(nextDraft)
-  ));
+  const autoSaveAutomation = useEffectEvent((nextDraft: WorkbenchAutomationDraft) =>
+    saveAutomation(nextDraft),
+  );
 
   useEffect(() => {
     if (isProposal) return;
@@ -3066,7 +3203,12 @@ export function WorkbenchAutomationSidePanelTab({
     return () => window.clearTimeout(timeout);
   }, [dirty, draft, effectiveAutomation, effectiveMode, isProposal, mutating, validation.canSave]);
 
-  if (isSuggestedUpdate && targetAutomationId !== null && targetAutomation === null && automationsQuery.isLoading) {
+  if (
+    isSuggestedUpdate &&
+    targetAutomationId !== null &&
+    targetAutomation === null &&
+    automationsQuery.isLoading
+  ) {
     return (
       <AutomationsEmptyState
         icon={<AutomationLoadingIcon className="icon-sm" />}
@@ -3226,9 +3368,11 @@ export function WorkbenchAutomationsRouteShell({
   const [runNowPendingAutomationId, setRunNowPendingAutomationId] = useState<string | null>(null);
   const [runActionPending, setRunActionPending] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [deleteDialogAutomation, setDeleteDialogAutomation] = useState<CodexScheduledAutomation | null>(null);
+  const [deleteDialogAutomation, setDeleteDialogAutomation] =
+    useState<CodexScheduledAutomation | null>(null);
   const [createDraftSeed, setCreateDraftSeed] = useState<WorkbenchAutomationDraft | null>(null);
-  const [createDraftTemplate, setCreateDraftTemplate] = useState<WorkbenchAutomationTemplate | null>(null);
+  const [createDraftTemplate, setCreateDraftTemplate] =
+    useState<WorkbenchAutomationTemplate | null>(null);
   const [chatCreatePending, setChatCreatePending] = useState(false);
   const [templatePersonalizationPending, setTemplatePersonalizationPending] = useState(false);
   const [dispageDraftDialogOpen, setDispageDraftDialogOpen] = useState(false);
@@ -3245,16 +3389,18 @@ export function WorkbenchAutomationsRouteShell({
     [automationRunsQuery.data?.unreadRunCounts.automationIds],
   );
   const runningAutomationIds = useMemo(
-    () => new Set(
-      (automationRunsQuery.data?.items ?? [])
-        .filter((item) => item.status === "IN_PROGRESS")
-        .map((item) => item.automationId),
-    ),
+    () =>
+      new Set(
+        (automationRunsQuery.data?.items ?? [])
+          .filter((item) => item.status === "IN_PROGRESS")
+          .map((item) => item.automationId),
+      ),
     [automationRunsQuery.data?.items],
   );
-  const selectedAutomation = routeState.automationId === null
-    ? null
-    : automations.find((automation) => automation.id === routeState.automationId) ?? null;
+  const selectedAutomation =
+    routeState.automationId === null
+      ? null
+      : (automations.find((automation) => automation.id === routeState.automationId) ?? null);
   const previousRunRows = useMemo(() => {
     if (!selectedAutomation || selectedAutomation.kind !== "cron") return [];
     return buildWorkbenchAutomationPreviousRunRows({
@@ -3262,24 +3408,26 @@ export function WorkbenchAutomationsRouteShell({
       automationId: selectedAutomation.id,
     });
   }, [automationRunsQuery.data?.items, selectedAutomation]);
-  const detailMode = routeState.automationMode === "create"
-    ? "create"
-    : routeState.automationId === null
-      ? null
-      : selectedAutomation === null
-        ? automationsQuery.isLoading || automationsQuery.isFetching
-          ? "loading"
-          : "missing"
-        : "edit";
+  const detailMode =
+    routeState.automationMode === "create"
+      ? "create"
+      : routeState.automationId === null
+        ? null
+        : selectedAutomation === null
+          ? automationsQuery.isLoading || automationsQuery.isFetching
+            ? "loading"
+            : "missing"
+          : "edit";
   const detailRailOpen = detailMode !== null;
   const createRouteDraft = () => {
-    const baseDraft = detailMode === "create"
-      ? createDraftSeed
-        ? cloneWorkbenchAutomationDraft(createDraftSeed)
-        : createWorkbenchAutomationDraft()
-      : selectedAutomation
-        ? createWorkbenchAutomationDraft({ automation: selectedAutomation })
-        : createWorkbenchAutomationDraft();
+    const baseDraft =
+      detailMode === "create"
+        ? createDraftSeed
+          ? cloneWorkbenchAutomationDraft(createDraftSeed)
+          : createWorkbenchAutomationDraft()
+        : selectedAutomation
+          ? createWorkbenchAutomationDraft({ automation: selectedAutomation })
+          : createWorkbenchAutomationDraft();
     return modelsQuery.data
       ? resolveWorkbenchAutomationDraftModelSettings({
           draft: baseDraft,
@@ -3288,29 +3436,33 @@ export function WorkbenchAutomationsRouteShell({
       : baseDraft;
   };
   const [draft, setDraft] = useState<WorkbenchAutomationDraft>(() => createRouteDraft());
-  const [initialCreateDraft, setInitialCreateDraft] = useState<WorkbenchAutomationDraft | null>(() =>
-    detailMode === "create" ? cloneWorkbenchAutomationDraft(createRouteDraft()) : null
+  const [initialCreateDraft, setInitialCreateDraft] = useState<WorkbenchAutomationDraft | null>(
+    () => (detailMode === "create" ? cloneWorkbenchAutomationDraft(createRouteDraft()) : null),
   );
   const resetRouteDraft = useEffectEvent(() => {
     const nextDraft = createRouteDraft();
     setDraft(nextDraft);
-    setInitialCreateDraft(detailMode === "create" ? cloneWorkbenchAutomationDraft(nextDraft) : null);
+    setInitialCreateDraft(
+      detailMode === "create" ? cloneWorkbenchAutomationDraft(nextDraft) : null,
+    );
     failedEditUpdateRef.current = null;
     pendingEditActionRef.current = null;
   });
   const draftValidation = validateWorkbenchAutomationDraft(draft);
-  const editDraftDirty = detailMode === "edit" && selectedAutomation !== null
-    ? isWorkbenchAutomationDraftDirty({ draft, existing: selectedAutomation })
-    : false;
-  const createDraftDirty = detailMode === "create"
-    && hasWorkbenchAutomationCreateDraftChanges(draft, initialCreateDraft);
+  const editDraftDirty =
+    detailMode === "edit" && selectedAutomation !== null
+      ? isWorkbenchAutomationDraftDirty({ draft, existing: selectedAutomation })
+      : false;
+  const createDraftDirty =
+    detailMode === "create" && hasWorkbenchAutomationCreateDraftChanges(draft, initialCreateDraft);
   const editUpdateInput = useMemo(
-    () => detailMode === "edit" && selectedAutomation !== null && draftValidation.canSave
-      ? buildCodexScheduledAutomationUpdateInput({
-          draft,
-          id: selectedAutomation.id,
-        })
-      : null,
+    () =>
+      detailMode === "edit" && selectedAutomation !== null && draftValidation.canSave
+        ? buildCodexScheduledAutomationUpdateInput({
+            draft,
+            id: selectedAutomation.id,
+          })
+        : null,
     [detailMode, draft, draftValidation.canSave, selectedAutomation],
   );
   const pendingEditUpdateInput = editDraftDirty ? editUpdateInput : null;
@@ -3332,7 +3484,7 @@ export function WorkbenchAutomationsRouteShell({
       resolveWorkbenchAutomationDraftModelSettings({
         draft: current,
         models: modelsQuery.data ?? [],
-      })
+      }),
     );
     setInitialCreateDraft((current) =>
       current
@@ -3340,7 +3492,7 @@ export function WorkbenchAutomationsRouteShell({
             draft: current,
             models: modelsQuery.data ?? [],
           })
-        : current
+        : current,
     );
   }, [modelsQuery.data]);
 
@@ -3405,21 +3557,20 @@ export function WorkbenchAutomationsRouteShell({
   ): Promise<boolean> => {
     setMutationError(null);
     const scheduledQueryKey = queryKeys.codexScheduledAutomations.list();
-    const previousAutomations = queryClient.getQueryData<CodexScheduledAutomation[]>(scheduledQueryKey);
+    const previousAutomations =
+      queryClient.getQueryData<CodexScheduledAutomation[]>(scheduledQueryKey);
     setMutatingAutomationId(updateInput.id);
-    queryClient.setQueryData<CodexScheduledAutomation[]>(
-      scheduledQueryKey,
-      (current) => applyOptimisticAutomationUpdate(current, updateInput),
+    queryClient.setQueryData<CodexScheduledAutomation[]>(scheduledQueryKey, (current) =>
+      applyOptimisticAutomationUpdate(current, updateInput),
     );
     try {
-      const response = await invoke(
+      const response = (await invoke(
         "codex:scheduled-automations:update",
         updateInput satisfies CodexScheduledAutomationUpdateInput,
-      ) as CodexScheduledAutomationMutationResponse;
+      )) as CodexScheduledAutomationMutationResponse;
       const saved = response.item;
-      queryClient.setQueryData<CodexScheduledAutomation[]>(
-        scheduledQueryKey,
-        (current) => upsertAutomationInList(current, saved),
+      queryClient.setQueryData<CodexScheduledAutomation[]>(scheduledQueryKey, (current) =>
+        upsertAutomationInList(current, saved),
       );
       await invalidateAutomationReadModels();
       if (areAutomationUpdateInputsEqual(failedEditUpdateRef.current, updateInput)) {
@@ -3450,10 +3601,10 @@ export function WorkbenchAutomationsRouteShell({
     setMutationError(null);
     setMutatingAutomationId(draftId ?? "new-automation");
     try {
-      const response = await invoke(
+      const response = (await invoke(
         "codex:scheduled-automations:create",
         createInput satisfies CodexScheduledAutomationCreateInput,
-      ) as CodexScheduledAutomationMutationResponse;
+      )) as CodexScheduledAutomationMutationResponse;
       const saved = response.item;
       queryClient.setQueryData<CodexScheduledAutomation[]>(
         queryKeys.codexScheduledAutomations.list(),
@@ -3463,10 +3614,12 @@ export function WorkbenchAutomationsRouteShell({
       setMutationError(null);
       setCreateDraftSeed(null);
       setCreateDraftTemplate(null);
-      onPathChange(buildAutomationsPath({
-        tab: "tasks",
-        automationId: saved.id,
-      }));
+      onPathChange(
+        buildAutomationsPath({
+          tab: "tasks",
+          automationId: saved.id,
+        }),
+      );
       return true;
     } catch (error) {
       const title = "Could not create scheduled task";
@@ -3549,9 +3702,9 @@ export function WorkbenchAutomationsRouteShell({
     };
     flushPendingEditAction();
   });
-  const persistPendingEditUpdate = useEffectEvent((update: CodexScheduledAutomationUpdateInput) => (
-    saveAutomationUpdateInput(update, { trackFailedEdit: true })
-  ));
+  const persistPendingEditUpdate = useEffectEvent((update: CodexScheduledAutomationUpdateInput) =>
+    saveAutomationUpdateInput(update, { trackFailedEdit: true }),
+  );
 
   useEffect(() => {
     refreshPendingEditAction();
@@ -3569,7 +3722,8 @@ export function WorkbenchAutomationsRouteShell({
     if (areAutomationUpdateInputsEqual(failedEditUpdateRef.current, pendingEditUpdateInput)) return;
 
     const timeout = window.setTimeout(() => {
-      if (areAutomationUpdateInputsEqual(failedEditUpdateRef.current, pendingEditUpdateInput)) return;
+      if (areAutomationUpdateInputsEqual(failedEditUpdateRef.current, pendingEditUpdateInput))
+        return;
       void persistPendingEditUpdate(pendingEditUpdateInput);
     }, 600);
     return () => window.clearTimeout(timeout);
@@ -3598,19 +3752,24 @@ export function WorkbenchAutomationsRouteShell({
 
   const findAutomationSnapshotById = (automationId: string): CodexScheduledAutomation | null => {
     const scheduledQueryKey = queryKeys.codexScheduledAutomations.list();
-    const cachedAutomations = queryClient.getQueryData<CodexScheduledAutomation[]>(scheduledQueryKey) ?? [];
-    return cachedAutomations.find((automation) => automation.id === automationId)
-      ?? automations.find((automation) => automation.id === automationId)
-      ?? null;
+    const cachedAutomations =
+      queryClient.getQueryData<CodexScheduledAutomation[]>(scheduledQueryKey) ?? [];
+    return (
+      cachedAutomations.find((automation) => automation.id === automationId) ??
+      automations.find((automation) => automation.id === automationId) ??
+      null
+    );
   };
 
   const openAutomation = (automation: CodexScheduledAutomation) => {
     runAfterAutomationRouteGuard(() => {
       setMutationError(null);
-      onPathChange(buildAutomationsPath({
-        tab: "tasks",
-        automationId: automation.id,
-      }));
+      onPathChange(
+        buildAutomationsPath({
+          tab: "tasks",
+          automationId: automation.id,
+        }),
+      );
     });
   };
 
@@ -3627,11 +3786,13 @@ export function WorkbenchAutomationsRouteShell({
       setMutationError(null);
       setCreateDraftSeed(null);
       setCreateDraftTemplate(null);
-      onPathChange(buildAutomationsPath({
-        tab: "tasks",
-        automationId: null,
-        automationMode: "create",
-      }));
+      onPathChange(
+        buildAutomationsPath({
+          tab: "tasks",
+          automationId: null,
+          automationMode: "create",
+        }),
+      );
     });
   };
 
@@ -3647,11 +3808,13 @@ export function WorkbenchAutomationsRouteShell({
       setMutationError(null);
       setCreateDraftSeed(createWorkbenchAutomationDraftFromTemplate(template));
       setCreateDraftTemplate(template);
-      onPathChange(buildAutomationsPath({
-        tab: "templates",
-        automationId: null,
-        automationMode: "create",
-      }));
+      onPathChange(
+        buildAutomationsPath({
+          tab: "templates",
+          automationId: null,
+          automationMode: "create",
+        }),
+      );
     });
   };
 
@@ -3660,10 +3823,7 @@ export function WorkbenchAutomationsRouteShell({
   };
 
   const requestOpenLocalEnvironmentsSettings = onOpenLocalEnvironmentsSettings
-    ? (input: {
-        projectId: string | null;
-        configPath: string | null;
-      }) => {
+    ? (input: { projectId: string | null; configPath: string | null }) => {
         runAfterAutomationRouteGuard(() => onOpenLocalEnvironmentsSettings(input));
       }
     : undefined;
@@ -3672,9 +3832,9 @@ export function WorkbenchAutomationsRouteShell({
     setMutationError(null);
     setMutatingAutomationId(automation.id);
     try {
-      const response = await invoke("codex:scheduled-automations:delete", {
+      const response = (await invoke("codex:scheduled-automations:delete", {
         id: automation.id,
-      }) as CodexScheduledAutomationDeleteResponse;
+      })) as CodexScheduledAutomationDeleteResponse;
       if (!response.success) {
         setMutationError("Could not delete scheduled task.");
         await queryClient.invalidateQueries({
@@ -3697,7 +3857,10 @@ export function WorkbenchAutomationsRouteShell({
         onPathChange(buildAutomationsPath({ tab: routeState.tab }));
       }
     } catch (error) {
-      const description = showAutomationMutationErrorToast("Could not delete scheduled task", error);
+      const description = showAutomationMutationErrorToast(
+        "Could not delete scheduled task",
+        error,
+      );
       setMutationError(description ?? "Could not delete scheduled task.");
     } finally {
       setMutatingAutomationId(null);
@@ -3712,19 +3875,18 @@ export function WorkbenchAutomationsRouteShell({
     setMutatingAutomationId(automation.id);
     const updateInput = buildAutomationStatusUpdateInput(automation, status);
     const scheduledQueryKey = queryKeys.codexScheduledAutomations.list();
-    const previousAutomations = queryClient.getQueryData<CodexScheduledAutomation[]>(scheduledQueryKey);
-    queryClient.setQueryData<CodexScheduledAutomation[]>(
-      scheduledQueryKey,
-      (current) => applyOptimisticAutomationUpdate(current, updateInput),
+    const previousAutomations =
+      queryClient.getQueryData<CodexScheduledAutomation[]>(scheduledQueryKey);
+    queryClient.setQueryData<CodexScheduledAutomation[]>(scheduledQueryKey, (current) =>
+      applyOptimisticAutomationUpdate(current, updateInput),
     );
     try {
-      const response = await invoke(
+      const response = (await invoke(
         "codex:scheduled-automations:update",
         updateInput,
-      ) as CodexScheduledAutomationMutationResponse;
-      queryClient.setQueryData<CodexScheduledAutomation[]>(
-        scheduledQueryKey,
-        (current) => upsertAutomationInList(current, response.item),
+      )) as CodexScheduledAutomationMutationResponse;
+      queryClient.setQueryData<CodexScheduledAutomation[]>(scheduledQueryKey, (current) =>
+        upsertAutomationInList(current, response.item),
       );
       await queryClient.invalidateQueries({
         queryKey: scheduledQueryKey,
@@ -3734,7 +3896,10 @@ export function WorkbenchAutomationsRouteShell({
       if (previousAutomations) {
         queryClient.setQueryData(scheduledQueryKey, previousAutomations);
       }
-      const description = showAutomationMutationErrorToast("Could not update scheduled task", error);
+      const description = showAutomationMutationErrorToast(
+        "Could not update scheduled task",
+        error,
+      );
       setMutationError(description ?? "Could not update scheduled task.");
     } finally {
       setMutatingAutomationId(null);
@@ -3786,17 +3951,18 @@ export function WorkbenchAutomationsRouteShell({
     try {
       let failedCount = 0;
       for (const row of rows) {
-        const response = await invoke("codex:automation-runs:archive", {
+        const response = (await invoke("codex:automation-runs:archive", {
           threadId: row.threadId,
           archivedReason: "manual",
-        }) as CodexAutomationRunMutationResponse;
+        })) as CodexAutomationRunMutationResponse;
         if (!response.success) failedCount += 1;
       }
       await invalidateAutomationRunsInbox();
       if (failedCount > 0) {
-        const message = failedCount === rows.length
-          ? "Could not archive run"
-          : `Archived ${rows.length - failedCount}; ${failedCount} failed`;
+        const message =
+          failedCount === rows.length
+            ? "Could not archive run"
+            : `Archived ${rows.length - failedCount}; ${failedCount} failed`;
         setMutationError(message);
         toast.danger(message);
         return;
@@ -3818,9 +3984,9 @@ export function WorkbenchAutomationsRouteShell({
     setMutationError(null);
     setRunActionPending(true);
     try {
-      const response = await invoke("codex:automation-runs:unarchive", {
+      const response = (await invoke("codex:automation-runs:unarchive", {
         threadId: row.threadId,
-      }) as CodexAutomationRunMutationResponse;
+      })) as CodexAutomationRunMutationResponse;
       await invalidateAutomationRunsInbox();
       if (!response.success) {
         setMutationError("Failed to unarchive chat.");
@@ -3938,105 +4104,103 @@ export function WorkbenchAutomationsRouteShell({
     />
   );
 
-  const detailRailContent = detailMode !== null ? (
-    <div className="h-full min-h-0 min-w-0 overflow-hidden [contain:layout_paint]">
-      <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
-        <div className="flex h-toolbar min-w-0 shrink-0 items-center justify-end px-panel">
-          <div className="flex shrink-0 items-center gap-1.5">
-            {detailMode === "edit" && selectedAutomation ? (
-              <>
-                <AutomationDetailRunNowButton
-                  disabled={runNowPendingAutomationId !== null || mutatingAutomationId !== null}
-                  pending={runNowPendingAutomationId === selectedAutomation.id}
-                  onClick={() => requestRunAutomationNow(selectedAutomation)}
-                />
-                {selectedAutomation.status === "PAUSED" ? (
+  const detailRailContent =
+    detailMode !== null ? (
+      <div className="h-full min-h-0 min-w-0 overflow-hidden [contain:layout_paint]">
+        <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
+          <div className="flex h-toolbar min-w-0 shrink-0 items-center justify-end px-panel">
+            <div className="flex shrink-0 items-center gap-1.5">
+              {detailMode === "edit" && selectedAutomation ? (
+                <>
+                  <AutomationDetailRunNowButton
+                    disabled={runNowPendingAutomationId !== null || mutatingAutomationId !== null}
+                    pending={runNowPendingAutomationId === selectedAutomation.id}
+                    onClick={() => requestRunAutomationNow(selectedAutomation)}
+                  />
+                  {selectedAutomation.status === "PAUSED" ? (
+                    <AutomationDetailToolbarButton
+                      label="Resume scheduled task"
+                      disabled={mutatingAutomationId !== null}
+                      onClick={() => requestUpdateAutomationStatus(selectedAutomation, "ACTIVE")}
+                    >
+                      <AutomationResumeIcon className="icon-sm" />
+                    </AutomationDetailToolbarButton>
+                  ) : (
+                    <AutomationDetailToolbarButton
+                      label="Pause scheduled task"
+                      disabled={mutatingAutomationId !== null}
+                      onClick={() => requestUpdateAutomationStatus(selectedAutomation, "PAUSED")}
+                    >
+                      <AutomationPauseIcon className="icon-sm" />
+                    </AutomationDetailToolbarButton>
+                  )}
                   <AutomationDetailToolbarButton
-                    label="Resume scheduled task"
+                    label="Delete scheduled task"
                     disabled={mutatingAutomationId !== null}
-                    onClick={() => requestUpdateAutomationStatus(selectedAutomation, "ACTIVE")}
+                    danger
+                    onClick={() => requestDeleteAutomationFromRow(selectedAutomation)}
                   >
-                    <AutomationResumeIcon className="icon-sm" />
+                    <AutomationTrashIcon className="icon-sm" />
                   </AutomationDetailToolbarButton>
-                ) : (
-                  <AutomationDetailToolbarButton
-                    label="Pause scheduled task"
-                    disabled={mutatingAutomationId !== null}
-                    onClick={() => requestUpdateAutomationStatus(selectedAutomation, "PAUSED")}
-                  >
-                    <AutomationPauseIcon className="icon-sm" />
-                  </AutomationDetailToolbarButton>
-                )}
-                <AutomationDetailToolbarButton
-                  label="Delete scheduled task"
-                  disabled={mutatingAutomationId !== null}
-                  danger
-                  onClick={() => requestDeleteAutomationFromRow(selectedAutomation)}
-                >
-                  <AutomationTrashIcon className="icon-sm" />
-                </AutomationDetailToolbarButton>
-              </>
-            ) : null}
-            <AutomationDetailToolbarButton
-              label="Collapse details"
-              active
-              onClick={backToList}
-            >
-              <PanelRightVisibleIcon className="icon-sm" />
-            </AutomationDetailToolbarButton>
+                </>
+              ) : null}
+              <AutomationDetailToolbarButton label="Collapse details" active onClick={backToList}>
+                <PanelRightVisibleIcon className="icon-sm" />
+              </AutomationDetailToolbarButton>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <AutomationDetailSurface
+              automation={selectedAutomation}
+              projects={projects}
+              selectedAutomationId={routeState.automationId}
+              mode={detailMode}
+              draft={draft}
+              setDraft={setDraft}
+              validation={draftValidation}
+              createDraftTemplate={detailMode === "create" ? createDraftTemplate : null}
+              agentProviderCatalog={agentCatalogQuery.data ?? null}
+              codexModels={modelsQuery.data ?? []}
+              codexModelsLoading={modelsQuery.isLoading}
+              codexModelsError={modelsQuery.isError}
+              previousRunRows={previousRunRows}
+              previousRunsLoading={automationRunsQuery.isLoading || automationRunsQuery.isFetching}
+              loading={automationsQuery.isLoading}
+              onBackToList={backToList}
+              onSave={async (draft) => {
+                await saveAutomation(draft);
+              }}
+              onPersonalizeTemplate={onPersonalizeTemplate ? personalizeTemplate : undefined}
+              onOpenRun={openAutomationRun}
+              onArchiveRuns={archiveAutomationRuns}
+              onUnarchiveRun={(row) => void unarchiveAutomationRun(row)}
+              onMarkRunsRead={(rows, readAt) => setAutomationRunsReadState(rows, readAt)}
+              onMarkRunReadState={setAutomationRunReadState}
+              onOpenLocalEnvironmentsSettings={requestOpenLocalEnvironmentsSettings}
+              isMutating={mutatingAutomationId !== null}
+              isTemplatePersonalizationPending={templatePersonalizationPending}
+              isRunActionBusy={runActionPending}
+              errorMessage={mutationError}
+            />
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <AutomationDetailSurface
-            automation={selectedAutomation}
-            projects={projects}
-            selectedAutomationId={routeState.automationId}
-            mode={detailMode}
-            draft={draft}
-            setDraft={setDraft}
-            validation={draftValidation}
-            createDraftTemplate={detailMode === "create" ? createDraftTemplate : null}
-            agentProviderCatalog={agentCatalogQuery.data ?? null}
-            codexModels={modelsQuery.data ?? []}
-            codexModelsLoading={modelsQuery.isLoading}
-            codexModelsError={modelsQuery.isError}
-            previousRunRows={previousRunRows}
-            previousRunsLoading={automationRunsQuery.isLoading || automationRunsQuery.isFetching}
-            loading={automationsQuery.isLoading}
-            onBackToList={backToList}
-            onSave={async (draft) => {
-              await saveAutomation(draft);
-            }}
-            onPersonalizeTemplate={onPersonalizeTemplate ? personalizeTemplate : undefined}
-            onOpenRun={openAutomationRun}
-            onArchiveRuns={archiveAutomationRuns}
-            onUnarchiveRun={(row) => void unarchiveAutomationRun(row)}
-            onMarkRunsRead={(rows, readAt) => setAutomationRunsReadState(rows, readAt)}
-            onMarkRunReadState={setAutomationRunReadState}
-            onOpenLocalEnvironmentsSettings={requestOpenLocalEnvironmentsSettings}
-            isMutating={mutatingAutomationId !== null}
-            isTemplatePersonalizationPending={templatePersonalizationPending}
-            isRunActionBusy={runActionPending}
-            errorMessage={mutationError}
-          />
-        </div>
       </div>
-    </div>
-  ) : null;
+    ) : null;
 
-  const inlineDetailRail = detailRailContent && !externalHeader && detailRailPortalTarget === null ? (
-    <aside
-      data-testid="automation-detail-rail"
-      data-right-panel-width-mode="regular"
-      className="relative z-[41] ml-auto h-full min-h-0 w-[min(820px,50vw)] min-w-0 shrink-0 overflow-visible"
-    >
-      <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
-        <div className="absolute top-0 bottom-0 left-0 min-w-0 border-l border-token-border bg-token-main-surface-primary">
-          {detailRailContent}
+  const inlineDetailRail =
+    detailRailContent && !externalHeader && detailRailPortalTarget === null ? (
+      <aside
+        data-testid="automation-detail-rail"
+        data-right-panel-width-mode="regular"
+        className="relative z-[41] ml-auto h-full min-h-0 w-[min(820px,50vw)] min-w-0 shrink-0 overflow-visible"
+      >
+        <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
+          <div className="absolute top-0 bottom-0 left-0 min-w-0 border-l border-token-border bg-token-main-surface-primary">
+            {detailRailContent}
+          </div>
         </div>
-      </div>
-    </aside>
-  ) : null;
+      </aside>
+    ) : null;
 
   return (
     <div
@@ -4044,7 +4208,9 @@ export function WorkbenchAutomationsRouteShell({
       className="main-surface flex h-full min-h-0 w-full overflow-hidden text-token-text-primary"
     >
       {externalHeader ? <AppShellHeaderContentRegistrar content={routeHeader} /> : null}
-      {detailRailContent && detailRailPortalTarget ? createPortal(detailRailContent, detailRailPortalTarget) : null}
+      {detailRailContent && detailRailPortalTarget
+        ? createPortal(detailRailContent, detailRailPortalTarget)
+        : null}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         {externalHeader ? <div aria-hidden="true" className="h-toolbar shrink-0" /> : routeHeader}
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -4055,22 +4221,26 @@ export function WorkbenchAutomationsRouteShell({
             {routeState.tab === "templates" ? (
               <AutomationsTemplatesPanel onSelectTemplate={selectTemplate} />
             ) : (
-            <AutomationsTasksPanel
-              automations={automations}
-              runningAutomationIds={runningAutomationIds}
-              unreadAutomationIds={unreadAutomationIds}
-              selectedAutomationId={routeState.automationId}
-              loading={automationsQuery.isLoading}
-              runNowPendingAutomationId={runNowPendingAutomationId}
-              mutatingAutomationId={mutatingAutomationId}
-              onSelectAutomation={openAutomation}
-              onRunAutomationNow={requestRunAutomationNow}
-              onPauseAutomation={(automation) => requestUpdateAutomationStatus(automation, "PAUSED")}
-              onResumeAutomation={(automation) => requestUpdateAutomationStatus(automation, "ACTIVE")}
-              onDeleteAutomation={requestDeleteAutomationFromRow}
-              onCreateManually={openCreateMode}
-              onCreateWithChat={onCreateWithChat ? requestCreateWithChat : undefined}
-            />
+              <AutomationsTasksPanel
+                automations={automations}
+                runningAutomationIds={runningAutomationIds}
+                unreadAutomationIds={unreadAutomationIds}
+                selectedAutomationId={routeState.automationId}
+                loading={automationsQuery.isLoading}
+                runNowPendingAutomationId={runNowPendingAutomationId}
+                mutatingAutomationId={mutatingAutomationId}
+                onSelectAutomation={openAutomation}
+                onRunAutomationNow={requestRunAutomationNow}
+                onPauseAutomation={(automation) =>
+                  requestUpdateAutomationStatus(automation, "PAUSED")
+                }
+                onResumeAutomation={(automation) =>
+                  requestUpdateAutomationStatus(automation, "ACTIVE")
+                }
+                onDeleteAutomation={requestDeleteAutomationFromRow}
+                onCreateManually={openCreateMode}
+                onCreateWithChat={onCreateWithChat ? requestCreateWithChat : undefined}
+              />
             )}
           </section>
           {inlineDetailRail}
@@ -4122,17 +4292,13 @@ export function WorkbenchAutomationsRouteShell({
         <NodexDialogContent size="compact" showCloseButton={false}>
           <NodexDialogFrame>
             <NodexDialogHeader>
-              <NodexDialogTitle>
-                Discard scheduled task draft?
-              </NodexDialogTitle>
+              <NodexDialogTitle>Discard scheduled task draft?</NodexDialogTitle>
               <NodexDialogDescription>
                 Your changes to this scheduled task will be lost
               </NodexDialogDescription>
             </NodexDialogHeader>
             <NodexDialogFooter>
-              <NodexDialogAction onClick={closeDispageDraftDialog}>
-                Keep editing
-              </NodexDialogAction>
+              <NodexDialogAction onClick={closeDispageDraftDialog}>Keep editing</NodexDialogAction>
               <NodexDialogAction tone="danger" onClick={discardCreateDraft}>
                 Discard
               </NodexDialogAction>

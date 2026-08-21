@@ -108,9 +108,7 @@ describe("CollaborativePageTitle in Chromium", () => {
     const editor = view.getByRole("textbox", {
       name: "Page title",
     }) as HTMLDivElement;
-    const segment = editor.querySelector<HTMLElement>(
-      "[data-rich-title-kind='text']",
-    );
+    const segment = editor.querySelector<HTMLElement>("[data-rich-title-kind='text']");
     const textNode = segment?.firstChild;
     if (!segment || !(textNode instanceof Text)) {
       throw new TypeError("Expected a rendered rich-title text segment");
@@ -119,24 +117,23 @@ describe("CollaborativePageTitle in Chromium", () => {
     await act(async () => {
       editor.focus();
       restoreRichTitleDomSelection(editor, 3, 3);
-      editor.dispatchEvent(new InputEvent("beforeinput", {
-        bubbles: true,
-        cancelable: false,
-        data: "4",
-        inputType: "insertReplacementText",
-      }));
-      textNode.insertData(3, "4");
-      editor.ownerDocument.getSelection()?.setBaseAndExtent(
-        textNode,
-        4,
-        textNode,
-        4,
+      editor.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: false,
+          data: "4",
+          inputType: "insertReplacementText",
+        }),
       );
-      editor.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        data: "4",
-        inputType: "insertReplacementText",
-      }));
+      textNode.insertData(3, "4");
+      editor.ownerDocument.getSelection()?.setBaseAndExtent(textNode, 4, textNode, 4);
+      editor.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          data: "4",
+          inputType: "insertReplacementText",
+        }),
+      );
       await Promise.resolve();
     });
 
@@ -207,12 +204,14 @@ describe("CollaborativePageTitle in Chromium", () => {
       editor.focus();
       fireEvent.compositionStart(editor);
       editor.textContent = "local composed title";
-      editor.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        inputType: "insertCompositionText",
-        data: "composed ",
-        isComposing: true,
-      }));
+      editor.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertCompositionText",
+          data: "composed ",
+          isComposing: true,
+        }),
+      );
       document.transact(() => title.insert(0, "remote "), "browser-remote");
       fireEvent.compositionEnd(editor);
       await Promise.resolve();

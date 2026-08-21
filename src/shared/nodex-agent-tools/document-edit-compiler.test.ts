@@ -12,10 +12,7 @@ import { EditDocumentInputSchema } from "./write-schemas";
 
 const ETAG = `nxe1.${"a".repeat(43)}`;
 
-function materialization(
-  nfm: string,
-  title = "Before",
-): PageDocumentMaterialization {
+function materialization(nfm: string, title = "Before"): PageDocumentMaterialization {
   let nextId = 0;
   const genesis = createPageDocumentGenesis({
     documentId: "document-1",
@@ -57,11 +54,13 @@ describe("Nodex Agent Document edit compiler", () => {
 
     expect(compiled.mutation).toEqual({
       kind: "operations",
-      operations: [{
-        kind: "update_block",
-        blockId: seed.id,
-        patch: expect.objectContaining({ content: expect.any(Array) }),
-      }],
+      operations: [
+        {
+          kind: "update_block",
+          blockId: seed.id,
+          patch: expect.objectContaining({ content: expect.any(Array) }),
+        },
+      ],
     });
     expect(compiled.materialization.nfm).toBe("Hello");
     expect(compiled.materialization.blockTree[0]?.id).toBe(seed.id);
@@ -129,21 +128,17 @@ describe("Nodex Agent Document edit compiler", () => {
         }),
       ],
     });
-    expect(compiled.materialization.nfm).toBe(
-      "Existing\n# Added\nParent\n\t- [ ] Nested task",
-    );
-    expect(compiled.effects.createdBlockIds).toEqual([
-      "created-1",
-      "created-2",
-      "created-3",
-    ]);
+    expect(compiled.materialization.nfm).toBe("Existing\n# Added\nParent\n\t- [ ] Nested task");
+    expect(compiled.effects.createdBlockIds).toEqual(["created-1", "created-2", "created-3"]);
   });
 
   test("applies every exact NFM patch against one original string", () => {
-    expect(applyExactNfmPatches("Alpha\nBeta", [
-      { oldNfm: "Alpha", newNfm: "Beta" },
-      { oldNfm: "Beta", newNfm: "Gamma" },
-    ])).toBe("Beta\nGamma");
+    expect(
+      applyExactNfmPatches("Alpha\nBeta", [
+        { oldNfm: "Alpha", newNfm: "Beta" },
+        { oldNfm: "Beta", newNfm: "Gamma" },
+      ]),
+    ).toBe("Beta\nGamma");
 
     const compiled = compileAgentDocumentEdit({
       documentId: "document-1",
@@ -165,16 +160,18 @@ describe("Nodex Agent Document edit compiler", () => {
   });
 
   test("rejects match-count mismatches and overlapping source spans", () => {
-    expect(() => applyExactNfmPatches("One", [
-      { oldNfm: "Missing", newNfm: "Next" },
-    ])).toThrowError(expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
-      code: "nfm_patch_mismatch",
-    }));
-    expect(() => applyExactNfmPatches("aaa", [
-      { oldNfm: "aa", newNfm: "b", expectedMatches: 2 },
-    ])).toThrowError(expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
-      code: "nfm_patch_overlap",
-    }));
+    expect(() => applyExactNfmPatches("One", [{ oldNfm: "Missing", newNfm: "Next" }])).toThrowError(
+      expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
+        code: "nfm_patch_mismatch",
+      }),
+    );
+    expect(() =>
+      applyExactNfmPatches("aaa", [{ oldNfm: "aa", newNfm: "b", expectedMatches: 2 }]),
+    ).toThrowError(
+      expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
+        code: "nfm_patch_overlap",
+      }),
+    );
   });
 
   test("preflights an atomic rich-title plus whole-NFM replacement", () => {
@@ -213,9 +210,11 @@ describe("Nodex Agent Document edit compiler", () => {
         edit: edit({
           documentId: "document-1",
           body: { kind: "nfm.replace", content: "Keep", ifMatch: ETAG },
-          ...(allowDeletingOwnedBlocks === undefined ? {} : {
-            safety: { allowDeletingOwnedBlocks },
-          }),
+          ...(allowDeletingOwnedBlocks === undefined
+            ? {}
+            : {
+                safety: { allowDeletingOwnedBlocks },
+              }),
         }),
         allocateBlockId: allocator("replace"),
       });
@@ -239,11 +238,13 @@ describe("Nodex Agent Document edit compiler", () => {
         documentId: "document-1",
         body: {
           kind: "blocks",
-          edits: [{
-            kind: "move",
-            blockId: second.id,
-            at: { kind: "before", blockId: first.id },
-          }],
+          edits: [
+            {
+              kind: "move",
+              blockId: second.id,
+              at: { kind: "before", blockId: first.id },
+            },
+          ],
         },
       }),
       allocateBlockId: allocator("unused"),

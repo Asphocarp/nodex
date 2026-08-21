@@ -30,11 +30,7 @@ function makeStaticSection(itemStates: Array<{ id: string; active?: boolean }>) 
 describe("resolveStageSidebarSectionRenderState", () => {
   test("keeps only active rows visible when a section is collapsed", () => {
     const state = resolveStageSidebarSectionRenderState(
-      makeSection([
-        { id: "page-1" },
-        { id: "page-2", active: true },
-        { id: "page-3" },
-      ]),
+      makeSection([{ id: "page-1" }, { id: "page-2", active: true }, { id: "page-3" }]),
       { "pages:status:6-in-progress": false },
       {},
     );
@@ -47,10 +43,7 @@ describe("resolveStageSidebarSectionRenderState", () => {
 
   test("defaults sections to collapsed when no local section state exists", () => {
     const state = resolveStageSidebarSectionRenderState(
-      makeSection([
-        { id: "page-1" },
-        { id: "page-2", active: true },
-      ]),
+      makeSection([{ id: "page-1" }, { id: "page-2", active: true }]),
       {},
       {},
     );
@@ -76,10 +69,7 @@ describe("resolveStageSidebarSectionRenderState", () => {
 
   test("keeps non-collapsible sections visible by default", () => {
     const state = resolveStageSidebarSectionRenderState(
-      makeStaticSection([
-        { id: "session-1" },
-        { id: "session-2", active: true },
-      ]),
+      makeStaticSection([{ id: "session-1" }, { id: "session-2", active: true }]),
       {},
       {},
     );

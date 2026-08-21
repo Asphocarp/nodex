@@ -20,8 +20,8 @@ type Story = StoryObj<typeof meta>;
 export const Conflict: Story = {
   args: {
     filename: "project.ts",
-    diskValue: "export const project = \"disk\";\n",
-    localValue: "export const project = \"local\";\n",
+    diskValue: 'export const project = "disk";\n',
+    localValue: 'export const project = "local";\n',
     onUseDisk: () => undefined,
     onKeepLocal: () => undefined,
   },

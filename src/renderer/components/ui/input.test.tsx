@@ -6,7 +6,9 @@ import { Input } from "./input";
 describe("shared input", () => {
   test("renders a native input with the shared slot contract", () => {
     const view = render(<Input placeholder="Project name" />);
-    const input = view.container.querySelector('input[placeholder="Project name"]') as HTMLInputElement | null;
+    const input = view.container.querySelector(
+      'input[placeholder="Project name"]',
+    ) as HTMLInputElement | null;
 
     expect(Boolean(input)).toBe(true);
     expect(input?.getAttribute("data-slot")).toBe("input");

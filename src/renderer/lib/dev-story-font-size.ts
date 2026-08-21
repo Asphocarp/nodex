@@ -1,4 +1,8 @@
-import { getSansFontSizeCssVariables, normalizeSansFontSize, type SansFontSizeCssVariables } from "./sans-font-size";
+import {
+  getSansFontSizeCssVariables,
+  normalizeSansFontSize,
+  type SansFontSizeCssVariables,
+} from "./sans-font-size";
 import { normalizeCodeFontSize } from "./code-font-size";
 
 export const DEV_STORY_SANS_FONT_SIZE_STORAGE_KEY = "nodex-dev-story-sans-font-size-v1";
@@ -44,12 +48,10 @@ export function writeDevStoryCodeFontSize(value: number): number {
   return normalized;
 }
 
-export function getDevStoryFontSizeCssVariables(
-  options: {
-    sansFontSize: number;
-    codeFontSize: number;
-  },
-): DevStoryFontSizeCssVariables {
+export function getDevStoryFontSizeCssVariables(options: {
+  sansFontSize: number;
+  codeFontSize: number;
+}): DevStoryFontSizeCssVariables {
   const sansFontSize = normalizeSansFontSize(options.sansFontSize);
   const codeFontSize = normalizeCodeFontSize(options.codeFontSize);
 

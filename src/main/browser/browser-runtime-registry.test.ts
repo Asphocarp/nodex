@@ -29,15 +29,25 @@ describe("BrowserRuntimeRegistry", () => {
       rendererInstanceId: "renderer-1",
     });
     expect(registry.registerHost(7, host()).ok).toBe(true);
-    expect(registry.registerHost(8, host({
-      hostGeneration: 2,
-    }))).toEqual({
+    expect(
+      registry.registerHost(
+        8,
+        host({
+          hostGeneration: 2,
+        }),
+      ),
+    ).toEqual({
       ok: false,
       reason: "renderer-session-mismatch",
     });
-    expect(registry.registerHost(7, host({
-      hostGeneration: 0,
-    }))).toEqual({
+    expect(
+      registry.registerHost(
+        7,
+        host({
+          hostGeneration: 0,
+        }),
+      ),
+    ).toEqual({
       ok: false,
       reason: "generation-stale",
     });
@@ -51,10 +61,15 @@ describe("BrowserRuntimeRegistry", () => {
       rendererInstanceId: "renderer-1",
     });
     expect(registry.registerHost(7, host()).ok).toBe(true);
-    expect(registry.registerHost(7, host({
-      browserTabId: "browser-tab-2",
-      hostGeneration: 2,
-    }))).toEqual({
+    expect(
+      registry.registerHost(
+        7,
+        host({
+          browserTabId: "browser-tab-2",
+          hostGeneration: 2,
+        }),
+      ),
+    ).toEqual({
       ok: false,
       reason: "owned-by-another-window",
     });
@@ -75,21 +90,17 @@ describe("BrowserRuntimeRegistry", () => {
     expect(authorization.ok).toBe(true);
     if (!authorization.ok) throw new Error("Expected authorization");
 
-    expect(registry.consumeAuthorizedAttachment(
-      authorization.authorization.attachToken,
-      7,
-      101,
-    )).toMatchObject({
+    expect(
+      registry.consumeAuthorizedAttachment(authorization.authorization.attachToken, 7, 101),
+    ).toMatchObject({
       ...identity,
       browserStorageId: "browser-storage-1",
       guestWebContentsId: 101,
       ownerWebContentsId: 7,
     });
-    expect(registry.consumeAuthorizedAttachment(
-      authorization.authorization.attachToken,
-      7,
-      102,
-    )).toBeNull();
+    expect(
+      registry.consumeAuthorizedAttachment(authorization.authorization.attachToken, 7, 102),
+    ).toBeNull();
   });
 
   test("rejects presentation updates from a superseded host generation", () => {
@@ -99,22 +110,35 @@ describe("BrowserRuntimeRegistry", () => {
       ownerWebContentsId: 7,
       rendererInstanceId: "renderer-1",
     });
-    registry.registerHost(7, host({
-      hostGeneration: 2,
-      mountGeneration: 3,
-    }));
+    registry.registerHost(
+      7,
+      host({
+        hostGeneration: 2,
+        mountGeneration: 3,
+      }),
+    );
 
-    expect(registry.matchHost(7, host({
-      hostGeneration: 1,
-      mountGeneration: 2,
-    }))).toEqual({
+    expect(
+      registry.matchHost(
+        7,
+        host({
+          hostGeneration: 1,
+          mountGeneration: 2,
+        }),
+      ),
+    ).toEqual({
       ok: false,
       reason: "host-mismatch",
     });
-    expect(registry.matchHost(7, host({
-      hostGeneration: 2,
-      mountGeneration: 3,
-    }))).toMatchObject({
+    expect(
+      registry.matchHost(
+        7,
+        host({
+          hostGeneration: 2,
+          mountGeneration: 3,
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       registration: {
         hostGeneration: 2,
@@ -135,15 +159,11 @@ describe("BrowserRuntimeRegistry", () => {
     expect(authorization.ok).toBe(true);
     if (!authorization.ok) throw new Error("Expected authorization");
 
-    registry.revokeAuthorizedAttachment(
-      authorization.authorization.attachToken,
-    );
+    registry.revokeAuthorizedAttachment(authorization.authorization.attachToken);
 
-    expect(registry.consumeAuthorizedAttachment(
-      authorization.authorization.attachToken,
-      7,
-      101,
-    )).toBeNull();
+    expect(
+      registry.consumeAuthorizedAttachment(authorization.authorization.attachToken, 7, 101),
+    ).toBeNull();
   });
 
   test("blocks new attachments while generation-safe teardown is pending", () => {

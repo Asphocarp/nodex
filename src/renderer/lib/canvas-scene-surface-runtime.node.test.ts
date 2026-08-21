@@ -61,12 +61,13 @@ const runtimeDependencies = (input: {
     connect: async () => {
       calls.push("connect");
     },
-    getStatus: () => input.status ?? {
-      phase: "ready",
-      connected: true,
-      pendingMutationCount: 0,
-      writeFrozen: false,
-    },
+    getStatus: () =>
+      input.status ?? {
+        phase: "ready",
+        connected: true,
+        pendingMutationCount: 0,
+        writeFrozen: false,
+      },
     close: async () => {
       calls.push("close-provider");
       if (input.closeError) throw input.closeError;
@@ -102,10 +103,12 @@ const runtimeDependencies = (input: {
 
 describe("CanvasSceneSurfaceRegistry", () => {
   test("uses Window Session, Project Session, and tab identity", () => {
-    expect(makeCanvasSceneSurfaceKey("window-1", "session-1", "tab-1"))
-      .not.toBe(makeCanvasSceneSurfaceKey("window-2", "session-1", "tab-1"));
-    expect(makeCanvasSceneSurfaceKey("window-1", "session-1", "tab-1"))
-      .not.toBe(makeCanvasSceneSurfaceKey("window-1", "session-2", "tab-1"));
+    expect(makeCanvasSceneSurfaceKey("window-1", "session-1", "tab-1")).not.toBe(
+      makeCanvasSceneSurfaceKey("window-2", "session-1", "tab-1"),
+    );
+    expect(makeCanvasSceneSurfaceKey("window-1", "session-1", "tab-1")).not.toBe(
+      makeCanvasSceneSurfaceKey("window-1", "session-2", "tab-1"),
+    );
   });
 
   test("keeps an unmounted runtime observable until local durability settles", async () => {
@@ -123,17 +126,20 @@ describe("CanvasSceneSurfaceRegistry", () => {
     await Promise.resolve();
 
     expect(released).toBe(false);
-    expect(dependencies.calls.filter((call) => call === "persist").length)
-      .toBeGreaterThanOrEqual(1);
+    expect(dependencies.calls.filter((call) => call === "persist").length).toBeGreaterThanOrEqual(
+      1,
+    );
     durable.resolve();
     await Promise.all([releasing, appClosing]);
-    expect(dependencies.calls).toEqual(expect.arrayContaining([
-      "close-presence",
-      "close-provider",
-      "dispose-subscriptions",
-      "destroy-files",
-      "destroy-binding",
-    ]));
+    expect(dependencies.calls).toEqual(
+      expect.arrayContaining([
+        "close-presence",
+        "close-provider",
+        "dispose-subscriptions",
+        "destroy-files",
+        "destroy-binding",
+      ]),
+    );
   });
 
   test("does not connect a replacement until its predecessor closes", async () => {
@@ -239,11 +245,9 @@ describe("CanvasSceneSurfaceRegistry", () => {
       },
     });
     await expect(registry.release(failingKey, failingRuntime)).resolves.toBeUndefined();
-    expect(failing.calls).toEqual(expect.arrayContaining([
-      "maintain",
-      "close-provider",
-      "destroy-binding",
-    ]));
+    expect(failing.calls).toEqual(
+      expect.arrayContaining(["maintain", "close-provider", "destroy-binding"]),
+    );
   });
 
   test("terminally releases a failed close and lets a replacement connect", async () => {
@@ -256,17 +260,17 @@ describe("CanvasSceneSurfaceRegistry", () => {
     const key = makeCanvasSceneSurfaceKey("window-1", "session-1", "tab-1");
     const runtime = registry.acquire({ key, ...first.input });
 
-    await expect(registry.release(key, runtime)).rejects.toThrow(
-      "durability unavailable",
+    await expect(registry.release(key, runtime)).rejects.toThrow("durability unavailable");
+    expect(first.calls).toEqual(
+      expect.arrayContaining([
+        "persist",
+        "close-presence",
+        "close-provider",
+        "dispose-subscriptions",
+        "destroy-files",
+        "destroy-binding",
+      ]),
     );
-    expect(first.calls).toEqual(expect.arrayContaining([
-      "persist",
-      "close-presence",
-      "close-provider",
-      "dispose-subscriptions",
-      "destroy-files",
-      "destroy-binding",
-    ]));
 
     await registry.flushAllCommitted();
     expect(first.calls).not.toContain("flush");

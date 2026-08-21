@@ -1,9 +1,4 @@
-import {
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import {
   NodexDialog,
@@ -28,9 +23,7 @@ export type { StableWorktreeEntry } from "./stable-worktree-production";
 
 export interface StableWorktreeStatusDialogTransport {
   list: () => Promise<readonly CodexPendingWorktreeEntry[]>;
-  subscribe: (
-    listener: (entries: readonly CodexPendingWorktreeEntry[]) => void,
-  ) => () => void;
+  subscribe: (listener: (entries: readonly CodexPendingWorktreeEntry[]) => void) => () => void;
   clearAttention: (hostId: string, pendingWorktreeId: string) => Promise<void>;
   cancel: (hostId: string, pendingWorktreeId: string) => Promise<void>;
   autoFix: (
@@ -62,16 +55,16 @@ export interface StableWorktreeStatusDialogViewProps {
 }
 
 function isWorktreeBusy(entry: StableWorktreeEntry): boolean {
-  return entry.phase === "queued"
-    || entry.phase === "creating"
-    || entry.phase === "setting-up";
+  return entry.phase === "queued" || entry.phase === "creating" || entry.phase === "setting-up";
 }
 
 function canAutoFix(entry: StableWorktreeEntry): boolean {
-  return entry.phase === "failed"
-    && entry.localEnvironmentConfigPath != null
-    && entry.worktreeGitRoot != null
-    && entry.worktreeWorkspaceRoot != null;
+  return (
+    entry.phase === "failed" &&
+    entry.localEnvironmentConfigPath != null &&
+    entry.worktreeGitRoot != null &&
+    entry.worktreeWorkspaceRoot != null
+  );
 }
 
 function findStableWorktreeEntry(
@@ -87,27 +80,39 @@ function resolveStableWorktreeActivities(
   entry: StableWorktreeEntry,
 ): readonly CodexWorktreeInitActivity[] {
   const created = entry.worktreeGitRoot !== null && entry.worktreeWorkspaceRoot !== null;
-  const worktreeStatus = entry.phase === "queued" || entry.phase === "creating"
-    ? "running"
-    : entry.phase === "failed" && !created ? "failed" : "completed";
-  const activities: CodexWorktreeInitActivity[] = [{
-    id: `${entry.id}:${entry.attempt}:worktree`,
-    kind: "worktree",
-    status: worktreeStatus,
-    outputText: entry.worktreeOutputText,
-  }];
+  const worktreeStatus =
+    entry.phase === "queued" || entry.phase === "creating"
+      ? "running"
+      : entry.phase === "failed" && !created
+        ? "failed"
+        : "completed";
+  const activities: CodexWorktreeInitActivity[] = [
+    {
+      id: `${entry.id}:${entry.attempt}:worktree`,
+      kind: "worktree",
+      status: worktreeStatus,
+      outputText: entry.worktreeOutputText,
+    },
+  ];
 
-  if (entry.localEnvironmentConfigPath == null || entry.phase === "queued" || entry.phase === "creating") {
+  if (
+    entry.localEnvironmentConfigPath == null ||
+    entry.phase === "queued" ||
+    entry.phase === "creating"
+  ) {
     return activities;
   }
   activities.push({
     id: `${entry.id}:${entry.attempt}:setup`,
     kind: "setup",
-    status: entry.phase === "setting-up"
-      ? "running"
-      : entry.phase === "failed" && created
-        ? "failed"
-        : entry.errorMessage === null ? "completed" : "skipped",
+    status:
+      entry.phase === "setting-up"
+        ? "running"
+        : entry.phase === "failed" && created
+          ? "failed"
+          : entry.errorMessage === null
+            ? "completed"
+            : "skipped",
     outputText: entry.setupOutputText,
   });
   return activities;
@@ -126,20 +131,12 @@ export function StableWorktreeStatusDialogView({
   const busy = isWorktreeBusy(entry);
   const failed = entry.phase === "failed";
   const actions = busy ? (
-    <NodexDialogAction onClick={onCancel}>
-      Cancel
-    </NodexDialogAction>
+    <NodexDialogAction onClick={onCancel}>Cancel</NodexDialogAction>
   ) : failed ? (
     <>
-      <NodexDialogAction onClick={onEditEnvironment}>
-        Edit environment
-      </NodexDialogAction>
+      <NodexDialogAction onClick={onEditEnvironment}>Edit environment</NodexDialogAction>
       {canAutoFix(entry) ? (
-        <NodexDialogAction
-          aria-busy={autoFixing}
-          disabled={autoFixing}
-          onClick={onAutoFix}
-        >
+        <NodexDialogAction aria-busy={autoFixing} disabled={autoFixing} onClick={onAutoFix}>
           {autoFixing ? <ActivitySpinnerIcon className="icon-xs" /> : null}
           Auto-fix
         </NodexDialogAction>
@@ -157,17 +154,11 @@ export function StableWorktreeStatusDialogView({
         if (!open) onClose();
       }}
     >
-      <NodexDialogContent
-        size="wide"
-      >
+      <NodexDialogContent size="wide">
         <NodexDialogFrame>
           <NodexDialogHeader>
-            <NodexDialogTitle className="truncate">
-              {entry.label}
-            </NodexDialogTitle>
-            <NodexDialogDescription>
-              Creating a persistent project worktree
-            </NodexDialogDescription>
+            <NodexDialogTitle className="truncate">{entry.label}</NodexDialogTitle>
+            <NodexDialogDescription>Creating a persistent project worktree</NodexDialogDescription>
           </NodexDialogHeader>
           <NodexDialogBody>
             <WorktreeInitActivityList activities={activities} actions={actions} />
@@ -187,9 +178,7 @@ function StableWorktreeStatusDialogController({
   onOpenPendingWorktree,
   onActionError,
 }: StableWorktreeStatusDialogProps) {
-  const [entry, setEntry] = useState<StableWorktreeEntry | null | undefined>(
-    undefined,
-  );
+  const [entry, setEntry] = useState<StableWorktreeEntry | null | undefined>(undefined);
   const [autoFixing, setAutoFixing] = useState(false);
   const observedEntryRef = useRef(false);
   const clearedAttentionIdsRef = useRef(new Set<string>());
@@ -201,8 +190,7 @@ function StableWorktreeStatusDialogController({
     onClose();
   });
   const clearAttention = useEffectEvent((observedEntry: StableWorktreeEntry) => {
-    void transport.clearAttention(observedEntry.hostId, observedEntry.id)
-      .catch(reportEffectError);
+    void transport.clearAttention(observedEntry.hostId, observedEntry.id).catch(reportEffectError);
   });
 
   useEffect(() => {
@@ -219,7 +207,8 @@ function StableWorktreeStatusDialogController({
       applyEntries(entries);
     });
 
-    void transport.list()
+    void transport
+      .list()
       .then((entries) => {
         if (receivedSubscription) return;
         applyEntries(entries);
@@ -278,7 +267,8 @@ function StableWorktreeStatusDialogController({
       onAutoFix={() => {
         if (autoFixing) return;
         setAutoFixing(true);
-        void transport.autoFix(entry.hostId, entry.id, agentMode)
+        void transport
+          .autoFix(entry.hostId, entry.id, agentMode)
           .then((result) => {
             if (!result.clientThreadId) {
               throw new Error("The worktree repair task has no client thread id.");
@@ -298,13 +288,6 @@ function StableWorktreeStatusDialogController({
   );
 }
 
-export function StableWorktreeStatusDialog(
-  props: StableWorktreeStatusDialogProps,
-) {
-  return (
-    <StableWorktreeStatusDialogController
-      key={props.pendingWorktreeId}
-      {...props}
-    />
-  );
+export function StableWorktreeStatusDialog(props: StableWorktreeStatusDialogProps) {
+  return <StableWorktreeStatusDialogController key={props.pendingWorktreeId} {...props} />;
 }

@@ -50,7 +50,11 @@ const run = async (): Promise<void> => {
     if (reportPath && result.auditReport) {
       const absoluteReportPath = resolve(reportPath);
       await mkdir(dirname(absoluteReportPath), { recursive: true });
-      await writeFile(absoluteReportPath, `${JSON.stringify(result.auditReport, null, 2)}\n`, "utf8");
+      await writeFile(
+        absoluteReportPath,
+        `${JSON.stringify(result.auditReport, null, 2)}\n`,
+        "utf8",
+      );
     }
     process.exitCode = result.ok ? 0 : 1;
   } catch (error) {

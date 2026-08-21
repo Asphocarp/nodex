@@ -1,11 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import {
-  afterEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   reminderOpenToPageDeepLink,
   useWorkbenchCommandIngress,
@@ -42,11 +36,13 @@ function makePort(): WorkbenchCommandPort {
 
 describe("useWorkbenchCommandIngress", () => {
   test("normalizes reminder notifications into the Page deep-link workflow", () => {
-    expect(reminderOpenToPageDeepLink({
-      projectId: "alpha",
-      pageId: "page-1",
-      occurrenceStart: "2026-08-11T09:00:00.000Z",
-    })).toEqual({
+    expect(
+      reminderOpenToPageDeepLink({
+        projectId: "alpha",
+        pageId: "page-1",
+        occurrenceStart: "2026-08-11T09:00:00.000Z",
+      }),
+    ).toEqual({
       projectId: "alpha",
       pageId: "page-1",
     });
@@ -60,19 +56,14 @@ describe("useWorkbenchCommandIngress", () => {
     const { result } = renderHook(() => useWorkbenchCommandIngress());
     const port = makePort();
 
-    expect(result.current.execute("createPage", "keyboard_shortcut"))
-      .toBe(false);
+    expect(result.current.execute("createPage", "keyboard_shortcut")).toBe(false);
 
     act(() => {
       result.current.register(port);
     });
 
-    expect(result.current.execute("createPage", "keyboard_shortcut"))
-      .toBe(true);
-    expect(port.execute).toHaveBeenCalledWith(
-      "createPage",
-      "keyboard_shortcut",
-    );
+    expect(result.current.execute("createPage", "keyboard_shortcut")).toBe(true);
+    expect(port.execute).toHaveBeenCalledWith("createPage", "keyboard_shortcut");
   });
 
   test("forwards native commands directly to the registered port", () => {
@@ -136,10 +127,7 @@ describe("useWorkbenchCommandIngress", () => {
     });
 
     expect(first.navigate).not.toHaveBeenCalled();
-    expect(second.navigate).toHaveBeenCalledWith(
-      "forward",
-      "keyboard_shortcut",
-    );
+    expect(second.navigate).toHaveBeenCalledWith("forward", "keyboard_shortcut");
   });
 
   test("validates native navigation payloads before forwarding them", () => {
@@ -152,10 +140,7 @@ describe("useWorkbenchCommandIngress", () => {
     Object.defineProperty(window, "api", {
       configurable: true,
       value: {
-        on: vi.fn((
-          event: string,
-          handler: (...args: unknown[]) => void,
-        ) => {
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
           handlers[event] = handler;
           return vi.fn();
         }),
@@ -166,13 +151,15 @@ describe("useWorkbenchCommandIngress", () => {
       },
     });
 
-    renderHook(() => useWorkbenchCommandIngress({
-      onReminderOpen,
-      onPageDeepLinkOpen,
-      onSessionDeepLinkOpen,
-      onViewDeepLinkOpen,
-      onRequestNewWindow,
-    }));
+    renderHook(() =>
+      useWorkbenchCommandIngress({
+        onReminderOpen,
+        onPageDeepLinkOpen,
+        onSessionDeepLinkOpen,
+        onViewDeepLinkOpen,
+        onRequestNewWindow,
+      }),
+    );
     act(() => {
       handlers["reminder:open"]?.({
         projectId: "alpha",

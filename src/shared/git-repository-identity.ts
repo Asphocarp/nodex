@@ -42,9 +42,7 @@ export function parseGitRepositoryOwnerRepo(
   const normalizedUrl = remoteUrl?.trim() ?? "";
   if (!normalizedUrl) return null;
 
-  const scpMatch = normalizedUrl.match(
-    /^(?:[^@\s/:]+@)?[^@\s/:]+:(?![\\/])(.+)$/,
-  );
+  const scpMatch = normalizedUrl.match(/^(?:[^@\s/:]+@)?[^@\s/:]+:(?![\\/])(.+)$/);
   if (scpMatch?.[1]) {
     return ownerRepoFromSegments(normalizeRepositoryPath(scpMatch[1]));
   }

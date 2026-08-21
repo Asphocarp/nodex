@@ -77,11 +77,7 @@ export interface DynamicToolValidationResult {
 }
 
 function registryKey(identity: DynamicToolExecutionIdentity): string {
-  return JSON.stringify([
-    identity.namespace,
-    identity.toolsetRevision,
-    identity.tool,
-  ]);
+  return JSON.stringify([identity.namespace, identity.toolsetRevision, identity.tool]);
 }
 
 function catalogKey(selection: DynamicToolCatalogSelection): string {
@@ -95,9 +91,7 @@ function formatZodIssues(error: z.ZodError): string[] {
   });
 }
 
-export function toProtocolJsonSchema(
-  schema: z.ZodType,
-): DynamicToolFunctionSpec["inputSchema"] {
+export function toProtocolJsonSchema(schema: z.ZodType): DynamicToolFunctionSpec["inputSchema"] {
   return z.toJSONSchema(schema) as DynamicToolFunctionSpec["inputSchema"];
 }
 
@@ -106,10 +100,7 @@ export class DynamicToolRegistry<TContext> {
   readonly #catalogs = new Map<string, Set<string>>();
   readonly #namespaceDescriptions = new Map<string, string>();
 
-  public register<
-    TInputSchema extends z.ZodType,
-    TOutputSchema extends z.ZodType,
-  >(
+  public register<TInputSchema extends z.ZodType, TOutputSchema extends z.ZodType>(
     registration: DynamicToolRegistration<TInputSchema, TOutputSchema, TContext>,
   ): this {
     const key = registryKey(registration);
@@ -131,19 +122,15 @@ export class DynamicToolRegistry<TContext> {
 
     const erased: ErasedDynamicToolRegistration<TContext> = {
       ...registration,
-      classifyEffect: (input) => registration.classifyEffect(
-        input as z.output<TInputSchema>,
-      ),
-      execute: (request) => registration.execute({
-        ...request,
-        input: request.input as z.output<TInputSchema>,
-      }),
+      classifyEffect: (input) => registration.classifyEffect(input as z.output<TInputSchema>),
+      execute: (request) =>
+        registration.execute({
+          ...request,
+          input: request.input as z.output<TInputSchema>,
+        }),
     };
     this.#registrations.set(key, erased);
-    this.#namespaceDescriptions.set(
-      namespaceDescriptionKey,
-      registration.namespaceDescription,
-    );
+    this.#namespaceDescriptions.set(namespaceDescriptionKey, registration.namespaceDescription);
     const catalog = this.#catalogs.get(namespaceDescriptionKey) ?? new Set<string>();
     catalog.add(registration.tool);
     this.#catalogs.set(namespaceDescriptionKey, catalog);
@@ -226,7 +213,10 @@ export class DynamicToolRegistry<TContext> {
     return { effect, output: parsedOutput.data };
   }
 
-  #validate(identity: DynamicToolExecutionIdentity, rawInput: unknown): {
+  #validate(
+    identity: DynamicToolExecutionIdentity,
+    rawInput: unknown,
+  ): {
     readonly effect: DynamicToolEffect;
     readonly input: unknown;
     readonly registration: ErasedDynamicToolRegistration<TContext>;

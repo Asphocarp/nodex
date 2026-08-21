@@ -40,14 +40,15 @@ export const readPropertyOptionWindow = async (
     mode: "option_window" as const,
     window: { after, first: 100 },
   };
-  const result = accessContext.kind === "library"
-    ? await readLibraryDatabaseModule({
-        read,
-      })
-    : await readDatabaseModule(accessContext.projectId, {
-        projectId: accessContext.projectId,
-        read,
-      });
+  const result =
+    accessContext.kind === "library"
+      ? await readLibraryDatabaseModule({
+          read,
+        })
+      : await readDatabaseModule(accessContext.projectId, {
+          projectId: accessContext.projectId,
+          read,
+        });
   return assertOptionWindow(result);
 };
 
@@ -63,8 +64,8 @@ export const mergePropertyOptionPages = (
 export const propertyOptionWindowMatchesProjection = (
   expectedProjectionRevision: number | null,
   actualProjectionRevision: number,
-): boolean => expectedProjectionRevision === null
-  || expectedProjectionRevision === actualProjectionRevision;
+): boolean =>
+  expectedProjectionRevision === null || expectedProjectionRevision === actualProjectionRevision;
 
 export const readPropertyOptionRegistry = async (
   accessContext: DatabaseViewAccessContext,
@@ -87,10 +88,7 @@ export const readPropertyOptionRegistry = async (
     do {
       const page = await readPropertyOptionWindow(accessContext, property, after);
       totalPageCount += 1;
-      if (!propertyOptionWindowMatchesProjection(
-        projectionRevision,
-        page.projectionRevision,
-      )) {
+      if (!propertyOptionWindowMatchesProjection(projectionRevision, page.projectionRevision)) {
         restartCount += 1;
         shouldRestart = true;
         break;
@@ -106,10 +104,7 @@ export const readPropertyOptionRegistry = async (
         throw new Error("Property option registry returned a repeated cursor");
       }
       seenCursors.add(after);
-    } while (
-      totalPageCount < 100
-      && options.length <= MAX_DATA_SOURCE_PROPERTY_OPTIONS
-    );
+    } while (totalPageCount < 100 && options.length <= MAX_DATA_SOURCE_PROPERTY_OPTIONS);
     if (shouldRestart) continue;
     break;
   }

@@ -21,8 +21,7 @@ interface AutoReviewApprovalNudgeTransientState {
   readonly activeThreadIds: Readonly<Record<string, true>>;
 }
 
-export interface AutoReviewApprovalNudgeState
-  extends AutoReviewApprovalNudgeTransientState {
+export interface AutoReviewApprovalNudgeState extends AutoReviewApprovalNudgeTransientState {
   readonly hydrated: boolean;
   readonly dismissed: boolean;
 }
@@ -38,11 +37,9 @@ const EMPTY_TRANSIENT_STATE: AutoReviewApprovalNudgeTransientState = Object.free
   activeThreadIds: Object.freeze({}),
 });
 
-const autoReviewApprovalNudgeTransientStateAtom = scopedAtom(
-  appScope,
-  EMPTY_TRANSIENT_STATE,
-  { debugLabel: "auto-review-approval-nudge-transient-state" },
-);
+const autoReviewApprovalNudgeTransientStateAtom = scopedAtom(appScope, EMPTY_TRANSIENT_STATE, {
+  debugLabel: "auto-review-approval-nudge-transient-state",
+});
 
 export const autoReviewApprovalNudgeDismissedAtom = persistedAtom<boolean>({
   debugLabel: "auto-review-approval-nudge-dismissed",
@@ -63,18 +60,20 @@ export function recordManualApprovalInState(
   const threadId = input.threadId.trim();
   if (!threadId || current.activeThreadIds[threadId] === true) return current;
 
-  const threshold = Math.max(1, Math.floor(
-    input.threshold ?? DEFAULT_AUTO_REVIEW_APPROVAL_NUDGE_THRESHOLD,
-  ));
+  const threshold = Math.max(
+    1,
+    Math.floor(input.threshold ?? DEFAULT_AUTO_REVIEW_APPROVAL_NUDGE_THRESHOLD),
+  );
   const nextCount = (current.manualApprovalCountByThreadId[threadId] ?? 0) + 1;
   return {
     manualApprovalCountByThreadId: {
       ...current.manualApprovalCountByThreadId,
       [threadId]: nextCount,
     },
-    activeThreadIds: nextCount >= threshold
-      ? { ...current.activeThreadIds, [threadId]: true }
-      : current.activeThreadIds,
+    activeThreadIds:
+      nextCount >= threshold
+        ? { ...current.activeThreadIds, [threadId]: true }
+        : current.activeThreadIds,
   };
 }
 
@@ -84,11 +83,9 @@ export function resolveAutoReviewApprovalNudgeInState(
 ): AutoReviewApprovalNudgeTransientState {
   const threadId = rawThreadId.trim();
   if (
-    !threadId
-    || (
-      current.activeThreadIds[threadId] !== true
-      && current.manualApprovalCountByThreadId[threadId] === undefined
-    )
+    !threadId ||
+    (current.activeThreadIds[threadId] !== true &&
+      current.manualApprovalCountByThreadId[threadId] === undefined)
   ) {
     return current;
   }
@@ -106,12 +103,8 @@ export function resolveAutoReviewApprovalNudgeInState(
 }
 
 export function useAutoReviewApprovalNudgeState(): AutoReviewApprovalNudgeState {
-  const dismissedLoadable = usePersistedAtomValue(
-    autoReviewApprovalNudgeDismissedAtom,
-  );
-  const transientState = useScopedAtomValue(
-    autoReviewApprovalNudgeTransientStateAtom,
-  );
+  const dismissedLoadable = usePersistedAtomValue(autoReviewApprovalNudgeDismissedAtom);
+  const transientState = useScopedAtomValue(autoReviewApprovalNudgeTransientStateAtom);
 
   return useMemo(() => {
     const dismissed = dismissedLoadable.value;
@@ -133,23 +126,29 @@ export function useAutoReviewApprovalNudgeActions() {
   const appHandle = useScopeHandle(appScope);
   const setDismissed = useSetPersistedAtom(autoReviewApprovalNudgeDismissedAtom);
 
-  const recordManualApproval = useCallback(async (
-    input: RecordManualApprovalInput,
-  ): Promise<void> => {
-    if (!input.eligible || !input.threadId.trim()) return;
-    await preloadPersistedAtom(store, autoReviewApprovalNudgeDismissedAtom);
-    const dismissed = store.jotaiStore.get(
-      getConcretePersistedAtom(store, autoReviewApprovalNudgeDismissedAtom),
-    ).value;
-    if (dismissed) return;
-    appHandle.set(autoReviewApprovalNudgeTransientStateAtom, (current) =>
-      recordManualApprovalInState(current, input));
-  }, [appHandle, store]);
+  const recordManualApproval = useCallback(
+    async (input: RecordManualApprovalInput): Promise<void> => {
+      if (!input.eligible || !input.threadId.trim()) return;
+      await preloadPersistedAtom(store, autoReviewApprovalNudgeDismissedAtom);
+      const dismissed = store.jotaiStore.get(
+        getConcretePersistedAtom(store, autoReviewApprovalNudgeDismissedAtom),
+      ).value;
+      if (dismissed) return;
+      appHandle.set(autoReviewApprovalNudgeTransientStateAtom, (current) =>
+        recordManualApprovalInState(current, input),
+      );
+    },
+    [appHandle, store],
+  );
 
-  const resolveNudge = useCallback((threadId: string): void => {
-    appHandle.set(autoReviewApprovalNudgeTransientStateAtom, (current) =>
-      resolveAutoReviewApprovalNudgeInState(current, threadId));
-  }, [appHandle]);
+  const resolveNudge = useCallback(
+    (threadId: string): void => {
+      appHandle.set(autoReviewApprovalNudgeTransientStateAtom, (current) =>
+        resolveAutoReviewApprovalNudgeInState(current, threadId),
+      );
+    },
+    [appHandle],
+  );
 
   const dismissNudges = useCallback(async (): Promise<void> => {
     appHandle.set(autoReviewApprovalNudgeTransientStateAtom, EMPTY_TRANSIENT_STATE);

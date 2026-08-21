@@ -65,12 +65,14 @@ function buildHydratedCommandThread(): Thread {
     ...initialThread,
     turns: initialThread.turns.map((turn) => ({
       ...turn,
-      items: [{
-        ...item,
-        status: "inProgress",
-        exitCode: null,
-        durationMs: null,
-      }],
+      items: [
+        {
+          ...item,
+          status: "inProgress",
+          exitCode: null,
+          durationMs: null,
+        },
+      ],
     })),
   };
 }
@@ -94,17 +96,19 @@ describe("codex conversation replay", () => {
       (state, event) => [...state, event],
     );
 
-    expect(JSON.stringify(firstReplay)).toBe(JSON.stringify([
-      "0:notification:item/started",
-      "1:notification:item/commandExecution/outputDelta",
-      "2:request:item/commandExecution/requestApproval:number:73",
-      "3:notification:serverRequest/resolved:number:73",
-      "4:notification:item/completed",
-    ]));
+    expect(JSON.stringify(firstReplay)).toBe(
+      JSON.stringify([
+        "0:notification:item/started",
+        "1:notification:item/commandExecution/outputDelta",
+        "2:request:item/commandExecution/requestApproval:number:73",
+        "3:notification:serverRequest/resolved:number:73",
+        "4:notification:item/completed",
+      ]),
+    );
     expect(JSON.stringify(secondReplay)).toBe(JSON.stringify(firstReplay));
-    expect(JSON.stringify(replayedEvents)).toBe(JSON.stringify(
-      sanitizedCommandLifecycleFixture.events,
-    ));
+    expect(JSON.stringify(replayedEvents)).toBe(
+      JSON.stringify(sanitizedCommandLifecycleFixture.events),
+    );
     expect(JSON.stringify(sanitizedCommandLifecycleFixture)).toBe(fixtureBeforeReplay);
   });
 
@@ -112,8 +116,8 @@ describe("codex conversation replay", () => {
     const outputEvent: CodexConversationReplayEvent | undefined =
       sanitizedCommandLifecycleFixture.events[1];
     if (
-      outputEvent?.type !== "notification"
-      || outputEvent.notification.method !== "item/commandExecution/outputDelta"
+      outputEvent?.type !== "notification" ||
+      outputEvent.notification.method !== "item/commandExecution/outputDelta"
     ) {
       throw new Error("Invalid sanitized command replay fixture");
     }
@@ -150,12 +154,14 @@ describe("codex conversation replay", () => {
       reduce: recordEvent,
     });
 
-    expect(JSON.stringify(replayed)).toBe(JSON.stringify([
-      "0:notification:item/started",
-      "3:request:item/commandExecution/requestApproval:number:73",
-      "4:notification:serverRequest/resolved:number:73",
-      "5:notification:item/completed",
-    ]));
+    expect(JSON.stringify(replayed)).toBe(
+      JSON.stringify([
+        "0:notification:item/started",
+        "3:request:item/commandExecution/requestApproval:number:73",
+        "4:notification:serverRequest/resolved:number:73",
+        "5:notification:item/completed",
+      ]),
+    );
   });
 
   test("lets a final agent message replace its buffered text deltas", () => {
@@ -200,9 +206,7 @@ describe("codex conversation replay", () => {
       reduce: recordEvent,
     });
 
-    expect(JSON.stringify(replayed)).toBe(JSON.stringify([
-      "1:notification:item/completed",
-    ]));
+    expect(JSON.stringify(replayed)).toBe(JSON.stringify(["1:notification:item/completed"]));
   });
 
   test("rejects a hydrated snapshot from a different per-thread buffer", () => {

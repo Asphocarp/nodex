@@ -84,10 +84,8 @@ describe("thread mention inline content", () => {
     expect(textContent(mention)).toBe("Investigate parser issue");
     expect(mention.getAttribute("data-mention-inline-chip")).toBe("true");
     expect(mention.closest('[data-mention-inline-root="true"]')).not.toBeNull();
-    expect(view.container.querySelector('[data-mention-inline-guard="start"]'))
-      .not.toBeNull();
-    expect(view.container.querySelector('[data-mention-inline-guard="end"]'))
-      .not.toBeNull();
+    expect(view.container.querySelector('[data-mention-inline-guard="start"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-mention-inline-guard="end"]')).not.toBeNull();
 
     mention.dataset.mentionTokenSelected = "true";
     await waitFor(() => {
@@ -196,7 +194,9 @@ describe("thread mention inline content", () => {
       }
     });
 
-    fireEvent.click(document.body.querySelector("button[aria-label='Copy thread UUID']") as HTMLButtonElement);
+    fireEvent.click(
+      document.body.querySelector("button[aria-label='Copy thread UUID']") as HTMLButtonElement,
+    );
     await settleAsyncRender();
 
     expect(writes.join(",")).toBe("019-thread");

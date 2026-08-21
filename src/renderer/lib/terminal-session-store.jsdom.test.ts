@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import {
-  TERMINAL_RENDERER_BUFFER_LIMIT,
-  TerminalSessionStore,
-} from "./terminal-session-store";
+import { TERMINAL_RENDERER_BUFFER_LIMIT, TerminalSessionStore } from "./terminal-session-store";
 import type {
   TerminalAttachedEvent,
   TerminalDataEvent,
@@ -12,7 +9,9 @@ import type {
 
 const originalApi = window.api;
 
-function makeSnapshot(input: Partial<TerminalSessionSnapshot> & { sessionId: string }): TerminalSessionSnapshot {
+function makeSnapshot(
+  input: Partial<TerminalSessionSnapshot> & { sessionId: string },
+): TerminalSessionSnapshot {
   return {
     sessionId: input.sessionId,
     conversationId: input.conversationId ?? null,
@@ -34,9 +33,11 @@ function makeSnapshot(input: Partial<TerminalSessionSnapshot> & { sessionId: str
   };
 }
 
-function installTerminalApiMock(options: {
-  invoke?: (channel: string, ...args: unknown[]) => unknown;
-} = {}) {
+function installTerminalApiMock(
+  options: {
+    invoke?: (channel: string, ...args: unknown[]) => unknown;
+  } = {},
+) {
   const listeners: Record<string, (payload: unknown) => void> = {};
   const calls: unknown[] = [];
   window.api = {
@@ -44,9 +45,9 @@ function installTerminalApiMock(options: {
       calls.push([channel, ...args]);
       if (options.invoke) return options.invoke(channel, ...args);
       if (
-        channel === "terminal-create"
-        || channel === "terminal-acquire-view"
-        || channel === "terminal-take-over-view"
+        channel === "terminal-create" ||
+        channel === "terminal-acquire-view" ||
+        channel === "terminal-take-over-view"
       ) {
         const input = args[0] as { sessionId: string };
         return {
@@ -106,19 +107,21 @@ describe("TerminalSessionStore", () => {
       }),
     } satisfies TerminalAttachedEvent);
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      [
-        "terminal-create",
-        {
-          sessionId: "session:one:terminal:1",
-          conversationId: "thread-1",
-          projectSessionId: "session-1",
-          cwd: "/repo",
-          size: { cols: 80, rows: 24 },
-        },
-      ],
-      ["terminal-write", "session:one:terminal:1", "pwd\r"],
-    ]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        [
+          "terminal-create",
+          {
+            sessionId: "session:one:terminal:1",
+            conversationId: "thread-1",
+            projectSessionId: "session-1",
+            cwd: "/repo",
+            size: { cols: 80, rows: 24 },
+          },
+        ],
+        ["terminal-write", "session:one:terminal:1", "pwd\r"],
+      ]),
+    );
   });
 
   test("uses cwd basename before terminal fallback title", () => {
@@ -165,19 +168,21 @@ describe("TerminalSessionStore", () => {
     });
     const snapshot = await store.fetchSnapshot("process:thread:item:action");
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      [
-        "terminal-run-action",
-        {
-          sessionId: "process:thread:item:action",
-          conversationId: "thread-action",
-          cwd: "/repo",
-          command: "bun run dev",
-          title: "bun run dev",
-        },
-      ],
-      ["terminal-session:snapshot", "process:thread:item:action"],
-    ]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        [
+          "terminal-run-action",
+          {
+            sessionId: "process:thread:item:action",
+            conversationId: "thread-action",
+            cwd: "/repo",
+            command: "bun run dev",
+            title: "bun run dev",
+          },
+        ],
+        ["terminal-session:snapshot", "process:thread:item:action"],
+      ]),
+    );
     expect(snapshot === null).toBe(true);
   });
 
@@ -211,9 +216,9 @@ describe("TerminalSessionStore", () => {
     } satisfies TerminalExitEvent);
     store.release("session:one:terminal:close-once");
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      ["terminal-release-view", "session:one:terminal:close-once"],
-    ]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([["terminal-release-view", "session:one:terminal:close-once"]]),
+    );
   });
 
   test("kills a terminal only through the explicit destructive command", () => {
@@ -222,9 +227,7 @@ describe("TerminalSessionStore", () => {
 
     store.kill("session:one:terminal:kill");
 
-    expect(calls).toEqual([
-      ["terminal-kill", "session:one:terminal:kill"],
-    ]);
+    expect(calls).toEqual([["terminal-kill", "session:one:terminal:kill"]]);
   });
 
   test("surfaces a lease conflict and takes over with its generation", async () => {
@@ -342,9 +345,9 @@ describe("TerminalSessionStore", () => {
       reason: "exited",
     } satisfies TerminalExitEvent);
 
-    expect(JSON.stringify(exitEvents)).toBe(JSON.stringify([
-      { sessionId: "session:one:terminal:5", exitCode: 0, reason: "exited" },
-    ]));
+    expect(JSON.stringify(exitEvents)).toBe(
+      JSON.stringify([{ sessionId: "session:one:terminal:5", exitCode: 0, reason: "exited" }]),
+    );
     expect(store.resolveTitle("session:one:terminal:5", "Terminal", 5)).toBe("Terminal 5");
   });
 });

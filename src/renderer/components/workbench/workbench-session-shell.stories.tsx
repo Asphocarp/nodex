@@ -1,10 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type {
   BoardSummary,
   DatabasePage,
@@ -25,23 +20,15 @@ import {
   INITIAL_PROJECT_WELCOME_TITLE,
   renderInitialProjectWelcomePage,
 } from "../../../shared/initial-project-welcome";
-import type {
-  LibraryModuleReadRequest,
-  LibraryReadValue,
-} from "../../../shared/library-module";
-import type {
-  CodexSideChatStartInput,
-  CodexSideChatStartResult,
-} from "../../../shared/types";
+import type { LibraryModuleReadRequest, LibraryReadValue } from "../../../shared/library-module";
+import type { CodexSideChatStartInput, CodexSideChatStartResult } from "../../../shared/types";
 import { buildPageDetailStoryResult } from "../board/page-stage/page-stage-story-page-detail";
 import {
   findWorkbenchPanelLeafForTab,
   makeWorkbenchPanelLayout,
 } from "../../../shared/workbench-panel-layout";
 import { WorkbenchRuntime } from "./workbench-runtime";
-import {
-  type WorkbenchSessionRenderProjection,
-} from "@/lib/workbench-session-presentation";
+import { type WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import { WorkbenchLayoutSnapshotSchema } from "../../../shared/schemas/workbench-layout";
 import {
   createWorkbenchSceneSurface,
@@ -53,13 +40,23 @@ import { makeSessionSceneFixture } from "./workbench-testkit/session-scene-fixtu
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 
-let activeStorySessionsByProject:
-  Record<string, ProjectSession[]> = {};
+let activeStorySessionsByProject: Record<string, ProjectSession[]> = {};
 let activeStorySessionWindowErrorScopeIds: ReadonlySet<string> = new Set();
 
 type ShellStoryArgs = {
   workspace: "projects" | "projectless-only";
-  activeTab: "browser" | "terminal" | "db" | "single-db" | "page" | "welcome" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
+  activeTab:
+    | "browser"
+    | "terminal"
+    | "db"
+    | "single-db"
+    | "page"
+    | "welcome"
+    | "cross-project-card"
+    | "missing-card"
+    | "loading-card"
+    | "review"
+    | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   rightPanelGroups: "single" | "split";
@@ -76,7 +73,8 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Codex Electron-style project session shell with fixed global toolbar controls and top-level right and bottom panels.",
+        component:
+          "Codex Electron-style project session shell with fixed global toolbar controls and top-level right and bottom panels.",
       },
     },
   },
@@ -99,7 +97,19 @@ const meta = {
     },
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db", "single-db", "page", "welcome", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
+      options: [
+        "browser",
+        "terminal",
+        "db",
+        "single-db",
+        "page",
+        "welcome",
+        "cross-project-card",
+        "missing-card",
+        "loading-card",
+        "review",
+        "empty",
+      ],
     },
     thread: {
       control: "inline-radio",
@@ -294,10 +304,7 @@ interface StoryOwnedDocument {
 
 const storyDocuments = new Map<string, StoryOwnedDocument>();
 
-function getStoryOwnedDocument(
-  projectId: string,
-  ownerBlockId: string,
-): StoryOwnedDocument {
+function getStoryOwnedDocument(projectId: string, ownerBlockId: string): StoryOwnedDocument {
   const documentId = `storybook:${projectId}:${ownerBlockId}`;
   const existing = storyDocuments.get(documentId);
   if (existing) return existing;
@@ -343,24 +350,27 @@ function storyUsesWelcomePage(
 ): boolean {
   return Object.values(sessionsByProject)
     .flat()
-    .some((session) => session.tabs.some(
-      (tab) => tab.kind === "page_stage"
-        && tab.config.pageId === WELCOME_PAGE_ID,
-    ));
+    .some((session) =>
+      session.tabs.some(
+        (tab) => tab.kind === "page_stage" && tab.config.pageId === WELCOME_PAGE_ID,
+      ),
+    );
 }
 
 type SessionTabFixtureCommon = Pick<WorkbenchTabProjection, "id" | "title"> &
-  Partial<Pick<
-    WorkbenchTabProjection,
-    | "sessionId"
-    | "projectId"
-    | "panelId"
-    | "order"
-    | "stateKey"
-    | "state"
-    | "createdAt"
-    | "updatedAt"
-  >>;
+  Partial<
+    Pick<
+      WorkbenchTabProjection,
+      | "sessionId"
+      | "projectId"
+      | "panelId"
+      | "order"
+      | "stateKey"
+      | "state"
+      | "createdAt"
+      | "updatedAt"
+    >
+  >;
 
 type SessionTabFixture<
   Configuration extends WorkbenchProjectionTabConfiguration = WorkbenchProjectionTabConfiguration,
@@ -405,10 +415,14 @@ function makePanelLayout(tabIds: string[], activeTabId: string | null) {
   return makeWorkbenchPanelLayout(tabIds, activeTabId);
 }
 
-function makeSplitPanelLayout(tabIds: string[], activeTabId: string | null): ProjectSession["panels"]["right"]["layout"] {
+function makeSplitPanelLayout(
+  tabIds: string[],
+  activeTabId: string | null,
+): ProjectSession["panels"]["right"]["layout"] {
   const firstTabIds = tabIds.filter((tabId) => tabId !== "tab:browser");
   const secondTabIds: string[] = tabIds.filter((tabId) => tabId === "tab:browser");
-  const activeLeafId = activeTabId === "tab:browser" && secondTabIds.length > 0 ? "leaf:browser" : "leaf:main";
+  const activeLeafId =
+    activeTabId === "tab:browser" && secondTabIds.length > 0 ? "leaf:browser" : "leaf:main";
   return {
     version: 2,
     activeLeafId,
@@ -423,7 +437,8 @@ function makeSplitPanelLayout(tabIds: string[], activeTabId: string | null): Pro
         type: "leaf",
         id: "leaf:main",
         tabIds: firstTabIds,
-        activeTabId: activeTabId && firstTabIds.includes(activeTabId) ? activeTabId : firstTabIds[0] ?? null,
+        activeTabId:
+          activeTabId && firstTabIds.includes(activeTabId) ? activeTabId : (firstTabIds[0] ?? null),
         mruTabIds: [
           ...(activeTabId && firstTabIds.includes(activeTabId) ? [activeTabId] : []),
           ...firstTabIds,
@@ -433,7 +448,10 @@ function makeSplitPanelLayout(tabIds: string[], activeTabId: string | null): Pro
         type: "leaf",
         id: "leaf:browser",
         tabIds: secondTabIds,
-        activeTabId: activeTabId && secondTabIds.includes(activeTabId) ? activeTabId : secondTabIds[0] ?? null,
+        activeTabId:
+          activeTabId && secondTabIds.includes(activeTabId)
+            ? activeTabId
+            : (secondTabIds[0] ?? null),
         mruTabIds: [
           ...(activeTabId && secondTabIds.includes(activeTabId) ? [activeTabId] : []),
           ...secondTabIds,
@@ -479,17 +497,11 @@ function withPanelLayouts(
     panels: {
       right: {
         ...session.panels.right,
-        layout: makePanelLayout(
-          rightTabIds,
-          activeByPanel.right ?? rightTabIds[0] ?? null,
-        ),
+        layout: makePanelLayout(rightTabIds, activeByPanel.right ?? rightTabIds[0] ?? null),
       },
       bottom: {
         ...session.panels.bottom,
-        layout: makePanelLayout(
-          bottomTabIds,
-          activeByPanel.bottom ?? bottomTabIds[0] ?? null,
-        ),
+        layout: makePanelLayout(bottomTabIds, activeByPanel.bottom ?? bottomTabIds[0] ?? null),
       },
     },
   };
@@ -571,15 +583,16 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
   }
 
   const cardProjectId = args.activeTab === "cross-project-card" ? "codex-readable" : "nodex";
-  const pageTitle = args.activeTab === "cross-project-card"
-    ? "Readable pack review"
-    : args.activeTab === "missing-card"
-      ? "Missing project card"
-      : args.activeTab === "loading-card"
-        ? "Loading project card"
-      : args.longNames
-        ? "Rewrite the project-session workbench shell while preserving card thread links"
-        : "Workbench redesign";
+  const pageTitle =
+    args.activeTab === "cross-project-card"
+      ? "Readable pack review"
+      : args.activeTab === "missing-card"
+        ? "Missing project card"
+        : args.activeTab === "loading-card"
+          ? "Loading project card"
+          : args.longNames
+            ? "Rewrite the project-session workbench shell while preserving card thread links"
+            : "Workbench redesign";
   const baseTabs = [
     makeTab({
       id: "tab:db",
@@ -598,11 +611,12 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       order: 1,
       config: {
         projectId: cardProjectId,
-        pageId: args.activeTab === "missing-card"
-          ? "missing-card"
-          : args.activeTab === "loading-card"
-            ? "loading-card"
-            : "card-1",
+        pageId:
+          args.activeTab === "missing-card"
+            ? "missing-card"
+            : args.activeTab === "loading-card"
+              ? "loading-card"
+              : "card-1",
         titleSnapshot: pageTitle,
       },
     }),
@@ -621,27 +635,28 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       config: { projectId: "nodex", title: "Browser" },
     }),
   ];
-  const tabs = args.activeTab === "single-db"
-    ? baseTabs.filter((tab) => tab.id === "tab:db")
-    : args.activeTab === "review"
-      ? [
-          ...baseTabs,
-          makeTab({
-            id: "tab:review",
-            kind: "review",
-            title: "Review",
-            order: 4,
-            config: { projectId: "nodex" },
-          }),
-        ]
-      : baseTabs;
+  const tabs =
+    args.activeTab === "single-db"
+      ? baseTabs.filter((tab) => tab.id === "tab:db")
+      : args.activeTab === "review"
+        ? [
+            ...baseTabs,
+            makeTab({
+              id: "tab:review",
+              kind: "review",
+              title: "Review",
+              order: 4,
+              config: { projectId: "nodex" },
+            }),
+          ]
+        : baseTabs;
   const activeTabId = (() => {
     if (args.activeTab === "db" || args.activeTab === "single-db") return "tab:db";
     if (
-      args.activeTab === "page"
-      || args.activeTab === "cross-project-card"
-      || args.activeTab === "missing-card"
-      || args.activeTab === "loading-card"
+      args.activeTab === "page" ||
+      args.activeTab === "cross-project-card" ||
+      args.activeTab === "missing-card" ||
+      args.activeTab === "loading-card"
     ) {
       return "tab:card";
     }
@@ -653,44 +668,46 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
   const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
   const panels = makePanels({
     rightTabIds,
-    rightActiveTabId: rightTabIds.includes(activeTabId) ? activeTabId : rightTabIds[0] ?? null,
+    rightActiveTabId: rightTabIds.includes(activeTabId) ? activeTabId : (rightTabIds[0] ?? null),
     rightCollapsed: args.rightPanel === "collapsed",
     rightFullWidth: args.rightPanel === "full",
     bottomTabIds,
-    bottomActiveTabId: bottomTabIds.includes(activeTabId) ? activeTabId : bottomTabIds[0] ?? null,
-    bottomCollapsed: args.bottomPanel === "empty"
-      ? false
-      : args.activeTab !== "terminal" && args.bottomPanel !== "terminal",
+    bottomActiveTabId: bottomTabIds.includes(activeTabId) ? activeTabId : (bottomTabIds[0] ?? null),
+    bottomCollapsed:
+      args.bottomPanel === "empty"
+        ? false
+        : args.activeTab !== "terminal" && args.bottomPanel !== "terminal",
   });
   if (args.rightPanelGroups === "split" && rightTabIds.length > 1) {
     panels.right = {
       ...panels.right,
       layout: makeSplitPanelLayout(
         rightTabIds,
-        rightTabIds.includes(activeTabId) ? activeTabId : rightTabIds[0] ?? null,
+        rightTabIds.includes(activeTabId) ? activeTabId : (rightTabIds[0] ?? null),
       ),
     };
   }
 
-  const thread: ProjectSessionThreadLink | null = args.thread === "attached"
-    ? {
-        sessionId: "session:database-view",
-        projectId: "nodex",
-        threadId: "thread-story",
-        parentThreadId: undefined,
-        threadName: "Codex shell parity",
-        threadPreview: "Reviewing shell layout and tab persistence",
-        modelProvider: "openai",
-        executionHostId: "local",
-        cwd: "/Users/asc/repo/nodex",
-        statusType: "notLoaded",
-        statusActiveFlags: [],
-        archived: false,
-        createdAt: 1_780_800_000_000,
-        updatedAt: 1_780_800_000_000,
-        linkedAt: CREATED_AT,
-      }
-    : null;
+  const thread: ProjectSessionThreadLink | null =
+    args.thread === "attached"
+      ? {
+          sessionId: "session:database-view",
+          projectId: "nodex",
+          threadId: "thread-story",
+          parentThreadId: undefined,
+          threadName: "Codex shell parity",
+          threadPreview: "Reviewing shell layout and tab persistence",
+          modelProvider: "openai",
+          executionHostId: "local",
+          cwd: "/Users/asc/repo/nodex",
+          statusType: "notLoaded",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1_780_800_000_000,
+          updatedAt: 1_780_800_000_000,
+          linkedAt: CREATED_AT,
+        }
+      : null;
   const title = args.longNames
     ? "Database View and implementation notes for a project session shell"
     : "Database View";
@@ -738,7 +755,9 @@ function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
   return {
     ...makeSession({ ...args, activeTab: "terminal", thread: "empty" }),
     id: "session:release",
-    noThreadFallbackTitle: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
+    noThreadFallbackTitle: args.longNames
+      ? "Release validation and follow-up terminal work"
+      : "Release run",
     displayTitle: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
     order: 1,
     tabs,
@@ -791,10 +810,10 @@ function makeAttachedProjectlessSession(args: ShellStoryArgs): ProjectSession {
 }
 
 function ProjectSessionShellStory(args: ShellStoryArgs) {
-  const initialSessionsByProject = useMemo<Record<string, ProjectSession[]>>(
-    () => {
-      if (args.workspace === "projectless-only") {
-        const session = args.thread === "attached"
+  const initialSessionsByProject = useMemo<Record<string, ProjectSession[]>>(() => {
+    if (args.workspace === "projectless-only") {
+      const session =
+        args.thread === "attached"
           ? makeAttachedProjectlessSession(args)
           : {
               ...makeSession({ ...args, activeTab: "empty", thread: "empty" }),
@@ -803,14 +822,16 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
               noThreadFallbackTitle: "New chat",
               displayTitle: "New chat",
             };
-        return { __projectless__: [session] } as Record<string, ProjectSession[]>;
-      }
-      return {
-        nodex: args.activeTab === "welcome"
+      return { __projectless__: [session] } as Record<string, ProjectSession[]>;
+    }
+    return {
+      nodex:
+        args.activeTab === "welcome"
           ? [makeSession(args)]
           : [makeSession(args), makeSecondarySession(args)],
-        "codex-readable": [
-          withPanelLayouts({
+      "codex-readable": [
+        withPanelLayouts(
+          {
             ...makeSession({ ...args, activeTab: "browser", thread: "empty" }),
             id: "session:codex-database-view",
             projectId: "codex-readable",
@@ -826,39 +847,39 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
                 config: { projectId: "codex-readable", title: "Browser" },
               }),
             ],
-          }, { right: "tab:codex-browser" }),
-        ],
-      } as Record<string, ProjectSession[]>;
-    },
-    [args],
-  );
+          },
+          { right: "tab:codex-browser" },
+        ),
+      ],
+    } as Record<string, ProjectSession[]>;
+  }, [args]);
   const [sessionsByProject] = useState(initialSessionsByProject);
   const sessionScenesByOwnerKey = Object.fromEntries(
-    Object.values(initialSessionsByProject).flat().map((session) => [
-      makeWorkbenchSceneKey({ kind: "session", sessionId: session.id }),
-      makeSessionSceneFixture(session),
-    ]),
+    Object.values(initialSessionsByProject)
+      .flat()
+      .map((session) => [
+        makeWorkbenchSceneKey({ kind: "session", sessionId: session.id }),
+        makeSessionSceneFixture(session),
+      ]),
   );
   const [initialWindowLayoutSnapshot] = useState(() => {
-    const activeSession = args.workspace === "projectless-only"
-      ? initialSessionsByProject.__projectless__?.[0] ?? null
-      : initialSessionsByProject.nodex?.[0] ?? null;
+    const activeSession =
+      args.workspace === "projectless-only"
+        ? (initialSessionsByProject.__projectless__?.[0] ?? null)
+        : (initialSessionsByProject.nodex?.[0] ?? null);
     return WorkbenchLayoutSnapshotSchema.parse({
       version: 6 as const,
       location: activeSession
         ? {
             kind: "session" as const,
-            projectContextId:
-              args.workspace === "projectless-only" ? null : "nodex",
+            projectContextId: args.workspace === "projectless-only" ? null : "nodex",
             sessionId: activeSession.id,
           }
         : args.workspace === "projectless-only"
           ? { kind: "empty" as const }
           : { kind: "project" as const, projectId: "nodex" },
       databaseSearchByProject:
-        args.workspace === "projectless-only"
-          ? {} as Record<string, string>
-          : { nodex: "" },
+        args.workspace === "projectless-only" ? ({} as Record<string, string>) : { nodex: "" },
       scenesByOwnerKey: sessionScenesByOwnerKey,
     });
   });
@@ -900,26 +921,32 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     let focusTimeout: number | null = null;
     const timeout = window.setTimeout(() => {
       if (args.sidebarReveal === "edge") {
-        window.dispatchEvent(new MouseEvent("pointermove", {
-          clientX: 12,
-          clientY: 120,
-        }));
+        window.dispatchEvent(
+          new MouseEvent("pointermove", {
+            clientX: 12,
+            clientY: 120,
+          }),
+        );
         return;
       }
 
-      window.dispatchEvent(new MouseEvent("pointermove", {
-        clientX: 12,
-        clientY: 120,
-      }));
+      window.dispatchEvent(
+        new MouseEvent("pointermove", {
+          clientX: 12,
+          clientY: 120,
+        }),
+      );
       focusTimeout = window.setTimeout(() => {
         const focusTarget = document.querySelector<HTMLElement>(
           '[data-sidebar-floating-focus-area="true"] button',
         );
         focusTarget?.focus();
-        window.dispatchEvent(new MouseEvent("pointermove", {
-          clientX: args.sidebarWidth + 24,
-          clientY: 120,
-        }));
+        window.dispatchEvent(
+          new MouseEvent("pointermove", {
+            clientX: args.sidebarWidth + 24,
+            clientY: 120,
+          }),
+        );
       }, 0);
     }, 0);
     return () => {
@@ -933,11 +960,13 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
       <WorkbenchRuntime
         windowSessionId="window-session:storybook"
         initialWindowLayoutSnapshot={initialWindowLayoutSnapshot}
-        projects={args.workspace === "projectless-only"
-          ? []
-          : args.activeTab === "welcome"
-            ? [INITIAL_PROJECT]
-            : PROJECTS}
+        projects={
+          args.workspace === "projectless-only"
+            ? []
+            : args.activeTab === "welcome"
+              ? [INITIAL_PROJECT]
+              : PROJECTS
+        }
         sidebar={{
           collapsed: sidebarCollapsed,
           width: sidebarWidth,
@@ -1094,9 +1123,7 @@ function ProjectSceneStory({
 
   useLayoutEffect(() => {
     activeStorySessionsByProject = sessionsByProject;
-    activeStorySessionWindowErrorScopeIds = sessionWindowError
-      ? new Set(["nodex"])
-      : new Set();
+    activeStorySessionWindowErrorScopeIds = sessionWindowError ? new Set(["nodex"]) : new Set();
     return () => {
       if (activeStorySessionsByProject === sessionsByProject) {
         activeStorySessionsByProject = {};
@@ -1158,9 +1185,12 @@ function installReducedMotionMatchMedia() {
 function ReducedMotionProjectSessionShellStory(args: ShellStoryArgs) {
   const [restoreMatchMedia] = useState(installReducedMotionMatchMedia);
 
-  useEffect(() => () => {
-    restoreMatchMedia?.();
-  }, [restoreMatchMedia]);
+  useEffect(
+    () => () => {
+      restoreMatchMedia?.();
+    },
+    [restoreMatchMedia],
+  );
 
   return <ProjectSessionShellStory {...args} />;
 }
@@ -1182,9 +1212,10 @@ function buildStorySideChatStartResult(
   input: CodexSideChatStartInput,
   sessionsByProject: Record<string, ProjectSession[]>,
 ): CodexSideChatStartResult {
-  const parentSession = Object.values(sessionsByProject)
-    .flat()
-    .find((session) => session.thread?.threadId === input.parentThreadId) ?? null;
+  const parentSession =
+    Object.values(sessionsByProject)
+      .flat()
+      .find((session) => session.thread?.threadId === input.parentThreadId) ?? null;
   const threadId = `thread-story-side-chat:${input.parentThreadId}`;
   const now = Date.now();
 
@@ -1230,23 +1261,20 @@ function buildStorySideChatStartResult(
   };
 }
 
-function installStoryApi(
-  readSessionsByProject:
-    () => Record<string, ProjectSession[]>,
-) {
+function installStoryApi(readSessionsByProject: () => Record<string, ProjectSession[]>) {
   Object.defineProperty(window, "api", {
     configurable: true,
     value: {
       invoke: async (channel: string, ...args: unknown[]) => {
         if (channel === "projects:get") {
-          return PROJECTS.find((project) => project.id === String(args[0]))
-            ?? null;
+          return PROJECTS.find((project) => project.id === String(args[0])) ?? null;
         }
         if (channel === "project-sessions:get") {
-          return Object.values(readSessionsByProject())
-            .flat()
-            .find((session) => session.id === String(args[0]))
-            ?? null;
+          return (
+            Object.values(readSessionsByProject())
+              .flat()
+              .find((session) => session.id === String(args[0])) ?? null
+          );
         }
         if (channel === "workspace:tasks:list") {
           const scopeKey = args[0] === null ? "__projectless__" : String(args[0]);
@@ -1275,117 +1303,116 @@ function installStoryApi(
         }
         if (channel === "database:view-window:get") {
           const projectId = String(args[0] ?? "nodex");
-          const board = storyUsesWelcomePage(readSessionsByProject())
-            ? WELCOME_BOARD
-            : STORY_BOARD;
+          const board = storyUsesWelcomePage(readSessionsByProject()) ? WELCOME_BOARD : STORY_BOARD;
           const viewId = `database-view:${projectId}:primary-board`;
           const databaseId = `database:${projectId}:primary`;
           const dataSourceId = `${databaseId}:data-source:initial`;
           // Core-backed channels return a CoreResult envelope.
-          return { ok: true, value: {
-            projectId,
-            libraryId: "library:test",
-            databaseId,
-            dataSourceId,
-            viewId,
-            storeEpoch: "epoch:story",
-            commitSeq: 1,
-            projectionRevision: 1,
-            nextCursor: null,
-            rows: board.columns.flatMap((column) =>
-              column.cards.map((page, index) => ({
-                page,
-                groupKey: column.id,
-                rankKey: String(index).padStart(8, "0"),
-              }))
-            ),
-            board,
-            view: {
-              id: viewId,
-              databaseBlockId: databaseId,
+          return {
+            ok: true,
+            value: {
               projectId,
-              name: "Tasks",
-              defaultLayout: "board",
-              config: {},
-              isPrimary: true,
-              createdAt: CREATED_AT,
-              updatedAt: CREATED_AT,
-            },
-            query: {
-              database: {
-                databaseId,
-                libraryId: "library:test",
-                name: "Tasks",
-                lifecycle: "active",
-                defaultViewId: viewId,
-                accessRevision: 1,
-                metadataRevision: 1,
-                createdAt: CREATED_AT,
-                updatedAt: CREATED_AT,
-              },
-              dataSource: {
-                dataSourceId,
-                libraryId: "library:test",
-                homeDatabaseId: databaseId,
-                name: "Pages",
-                schemaKey: "nodex.page",
-                schemaRevision: 1,
-                lifecycle: "active",
-                rankKey: "a",
-                createdAt: CREATED_AT,
-                updatedAt: CREATED_AT,
-              },
+              libraryId: "library:test",
+              databaseId,
+              dataSourceId,
+              viewId,
+              storeEpoch: "epoch:story",
+              commitSeq: 1,
+              projectionRevision: 1,
+              nextCursor: null,
+              rows: board.columns.flatMap((column) =>
+                column.cards.map((page, index) => ({
+                  page,
+                  groupKey: column.id,
+                  rankKey: String(index).padStart(8, "0"),
+                })),
+              ),
+              board,
               view: {
-                viewId,
-                databaseId,
-                dataSourceId,
+                id: viewId,
+                databaseBlockId: databaseId,
+                projectId,
                 name: "Tasks",
                 defaultLayout: "board",
-                config: {
-                  schemaKey: "nodex.database-view",
-                  schemaVersion: 2,
-                  filter: { kind: "group", operator: "and", children: [] },
-                  sort: [],
-                  group: null,
-                  display: { propertyIds: [], showTitle: true },
-                },
-                isDefault: true,
-                revision: 1,
-                rankKey: "a",
-                lifecycle: "active",
+                config: {},
+                isPrimary: true,
                 createdAt: CREATED_AT,
                 updatedAt: CREATED_AT,
               },
-              properties: [],
-              rows: [],
+              query: {
+                database: {
+                  databaseId,
+                  libraryId: "library:test",
+                  name: "Tasks",
+                  lifecycle: "active",
+                  defaultViewId: viewId,
+                  accessRevision: 1,
+                  metadataRevision: 1,
+                  createdAt: CREATED_AT,
+                  updatedAt: CREATED_AT,
+                },
+                dataSource: {
+                  dataSourceId,
+                  libraryId: "library:test",
+                  homeDatabaseId: databaseId,
+                  name: "Pages",
+                  schemaKey: "nodex.page",
+                  schemaRevision: 1,
+                  lifecycle: "active",
+                  rankKey: "a",
+                  createdAt: CREATED_AT,
+                  updatedAt: CREATED_AT,
+                },
+                view: {
+                  viewId,
+                  databaseId,
+                  dataSourceId,
+                  name: "Tasks",
+                  defaultLayout: "board",
+                  config: {
+                    schemaKey: "nodex.database-view",
+                    schemaVersion: 2,
+                    filter: { kind: "group", operator: "and", children: [] },
+                    sort: [],
+                    group: null,
+                    display: { propertyIds: [], showTitle: true },
+                  },
+                  isDefault: true,
+                  revision: 1,
+                  rankKey: "a",
+                  lifecycle: "active",
+                  createdAt: CREATED_AT,
+                  updatedAt: CREATED_AT,
+                },
+                properties: [],
+                rows: [],
+              },
             },
-          } };
+          };
         }
         if (channel === "database:view-groups:get") {
           const projectId = String(args[0] ?? "nodex");
-          const board = storyUsesWelcomePage(readSessionsByProject())
-            ? WELCOME_BOARD
-            : STORY_BOARD;
+          const board = storyUsesWelcomePage(readSessionsByProject()) ? WELCOME_BOARD : STORY_BOARD;
           const databaseId = `database:${projectId}:primary`;
-          return { ok: true, value: {
-            projectId,
-            libraryId: "library:test",
-            databaseId,
-            dataSourceId: `${databaseId}:data-source:initial`,
-            viewId: `database-view:${projectId}:primary-board`,
-            storeEpoch: "epoch:story",
-            commitSeq: 1,
-            grouped: true,
-            totalRows: board.columns.reduce(
-              (total, column) => total + column.cards.length,
-              0,
-            ),
-            truncated: false,
-            groups: board.columns.map((column) => ({
-              groupKey: column.id,
-              totalRows: column.cards.length,
-            })),
-          } };
+          return {
+            ok: true,
+            value: {
+              projectId,
+              libraryId: "library:test",
+              databaseId,
+              dataSourceId: `${databaseId}:data-source:initial`,
+              viewId: `database-view:${projectId}:primary-board`,
+              storeEpoch: "epoch:story",
+              commitSeq: 1,
+              grouped: true,
+              totalRows: board.columns.reduce((total, column) => total + column.cards.length, 0),
+              truncated: false,
+              groups: board.columns.map((column) => ({
+                groupKey: column.id,
+                totalRows: column.cards.length,
+              })),
+            },
+          };
         }
         if (channel === "library-module:read") {
           const read = (args[0] as LibraryModuleReadRequest).read;
@@ -1478,10 +1505,7 @@ function installStoryApi(
           if (pageId === "loading-card") {
             return new Promise<never>(() => {});
           }
-          return buildPageDetailStoryResult(
-            projectId,
-            buildStoryCardDetail(projectId, pageId),
-          );
+          return buildPageDetailStoryResult(projectId, buildStoryCardDetail(projectId, pageId));
         }
         if (channel === "block-document:owned:get") {
           return getStoryDocumentDescriptor(
@@ -1527,10 +1551,7 @@ function installStoryApi(
               generation: 1,
               headSeq: owned.headSeq,
               stateVector: Y.encodeStateVector(owned.document),
-              update: Y.encodeStateAsUpdate(
-                owned.document,
-                request.stateVector,
-              ),
+              update: Y.encodeStateAsUpdate(owned.document, request.stateVector),
             },
           };
         }
@@ -1571,7 +1592,10 @@ function installStoryApi(
         if (channel === "document-sync:awareness:publish") {
           return { ok: true, value: { accepted: true } };
         }
-        if (channel === "project-session-threads:attach" || channel === "project-session-threads:detach") {
+        if (
+          channel === "project-session-threads:attach" ||
+          channel === "project-session-threads:detach"
+        ) {
           return true;
         }
         return null;
@@ -1594,9 +1618,9 @@ if (typeof window !== "undefined") {
 }
 
 function selectStorySession(label: string): void {
-  const candidate = Array.from(
-    document.querySelectorAll<HTMLButtonElement>("button"),
-  ).find((button) => button.textContent?.includes(label));
+  const candidate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.textContent?.includes(label),
+  );
   candidate?.click();
 }
 
@@ -1628,46 +1652,44 @@ export const MixedRightTabs: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Regular 600px right panel with registry-backed global bottom/side panel toggles in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
+        story:
+          "Regular 600px right panel with registry-backed global bottom/side panel toggles in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
       },
     },
   },
 };
 
 export const ProjectSceneWithSecondaryDatabase: Story = {
-  render: () => (
-    <ProjectSceneStory boundTask={false} secondaryDatabase />
-  ),
+  render: () => <ProjectSceneStory boundTask={false} secondaryDatabase />,
   parameters: {
     docs: {
       description: {
-        story: "Only the protected root uses Project Home chrome. Another Database surface in the same Project Scene retains the standard table icon and DB View label used by Session tabs.",
+        story:
+          "Only the protected root uses Project Home chrome. Another Database surface in the same Project Scene retains the standard table icon and DB View label used by Session tabs.",
       },
     },
   },
 };
 
 export const ProjectSceneDatabasePageGroup: Story = {
-  render: () => (
-    <ProjectSceneStory boundTask={false} splitPage />
-  ),
+  render: () => <ProjectSceneStory boundTask={false} splitPage />,
   parameters: {
     docs: {
       description: {
-        story: "Opening a Page from the full-width Project Home Database creates one adjacent right tab group. Further Pages from that Database reuse the right group instead of displacing Project Home or creating additional splits.",
+        story:
+          "Opening a Page from the full-width Project Home Database creates one adjacent right tab group. Further Pages from that Database reuse the right group instead of displacing Project Home or creating additional splits.",
       },
     },
   },
 };
 
 export const ProjectSceneSessionLoadError: Story = {
-  render: () => (
-    <ProjectSceneStory boundTask={false} sessionWindowError />
-  ),
+  render: () => <ProjectSceneStory boundTask={false} sessionWindowError />,
   parameters: {
     docs: {
       description: {
-        story: "A Project Scene whose Session window failed its first hydration. The Project remains usable and the expanded folder shows one compact, scope-local Retry chats action instead of a fake empty state.",
+        story:
+          "A Project Scene whose Session window failed its first hydration. The Project remains usable and the expanded folder shows one compact, scope-local Retry chats action instead of a fake empty state.",
       },
     },
   },
@@ -1678,7 +1700,8 @@ export const ProjectSceneWithBoundTask: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The Database remains the root surface while the footer-only Agent Dock subscribes to a real running chat. Use Find a chat to alternate between the bound chat and New chat: one stable context rail projects either the connected latest turn or the mutable new-chat run context without vertical motion. Open chat is the explicit path to the full transcript.",
+        story:
+          "The Database remains the root surface while the footer-only Agent Dock subscribes to a real running chat. Use Find a chat to alternate between the bound chat and New chat: one stable context rail projects either the connected latest turn or the mutable new-chat run context without vertical motion. Open chat is the explicit path to the full transcript.",
       },
     },
   },
@@ -1689,7 +1712,8 @@ export const ProjectSceneDockHidden: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A running task stays bound while its controlled Agent Dock is hidden. The Database receives the released space and the restore handle carries activity attention; its grip stays geometrically centered between the independent leading and trailing controls.",
+        story:
+          "A running task stays bound while its controlled Agent Dock is hidden. The Database receives the released space and the restore handle carries activity attention; its grip stays geometrically centered between the independent leading and trailing controls.",
       },
     },
   },
@@ -1709,7 +1733,8 @@ export const InitialProjectWelcome: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A fresh Profile after automatic bootstrap: My Project opens as one full-width Scene, with the Welcome Page as an ordinary tab, the marker/Project Home tab retained as the protected Database root, and New chat available in the Agent Dock without creating a starter chat.",
+        story:
+          "A fresh Profile after automatic bootstrap: My Project opens as one full-width Scene, with the Welcome Page as an ordinary tab, the marker/Project Home tab retained as the protected Database root, and New chat available in the Agent Dock without creating a starter chat.",
       },
     },
   },
@@ -1725,7 +1750,8 @@ export const LiveSessionStatePreservation: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Switches between two live Session projections without remounting the Workbench runtime, so panel selection, Terminal state, and composer ownership can be inspected across the transition.",
+        story:
+          "Switches between two live Session projections without remounting the Workbench runtime, so panel selection, Terminal state, and composer ownership can be inspected across the transition.",
       },
     },
   },
@@ -1740,7 +1766,8 @@ export const SingleClosableRightPanelTab: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A sole durable right-panel tab remains closable: hover or focus the tab to reveal its close action.",
+        story:
+          "A sole durable right-panel tab remains closable: hover or focus the tab to reveal its close action.",
       },
     },
   },
@@ -1755,7 +1782,8 @@ export const CardRightPanelCollapseAnchor: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Interactive resize acceptance scene: drag the right-panel sash past its collapse threshold, reopen it, then resize it narrower. The full Page Detail canvas follows the sash with no retained minimum width, while trailing toolbar actions stay anchored to the viewport-right edge.",
+        story:
+          "Interactive resize acceptance scene: drag the right-panel sash past its collapse threshold, reopen it, then resize it narrower. The full Page Detail canvas follows the sash with no retained minimum width, while trailing toolbar actions stay anchored to the viewport-right edge.",
       },
     },
   },
@@ -1768,7 +1796,8 @@ export const EmptyRightPanelActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Empty right panel showing the Codex-style new-tab action grid with Database View and Page actions appended.",
+        story:
+          "Empty right panel showing the Codex-style new-tab action grid with Database View and Page actions appended.",
       },
     },
   },
@@ -1785,7 +1814,8 @@ export const AttachedProjectlessChatTools: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Attached projectless chat with a workspace cwd. The empty side panel exposes Side chat, Browser, and Terminal in conversation-native order.",
+        story:
+          "Attached projectless chat with a workspace cwd. The empty side panel exposes Side chat, Browser, and Terminal in conversation-native order.",
       },
     },
   },
@@ -1800,7 +1830,8 @@ export const EmptyBottomPanelActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Open empty bottom panel showing the Codex-eligible Files, Side chat, Browser, Review, and Terminal action grid.",
+        story:
+          "Open empty bottom panel showing the Codex-eligible Files, Side chat, Browser, Review, and Terminal action grid.",
       },
     },
   },
@@ -1813,7 +1844,8 @@ export const MissingPageStageTab: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Page Detail tab whose saved Page id no longer exists; it should render a clear missing state instead of a blank panel.",
+        story:
+          "Page Detail tab whose saved Page id no longer exists; it should render a clear missing state instead of a blank panel.",
       },
     },
   },
@@ -1826,7 +1858,8 @@ export const LoadingPageStageTab: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Page Detail tab while the saved Page detail is still hydrating; it keeps the shell stable with a disabled toolbar and localized property/editor skeletons instead of the missing-Page state.",
+        story:
+          "Page Detail tab while the saved Page detail is still hydrating; it keeps the shell stable with a disabled toolbar and localized property/editor skeletons instead of the missing-Page state.",
       },
     },
   },
@@ -1839,7 +1872,8 @@ export const CrossProjectPageStageTab: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Nodex session hosting a Page Detail tab whose content project is Codex readable pack; the tab row should expose the content project before the Page title.",
+        story:
+          "Nodex session hosting a Page Detail tab whose content project is Codex readable pack; the tab row should expose the content project before the Page title.",
       },
     },
   },
@@ -1866,7 +1900,8 @@ export const BrowserRightTab: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Real Browser tab with Codex-parity chrome. Storybook renders the desktop-only unavailable state because Electron webview is not present.",
+        story:
+          "Real Browser tab with Codex-parity chrome. Storybook renders the desktop-only unavailable state because Electron webview is not present.",
       },
     },
   },
@@ -1881,7 +1916,8 @@ export const ExpandedSidebarParity: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width and enabled Back/Forward chrome in the titlebar.",
+        story:
+          "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width and enabled Back/Forward chrome in the titlebar.",
       },
     },
   },
@@ -1913,7 +1949,8 @@ export const ScheduledRouteShellHeader: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Scheduled route opened inside the normal Workbench shell: left titlebar chrome stays mounted while the Scheduled tabs and create controls occupy the global header center.",
+        story:
+          "Scheduled route opened inside the normal Workbench shell: left titlebar chrome stays mounted while the Scheduled tabs and create controls occupy the global header center.",
       },
     },
   },
@@ -1928,7 +1965,8 @@ export const SidebarPinnedProjection: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Pinned tasks always render as standalone Pinned rows; pinned project folders separately render their remaining project children.",
+        story:
+          "Pinned tasks always render as standalone Pinned rows; pinned project folders separately render their remaining project children.",
       },
     },
   },
@@ -1943,7 +1981,8 @@ export const ExpandedSidebarMinWidth: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded real sidebar at Codex's 240px minimum width, matching the clamp zone before the half-minimum collapse threshold.",
+        story:
+          "Expanded real sidebar at Codex's 240px minimum width, matching the clamp zone before the half-minimum collapse threshold.",
       },
     },
   },
@@ -1958,7 +1997,8 @@ export const ExpandedSidebarMaxWidth: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded real sidebar at Codex's 520px maximum width, preserving the native vibrant shell and animated header slot reservation.",
+        story:
+          "Expanded real sidebar at Codex's 520px maximum width, preserving the native vibrant shell and animated header slot reservation.",
       },
     },
   },
@@ -1974,7 +2014,8 @@ export const ExpandedSidebarReducedMotion: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded real sidebar under prefers-reduced-motion, where explicit sidebar toggles snap instead of running the shell spring.",
+        story:
+          "Expanded real sidebar under prefers-reduced-motion, where explicit sidebar toggles snap instead of running the shell spring.",
       },
     },
   },
@@ -1995,7 +2036,8 @@ export const SingletonFilteredActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Session with DB View, Browser, and Review already present; Review filters as a singleton while DB View stays available for other project DBs and Browser remains available for more tabs.",
+        story:
+          "Session with DB View, Browser, and Review already present; Review filters as a singleton while DB View stays available for other project DBs and Browser remains available for more tabs.",
       },
     },
   },
@@ -2009,7 +2051,8 @@ export const CollapsedRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Attached thread with the right panel collapsed, keeping the thread title and summary toggle in the fixed app-header center surface at the panel boundary.",
+        story:
+          "Attached thread with the right panel collapsed, keeping the thread title and summary toggle in the fixed app-header center surface at the panel boundary.",
       },
     },
   },
@@ -2026,7 +2069,8 @@ export const NarrowLongThreadHeaderWithRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Narrow main-thread acceptance state with a long task title, maximum-width sidebar, and regular right panel. The fixed toolbar must show exactly one clipped title row while switching tasks; no second title may enter vertically.",
+        story:
+          "Narrow main-thread acceptance state with a long task title, maximum-width sidebar, and regular right panel. The fixed toolbar must show exactly one clipped title row while switching tasks; no second title may enter vertically.",
       },
     },
   },
@@ -2043,7 +2087,8 @@ export const CollapsedSidebarThreadChrome: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed sidebar chrome parity scene: traffic-light safe left rail with sidebar toggle, Back, Forward, compact New chat, and a long thread title that truncates in the top chrome.",
+        story:
+          "Collapsed sidebar chrome parity scene: traffic-light safe left rail with sidebar toggle, Back, Forward, compact New chat, and a long thread title that truncates in the top chrome.",
       },
     },
   },
@@ -2058,7 +2103,8 @@ export const DisabledNavigationChrome: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed titlebar with Codex Back/Forward buttons present but disabled because the workbench history stacks are empty.",
+        story:
+          "Collapsed titlebar with Codex Back/Forward buttons present but disabled because the workbench history stacks are empty.",
       },
     },
   },
@@ -2075,7 +2121,8 @@ export const FloatingSidebarAutoRevealed: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed sidebar with a synthetic pointer at x=12, rendering the Codex fixed floating left panel.",
+        story:
+          "Collapsed sidebar with a synthetic pointer at x=12, rendering the Codex fixed floating left panel.",
       },
     },
   },
@@ -2092,7 +2139,8 @@ export const FloatingSidebarFocusOverride: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed sidebar with focus inside the already revealed floating sidebar, keeping the floating panel visible after the pointer leaves.",
+        story:
+          "Collapsed sidebar with focus inside the already revealed floating sidebar, keeping the floating panel visible after the pointer leaves.",
       },
     },
   },
@@ -2109,7 +2157,8 @@ export const FloatingSidebarResizedWidth: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Floating sidebar after its right-edge sash has resized to the Codex maximum clamped width of 520px.",
+        story:
+          "Floating sidebar after its right-edge sash has resized to the Codex maximum clamped width of 520px.",
       },
     },
   },
@@ -2127,7 +2176,8 @@ export const FloatingSidebarReducedMotion: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Floating sidebar under prefers-reduced-motion, using Codex's zero-duration transition branch.",
+        story:
+          "Floating sidebar under prefers-reduced-motion, using Codex's zero-duration transition branch.",
       },
     },
   },
@@ -2141,7 +2191,8 @@ export const FullWidthRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded right panel with tabs aligned to the panel edge, restore in the panel tab header, and the main thread viewport collapsed to zero width under the same fixed toolbar.",
+        story:
+          "Expanded right panel with tabs aligned to the panel edge, restore in the panel tab header, and the main thread viewport collapsed to zero width under the same fixed toolbar.",
       },
     },
   },
@@ -2157,7 +2208,8 @@ export const CollapsedSidebarFullWidthRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed sidebar with a full-width right panel: the left titlebar rail reserves its measured width before the right-panel tabs so toolbar controls and tabs never overlap.",
+        story:
+          "Collapsed sidebar with a full-width right panel: the left titlebar rail reserves its measured width before the right-panel tabs so toolbar controls and tabs never overlap.",
       },
     },
   },
@@ -2173,7 +2225,8 @@ export const CollapsedSidebarFullWidthRightPanelReveal: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed sidebar auto-reveal over a full-width right panel, matching Codex's pointer-led floating left panel behavior.",
+        story:
+          "Collapsed sidebar auto-reveal over a full-width right panel, matching Codex's pointer-led floating left panel behavior.",
       },
     },
   },
@@ -2188,7 +2241,8 @@ export const FullWidthRightPanelWithBottomPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Full-width right panel with the independent bottom panel still visible, matching Codex's zero right-slot reservation while bottom geometry remains separate.",
+        story:
+          "Full-width right panel with the independent bottom panel still visible, matching Codex's zero right-slot reservation while bottom geometry remains separate.",
       },
     },
   },
@@ -2203,7 +2257,8 @@ export const SplitRightPanelGroups: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Right panel with two persisted tab groups, showing the persistent panel-edge hairline plus hover sash treatment, stable resize release, per-leaf tab strip, and active group chrome.",
+        story:
+          "Right panel with two persisted tab groups, showing the persistent panel-edge hairline plus hover sash treatment, stable resize release, per-leaf tab strip, and active group chrome.",
       },
     },
   },
@@ -2218,7 +2273,8 @@ export const EmptyRightPanelOptionMenu: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Codex-parity empty right-panel option menu with the compact Review, Terminal, Browser, Files, and Side chat action rows.",
+        story:
+          "Codex-parity empty right-panel option menu with the compact Review, Terminal, Browser, Files, and Side chat action rows.",
       },
     },
   },
@@ -2234,7 +2290,8 @@ export const RegularRightAndBottomMotionParity: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Regular side panel plus open bottom panel, showing one active-thread title in the global header, the animated right header slot for bottom/side toggles, and the summary toggle in the thread header lane while both panel shells use Codex spring geometry.",
+        story:
+          "Regular side panel plus open bottom panel, showing one active-thread title in the global header, the animated right header slot for bottom/side toggles, and the summary toggle in the thread header lane while both panel shells use Codex spring geometry.",
       },
     },
   },

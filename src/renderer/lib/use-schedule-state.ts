@@ -40,9 +40,7 @@ export function normalizeReminderOffsets(raw: string): number[] {
   return Array.from(new Set(offsets)).sort((left, right) => left - right);
 }
 
-export function reminderInputFromConfigs(
-  reminders: readonly ReminderConfig[] | undefined,
-): string {
+export function reminderInputFromConfigs(reminders: readonly ReminderConfig[] | undefined): string {
   if (!reminders || reminders.length === 0) return "";
   return reminders
     .map((entry) => entry.offsetMinutes)
@@ -71,9 +69,7 @@ export function recurrenceFromPage(page: PageScheduleSource): {
   }
 
   const untilDate =
-    recurrence.endCondition?.type === "untilDate"
-      ? recurrence.endCondition.untilDate
-      : "";
+    recurrence.endCondition?.type === "untilDate" ? recurrence.endCondition.untilDate : "";
   return {
     enabled: true,
     frequency: recurrence.frequency,
@@ -356,9 +352,7 @@ export function useScheduleState({
         recurrence.byWeekdays = byWeekdays.length > 0 ? byWeekdays : [1];
       }
       recurrence.endCondition =
-        endType === "untilDate" && untilDate
-          ? { type: "untilDate", untilDate }
-          : { type: "never" };
+        endType === "untilDate" && untilDate ? { type: "untilDate", untilDate } : { type: "never" };
 
       return recurrence;
     },
@@ -373,12 +367,7 @@ export function useScheduleState({
   );
 
   const persistScheduleValues = useCallback(
-    (
-      nextStartValue: string,
-      nextEndValue: string,
-      nextIsAllDay: boolean,
-      hint?: string,
-    ) => {
+    (nextStartValue: string, nextEndValue: string, nextIsAllDay: boolean, hint?: string) => {
       const parsedStart = nextIsAllDay
         ? parseDateLocalValue(nextStartValue)
         : parseDateTimeLocalValue(nextStartValue);
@@ -398,7 +387,8 @@ export function useScheduleState({
 
   const handleSetDefaultSchedule = useCallback(() => {
     if (isAllDay) {
-      const start = parseDateLocalValue(scheduledStart) ?? parseDateLocalValue(toDateLocalValue(new Date()))!;
+      const start =
+        parseDateLocalValue(scheduledStart) ?? parseDateLocalValue(toDateLocalValue(new Date()))!;
       const endExclusive = addDays(start, 1);
       const startValue = toDateLocalValue(start);
       const endValue = toAllDayEndInputValue(endExclusive);
@@ -458,12 +448,14 @@ export function useScheduleState({
         : parseDateTimeLocalValue(scheduledEnd);
       const needsAdjustment = !currentEnd || currentEnd.getTime() <= nextStart.getTime();
       const nextEnd = needsAdjustment
-        ? (isAllDay
+        ? isAllDay
           ? addDays(nextStart, 1)
-          : new Date(nextStart.getTime() + DEFAULT_SCHEDULE_DURATION_MINUTES * 60_000))
+          : new Date(nextStart.getTime() + DEFAULT_SCHEDULE_DURATION_MINUTES * 60_000)
         : currentEnd;
 
-      const nextEndValue = isAllDay ? toAllDayEndInputValue(nextEnd) : toDateTimeLocalValue(nextEnd);
+      const nextEndValue = isAllDay
+        ? toAllDayEndInputValue(nextEnd)
+        : toDateTimeLocalValue(nextEnd);
       setScheduledStart(nextValue);
       setScheduledEnd(nextEndValue);
       persistScheduleValues(
@@ -471,7 +463,9 @@ export function useScheduleState({
         nextEndValue,
         isAllDay,
         needsAdjustment
-          ? (isAllDay ? "End date adjusted to stay after start." : "End time adjusted to stay after start.")
+          ? isAllDay
+            ? "End date adjusted to stay after start."
+            : "End time adjusted to stay after start."
           : undefined,
       );
     },
@@ -496,19 +490,24 @@ export function useScheduleState({
       const currentStart = isAllDay
         ? parseDateLocalValue(scheduledStart)
         : parseDateTimeLocalValue(scheduledStart);
-      const inferredStart = currentStart
-        ?? (isAllDay
+      const inferredStart =
+        currentStart ??
+        (isAllDay
           ? addDays(nextEnd, -1)
           : new Date(nextEnd.getTime() - DEFAULT_SCHEDULE_DURATION_MINUTES * 60_000));
       const needsAdjustment = nextEnd.getTime() <= inferredStart.getTime();
       const adjustedEnd = needsAdjustment
-        ? (isAllDay
+        ? isAllDay
           ? addDays(inferredStart, 1)
-          : new Date(inferredStart.getTime() + DEFAULT_SCHEDULE_DURATION_MINUTES * 60_000))
+          : new Date(inferredStart.getTime() + DEFAULT_SCHEDULE_DURATION_MINUTES * 60_000)
         : nextEnd;
 
-      const nextStartValue = isAllDay ? toDateLocalValue(inferredStart) : toDateTimeLocalValue(inferredStart);
-      const nextEndValue = isAllDay ? toAllDayEndInputValue(adjustedEnd) : toDateTimeLocalValue(adjustedEnd);
+      const nextStartValue = isAllDay
+        ? toDateLocalValue(inferredStart)
+        : toDateTimeLocalValue(inferredStart);
+      const nextEndValue = isAllDay
+        ? toAllDayEndInputValue(adjustedEnd)
+        : toDateTimeLocalValue(adjustedEnd);
       setScheduledStart(nextStartValue);
       setScheduledEnd(nextEndValue);
       persistScheduleValues(
@@ -516,7 +515,9 @@ export function useScheduleState({
         nextEndValue,
         isAllDay,
         needsAdjustment
-          ? (isAllDay ? "End date adjusted to stay after start." : "End time adjusted to stay after start.")
+          ? isAllDay
+            ? "End date adjusted to stay after start."
+            : "End time adjusted to stay after start."
           : undefined,
       );
     },
@@ -559,17 +560,14 @@ export function useScheduleState({
     persistScheduleValues(nextStartValue, nextEndValue, false);
   }, [isAllDay, persistScheduleValues, scheduledEnd, scheduledStart]);
 
-  const persistReminderOffsets = useCallback(
-    (raw: string) => {
-      const offsets = normalizeReminderOffsets(raw);
-      const normalizedText = offsets.join(", ");
-      setReminderOffsets(normalizedText);
-      savePropertyRef.current({
-        reminders: offsets.map((offsetMinutes) => ({ offsetMinutes })),
-      });
-    },
-    [],
-  );
+  const persistReminderOffsets = useCallback((raw: string) => {
+    const offsets = normalizeReminderOffsets(raw);
+    const normalizedText = offsets.join(", ");
+    setReminderOffsets(normalizedText);
+    savePropertyRef.current({
+      reminders: offsets.map((offsetMinutes) => ({ offsetMinutes })),
+    });
+  }, []);
 
   const toggleReminderPreset = useCallback(
     (offset: number) => {
@@ -613,19 +611,22 @@ export function useScheduleState({
   const parsedScheduledEnd = isAllDay
     ? parseAllDayEndInputValue(scheduledEnd)
     : parseDateTimeLocalValue(scheduledEnd);
-  const scheduleSummary: ScheduleSummary | null = parsedScheduledStart && parsedScheduledEnd
-    ? (isAllDay
-      ? {
-          date: formatScheduleDateLabel(parsedScheduledStart, addDays(parsedScheduledEnd, -1)),
-          time: "All day",
-          duration: formatAllDayDuration(resolveAllDaySpanDays(parsedScheduledStart, parsedScheduledEnd)),
-        }
-      : {
-          date: formatScheduleDateLabel(parsedScheduledStart, parsedScheduledEnd),
-          time: formatTimeRange(parsedScheduledStart, parsedScheduledEnd),
-          duration: formatScheduleDuration(parsedScheduledStart, parsedScheduledEnd),
-        })
-    : null;
+  const scheduleSummary: ScheduleSummary | null =
+    parsedScheduledStart && parsedScheduledEnd
+      ? isAllDay
+        ? {
+            date: formatScheduleDateLabel(parsedScheduledStart, addDays(parsedScheduledEnd, -1)),
+            time: "All day",
+            duration: formatAllDayDuration(
+              resolveAllDaySpanDays(parsedScheduledStart, parsedScheduledEnd),
+            ),
+          }
+        : {
+            date: formatScheduleDateLabel(parsedScheduledStart, parsedScheduledEnd),
+            time: formatTimeRange(parsedScheduledStart, parsedScheduledEnd),
+            duration: formatScheduleDuration(parsedScheduledStart, parsedScheduledEnd),
+          }
+      : null;
 
   return {
     scheduledStart,

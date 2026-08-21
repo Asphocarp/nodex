@@ -20,7 +20,8 @@ export interface LargeContentFixtures {
 }
 
 export function createLargeContentFixtures(): LargeContentFixtures {
-  const diffHeader = "diff --git a/fixture.txt b/fixture.txt\n--- a/fixture.txt\n+++ b/fixture.txt\n";
+  const diffHeader =
+    "diff --git a/fixture.txt b/fixture.txt\n--- a/fixture.txt\n+++ b/fixture.txt\n";
   return {
     workspacePlainText: repeatAsciiToLength(
       "plain workspace source\n",
@@ -88,7 +89,8 @@ function createDiffWithByteLength(header: string, targetBytes: number): string {
 
 function createDiffWithLineCount(header: string, targetLines: number): string {
   const headerLineCount = countTextLines(header);
-  if (headerLineCount > targetLines) throw new RangeError("Diff target has fewer lines than its header");
+  if (headerLineCount > targetLines)
+    throw new RangeError("Diff target has fewer lines than its header");
   return header + "+line\n".repeat(targetLines - headerLineCount);
 }
 

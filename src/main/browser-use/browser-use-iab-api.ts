@@ -8,10 +8,7 @@ import {
   type BrowserUseTabState,
 } from "../../shared/browser-sidebar";
 import { isAllowedBrowserNavigationUrl } from "../../shared/browser-url";
-import {
-  BrowserSidebarService,
-  type BrowserWebContentsLike,
-} from "../browser-sidebar-service";
+import { BrowserSidebarService, type BrowserWebContentsLike } from "../browser-sidebar-service";
 import { getBrowserDownloadService } from "../browser/browser-download-service";
 import {
   buildBrowserUseInputTranslationScript,
@@ -29,21 +26,26 @@ const MIN_BROWSER_USE_VIEWPORT_WIDTH = 240;
 const MIN_BROWSER_USE_VIEWPORT_HEIGHT = 160;
 const MAX_BROWSER_USE_VIEWPORT_DIMENSION = 4_096;
 
-const BrowserUseSessionParamsSchema = z.object({
-  session_id: z.string().trim().min(1).max(512),
-  turn_id: z.string().trim().min(1).max(512).optional(),
-  session_context: z.enum(["live", "cached"]).optional(),
-}).passthrough();
+const BrowserUseSessionParamsSchema = z
+  .object({
+    session_id: z.string().trim().min(1).max(512),
+    turn_id: z.string().trim().min(1).max(512).optional(),
+    session_context: z.enum(["live", "cached"]).optional(),
+  })
+  .passthrough();
 
 const BrowserUseTabIdSchema = z.number().int().positive();
-const BrowserUseTargetSchema = z.object({
-  tabId: BrowserUseTabIdSchema,
-  sessionId: z.string().trim().min(1).max(512).optional(),
-  targetId: z.string().trim().min(1).max(512).optional(),
-}).strict().refine(
-  (target) => !(target.sessionId && target.targetId),
-  "CDP target must use either sessionId or targetId",
-);
+const BrowserUseTargetSchema = z
+  .object({
+    tabId: BrowserUseTabIdSchema,
+    sessionId: z.string().trim().min(1).max(512).optional(),
+    targetId: z.string().trim().min(1).max(512).optional(),
+  })
+  .strict()
+  .refine(
+    (target) => !(target.sessionId && target.targetId),
+    "CDP target must use either sessionId or targetId",
+  );
 
 const BrowserUseCdpParamsSchema = BrowserUseSessionParamsSchema.extend({
   target: BrowserUseTargetSchema,
@@ -71,11 +73,7 @@ export interface BrowserUseIabApiOptions {
   cdpCommandTimeoutMs?: number;
   route: BrowserUseRoute;
   cursorArrivalTimeoutMs?: number;
-  grantDownload?: (
-    identity: BrowserSidebarTabIdentity,
-    sourceUrl: string,
-    ttlMs?: number,
-  ) => void;
+  grantDownload?: (identity: BrowserSidebarTabIdentity, sourceUrl: string, ttlMs?: number) => void;
   pageReadyTimeoutMs?: number;
   policyStore?: BrowserUsePolicyReader;
 }
@@ -110,16 +108,10 @@ export interface BrowserUseCdpEvent {
 type CdpEventListener = (event: BrowserUseCdpEvent) => void;
 
 function clampDimension(value: number, minimum: number): number {
-  return Math.min(
-    MAX_BROWSER_USE_VIEWPORT_DIMENSION,
-    Math.max(minimum, Math.round(value)),
-  );
+  return Math.min(MAX_BROWSER_USE_VIEWPORT_DIMENSION, Math.max(minimum, Math.round(value)));
 }
 
-function makeBrowserUseViewport(
-  width = 1_280,
-  height = 720,
-): BrowserSidebarViewport {
+function makeBrowserUseViewport(width = 1_280, height = 720): BrowserSidebarViewport {
   return {
     width: clampDimension(width, MIN_BROWSER_USE_VIEWPORT_WIDTH),
     height: clampDimension(height, MIN_BROWSER_USE_VIEWPORT_HEIGHT),
@@ -128,10 +120,7 @@ function makeBrowserUseViewport(
   };
 }
 
-function toIdentity(
-  route: BrowserUseRoute,
-  browserTabId: string,
-): BrowserSidebarTabIdentity {
+function toIdentity(route: BrowserUseRoute, browserTabId: string): BrowserSidebarTabIdentity {
   return {
     browserConversationId: route.browserConversationId,
     browserViewScopeId: route.browserViewScopeId,
@@ -148,20 +137,20 @@ function readCaptureSurfaceSize(
   commandParams: Record<string, unknown> | undefined,
 ): { height: number; width: number } | null {
   if (
-    method !== "Page.captureScreenshot"
-    || commandParams?.captureBeyondViewport !== true
-    || !isRecord(commandParams.clip)
+    method !== "Page.captureScreenshot" ||
+    commandParams?.captureBeyondViewport !== true ||
+    !isRecord(commandParams.clip)
   ) {
     return null;
   }
   const { height, width } = commandParams.clip;
   if (
-    typeof height !== "number"
-    || typeof width !== "number"
-    || !Number.isFinite(height)
-    || !Number.isFinite(width)
-    || height <= 0
-    || width <= 0
+    typeof height !== "number" ||
+    typeof width !== "number" ||
+    !Number.isFinite(height) ||
+    !Number.isFinite(width) ||
+    height <= 0 ||
+    width <= 0
   ) {
     return null;
   }
@@ -179,19 +168,21 @@ function isCaptureSurfaceReady(
   const viewport = isRecord(metrics.cssVisualViewport)
     ? metrics.cssVisualViewport
     : isRecord(metrics.visualViewport)
-    ? metrics.visualViewport
-    : null;
+      ? metrics.visualViewport
+      : null;
   if (!viewport) return false;
-  const width = typeof viewport.clientWidth === "number"
-    ? viewport.clientWidth
-    : typeof viewport.width === "number"
-    ? viewport.width
-    : 0;
-  const height = typeof viewport.clientHeight === "number"
-    ? viewport.clientHeight
-    : typeof viewport.height === "number"
-    ? viewport.height
-    : 0;
+  const width =
+    typeof viewport.clientWidth === "number"
+      ? viewport.clientWidth
+      : typeof viewport.width === "number"
+        ? viewport.width
+        : 0;
+  const height =
+    typeof viewport.clientHeight === "number"
+      ? viewport.clientHeight
+      : typeof viewport.height === "number"
+        ? viewport.height
+        : 0;
   return width >= target.width && height >= target.height;
 }
 
@@ -207,20 +198,13 @@ function assertAllowedBrowserUseNavigationUrl(value: unknown): string {
     throw new Error("Browser Use navigation URL is not allowed");
   }
   const parsed = new URL(value);
-  if (
-    !["http:", "https:"].includes(parsed.protocol)
-    && value !== "about:blank"
-  ) {
+  if (!["http:", "https:"].includes(parsed.protocol) && value !== "about:blank") {
     throw new Error("Browser Use navigation URL is not allowed");
   }
   return value;
 }
 
-function withTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
     timer.unref?.();
@@ -247,8 +231,7 @@ export class BrowserUseIabApi extends EventEmitter {
   private readonly cdpDisposers = new Map<number, () => void>();
   private readonly cursorArrivalTimeoutMs: number;
   private readonly debuggerTargetIdsBySessionId = new Map<string, string>();
-  private readonly debuggerTargetSessionsByTabId =
-    new Map<number, Map<string, string>>();
+  private readonly debuggerTargetSessionsByTabId = new Map<number, Map<string, string>>();
   private readonly expressionCache = new Map<string, string>();
   private readonly grantDownload: NonNullable<BrowserUseIabApiOptions["grantDownload"]>;
   private readonly cursorArrivalWaiters = new Map<number, () => void>();
@@ -272,17 +255,16 @@ export class BrowserUseIabApi extends EventEmitter {
     this.buildFlavor = options.buildFlavor;
     this.cdpCommandTimeoutMs = Math.max(
       1,
-      Math.floor(
-        options.cdpCommandTimeoutMs ?? DEFAULT_CDP_COMMAND_TIMEOUT_MS,
-      ),
+      Math.floor(options.cdpCommandTimeoutMs ?? DEFAULT_CDP_COMMAND_TIMEOUT_MS),
     );
-    this.cursorArrivalTimeoutMs = options.cursorArrivalTimeoutMs
-      ?? DEFAULT_CURSOR_ARRIVAL_TIMEOUT_MS;
-    this.grantDownload = options.grantDownload ?? ((identity, sourceUrl, ttlMs) => {
-      getBrowserDownloadService().grantAgentDownload(identity, sourceUrl, ttlMs);
-    });
-    this.pageReadyTimeoutMs = options.pageReadyTimeoutMs
-      ?? DEFAULT_PAGE_READY_TIMEOUT_MS;
+    this.cursorArrivalTimeoutMs =
+      options.cursorArrivalTimeoutMs ?? DEFAULT_CURSOR_ARRIVAL_TIMEOUT_MS;
+    this.grantDownload =
+      options.grantDownload ??
+      ((identity, sourceUrl, ttlMs) => {
+        getBrowserDownloadService().grantAgentDownload(identity, sourceUrl, ttlMs);
+      });
+    this.pageReadyTimeoutMs = options.pageReadyTimeoutMs ?? DEFAULT_PAGE_READY_TIMEOUT_MS;
     this.policyStore = options.policyStore ?? null;
     this.route = options.route;
   }
@@ -293,8 +275,7 @@ export class BrowserUseIabApi extends EventEmitter {
 
   getInfo(rawParams: unknown): Record<string, unknown> {
     this.requireSession(rawParams);
-    const fullCdpAccessEnabled =
-      this.policyStore?.snapshot().fullCdpAccessEnabled === true;
+    const fullCdpAccessEnabled = this.policyStore?.snapshot().fullCdpAccessEnabled === true;
     return {
       apiSupportOverrides: {
         "BrowserUser.claimTab": true,
@@ -323,10 +304,12 @@ export class BrowserUseIabApi extends EventEmitter {
             description: "Inspect assets observed in the current page.",
           },
           ...(fullCdpAccessEnabled
-            ? [{
-                id: "cdp",
-                description: "Call the Chrome DevTools Protocol directly.",
-              }]
+            ? [
+                {
+                  id: "cdp",
+                  description: "Call the Chrome DevTools Protocol directly.",
+                },
+              ]
             : []),
         ],
       },
@@ -382,9 +365,7 @@ export class BrowserUseIabApi extends EventEmitter {
       await this.detachTabBestEffort(tabId);
     }
     for (const tab of this.controlledTabs.values()) {
-      this.browserService.releaseBrowserUseTab(
-        toIdentity(this.route, tab.browserTabId),
-      );
+      this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
     }
     this.controlledTabs.clear();
     this.selectedTabId = null;
@@ -430,10 +411,7 @@ export class BrowserUseIabApi extends EventEmitter {
       [...this.controlledTabs.values()].map((tab) => tab.browserTabId),
     );
     return this.browserService
-      .listTabSnapshots(
-        this.route.browserConversationId,
-        this.route.browserViewScopeId,
-      )
+      .listTabSnapshots(this.route.browserConversationId, this.route.browserViewScopeId)
       .filter((snapshot) => !controlledBrowserTabIds.has(snapshot.browserTabId))
       .map((snapshot) => ({
         id: this.getOrCreateUserTabId(snapshot.browserTabId),
@@ -479,16 +457,16 @@ export class BrowserUseIabApi extends EventEmitter {
     if (![...this.userTabIdsByBrowserTabId.values()].includes(params.tabId)) {
       this.getUserTabs(params);
     }
-    const resolvedEntry = [...this.userTabIdsByBrowserTabId.entries()]
-      .find(([, userTabId]) => userTabId === params.tabId);
-    if (!resolvedEntry) throw new Error(`Unknown tab: ${params.tabId}`);
-    const snapshot = this.browserService.getTabSnapshot(
-      toIdentity(this.route, resolvedEntry[0]),
+    const resolvedEntry = [...this.userTabIdsByBrowserTabId.entries()].find(
+      ([, userTabId]) => userTabId === params.tabId,
     );
+    if (!resolvedEntry) throw new Error(`Unknown tab: ${params.tabId}`);
+    const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, resolvedEntry[0]));
     if (!snapshot) throw new Error(`Unknown tab: ${params.tabId}`);
 
-    const existing = [...this.controlledTabs.values()]
-      .find((tab) => tab.browserTabId === snapshot.browserTabId);
+    const existing = [...this.controlledTabs.values()].find(
+      (tab) => tab.browserTabId === snapshot.browserTabId,
+    );
     const tab = existing ?? {
       browserTabId: snapshot.browserTabId,
       id: params.tabId,
@@ -498,18 +476,18 @@ export class BrowserUseIabApi extends EventEmitter {
     this.controlledTabs.set(tab.id, tab);
     this.selectedTabId = tab.id;
     this.publishControlledTab(tab, snapshot);
-    this.browserService.setActiveBrowserUseTab(
-      this.route,
-      snapshot.browserTabId,
-    );
+    this.browserService.setActiveBrowserUseTab(this.route, snapshot.browserTabId);
     await this.waitForLiveTab(tab);
     return this.serializeTab(tab);
   }
 
   private focusTab(rawParams: unknown): void {
-    const params = z.object({
-      tabId: BrowserUseTabIdSchema,
-    }).strict().parse(rawParams);
+    const params = z
+      .object({
+        tabId: BrowserUseTabIdSchema,
+      })
+      .strict()
+      .parse(rawParams);
     const tab = this.requireControlledTab(params.tabId);
     this.selectedTabId = tab.id;
     this.browserService.setActiveBrowserUseTab(this.route, tab.browserTabId);
@@ -518,7 +496,9 @@ export class BrowserUseIabApi extends EventEmitter {
   private nameSession(rawParams: unknown): void {
     const params = BrowserUseSessionParamsSchema.extend({
       name: z.string().trim().min(1).max(512),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     this.recordTurn(params);
   }
@@ -546,7 +526,9 @@ export class BrowserUseIabApi extends EventEmitter {
   private async attachTarget(rawParams: unknown): Promise<void> {
     const params = BrowserUseTabParamsSchema.extend({
       targetId: z.string().trim().min(1).max(512),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     await this.attach(params);
     const tab = this.requireControlledTab(params.tabId);
     if (params.targetId === this.topLevelTargetId(tab)) return;
@@ -565,7 +547,9 @@ export class BrowserUseIabApi extends EventEmitter {
   private async detachTarget(rawParams: unknown): Promise<void> {
     const params = BrowserUseTabParamsSchema.extend({
       targetId: z.string().trim().min(1).max(512),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     const tab = this.requireControlledTab(params.tabId);
     if (params.targetId === this.topLevelTargetId(tab)) {
@@ -593,10 +577,10 @@ export class BrowserUseIabApi extends EventEmitter {
       return await this.getTargetInfos(tab);
     }
     if (params.method === "Target.closeTarget") {
-      const targetId = isRecord(params.commandParams)
-        && typeof params.commandParams.targetId === "string"
-        ? params.commandParams.targetId
-        : null;
+      const targetId =
+        isRecord(params.commandParams) && typeof params.commandParams.targetId === "string"
+          ? params.commandParams.targetId
+          : null;
       if (targetId !== this.topLevelTargetId(tab)) {
         throw new Error("Target.closeTarget can only close the current in-app browser tab");
       }
@@ -607,12 +591,15 @@ export class BrowserUseIabApi extends EventEmitter {
       this.closeControlledTab(tab);
       return {};
     }
-    if (params.method.startsWith("Target.") && ![
-      "Target.getTargets",
-      "Target.setAutoAttach",
-      "Target.attachToTarget",
-      "Target.detachFromTarget",
-    ].includes(params.method)) {
+    if (
+      params.method.startsWith("Target.") &&
+      ![
+        "Target.getTargets",
+        "Target.setAutoAttach",
+        "Target.attachToTarget",
+        "Target.detachFromTarget",
+      ].includes(params.method)
+    ) {
       throw new Error(`Unsupported Browser Use target command: ${params.method}`);
     }
     const contents = await this.waitForLiveTab(tab);
@@ -620,26 +607,22 @@ export class BrowserUseIabApi extends EventEmitter {
     if (!debuggerPort) throw new Error("Browser debugger is unavailable");
     if (!debuggerPort.isAttached()) debuggerPort.attach("1.3");
     this.registerCdpListener(tab, contents);
-    const targetSessionId = params.target.sessionId
-      ?? (
-        params.target.targetId
-        && params.target.targetId !== this.topLevelTargetId(tab)
-          ? this.debuggerSessionIdForTarget(tab, params.target.targetId)
-          : undefined
-      );
+    const targetSessionId =
+      params.target.sessionId ??
+      (params.target.targetId && params.target.targetId !== this.topLevelTargetId(tab)
+        ? this.debuggerSessionIdForTarget(tab, params.target.targetId)
+        : undefined);
     if (
-      params.target.targetId
-      && params.target.targetId !== this.topLevelTargetId(tab)
-      && !targetSessionId
+      params.target.targetId &&
+      params.target.targetId !== this.topLevelTargetId(tab) &&
+      !targetSessionId
     ) {
       throw new Error(
         `No in-app browser debugger session is attached for target ${params.target.targetId}`,
       );
     }
     if (params.method === "Page.navigate") {
-      const url = assertAllowedBrowserUseNavigationUrl(
-        params.commandParams?.url,
-      );
+      const url = assertAllowedBrowserUseNavigationUrl(params.commandParams?.url);
       this.assertPolicyAllows("origin", url);
     }
     if (params.method === "Page.navigateToHistoryEntry") {
@@ -648,39 +631,25 @@ export class BrowserUseIabApi extends EventEmitter {
         throw new Error("Page.navigateToHistoryEntry requires an integer entryId");
       }
       const history = await withTimeout(
-        debuggerPort.sendCommand(
-          "Page.getNavigationHistory",
-          undefined,
-          targetSessionId,
-        ),
+        debuggerPort.sendCommand("Page.getNavigationHistory", undefined, targetSessionId),
         this.cdpCommandTimeoutMs,
         "Timed out validating Browser Use navigation history",
       );
-      const entries = isRecord(history) && Array.isArray(history.entries)
-        ? history.entries
-        : [];
-      const selectedEntry = entries.find((entry) =>
-        isRecord(entry) && entry.id === entryId
-      );
-      assertAllowedBrowserUseNavigationUrl(
-        isRecord(selectedEntry) ? selectedEntry.url : undefined,
-      );
+      const entries = isRecord(history) && Array.isArray(history.entries) ? history.entries : [];
+      const selectedEntry = entries.find((entry) => isRecord(entry) && entry.id === entryId);
+      assertAllowedBrowserUseNavigationUrl(isRecord(selectedEntry) ? selectedEntry.url : undefined);
       this.assertPolicyAllows(
         "origin",
-        isRecord(selectedEntry) && typeof selectedEntry.url === "string"
-          ? selectedEntry.url
-          : "",
+        isRecord(selectedEntry) && typeof selectedEntry.url === "string" ? selectedEntry.url : "",
       );
     }
     if (params.method === "DOM.setFileInputFiles") {
       this.assertPolicyAllows("upload", contents.getURL());
     }
-    const shouldTranslateInput = params.method.startsWith("Input.")
-      && !targetSessionId
-      && (
-        !params.target.targetId
-        || params.target.targetId === this.topLevelTargetId(tab)
-      );
+    const shouldTranslateInput =
+      params.method.startsWith("Input.") &&
+      !targetSessionId &&
+      (!params.target.targetId || params.target.targetId === this.topLevelTargetId(tab));
     if (shouldTranslateInput) {
       if (!isSupportedBrowserUseInputMethod(params.method)) {
         throw new Error(
@@ -689,22 +658,15 @@ export class BrowserUseIabApi extends EventEmitter {
       }
       const translated = await withTimeout(
         contents.executeJavaScript(
-          buildBrowserUseInputTranslationScript(
-            params.method,
-            params.commandParams ?? {},
-          ),
-          params.method === "Input.dispatchMouseEvent"
-            && params.commandParams?.type === "mouseReleased",
+          buildBrowserUseInputTranslationScript(params.method, params.commandParams ?? {}),
+          params.method === "Input.dispatchMouseEvent" &&
+            params.commandParams?.type === "mouseReleased",
         ) as Promise<BrowserUseInputTranslationResult>,
         this.cdpCommandTimeoutMs,
         `Timed out translating Browser Use input command ${params.method}`,
       );
       if (translated.ok) return {};
-      if (
-        translated.error?.includes(
-          "Input targets inside cross-origin or inaccessible iframes",
-        )
-      ) {
+      if (translated.error?.includes("Input targets inside cross-origin or inaccessible iframes")) {
         // Cross-origin frames cannot be reached from the top-level main world.
         // Let Chromium target the frame through CDP instead.
       } else {
@@ -715,10 +677,7 @@ export class BrowserUseIabApi extends EventEmitter {
         );
       }
     }
-    const captureSurfaceSize = readCaptureSurfaceSize(
-      params.method,
-      params.commandParams,
-    );
+    const captureSurfaceSize = readCaptureSurfaceSize(params.method, params.commandParams);
     if (captureSurfaceSize) {
       this.browserService.setBrowserUseCaptureSurface({
         ...toIdentity(this.route, tab.browserTabId),
@@ -754,18 +713,18 @@ export class BrowserUseIabApi extends EventEmitter {
   ): Promise<{ kind: "cache-miss" } | { kind: "executed"; result: unknown }> {
     const params = BrowserUseCdpParamsSchema.extend({
       expressionCacheKey: z.string().trim().min(1).max(512),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     this.recordTurn(params);
     const commandParams = params.commandParams ?? {};
-    const suppliedExpression = typeof commandParams.expression === "string"
-      ? commandParams.expression
-      : null;
+    const suppliedExpression =
+      typeof commandParams.expression === "string" ? commandParams.expression : null;
     if (suppliedExpression) {
       this.expressionCache.set(params.expressionCacheKey, suppliedExpression);
     }
-    const expression = suppliedExpression
-      ?? this.expressionCache.get(params.expressionCacheKey);
+    const expression = suppliedExpression ?? this.expressionCache.get(params.expressionCacheKey);
     if (!expression) return { kind: "cache-miss" };
     return {
       kind: "executed",
@@ -783,16 +742,13 @@ export class BrowserUseIabApi extends EventEmitter {
     const params = this.requireSession(rawParams);
     this.recordTurn(params);
     const type = typeof params.type === "string" ? params.type : "";
-    const selected = this.selectedTabId === null
-      ? null
-      : this.controlledTabs.get(this.selectedTabId) ?? null;
+    const selected =
+      this.selectedTabId === null ? null : (this.controlledTabs.get(this.selectedTabId) ?? null);
     if (type === "browser_visibility_get") {
       return {
-        visible: selected !== null
-          && this.browserService.isBrowserVisibleForBrowserUse(
-            this.route,
-            selected.browserTabId,
-          ),
+        visible:
+          selected !== null &&
+          this.browserService.isBrowserVisibleForBrowserUse(this.route, selected.browserTabId),
       };
     }
     if (type === "browser_visibility_set") {
@@ -836,7 +792,9 @@ export class BrowserUseIabApi extends EventEmitter {
   private allowDownload(rawParams: unknown): void {
     const params = BrowserUseTabParamsSchema.extend({
       url: z.string().trim().min(1).max(16_384),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     this.recordTurn(params);
     const tab = this.requireControlledTab(params.tabId);
@@ -858,7 +816,9 @@ export class BrowserUseIabApi extends EventEmitter {
     const params = BrowserUseTabParamsSchema.extend({
       status: z.enum(["handoff", "deliverable"]),
       turn_id: z.string().trim().min(1).max(512),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     const tab = this.requireControlledTab(params.tabId);
     tab.mark = {
@@ -870,11 +830,19 @@ export class BrowserUseIabApi extends EventEmitter {
 
   private async finalizeTabs(rawParams: unknown): Promise<void> {
     const params = BrowserUseSessionParamsSchema.extend({
-      keep: z.array(z.object({
-        tabId: BrowserUseTabIdSchema,
-        status: z.enum(["handoff", "deliverable"]),
-      }).strict()).max(128),
-    }).passthrough().parse(rawParams);
+      keep: z
+        .array(
+          z
+            .object({
+              tabId: BrowserUseTabIdSchema,
+              status: z.enum(["handoff", "deliverable"]),
+            })
+            .strict(),
+        )
+        .max(128),
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     this.recordTurn(params);
     const keep = new Map(params.keep.map((entry) => [entry.tabId, entry.status]));
@@ -887,7 +855,9 @@ export class BrowserUseIabApi extends EventEmitter {
       x: z.number().finite(),
       y: z.number().finite(),
       waitForArrival: z.boolean().optional(),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     this.recordTurn(params);
     const tab = this.requireControlledTab(params.tabId);
@@ -921,7 +891,9 @@ export class BrowserUseIabApi extends EventEmitter {
   async turnEnded(rawParams: unknown): Promise<void> {
     const params = BrowserUseSessionParamsSchema.extend({
       turn_id: z.string().trim().min(1).max(512),
-    }).passthrough().parse(rawParams);
+    })
+      .passthrough()
+      .parse(rawParams);
     this.requireSession(params);
     if (this.recordedTurnId !== params.turn_id) return;
     const keep = new Map<number, "handoff" | "deliverable">();
@@ -940,8 +912,7 @@ export class BrowserUseIabApi extends EventEmitter {
   ): Promise<void> {
     for (const tab of [...this.controlledTabs.values()]) {
       await this.detachTabBestEffort(tab.id);
-      const status = keep.get(tab.id)
-        ?? (tab.mark?.turnId === turnId ? tab.mark.status : null);
+      const status = keep.get(tab.id) ?? (tab.mark?.turnId === turnId ? tab.mark.status : null);
       if (status === "handoff" && tab.origin === "agent") {
         tab.mark = null;
         continue;
@@ -952,22 +923,15 @@ export class BrowserUseIabApi extends EventEmitter {
       }
       this.closeControlledTab(tab);
     }
-    const selected = this.selectedTabId === null
-      ? null
-      : this.controlledTabs.get(this.selectedTabId) ?? null;
-    this.browserService.setActiveBrowserUseTab(
-      this.route,
-      selected?.browserTabId ?? null,
-    );
+    const selected =
+      this.selectedTabId === null ? null : (this.controlledTabs.get(this.selectedTabId) ?? null);
+    this.browserService.setActiveBrowserUseTab(this.route, selected?.browserTabId ?? null);
     this.clearPendingCapabilityIntents();
   }
 
   private publishControlledTab(
     tab: ControlledBrowserUseTab,
-    snapshot: Pick<
-      BrowserSidebarTabSnapshot,
-      "title" | "url" | "webContentsId" | "viewport"
-    >,
+    snapshot: Pick<BrowserSidebarTabSnapshot, "title" | "url" | "webContentsId" | "viewport">,
   ): void {
     const state: BrowserUseTabState = {
       ...toIdentity(this.route, tab.browserTabId),
@@ -986,17 +950,13 @@ export class BrowserUseIabApi extends EventEmitter {
 
   private refreshControlledTabs(): void {
     for (const tab of this.controlledTabs.values()) {
-      const snapshot = this.browserService.getTabSnapshot(
-        toIdentity(this.route, tab.browserTabId),
-      );
+      const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, tab.browserTabId));
       if (snapshot) this.publishControlledTab(tab, snapshot);
     }
   }
 
   private serializeTab(tab: ControlledBrowserUseTab): BrowserUseIabTabInfo {
-    const snapshot = this.browserService.getTabSnapshot(
-      toIdentity(this.route, tab.browserTabId),
-    );
+    const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, tab.browserTabId));
     return {
       active: tab.id === this.selectedTabId,
       id: tab.id,
@@ -1019,20 +979,14 @@ export class BrowserUseIabApi extends EventEmitter {
     return tab;
   }
 
-  private async waitForLiveTab(
-    tab: ControlledBrowserUseTab,
-  ): Promise<BrowserWebContentsLike> {
+  private async waitForLiveTab(tab: ControlledBrowserUseTab): Promise<BrowserWebContentsLike> {
     const identity = toIdentity(this.route, tab.browserTabId);
     const existing = this.browserService.getWebContentsForTab(identity);
     if (existing && !existing.isDestroyed()) return existing;
 
     return await new Promise<BrowserWebContentsLike>((resolve, reject) => {
       let settled = false;
-      const finish = (
-        outcome:
-          | { contents: BrowserWebContentsLike }
-          | { error: Error },
-      ) => {
+      const finish = (outcome: { contents: BrowserWebContentsLike } | { error: Error }) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -1041,16 +995,16 @@ export class BrowserUseIabApi extends EventEmitter {
         else resolve(outcome.contents);
       };
       const onAttached = (event: BrowserSidebarTabIdentity) => {
-          if (
-            event.browserConversationId !== identity.browserConversationId
-            || event.browserViewScopeId !== identity.browserViewScopeId
-            || event.browserTabId !== identity.browserTabId
-          ) {
-            return;
-          }
-          const contents = this.browserService.getWebContentsForTab(identity);
-          if (!contents || contents.isDestroyed()) return;
-          finish({ contents });
+        if (
+          event.browserConversationId !== identity.browserConversationId ||
+          event.browserViewScopeId !== identity.browserViewScopeId ||
+          event.browserTabId !== identity.browserTabId
+        ) {
+          return;
+        }
+        const contents = this.browserService.getWebContentsForTab(identity);
+        if (!contents || contents.isDestroyed()) return;
+        finish({ contents });
       };
       const timer = setTimeout(() => {
         finish({
@@ -1069,33 +1023,22 @@ export class BrowserUseIabApi extends EventEmitter {
     if (this.cdpDisposers.has(tab.id)) return;
     const debuggerPort = contents.debugger;
     if (!debuggerPort?.on || !debuggerPort.removeListener) return;
-    const listener = (
-      _event: unknown,
-      method: unknown,
-      params: unknown,
-      sessionId: unknown,
-    ) => {
+    const listener = (_event: unknown, method: unknown, params: unknown, sessionId: unknown) => {
       if (typeof method !== "string") return;
-      const normalizedSessionId = typeof sessionId === "string"
-          && sessionId.length > 0
-        ? sessionId
-        : undefined;
+      const normalizedSessionId =
+        typeof sessionId === "string" && sessionId.length > 0 ? sessionId : undefined;
       if (
-        method === "Target.attachedToTarget"
-        && isRecord(params)
-        && typeof params.sessionId === "string"
-        && isRecord(params.targetInfo)
-        && typeof params.targetInfo.targetId === "string"
+        method === "Target.attachedToTarget" &&
+        isRecord(params) &&
+        typeof params.sessionId === "string" &&
+        isRecord(params.targetInfo) &&
+        typeof params.targetInfo.targetId === "string"
       ) {
-        this.rememberDebuggerTargetSession(
-          tab,
-          params.targetInfo.targetId,
-          params.sessionId,
-        );
+        this.rememberDebuggerTargetSession(tab, params.targetInfo.targetId, params.sessionId);
       } else if (
-        method === "Target.detachedFromTarget"
-        && isRecord(params)
-        && typeof params.sessionId === "string"
+        method === "Target.detachedFromTarget" &&
+        isRecord(params) &&
+        typeof params.sessionId === "string"
       ) {
         this.forgetDebuggerTargetSession(params.sessionId);
       }
@@ -1103,12 +1046,9 @@ export class BrowserUseIabApi extends EventEmitter {
         source: {
           tabId: tab.id,
           ...(normalizedSessionId ? { sessionId: normalizedSessionId } : {}),
-          ...(normalizedSessionId
-            && this.debuggerTargetIdsBySessionId.has(normalizedSessionId)
+          ...(normalizedSessionId && this.debuggerTargetIdsBySessionId.has(normalizedSessionId)
             ? {
-                targetId: this.debuggerTargetIdsBySessionId.get(
-                  normalizedSessionId,
-                ),
+                targetId: this.debuggerTargetIdsBySessionId.get(normalizedSessionId),
               }
             : {}),
         },
@@ -1137,9 +1077,7 @@ export class BrowserUseIabApi extends EventEmitter {
   }
 
   private releaseControlledTab(tab: ControlledBrowserUseTab): void {
-    this.browserService.releaseBrowserUseTab(
-      toIdentity(this.route, tab.browserTabId),
-    );
+    this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
     this.controlledTabs.delete(tab.id);
     if (this.selectedTabId === tab.id) this.selectedTabId = null;
   }
@@ -1150,17 +1088,10 @@ export class BrowserUseIabApi extends EventEmitter {
     if (viewport) this.applyViewport(tab, viewport);
     if (!this.pendingVisibility) return;
     this.pendingVisibility = false;
-    this.browserService.setBrowserVisibleForBrowserUse(
-      this.route,
-      tab.browserTabId,
-      true,
-    );
+    this.browserService.setBrowserVisibleForBrowserUse(this.route, tab.browserTabId, true);
   }
 
-  private applyViewport(
-    tab: ControlledBrowserUseTab,
-    viewport: BrowserSidebarViewport,
-  ): void {
+  private applyViewport(tab: ControlledBrowserUseTab, viewport: BrowserSidebarViewport): void {
     const identity = toIdentity(this.route, tab.browserTabId);
     this.browserService.setBrowserUseViewport({
       ...identity,
@@ -1182,9 +1113,7 @@ export class BrowserUseIabApi extends EventEmitter {
   }
 
   private closeControlledTab(tab: ControlledBrowserUseTab): void {
-    this.browserService.closeBrowserTab(
-      toIdentity(this.route, tab.browserTabId),
-    );
+    this.browserService.closeBrowserTab(toIdentity(this.route, tab.browserTabId));
     this.controlledTabs.delete(tab.id);
     if (this.selectedTabId === tab.id) this.selectedTabId = null;
   }
@@ -1247,13 +1176,12 @@ export class BrowserUseIabApi extends EventEmitter {
     });
     const contents = await this.waitForLiveTab(tab);
     const raw = await contents.debugger?.sendCommand("Target.getTargets", {});
-    const frameTargets = isRecord(raw) && Array.isArray(raw.targetInfos)
-      ? raw.targetInfos.flatMap((entry): Array<Record<string, unknown>> => (
-        isRecord(entry) && entry.type === "iframe"
-          ? [{ ...entry, tabId: tab.id }]
-          : []
-      ))
-      : [];
+    const frameTargets =
+      isRecord(raw) && Array.isArray(raw.targetInfos)
+        ? raw.targetInfos.flatMap((entry): Array<Record<string, unknown>> =>
+            isRecord(entry) && entry.type === "iframe" ? [{ ...entry, tabId: tab.id }] : [],
+          )
+        : [];
     return { targetInfos: [...topLevelTargets, ...frameTargets] };
   }
 

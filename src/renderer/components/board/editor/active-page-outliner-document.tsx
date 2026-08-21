@@ -111,10 +111,7 @@ function PageOutlinerFailure({
 }) {
   return (
     <ProjectedRow target={target} rowProps={rowProps}>
-      <div
-        role="alert"
-        className="flex min-h-8 items-center gap-2 py-1 text-sm"
-      >
+      <div role="alert" className="flex min-h-8 items-center gap-2 py-1 text-sm">
         <span className="min-w-0 flex-1 truncate text-token-error-foreground">
           {error.message || "Couldn’t open this collaborative content."}
         </span>
@@ -156,11 +153,7 @@ function ActivePageOutlinerContent({
   useLayoutEffect(() => {
     if (!focusIntent) return;
 
-    if (
-      focusIntent.kind === "boundary"
-      && focusIntent.direction === "up"
-      && rowProps.expanded
-    ) {
+    if (focusIntent.kind === "boundary" && focusIntent.direction === "up" && rowProps.expanded) {
       if (!bodyNavigationRef.current?.focusBoundary("up")) return;
       onFocusIntentConsumed(focusIntent.id);
       return;
@@ -169,16 +162,9 @@ function ActivePageOutlinerContent({
     const title = titleRef.current;
     if (!title) return;
     if (focusIntent.kind === "pointer") {
-      focusRichTitleDomAtPoint(
-        title,
-        focusIntent.clientX,
-        focusIntent.clientY,
-      );
+      focusRichTitleDomAtPoint(title, focusIntent.clientX, focusIntent.clientY);
     } else {
-      focusRichTitleDomBoundary(
-        title,
-        focusIntent.direction === "down" ? "start" : "end",
-      );
+      focusRichTitleDomBoundary(title, focusIntent.direction === "down" ? "start" : "end");
     }
     onFocusIntentConsumed(focusIntent.id);
   }, [focusIntent, onFocusIntentConsumed, rowProps.expanded]);
@@ -194,20 +180,17 @@ function ActivePageOutlinerContent({
       return;
     }
 
-    const direction = event.key === "ArrowUp"
-      ? "up"
-      : event.key === "ArrowDown"
-        ? "down"
-        : null;
+    const direction = event.key === "ArrowUp" ? "up" : event.key === "ArrowDown" ? "down" : null;
     if (!direction) return;
     const title = titleRef.current;
     if (!title || !isRichTitleDomSelectionAtVerticalBoundary(title, direction)) {
       return;
     }
 
-    const moved = direction === "down" && rowProps.expanded
-      ? bodyNavigationRef.current?.focusBoundary("down") ?? false
-      : onMoveToHostBoundary(direction);
+    const moved =
+      direction === "down" && rowProps.expanded
+        ? (bodyNavigationRef.current?.focusBoundary("down") ?? false)
+        : onMoveToHostBoundary(direction);
     if (!moved) return;
     event.preventDefault();
     event.stopPropagation();
@@ -219,17 +202,11 @@ function ActivePageOutlinerContent({
       metadata={
         <>
           {rowProps.metadata}
-          <BlockDocumentSyncStatus
-            runtime={surface.runtime}
-            status={surface.status.provider}
-          />
+          <BlockDocumentSyncStatus runtime={surface.runtime} status={surface.status.provider} />
         </>
       }
       title={
-        <div
-          {...nestedEditorEventProps}
-          data-embedded-surface-input="page-title"
-        >
+        <div {...nestedEditorEventProps} data-embedded-surface-input="page-title">
           <CollaborativePageTitle
             ref={titleRef}
             title={surface.title}
@@ -270,7 +247,7 @@ function ActivePageOutlinerContent({
             onOpenPage={hostRuntime.openPage}
             onOpenCanvas={hostRuntime.openCanvas}
             isActivePanelTab={hostRuntime.isActiveSurface}
-              placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
+            placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
             className="min-h-0! min-w-0"
             embeddedBoundary={{
               navigationRef: bodyNavigationRef,
@@ -304,13 +281,8 @@ export function ActivePageOutlinerDocument({
   onEscapeToHostShell,
 }: ActivePageOutlinerDocumentProps) {
   const { projects } = useProjects();
-  const executionProjectId = projectIdFromContentAccessContext(
-    target.contentAccessContext,
-  );
-  const targetProject = resolveReferencedProjectContext(
-    executionProjectId ?? "",
-    projects,
-  );
+  const executionProjectId = projectIdFromContentAccessContext(target.contentAccessContext);
+  const targetProject = resolveReferencedProjectContext(executionProjectId ?? "", projects);
   const pending = (
     <ProjectedRow target={target} rowProps={rowProps}>
       <PageOutlinerBodySkeleton />

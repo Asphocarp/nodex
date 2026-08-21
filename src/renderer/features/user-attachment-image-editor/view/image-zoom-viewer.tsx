@@ -72,12 +72,7 @@ function assignRef<T>(ref: Ref<T> | undefined, value: T | null) {
   if (ref) ref.current = value;
 }
 
-function pointerDistance(
-  firstX: number,
-  firstY: number,
-  secondX: number,
-  secondY: number,
-): number {
+function pointerDistance(firstX: number, firstY: number, secondX: number, secondY: number): number {
   return Math.hypot(firstX - secondX, firstY - secondY);
 }
 
@@ -106,41 +101,41 @@ export function ImageZoomViewer({
   const inlineReservePx = railReservePx + IMAGE_RAIL_INLINE_GUTTER_PX * 2;
   const fitZoomPercent = computeFitZoomPercent({
     naturalImageSize,
-    viewportSize: viewportSize === null
-      ? null
-      : {
-          height: viewportSize.height,
-          width: Math.max(viewportSize.width - inlineReservePx, 1),
-        },
+    viewportSize:
+      viewportSize === null
+        ? null
+        : {
+            height: viewportSize.height,
+            width: Math.max(viewportSize.width - inlineReservePx, 1),
+          },
   });
   const resolvedZoomPercent = manualZoomPercent ?? fitZoomPercent ?? 100;
-  const imageSize = manualZoomPercent === null && fitZoomPercent === null
-    ? null
-    : computeManualImageSize({
-        naturalImageSize,
-        zoomPercent: manualZoomPercent ?? fitZoomPercent ?? 100,
-      });
-  const contentSize = viewportSize === null
-    ? null
-    : {
-        height: Math.max(viewportSize.height, imageSize?.height ?? viewportSize.height),
-        width: Math.max(viewportSize.width, (imageSize?.width ?? 0) + inlineReservePx),
-      };
-  const imageOverflows = imageSize !== null
-    && viewportSize !== null
-    && (
-      imageSize.height > viewportSize.height
-      || imageSize.width + inlineReservePx > viewportSize.width
-    );
+  const imageSize =
+    manualZoomPercent === null && fitZoomPercent === null
+      ? null
+      : computeManualImageSize({
+          naturalImageSize,
+          zoomPercent: manualZoomPercent ?? fitZoomPercent ?? 100,
+        });
+  const contentSize =
+    viewportSize === null
+      ? null
+      : {
+          height: Math.max(viewportSize.height, imageSize?.height ?? viewportSize.height),
+          width: Math.max(viewportSize.width, (imageSize?.width ?? 0) + inlineReservePx),
+        };
+  const imageOverflows =
+    imageSize !== null &&
+    viewportSize !== null &&
+    (imageSize.height > viewportSize.height ||
+      imageSize.width + inlineReservePx > viewportSize.width);
 
   const updateViewportSize = useCallback((element: HTMLDivElement) => {
     const nextSize = { height: element.clientHeight, width: element.clientWidth };
     if (nextSize.height <= 0 || nextSize.width <= 0) return;
-    setViewportSize((current) => (
-      current?.height === nextSize.height && current.width === nextSize.width
-        ? current
-        : nextSize
-    ));
+    setViewportSize((current) =>
+      current?.height === nextSize.height && current.width === nextSize.width ? current : nextSize,
+    );
   }, []);
 
   useEffect(() => {
@@ -151,41 +146,53 @@ export function ImageZoomViewer({
     return () => observer.disconnect();
   }, [scrollElement, updateViewportSize]);
 
-  const viewportCenter = useCallback((element: HTMLDivElement): ViewportPoint => {
-    const rect = element.getBoundingClientRect();
-    const center = computeZoomViewportCenter({
-      direction: getComputedStyle(element).direction === "rtl" ? "rtl" : "ltr",
-      inlineOffset: -railReservePx / 2,
-      viewportRect: rect,
-      windowZoom: readImageEditorWindowZoom(element),
-    });
-    return { clientX: center.x, clientY: center.y };
-  }, [railReservePx]);
+  const viewportCenter = useCallback(
+    (element: HTMLDivElement): ViewportPoint => {
+      const rect = element.getBoundingClientRect();
+      const center = computeZoomViewportCenter({
+        direction: getComputedStyle(element).direction === "rtl" ? "rtl" : "ltr",
+        inlineOffset: -railReservePx / 2,
+        viewportRect: rect,
+        windowZoom: readImageEditorWindowZoom(element),
+      });
+      return { clientX: center.x, clientY: center.y };
+    },
+    [railReservePx],
+  );
 
-  const setZoomAtPoint = useCallback((nextZoomPercent: number, point: ViewportPoint) => {
-    const scroller = scrollRef.current;
-    const image = imageElementRef.current;
-    if (!scroller || !image) {
-      onManualZoomPercentChange(nextZoomPercent);
-      return;
-    }
+  const setZoomAtPoint = useCallback(
+    (nextZoomPercent: number, point: ViewportPoint) => {
+      const scroller = scrollRef.current;
+      const image = imageElementRef.current;
+      if (!scroller || !image) {
+        onManualZoomPercentChange(nextZoomPercent);
+        return;
+      }
 
-    const before = image.getBoundingClientRect();
-    const relativeX = before.width > 0 ? Math.min(1, Math.max(0, (point.clientX - before.left) / before.width)) : 0.5;
-    const relativeY = before.height > 0 ? Math.min(1, Math.max(0, (point.clientY - before.top) / before.height)) : 0.5;
-    userPositionedRef.current = true;
-    flushSync(() => onManualZoomPercentChange(clampZoomPercent(nextZoomPercent)));
-    if (!scroller.isConnected || !image.isConnected) return;
-    const after = image.getBoundingClientRect();
-    const correction = computeZoomAnchorCorrection({
-      anchorClientPoint: { x: point.clientX, y: point.clientY },
-      anchorRatio: { x: relativeX, y: relativeY },
-      nextTargetRect: after,
-      windowZoom: readImageEditorWindowZoom(image),
-    });
-    scroller.scrollLeft += correction.x;
-    scroller.scrollTop += correction.y;
-  }, [onManualZoomPercentChange]);
+      const before = image.getBoundingClientRect();
+      const relativeX =
+        before.width > 0
+          ? Math.min(1, Math.max(0, (point.clientX - before.left) / before.width))
+          : 0.5;
+      const relativeY =
+        before.height > 0
+          ? Math.min(1, Math.max(0, (point.clientY - before.top) / before.height))
+          : 0.5;
+      userPositionedRef.current = true;
+      flushSync(() => onManualZoomPercentChange(clampZoomPercent(nextZoomPercent)));
+      if (!scroller.isConnected || !image.isConnected) return;
+      const after = image.getBoundingClientRect();
+      const correction = computeZoomAnchorCorrection({
+        anchorClientPoint: { x: point.clientX, y: point.clientY },
+        anchorRatio: { x: relativeX, y: relativeY },
+        nextTargetRect: after,
+        windowZoom: readImageEditorWindowZoom(image),
+      });
+      scroller.scrollLeft += correction.x;
+      scroller.scrollTop += correction.y;
+    },
+    [onManualZoomPercentChange],
+  );
 
   useEffect(() => {
     if (!scrollElement) return undefined;
@@ -196,9 +203,10 @@ export function ImageZoomViewer({
       event.stopPropagation();
       const nextZoomPercent = zoomFromWheel(resolvedZoomPercent, event.deltaY);
       if (nextZoomPercent === resolvedZoomPercent) return;
-      const point = event.clientX === 0 && event.clientY === 0
-        ? (lastPointerPointRef.current ?? viewportCenter(scrollElement))
-        : { clientX: event.clientX, clientY: event.clientY };
+      const point =
+        event.clientX === 0 && event.clientY === 0
+          ? (lastPointerPointRef.current ?? viewportCenter(scrollElement))
+          : { clientX: event.clientX, clientY: event.clientY };
       setZoomAtPoint(nextZoomPercent, point);
     };
 
@@ -230,9 +238,14 @@ export function ImageZoomViewer({
       const first = event.touches.item(0);
       const second = event.touches.item(1);
       if (!first || !second) return;
-      const distance = pointerDistance(first.clientX, first.clientY, second.clientX, second.clientY);
+      const distance = pointerDistance(
+        first.clientX,
+        first.clientY,
+        second.clientX,
+        second.clientY,
+      );
       if (distance <= 0 || pinch.distance <= 0) return;
-      const nextZoomPercent = clampZoomPercent(distance / pinch.distance * pinch.zoomPercent);
+      const nextZoomPercent = clampZoomPercent((distance / pinch.distance) * pinch.zoomPercent);
       if (nextZoomPercent === resolvedZoomPercent) return;
       setZoomAtPoint(nextZoomPercent, {
         clientX: (first.clientX + second.clientX) / 2,
@@ -254,21 +267,25 @@ export function ImageZoomViewer({
     };
   }, [resolvedZoomPercent, scrollElement, setZoomAtPoint, viewportCenter]);
 
-  const setScrollRef = useCallback((element: HTMLDivElement | null) => {
-    scrollRef.current = element;
-    setScrollElement(element);
-    if (element) updateViewportSize(element);
-  }, [updateViewportSize]);
+  const setScrollRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      scrollRef.current = element;
+      setScrollElement(element);
+      if (element) updateViewportSize(element);
+    },
+    [updateViewportSize],
+  );
 
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
     if (
-      userPositionedRef.current
-      || manualZoomPercent === null
-      || !scroller
-      || !imageSize
-      || !imageOverflows
-    ) return;
+      userPositionedRef.current ||
+      manualZoomPercent === null ||
+      !scroller ||
+      !imageSize ||
+      !imageOverflows
+    )
+      return;
     userPositionedRef.current = true;
     scroller.scrollLeft = Math.max((scroller.scrollWidth - scroller.clientWidth) / 2, 0);
     scroller.scrollTop = Math.max((scroller.scrollHeight - scroller.clientHeight) / 2, 0);
@@ -280,8 +297,8 @@ export function ImageZoomViewer({
     panRef.current = null;
     setIsPanning(false);
     if (
-      typeof event.currentTarget.hasPointerCapture === "function"
-      && event.currentTarget.hasPointerCapture(event.pointerId)
+      typeof event.currentTarget.hasPointerCapture === "function" &&
+      event.currentTarget.hasPointerCapture(event.pointerId)
     ) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -321,8 +338,8 @@ export function ImageZoomViewer({
           )}
           onClickCapture={(event) => {
             if (
-              lastPinchEndAtRef.current !== 0
-              && event.timeStamp - lastPinchEndAtRef.current < PINCH_CLICK_SUPPRESSION_MS
+              lastPinchEndAtRef.current !== 0 &&
+              event.timeStamp - lastPinchEndAtRef.current < PINCH_CLICK_SUPPRESSION_MS
             ) {
               event.preventDefault();
               event.stopPropagation();
@@ -356,9 +373,11 @@ export function ImageZoomViewer({
               draggable={false}
               referrerPolicy={referrerPolicy}
               src={src}
-              style={imageSize === null
-                ? undefined
-                : { height: imageSize.height, width: imageSize.width }}
+              style={
+                imageSize === null
+                  ? undefined
+                  : { height: imageSize.height, width: imageSize.width }
+              }
               onLoad={(event) => {
                 const { naturalHeight, naturalWidth } = event.currentTarget;
                 if (naturalHeight <= 0 || naturalWidth <= 0) return;
@@ -366,7 +385,13 @@ export function ImageZoomViewer({
               }}
               onPointerDown={(event) => {
                 const scroller = scrollRef.current;
-                if (!imageOverflows || !scroller || event.pointerType === "touch" || event.button !== 0) return;
+                if (
+                  !imageOverflows ||
+                  !scroller ||
+                  event.pointerType === "touch" ||
+                  event.button !== 0
+                )
+                  return;
                 event.preventDefault();
                 panRef.current = {
                   clientX: event.clientX,
@@ -384,10 +409,8 @@ export function ImageZoomViewer({
                 if (!pan || !scroller || pan.pointerId !== event.pointerId) return;
                 event.preventDefault();
                 const windowZoom = readImageEditorWindowZoom(scroller);
-                scroller.scrollLeft = pan.scrollLeft
-                  - (event.clientX - pan.clientX) / windowZoom;
-                scroller.scrollTop = pan.scrollTop
-                  - (event.clientY - pan.clientY) / windowZoom;
+                scroller.scrollLeft = pan.scrollLeft - (event.clientX - pan.clientX) / windowZoom;
+                scroller.scrollTop = pan.scrollTop - (event.clientY - pan.clientY) / windowZoom;
               }}
               onPointerUp={finishPan}
               onPointerCancel={finishPan}

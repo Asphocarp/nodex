@@ -81,21 +81,21 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 
 ### State authority table
 
-| State or capability | Authoritative owner | Adapters and projections |
-| --- | --- | --- |
-| Blocks, Pages, Databases, Documents, search, schedules, history | Rust Core Library/Database/Document Modules | Core protocol, Electron adapters, CLI, renderer read models |
-| Page-key namespaces, prefix history, counters, assignments | Rust Core Database Module | Contextual Core projections; CLI/Agent resolve to canonical Page IDs |
-| Projects, Sessions, durable Thread metadata, execution context | Rust Core Workspace Module | Electron Codex/Workspace services and renderer queries |
-| Project access to Library resources | Rust Core Library authorization and resource-grant boundary | Workspace supplies Project identity; Electron and CLI bind access context |
-| Automation definitions, runs, occurrences, reminder leases and receipts | Rust Core Automation Module | Electron scheduler/executor and renderer queries |
-| Backups, restore, retention, Store maintenance | Rust Core Administration Module | Electron administration adapter and controlled relaunch |
-| Active Codex conversation document | Current renderer owner, seeded from app-server state | Main holds a validated relay/recovery replica; followers render validated copies |
-| Codex wire protocol and remote Thread observations | Pinned Codex-compatible app-server | Main validates and routes generated protocol envelopes |
-| Managed worktree creation and lifecycle | Electron Main lifecycle coordinator and the worktree's execution-host worker | Renderer projects typed pending/availability/inventory state; Core persists only durable execution location and Session/Thread/worktree metadata |
-| Window layout, owner-scoped Scenes, surface placement | Renderer Window Session App aggregate | Main persists the revisioned Window Session catalog |
-| Browser guests, Browser Use, MCP App guests, Terminal processes | Electron Main runtime aggregates | Renderer holds presentation descriptors and host bindings only |
-| Git repository live-read state | Main-owned Git worker process | Typed Main/preload bus and renderer query projections |
-| Preferences, managed asset files, logs, OS notifications | Electron Main local/OS adapters | Typed renderer IPC; durable semantic content remains in Core |
+| State or capability                                                     | Authoritative owner                                                          | Adapters and projections                                                                                                                         |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Blocks, Pages, Databases, Documents, search, schedules, history         | Rust Core Library/Database/Document Modules                                  | Core protocol, Electron adapters, CLI, renderer read models                                                                                      |
+| Page-key namespaces, prefix history, counters, assignments              | Rust Core Database Module                                                    | Contextual Core projections; CLI/Agent resolve to canonical Page IDs                                                                             |
+| Projects, Sessions, durable Thread metadata, execution context          | Rust Core Workspace Module                                                   | Electron Codex/Workspace services and renderer queries                                                                                           |
+| Project access to Library resources                                     | Rust Core Library authorization and resource-grant boundary                  | Workspace supplies Project identity; Electron and CLI bind access context                                                                        |
+| Automation definitions, runs, occurrences, reminder leases and receipts | Rust Core Automation Module                                                  | Electron scheduler/executor and renderer queries                                                                                                 |
+| Backups, restore, retention, Store maintenance                          | Rust Core Administration Module                                              | Electron administration adapter and controlled relaunch                                                                                          |
+| Active Codex conversation document                                      | Current renderer owner, seeded from app-server state                         | Main holds a validated relay/recovery replica; followers render validated copies                                                                 |
+| Codex wire protocol and remote Thread observations                      | Pinned Codex-compatible app-server                                           | Main validates and routes generated protocol envelopes                                                                                           |
+| Managed worktree creation and lifecycle                                 | Electron Main lifecycle coordinator and the worktree's execution-host worker | Renderer projects typed pending/availability/inventory state; Core persists only durable execution location and Session/Thread/worktree metadata |
+| Window layout, owner-scoped Scenes, surface placement                   | Renderer Window Session App aggregate                                        | Main persists the revisioned Window Session catalog                                                                                              |
+| Browser guests, Browser Use, MCP App guests, Terminal processes         | Electron Main runtime aggregates                                             | Renderer holds presentation descriptors and host bindings only                                                                                   |
+| Git repository live-read state                                          | Main-owned Git worker process                                                | Typed Main/preload bus and renderer query projections                                                                                            |
+| Preferences, managed asset files, logs, OS notifications                | Electron Main local/OS adapters                                              | Typed renderer IPC; durable semantic content remains in Core                                                                                     |
 
 Authority and presentation are intentionally different. A Scene can present a Page without owning it; a renderer cache can display a Database window without authorizing it; Main can relay a Codex document without becoming its visible writer.
 
@@ -109,14 +109,14 @@ The Rust Core is the only production authority allowed to open `nodex.db`, write
 
 Core is organized as six deep semantic Modules under [`crates/nodex-core/src`](crates/nodex-core/src):
 
-| Module | Owns |
-| --- | --- |
-| Library | Block/Page ownership, navigation, lifecycle, content operations, resource grants |
-| Database | Database/Data Source/View schema, values, relations, queries, and positions |
-| Document | Yrs/Canvas persistence, live sync, versions, and content operations |
-| Workspace | Projects, Sessions, Threads, sidebar order, execution metadata |
-| Automation | Definitions, schedules, runs, occurrences, reminders, leases |
-| Administration | Backup, restore, retention, compaction, Store maintenance |
+| Module         | Owns                                                                             |
+| -------------- | -------------------------------------------------------------------------------- |
+| Library        | Block/Page ownership, navigation, lifecycle, content operations, resource grants |
+| Database       | Database/Data Source/View schema, values, relations, queries, and positions      |
+| Document       | Yrs/Canvas persistence, live sync, versions, and content operations              |
+| Workspace      | Projects, Sessions, Threads, sidebar order, execution metadata                   |
+| Automation     | Definitions, schedules, runs, occurrences, reminders, leases                     |
+| Administration | Backup, restore, retention, compaction, Store maintenance                        |
 
 Each public Module presents a versioned `read`/`apply` Interface in [`crates/nodex-core-contracts`](crates/nodex-core-contracts). Module implementations may share internal transaction kernels, but callers may not compose several public Module calls and call the result atomic. A cross-domain mutation belongs to one owning aggregate that invokes the other domain seams inside the same Core transaction.
 
@@ -327,30 +327,30 @@ These invariants cross subsystem boundaries. Narrower domain and feature invaria
 
 This map names stable regions and responsibilities rather than enumerating individual files.
 
-| Region | Responsibility |
-| --- | --- |
-| [`crates/nodex-core`](crates/nodex-core) | Domain Modules, SQLite/Yrs/Canvas authority, transactions, projections, migrations |
-| [`crates/nodex-core-contracts`](crates/nodex-core-contracts) | Versioned transport-neutral semantic Module contracts |
-| [`crates/nodex-core-protocol`](crates/nodex-core-protocol) | Authenticated transport, compatibility, events, generated OpenAPI |
-| [`crates/nodex-core-server`](crates/nodex-core-server) | UDS server, connections, lifecycle, streams, health |
-| [`crates/nodex-cli`](crates/nodex-cli) | Native CLI and agent-facing Core Adapter |
-| [`packages/codex-app-server-protocol`](packages/codex-app-server-protocol) | Generated Codex app-server TypeScript and runtime schema authority |
-| [`src/shared`](src/shared) | Transport-neutral contracts, schemas, pure domain and projection helpers |
-| [`src/main/core-client`](src/main/core-client) | Core selection, supervision, authenticated clients, Desktop Module Adapters |
-| [`src/main/codex`](src/main/codex) | Codex app-server host, routing, execution, Thread coordination |
-| [`src/main/effect-control-plane`](src/main/effect-control-plane) | Scoped lifecycle, retry, queue, and structured-concurrency implementations behind existing Main interfaces |
-| [`src/main/effect-adapters`](src/main/effect-adapters) | App-owned isolation boundary for unstable Effect/platform capabilities |
-| [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration |
-| [`src/main/mcp-app`](src/main/mcp-app) | Sandboxed MCP App guest attachment and MessagePort host |
-| [`src/main/git-worker`](src/main/git-worker) | Generation-bound repository read worker |
-| [`src/main/worktree-worker`](src/main/worktree-worker) | Main-internal execution-host adapter for cancellable managed-worktree creation, snapshot/removal/restore, setup/cleanup streaming, and handoff effects |
-| [`src/main/local-store`](src/main/local-store) | Host-only preferences, assets, notification and persistence support; never semantic DB authority |
-| [`src/preload`](src/preload) | Context-isolated typed bridge |
-| [`src/renderer/features`](src/renderer/features) | Feature-owned application state and workflows |
-| [`src/renderer/components`](src/renderer/components) | Reusable and surface-level React presentation |
-| [`src/renderer/lib`](src/renderer/lib) | Renderer API, stores, Window Session state, pure helpers |
-| [`scripts/release`](scripts/release) | Release identity, bundle assembly, publication state |
-| [`tests`](tests) and colocated tests | Runtime-appropriate behavior and integration verification |
+| Region                                                                                    | Responsibility                                                                                                                                         |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`crates/nodex-core`](crates/nodex-core)                                                  | Domain Modules, SQLite/Yrs/Canvas authority, transactions, projections, migrations                                                                     |
+| [`crates/nodex-core-contracts`](crates/nodex-core-contracts)                              | Versioned transport-neutral semantic Module contracts                                                                                                  |
+| [`crates/nodex-core-protocol`](crates/nodex-core-protocol)                                | Authenticated transport, compatibility, events, generated OpenAPI                                                                                      |
+| [`crates/nodex-core-server`](crates/nodex-core-server)                                    | UDS server, connections, lifecycle, streams, health                                                                                                    |
+| [`crates/nodex-cli`](crates/nodex-cli)                                                    | Native CLI and agent-facing Core Adapter                                                                                                               |
+| [`packages/codex-app-server-protocol`](packages/codex-app-server-protocol)                | Generated Codex app-server TypeScript and runtime schema authority                                                                                     |
+| [`src/shared`](src/shared)                                                                | Transport-neutral contracts, schemas, pure domain and projection helpers                                                                               |
+| [`src/main/core-client`](src/main/core-client)                                            | Core selection, supervision, authenticated clients, Desktop Module Adapters                                                                            |
+| [`src/main/codex`](src/main/codex)                                                        | Codex app-server host, routing, execution, Thread coordination                                                                                         |
+| [`src/main/effect-control-plane`](src/main/effect-control-plane)                          | Scoped lifecycle, retry, queue, and structured-concurrency implementations behind existing Main interfaces                                             |
+| [`src/main/effect-adapters`](src/main/effect-adapters)                                    | App-owned isolation boundary for unstable Effect/platform capabilities                                                                                 |
+| [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration                                                                                                  |
+| [`src/main/mcp-app`](src/main/mcp-app)                                                    | Sandboxed MCP App guest attachment and MessagePort host                                                                                                |
+| [`src/main/git-worker`](src/main/git-worker)                                              | Generation-bound repository read worker                                                                                                                |
+| [`src/main/worktree-worker`](src/main/worktree-worker)                                    | Main-internal execution-host adapter for cancellable managed-worktree creation, snapshot/removal/restore, setup/cleanup streaming, and handoff effects |
+| [`src/main/local-store`](src/main/local-store)                                            | Host-only preferences, assets, notification and persistence support; never semantic DB authority                                                       |
+| [`src/preload`](src/preload)                                                              | Context-isolated typed bridge                                                                                                                          |
+| [`src/renderer/features`](src/renderer/features)                                          | Feature-owned application state and workflows                                                                                                          |
+| [`src/renderer/components`](src/renderer/components)                                      | Reusable and surface-level React presentation                                                                                                          |
+| [`src/renderer/lib`](src/renderer/lib)                                                    | Renderer API, stores, Window Session state, pure helpers                                                                                               |
+| [`scripts/release`](scripts/release)                                                      | Release identity, bundle assembly, publication state                                                                                                   |
+| [`tests`](tests) and colocated tests                                                      | Runtime-appropriate behavior and integration verification                                                                                              |
 
 ## Cross-cutting boundaries
 
@@ -396,17 +396,17 @@ Update this file only when at least one of these changes:
 
 Do not add implementation chronology, current version inventories, individual file behavior, UI interaction detail, failure runbooks, or feature acceptance rules here. Replace obsolete architectural statements instead of appending a historical layer. Link to the narrow owner rather than restating its contract.
 
-| Information | Source of truth |
-| --- | --- |
-| Domain vocabulary and ownership invariants | [CONTEXT.md](CONTEXT.md) |
-| Significant decisions and tradeoffs | [ADRs](docs/adr/) |
-| User-visible behavior and public contracts | [Product specifications](docs/product-specs/index.md) |
-| Reliability, sync, recovery, backup, retention | [RELIABILITY.md](docs/RELIABILITY.md) |
-| Security model and hardening | [SECURITY.md](docs/SECURITY.md) |
-| Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [FRONTEND.md](docs/FRONTEND.md) |
-| Cross-cutting engineering principles | [ENGINEERING_LEARNINGS.md](docs/ENGINEERING_LEARNINGS.md) |
-| Build, signing, notarization, distribution recovery | [release-macos.md](docs/release-macos.md) |
-| Executable migration and protocol versions | Source contracts, migration code, generated artifacts, and tests |
-| Temporary implementation sequence and evidence | Living plans under [`docs/plans`](docs/plans) |
+| Information                                                                                                  | Source of truth                                                  |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| Domain vocabulary and ownership invariants                                                                   | [CONTEXT.md](CONTEXT.md)                                         |
+| Significant decisions and tradeoffs                                                                          | [ADRs](docs/adr/)                                                |
+| User-visible behavior and public contracts                                                                   | [Product specifications](docs/product-specs/index.md)            |
+| Reliability, sync, recovery, backup, retention                                                               | [RELIABILITY.md](docs/RELIABILITY.md)                            |
+| Security model and hardening                                                                                 | [SECURITY.md](docs/SECURITY.md)                                  |
+| Cross-feature renderer construction, state ownership, shared UI/editor primitives, and Storybook conventions | [FRONTEND.md](docs/FRONTEND.md)                                  |
+| Cross-cutting engineering principles                                                                         | [ENGINEERING_LEARNINGS.md](docs/ENGINEERING_LEARNINGS.md)        |
+| Build, signing, notarization, distribution recovery                                                          | [release-macos.md](docs/release-macos.md)                        |
+| Executable migration and protocol versions                                                                   | Source contracts, migration code, generated artifacts, and tests |
+| Temporary implementation sequence and evidence                                                               | Living plans under [`docs/plans`](docs/plans)                    |
 
 When two documents disagree, fix the narrow authoritative document first and then replace or remove the stale summary here.

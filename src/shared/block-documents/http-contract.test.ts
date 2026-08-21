@@ -23,17 +23,9 @@ import {
   encodeOwnedDocumentDescriptorHttp,
   encodeLibraryAccessedDocumentDescriptorHttp,
 } from "./http-contract";
-import {
-  MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
-} from "./canvas-scene-sync";
-import {
-  canonicalStringifyCanvasScene,
-  materializePortableCanvasScene,
-} from "./canvas-scene";
-import {
-  decodeDocumentHttpEnvelope,
-  encodeDocumentHttpEnvelope,
-} from "./http-wire";
+import { MAX_CANVAS_SCENE_SNAPSHOT_BYTES } from "./canvas-scene-sync";
+import { canonicalStringifyCanvasScene, materializePortableCanvasScene } from "./canvas-scene";
+import { decodeDocumentHttpEnvelope, encodeDocumentHttpEnvelope } from "./http-wire";
 import { PAGE_DOCUMENT_SCHEMA_VERSION } from "./page-document";
 import type { AuthorizedDeliveryPacket } from "../authorized-delivery-packet";
 
@@ -64,21 +56,23 @@ const documentDelivery = (): AuthorizedDeliveryPacket => ({
     committed_at: "2026-08-09T00:00:00.000Z",
   },
   atoms: [],
-  document_effects: [{
-    reference: {
-      effect_order: 0,
-      page_id: "page-1",
-      document_id: "document-1",
-      generation: 1,
-      base_head_seq: 5,
-      result_head_seq: 6,
-      update_id: "update-1",
-      update_hash: "e".repeat(64),
-      update_byte_length: 2,
-      resource_kind: "document_update",
+  document_effects: [
+    {
+      reference: {
+        effect_order: 0,
+        page_id: "page-1",
+        document_id: "document-1",
+        generation: 1,
+        base_head_seq: 5,
+        result_head_seq: 6,
+        update_id: "update-1",
+        update_hash: "e".repeat(64),
+        update_byte_length: 2,
+        resource_kind: "document_update",
+      },
+      inline_update: [8, 9],
     },
-    inline_update: [8, 9],
-  }],
+  ],
   projection_effects: [],
   visibility_deltas: [],
   coverage: {
@@ -113,10 +107,14 @@ describe("Document HTTP contract", () => {
     expect(descriptor.accessContext).toEqual({ kind: "library" });
     expect(descriptor.libraryId).toBe("library-1");
     expect("projectId" in descriptor).toBe(false);
-    expect(() => decodeLibraryAccessedDocumentDescriptorHttp(JSON.stringify({
-      ...JSON.parse(encodeLibraryAccessedDocumentDescriptorHttp(descriptor)),
-      projectId: "forged",
-    }))).toThrow("unsupported fields");
+    expect(() =>
+      decodeLibraryAccessedDocumentDescriptorHttp(
+        JSON.stringify({
+          ...JSON.parse(encodeLibraryAccessedDocumentDescriptorHttp(descriptor)),
+          projectId: "forged",
+        }),
+      ),
+    ).toThrow("unsupported fields");
   });
 
   test("round-trips engine-neutral Yjs and Canvas descriptors", () => {
@@ -193,9 +191,7 @@ describe("Document HTTP contract", () => {
       syncRequest.documentId,
       encodeDocumentSyncHttpRequest(syncRequest),
     );
-    expect(Array.from(decodedSyncRequest.stateVector).join(",")).toBe(
-      "0,128,255",
-    );
+    expect(Array.from(decodedSyncRequest.stateVector).join(",")).toBe("0,128,255");
 
     const syncResponse = {
       documentId: "document-1",
@@ -225,9 +221,7 @@ describe("Document HTTP contract", () => {
       applyRequest.documentId,
       encodeDocumentApplyHttpRequest(applyRequest),
     );
-    expect(decodedApplyRequest.touchedBlockIds.join(",")).toBe(
-      "block-a,block-b",
-    );
+    expect(decodedApplyRequest.touchedBlockIds.join(",")).toBe("block-a,block-b");
     expect(Array.from(decodedApplyRequest.update).join(",")).toBe("5,6,7");
 
     const ack = {
@@ -247,9 +241,7 @@ describe("Document HTTP contract", () => {
       },
       delivery: documentDelivery(),
     } as const;
-    const decodedAck = decodeDocumentApplyHttpAck(
-      encodeDocumentApplyHttpAck(ack),
-    );
+    const decodedAck = decodeDocumentApplyHttpAck(encodeDocumentApplyHttpAck(ack));
     expect(decodedAck.status).toBe("committed");
     if (decodedAck.status !== "committed") {
       throw new Error("Expected committed Document ACK");
@@ -267,9 +259,7 @@ describe("Document HTTP contract", () => {
       status: "no_op",
       observed: { store_epoch: "store-1", commit_head: 6 },
     } as const;
-    const decodedNoOpAck = decodeDocumentApplyHttpAck(
-      encodeDocumentApplyHttpAck(noOpAck),
-    );
+    const decodedNoOpAck = decodeDocumentApplyHttpAck(encodeDocumentApplyHttpAck(noOpAck));
     expect(decodedNoOpAck.status).toBe("no_op");
     if (decodedNoOpAck.status !== "no_op") {
       throw new Error("Expected no-op Document ACK");
@@ -319,9 +309,7 @@ describe("Document HTTP contract", () => {
       (value) => value as Readonly<Record<string, unknown>>,
       MAX_CANVAS_SCENE_SNAPSHOT_BYTES,
     );
-    expect(new TextDecoder().decode(raw.payload)).toBe(
-      canonicalStringifyCanvasScene(scene),
-    );
+    expect(new TextDecoder().decode(raw.payload)).toBe(canonicalStringifyCanvasScene(scene));
     expect(decodeCanvasSceneSyncHttpResponse(snapshot)).toEqual({
       kind: "snapshot",
       syncRequestId: request.syncRequestId,
@@ -371,19 +359,17 @@ describe("Document HTTP contract", () => {
       sceneHash: "a".repeat(64),
     } as const;
     expect(() =>
-      decodeCanvasSceneSyncHttpResponse(
-        encodeDocumentHttpEnvelope(metadata, bytes(0xff)),
-      )
+      decodeCanvasSceneSyncHttpResponse(encodeDocumentHttpEnvelope(metadata, bytes(0xff))),
     ).toThrow("UTF-8 JSON");
     expect(() =>
       decodeCanvasSceneSyncHttpResponse(
         encodeDocumentHttpEnvelope(
           metadata,
-          new TextEncoder().encode(JSON.stringify(
-            materializePortableCanvasScene({ elements: [] }),
-          )),
+          new TextEncoder().encode(
+            JSON.stringify(materializePortableCanvasScene({ elements: [] })),
+          ),
         ),
-      )
+      ),
     ).not.toThrow();
     expect(() =>
       decodeCanvasSceneSyncHttpResponse(
@@ -395,14 +381,12 @@ describe("Document HTTP contract", () => {
           stateVector: bytes(),
           update: bytes(),
         }),
-      )
+      ),
     ).toThrow("wrong engine");
     expect(() =>
       decodeCanvasSceneSyncHttpResponse(
-        encodeDocumentHttpEnvelope(metadata, new Uint8Array(
-          MAX_CANVAS_SCENE_SNAPSHOT_BYTES + 1,
-        )),
-      )
+        encodeDocumentHttpEnvelope(metadata, new Uint8Array(MAX_CANVAS_SCENE_SNAPSHOT_BYTES + 1)),
+      ),
     ).toThrow("exceeds");
   });
 
@@ -421,17 +405,19 @@ describe("Document HTTP contract", () => {
       sceneHash: "b".repeat(64),
     } as const;
     const scene = materializePortableCanvasScene({
-      elements: [{
-        id: "shape-1",
-        type: "rectangle",
-        isDeleted: false,
-        version: 1,
-        versionNonce: 2,
-        index: "a0",
-        x: 0,
-        y: 0.000001,
-        width: 100000000000000000000,
-      }],
+      elements: [
+        {
+          id: "shape-1",
+          type: "rectangle",
+          isDeleted: false,
+          version: 1,
+          versionNonce: 2,
+          index: "a0",
+          x: 0,
+          y: 0.000001,
+          width: 100000000000000000000,
+        },
+      ],
     });
     const rustSerialized = canonicalStringifyCanvasScene(scene)
       .replace('"x":0', '"x":-0.0')
@@ -439,10 +425,7 @@ describe("Document HTTP contract", () => {
       .replace('"width":100000000000000000000', '"width":1e20');
 
     const decoded = decodeCanvasSceneSyncHttpResponse(
-      encodeDocumentHttpEnvelope(
-        metadata,
-        new TextEncoder().encode(rustSerialized),
-      ),
+      encodeDocumentHttpEnvelope(metadata, new TextEncoder().encode(rustSerialized)),
     );
 
     expect(decoded.kind).toBe("snapshot");
@@ -508,9 +491,7 @@ describe("Document HTTP contract", () => {
       },
     ] as const;
     const decodedKinds = events.map(
-      (event) =>
-        decodeDocumentRealtimeSseEvent(encodeDocumentRealtimeSseEvent(event))
-          .kind,
+      (event) => decodeDocumentRealtimeSseEvent(encodeDocumentRealtimeSseEvent(event)).kind,
     );
     expect(decodedKinds.join(",")).toBe(
       "connection,store-reset,document-update,awareness,resync-required",
@@ -522,9 +503,7 @@ describe("Document HTTP contract", () => {
       retryable: true,
       resetRequired: false,
     } as const;
-    expect(decodeDocumentHttpError(encodeDocumentHttpError(error)).code).toBe(
-      "document_not_ready",
-    );
+    expect(decodeDocumentHttpError(encodeDocumentHttpError(error)).code).toBe("document_not_ready");
 
     const recoveryError = {
       code: "block_relocated",
@@ -534,9 +513,7 @@ describe("Document HTTP contract", () => {
       relocationId: "relocation-1",
       recoveryArtifactId: "artifact-1",
     } as const;
-    const decodedRecoveryError = decodeDocumentHttpError(
-      encodeDocumentHttpError(recoveryError),
-    );
+    const decodedRecoveryError = decodeDocumentHttpError(encodeDocumentHttpError(recoveryError));
     expect(decodedRecoveryError.code).toBe("block_relocated");
     expect(decodedRecoveryError.relocationId).toBe("relocation-1");
     expect(decodedRecoveryError.recoveryArtifactId).toBe("artifact-1");
@@ -555,10 +532,7 @@ describe("Document HTTP contract", () => {
     } as const;
     let rejected = false;
     try {
-      decodeDocumentApplyHttpRequest(
-        request.documentId,
-        encodeDocumentApplyHttpRequest(request),
-      );
+      decodeDocumentApplyHttpRequest(request.documentId, encodeDocumentApplyHttpRequest(request));
     } catch {
       rejected = true;
     }

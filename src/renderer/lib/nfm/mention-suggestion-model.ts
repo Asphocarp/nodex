@@ -58,11 +58,7 @@ const SECTION_LABELS: Readonly<
   temporal: "Date",
 };
 
-const EMPTY_QUERY_SECTION_ORDER: readonly MentionSuggestionFamily[] = [
-  "temporal",
-  "page",
-  "chat",
-];
+const EMPTY_QUERY_SECTION_ORDER: readonly MentionSuggestionFamily[] = ["temporal", "page", "chat"];
 
 const QUERY_TIE_BREAK: Readonly<Record<MentionSuggestionFamily, number>> = {
   temporal: 0,
@@ -81,8 +77,7 @@ function compareWithinSection<Value>(
   if (left.rank.family === "page") {
     return left.rank.sourceOrder - right.rank.sourceOrder;
   }
-  const scoreDifference = mentionSuggestionScore(right.rank)
-    - mentionSuggestionScore(left.rank);
+  const scoreDifference = mentionSuggestionScore(right.rank) - mentionSuggestionScore(left.rank);
   if (scoreDifference !== 0) return scoreDifference;
   return left.rank.sourceOrder - right.rank.sourceOrder;
 }
@@ -100,10 +95,7 @@ export function selectMentionSuggestionSections<Value>(input: {
 }): MentionSuggestionSection<Value>[] {
   const hasQuery = input.query.trim().length > 0;
   const limits = hasQuery ? QUERY_LIMITS : EMPTY_QUERY_LIMITS;
-  const byFamily: Record<
-    MentionSuggestionFamily,
-    RankedMentionSuggestion<Value>[]
-  > = {
+  const byFamily: Record<MentionSuggestionFamily, RankedMentionSuggestion<Value>[]> = {
     page: [],
     chat: [],
     temporal: [],
@@ -120,20 +112,18 @@ export function selectMentionSuggestionSections<Value>(input: {
     .filter((family) => byFamily[family].length > 0)
     .sort((left, right) => {
       if (!hasQuery) {
-        return EMPTY_QUERY_SECTION_ORDER.indexOf(left)
-          - EMPTY_QUERY_SECTION_ORDER.indexOf(right);
+        return EMPTY_QUERY_SECTION_ORDER.indexOf(left) - EMPTY_QUERY_SECTION_ORDER.indexOf(right);
       }
-      const scoreDifference = mentionSuggestionScore(byFamily[right][0]!.rank)
-        - mentionSuggestionScore(byFamily[left][0]!.rank);
+      const scoreDifference =
+        mentionSuggestionScore(byFamily[right][0]!.rank) -
+        mentionSuggestionScore(byFamily[left][0]!.rank);
       if (scoreDifference !== 0) return scoreDifference;
       return QUERY_TIE_BREAK[left] - QUERY_TIE_BREAK[right];
     });
 
   return families.map((family) => {
     const candidates = byFamily[family];
-    const visibleLimit = input.expandedFamilies?.has(family)
-      ? candidates.length
-      : limits[family];
+    const visibleLimit = input.expandedFamilies?.has(family) ? candidates.length : limits[family];
     const items = candidates.slice(0, visibleLimit).map(({ value }) => value);
     return {
       family,

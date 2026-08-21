@@ -12,9 +12,7 @@ const base = {
 
 describe("resolvePageDeepLinkPasteIntent", () => {
   test("maps one canonical Page deeplink by editor context", () => {
-    expect(
-      resolvePageDeepLinkPasteIntent({ ...base, hasTextSelection: true }),
-    ).toEqual({
+    expect(resolvePageDeepLinkPasteIntent({ ...base, hasTextSelection: true })).toEqual({
       kind: "link",
       href: base.plainText,
       pageId: "page-1",
@@ -23,9 +21,10 @@ describe("resolvePageDeepLinkPasteIntent", () => {
       kind: "mention",
       pageId: "page-1",
     });
-    expect(
-      resolvePageDeepLinkPasteIntent({ ...base, currentBlockIsEmpty: true }),
-    ).toEqual({ kind: "reference_block", pageId: "page-1" });
+    expect(resolvePageDeepLinkPasteIntent({ ...base, currentBlockIsEmpty: true })).toEqual({
+      kind: "reference_block",
+      pageId: "page-1",
+    });
   });
 
   test("keeps code, rich clipboard, files, and non-canonical text literal", () => {
@@ -41,9 +40,7 @@ describe("resolvePageDeepLinkPasteIntent", () => {
         hasStructuredClipboard: true,
       }),
     ).toBeNull();
-    expect(
-      resolvePageDeepLinkPasteIntent({ ...base, hasFiles: true }),
-    ).toBeNull();
+    expect(resolvePageDeepLinkPasteIntent({ ...base, hasFiles: true })).toBeNull();
     expect(
       resolvePageDeepLinkPasteIntent({
         ...base,

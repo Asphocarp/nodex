@@ -225,12 +225,14 @@ describe("WorkbenchDatabaseViewSurface", () => {
       await Promise.resolve();
     });
 
-    expect(api.commitPageLifecycleIntent).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "delete",
-      projectId: "project-alpha",
-      pageId: "page-from-database",
-      operationId: expect.any(String),
-    }));
+    expect(api.commitPageLifecycleIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "delete",
+        projectId: "project-alpha",
+        pageId: "page-from-database",
+        operationId: expect.any(String),
+      }),
+    );
   });
 
   test("uses Library reads and the shared Database View presenter", async () => {
@@ -264,11 +266,7 @@ describe("WorkbenchDatabaseViewSurface", () => {
     });
 
     fireEvent.click(sharedView);
-    expect(onOpenPage).toHaveBeenCalledWith(
-      "page-from-database",
-      "From Database",
-      "preview",
-    );
+    expect(onOpenPage).toHaveBeenCalledWith("page-from-database", "From Database", "preview");
   });
 
   test("switches only the transport boundary for Project authority", async () => {
@@ -285,14 +283,13 @@ describe("WorkbenchDatabaseViewSurface", () => {
     await waitFor(() => {
       expect(presenter.props).not.toBeNull();
     });
-    expect(api.readDatabaseViewGroups).toHaveBeenCalledWith(
-      "project-alpha",
-      { databaseViewId: viewId },
-    );
-    expect(api.readDatabaseViewWindow).toHaveBeenCalledWith(
-      "project-alpha",
-      { databaseViewId: viewId, first: 50 },
-    );
+    expect(api.readDatabaseViewGroups).toHaveBeenCalledWith("project-alpha", {
+      databaseViewId: viewId,
+    });
+    expect(api.readDatabaseViewWindow).toHaveBeenCalledWith("project-alpha", {
+      databaseViewId: viewId,
+      first: 50,
+    });
     expect(api.readLibraryDatabaseViewGroups).not.toHaveBeenCalled();
   });
 

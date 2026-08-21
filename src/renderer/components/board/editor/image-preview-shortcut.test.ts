@@ -28,7 +28,9 @@ describe("image preview shortcut helpers", () => {
   test("resolveFocusedImagePreview returns selected image block data", () => {
     const editor = makeEditor({
       getSelection: () => ({
-        blocks: [{ type: "image", props: { url: "https://example.com/a.png", caption: "diagram" } }],
+        blocks: [
+          { type: "image", props: { url: "https://example.com/a.png", caption: "diagram" } },
+        ],
       }),
     });
 
@@ -52,7 +54,10 @@ describe("image preview shortcut helpers", () => {
   test("resolveFocusedImagePreview returns null for invalid image selection", () => {
     const editor = makeEditor({
       getSelection: () => ({
-        blocks: [{ type: "image", props: { url: "" } }, { type: "paragraph", props: {} }],
+        blocks: [
+          { type: "image", props: { url: "" } },
+          { type: "paragraph", props: {} },
+        ],
       }),
     });
 
@@ -61,9 +66,10 @@ describe("image preview shortcut helpers", () => {
 
   test("resolveImagePreviewByBlockId returns image data for clicked image block", () => {
     const editor = makeLookupEditor({
-      getBlock: (id) => (id === "image-1"
-        ? { type: "image", props: { url: "https://example.com/hero.png", name: "hero" } }
-        : undefined),
+      getBlock: (id) =>
+        id === "image-1"
+          ? { type: "image", props: { url: "https://example.com/hero.png", name: "hero" } }
+          : undefined,
     });
 
     const result = resolveImagePreviewByBlockId(editor, "image-1");

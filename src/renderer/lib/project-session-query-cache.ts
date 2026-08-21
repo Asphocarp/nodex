@@ -1,10 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
-import type {
-  ProjectSession,
-  ProjectSessionSummary,
-  ProjectSessionSummaryWindow,
-} from "./types";
+import type { ProjectSession, ProjectSessionSummary, ProjectSessionSummaryWindow } from "./types";
 import { projectSessionDetailQueryOptions } from "./query-options";
 import { queryKeys } from "./query-keys";
 
@@ -38,10 +34,7 @@ export async function readProjectSessionSummaryWindowThrough({
   let cursor = first.nextCursor;
   let latest = first;
   while (items.length < requestedItemCount && cursor !== null) {
-    const next = await read(
-      cursor,
-      Math.min(50, requestedItemCount - items.length),
-    );
+    const next = await read(cursor, Math.min(50, requestedItemCount - items.length));
     for (const item of next.items) {
       if (knownIds.has(item.id)) continue;
       knownIds.add(item.id);
@@ -95,7 +88,10 @@ export function getCachedProjectSessionDetail(
   queryClient: QueryClient,
   sessionId: string,
 ): ProjectSession | null {
-  return queryClient.getQueryData<ProjectSession | null>(queryKeys.projectSessions.detail(sessionId)) ?? null;
+  return (
+    queryClient.getQueryData<ProjectSession | null>(queryKeys.projectSessions.detail(sessionId)) ??
+    null
+  );
 }
 
 export function setProjectSessionSummaries(
@@ -106,16 +102,17 @@ export function setProjectSessionSummaries(
   for (const summary of summaries) {
     queryClient.setQueryData<ProjectSession | null | undefined>(
       queryKeys.projectSessions.detail(summary.id),
-      (current) => current
-        ? {
-            ...summary,
-            thread: summary.thread
-              ? current.thread?.threadId === summary.thread.threadId
-                ? { ...current.thread, ...summary.thread }
-                : null
-              : null,
-          }
-        : current,
+      (current) =>
+        current
+          ? {
+              ...summary,
+              thread: summary.thread
+                ? current.thread?.threadId === summary.thread.threadId
+                  ? { ...current.thread, ...summary.thread }
+                  : null
+                : null,
+            }
+          : current,
     );
   }
   const installed = queryClient.setQueryData<ProjectSessionSummaryWindow>(
@@ -127,12 +124,14 @@ export function setProjectSessionSummaries(
       projectionRevision: current?.projectionRevision ?? 0,
     }),
   );
-  return installed ?? {
-    items: [...summaries],
-    nextCursor: null,
-    hasMore: false,
-    projectionRevision: 0,
-  };
+  return (
+    installed ?? {
+      items: [...summaries],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 0,
+    }
+  );
 }
 
 export function seedProjectSessionDetail(
@@ -151,7 +150,7 @@ export function seedProjectSessionDetail(
     (current) => {
       if (!current) return current;
       const next = current.items.some((candidate) => candidate.id === summary.id)
-        ? current.items.map((candidate) => candidate.id === summary.id ? summary : candidate)
+        ? current.items.map((candidate) => (candidate.id === summary.id ? summary : candidate))
         : [...current.items, summary];
       return {
         ...current,
@@ -184,29 +183,37 @@ export async function invalidateProjectSessionScope(
   event: ProjectSessionsChangeEvent,
 ): Promise<void> {
   const invalidations: Array<Promise<unknown>> = [];
-  invalidations.push(queryClient.invalidateQueries({
-    queryKey: queryKeys.projectActivity.all(),
-  }));
+  invalidations.push(
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.projectActivity.all(),
+    }),
+  );
 
   for (const scope of event.summaryScopes) {
     if (scope.kind === "all") {
-      invalidations.push(queryClient.invalidateQueries({
-        queryKey: ["projectSessions", "summaries"],
-      }));
+      invalidations.push(
+        queryClient.invalidateQueries({
+          queryKey: ["projectSessions", "summaries"],
+        }),
+      );
       continue;
     }
-    invalidations.push(queryClient.invalidateQueries({
-      queryKey: queryKeys.projectSessions.summaries(
-        scope.kind === "project" ? scope.projectId : null,
-      ),
-      exact: true,
-    }));
+    invalidations.push(
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.projectSessions.summaries(
+          scope.kind === "project" ? scope.projectId : null,
+        ),
+        exact: true,
+      }),
+    );
   }
 
   if (event.detailInvalidation.kind === "all") {
-    invalidations.push(queryClient.invalidateQueries({
-      queryKey: ["projectSessions", "detail"],
-    }));
+    invalidations.push(
+      queryClient.invalidateQueries({
+        queryKey: ["projectSessions", "detail"],
+      }),
+    );
     await Promise.all(invalidations);
     return;
   }
@@ -224,10 +231,12 @@ export async function invalidateProjectSessionScope(
   }
 
   for (const sessionId of sessionIds) {
-    invalidations.push(queryClient.invalidateQueries({
-      queryKey: queryKeys.projectSessions.detail(sessionId),
-      exact: true,
-    }));
+    invalidations.push(
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.projectSessions.detail(sessionId),
+        exact: true,
+      }),
+    );
   }
   await Promise.all(invalidations);
 }

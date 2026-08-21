@@ -16,12 +16,8 @@ export interface OwnershipClosureDocument {
 
 export interface BlockOwnershipGraphReader {
   readonly readBlock: (blockId: string) => OwnershipClosureBlock | null;
-  readonly readOwnedDocument: (
-    ownerBlockId: string,
-  ) => OwnershipClosureDocument | null;
-  readonly readDocumentBlocks: (
-    documentId: string,
-  ) => readonly OwnershipClosureBlock[];
+  readonly readOwnedDocument: (ownerBlockId: string) => OwnershipClosureDocument | null;
+  readonly readDocumentBlocks: (documentId: string) => readonly OwnershipClosureBlock[];
 }
 
 export interface BlockOwnershipClosure {
@@ -112,11 +108,7 @@ export interface BlockOwnershipCopyIdentityMap {
   readonly documentIds: Readonly<Record<string, string>>;
 }
 
-const deterministicIdentity = (
-  operationId: string,
-  role: string,
-  sourceId: string,
-): string =>
+const deterministicIdentity = (operationId: string, role: string, sourceId: string): string =>
   `${role}:copy:${createHash("sha256")
     .update(`${operationId}\0${role}\0${sourceId}`)
     .digest("hex")}`;
@@ -126,12 +118,7 @@ export const allocateBlockOwnershipCopyIdentities = (
   closure: BlockOwnershipClosure,
   allocateBlockId: () => string = createUuidV7,
 ): BlockOwnershipCopyIdentityMap => ({
-  blockIds: Object.fromEntries(
-    closure.blocks.map((block) => [
-      block.blockId,
-      allocateBlockId(),
-    ]),
-  ),
+  blockIds: Object.fromEntries(closure.blocks.map((block) => [block.blockId, allocateBlockId()])),
   documentIds: Object.fromEntries(
     closure.documents.map((document) => [
       document.documentId,

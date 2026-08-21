@@ -5,10 +5,12 @@ import type { Nodes } from "mdast";
 function isMarkdownBlockContainer(
   node: Nodes,
 ): node is Extract<Nodes, { type: "root" | "blockquote" | "list" | "listItem" }> {
-  return node.type === "root"
-    || node.type === "blockquote"
-    || node.type === "list"
-    || node.type === "listItem";
+  return (
+    node.type === "root" ||
+    node.type === "blockquote" ||
+    node.type === "list" ||
+    node.type === "listItem"
+  );
 }
 
 function extractCodexMarkdownNodeText(node: Nodes): string {
@@ -33,9 +35,7 @@ export function projectCodexMarkdownToPlainText(markdown: string): string {
   if (!trimmed) return "";
 
   try {
-    return extractCodexMarkdownNodeText(fromMarkdown(trimmed))
-      .replace(/\s+/g, " ")
-      .trim();
+    return extractCodexMarkdownNodeText(fromMarkdown(trimmed)).replace(/\s+/g, " ").trim();
   } catch {
     return safeMarkdownFallback(trimmed);
   }

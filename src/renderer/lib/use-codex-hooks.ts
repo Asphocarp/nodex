@@ -1,9 +1,4 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type QueryKey,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type {
   CodexHookStatePatch,
@@ -46,16 +41,22 @@ export function normalizeCodexHooksCwds(cwds: readonly string[]): string[] {
 
 export function useCodexHooksList(input: CodexHooksListInput) {
   const queryClient = useQueryClient();
-  useEffect(() => subscribeCodexHooksChanged(({ hostId }) => {
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.codexHooks.host(hostId),
-    });
-  }), [queryClient]);
+  useEffect(
+    () =>
+      subscribeCodexHooksChanged(({ hostId }) => {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.codexHooks.host(hostId),
+        });
+      }),
+    [queryClient],
+  );
 
-  return useQuery(codexHooksListQueryOptions({
-    hostId: input.hostId,
-    cwds: normalizeCodexHooksCwds(input.cwds),
-  }));
+  return useQuery(
+    codexHooksListQueryOptions({
+      hostId: input.hostId,
+      cwds: normalizeCodexHooksCwds(input.cwds),
+    }),
+  );
 }
 
 export function useCodexHookStateMutation(hostId: string) {
@@ -63,19 +64,19 @@ export function useCodexHookStateMutation(hostId: string) {
   const hostQueryKey = queryKeys.codexHooks.host(hostId);
 
   return useMutation({
-    mutationFn: (patch: CodexHookStatePatch) => invoke("codex:hooks:state:update", {
-      hostId,
-      patches: [patch],
-    }),
+    mutationFn: (patch: CodexHookStatePatch) =>
+      invoke("codex:hooks:state:update", {
+        hostId,
+        patches: [patch],
+      }),
     onMutate: async (patch): Promise<HooksQuerySnapshot[]> => {
       await queryClient.cancelQueries({ queryKey: hostQueryKey });
       const snapshots = queryClient
         .getQueriesData<CodexHooksListResponse>({ queryKey: hostQueryKey })
         .map(([queryKey, value]) => ({ queryKey, value }));
 
-      queryClient.setQueriesData<CodexHooksListResponse>(
-        { queryKey: hostQueryKey },
-        (current) => applyCodexHookStatePatch(current, patch),
+      queryClient.setQueriesData<CodexHooksListResponse>({ queryKey: hostQueryKey }, (current) =>
+        applyCodexHookStatePatch(current, patch),
       );
       return snapshots;
     },

@@ -321,26 +321,32 @@ export interface ThreadStageActions {
   onOpenHooksSettings?: (target: CodexHooksSettingsTarget) => void;
   onNewThreadProjectChange?: (projectId: string | null) => void;
   onRequestNewChatProjectCreate?: () => void;
-  onStartNewChatWithPrompt?: (input: {
-    projectId: string | null;
-    prompt: string;
-  }) => Promise<void>;
+  onStartNewChatWithPrompt?: (input: { projectId: string | null; prompt: string }) => Promise<void>;
   onComposerCapabilitiesChanged?: () => Promise<void>;
-  onSendPrompt: (prompt: string, opts?: {
-    collaborationMode?: CodexCollaborationModeKind;
-    promptInput?: CodexPromptInput;
-    model?: string;
-    reasoningEffort?: CodexReasoningEffort;
-    serviceTier?: CodexServiceTier;
-  }) => Promise<void>;
+  onSendPrompt: (
+    prompt: string,
+    opts?: {
+      collaborationMode?: CodexCollaborationModeKind;
+      promptInput?: CodexPromptInput;
+      model?: string;
+      reasoningEffort?: CodexReasoningEffort;
+      serviceTier?: CodexServiceTier;
+    },
+  ) => Promise<void>;
   onOpenSideChat?: (input?: ThreadOpenSideChatInput) => Promise<void>;
   onOpenMcpAppSidePanel?: (input: ThreadMcpAppSidePanelInput) => Promise<void>;
   onOpenPlanInSidePanel?: (input: ThreadPlanSidePanelTarget) => void | Promise<void>;
   onClosePlanSidePanel?: (input: { planKey: string }) => void | Promise<void>;
-  onOpenSummarySideChatRow?: (input: ThreadSummaryPanelAuxiliaryRowOpenInput) => void | Promise<void>;
+  onOpenSummarySideChatRow?: (
+    input: ThreadSummaryPanelAuxiliaryRowOpenInput,
+  ) => void | Promise<void>;
   onOpenSummaryBrowserRow?: (input: ThreadSummaryPanelBrowserRowOpenInput) => void | Promise<void>;
-  onOpenSummaryScheduledAutomation?: (input: ThreadSummaryPanelScheduledAutomationOpenInput) => void | Promise<void>;
-  onOpenSummaryOutputInSidePanel?: (target: ThreadSummaryPanelOutputSidePanelTarget) => boolean | Promise<boolean>;
+  onOpenSummaryScheduledAutomation?: (
+    input: ThreadSummaryPanelScheduledAutomationOpenInput,
+  ) => void | Promise<void>;
+  onOpenSummaryOutputInSidePanel?: (
+    target: ThreadSummaryPanelOutputSidePanelTarget,
+  ) => boolean | Promise<boolean>;
   onOpenSummaryGitReview?: (input: ThreadSummaryPanelGitReviewOpenInput) => void | Promise<void>;
   onStartSummaryGitAction?: (input: ThreadSummaryPanelGitActionInput) => void | Promise<void>;
   onOpenProcessManager?: () => void | Promise<void>;
@@ -392,7 +398,10 @@ export interface ThreadStageActions {
   onEnqueueQueuedFollowUp: (
     threadId: string,
     prompt: string,
-    opts?: { collaborationMode?: CodexCollaborationModeKind | null; promptInput?: CodexPromptInput },
+    opts?: {
+      collaborationMode?: CodexCollaborationModeKind | null;
+      promptInput?: CodexPromptInput;
+    },
   ) => Promise<void>;
   onRemoveQueuedFollowUp: (threadId: string, followUpId: string) => Promise<void>;
   onReorderQueuedFollowUps: (threadId: string, orderedFollowUpIds: string[]) => Promise<void>;
@@ -403,7 +412,11 @@ export interface ThreadStageActions {
     prompt: string;
     promptInput?: CodexPromptInput;
   }) => Promise<void>;
-  onEditLastUserTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
+  onEditLastUserTurn: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+  }) => Promise<void>;
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onCompactThread?: (threadId: string) => Promise<void>;
   onGetThreadGoal?: (threadId: string) => Promise<ThreadGoal | null>;
@@ -416,7 +429,9 @@ export interface ThreadStageActions {
   onToggleDesktopPet?: () => void;
   onUnarchiveThread: (threadId: string, projectId: string | null) => Promise<void>;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
-  onOpenTurnDiffFileInSidePanel?: (target: ThreadTurnDiffFileSidePanelTarget) => void | Promise<void>;
+  onOpenTurnDiffFileInSidePanel?: (
+    target: ThreadTurnDiffFileSidePanelTarget,
+  ) => void | Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string, context?: ThreadOpenThreadContext) => void | Promise<void>;
@@ -661,18 +676,18 @@ export type ThreadAgentActivityGroupHeader =
 
 export type ThreadAgentActivityGroupActiveSummary =
   | {
-    kind: "text";
-    key: string;
-    label: string;
-  }
+      kind: "text";
+      key: string;
+      label: string;
+    }
   | {
-    kind: "fileChange";
-    key: string;
-    label: string;
-    displayPath: string;
-    additions: number;
-    deletions: number;
-  };
+      kind: "fileChange";
+      key: string;
+      label: string;
+      displayPath: string;
+      additions: number;
+      deletions: number;
+    };
 
 export interface ThreadAgentActivityGroupBlockModel extends ThreadRenderKeyedBlockFields {
   id: string;
@@ -708,9 +723,7 @@ export type ThreadRendererItemModel =
   | ThreadWorkedForBlockModel
   | ThreadPendingTurnRequestModel;
 
-export type ThreadAgentItemModel =
-  | ThreadTranscriptBlockModel
-  | ThreadWorkedForBlockModel;
+export type ThreadAgentItemModel = ThreadTranscriptBlockModel | ThreadWorkedForBlockModel;
 
 /** Exact v2 activity-classifier result shape. `null` is the hidden result. */
 export type ThreadAgentActivityGrouping = "groupable" | "standalone";
@@ -721,8 +734,7 @@ export interface ThreadAgentActivityItem<TItem = ThreadAgentItemModel> {
 }
 
 export type ThreadAgentActivityClassification<TItem = ThreadAgentItemModel> =
-  | ThreadAgentActivityItem<TItem>
-  | null;
+  ThreadAgentActivityItem<TItem> | null;
 
 /** `sourceIndex` exists only between classification and final unit construction. */
 export interface ThreadIndexedAgentActivityItem<TItem = ThreadAgentItemModel> {
@@ -742,9 +754,7 @@ export type ThreadAgentActivityUnit<TItem = ThreadAgentItemModel> =
       item: ThreadAgentActivityItem<TItem>;
     };
 
-export type ThreadAgentEntryModel =
-  | ThreadAgentItemModel
-  | ThreadAgentActivityGroupBlockModel;
+export type ThreadAgentEntryModel = ThreadAgentItemModel | ThreadAgentActivityGroupBlockModel;
 
 export type ThreadAgentRenderEntryBlockModel = ThreadAgentItemModel;
 
@@ -943,7 +953,12 @@ export interface ThreadBodyModel {
     | { type: "noThread"; title: string; description: string }
     | { type: "emptyThread"; title: string; description: string }
     | { type: "archivedThread"; title: string; description: string }
-    | { type: "resumingThread"; title: string; description: string; status: CodexConversationResumeState };
+    | {
+        type: "resumingThread";
+        title: string;
+        description: string;
+        status: CodexConversationResumeState;
+      };
   showThreadStartProgressPanel: boolean;
 }
 

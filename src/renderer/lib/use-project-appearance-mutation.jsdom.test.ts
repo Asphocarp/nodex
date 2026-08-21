@@ -1,8 +1,4 @@
-import {
-  QueryClient,
-  QueryClientProvider,
-  type InfiniteData,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,28 +28,32 @@ vi.mock("@/components/ui/toast", () => ({
 function projectWindow(): InfiniteData<ProjectWindow, string | null> {
   return {
     pageParams: [null],
-    pages: [{
-      items: [{
-        id: "project-1",
-        libraryId: "library-1",
-        databaseId: "database-1",
-        defaultDatabaseViewId: "view-1",
-        lifecycle: "active",
-        bindingRevision: 1,
-        name: "Nodex",
-        description: "",
-        appearance: DEFAULT_PROJECT_APPEARANCE,
-        sources: [],
-        primaryWorkspaceRoot: null,
-        pinned: false,
-        pinnedOrder: null,
-        created: new Date(0),
-        updated: new Date(0),
-      }],
-      nextCursor: null,
-      hasMore: false,
-      projectionRevision: 1,
-    }],
+    pages: [
+      {
+        items: [
+          {
+            id: "project-1",
+            libraryId: "library-1",
+            databaseId: "database-1",
+            defaultDatabaseViewId: "view-1",
+            lifecycle: "active",
+            bindingRevision: 1,
+            name: "Nodex",
+            description: "",
+            appearance: DEFAULT_PROJECT_APPEARANCE,
+            sources: [],
+            primaryWorkspaceRoot: null,
+            pinned: false,
+            pinnedOrder: null,
+            created: new Date(0),
+            updated: new Date(0),
+          },
+        ],
+        nextCursor: null,
+        hasMore: false,
+        projectionRevision: 1,
+      },
+    ],
   };
 }
 
@@ -96,14 +96,13 @@ function setupHook({ seedDetail = false }: { seedDetail?: boolean } = {}) {
     },
   );
   const readAppearance = (includeArchived = false) => {
-    const current = client.getQueryData<
-      InfiniteData<ProjectWindow, string | null>
-    >(queryKeys.projects.list(includeArchived));
+    const current = client.getQueryData<InfiniteData<ProjectWindow, string | null>>(
+      queryKeys.projects.list(includeArchived),
+    );
     return current?.pages[0]?.items[0]?.appearance;
   };
-  const readDetailAppearance = () => client.getQueryData<Project | null>(
-    queryKeys.projects.detail(project.id),
-  )?.appearance;
+  const readDetailAppearance = () =>
+    client.getQueryData<Project | null>(queryKeys.projects.detail(project.id))?.appearance;
   return { client, hook, project, readAppearance, readDetailAppearance };
 }
 
@@ -136,21 +135,13 @@ describe("patchProjectAppearanceInWindow", () => {
 
   it("preserves the cache identity when the Project is absent", () => {
     const current = projectWindow();
-    expect(patchProjectAppearanceInWindow(
+    expect(patchProjectAppearanceInWindow(current, "missing", DEFAULT_PROJECT_APPEARANCE)).toBe(
       current,
-      "missing",
-      DEFAULT_PROJECT_APPEARANCE,
-    )).toBe(current);
+    );
   });
 
   it("updates list and detail caches without treating Project detail as a window", async () => {
-    const {
-      client,
-      hook,
-      project,
-      readAppearance,
-      readDetailAppearance,
-    } = setupHook({
+    const { client, hook, project, readAppearance, readDetailAppearance } = setupHook({
       seedDetail: true,
     });
     client.setQueryData(queryKeys.projects.list(true), projectWindow());
@@ -173,9 +164,7 @@ describe("patchProjectAppearanceInWindow", () => {
   it("serializes rapid changes and settles on the newest appearance", async () => {
     const first = deferred<Project>();
     const second = deferred<Project>();
-    mocks.invoke
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+    mocks.invoke.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const { hook, project, readAppearance } = setupHook();
 
     act(() => {
@@ -219,9 +208,7 @@ describe("patchProjectAppearanceInWindow", () => {
   it("rolls a double failure back to the last confirmed appearance", async () => {
     const first = deferred<Project>();
     const second = deferred<Project>();
-    mocks.invoke
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+    mocks.invoke.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const { hook, readAppearance } = setupHook();
 
     act(() => {
@@ -249,15 +236,8 @@ describe("patchProjectAppearanceInWindow", () => {
   it("rolls the latest failure back to the prior confirmed write", async () => {
     const first = deferred<Project>();
     const second = deferred<Project>();
-    mocks.invoke
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
-    const {
-      hook,
-      project,
-      readAppearance,
-      readDetailAppearance,
-    } = setupHook({ seedDetail: true });
+    mocks.invoke.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { hook, project, readAppearance, readDetailAppearance } = setupHook({ seedDetail: true });
 
     act(() => {
       hook.result.current.changeAppearance(RED_FOLDER);
@@ -286,9 +266,7 @@ describe("patchProjectAppearanceInWindow", () => {
   it("waits for the whole rapid queue and returns the newest confirmed revision", async () => {
     const first = deferred<Project>();
     const second = deferred<Project>();
-    mocks.invoke
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+    mocks.invoke.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const { hook, project } = setupHook();
 
     act(() => {
@@ -340,9 +318,7 @@ describe("patchProjectAppearanceInWindow", () => {
       await Promise.resolve();
     });
 
-    await expect(
-      hook.result.current.waitForSettledProject(),
-    ).resolves.toMatchObject({
+    await expect(hook.result.current.waitForSettledProject()).resolves.toMatchObject({
       name: "Nodex refreshed",
       bindingRevision: 7,
     });

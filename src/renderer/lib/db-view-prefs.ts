@@ -1,5 +1,10 @@
 import type { DatabasePageSummary, Estimate, Priority } from "@/lib/types";
-import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER, compareWorkflowStatuses, type WorkflowStatus } from "../../shared/workflow-status";
+import {
+  WORKFLOW_STATUS_LABELS,
+  WORKFLOW_STATUS_ORDER,
+  compareWorkflowStatuses,
+  type WorkflowStatus,
+} from "../../shared/workflow-status";
 import { upgradeLegacyWorkflowStatus } from "../../shared/workflow-status-cutover";
 import { isPriority } from "../../shared/priority";
 import {
@@ -125,22 +130,32 @@ interface FilterUnion<T> {
 
 const DEFAULT_FILTER: DbViewFilterSpec = {
   any: [
+    {
+      all: [
+        { field: "status", op: "in", values: [...WORKFLOW_STATUS_ORDER] },
         {
-          all: [
-            { field: "status", op: "in", values: [...WORKFLOW_STATUS_ORDER] },
-            { field: "priority", op: "in", values: [...TOGGLE_LIST_PRIORITY_ORDER], includeEmpty: true },
-          ],
+          field: "priority",
+          op: "in",
+          values: [...TOGGLE_LIST_PRIORITY_ORDER],
+          includeEmpty: true,
         },
       ],
+    },
+  ],
 };
 
-const DB_VIEW_DISPLAY_PROPERTIES_BY_VIEW: Record<SupportedDbView, readonly DbViewDisplayPropertyKey[]> = {
+const DB_VIEW_DISPLAY_PROPERTIES_BY_VIEW: Record<
+  SupportedDbView,
+  readonly DbViewDisplayPropertyKey[]
+> = {
   board: ["priority", "estimate", "tags", "assignee"],
   list: [],
   "toggle-list": ["priority", "estimate", "status", "tags"],
 };
 
-const priorityRank = new Map(TOGGLE_LIST_PRIORITY_ORDER.map((priority, index) => [priority, index]));
+const priorityRank = new Map(
+  TOGGLE_LIST_PRIORITY_ORDER.map((priority, index) => [priority, index]),
+);
 const estimateRank = new Map<Estimate, number>(
   (["xs", "s", "m", "l", "xl"] as Estimate[]).map((estimate, index) => [estimate, index] as const),
 );
@@ -193,10 +208,7 @@ export function normalizeDbViewPrefs(view: SupportedDbView, value: unknown): DbV
   return normalizeDbViewPrefsAtBoundary(view, value, false);
 }
 
-export function normalizeLegacyDbViewPrefs(
-  view: SupportedDbView,
-  value: unknown,
-): DbViewPrefs {
+export function normalizeLegacyDbViewPrefs(view: SupportedDbView, value: unknown): DbViewPrefs {
   return normalizeDbViewPrefsAtBoundary(view, value, true);
 }
 
@@ -209,12 +221,9 @@ function normalizeDbViewPrefsAtBoundary(
   if (!isRecord(value)) return fallback;
 
   return {
-    rules: normalizeDbViewRulesAtBoundary(
-      view,
-      value.rules,
-      upgradeRetiredPriority,
-    ),
-    summaryExpanded: typeof value.summaryExpanded === "boolean" ? value.summaryExpanded : fallback.summaryExpanded,
+    rules: normalizeDbViewRulesAtBoundary(view, value.rules, upgradeRetiredPriority),
+    summaryExpanded:
+      typeof value.summaryExpanded === "boolean" ? value.summaryExpanded : fallback.summaryExpanded,
     display: normalizeDbViewDisplayPrefs(view, value.display ?? value.toggleListDisplay),
   };
 }
@@ -232,11 +241,7 @@ function normalizeDbViewRulesAtBoundary(
   if (!isRecord(value)) return fallback;
 
   return {
-    filter: normalizeFilterSpec(
-      value.filter,
-      fallback.filter,
-      upgradeRetiredPriority,
-    ),
+    filter: normalizeFilterSpec(value.filter, fallback.filter, upgradeRetiredPriority),
     sort: normalizeSortKeys(value.sort, fallback.sort),
   };
 }
@@ -290,15 +295,17 @@ function normalizeDbViewDisplayPrefs(view: SupportedDbView, value: unknown): DbV
 
   const propertyOrder = Array.isArray(value.propertyOrder)
     ? value.propertyOrder.filter(
-      (item): item is DbViewDisplayPropertyKey =>
-        typeof item === "string" && availableProperties.includes(item as DbViewDisplayPropertyKey),
-    )
+        (item): item is DbViewDisplayPropertyKey =>
+          typeof item === "string" &&
+          availableProperties.includes(item as DbViewDisplayPropertyKey),
+      )
     : [];
   const hiddenProperties = Array.isArray(value.hiddenProperties)
     ? value.hiddenProperties.filter(
-      (item): item is DbViewDisplayPropertyKey =>
-        typeof item === "string" && availableProperties.includes(item as DbViewDisplayPropertyKey),
-    )
+        (item): item is DbViewDisplayPropertyKey =>
+          typeof item === "string" &&
+          availableProperties.includes(item as DbViewDisplayPropertyKey),
+      )
     : [];
 
   const orderedProperties = Array.from(new Set(propertyOrder));
@@ -356,7 +363,12 @@ function normalizeFilterClause(
   value: unknown,
   upgradeRetiredPriority: boolean,
 ): DbViewFilterClause | null {
-  if (!isRecord(value) || typeof value.field !== "string" || typeof value.op !== "string" || !Array.isArray(value.values)) {
+  if (
+    !isRecord(value) ||
+    typeof value.field !== "string" ||
+    typeof value.op !== "string" ||
+    !Array.isArray(value.values)
+  ) {
     return null;
   }
 
@@ -372,12 +384,18 @@ function normalizeFilterClause(
   }
 
   if (value.field === "priority" && value.op === "in") {
-    const values = Array.from(new Set(value.values.flatMap((item) => {
-      const priority = upgradeRetiredPriority
-        ? upgradeLegacyPriority(item)
-        : isPriority(item) ? item : null;
-      return priority ? [priority] : [];
-    })));
+    const values = Array.from(
+      new Set(
+        value.values.flatMap((item) => {
+          const priority = upgradeRetiredPriority
+            ? upgradeLegacyPriority(item)
+            : isPriority(item)
+              ? item
+              : null;
+          return priority ? [priority] : [];
+        }),
+      ),
+    );
     return {
       field: "priority",
       op: "in",
@@ -391,11 +409,20 @@ function normalizeFilterClause(
     };
   }
 
-  if (value.field === "tags" && (value.op === "hasAny" || value.op === "hasAll" || value.op === "hasNone")) {
+  if (
+    value.field === "tags" &&
+    (value.op === "hasAny" || value.op === "hasAll" || value.op === "hasNone")
+  ) {
     return {
       field: "tags",
       op: value.op,
-      values: Array.from(new Set(value.values.filter((item): item is string => typeof item === "string" && item.length > 0))),
+      values: Array.from(
+        new Set(
+          value.values.filter(
+            (item): item is string => typeof item === "string" && item.length > 0,
+          ),
+        ),
+      ),
     };
   }
 
@@ -463,11 +490,17 @@ export function rulesEqual(left: DbViewRules, right: DbViewRules): boolean {
 }
 
 export function hasActiveDbViewFilters(view: SupportedDbView, rules: DbViewRules): boolean {
-  return JSON.stringify(normalizeFilterSpec(rules.filter, DEFAULT_FILTER)) !== JSON.stringify(getDefaultDbViewRules(view).filter);
+  return (
+    JSON.stringify(normalizeFilterSpec(rules.filter, DEFAULT_FILTER)) !==
+    JSON.stringify(getDefaultDbViewRules(view).filter)
+  );
 }
 
 export function hasActiveDbViewSorts(view: SupportedDbView, rules: DbViewRules): boolean {
-  return JSON.stringify(normalizeSortKeys(rules.sort, getDefaultDbViewRules(view).sort)) !== JSON.stringify(getDefaultDbViewRules(view).sort);
+  return (
+    JSON.stringify(normalizeSortKeys(rules.sort, getDefaultDbViewRules(view).sort)) !==
+    JSON.stringify(getDefaultDbViewRules(view).sort)
+  );
 }
 
 export function hasActiveDbViewRules(view: SupportedDbView, rules: DbViewRules): boolean {
@@ -509,11 +542,11 @@ function matchesClause(card: DbViewCardRecord, clause: DbViewFilterClause): bool
   return card.tags.some((tag) => valueSet.has(tag));
 }
 
-export function sortDbViewCards(
-  cards: DbViewCardRecord[],
-  rules: DbViewRules,
-): DbViewCardRecord[] {
-  const sortKeys = rules.sort.length > 0 ? rules.sort : [{ field: "board-order", direction: "asc" } satisfies DbViewSortKey];
+export function sortDbViewCards(cards: DbViewCardRecord[], rules: DbViewRules): DbViewCardRecord[] {
+  const sortKeys =
+    rules.sort.length > 0
+      ? rules.sort
+      : [{ field: "board-order", direction: "asc" } satisfies DbViewSortKey];
 
   return [...cards].sort((left, right) => {
     for (const key of sortKeys) {
@@ -564,7 +597,9 @@ function compareBySortKey(
     case "title":
       return left.title.localeCompare(right.title) * sign;
     case "tags":
-      return normalizeTagSortValue(left.tags).localeCompare(normalizeTagSortValue(right.tags)) * sign;
+      return (
+        normalizeTagSortValue(left.tags).localeCompare(normalizeTagSortValue(right.tags)) * sign
+      );
     case "assignee":
       return (left.assignee ?? "").localeCompare(right.assignee ?? "") * sign;
     default:
@@ -586,7 +621,9 @@ export function getAvailableSortFields(view: SupportedDbView): DbViewSortField[]
   return ["board-order", "status", "priority", "estimate", "created", "title"];
 }
 
-export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string; label: string; value: string }> {
+export function summarizeFilterClauses(
+  rules: DbViewRules,
+): Array<{ key: string; label: string; value: string }> {
   const statusValues = collectUnion<WorkflowStatus>(
     rules.filter,
     "status",
@@ -600,7 +637,11 @@ export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string;
   const tagClause = resolveTagClause(rules.filter);
   const summaries: Array<{ key: string; label: string; value: string }> = [];
 
-  if (statusValues.found && statusValues.values.length > 0 && statusValues.values.length < WORKFLOW_STATUS_ORDER.length) {
+  if (
+    statusValues.found &&
+    statusValues.values.length > 0 &&
+    statusValues.values.length < WORKFLOW_STATUS_ORDER.length
+  ) {
     summaries.push({
       key: "status",
       label: "Status",
@@ -609,8 +650,13 @@ export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string;
   }
 
   const totalPriorityCount = TOGGLE_LIST_PRIORITY_ORDER.length + 1;
-  const selectedPriorityCount = priorityValues.values.length + (priorityValues.includeEmpty ? 1 : 0);
-  if (priorityValues.found && selectedPriorityCount > 0 && selectedPriorityCount < totalPriorityCount) {
+  const selectedPriorityCount =
+    priorityValues.values.length + (priorityValues.includeEmpty ? 1 : 0);
+  if (
+    priorityValues.found &&
+    selectedPriorityCount > 0 &&
+    selectedPriorityCount < totalPriorityCount
+  ) {
     summaries.push({
       key: "priority",
       label: "Priority",
@@ -622,7 +668,8 @@ export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string;
   }
 
   if (tagClause && tagClause.values.length > 0) {
-    const modeLabel = tagClause.op === "hasAny" ? "any" : tagClause.op === "hasAll" ? "all" : "none";
+    const modeLabel =
+      tagClause.op === "hasAny" ? "any" : tagClause.op === "hasAll" ? "all" : "none";
     summaries.push({
       key: "tags",
       label: `Tags (${modeLabel})`,
@@ -633,16 +680,21 @@ export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string;
   return summaries;
 }
 
-export function summarizeSorts(rules: DbViewRules): Array<{ key: string; label: string; value: string }> {
+export function summarizeSorts(
+  rules: DbViewRules,
+): Array<{ key: string; label: string; value: string }> {
   return rules.sort.map((entry, index) => ({
     key: `${entry.field}:${index}`,
     label: [
-      TOGGLE_LIST_RANK_FIELD_LABELS[entry.field as keyof typeof TOGGLE_LIST_RANK_FIELD_LABELS]
-      ?? DB_VIEW_SORT_FIELD_LABELS[entry.field],
-      supportsSortEmptyPlacementField(entry.field) && resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first"
+      TOGGLE_LIST_RANK_FIELD_LABELS[entry.field as keyof typeof TOGGLE_LIST_RANK_FIELD_LABELS] ??
+        DB_VIEW_SORT_FIELD_LABELS[entry.field],
+      supportsSortEmptyPlacementField(entry.field) &&
+      resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first"
         ? "Empty First"
         : null,
-    ].filter((value): value is string => Boolean(value)).join(" · "),
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(" · "),
     value: entry.direction === "asc" ? "Ascending" : "Descending",
   }));
 }
@@ -661,9 +713,9 @@ function collectUnion<T>(
       if (clause.field !== field) continue;
       found = true;
       if (
-        field === "priority"
-        && clause.field === "priority"
-        && priorityClauseIncludesEmpty(clause)
+        field === "priority" &&
+        clause.field === "priority" &&
+        priorityClauseIncludesEmpty(clause)
       ) {
         includeEmpty = true;
       }
@@ -678,7 +730,9 @@ function collectUnion<T>(
   return { found, includeEmpty, values: Array.from(values) };
 }
 
-function resolveTagClause(filter: DbViewFilterSpec): Extract<DbViewFilterClause, { field: "tags" }> | null {
+function resolveTagClause(
+  filter: DbViewFilterSpec,
+): Extract<DbViewFilterClause, { field: "tags" }> | null {
   for (const group of filter.any) {
     for (const clause of group.all) {
       if (clause.field === "tags") {

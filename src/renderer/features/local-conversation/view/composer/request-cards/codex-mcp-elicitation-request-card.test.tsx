@@ -64,13 +64,15 @@ describe("CodexMcpElicitationRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(responses[0]).toBe(JSON.stringify({
-      action: "accept",
-      content: {
-        library: "react",
-      },
-      _meta: null,
-    }));
+    expect(responses[0]).toBe(
+      JSON.stringify({
+        action: "accept",
+        content: {
+          library: "react",
+        },
+        _meta: null,
+      }),
+    );
   });
 
   test("keeps compact URL requests on open/cancel actions", async () => {

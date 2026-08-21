@@ -55,15 +55,11 @@ describe("database identities", () => {
   });
 
   test("keeps existing global identities opaque while validating their transport form", () => {
-    expect(parseDatabaseId("database:legacy:primary")).toBe(
-      "database:legacy:primary",
-    );
+    expect(parseDatabaseId("database:legacy:primary")).toBe("database:legacy:primary");
     expect(() => parseDatabaseId(" database:legacy:primary ")).toThrow(
       "canonical non-empty identity",
     );
-    expect(() => parseDatabaseId("database:\nlegacy")).toThrow(
-      "canonical non-empty identity",
-    );
+    expect(() => parseDatabaseId("database:\nlegacy")).toThrow("canonical non-empty identity");
   });
 
   test("generates eight base64url characters from exactly six bytes", () => {
@@ -72,15 +68,9 @@ describe("database identities", () => {
     expect(createCustomPropertyId()).toMatch(/^p_[A-Za-z0-9_-]{8}$/u);
     expect(createCustomOptionId()).toMatch(/^o_[A-Za-z0-9_-]{8}$/u);
 
-    expect(() => createCustomPropertyId(() => new Uint8Array(5))).toThrow(
-      "exactly 6 bytes",
-    );
+    expect(() => createCustomPropertyId(() => new Uint8Array(5))).toThrow("exactly 6 bytes");
     expect(() =>
-      createCustomOptionId(
-        (() => [0, 1, 2, 3, 4, 5]) as unknown as (
-          length: number,
-        ) => Uint8Array,
-      ),
+      createCustomOptionId((() => [0, 1, 2, 3, 4, 5]) as unknown as (length: number) => Uint8Array),
     ).toThrow("must return Uint8Array");
   });
 
@@ -119,15 +109,8 @@ describe("database identities", () => {
     expect(isBuiltInDataSourceOptionId("priority", "p0-critical")).toBe(true);
     expect(isBuiltInDataSourceOptionId("estimate", "xs")).toBe(true);
     expect(isBuiltInDataSourceOptionId("priority", "ship")).toBe(false);
-    for (const priority of [
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-    ]) {
-      expect(
-        parseDataSourceOptionId({ propertyId: "priority", value: priority }),
-      ).toBe(priority);
+    for (const priority of ["p0-critical", "p1-high", "p2-medium", "p3-low"]) {
+      expect(parseDataSourceOptionId({ propertyId: "priority", value: priority })).toBe(priority);
     }
     expect(() =>
       parseDataSourceOptionId({
@@ -138,9 +121,7 @@ describe("database identities", () => {
     expect(isBuiltInDataSourceOptionId("tags", "ship")).toBe(false);
     expect(isBuiltInDataSourceOptionId("toString", "call")).toBe(false);
 
-    expect(
-      parseDataSourceOptionId({ propertyId: "status", value: "ship" }),
-    ).toBe("ship");
+    expect(parseDataSourceOptionId({ propertyId: "status", value: "ship" })).toBe("ship");
     expect(
       parseDataSourceOptionId({
         propertyId: "tags",
@@ -154,15 +135,15 @@ describe("database identities", () => {
       }),
     ).toBe("o_0123abcd");
 
-    expect(() =>
-      parseDataSourceOptionId({ propertyId: "priority", value: "ship" }),
-    ).toThrow("not valid");
-    expect(() =>
-      parseDataSourceOptionId({ propertyId: "status", value: "done" }),
-    ).toThrow("not valid");
-    expect(() =>
-      parseDataSourceOptionId({ propertyId: "tags", value: "bug" }),
-    ).toThrow("not valid");
+    expect(() => parseDataSourceOptionId({ propertyId: "priority", value: "ship" })).toThrow(
+      "not valid",
+    );
+    expect(() => parseDataSourceOptionId({ propertyId: "status", value: "done" })).toThrow(
+      "not valid",
+    );
+    expect(() => parseDataSourceOptionId({ propertyId: "tags", value: "bug" })).toThrow(
+      "not valid",
+    );
     expect(() =>
       parseDataSourceOptionId({
         propertyId: "priority",
@@ -183,12 +164,8 @@ describe("database identities", () => {
       "release candidate",
     );
     expect(() => canonicalizeTagName("   ")).toThrow("must not be empty");
-    expect(() => canonicalizeTagName("release", { maxLength: 6 })).toThrow(
-      "at most 6",
-    );
-    expect(() => canonicalizeTagName("release", { maxLength: 0 })).toThrow(
-      "positive safe integer",
-    );
+    expect(() => canonicalizeTagName("release", { maxLength: 6 })).toThrow("at most 6");
+    expect(() => canonicalizeTagName("release", { maxLength: 0 })).toThrow("positive safe integer");
   });
 
   test("brands owner-qualified Property and option references", () => {

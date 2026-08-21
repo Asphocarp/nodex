@@ -37,10 +37,7 @@ export interface CanvasPresenceHubBinding extends ContentAccessIdentity {
 export interface CanvasPresenceHub {
   register(binding: CanvasPresenceHubBinding): void;
   adoptBoundary(key: string, generation: number): void;
-  publish(
-    key: string,
-    publication: CanvasPresencePublication,
-  ): CanvasPresencePublishAck;
+  publish(key: string, publication: CanvasPresencePublication): CanvasPresencePublishAck;
   unregister(key: string): void;
   sweep(): void;
   destroy(): void;
@@ -48,10 +45,7 @@ export interface CanvasPresenceHub {
 
 export interface CanvasPresenceHubOptions {
   readonly now?: () => number;
-  readonly scheduleSweep?: (
-    callback: () => void,
-    intervalMs: number,
-  ) => () => void;
+  readonly scheduleSweep?: (callback: () => void, intervalMs: number) => () => void;
 }
 
 interface PresenceEntry {
@@ -63,10 +57,7 @@ interface PresenceEntry {
   lastUpdated: number;
 }
 
-const defaultScheduleSweep = (
-  callback: () => void,
-  intervalMs: number,
-): (() => void) => {
+const defaultScheduleSweep = (callback: () => void, intervalMs: number): (() => void) => {
   const timer = globalThis.setInterval(callback, intervalMs);
   timer.unref?.();
   return () => globalThis.clearInterval(timer);
@@ -81,15 +72,13 @@ const hashIdentity = (value: string): number => {
   return hash >>> 0;
 };
 
-const userForBinding = (
-  binding: CanvasPresenceHubBinding,
-): CanvasPresenceUser => ({
+const userForBinding = (binding: CanvasPresenceHubBinding): CanvasPresenceUser => ({
   id: `window:${binding.targetId}`,
   displayName: `Window ${binding.targetId}`,
-  color: PRESENCE_COLORS[
-    hashIdentity(`${binding.targetId}:${binding.clientSessionId}`)
-      % PRESENCE_COLORS.length
-  ],
+  color:
+    PRESENCE_COLORS[
+      hashIdentity(`${binding.targetId}:${binding.clientSessionId}`) % PRESENCE_COLORS.length
+    ],
 });
 
 const presenceEvent = (
@@ -105,16 +94,13 @@ const presenceEvent = (
   user: entry.user,
 });
 
-const sameBoundary = (
-  left: PresenceEntry,
-  right: PresenceEntry,
-): boolean =>
-  left.binding.libraryId === right.binding.libraryId
-  && contentAccessContextKey(left.binding.accessContext)
-    === contentAccessContextKey(right.binding.accessContext)
-  && left.binding.documentId === right.binding.documentId
-  && left.generation !== null
-  && left.generation === right.generation;
+const sameBoundary = (left: PresenceEntry, right: PresenceEntry): boolean =>
+  left.binding.libraryId === right.binding.libraryId &&
+  contentAccessContextKey(left.binding.accessContext) ===
+    contentAccessContextKey(right.binding.accessContext) &&
+  left.binding.documentId === right.binding.documentId &&
+  left.generation !== null &&
+  left.generation === right.generation;
 
 export const createCanvasPresenceHub = (
   options: CanvasPresenceHubOptions = {},
@@ -122,10 +108,7 @@ export const createCanvasPresenceHub = (
   const now = options.now ?? Date.now;
   const entries = new Map<string, PresenceEntry>();
 
-  const broadcast = (
-    sender: PresenceEntry,
-    event: CanvasPresenceEvent,
-  ): void => {
+  const broadcast = (sender: PresenceEntry, event: CanvasPresenceEvent): void => {
     for (const recipient of entries.values()) {
       if (recipient.binding.key === sender.binding.key) continue;
       if (!sameBoundary(sender, recipient)) continue;
@@ -149,9 +132,9 @@ export const createCanvasPresenceHub = (
     const currentTime = now();
     for (const entry of entries.values()) {
       if (
-        entry.state === null
-        || entry.generation === null
-        || currentTime - entry.lastUpdated < CANVAS_PRESENCE_TTL_MS
+        entry.state === null ||
+        entry.generation === null ||
+        currentTime - entry.lastUpdated < CANVAS_PRESENCE_TTL_MS
       ) {
         continue;
       }
@@ -195,14 +178,12 @@ export const createCanvasPresenceHub = (
       const presences = [...entries.values()]
         .filter(
           (candidate) =>
-            candidate.binding.key !== key
-            && candidate.state !== null
-            && sameBoundary(entry, candidate),
+            candidate.binding.key !== key &&
+            candidate.state !== null &&
+            sameBoundary(entry, candidate),
         )
         .sort((left, right) =>
-          left.binding.clientSessionId.localeCompare(
-            right.binding.clientSessionId,
-          )
+          left.binding.clientSessionId.localeCompare(right.binding.clientSessionId),
         )
         .map((candidate) => presenceEvent(candidate, candidate.state));
       const snapshotPresences: CanvasPresenceEvent[] = [];
@@ -231,34 +212,32 @@ export const createCanvasPresenceHub = (
         presences: snapshotPresences,
       });
       for (const presence of overflowPresences) {
-        entry.binding.send(canonicalizeCanvasPresenceRealtimeEvent({
-          type: "canvas_presence_updated",
-          libraryId: entry.binding.libraryId,
-          accessContext: entry.binding.accessContext,
-          presence,
-        }));
+        entry.binding.send(
+          canonicalizeCanvasPresenceRealtimeEvent({
+            type: "canvas_presence_updated",
+            libraryId: entry.binding.libraryId,
+            accessContext: entry.binding.accessContext,
+            presence,
+          }),
+        );
       }
     },
     publish(key, rawPublication) {
-      const publication = canonicalizeCanvasPresencePublication(
-        rawPublication,
-      );
+      const publication = canonicalizeCanvasPresencePublication(rawPublication);
       const entry = entries.get(key);
       if (!entry) {
         throw new Error("An exact Canvas subscription is required for presence");
       }
       if (
-        entry.generation === null
-        || publication.documentId !== entry.binding.documentId
-        || publication.generation !== entry.generation
+        entry.generation === null ||
+        publication.documentId !== entry.binding.documentId ||
+        publication.generation !== entry.generation
       ) {
         throw new Error("Canvas presence crossed its generation boundary");
       }
       const higherClock = publication.clock > entry.clock;
       const equalClockRemoval =
-        publication.clock === entry.clock
-        && publication.state === null
-        && entry.state !== null;
+        publication.clock === entry.clock && publication.state === null && entry.state !== null;
       if (!higherClock && !equalClockRemoval) {
         return { accepted: true, applied: false };
       }

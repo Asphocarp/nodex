@@ -60,12 +60,14 @@ describe("BrowserPluginReconciler", () => {
         return {
           featuredPluginIds: [],
           marketplaceLoadErrors: [],
-          marketplaces: [{
-            interface: null,
-            name: "openai-bundled",
-            path: fixture.marketplaceRoot,
-            plugins: [plugin({ enabled: true, installed: true, version: "1.0.0-test" })],
-          }],
+          marketplaces: [
+            {
+              interface: null,
+              name: "openai-bundled",
+              path: fixture.marketplaceRoot,
+              plugins: [plugin({ enabled: true, installed: true, version: "1.0.0-test" })],
+            },
+          ],
         };
       }
       throw new Error(`Unexpected request: ${method}`);
@@ -114,16 +116,20 @@ describe("BrowserPluginReconciler", () => {
           featuredPluginIds: [],
           marketplaceLoadErrors: [],
           marketplaces: marketplaceAdded
-            ? [{
-                interface: null,
-                name: "openai-bundled",
-                path: fixture.marketplaceRoot,
-                plugins: [plugin({
-                  enabled: installed,
-                  installed,
-                  version: installed ? "1.0.0-test" : "0.9.0",
-                })],
-              }]
+            ? [
+                {
+                  interface: null,
+                  name: "openai-bundled",
+                  path: fixture.marketplaceRoot,
+                  plugins: [
+                    plugin({
+                      enabled: installed,
+                      installed,
+                      version: installed ? "1.0.0-test" : "0.9.0",
+                    }),
+                  ],
+                },
+              ]
             : [],
         };
       }
@@ -163,24 +169,26 @@ describe("BrowserPluginReconciler", () => {
         return {
           featuredPluginIds: [],
           marketplaceLoadErrors: [],
-          marketplaces: [{
-            interface: null,
-            name: "openai-bundled",
-            path: fixture.marketplaceRoot,
-            plugins: [
-              plugin({
-                enabled: installed.has("browser"),
-                installed: installed.has("browser"),
-                version: "1.0.0-test",
-              }),
-              plugin({
-                enabled: installed.has("computer-use"),
-                installed: installed.has("computer-use"),
-                name: "computer-use",
-                version: "1.0.0-test",
-              }),
-            ],
-          }],
+          marketplaces: [
+            {
+              interface: null,
+              name: "openai-bundled",
+              path: fixture.marketplaceRoot,
+              plugins: [
+                plugin({
+                  enabled: installed.has("browser"),
+                  installed: installed.has("browser"),
+                  version: "1.0.0-test",
+                }),
+                plugin({
+                  enabled: installed.has("computer-use"),
+                  installed: installed.has("computer-use"),
+                  name: "computer-use",
+                  version: "1.0.0-test",
+                }),
+              ],
+            },
+          ],
         };
       }
       if (method === "plugin/install") {
@@ -204,20 +212,17 @@ describe("BrowserPluginReconciler", () => {
         computerUse: {
           enabled: true,
           installedVersion: "1.0.0-test",
-          pluginRoot: path.join(
-            fixture.marketplaceRoot,
-            "plugins",
-            "computer-use",
-          ),
+          pluginRoot: path.join(fixture.marketplaceRoot, "plugins", "computer-use"),
           status: "ready",
         },
         enabled: true,
         status: "ready",
       });
-      expect(request.mock.calls
-        .filter(([method]) => method === "plugin/install")
-        .map(([, params]) => (params as { pluginName: string }).pluginName))
-        .toEqual(["browser", "computer-use"]);
+      expect(
+        request.mock.calls
+          .filter(([method]) => method === "plugin/install")
+          .map(([, params]) => (params as { pluginName: string }).pluginName),
+      ).toEqual(["browser", "computer-use"]);
     } finally {
       fs.rmSync(fixture.root, { force: true, recursive: true });
     }
@@ -231,16 +236,20 @@ describe("BrowserPluginReconciler", () => {
         return {
           featuredPluginIds: [],
           marketplaceLoadErrors: [],
-          marketplaces: [{
-            interface: null,
-            name: "openai-bundled",
-            path: source,
-            plugins: [plugin({
-              enabled: true,
-              installed: true,
-              version: "1.0.0-test",
-            })],
-          }],
+          marketplaces: [
+            {
+              interface: null,
+              name: "openai-bundled",
+              path: source,
+              plugins: [
+                plugin({
+                  enabled: true,
+                  installed: true,
+                  version: "1.0.0-test",
+                }),
+              ],
+            },
+          ],
         };
       }
       if (method === "marketplace/remove") {
@@ -295,17 +304,20 @@ describe("BrowserPluginReconciler", () => {
               return {
                 featuredPluginIds: [],
                 marketplaceLoadErrors: [],
-                marketplaces: [{
-                  interface: null,
-                  name: "openai-bundled",
-                  path:
-                    fixture.marketplaceRoot,
-                  plugins: [plugin({
-                    enabled: true,
-                    installed: true,
-                    version: "1.0.0-test",
-                  })],
-                }],
+                marketplaces: [
+                  {
+                    interface: null,
+                    name: "openai-bundled",
+                    path: fixture.marketplaceRoot,
+                    plugins: [
+                      plugin({
+                        enabled: true,
+                        installed: true,
+                        version: "1.0.0-test",
+                      }),
+                    ],
+                  },
+                ],
               };
             }
             throw new Error(`Unexpected request: ${method}`);
@@ -336,16 +348,20 @@ describe("BrowserPluginReconciler", () => {
         return {
           featuredPluginIds: [],
           marketplaceLoadErrors: [],
-          marketplaces: [{
-            interface: null,
-            name: "openai-bundled",
-            path: fixture.marketplaceRoot,
-            plugins: [plugin({
-              enabled: installed,
-              installed,
-              version: "1.0.0-test",
-            })],
-          }],
+          marketplaces: [
+            {
+              interface: null,
+              name: "openai-bundled",
+              path: fixture.marketplaceRoot,
+              plugins: [
+                plugin({
+                  enabled: installed,
+                  installed,
+                  version: "1.0.0-test",
+                }),
+              ],
+            },
+          ],
         };
       }
       if (method === "plugin/uninstall") {
@@ -393,12 +409,10 @@ describe("BrowserPluginReconciler", () => {
         marketplaceRoot: fixture.marketplaceRoot,
         status: "ready",
       });
-      expect(
-        request.mock.calls.filter(([method]) => method === "plugin/uninstall"),
-      ).toHaveLength(1);
-      expect(
-        request.mock.calls.filter(([method]) => method === "plugin/install"),
-      ).toHaveLength(1);
+      expect(request.mock.calls.filter(([method]) => method === "plugin/uninstall")).toHaveLength(
+        1,
+      );
+      expect(request.mock.calls.filter(([method]) => method === "plugin/install")).toHaveLength(1);
     } finally {
       fs.rmSync(fixture.root, { force: true, recursive: true });
     }

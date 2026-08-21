@@ -1,32 +1,36 @@
 import { describe, expect, test } from "vitest";
-import {
-  parseWorkbenchProjectionTabConfig,
-} from "./project-sessions";
+import { parseWorkbenchProjectionTabConfig } from "./project-sessions";
 
 describe("project session Terminal config", () => {
   test("persists only the stable terminal session identity", () => {
-    expect(parseWorkbenchProjectionTabConfig("terminal", {
-      terminalSessionId: "terminal:one",
-    })).toEqual({
+    expect(
+      parseWorkbenchProjectionTabConfig("terminal", {
+        terminalSessionId: "terminal:one",
+      }),
+    ).toEqual({
       terminalSessionId: "terminal:one",
     });
   });
 
   test("rejects Project fields that do not belong to Terminal content", () => {
-    expect(() => parseWorkbenchProjectionTabConfig("terminal", {
-      projectId: "legacy-project",
-      terminalSessionId: "terminal:one",
-    })).toThrow();
+    expect(() =>
+      parseWorkbenchProjectionTabConfig("terminal", {
+        projectId: "legacy-project",
+        terminalSessionId: "terminal:one",
+      }),
+    ).toThrow();
   });
 });
 
 describe("project session Page Stage config", () => {
   test("persists only Page identity, access context, and a title snapshot", () => {
-    expect(parseWorkbenchProjectionTabConfig("page_stage", {
-      projectId: "alpha",
-      pageId: "nested",
-      titleSnapshot: "Nested",
-    })).toEqual({
+    expect(
+      parseWorkbenchProjectionTabConfig("page_stage", {
+        projectId: "alpha",
+        pageId: "nested",
+        titleSnapshot: "Nested",
+      }),
+    ).toEqual({
       projectId: "alpha",
       pageId: "nested",
       titleSnapshot: "Nested",
@@ -34,25 +38,31 @@ describe("project session Page Stage config", () => {
   });
 
   test("rejects interaction-derived ancestor trails at the durable boundary", () => {
-    expect(() => parseWorkbenchProjectionTabConfig("page_stage", {
-      projectId: "alpha",
-      pageId: "nested",
-      ancestors: [{
-        projectId: "stale-project",
-        pageId: "root",
-        titleSnapshot: "Stale title",
-      }],
-    })).toThrow();
+    expect(() =>
+      parseWorkbenchProjectionTabConfig("page_stage", {
+        projectId: "alpha",
+        pageId: "nested",
+        ancestors: [
+          {
+            projectId: "stale-project",
+            pageId: "root",
+            titleSnapshot: "Stale title",
+          },
+        ],
+      }),
+    ).toThrow();
   });
 });
 
 describe("project session Canvas Stage config", () => {
   test("persists only public Canvas identity, access context, and title fallback", () => {
-    expect(parseWorkbenchProjectionTabConfig("canvas_stage", {
-      projectId: "alpha",
-      canvasBlockId: "canvas:one",
-      titleSnapshot: "Sketch",
-    })).toEqual({
+    expect(
+      parseWorkbenchProjectionTabConfig("canvas_stage", {
+        projectId: "alpha",
+        canvasBlockId: "canvas:one",
+        titleSnapshot: "Sketch",
+      }),
+    ).toEqual({
       projectId: "alpha",
       canvasBlockId: "canvas:one",
       titleSnapshot: "Sketch",
@@ -60,26 +70,32 @@ describe("project session Canvas Stage config", () => {
   });
 
   test("rejects missing Canvas identity and private Document identity", () => {
-    expect(() => parseWorkbenchProjectionTabConfig("canvas_stage", {
-      projectId: "alpha",
-    })).toThrow();
-    expect(() => parseWorkbenchProjectionTabConfig("canvas_stage", {
-      projectId: "alpha",
-      canvasBlockId: "canvas:one",
-      documentId: "document:private",
-    })).toThrow();
+    expect(() =>
+      parseWorkbenchProjectionTabConfig("canvas_stage", {
+        projectId: "alpha",
+      }),
+    ).toThrow();
+    expect(() =>
+      parseWorkbenchProjectionTabConfig("canvas_stage", {
+        projectId: "alpha",
+        canvasBlockId: "canvas:one",
+        documentId: "document:private",
+      }),
+    ).toThrow();
   });
 });
 
 describe("project session Files config", () => {
   test("persists projectless exact-file tabs without inventing a workspace root", () => {
-    expect(parseWorkbenchProjectionTabConfig("files", {
-      projectId: null,
-      hostId: "local",
-      workspaceRoot: null,
-      cwd: "/tmp/worktree",
-      path: "/tmp/worktree/README.md",
-    })).toEqual({
+    expect(
+      parseWorkbenchProjectionTabConfig("files", {
+        projectId: null,
+        hostId: "local",
+        workspaceRoot: null,
+        cwd: "/tmp/worktree",
+        path: "/tmp/worktree/README.md",
+      }),
+    ).toEqual({
       projectId: null,
       hostId: "local",
       workspaceRoot: null,
@@ -89,11 +105,13 @@ describe("project session Files config", () => {
   });
 
   test("normalizes legacy empty browsing coordinates to no navigation root", () => {
-    expect(parseWorkbenchProjectionTabConfig("files", {
-      projectId: "alpha",
-      workspaceRoot: "",
-      cwd: "   ",
-    })).toEqual({
+    expect(
+      parseWorkbenchProjectionTabConfig("files", {
+        projectId: "alpha",
+        workspaceRoot: "",
+        cwd: "   ",
+      }),
+    ).toEqual({
       projectId: "alpha",
       hostId: "local",
       workspaceRoot: null,
@@ -104,27 +122,33 @@ describe("project session Files config", () => {
 
 describe("project session Review config", () => {
   test("persists a projectless Review with explicit session ownership", () => {
-    expect(parseWorkbenchProjectionTabConfig("review", {
-      projectId: null,
-      context: { kind: "session", sessionId: "session-1" },
-    })).toEqual({
+    expect(
+      parseWorkbenchProjectionTabConfig("review", {
+        projectId: null,
+        context: { kind: "session", sessionId: "session-1" },
+      }),
+    ).toEqual({
       projectId: null,
       context: { kind: "session", sessionId: "session-1" },
     });
   });
 
   test("normalizes legacy project-only Review config at the boundary", () => {
-    expect(parseWorkbenchProjectionTabConfig("review", {
-      projectId: "alpha",
-    })).toEqual({
+    expect(
+      parseWorkbenchProjectionTabConfig("review", {
+        projectId: "alpha",
+      }),
+    ).toEqual({
       projectId: "alpha",
       context: { kind: "project", projectId: "alpha" },
     });
   });
 
   test("rejects a projectless Review without a session owner", () => {
-    expect(() => parseWorkbenchProjectionTabConfig("review", {
-      projectId: null,
-    })).toThrow();
+    expect(() =>
+      parseWorkbenchProjectionTabConfig("review", {
+        projectId: null,
+      }),
+    ).toThrow();
   });
 });

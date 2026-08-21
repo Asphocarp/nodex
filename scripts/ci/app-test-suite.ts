@@ -76,12 +76,16 @@ const main = (): void => {
   const output = process.env.GITHUB_OUTPUT;
   if (!output) throw new Error("GITHUB_OUTPUT is required.");
   const suitePlan = planAppTestSuite(suite);
-  appendFileSync(output, [
-    `needs_playwright=${suitePlan.needsPlaywright}`,
-    `needs_rust=${suitePlan.needsRust}`,
-    `needs_xvfb=${suitePlan.needsXvfb}`,
-    "",
-  ].join("\n"), "utf8");
+  appendFileSync(
+    output,
+    [
+      `needs_playwright=${suitePlan.needsPlaywright}`,
+      `needs_rust=${suitePlan.needsRust}`,
+      `needs_xvfb=${suitePlan.needsXvfb}`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {

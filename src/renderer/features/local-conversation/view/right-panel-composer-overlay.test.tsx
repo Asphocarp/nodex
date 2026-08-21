@@ -30,11 +30,13 @@ describe("RightPanelComposerOverlay", () => {
   });
 
   test("resolves body-portal geometry in the pane coordinate space", () => {
-    expect(resolveRightPanelComposerPortalGeometry({
-      rect: { left: 120, top: 40, width: 900 },
-      viewportHeight: 800,
-      zoom: 1.5,
-    })).toEqual({
+    expect(
+      resolveRightPanelComposerPortalGeometry({
+        rect: { left: 120, top: 40, width: 900 },
+        viewportHeight: 800,
+        zoom: 1.5,
+      }),
+    ).toEqual({
       height: 760 / 1.5,
       left: 80,
       top: 40 / 1.5,
@@ -58,9 +60,7 @@ describe("RightPanelComposerOverlay", () => {
       if (!host) throw new Error("Expected a body-level overlay host");
       return host;
     });
-    const overlay = portalHost.querySelector(
-      '[data-testid="right-panel-composer-overlay"]',
-    );
+    const overlay = portalHost.querySelector('[data-testid="right-panel-composer-overlay"]');
     expect(overlay !== null).toBe(true);
     expect(portalHost.style.left).toBe("20px");
     expect(portalHost.style.top).toBe("30px");
@@ -100,9 +100,7 @@ describe("RightPanelComposerOverlay", () => {
         '[data-testid="right-panel-composer-overlay"]',
       );
       expect(
-        overlay?.style.getPropertyValue(
-          "--right-panel-composer-overlay-bottom-panel-height",
-        ),
+        overlay?.style.getPropertyValue("--right-panel-composer-overlay-bottom-panel-height"),
       ).toBe("80px");
     });
   });
@@ -122,9 +120,7 @@ describe("RightPanelComposerOverlay", () => {
     );
 
     const composerButton = await waitFor(() => {
-      const overlay = document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      );
+      const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       if (overlay?.getAttribute("aria-hidden") !== "false") {
         throw new Error("Expected visible composer");
       }
@@ -187,9 +183,7 @@ describe("RightPanelComposerOverlay", () => {
     });
 
     await waitFor(() => {
-      const overlay = document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      );
+      const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       expect(overlay?.getAttribute("aria-hidden")).toBe("false");
     });
   });
@@ -219,11 +213,12 @@ describe("RightPanelComposerOverlay", () => {
       if (!button) throw new Error("Expected controlled hide control");
       return button;
     });
-    expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve"))
-      .toBe("118px");
-    expect(hideButton.closest(
-      '[data-testid="right-panel-composer-overlay-host"]',
-    )?.getAttribute("data-overlay-attention")).toBe("request");
+    expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve")).toBe("118px");
+    expect(
+      hideButton
+        .closest('[data-testid="right-panel-composer-overlay-host"]')
+        ?.getAttribute("data-overlay-attention"),
+    ).toBe("request");
 
     await act(async () => {
       fireEvent.click(hideButton);
@@ -232,11 +227,12 @@ describe("RightPanelComposerOverlay", () => {
 
     view.rerender(renderOverlay(false));
     await waitFor(() => {
-      expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve"))
-        .toBe("0px");
-      expect(document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      )?.getAttribute("aria-hidden")).toBe("true");
+      expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve")).toBe("0px");
+      expect(
+        document.body
+          .querySelector('[data-testid="right-panel-composer-overlay"]')
+          ?.getAttribute("aria-hidden"),
+      ).toBe("true");
     });
     const showButton = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="Show floating composer"]',
@@ -274,9 +270,11 @@ describe("RightPanelComposerOverlay", () => {
 
     view.rerender(renderOverlay(true, true));
     await waitFor(() => {
-      expect(document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      )?.getAttribute("aria-hidden")).toBe("true");
+      expect(
+        document.body
+          .querySelector('[data-testid="right-panel-composer-overlay"]')
+          ?.getAttribute("aria-hidden"),
+      ).toBe("true");
     });
     expect(onVisibleChange).not.toHaveBeenCalled();
 
@@ -316,18 +314,12 @@ describe("RightPanelComposerOverlay", () => {
           onVisibleChange: () => {},
         }}
       >
-        <div
-          contentEditable
-          data-codex-composer="true"
-          suppressContentEditableWarning
-        />
+        <div contentEditable data-codex-composer="true" suppressContentEditableWarning />
       </RightPanelComposerOverlay>
     );
     const view = render(renderOverlay(0));
     const composer = await waitFor(() => {
-      const element = document.body.querySelector<HTMLElement>(
-        '[data-codex-composer="true"]',
-      );
+      const element = document.body.querySelector<HTMLElement>('[data-codex-composer="true"]');
       if (!element) throw new Error("Expected controlled Dock composer");
       return element;
     });
@@ -356,19 +348,13 @@ describe("RightPanelComposerOverlay", () => {
             onVisibleChange: () => {},
           }}
         >
-          <div
-            contentEditable
-            data-codex-composer="true"
-            suppressContentEditableWarning
-          />
+          <div contentEditable data-codex-composer="true" suppressContentEditableWarning />
         </RightPanelComposerOverlay>
       </>
     );
     const view = render(renderOverlay(firstTarget));
     const composer = await waitFor(() => {
-      const element = document.body.querySelector<HTMLElement>(
-        '[data-codex-composer="true"]',
-      );
+      const element = document.body.querySelector<HTMLElement>('[data-codex-composer="true"]');
       if (!element) throw new Error("Expected controlled Dock composer");
       expect(document.activeElement).toBe(element);
       return element;
@@ -403,15 +389,11 @@ describe("RightPanelComposerOverlay", () => {
 
     view.rerender(renderOverlay(true));
     await waitFor(() => {
-      const overlay = document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      );
+      const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       expect(overlay?.getAttribute("aria-hidden")).toBe("true");
     });
 
-    const hideButton = document.body.querySelector(
-      'button[aria-label="Hide floating composer"]',
-    );
+    const hideButton = document.body.querySelector('button[aria-label="Hide floating composer"]');
     expect(hideButton?.getAttribute("inert")).not.toBe(null);
     const showButton = document.body.querySelector(
       'button[aria-label="Show floating composer"]',
@@ -421,18 +403,14 @@ describe("RightPanelComposerOverlay", () => {
       fireEvent.click(showButton);
     });
     await waitFor(() => {
-      const overlay = document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      );
+      const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       expect(overlay?.getAttribute("aria-hidden")).toBe("false");
     });
 
     view.rerender(renderOverlay(false));
     view.rerender(renderOverlay(true));
     await waitFor(() => {
-      const overlay = document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      );
+      const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       expect(overlay?.getAttribute("aria-hidden")).toBe("true");
     });
   });
@@ -449,11 +427,7 @@ describe("RightPanelComposerOverlay", () => {
           isAtDocumentBottom,
         }}
       >
-        <div
-          contentEditable
-          data-codex-composer="true"
-          suppressContentEditableWarning
-        >
+        <div contentEditable data-codex-composer="true" suppressContentEditableWarning>
           Keep typing
         </div>
       </RightPanelComposerOverlay>
@@ -472,9 +446,7 @@ describe("RightPanelComposerOverlay", () => {
 
     view.rerender(renderOverlay(true));
     await waitFor(() => {
-      const overlay = document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      );
+      const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       expect(overlay?.getAttribute("aria-hidden")).toBe("false");
     });
   });
@@ -488,17 +460,17 @@ describe("RightPanelComposerOverlay", () => {
     );
 
     await waitFor(() => {
-      expect(document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay-host"]',
-      ) !== null).toBe(true);
+      expect(
+        document.body.querySelector('[data-testid="right-panel-composer-overlay-host"]') !== null,
+      ).toBe(true);
     });
 
     view.unmount();
 
     await waitFor(() => {
-      expect(document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay-host"]',
-      ) === null).toBe(true);
+      expect(
+        document.body.querySelector('[data-testid="right-panel-composer-overlay-host"]') === null,
+      ).toBe(true);
     });
     expect(target.style.getPropertyValue("--right-panel-composer-overlay-height")).toBe("");
     expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve")).toBe("");

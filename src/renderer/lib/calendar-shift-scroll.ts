@@ -34,10 +34,7 @@ export function scaleShiftWheelDelta(deltaPx: number): number {
   return deltaPx * SHIFT_SCROLL_WHEEL_DELTA_SCALE;
 }
 
-export function resolveShiftScrollSettleDays(
-  targetPx: number,
-  dayWidthPx: number,
-): number {
+export function resolveShiftScrollSettleDays(targetPx: number, dayWidthPx: number): number {
   if (!Number.isFinite(targetPx) || targetPx === 0) return 0;
   if (!Number.isFinite(dayWidthPx) || dayWidthPx <= 0) return 0;
 
@@ -45,10 +42,7 @@ export function resolveShiftScrollSettleDays(
   return direction * Math.round(Math.abs(targetPx) / dayWidthPx);
 }
 
-export function resolveShiftScrollBufferDays(
-  targetPx: number,
-  dayWidthPx: number,
-): number {
+export function resolveShiftScrollBufferDays(targetPx: number, dayWidthPx: number): number {
   if (!Number.isFinite(targetPx)) return 1;
   if (!Number.isFinite(dayWidthPx) || dayWidthPx <= 0) return 1;
 

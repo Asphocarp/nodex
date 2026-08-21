@@ -26,12 +26,11 @@ describe("ProjectEventSubscriptionHub", () => {
     const refreshCounts = new Map<string, number>();
     const unsubscribers: Array<() => void> = [];
     const register = (consumerKey: string): void => {
-      unsubscribers.push(hub.subscribe("project-1", consumerKey, () => {
-        refreshCounts.set(
-          consumerKey,
-          (refreshCounts.get(consumerKey) ?? 0) + 1,
-        );
-      }));
+      unsubscribers.push(
+        hub.subscribe("project-1", consumerKey, () => {
+          refreshCounts.set(consumerKey, (refreshCounts.get(consumerKey) ?? 0) + 1);
+        }),
+      );
     };
 
     for (let index = 0; index < 10; index += 1) {

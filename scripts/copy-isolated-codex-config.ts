@@ -53,31 +53,28 @@ export async function copyIsolatedCodexConfig(
 
   const sanitized = sanitizeIsolatedCodexConfig(parsed);
   const withFeatureDefaults = applyCodexFeatureDefaults(sanitized);
-  await writeFile(
-    targetPath,
-    stringifyToml(withFeatureDefaults.config, { numbersAsFloat: true }),
-    { encoding: "utf8", mode: 0o600 },
-  );
+  await writeFile(targetPath, stringifyToml(withFeatureDefaults.config, { numbersAsFloat: true }), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 function isDirectExecution(): boolean {
   const scriptPath = process.argv[1];
-  return typeof scriptPath === "string"
-    && path.resolve(scriptPath) === path.resolve(fileURLToPath(import.meta.url));
+  return (
+    typeof scriptPath === "string" &&
+    path.resolve(scriptPath) === path.resolve(fileURLToPath(import.meta.url))
+  );
 }
 
 if (isDirectExecution()) {
   const [sourcePath, targetPath] = process.argv.slice(2);
   if (!sourcePath || !targetPath) {
-    process.stderr.write(
-      "Usage: copy-isolated-codex-config.ts <source-config> <target-config>\n",
-    );
+    process.stderr.write("Usage: copy-isolated-codex-config.ts <source-config> <target-config>\n");
     process.exitCode = 1;
   } else {
     copyIsolatedCodexConfig(sourcePath, targetPath).catch((error: unknown) => {
-      process.stderr.write(
-        `${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
       process.exitCode = 1;
     });
   }

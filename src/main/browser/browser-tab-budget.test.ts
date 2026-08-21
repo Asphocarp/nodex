@@ -33,16 +33,14 @@ describe("selectBrowserTabsToSuspend", () => {
       entry(`tab-${index}`, {
         lastSelectedAt: index,
         updatedAt: index,
-      })
+      }),
     );
 
-    expect(selectBrowserTabsToSuspend(entries, {
-      now: RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS + 100,
-    }).map((candidate) => candidate.browserTabId)).toEqual([
-      "tab-0",
-      "tab-1",
-      "tab-2",
-    ]);
+    expect(
+      selectBrowserTabsToSuspend(entries, {
+        now: RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS + 100,
+      }).map((candidate) => candidate.browserTabId),
+    ).toEqual(["tab-0", "tab-1", "tab-2"]);
   });
 
   test("protects active, recent, Browser Use, capture and media pages", () => {
@@ -51,7 +49,7 @@ describe("selectBrowserTabsToSuspend", () => {
       ...Array.from({ length: 32 }, (_, index) =>
         entry(`base-${index}`, {
           lastSelectedAt: now - RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS - index - 1,
-        })
+        }),
       ),
       entry("recent", { lastSelectedAt: now }),
       entry("browser-use", {
@@ -65,9 +63,7 @@ describe("selectBrowserTabsToSuspend", () => {
 
     const suspended = selectBrowserTabsToSuspend(entries, { now });
     expect(suspended).toHaveLength(5);
-    expect(suspended.every((candidate) =>
-      candidate.browserTabId.startsWith("base-")
-    )).toBe(true);
+    expect(suspended.every((candidate) => candidate.browserTabId.startsWith("base-"))).toBe(true);
   });
 
   test("does not count cold, suspended or presented pages as live detached", () => {
@@ -80,8 +76,10 @@ describe("selectBrowserTabsToSuspend", () => {
         presented: true,
       }),
     ];
-    expect(selectBrowserTabsToSuspend(entries, {
-      now: RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS + 1,
-    })).toEqual([]);
+    expect(
+      selectBrowserTabsToSuspend(entries, {
+        now: RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS + 1,
+      }),
+    ).toEqual([]);
   });
 });

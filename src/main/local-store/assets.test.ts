@@ -2,10 +2,7 @@ import { describe, expect, vi, test } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import {
-  storeMaintenanceGate,
-  StoreMaintenanceInProgressError,
-} from "./store-maintenance-gate";
+import { storeMaintenanceGate, StoreMaintenanceInProgressError } from "./store-maintenance-gate";
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-assets-"));
 
@@ -38,13 +35,11 @@ describe("asset service", () => {
       try {
         let rejected = false;
         try {
-          await assetService.saveUploadedResource(
-            {
-              name: "late.txt",
-              mimeType: "text/plain",
-              bytes: new TextEncoder().encode("late"),
-            },
-          );
+          await assetService.saveUploadedResource({
+            name: "late.txt",
+            mimeType: "text/plain",
+            bytes: new TextEncoder().encode("late"),
+          });
         } catch (error) {
           rejected = error instanceof StoreMaintenanceInProgressError;
         }
@@ -85,23 +80,21 @@ describe("asset service", () => {
       });
 
       expect(second).toEqual(first);
-      expect(first.fileName).toBe(
-        `canvas-${first.contentHash}.png`,
-      );
+      expect(first.fileName).toBe(`canvas-${first.contentHash}.png`);
       expect(first.byteLength).toBe(input.bytes.byteLength);
-      expect(
-        fs.readdirSync(path.join(fixtureRoot, "assets")),
-      ).toEqual([first.fileName]);
+      expect(fs.readdirSync(path.join(fixtureRoot, "assets"))).toEqual([first.fileName]);
     });
   });
 
   test("saveUploadedImage rejects resources outside the raster allowlist", async () => {
     await withFixture(() => {
-      expect(() => assetService.saveUploadedImage({
-        name: "vector.svg",
-        mimeType: "image/svg+xml",
-        bytes: new TextEncoder().encode("<svg />"),
-      })).toThrow("Unsupported image type");
+      expect(() =>
+        assetService.saveUploadedImage({
+          name: "vector.svg",
+          mimeType: "image/svg+xml",
+          bytes: new TextEncoder().encode("<svg />"),
+        }),
+      ).toThrow("Unsupported image type");
     });
   });
 
@@ -167,14 +160,20 @@ describe("asset service", () => {
       expect(manifest.truncated).toBe(true);
       expect(manifest.maxDepth).toBe(3);
       expect(manifest.maxEntries).toBe(100);
-      expect(manifest.entries.some((entry) => entry.path === "a" && entry.kind === "folder")).toBe(true);
-      expect(manifest.entries.some((entry) => entry.path === "root.txt" && entry.kind === "file")).toBe(true);
+      expect(manifest.entries.some((entry) => entry.path === "a" && entry.kind === "folder")).toBe(
+        true,
+      );
+      expect(
+        manifest.entries.some((entry) => entry.path === "root.txt" && entry.kind === "file"),
+      ).toBe(true);
       expect(manifest.entries.some((entry) => entry.path === "a/b/c/d")).toBe(false);
 
-      expect(assetService.readManagedAssetPreview({
-        source: result.source,
-        kind: "folder",
-      })).toEqual({
+      expect(
+        assetService.readManagedAssetPreview({
+          source: result.source,
+          kind: "folder",
+        }),
+      ).toEqual({
         kind: "folder",
         manifest,
       });
@@ -201,13 +200,13 @@ describe("asset service", () => {
       });
       expect(preview.kind).toBe("text");
       expect(preview.kind === "text" && preview.truncated).toBe(true);
-      expect(
-        preview.kind === "text" ? preview.content.split("\n") : [],
-      ).toHaveLength(200);
-      expect(() => assetService.readManagedAssetPreview({
-        source: imageAsset.source,
-        kind: "text",
-      })).toThrow("not text-previewable");
+      expect(preview.kind === "text" ? preview.content.split("\n") : []).toHaveLength(200);
+      expect(() =>
+        assetService.readManagedAssetPreview({
+          source: imageAsset.source,
+          kind: "text",
+        }),
+      ).toThrow("not text-previewable");
     });
   });
 
@@ -218,17 +217,18 @@ describe("asset service", () => {
         mimeType: "text/plain",
         bytes: new TextEncoder().encode("hello"),
       });
-      expect(() => assetService.readManagedAssetImage(textAsset.source))
-        .toThrow("not a supported image");
+      expect(() => assetService.readManagedAssetImage(textAsset.source)).toThrow(
+        "not a supported image",
+      );
 
       const assetsRoot = path.join(fixtureRoot, "assets");
       const outsidePath = path.join(fixtureRoot, "outside.png");
       const linkedFileName = "linked.png";
       fs.writeFileSync(outsidePath, "outside");
       fs.symlinkSync(outsidePath, path.join(assetsRoot, linkedFileName));
-      expect(() => assetService.readManagedAssetImage(
-        `nodex://assets/${linkedFileName}`,
-      )).toThrow("regular file");
+      expect(() => assetService.readManagedAssetImage(`nodex://assets/${linkedFileName}`)).toThrow(
+        "regular file",
+      );
     });
   });
 });

@@ -2,10 +2,7 @@ import { useId, useMemo, useState, type ReactNode } from "react";
 import { CodeBracketsIcon } from "@/components/shared/icons";
 import type { CodexDynamicToolCallView, CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
-import {
-  buildTextPreview,
-  INLINE_TEXT_PREVIEW_MAX_CHARS,
-} from "../../../../../lib/text-preview";
+import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
 import type {
   NodexDynamicToolCallPresentation,
   NodexMarkdownChangePreview,
@@ -16,7 +13,10 @@ import {
   ToolCallRawDialog,
 } from "./tool-call-inspection";
 
-function parseDynamicToolTextContent(text: string): { content: string; format: "json" | "plaintext" } {
+function parseDynamicToolTextContent(text: string): {
+  content: string;
+  format: "json" | "plaintext";
+} {
   if (text.length > INLINE_TEXT_PREVIEW_MAX_CHARS) {
     return { content: text, format: "plaintext" };
   }
@@ -59,24 +59,29 @@ function MarkdownChangePreview({
 }) {
   const compactRemovedLines = change.lines.filter((line) => line.kind === "removed").slice(0, 2);
   const compactAddedLines = change.lines.filter((line) => line.kind === "added").slice(0, 2);
-  const compactLines = compactRemovedLines.length > 0 && compactAddedLines.length > 0
-    ? [...compactRemovedLines, ...compactAddedLines]
-    : change.lines.filter((line) => line.kind !== "separator").slice(0, 4);
+  const compactLines =
+    compactRemovedLines.length > 0 && compactAddedLines.length > 0
+      ? [...compactRemovedLines, ...compactAddedLines]
+      : change.lines.filter((line) => line.kind !== "separator").slice(0, 4);
   const visibleLines = compact ? compactLines : change.lines;
   const renderedChangeLineCount = change.lines.filter((line) => line.kind !== "separator").length;
   const visibleChangeLineCount = visibleLines.filter((line) => line.kind !== "separator").length;
-  const omittedLineCount = change.omittedLineCount
-    + Math.max(0, renderedChangeLineCount - visibleChangeLineCount);
+  const omittedLineCount =
+    change.omittedLineCount + Math.max(0, renderedChangeLineCount - visibleChangeLineCount);
   const stats = [
     change.additions > 0 ? `+${change.additions}` : null,
     change.deletions > 0 ? `−${change.deletions}` : null,
-  ].filter((value): value is string => value !== null).join(" ");
+  ]
+    .filter((value): value is string => value !== null)
+    .join(" ");
 
   return (
-    <div className={cn(
-      "overflow-hidden rounded-md bg-token-bg-secondary/40 ring-[0.5px] ring-token-border-light",
-      compact && "mt-1.5",
-    )}>
+    <div
+      className={cn(
+        "overflow-hidden rounded-md bg-token-bg-secondary/40 ring-[0.5px] ring-token-border-light",
+        compact && "mt-1.5",
+      )}
+    >
       <div className="flex items-center justify-between gap-2 border-b-[0.5px] border-token-border-light px-2 py-1 text-xs text-token-description-foreground">
         <span className="truncate font-medium">{change.label}</span>
         {stats ? <span className="shrink-0 font-vscode-editor">{stats}</span> : null}
@@ -106,7 +111,9 @@ function MarkdownChangePreview({
               )}
             >
               <span className="select-none">{isAdded ? "+" : "−"}</span>
-              <span className="whitespace-pre-wrap break-words text-token-foreground/80">{line.text || " "}</span>
+              <span className="whitespace-pre-wrap break-words text-token-foreground/80">
+                {line.text || " "}
+              </span>
             </div>
           );
         })}
@@ -167,9 +174,9 @@ function DynamicToolOutput({
           <DynamicToolTextOutput
             key={`${contentItem.type}-${index}`}
             text={contentItem.text}
-            titlePrefix={call.contentItems && call.contentItems.length > 1
-              ? `Output ${index + 1}`
-              : "Output"}
+            titlePrefix={
+              call.contentItems && call.contentItems.length > 1 ? `Output ${index + 1}` : "Output"
+            }
           />
         );
       })}
@@ -192,9 +199,11 @@ function DynamicToolTextOutput({
       preview={buildTextPreview(parsed.content, INLINE_TEXT_PREVIEW_MAX_CHARS)}
       getCopyText={() => text}
       getFullText={() => parsed.content}
-      preClassName={parsed.format === "json"
-        ? "font-vscode-editor text-size-chat text-token-description-foreground/80"
-        : "font-sans text-size-chat leading-relaxed text-token-description-foreground/80"}
+      preClassName={
+        parsed.format === "json"
+          ? "font-vscode-editor text-size-chat text-token-description-foreground/80"
+          : "font-sans text-size-chat leading-relaxed text-token-description-foreground/80"
+      }
     />
   );
 }
@@ -213,10 +222,7 @@ function DynamicToolExpandedDetails({
   readonly bodyId: string;
 }) {
   const [isRawDialogOpen, setIsRawDialogOpen] = useState(false);
-  const argumentsValue = useMemo(
-    () => stringifyToolCallValue(call.arguments),
-    [call.arguments],
-  );
+  const argumentsValue = useMemo(() => stringifyToolCallValue(call.arguments), [call.arguments]);
   const statusDetails = [
     call.status ?? (call.completed ? "completed" : "inProgress"),
     call.durationMs === null || call.durationMs === undefined ? null : `${call.durationMs} ms`,

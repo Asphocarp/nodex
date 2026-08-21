@@ -1,17 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { appScope, useScopeHandle } from "@/lib/maitai";
-import {
-  CheckmarkIcon,
-  RefreshIcon,
-  ActivitySpinnerIcon,
-} from "@/components/shared/icons";
+import { CheckmarkIcon, RefreshIcon, ActivitySpinnerIcon } from "@/components/shared/icons";
 import {
   useRegisterContentSearchSource,
   type ContentSearchLocalMatch,
@@ -53,9 +42,7 @@ import {
 } from "./local-conversation-virtualized-turn-list";
 import type { ThreadUserMessageNavigationItem } from "../thread-stage-types";
 import { LocalConversationForkFromTurnDialog } from "./local-conversation-fork-from-turn-dialog";
-import {
-  useLocalConversationThreadScrollController,
-} from "./local-conversation-thread-scroll-controller";
+import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 import {
   localConversationTurnCollapseOverrideFamily,
   normalizeThreadRestoreDistanceFromBottomPx,
@@ -81,15 +68,13 @@ const PROGRESS_PHASES = [
 ] as const;
 
 function turnHasUserMessage(turn: CodexConversationTurn): boolean {
-  return turn.items.some((item) => item.kind === "userMessage" || item.semanticKind === "userMessage");
+  return turn.items.some(
+    (item) => item.kind === "userMessage" || item.semanticKind === "userMessage",
+  );
 }
 
-function turnEntryHasMcpApp(
-  entry: LocalConversationVirtualizedTurnListEntry | undefined,
-): boolean {
-  return entry?.turn.items.some(
-    (item) => item.mcpToolCall?.mcpAppResourceUri != null,
-  ) === true;
+function turnEntryHasMcpApp(entry: LocalConversationVirtualizedTurnListEntry | undefined): boolean {
+  return entry?.turn.items.some((item) => item.mcpToolCall?.mcpAppResourceUri != null) === true;
 }
 
 function resolveLatestEditableTurnId(turns: CodexConversationTurn[]): string | null {
@@ -113,7 +98,7 @@ function countNeedleOccurrences(text: string, normalizedQuery: string): number {
 }
 
 function escapeAttributeSelectorValue(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function nextAnimationFrame(): Promise<void> {
@@ -127,18 +112,15 @@ function isConversationSearchMatchMeta(
 ): value is { unitKey: string; turnKey: string; occurrenceIndex: number } {
   if (!value || typeof value !== "object") return false;
   const meta = value as { unitKey?: unknown; turnKey?: unknown; occurrenceIndex?: unknown };
-  return typeof meta.unitKey === "string"
-    && typeof meta.turnKey === "string"
-    && typeof meta.occurrenceIndex === "number";
+  return (
+    typeof meta.unitKey === "string" &&
+    typeof meta.turnKey === "string" &&
+    typeof meta.occurrenceIndex === "number"
+  );
 }
 
 function resolvePhaseIndex(
-  phase:
-    | "creatingWorktree"
-    | "runningSetup"
-    | "startingThread"
-    | "ready"
-    | "failed",
+  phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed",
 ): number {
   if (phase === "creatingWorktree") return 0;
   if (phase === "runningSetup") return 1;
@@ -190,7 +172,9 @@ export function ThreadStartProgressPanel({
           ) : (
             <ActivitySpinnerIcon className="size-3.5 shrink-0 text-(--foreground-tertiary)" />
           )}
-          <span>{progress.message || (isFailed ? "Message could not be sent." : "Sending message…")}</span>
+          <span>
+            {progress.message || (isFailed ? "Message could not be sent." : "Sending message…")}
+          </span>
         </div>
         {isFailed && outputText.trim().length > 0 ? (
           <pre className="scrollbar-token mt-3 max-h-32 overflow-auto rounded-lg border-[0.5px] border-(--border) bg-(--background-secondary) p-3 text-left font-mono text-xs/relaxed wrap-break-word whitespace-pre-wrap text-(--foreground-tertiary)">
@@ -248,12 +232,8 @@ export function ThreadStartProgressPanel({
                     "text-xs",
                     isComplete && "text-(--foreground-secondary)",
                     isActive && "font-medium text-(--foreground-secondary)",
-                    !isComplete &&
-                      !isActive &&
-                      "text-(--foreground-tertiary)",
-                    isFailed &&
-                      index === activePhaseIndex &&
-                      "font-medium text-(--destructive)",
+                    !isComplete && !isActive && "text-(--foreground-tertiary)",
+                    isFailed && index === activePhaseIndex && "font-medium text-(--destructive)",
                   )}
                 >
                   {phase.label}
@@ -404,20 +384,31 @@ export function LocalConversationThreadBodyOwner({
             capabilityFlags,
           }
         : null,
-    [canonicalRequests, capabilityFlags, childMemberships, cwd, projectlessOutputDirectory, requests, resumeState, statusType, threadId, turnPagination, turns],
+    [
+      canonicalRequests,
+      capabilityFlags,
+      childMemberships,
+      cwd,
+      projectlessOutputDirectory,
+      requests,
+      resumeState,
+      statusType,
+      threadId,
+      turnPagination,
+      turns,
+    ],
   );
 
-  const editableTurnId =
-    capabilityFlags.canEditLastUserTurn
-      ? resolveLatestEditableTurnId(turns)
-      : null;
-  const canForkFromTurn =
-    capabilityFlags.canForkFromTurn;
+  const editableTurnId = capabilityFlags.canEditLastUserTurn
+    ? resolveLatestEditableTurnId(turns)
+    : null;
+  const canForkFromTurn = capabilityFlags.canForkFromTurn;
   const turnEntries = useMemo(
-    () => selectVisibleConversationTurnEntries({
-      conversation,
-      parentTurns,
-    }),
+    () =>
+      selectVisibleConversationTurnEntries({
+        conversation,
+        parentTurns,
+      }),
     [conversation, parentTurns],
   );
   const virtualizedEntries = useMemo<LocalConversationVirtualizedTurnListEntry[]>(
@@ -425,10 +416,11 @@ export function LocalConversationThreadBodyOwner({
     [turnEntries],
   );
   const userMessageNavigationItems = useMemo(
-    () => buildThreadUserMessageNavigationItems(turnEntries, {
-      cwd,
-      projectlessOutputDirectory,
-    } satisfies ProjectlessOutputScope),
+    () =>
+      buildThreadUserMessageNavigationItems(turnEntries, {
+        cwd,
+        projectlessOutputDirectory,
+      } satisfies ProjectlessOutputScope),
     [cwd, projectlessOutputDirectory, turnEntries],
   );
   const currentTurnEntriesRef = useRef(turnEntries);
@@ -440,9 +432,9 @@ export function LocalConversationThreadBodyOwner({
     const previousLatestTurnSearchKey = previousLatestTurnSearchKeyRef.current;
     previousLatestTurnSearchKeyRef.current = latestTurnSearchKey;
     if (
-      !threadId
-      || previousLatestTurnSearchKey === null
-      || previousLatestTurnSearchKey === latestTurnSearchKey
+      !threadId ||
+      previousLatestTurnSearchKey === null ||
+      previousLatestTurnSearchKey === latestTurnSearchKey
     ) {
       return;
     }
@@ -456,10 +448,14 @@ export function LocalConversationThreadBodyOwner({
       previousLatestTurnSearchKey,
     });
     for (const turnSearchKey of turnSearchKeysToCollapse) {
-      setLocalConversationTurnCollapseOverride(appHandle, {
-        conversationId: threadId,
-        turnSearchKey,
-      }, true);
+      setLocalConversationTurnCollapseOverride(
+        appHandle,
+        {
+          conversationId: threadId,
+          turnSearchKey,
+        },
+        true,
+      );
     }
   }, [appHandle, latestTurnSearchKey, threadId, turnEntries]);
 
@@ -477,9 +473,7 @@ export function LocalConversationThreadBodyOwner({
     (state: VirtualizedLatestTurnRestoreState | null, distanceFromBottomPx: number) => {
       onRestoreSnapshotChange((current) => ({
         ...current,
-        distanceFromBottomPx: normalizeThreadRestoreDistanceFromBottomPx(
-          distanceFromBottomPx,
-        ),
+        distanceFromBottomPx: normalizeThreadRestoreDistanceFromBottomPx(distanceFromBottomPx),
         latestTurn: state,
       }));
     },
@@ -519,7 +513,9 @@ export function LocalConversationThreadBodyOwner({
                 conversationId: threadId,
                 turnSearchKey: targetEntry.turnSearchKey,
               };
-              if (appHandle.get(localConversationTurnCollapseOverrideFamily(collapseKey)) !== false) {
+              if (
+                appHandle.get(localConversationTurnCollapseOverrideFamily(collapseKey)) !== false
+              ) {
                 setLocalConversationTurnCollapseOverride(appHandle, collapseKey, false);
               }
               await new Promise<void>((resolve) => {
@@ -564,72 +560,81 @@ export function LocalConversationThreadBodyOwner({
     threadStartProgress?.updatedAt,
   ]);
 
-  const contentSearchSource = useMemo<ContentSearchLocalSource>(() => ({
-    domain: "conversation",
-    contextId: searchSource.routeContextId,
-    search(query, limit) {
-      const normalizedQuery = query.trim().toLowerCase();
-      if (!normalizedQuery) {
-        return { query, matches: [], totalMatches: 0, capped: false };
-      }
-
-      const matches: ContentSearchLocalMatch[] = [];
-      let capped = false;
-      for (const unit of searchSource.findMatches(normalizedQuery)) {
-        const occurrenceCount = countNeedleOccurrences(unit.text, normalizedQuery);
-        for (let occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex += 1) {
-          if (matches.length >= limit) {
-            capped = true;
-            break;
-          }
-          matches.push({
-            id: `conversation:${unit.key}:${occurrenceIndex}`,
-            domain: "conversation",
-            contextId: searchSource.routeContextId,
-            ordinal: matches.length,
-            label: unit.text,
-            meta: {
-              unitKey: unit.key,
-              turnKey: unit.turnKey,
-              occurrenceIndex,
-            },
-          });
+  const contentSearchSource = useMemo<ContentSearchLocalSource>(
+    () => ({
+      domain: "conversation",
+      contextId: searchSource.routeContextId,
+      search(query, limit) {
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!normalizedQuery) {
+          return { query, matches: [], totalMatches: 0, capped: false };
         }
-        if (capped) break;
-      }
 
-      return {
-        query,
-        matches,
-        totalMatches: matches.length,
-        capped,
-      };
-    },
-    async ensureVisible(match, { signal }) {
-      if (!isConversationSearchMatchMeta(match.meta)) return;
-      await searchSource.scrollAdapter.scrollToTurn(match.meta.turnKey, { signal });
-    },
-    activate(match, query) {
-      if (!isConversationSearchMatchMeta(match.meta)) return;
-      const root = contentRootRef.current;
-      if (!root) return;
-      const result = applyContentSearchDomMarks({
-        root,
-        query,
-        idPrefix: "content-search:conversation",
-      });
-      const unitSelector = `[data-content-search-unit-key="${escapeAttributeSelectorValue(match.meta.unitKey)}"]`;
-      const unitElement = root.querySelector<HTMLElement>(unitSelector);
-      const unitMarks = Array.from(unitElement?.querySelectorAll<HTMLElement>(`mark.${CONTENT_SEARCH_MARK_CLASS}`) ?? []);
-      const activeElement = unitMarks[match.meta.occurrenceIndex] ?? unitMarks[0] ?? result.matches[0]?.element ?? null;
-      if (!activeElement) return;
-      activeElement.classList.add(CONTENT_SEARCH_ACTIVE_MARK_CLASS);
-      activeElement.scrollIntoView({ block: "center", inline: "nearest" });
-    },
-    clear() {
-      clearContentSearchMarks(contentRootRef.current);
-    },
-  }), [searchSource]);
+        const matches: ContentSearchLocalMatch[] = [];
+        let capped = false;
+        for (const unit of searchSource.findMatches(normalizedQuery)) {
+          const occurrenceCount = countNeedleOccurrences(unit.text, normalizedQuery);
+          for (let occurrenceIndex = 0; occurrenceIndex < occurrenceCount; occurrenceIndex += 1) {
+            if (matches.length >= limit) {
+              capped = true;
+              break;
+            }
+            matches.push({
+              id: `conversation:${unit.key}:${occurrenceIndex}`,
+              domain: "conversation",
+              contextId: searchSource.routeContextId,
+              ordinal: matches.length,
+              label: unit.text,
+              meta: {
+                unitKey: unit.key,
+                turnKey: unit.turnKey,
+                occurrenceIndex,
+              },
+            });
+          }
+          if (capped) break;
+        }
+
+        return {
+          query,
+          matches,
+          totalMatches: matches.length,
+          capped,
+        };
+      },
+      async ensureVisible(match, { signal }) {
+        if (!isConversationSearchMatchMeta(match.meta)) return;
+        await searchSource.scrollAdapter.scrollToTurn(match.meta.turnKey, { signal });
+      },
+      activate(match, query) {
+        if (!isConversationSearchMatchMeta(match.meta)) return;
+        const root = contentRootRef.current;
+        if (!root) return;
+        const result = applyContentSearchDomMarks({
+          root,
+          query,
+          idPrefix: "content-search:conversation",
+        });
+        const unitSelector = `[data-content-search-unit-key="${escapeAttributeSelectorValue(match.meta.unitKey)}"]`;
+        const unitElement = root.querySelector<HTMLElement>(unitSelector);
+        const unitMarks = Array.from(
+          unitElement?.querySelectorAll<HTMLElement>(`mark.${CONTENT_SEARCH_MARK_CLASS}`) ?? [],
+        );
+        const activeElement =
+          unitMarks[match.meta.occurrenceIndex] ??
+          unitMarks[0] ??
+          result.matches[0]?.element ??
+          null;
+        if (!activeElement) return;
+        activeElement.classList.add(CONTENT_SEARCH_ACTIVE_MARK_CLASS);
+        activeElement.scrollIntoView({ block: "center", inline: "nearest" });
+      },
+      clear() {
+        clearContentSearchMarks(contentRootRef.current);
+      },
+    }),
+    [searchSource],
+  );
   useRegisterContentSearchSource(contentSearchSource);
 
   const handleEditLastUserTurn = useCallback(
@@ -639,9 +644,7 @@ export function LocalConversationThreadBodyOwner({
         await actions.onEditLastUserTurn(input);
       } catch (error) {
         const nextError =
-          error instanceof Error
-            ? error.message
-            : "Could not edit the last user message";
+          error instanceof Error ? error.message : "Could not edit the last user message";
         onErrorMessage(nextError);
         throw error;
       }
@@ -660,11 +663,7 @@ export function LocalConversationThreadBodyOwner({
         await fork();
         setForkDialogState(null);
       } catch (error) {
-        onErrorMessage(
-          error instanceof Error
-            ? error.message
-            : fallbackError,
-        );
+        onErrorMessage(error instanceof Error ? error.message : fallbackError);
       } finally {
         forkSubmissionInFlightRef.current = false;
         setIsForkSubmitting(false);
@@ -675,10 +674,7 @@ export function LocalConversationThreadBodyOwner({
 
   const runForkFromTurn = useCallback(
     async (input: { threadId: string; turnId: string; message: string }) => {
-      await runForkChoice(
-        () => actions.onForkFromTurn(input),
-        "Could not fork the conversation",
-      );
+      await runForkChoice(() => actions.onForkFromTurn(input), "Could not fork the conversation");
     },
     [actions, runForkChoice],
   );
@@ -688,10 +684,11 @@ export function LocalConversationThreadBodyOwner({
       if (!onForkFromTurnIntoWorktree) return;
 
       await runForkChoice(
-        () => onForkFromTurnIntoWorktree({
-          threadId: input.threadId,
-          targetTurnId: input.turnId,
-        }),
+        () =>
+          onForkFromTurnIntoWorktree({
+            threadId: input.threadId,
+            targetTurnId: input.turnId,
+          }),
         "Could not fork the conversation into a new worktree",
       );
     },
@@ -699,12 +696,7 @@ export function LocalConversationThreadBodyOwner({
   );
 
   const handleForkFromTurn = useCallback(
-    async (input: {
-      threadId: string;
-      turnId: string;
-      message: string;
-      isLatestTurn: boolean;
-    }) => {
+    async (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => {
       if (input.isLatestTurn) {
         await runForkFromTurn(input);
         return;
@@ -735,13 +727,11 @@ export function LocalConversationThreadBodyOwner({
 
   const handleRevealUserMessageNavigationItem = useCallback(
     async (item: ThreadUserMessageNavigationItem): Promise<HTMLElement | null> => {
-      const unitSelector =
-        `[data-content-search-unit-key="${escapeAttributeSelectorValue(item.id)}"]`;
+      const unitSelector = `[data-content-search-unit-key="${escapeAttributeSelectorValue(item.id)}"]`;
       const api = listApiRef.current;
       if (api) {
-        await api.scrollToKey(
-          item.turnKey,
-          (turnElement) => turnElement.querySelector<HTMLElement>(unitSelector),
+        await api.scrollToKey(item.turnKey, (turnElement) =>
+          turnElement.querySelector<HTMLElement>(unitSelector),
         );
         await nextAnimationFrame();
       }
@@ -752,10 +742,7 @@ export function LocalConversationThreadBodyOwner({
   );
 
   const selectedTextSideChatOverlayEnabled = Boolean(
-    threadId
-    && !isSideChat
-    && actions.onOpenSideChat
-    && body.emptyState.type === "none",
+    threadId && !isSideChat && actions.onOpenSideChat && body.emptyState.type === "none",
   );
 
   return (
@@ -850,9 +837,7 @@ export function LocalConversationThreadBodyOwner({
               projectlessOutputDirectory={projectlessOutputDirectory}
               editableTurnId={editableTurnId}
               canForkFromTurn={canForkFromTurn}
-              initialCollapsedAgentBodyByTurnSearchKey={
-                initialUiState?.collapsedAgentBodyByTurnId
-              }
+              initialCollapsedAgentBodyByTurnSearchKey={initialUiState?.collapsedAgentBodyByTurnId}
               onEditLastTurnMessage={handleEditLastUserTurn}
               onForkTurnMessage={handleForkFromTurn}
               onOpenTurnDiffReview={actions.onOpenTurnDiffReview}

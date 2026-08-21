@@ -56,14 +56,18 @@ describe("Workbench profile preferences", () => {
           list: {
             rules: {
               filter: {
-                any: [{
-                  all: [{
-                    field: "priority",
-                    op: "in",
-                    values: ["p4-later", "p3-low"],
-                    includeEmpty: false,
-                  }],
-                }],
+                any: [
+                  {
+                    all: [
+                      {
+                        field: "priority",
+                        op: "in",
+                        values: ["p4-later", "p3-low"],
+                        includeEmpty: false,
+                      },
+                    ],
+                  },
+                ],
               },
             },
           },
@@ -75,29 +79,35 @@ describe("Workbench profile preferences", () => {
   });
 
   test("retains v1 profile preferences when the v2 write fails", () => {
-    const values = new Map<string, string>([[
-      legacyWorkbenchProfilePreferencesStorageKey,
-      JSON.stringify({
-        dbViewPrefsByProject: {
-          "project-a": {
-            list: {
-              rules: {
-                filter: {
-                  any: [{
-                    all: [{
-                      field: "priority",
-                      op: "in",
-                      values: ["p4-later"],
-                      includeEmpty: false,
-                    }],
-                  }],
+    const values = new Map<string, string>([
+      [
+        legacyWorkbenchProfilePreferencesStorageKey,
+        JSON.stringify({
+          dbViewPrefsByProject: {
+            "project-a": {
+              list: {
+                rules: {
+                  filter: {
+                    any: [
+                      {
+                        all: [
+                          {
+                            field: "priority",
+                            op: "in",
+                            values: ["p4-later"],
+                            includeEmpty: false,
+                          },
+                        ],
+                      },
+                    ],
+                  },
                 },
               },
             },
           },
-        },
-      }),
-    ]]);
+        }),
+      ],
+    ]);
     const storage = {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => {
@@ -119,21 +129,24 @@ describe("Workbench profile preferences", () => {
   });
 
   test("preserves recent Page identity while refreshing its snapshot", () => {
-    const recent = recordRecentPageLeaveInPreferences([
+    const recent = recordRecentPageLeaveInPreferences(
+      [
+        {
+          id: "stable-session",
+          projectId: "project-a",
+          pageId: "page-a",
+          titleSnapshot: "Old title",
+          lastOpenedAt: "2026-07-27T00:00:00.000Z",
+        },
+      ],
       {
-        id: "stable-session",
+        id: "unused-new-id",
         projectId: "project-a",
         pageId: "page-a",
-        titleSnapshot: "Old title",
-        lastOpenedAt: "2026-07-27T00:00:00.000Z",
+        titleSnapshot: "New title",
+        lastOpenedAt: "2026-07-28T00:00:00.000Z",
       },
-    ], {
-      id: "unused-new-id",
-      projectId: "project-a",
-      pageId: "page-a",
-      titleSnapshot: "New title",
-      lastOpenedAt: "2026-07-28T00:00:00.000Z",
-    });
+    );
 
     expect(recent).toEqual([
       {
@@ -165,7 +178,6 @@ describe("Workbench profile preferences", () => {
 
     expect(recent).toHaveLength(10);
     expect(recent[0]?.id).toBe("new-recent");
-    expect(recent.some((session) => session.id === "recent-9"))
-      .toBe(false);
+    expect(recent.some((session) => session.id === "recent-9")).toBe(false);
   });
 });

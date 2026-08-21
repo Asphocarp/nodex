@@ -44,8 +44,7 @@ import type { NfmEditorBoundaryHandle } from "./editor/nfm-editor";
 
 export type { PageStageProps } from "./page-stage/types";
 
-export const PAGE_STAGE_SCROLL_CONTAINER_TEST_ID =
-  "page-stage-scroll-container";
+export const PAGE_STAGE_SCROLL_CONTAINER_TEST_ID = "page-stage-scroll-container";
 
 const PAGE_STAGE_SCROLL_CONTAINER_STYLE = {
   ...RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
@@ -99,103 +98,92 @@ const useLivePageDocumentNfm = (document: Y.Doc): string => {
     },
     [document],
   );
-  const getSnapshot = useCallback(
-    () => materializePageDocument(document).nfm,
-    [document],
-  );
+  const getSnapshot = useCallback(() => materializePageDocument(document).nfm, [document]);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
-function CollaborativePageStageRawContent({
-  document,
-}: {
-  readonly document: Y.Doc;
-}) {
+function CollaborativePageStageRawContent({ document }: { readonly document: Y.Doc }) {
   return <PageStageRawContent content={useLivePageDocumentNfm(document)} />;
 }
 
-const PageStageDescriptionEditor = memo(
-  function PageStageDescriptionEditor({
-    contentAccessContext,
-    projectName,
-    projectWorkspacePath,
-    pageId,
-    showRawContent,
-    documentId,
-    generation,
-    document,
-    body,
-    awareness,
-    surfaceMutationBarrier,
-    sessionId,
-    sessionThread,
-    canStartThreadInSession,
-    linkedCodexThreads,
-    onOpenCodexThread,
-    onOpenPage,
-    onOpenDatabase,
-    onOpenCanvas,
-    onStartNewSessionThreadFromEditor,
-    onSendThreadSectionPrompt,
-    isActivePanelTab,
-    headingRailPortalElement,
-    scrollContainerRef,
-    editorSession,
-    focusIntent,
-  }: PageStageDescriptionEditorProps) {
-    const navigationRef = useRef<NfmEditorBoundaryHandle | null>(null);
-    useEffect(() => {
-      if (!focusIntent) return;
-      if (!navigationRef.current?.focusBlock(focusIntent.blockId)) return;
-      consumePageBlockFocus(focusIntent);
-    }, [focusIntent]);
+const PageStageDescriptionEditor = memo(function PageStageDescriptionEditor({
+  contentAccessContext,
+  projectName,
+  projectWorkspacePath,
+  pageId,
+  showRawContent,
+  documentId,
+  generation,
+  document,
+  body,
+  awareness,
+  surfaceMutationBarrier,
+  sessionId,
+  sessionThread,
+  canStartThreadInSession,
+  linkedCodexThreads,
+  onOpenCodexThread,
+  onOpenPage,
+  onOpenDatabase,
+  onOpenCanvas,
+  onStartNewSessionThreadFromEditor,
+  onSendThreadSectionPrompt,
+  isActivePanelTab,
+  headingRailPortalElement,
+  scrollContainerRef,
+  editorSession,
+  focusIntent,
+}: PageStageDescriptionEditorProps) {
+  const navigationRef = useRef<NfmEditorBoundaryHandle | null>(null);
+  useEffect(() => {
+    if (!focusIntent) return;
+    if (!navigationRef.current?.focusBlock(focusIntent.blockId)) return;
+    consumePageBlockFocus(focusIntent);
+  }, [focusIntent]);
 
-    if (showRawContent) {
-      return <CollaborativePageStageRawContent document={document} />;
-    }
+  if (showRawContent) {
+    return <CollaborativePageStageRawContent document={document} />;
+  }
 
-    return (
-      <NfmEditor
-        contentAccessContext={contentAccessContext}
-        projectName={projectName}
-        projectWorkspacePath={projectWorkspacePath}
-        source={{
-          kind: "collaborative-document",
-          documentId,
-          storeEpoch: surfaceMutationBarrier.descriptor.storeEpoch,
-          generation,
-          clientSessionId: surfaceMutationBarrier.clientSessionId,
-          fragment: body,
-          user: { name: "You", color: "#3b82f6" },
-          provider: { awareness },
-          ...(editorSession
-            ? { transactionOrigin: editorSession.transactionOrigin }
-            : {}),
-        }}
-        sourcePageContext={{ pageId }}
-        surfaceMutationBarrier={surfaceMutationBarrier}
-        sessionId={sessionId}
-        sessionThread={sessionThread}
-        canStartThreadInSession={canStartThreadInSession}
-        linkedCodexThreads={linkedCodexThreads}
-        onOpenCodexThread={onOpenCodexThread}
-        onOpenPage={onOpenPage}
-        onOpenDatabase={onOpenDatabase}
-        onOpenCanvas={onOpenCanvas}
-        onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
-        onSendThreadSectionPrompt={onSendThreadSectionPrompt}
-        isActivePanelTab={isActivePanelTab}
-        headingRail={{
-          portalElement: headingRailPortalElement,
-          scrollContainerRef,
-        }}
-        placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
-        editorSession={editorSession}
-        navigationRef={navigationRef}
-      />
-    );
-  },
-);
+  return (
+    <NfmEditor
+      contentAccessContext={contentAccessContext}
+      projectName={projectName}
+      projectWorkspacePath={projectWorkspacePath}
+      source={{
+        kind: "collaborative-document",
+        documentId,
+        storeEpoch: surfaceMutationBarrier.descriptor.storeEpoch,
+        generation,
+        clientSessionId: surfaceMutationBarrier.clientSessionId,
+        fragment: body,
+        user: { name: "You", color: "#3b82f6" },
+        provider: { awareness },
+        ...(editorSession ? { transactionOrigin: editorSession.transactionOrigin } : {}),
+      }}
+      sourcePageContext={{ pageId }}
+      surfaceMutationBarrier={surfaceMutationBarrier}
+      sessionId={sessionId}
+      sessionThread={sessionThread}
+      canStartThreadInSession={canStartThreadInSession}
+      linkedCodexThreads={linkedCodexThreads}
+      onOpenCodexThread={onOpenCodexThread}
+      onOpenPage={onOpenPage}
+      onOpenDatabase={onOpenDatabase}
+      onOpenCanvas={onOpenCanvas}
+      onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
+      onSendThreadSectionPrompt={onSendThreadSectionPrompt}
+      isActivePanelTab={isActivePanelTab}
+      headingRail={{
+        portalElement: headingRailPortalElement,
+        scrollContainerRef,
+      }}
+      placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
+      editorSession={editorSession}
+      navigationRef={navigationRef}
+    />
+  );
+});
 
 type PageStageController = ReturnType<typeof usePageStageController>;
 
@@ -278,18 +266,14 @@ export function PageStage(props: PageStageProps) {
     persistDocument,
   });
   const focusIntent = usePageBlockFocusIntent(
-    props.contentAccessContext.kind === "project"
-      ? props.contentAccessContext.projectId
-      : null,
+    props.contentAccessContext.kind === "project" ? props.contentAccessContext.projectId : null,
     controller.page?.id ?? "",
   );
   const handleToggleHistoryPanel = useCallback(() => {
     void (async () => {
       await persistDocument();
       const runtime = documentRuntimeRef.current;
-      const nfm = runtime
-        ? materializePageDocument(runtime.document).nfm
-        : "";
+      const nfm = runtime ? materializePageDocument(runtime.document).nfm : "";
       onToggleHistoryPanel?.({
         title: controller.title,
         nfm,
@@ -298,8 +282,9 @@ export function PageStage(props: PageStageProps) {
       toast.danger("Couldn’t prepare Page history");
     });
   }, [controller.title, onToggleHistoryPanel, persistDocument]);
-  const [headingRailPortalElement, setHeadingRailPortalElement] =
-    useState<HTMLDivElement | null>(null);
+  const [headingRailPortalElement, setHeadingRailPortalElement] = useState<HTMLDivElement | null>(
+    null,
+  );
 
   if (!controller.page) return null;
   const page = controller.page;
@@ -317,10 +302,7 @@ export function PageStage(props: PageStageProps) {
         />
       }
       syncStatus={
-        <BlockDocumentSyncStatus
-          runtime={surface.runtime}
-          status={surface.status.provider}
-        />
+        <BlockDocumentSyncStatus runtime={surface.runtime} status={surface.status.provider} />
       }
       description={
         <PageStageDescriptionEditor
@@ -343,9 +325,7 @@ export function PageStage(props: PageStageProps) {
           onOpenPage={props.onOpenPage}
           onOpenDatabase={props.onOpenDatabase}
           onOpenCanvas={props.onOpenCanvas}
-          onStartNewSessionThreadFromEditor={
-            props.onStartNewSessionThreadFromEditor
-          }
+          onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
           onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
           isActivePanelTab={props.isActivePanelTab ?? true}
           headingRailPortalElement={headingRailPortalElement}
@@ -405,10 +385,14 @@ export function PageStage(props: PageStageProps) {
       onToggleContentWidth={controller.handleToggleContentWidth}
       onToggleShowRawContent={controller.handleToggleShowRawContent}
       onToggleHistoryPanel={handleToggleHistoryPanel}
-      breadcrumb={props.breadcrumb ? {
-        ...props.breadcrumb,
-        currentTitle: controller.title,
-      } : undefined}
+      breadcrumb={
+        props.breadcrumb
+          ? {
+              ...props.breadcrumb,
+              currentTitle: controller.title,
+            }
+          : undefined
+      }
     />
   );
 
@@ -437,9 +421,7 @@ export function PageStage(props: PageStageProps) {
           <div
             className={controller.contentBodyClassName}
             data-page-stage-body="true"
-            data-page-stage-body-width={
-              controller.limitMainContentWidth ? "constrained" : "full"
-            }
+            data-page-stage-body-width={controller.limitMainContentWidth ? "constrained" : "full"}
           >
             {documentSurface}
           </div>

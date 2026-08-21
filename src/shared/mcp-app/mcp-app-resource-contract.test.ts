@@ -46,30 +46,45 @@ describe("MCP App resource contract", () => {
   });
 
   test("rejects unsafe CSP domains and admits only scoped special schemes", () => {
-    expect(normalizeMcpCspDomain("https://example.com; script-src *", { kind: "connect" })).toBe(null);
-    expect(normalizeMcpCspDomain("https://user:secret@example.com", { kind: "connect" })).toBe(null);
-    expect(normalizeMcpCspDomain("wss://events.example.com", { kind: "connect" })).toBe("wss://events.example.com");
+    expect(normalizeMcpCspDomain("https://example.com; script-src *", { kind: "connect" })).toBe(
+      null,
+    );
+    expect(normalizeMcpCspDomain("https://user:secret@example.com", { kind: "connect" })).toBe(
+      null,
+    );
+    expect(normalizeMcpCspDomain("wss://events.example.com", { kind: "connect" })).toBe(
+      "wss://events.example.com",
+    );
     expect(normalizeMcpCspDomain("blob:", { kind: "connect" })).toBe("blob:");
     expect(normalizeMcpCspDomain("blob:", { kind: "resource" })).toBe("blob:");
     expect(normalizeMcpCspDomain("http://localhost:5173", { kind: "connect" })).toBe(null);
-    expect(normalizeMcpCspDomain("static.example.com", { kind: "resource" }))
-      .toBe("https://static.example.com");
-    expect(normalizeMcpCspDomain("http://localhost:5173", {
-      kind: "connect",
-      allowLocalDevelopment: true,
-    })).toBe("http://localhost:5173");
+    expect(normalizeMcpCspDomain("static.example.com", { kind: "resource" })).toBe(
+      "https://static.example.com",
+    );
+    expect(
+      normalizeMcpCspDomain("http://localhost:5173", {
+        kind: "connect",
+        allowLocalDevelopment: true,
+      }),
+    ).toBe("http://localhost:5173");
   });
 
   test("supports skybridge HTML and falls back to listing metadata", () => {
-    const resource = resolveMcpRenderableResource("ui://calendar/widget", {
-      contents: [{
-        uri: "ui://calendar/widget",
-        mimeType: "text/html+skybridge",
-        text: "<main>Calendar</main>",
-      }],
-    }, {
-      "openai/widgetHeightHint": 420,
-    });
+    const resource = resolveMcpRenderableResource(
+      "ui://calendar/widget",
+      {
+        contents: [
+          {
+            uri: "ui://calendar/widget",
+            mimeType: "text/html+skybridge",
+            text: "<main>Calendar</main>",
+          },
+        ],
+      },
+      {
+        "openai/widgetHeightHint": 420,
+      },
+    );
 
     expect(resource?.mimeType).toBe("text/html+skybridge");
     expect(resource?.metadata.heightHint).toBe(420);
@@ -83,16 +98,22 @@ describe("MCP App resource contract", () => {
     const html = "<main>日历</main>";
     const bytes = new TextEncoder().encode(html);
     const binary = String.fromCharCode(...bytes);
-    const resource = resolveMcpRenderableResource("ui://calendar/widget", {
-      contents: [{
-        uri: "ui://calendar/widget",
-        mimeType: "text/html",
-        blob: btoa(binary),
-        _meta: { ui: { permissions: { camera: true } } },
-      }],
-    }, {
-      ui: { permissions: { microphone: true } },
-    });
+    const resource = resolveMcpRenderableResource(
+      "ui://calendar/widget",
+      {
+        contents: [
+          {
+            uri: "ui://calendar/widget",
+            mimeType: "text/html",
+            blob: btoa(binary),
+            _meta: { ui: { permissions: { camera: true } } },
+          },
+        ],
+      },
+      {
+        ui: { permissions: { microphone: true } },
+      },
+    );
 
     expect(resource?.html).toBe(html);
     expect(resource?.metadata.requestedPermissions).toMatchObject({

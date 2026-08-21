@@ -31,32 +31,23 @@ describe("block Document surface failure presentation", () => {
     const presentation = resolveBlockDocumentSurfaceFailure({
       descriptor: descriptor(),
       reason: "fatal",
-      error: new BlockDocumentSurfaceError(
-        "The Y.Doc is missing its registered body root",
-        {
-          syncError: {
-            code: "document_state_corrupt",
-            message: "The Y.Doc is missing its registered body root",
-            retryable: false,
-            resetRequired: false,
-            recoveryArtifactId: "recovery-1",
-          },
+      error: new BlockDocumentSurfaceError("The Y.Doc is missing its registered body root", {
+        syncError: {
+          code: "document_state_corrupt",
+          message: "The Y.Doc is missing its registered body root",
+          retryable: false,
+          resetRequired: false,
+          recoveryArtifactId: "recovery-1",
         },
-      ),
+      }),
     });
 
     expect(presentation.title).toBe("Nodex couldn’t validate this content");
-    expect(presentation.description).toBe(
-      "The Y.Doc is missing its registered body root",
-    );
-    expect(presentation.diagnostics).toContain(
-      "Code: document_state_corrupt",
-    );
+    expect(presentation.description).toBe("The Y.Doc is missing its registered body root");
+    expect(presentation.diagnostics).toContain("Code: document_state_corrupt");
     expect(presentation.diagnostics).toContain("Document: document:card-1");
     expect(presentation.diagnostics).toContain("Generation: 3");
-    expect(presentation.diagnostics).toContain(
-      "Recovery artifact: recovery-1",
-    );
+    expect(presentation.diagnostics).toContain("Recovery artifact: recovery-1");
   });
 
   test("distinguishes a reset boundary from a generic startup failure", () => {

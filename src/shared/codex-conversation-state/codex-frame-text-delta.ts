@@ -99,11 +99,7 @@ function isValidReasoningIndex(index: number): boolean {
   return Number.isSafeInteger(index) && index >= 0;
 }
 
-function appendIndexedDelta(
-  values: unknown,
-  index: number,
-  delta: string,
-): readonly string[] {
+function appendIndexedDelta(values: unknown, index: number, delta: string): readonly string[] {
   const currentValues = Array.isArray(values) ? values : [];
   if (index < currentValues.length && delta.length === 0) {
     return currentValues;
@@ -129,20 +125,12 @@ function reduceRawItem(
       return { ...item, text };
     }
     case "reasoningSummary": {
-      const summary = appendIndexedDelta(
-        item.summary,
-        update.target.summaryIndex,
-        update.delta,
-      );
+      const summary = appendIndexedDelta(item.summary, update.target.summaryIndex, update.delta);
       if (summary === item.summary) return item;
       return { ...item, summary };
     }
     case "reasoningContent": {
-      const content = appendIndexedDelta(
-        item.content,
-        update.target.contentIndex,
-        update.delta,
-      );
+      const content = appendIndexedDelta(item.content, update.target.contentIndex, update.delta);
       if (content === item.content) return item;
       return { ...item, content };
     }
@@ -152,10 +140,12 @@ function reduceRawItem(
 export function isCodexFrameTextDeltaNotification(
   notification: ServerNotification,
 ): notification is CodexFrameTextDeltaNotification {
-  return notification.method === "item/agentMessage/delta"
-    || notification.method === "item/plan/delta"
-    || notification.method === "item/reasoning/summaryTextDelta"
-    || notification.method === "item/reasoning/textDelta";
+  return (
+    notification.method === "item/agentMessage/delta" ||
+    notification.method === "item/plan/delta" ||
+    notification.method === "item/reasoning/summaryTextDelta" ||
+    notification.method === "item/reasoning/textDelta"
+  );
 }
 
 export function isCodexReasoningSummaryPartAddedNotification(
@@ -168,9 +158,7 @@ export function toCodexFrameTextDelta(
   notification: CodexFrameTextDeltaNotification,
   turnIdOverride?: string | null,
 ): CodexFrameTextDeltaUpdate {
-  const turnId = turnIdOverride === undefined
-    ? notification.params.turnId
-    : turnIdOverride;
+  const turnId = turnIdOverride === undefined ? notification.params.turnId : turnIdOverride;
   const target: CodexFrameTextDeltaTarget = (() => {
     if (notification.method === "item/agentMessage/delta") {
       return { type: "agentMessage" };
@@ -199,9 +187,9 @@ export function toCodexFrameTextDelta(
   };
 }
 
-export function groupCodexFrameTextDeltasByConversation<
-  TUpdate extends CodexFrameTextDeltaUpdate,
->(updates: readonly TUpdate[]): ReadonlyMap<string, readonly TUpdate[]> {
+export function groupCodexFrameTextDeltasByConversation<TUpdate extends CodexFrameTextDeltaUpdate>(
+  updates: readonly TUpdate[],
+): ReadonlyMap<string, readonly TUpdate[]> {
   const grouped = new Map<string, TUpdate[]>();
   for (const update of updates) {
     const existing = grouped.get(update.conversationId);
@@ -251,11 +239,12 @@ export function reduceCodexFrameTextDeltaItems(
     return { items, disposition: "missingItem", itemIndex: -1 };
   }
 
-  const reasoningIndex = update.target.type === "reasoningSummary"
-    ? update.target.summaryIndex
-    : update.target.type === "reasoningContent"
-      ? update.target.contentIndex
-      : null;
+  const reasoningIndex =
+    update.target.type === "reasoningSummary"
+      ? update.target.summaryIndex
+      : update.target.type === "reasoningContent"
+        ? update.target.contentIndex
+        : null;
   if (reasoningIndex !== null && !isValidReasoningIndex(reasoningIndex)) {
     return { items, disposition: "invalidReasoningIndex", itemIndex };
   }
@@ -353,12 +342,7 @@ export function reduceCodexConversationFrameTextDeltas(
 
     const beforeUpdate = state;
     if (resolution.kind === "reboundCompletedEmptyPlaceholder" && update.turnId) {
-      state = rebindCanonicalPlaceholder(
-        state,
-        resolution.turnIndex,
-        update.turnId,
-        context.now,
-      );
+      state = rebindCanonicalPlaceholder(state, resolution.turnIndex, update.turnId, context.now);
     }
 
     const turn = state.turns[resolution.turnIndex];

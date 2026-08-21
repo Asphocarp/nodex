@@ -3,10 +3,7 @@ import { useState } from "react";
 
 import type { EffectiveDatabaseViewPresentation } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { DatabaseViewDisplayOptions } from "./database-view-display-options";
 
@@ -23,9 +20,15 @@ const property = (
   name,
   ...testPropertySemantics(valueType, valueType === "select" ? 4 : 0),
   valueType,
-  config: valueType === "select"
-    ? { options: ["Triage", "Plan", "Build", "Ship"].map((option) => ({ id: option.toLowerCase(), name: option })) }
-    : {},
+  config:
+    valueType === "select"
+      ? {
+          options: ["Triage", "Plan", "Build", "Ship"].map((option) => ({
+            id: option.toLowerCase(),
+            name: option,
+          })),
+        }
+      : {},
   rankKey: propertyId,
   lifecycle: "active",
   revision: 1,
@@ -115,7 +118,5 @@ export const BoardDefaults: Story = {
 };
 
 export const SaveFailure: Story = {
-  render: () => (
-    <InteractiveDisplayOptions error="Couldn’t save your display preferences." />
-  ),
+  render: () => <InteractiveDisplayOptions error="Couldn’t save your display preferences." />,
 };

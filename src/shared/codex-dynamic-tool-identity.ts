@@ -15,8 +15,6 @@ export function hasCodexDynamicToolIdentity(
   return params.namespace === identity.namespace && params.tool === identity.tool;
 }
 
-export function isCodexAppDynamicTool(
-  params: Pick<DynamicToolCallParams, "namespace">,
-): boolean {
+export function isCodexAppDynamicTool(params: Pick<DynamicToolCallParams, "namespace">): boolean {
   return params.namespace === CODEX_APP_TOOL_NAMESPACE;
 }

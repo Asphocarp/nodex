@@ -22,13 +22,15 @@ describe("Browser annotation attachments", () => {
       note: "Increase the spacing",
       pageTitle: "Example",
       pageUrl: "https://example.com/",
-      anchors: [{
-        id: "anchor-1",
-        kind: "element",
-        pageUrl: "https://example.com/",
-        selector: "main > button",
-        rect: { x: 1, y: 2, width: 10, height: 20 },
-      }],
+      anchors: [
+        {
+          id: "anchor-1",
+          kind: "element",
+          pageUrl: "https://example.com/",
+          selector: "main > button",
+          rect: { x: 1, y: 2, width: 10, height: 20 },
+        },
+      ],
     });
 
     expect(getBrowserAnnotationAttachmentsSnapshot("conversation-1")).toHaveLength(1);
@@ -47,12 +49,14 @@ describe("Browser annotation attachments", () => {
       note: "",
       pageTitle: "Example",
       pageUrl: "https://example.com/",
-      anchors: [{
-        id: `anchor-${index}`,
-        kind: "region" as const,
-        pageUrl: "https://example.com/",
-        rect: { x: 1, y: 2, width: 10, height: 20 },
-      }],
+      anchors: [
+        {
+          id: `anchor-${index}`,
+          kind: "region" as const,
+          pageUrl: "https://example.com/",
+          rect: { x: 1, y: 2, width: 10, height: 20 },
+        },
+      ],
     });
     replaceBrowserAnnotationAttachments(
       "conversation-1",
@@ -63,12 +67,11 @@ describe("Browser annotation attachments", () => {
     expect(retained).toHaveLength(32);
     expect(retained[0]?.id).toBe("attachment-3");
     expect(retained.at(-1)?.id).toBe("attachment-34");
-    expect(() => publishBrowserAnnotationAttachment(
-      "conversation-1",
-      {
+    expect(() =>
+      publishBrowserAnnotationAttachment("conversation-1", {
         ...makeAttachment(36),
         anchors: [],
-      },
-    )).toThrow();
+      }),
+    ).toThrow();
   });
 });

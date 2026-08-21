@@ -4,16 +4,9 @@ import {
   parsePageKeySearchQuery,
   type PageKeySearchQuery,
 } from "./page-key";
-import {
-  matchesSearchTokens,
-  normalizeSearchText,
-  tokenizeSearchQuery,
-} from "./search-text";
+import { matchesSearchTokens, normalizeSearchText, tokenizeSearchQuery } from "./search-text";
 
-export {
-  matchesSearchTokens,
-  tokenizeSearchQuery,
-} from "./search-text";
+export { matchesSearchTokens, tokenizeSearchQuery } from "./search-text";
 
 export interface PageCollectionSearchQuery {
   readonly normalizedQuery: string;
@@ -25,9 +18,7 @@ export interface PageCollectionSearchQuery {
  * Compiles one local Page-collection query for reuse across every loaded row.
  * Historical aliases deliberately remain a Core-authorized global-search concern.
  */
-export function compilePageCollectionSearchQuery(
-  query: string,
-): PageCollectionSearchQuery {
+export function compilePageCollectionSearchQuery(query: string): PageCollectionSearchQuery {
   const pageKey = parsePageKeySearchQuery(query);
   return {
     normalizedQuery: pageKey.normalizedQuery,
@@ -47,15 +38,13 @@ export function matchesPageCollectionSearchQuery(
   return matchesSearchTokens(text, query.textTokens);
 }
 
-export function buildPageSearchText(card: Pick<
-  DatabasePageSummary,
-  "id" | "pageKey" | "title" | "descriptionPreview" | "assignee"
->, tagLabels: readonly string[] = []): string {
-  return normalizeSearchText([
-    card.id,
-    card.title,
-    card.descriptionPreview,
-    tagLabels.join(" "),
-    card.assignee ?? "",
-  ].join(" "));
+export function buildPageSearchText(
+  card: Pick<DatabasePageSummary, "id" | "pageKey" | "title" | "descriptionPreview" | "assignee">,
+  tagLabels: readonly string[] = [],
+): string {
+  return normalizeSearchText(
+    [card.id, card.title, card.descriptionPreview, tagLabels.join(" "), card.assignee ?? ""].join(
+      " ",
+    ),
+  );
 }

@@ -1,9 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import {
-  DropCursorExtension,
-  SideMenuExtension,
-} from "@blocknote/core/extensions";
+import { DropCursorExtension, SideMenuExtension } from "@blocknote/core/extensions";
 import {
   endLocalBlockDragSession,
   resolveLocalBlockDragSession,
@@ -103,15 +100,11 @@ export function useEditorDragBehaviors({
     if (!editor || !crossSurface) return;
     const element = containerRef.current;
     if (!element) return;
-    const extensionRuntime = (
-      editor as unknown as {
-        getExtension: (extension: unknown) => {
-          setExternalDragOwnershipResolver: (
-            resolver: (event: DragEvent) => boolean,
-          ) => () => void;
-        };
-      }
-    );
+    const extensionRuntime = editor as unknown as {
+      getExtension: (extension: unknown) => {
+        setExternalDragOwnershipResolver: (resolver: (event: DragEvent) => boolean) => () => void;
+      };
+    };
     const resolveExternalDragOwnership = (event: DragEvent) => {
       const session = resolveLocalBlockDragSession(event.dataTransfer);
       return shouldBlockNoteYieldManagedDrag({

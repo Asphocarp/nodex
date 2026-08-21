@@ -71,9 +71,7 @@ export {
   createCoreProjectWorkspaceAdapter,
   type DesktopProjectWorkspacePort,
 } from "./project-workspace-adapter";
-export type {
-  ConnectCoreClientInput,
-} from "./core-client";
+export type { ConnectCoreClientInput } from "./core-client";
 export type {
   ConnectOrStartCoreInput,
   CoreLaunchResult,

@@ -33,9 +33,13 @@ function renderPortalSurface(blocks: ThreadTranscriptBlockModel[], width: number
 function getPillElements(container: HTMLElement) {
   const pill = container.querySelector<HTMLElement>("[data-above-composer-fixed-pill]");
   const content = container.querySelector<HTMLElement>("[data-above-composer-fixed-pill-inner]");
-  const reviewButton = container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]');
-  const step = Array.from(container.querySelectorAll<HTMLElement>("span"))
-    .find((element) => element.textContent === "Step 2 / 3") ?? null;
+  const reviewButton = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Review changed files"]',
+  );
+  const step =
+    Array.from(container.querySelectorAll<HTMLElement>("span")).find(
+      (element) => element.textContent === "Step 2 / 3",
+    ) ?? null;
 
   if (!pill || !content || !reviewButton || !step) {
     throw new Error("Expected the complete above-composer pill layout.");
@@ -66,32 +70,43 @@ describe("LocalConversationAboveComposerPortal layout", () => {
       combinedWidth = pillRect.width;
 
       expect(combinedWidth).toBeGreaterThan(todoOnlyWidth + 40);
-      expect(step.getBoundingClientRect().right).toBeLessThanOrEqual(reviewButton.getBoundingClientRect().left);
+      expect(step.getBoundingClientRect().right).toBeLessThanOrEqual(
+        reviewButton.getBoundingClientRect().left,
+      );
       expect(reviewButton.getBoundingClientRect().right).toBeLessThanOrEqual(pillRect.right + 0.5);
       expect(content.scrollWidth).toBeLessThanOrEqual(pill.clientWidth + 1);
     });
 
-    view.rerender(renderPortalSurface([
-      todo,
-      buildAboveComposerTurnDiffBlock({ additions: 123, deletions: 87 }),
-    ], 520));
+    view.rerender(
+      renderPortalSurface(
+        [todo, buildAboveComposerTurnDiffBlock({ additions: 123, deletions: 87 })],
+        520,
+      ),
+    );
 
     await waitFor(() => {
       const { content, pill, reviewButton, step } = getPillElements(view.container);
       const pillRect = pill.getBoundingClientRect();
 
       expect(pillRect.width).toBeGreaterThan(combinedWidth + 10);
-      expect(step.getBoundingClientRect().right).toBeLessThanOrEqual(reviewButton.getBoundingClientRect().left);
+      expect(step.getBoundingClientRect().right).toBeLessThanOrEqual(
+        reviewButton.getBoundingClientRect().left,
+      );
       expect(reviewButton.getBoundingClientRect().right).toBeLessThanOrEqual(pillRect.right + 0.5);
       expect(content.scrollWidth).toBeLessThanOrEqual(pill.clientWidth + 1);
     });
   });
 
   test("clamps combined content to the available narrow width without overlapping the todo", async () => {
-    const view = render(renderPortalSurface([
-      buildAboveComposerTodoListBlock(),
-      buildAboveComposerTurnDiffBlock({ additions: 123, deletions: 87 }),
-    ], 280));
+    const view = render(
+      renderPortalSurface(
+        [
+          buildAboveComposerTodoListBlock(),
+          buildAboveComposerTurnDiffBlock({ additions: 123, deletions: 87 }),
+        ],
+        280,
+      ),
+    );
 
     await waitFor(() => {
       const { content, pill, reviewButton, step } = getPillElements(view.container);
@@ -102,7 +117,9 @@ describe("LocalConversationAboveComposerPortal layout", () => {
       const pillRect = pill.getBoundingClientRect();
       expect(pillRect.width).toBeGreaterThan(0);
       expect(pillRect.width).toBeLessThanOrEqual(boundaryRect.width + 0.5);
-      expect(step.getBoundingClientRect().right).toBeLessThanOrEqual(reviewButton.getBoundingClientRect().left);
+      expect(step.getBoundingClientRect().right).toBeLessThanOrEqual(
+        reviewButton.getBoundingClientRect().left,
+      );
       expect(reviewButton.getBoundingClientRect().right).toBeLessThanOrEqual(pillRect.right + 0.5);
       expect(content.scrollWidth).toBeLessThanOrEqual(pill.clientWidth + 1);
     });

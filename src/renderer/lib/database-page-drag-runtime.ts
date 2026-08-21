@@ -5,19 +5,13 @@ import {
   type DatabaseModuleErrorV2,
   type DatabaseModuleReadSnapshotV2,
 } from "../../shared/database-module-v2";
-import {
-  compileDatabasePageDrag,
-  compileDatabasePagesDrag,
-} from "../../shared/database-page-drag";
+import { compileDatabasePageDrag, compileDatabasePagesDrag } from "../../shared/database-page-drag";
 import type { MovePageInput, MovePagesInput } from "../../shared/types";
 import { applyDatabaseModule } from "./api";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 
 export interface DatabasePageDragRuntimeDependencies {
-  readonly apply: (
-    projectId: string,
-    request: DatabaseApplyV2,
-  ) => Promise<DatabaseApplyResultV2>;
+  readonly apply: (projectId: string, request: DatabaseApplyV2) => Promise<DatabaseApplyResultV2>;
 }
 
 export class DatabasePageDragMutationError extends Error {
@@ -50,9 +44,7 @@ export const databaseViewRenderModelToDragSnapshot = (
 const commitCompiledDrag = async (input: {
   readonly projectId: string;
   readonly operationId: string;
-  readonly compile: (
-    snapshot: DatabaseModuleReadSnapshotV2,
-  ) => DatabaseApplyV2["operations"];
+  readonly compile: (snapshot: DatabaseModuleReadSnapshotV2) => DatabaseApplyV2["operations"];
   readonly snapshot: DatabaseModuleReadSnapshotV2;
   readonly dependencies: DatabasePageDragRuntimeDependencies;
 }): Promise<DatabaseApplyReceiptV2> => {
@@ -90,8 +82,7 @@ export const commitDatabasePageDrag = async (input: {
     projectId: input.projectId,
     operationId: input.operationId,
     snapshot: input.snapshot,
-    compile: (snapshot) =>
-      compileDatabasePageDrag({ move: input.move, snapshot }).operations,
+    compile: (snapshot) => compileDatabasePageDrag({ move: input.move, snapshot }).operations,
     dependencies: input.dependencies ?? defaultDependencies,
   });
 
@@ -106,7 +97,6 @@ export const commitDatabasePagesDrag = async (input: {
     projectId: input.projectId,
     operationId: input.operationId,
     snapshot: input.snapshot,
-    compile: (snapshot) =>
-      compileDatabasePagesDrag({ move: input.move, snapshot }).operations,
+    compile: (snapshot) => compileDatabasePagesDrag({ move: input.move, snapshot }).operations,
     dependencies: input.dependencies ?? defaultDependencies,
   });

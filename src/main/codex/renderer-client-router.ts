@@ -5,10 +5,7 @@ import type {
   CodexRendererThreadRole,
   CodexRendererThreadRoleRequest,
 } from "../../shared/types";
-import {
-  safeSendToWebContents,
-  type SafeSendWebContentsLike,
-} from "../ipc-safe-send";
+import { safeSendToWebContents, type SafeSendWebContentsLike } from "../ipc-safe-send";
 import { getLogger, type BackendLogger } from "../logging/logger";
 
 export const DEFAULT_RENDERER_CLIENT_REQUEST_TIMEOUT_MS = 5_000;
@@ -79,11 +76,7 @@ export interface RendererClientRouterOptions {
   logger?: Pick<BackendLogger, "debug" | "warn">;
   setTimeout?: (callback: () => void, ms: number) => RendererClientTimer;
   clearTimeout?: (timer: RendererClientTimer) => void;
-  send?: (
-    target: RendererClientWebContents,
-    channel: string,
-    args: readonly unknown[],
-  ) => boolean;
+  send?: (target: RendererClientWebContents, channel: string, args: readonly unknown[]) => boolean;
 }
 
 const routerLogger = getLogger({ subsystem: "codex", component: "renderer-client-router" });
@@ -118,8 +111,12 @@ export class RendererClientRouter {
   private readonly clientsByWebContentsId = new Map<number, RegisteredRendererClient>();
   private readonly webContentsIdByClientId = new Map<string, number>();
   private readonly pendingRequests = new Map<string, PendingRendererClientRequest>();
-  private readonly clientConnectedListeners = new Set<(event: RendererClientConnectedEvent) => void>();
-  private readonly clientDisposedListeners = new Set<(event: RendererClientDisposedEvent) => void>();
+  private readonly clientConnectedListeners = new Set<
+    (event: RendererClientConnectedEvent) => void
+  >();
+  private readonly clientDisposedListeners = new Set<
+    (event: RendererClientDisposedEvent) => void
+  >();
   private readonly clientIdFactory: () => string;
   private readonly requestIdFactory: () => string;
   private readonly defaultRequestTimeoutMs: number;
@@ -324,7 +321,9 @@ export class RendererClientRouter {
     const role = await this.queryThreadRole(targetClientId, conversationId, options);
     if (role === "owner") return;
 
-    throw new Error(`no-client-found: renderer client ${targetClientId} is not owner for ${conversationId}`);
+    throw new Error(
+      `no-client-found: renderer client ${targetClientId} is not owner for ${conversationId}`,
+    );
   }
 
   handleResponse(
@@ -353,7 +352,9 @@ export class RendererClientRouter {
     this.clearTimeoutFn(pending.timeout);
 
     if (response.type === "error") {
-      pending.reject(new Error(response.error || `Renderer client request ${pending.method} failed`));
+      pending.reject(
+        new Error(response.error || `Renderer client request ${pending.method} failed`),
+      );
       return true;
     }
 
@@ -391,10 +392,7 @@ export class RendererClientRouter {
       this.disposeWebContents(webContentsId, "disposed");
     }
     for (const requestId of [...this.pendingRequests.keys()]) {
-      this.rejectPendingRequest(
-        requestId,
-        new Error("Renderer client router was disposed"),
-      );
+      this.rejectPendingRequest(requestId, new Error("Renderer client router was disposed"));
     }
   }
 

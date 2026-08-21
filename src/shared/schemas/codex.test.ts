@@ -31,16 +31,20 @@ describe("generated Codex schemas", () => {
   });
 
   test("rejects historical spellings and invalid current payloads at the live boundary", () => {
-    expect(parseCodexThreadTokenUsage({
-      total_token_usage: {},
-      last_token_usage: {},
-      model_context_window: null,
-    })).toBeUndefined();
-    expect(parseCodexThreadTokenUsage({
-      total: { totalTokens: 12 },
-      last: {},
-      modelContextWindow: null,
-    })).toBeUndefined();
+    expect(
+      parseCodexThreadTokenUsage({
+        total_token_usage: {},
+        last_token_usage: {},
+        model_context_window: null,
+      }),
+    ).toBeUndefined();
+    expect(
+      parseCodexThreadTokenUsage({
+        total: { totalTokens: 12 },
+        last: {},
+        modelContextWindow: null,
+      }),
+    ).toBeUndefined();
   });
 
   test("accepts dynamic reasoning efforts while deriving closed status values", () => {

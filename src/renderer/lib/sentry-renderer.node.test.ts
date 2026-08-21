@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import type { DiagnosticsSettings } from "./types";
-import {
-  initializeRendererSentry,
-  resetRendererSentryForTests,
-} from "./sentry-renderer";
+import { initializeRendererSentry, resetRendererSentryForTests } from "./sentry-renderer";
 
 function buildSettings(
   enabled: boolean,

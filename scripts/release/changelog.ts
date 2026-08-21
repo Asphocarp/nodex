@@ -23,10 +23,11 @@ const normalizeContent = (content: string): string => content.replace(/\r\n/g, "
 const trimTrailingWhitespace = (content: string): string => content.replace(/[ \t]+$/gm, "");
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const hasMeaningfulReleaseNotes = (content: string): boolean => content
-  .split("\n")
-  .map((line) => line.trim())
-  .some((line) => line.length > 0 && !line.startsWith("### "));
+const hasMeaningfulReleaseNotes = (content: string): boolean =>
+  content
+    .split("\n")
+    .map((line) => line.trim())
+    .some((line) => line.length > 0 && !line.startsWith("### "));
 
 const trimBlankLines = (lines: readonly string[]): string[] => {
   let start = 0;
@@ -97,7 +98,10 @@ export function prepareChangelog(
   date: string,
 ): PreparedChangelog {
   const normalized = normalizeContent(changelogContent);
-  const releasedHeading = new RegExp(`^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}$`, "m");
+  const releasedHeading = new RegExp(
+    `^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}$`,
+    "m",
+  );
   if (releasedHeading.test(normalized)) {
     throw new Error(`Release ${version} already exists in CHANGELOG.md.`);
   }
@@ -110,7 +114,9 @@ export function prepareChangelog(
   if (!heading) throw new Error("Unable to read the Unreleased changelog heading.");
   const notes = omitEmptySubsections(unreleased.content.slice(heading.length).trim());
   if (!hasMeaningfulReleaseNotes(notes)) {
-    throw new Error("The Unreleased changelog section is empty. Refusing to prepare a release without notes.");
+    throw new Error(
+      "The Unreleased changelog section is empty. Refusing to prepare a release without notes.",
+    );
   }
 
   const before = normalized.slice(0, unreleased.start).trimEnd();

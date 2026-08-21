@@ -37,25 +37,23 @@ const SURFACE_PRIORITY: Record<McpAppSurfaceMode, number> = {
   inline: 1,
 };
 
-function requiresSandboxRestart(
-  previous: McpAppRuntimeConfig,
-  next: McpAppRuntimeConfig,
-): boolean {
-  const restartKey = (config: McpAppRuntimeConfig) => JSON.stringify({
-    csp: config.resource.metadata.csp,
-    currentToolName: config.currentToolName,
-    html: config.resource.html,
-    originScope: resolveMcpAppSandboxOriginScope({
+function requiresSandboxRestart(previous: McpAppRuntimeConfig, next: McpAppRuntimeConfig): boolean {
+  const restartKey = (config: McpAppRuntimeConfig) =>
+    JSON.stringify({
+      csp: config.resource.metadata.csp,
       currentToolName: config.currentToolName,
-      instanceFallbackId: config.capabilityId,
+      html: config.resource.html,
+      originScope: resolveMcpAppSandboxOriginScope({
+        currentToolName: config.currentToolName,
+        instanceFallbackId: config.capabilityId,
+        server: config.server,
+        statuses: config.statuses,
+      }),
+      resourceUri: config.resource.uri,
       server: config.server,
-      statuses: config.statuses,
-    }),
-    resourceUri: config.resource.uri,
-    server: config.server,
-    threadId: config.threadId,
-    widgetDomain: config.resource.metadata.domain,
-  });
+      threadId: config.threadId,
+      widgetDomain: config.resource.metadata.domain,
+    });
   return restartKey(previous) !== restartKey(next);
 }
 
@@ -64,8 +62,8 @@ export class McpAppRuntimeManager {
   readonly #createRuntime: (config: McpAppRuntimeConfig) => McpAppRuntimePort;
 
   constructor(
-    createRuntime: (config: McpAppRuntimeConfig) => McpAppRuntimePort =
-      (config) => new McpAppRuntime(config),
+    createRuntime: (config: McpAppRuntimeConfig) => McpAppRuntimePort = (config) =>
+      new McpAppRuntime(config),
   ) {
     this.#createRuntime = createRuntime;
   }
@@ -110,12 +108,14 @@ export class McpAppRuntimeManager {
   }
 
   getSnapshot(capabilityId: string): McpAppRuntimeSnapshot {
-    return this.get(capabilityId)?.getSnapshot() ?? {
-      diagnostic: null,
-      error: new Error("MCP App runtime is unavailable."),
-      requestedDisplayMode: null,
-      status: "error",
-    };
+    return (
+      this.get(capabilityId)?.getSnapshot() ?? {
+        diagnostic: null,
+        error: new Error("MCP App runtime is unavailable."),
+        requestedDisplayMode: null,
+        status: "error",
+      }
+    );
   }
 
   registerSurface(input: {

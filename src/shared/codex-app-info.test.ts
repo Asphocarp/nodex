@@ -25,31 +25,37 @@ function app(overrides: Partial<ProtocolAppInfo> = {}): ProtocolAppInfo {
 
 describe("normalizeCodexAppInfoLogos", () => {
   test("uses exact square-asset and light/dark fallback precedence", () => {
-    const [normalized] = normalizeCodexAppInfoLogos([app({
-      logoUrl: "fallback-light.png",
-      logoUrlDark: "fallback-dark.png",
-      iconAssets: { "256_square": "asset-light.png" },
-      iconDarkAssets: { "256_square": "asset-dark.png" },
-    })]);
+    const [normalized] = normalizeCodexAppInfoLogos([
+      app({
+        logoUrl: "fallback-light.png",
+        logoUrlDark: "fallback-dark.png",
+        iconAssets: { "256_square": "asset-light.png" },
+        iconDarkAssets: { "256_square": "asset-dark.png" },
+      }),
+    ]);
     expect(normalized?.logoUrl).toBe("asset-light.png");
     expect(normalized?.logoUrlDark).toBe("asset-dark.png");
 
-    const [darkOnly] = normalizeCodexAppInfoLogos([app({
-      logoUrl: null,
-      logoUrlDark: "fallback-dark.png",
-      iconAssets: null,
-      iconDarkAssets: { "256_square": "asset-dark.png" },
-    })]);
+    const [darkOnly] = normalizeCodexAppInfoLogos([
+      app({
+        logoUrl: null,
+        logoUrlDark: "fallback-dark.png",
+        iconAssets: null,
+        iconDarkAssets: { "256_square": "asset-dark.png" },
+      }),
+    ]);
     expect(darkOnly?.logoUrl).toBe("asset-dark.png");
     expect(darkOnly?.logoUrlDark).toBe("asset-dark.png");
   });
 
   test("trims logo URLs and resolves leading-slash assets against installUrl", () => {
-    const [normalized] = normalizeCodexAppInfoLogos([app({
-      installUrl: " https://apps.example.test/connectors/docs/install ",
-      iconAssets: { "256_square": " /assets/docs.png " },
-      iconDarkAssets: { "256_square": " /assets/docs-dark.png " },
-    })]);
+    const [normalized] = normalizeCodexAppInfoLogos([
+      app({
+        installUrl: " https://apps.example.test/connectors/docs/install ",
+        iconAssets: { "256_square": " /assets/docs.png " },
+        iconDarkAssets: { "256_square": " /assets/docs-dark.png " },
+      }),
+    ]);
     expect(normalized?.logoUrl).toBe("https://apps.example.test/assets/docs.png");
     expect(normalized?.logoUrlDark).toBe("https://apps.example.test/assets/docs-dark.png");
   });

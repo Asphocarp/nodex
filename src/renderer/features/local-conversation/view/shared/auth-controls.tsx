@@ -1,9 +1,5 @@
 import { useForm, useStore } from "@tanstack/react-form";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { handleFormSubmit } from "@/lib/forms";
 import type {
   CodexAccountSnapshot,
@@ -118,12 +114,7 @@ export function AuthPopover({
           Sign in
         </button>
       </NodexPopoverTrigger>
-      <NodexPopoverContent
-        align="end"
-        side={side}
-        sideOffset={sideOffset}
-        className="w-64 p-3"
-      >
+      <NodexPopoverContent align="end" side={side} sideOffset={sideOffset} className="w-64 p-3">
         {account?.pendingLogin ? (
           <div className="text-xs text-(--foreground-tertiary)">
             Login pending...{" "}
@@ -148,7 +139,9 @@ export function AuthPopover({
             <div className="relative">
               <div className="absolute inset-x-0 top-1/2 border-t border-(--border)" />
               <div className="relative flex justify-center">
-                <span className="bg-(--popover) px-2 text-[10px] text-(--foreground-tertiary)">or</span>
+                <span className="bg-(--popover) px-2 text-[10px] text-(--foreground-tertiary)">
+                  or
+                </span>
               </div>
             </div>
             <form

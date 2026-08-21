@@ -1,9 +1,6 @@
 import type { McpServerElicitationRequestParams } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestParams";
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
-import type {
-  CodexMcpServerElicitationAction,
-  CodexMcpServerElicitationRequest,
-} from "./types";
+import type { CodexMcpServerElicitationAction, CodexMcpServerElicitationRequest } from "./types";
 
 type CodexMcpElicitationJsonValue = McpServerElicitationRequestResponse["content"];
 
@@ -11,72 +8,72 @@ export type CodexMcpElicitationFieldValue = string | number | boolean | string[]
 
 export type CodexMcpElicitationFormField =
   | {
-    kind: "text";
-    name: string;
-    label: string;
-    description: string | null;
-    required: boolean;
-    defaultValue: string;
-    inputType: "text" | "date" | "email" | "url";
-    minLength?: number;
-    maxLength?: number;
-  }
+      kind: "text";
+      name: string;
+      label: string;
+      description: string | null;
+      required: boolean;
+      defaultValue: string;
+      inputType: "text" | "date" | "email" | "url";
+      minLength?: number;
+      maxLength?: number;
+    }
   | {
-    kind: "number";
-    name: string;
-    label: string;
-    description: string | null;
-    required: boolean;
-    defaultValue: string;
-    integer: boolean;
-    minimum?: number;
-    maximum?: number;
-  }
+      kind: "number";
+      name: string;
+      label: string;
+      description: string | null;
+      required: boolean;
+      defaultValue: string;
+      integer: boolean;
+      minimum?: number;
+      maximum?: number;
+    }
   | {
-    kind: "boolean";
-    name: string;
-    label: string;
-    description: string | null;
-    required: boolean;
-    defaultValue: boolean;
-  }
+      kind: "boolean";
+      name: string;
+      label: string;
+      description: string | null;
+      required: boolean;
+      defaultValue: boolean;
+    }
   | {
-    kind: "singleSelect";
-    name: string;
-    label: string;
-    description: string | null;
-    required: boolean;
-    defaultValue: string;
-    options: Array<{ value: string; label: string }>;
-  }
+      kind: "singleSelect";
+      name: string;
+      label: string;
+      description: string | null;
+      required: boolean;
+      defaultValue: string;
+      options: Array<{ value: string; label: string }>;
+    }
   | {
-    kind: "multiSelect";
-    name: string;
-    label: string;
-    description: string | null;
-    required: boolean;
-    defaultValue: string[];
-    options: Array<{ value: string; label: string }>;
-  };
+      kind: "multiSelect";
+      name: string;
+      label: string;
+      description: string | null;
+      required: boolean;
+      defaultValue: string[];
+      options: Array<{ value: string; label: string }>;
+    };
 
 type CodexMcpTextInputType = Extract<CodexMcpElicitationFormField, { kind: "text" }>["inputType"];
 
 export type CodexMcpElicitationFormModel =
   | {
-    kind: "supported";
-    mode: "form" | "openai/form";
-    serverName: string;
-    message: string;
-    serverLabel: string;
-    fields: CodexMcpElicitationFormField[];
-  }
+      kind: "supported";
+      mode: "form" | "openai/form";
+      serverName: string;
+      message: string;
+      serverLabel: string;
+      fields: CodexMcpElicitationFormField[];
+    }
   | {
-    kind: "unsupported";
-    mode: "form" | "openai/form";
-    serverName: string;
-    message: string;
-    serverLabel: string;
-  };
+      kind: "unsupported";
+      mode: "form" | "openai/form";
+      serverName: string;
+      message: string;
+      serverLabel: string;
+    };
 
 export interface CodexMcpElicitationValidationResult {
   content: Record<string, CodexMcpElicitationJsonValue> | null;
@@ -84,7 +81,7 @@ export interface CodexMcpElicitationValidationResult {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function asStringArray(value: unknown): string[] | null {
@@ -98,11 +95,13 @@ function asRequiredNames(value: unknown): Set<string> {
 }
 
 function titleFromName(name: string): string {
-  return name
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .trim()
-    .replace(/\b\w/g, (character) => character.toUpperCase()) || name;
+  return (
+    name
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .trim()
+      .replace(/\b\w/g, (character) => character.toUpperCase()) || name
+  );
 }
 
 function stringOrNull(value: unknown): string | null {
@@ -120,7 +119,9 @@ function resolveInputType(format: unknown): CodexMcpTextInputType {
   return "text";
 }
 
-function enumOptionsFromSchema(schema: Record<string, unknown>): Array<{ value: string; label: string }> | null {
+function enumOptionsFromSchema(
+  schema: Record<string, unknown>,
+): Array<{ value: string; label: string }> | null {
   const directValues = asStringArray(schema.enum);
   if (directValues) {
     const enumNames = asStringArray(schema.enumNames) ?? [];
@@ -256,7 +257,9 @@ function buildServerLabel(mode: "form" | "openai/form", serverName: string): str
     : `${serverName} requests input`;
 }
 
-function buildFormFields(request: CodexMcpServerElicitationRequest): CodexMcpElicitationFormField[] | null {
+function buildFormFields(
+  request: CodexMcpServerElicitationRequest,
+): CodexMcpElicitationFormField[] | null {
   const schema = asRecord(request.requestedSchema);
   if (!schema || schema.type !== "object") return null;
 
@@ -286,35 +289,31 @@ function parseHttpsUrl(value: string): URL | null {
 
 function isChatGptHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
-  return normalized === "chatgpt.com"
-    || normalized === "chatgpt-staging.com"
-    || normalized.endsWith(".chatgpt.com")
-    || normalized.endsWith(".chatgpt-staging.com");
+  return (
+    normalized === "chatgpt.com" ||
+    normalized === "chatgpt-staging.com" ||
+    normalized.endsWith(".chatgpt.com") ||
+    normalized.endsWith(".chatgpt-staging.com")
+  );
 }
 
 function hasConnectorAuthFailureMeta(value: unknown): boolean {
   const meta = asRecord(value);
   const codexApps = asRecord(meta?._codex_apps);
   const failure = asRecord(codexApps?.connector_auth_failure);
-  return failure?.is_auth_failure === true
-    && typeof failure.connector_id === "string"
-    && typeof failure.connector_name === "string"
-    && typeof failure.install_url === "string"
-    && (
-      failure.auth_reason === undefined
-      || typeof failure.auth_reason === "string"
-    )
-    && (
-      failure.link_id === undefined
-      || typeof failure.link_id === "string"
-    )
-    && (
-      failure.requested_scopes === undefined
-      || (
-        Array.isArray(failure.requested_scopes)
-        && failure.requested_scopes.every((scope) => typeof scope === "string" && scope.trim().length > 0)
-      )
-    );
+  return (
+    failure?.is_auth_failure === true &&
+    typeof failure.connector_id === "string" &&
+    typeof failure.connector_name === "string" &&
+    typeof failure.install_url === "string" &&
+    (failure.auth_reason === undefined || typeof failure.auth_reason === "string") &&
+    (failure.link_id === undefined || typeof failure.link_id === "string") &&
+    (failure.requested_scopes === undefined ||
+      (Array.isArray(failure.requested_scopes) &&
+        failure.requested_scopes.every(
+          (scope) => typeof scope === "string" && scope.trim().length > 0,
+        )))
+  );
 }
 
 export function isRenderableMcpServerElicitationRequest(
@@ -389,18 +388,20 @@ export function buildCodexMcpElicitationFormModel(
 export function createInitialCodexMcpElicitationFormValues(
   fields: CodexMcpElicitationFormField[],
 ): Record<string, CodexMcpElicitationFieldValue> {
-  return Object.fromEntries(fields.map((field) => {
-    switch (field.kind) {
-      case "text":
-      case "number":
-      case "singleSelect":
-        return [field.name, field.defaultValue];
-      case "boolean":
-        return [field.name, field.defaultValue];
-      case "multiSelect":
-        return [field.name, [...field.defaultValue]];
-    }
-  }));
+  return Object.fromEntries(
+    fields.map((field) => {
+      switch (field.kind) {
+        case "text":
+        case "number":
+        case "singleSelect":
+          return [field.name, field.defaultValue];
+        case "boolean":
+          return [field.name, field.defaultValue];
+        case "multiSelect":
+          return [field.name, [...field.defaultValue]];
+      }
+    }),
+  );
 }
 
 function validateTextField(

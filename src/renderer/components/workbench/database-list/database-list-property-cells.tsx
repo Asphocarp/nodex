@@ -7,11 +7,7 @@ import type {
   DataSourcePropertyEditorBinding,
   DataSourcePropertyOptionRegistryState,
 } from "@/components/database/data-source-property-editor-binding";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { resolveDataSourcePropertyPresentationRole } from "@/lib/data-source-property-presentation-role";
 import type { RelationTargetWindow } from "@/lib/data-source-relation-value";
 import type {
@@ -55,11 +51,7 @@ export interface DatabaseListPropertyRuntime {
     readonly pageId: string;
     readonly title: string;
   }[];
-  readonly onSetValue: (
-    pageId: string,
-    propertyId: string,
-    value: DatabaseJsonValue,
-  ) => void;
+  readonly onSetValue: (pageId: string, propertyId: string, value: DatabaseJsonValue) => void;
   readonly onPatchOptions: (
     pageId: string,
     property: DataSourcePropertyRecordV2,
@@ -126,9 +118,8 @@ export const createDatabaseListPropertyEditorBinding = (
     optionRegistryLoadingMore: runtime.optionLoadingMore[property.propertyId] ?? false,
     onRequestOptions: () => runtime.onRequestOptions(property),
     onRequestMoreOptions: () => runtime.onRequestMoreOptions(property),
-    relationCandidates: property.valueType === "relation"
-      ? runtime.relationCandidates()
-      : undefined,
+    relationCandidates:
+      property.valueType === "relation" ? runtime.relationCandidates() : undefined,
     relationSourcePageId: pageId,
     onChange: (value) => runtime.onSetValue(pageId, property.propertyId, value),
     onPatchOptions: (delta) => runtime.onPatchOptions(pageId, property, delta),
@@ -189,11 +180,14 @@ function DatabaseListAssigneeEditor({
     setOpen(false);
   };
   return (
-    <NodexPopover open={open} onOpenChange={(next) => {
-      if (next && (disabled || pending)) return;
-      setDraft(value);
-      setOpen(next);
-    }}>
+    <NodexPopover
+      open={open}
+      onOpenChange={(next) => {
+        if (next && (disabled || pending)) return;
+        setDraft(value);
+        setOpen(next);
+      }}
+    >
       <NodexPopoverTrigger asChild disabled={disabled || pending}>
         <button
           type="button"
@@ -251,7 +245,11 @@ function PropertyEditor({
           pending={pending}
           onChange={(value) => binding.onChange(value)}
         />
-        {error ? <span role="alert" className="sr-only">{error}</span> : null}
+        {error ? (
+          <span role="alert" className="sr-only">
+            {error}
+          </span>
+        ) : null}
       </span>
     );
   }
@@ -267,7 +265,11 @@ function PropertyEditor({
         presentation="list"
         triggerIcon={propertyIcon(property, current?.value)}
       />
-      {error ? <span role="alert" className="sr-only">{error}</span> : null}
+      {error ? (
+        <span role="alert" className="sr-only">
+          {error}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -294,11 +296,11 @@ export function DatabaseListInlineProperties({
     return databaseListPropertyHasValue(property, value) ? [property] : [];
   });
   if (visible.length === 0) return null;
-  const assignees = visible.filter((property) =>
-    resolveDataSourcePropertyPresentationRole(property).kind === "assignee"
+  const assignees = visible.filter(
+    (property) => resolveDataSourcePropertyPresentationRole(property).kind === "assignee",
   );
-  const badges = visible.filter((property) =>
-    resolveDataSourcePropertyPresentationRole(property).kind !== "assignee"
+  const badges = visible.filter(
+    (property) => resolveDataSourcePropertyPresentationRole(property).kind !== "assignee",
   );
   return (
     <>
@@ -340,10 +342,9 @@ export function DatabaseListTrailingPropertyCells({
   return fields.flatMap((field) => {
     if (field.kind !== "intrinsic") return [];
     if (field.field === "page_key") return [];
-    const value = field.field === "created_at"
-      ? authority.page.createdAt
-      : authority.page.updatedAt;
-    return [(
+    const value =
+      field.field === "created_at" ? authority.page.createdAt : authority.page.updatedAt;
+    return [
       <div
         key={`intrinsic:${field.field}`}
         role="gridcell"
@@ -353,7 +354,7 @@ export function DatabaseListTrailingPropertyCells({
         style={{ gridColumn: field.field }}
       >
         {dateFormatter.format(new Date(value))}
-      </div>
-    )];
+      </div>,
+    ];
   });
 }

@@ -12,7 +12,7 @@ describe("PlanMessage", () => {
     });
     Object.defineProperty(URL, "revokeObjectURL", {
       configurable: true,
-      value: () => { },
+      value: () => {},
     });
   });
 
@@ -110,10 +110,7 @@ describe("PlanMessage", () => {
     try {
       const { getByRole } = render(
         <TooltipProvider>
-          <PlanMessage
-            completed
-            content={"## Plan heading\n\nParagraph body.\n\n- First bullet"}
-          />
+          <PlanMessage completed content={"## Plan heading\n\nParagraph body.\n\n- First bullet"} />
         </TooltipProvider>,
       );
 
@@ -127,10 +124,7 @@ describe("PlanMessage", () => {
   test("renders plan markdown content", () => {
     const { container } = render(
       <TooltipProvider>
-        <PlanMessage
-          completed
-          content={"## Plan heading\n\nParagraph body.\n\n- First bullet"}
-        />
+        <PlanMessage completed content={"## Plan heading\n\nParagraph body.\n\n- First bullet"} />
       </TooltipProvider>,
     );
 

@@ -1,8 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  DateMentionInlineContentView,
-} from "./date-mention-chip";
+import { DateMentionInlineContentView } from "./date-mention-chip";
 import {
   dateMentionPayloadToProps,
   type DateMentionInlineContentUpdate,
@@ -44,7 +42,8 @@ const meta = {
     layout: "centered",
     docs: {
       description: {
-        component: "Focused coverage for editable NFM date mention chips rendered from `<mention-date />` inline content.",
+        component:
+          "Focused coverage for editable NFM date mention chips rendered from `<mention-date />` inline content.",
       },
     },
   },
@@ -155,7 +154,9 @@ export const ReadonlyPreview: Story = {
   render: () => (
     <div className="w-[28rem] rounded-lg bg-token-bg-fog p-3 text-token-foreground">
       <ReadonlyNfmBlockNotePreview
-        content={'Captured note with <mention-date start="2050-06-28" format="relative" /> inside readonly history.'}
+        content={
+          'Captured note with <mention-date start="2050-06-28" format="relative" /> inside readonly history.'
+        }
         projectId="project-1"
         pageId="card-1"
         historyId={1}

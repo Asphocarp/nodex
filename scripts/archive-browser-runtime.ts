@@ -1,15 +1,8 @@
 import { execFileSync } from "node:child_process";
-import {
-  lstatSync,
-  mkdirSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { lstatSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  BROWSER_RUNTIME_MANIFEST_FILENAME,
-} from "../src/shared/browser-runtime-metadata";
+import { BROWSER_RUNTIME_MANIFEST_FILENAME } from "../src/shared/browser-runtime-metadata";
 import {
   assertBrowserRuntimeSourceClosure,
   readBrowserRuntimeFileSha256,
@@ -38,10 +31,7 @@ export function archiveBrowserRuntime(
   if (!sourceStats.isDirectory() || sourceStats.isSymbolicLink()) {
     throw new Error(`Browser runtime source must be a real directory: ${sourceRoot}`);
   }
-  if (
-    outputPath === sourceRoot
-    || outputPath.startsWith(`${sourceRoot}${path.sep}`)
-  ) {
+  if (outputPath === sourceRoot || outputPath.startsWith(`${sourceRoot}${path.sep}`)) {
     throw new Error("Browser runtime archive must be written outside the source closure");
   }
 
@@ -50,13 +40,7 @@ export function archiveBrowserRuntime(
   mkdirSync(path.dirname(outputPath), { recursive: true });
   const temporaryPath = `${outputPath}.part-${process.pid}`;
   try {
-    execFileSync("tar", [
-      "-czf",
-      temporaryPath,
-      "-C",
-      sourceRoot,
-      ".",
-    ]);
+    execFileSync("tar", ["-czf", temporaryPath, "-C", sourceRoot, "."]);
     renameSync(temporaryPath, outputPath);
   } finally {
     rmSync(temporaryPath, { force: true });
@@ -88,9 +72,7 @@ function parseCliOptions(argv: string[]): ArchiveBrowserRuntimeOptions {
   const sourceRoot = values.get("--source");
   const outputPath = values.get("--out");
   if (!sourceRoot || !outputPath) {
-    throw new Error(
-      "Usage: archive-browser-runtime.ts --source <directory> --out <tar.gz>",
-    );
+    throw new Error("Usage: archive-browser-runtime.ts --source <directory> --out <tar.gz>");
   }
   return { outputPath, sourceRoot };
 }
@@ -100,7 +82,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const metadata = archiveBrowserRuntime(parseCliOptions(process.argv.slice(2)));
     process.stdout.write(`${JSON.stringify(metadata)}\n`);
   } catch (error) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   }

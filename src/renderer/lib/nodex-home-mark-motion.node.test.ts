@@ -35,22 +35,26 @@ describe("Nodex home mark motion", () => {
   });
 
   test("uses the tuned axis for center clicks and invalid bounds", () => {
-    expect(resolveNodexHomeMarkClickAxis({
-      clientX: 50,
-      clientY: 50,
-      left: 0,
-      top: 0,
-      width: 100,
-      height: 100,
-    })).toEqual(NODEX_HOME_MARK_FALLBACK_AXIS);
-    expect(resolveNodexHomeMarkClickAxis({
-      clientX: 0,
-      clientY: 0,
-      left: 0,
-      top: 0,
-      width: 0,
-      height: 0,
-    })).toEqual(NODEX_HOME_MARK_FALLBACK_AXIS);
+    expect(
+      resolveNodexHomeMarkClickAxis({
+        clientX: 50,
+        clientY: 50,
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 100,
+      }),
+    ).toEqual(NODEX_HOME_MARK_FALLBACK_AXIS);
+    expect(
+      resolveNodexHomeMarkClickAxis({
+        clientX: 0,
+        clientY: 0,
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+      }),
+    ).toEqual(NODEX_HOME_MARK_FALLBACK_AXIS);
   });
 
   test("closes every integer-turn rotor composition at identity", () => {
@@ -78,17 +82,23 @@ describe("Nodex home mark motion", () => {
   });
 
   test("keeps the DPR-aware framebuffer bounded", () => {
-    expect(resolveNodexHomeMarkFramebuffer({
-      devicePixelRatio: 1,
-      chargedScale: 1,
-    }).size).toBe(100);
-    expect(resolveNodexHomeMarkFramebuffer({
-      devicePixelRatio: 2,
-      chargedScale: 1,
-    }).size).toBe(200);
-    expect(resolveNodexHomeMarkFramebuffer({
-      devicePixelRatio: 4,
-      chargedScale: 1.17,
-    }).size).toBe(298);
+    expect(
+      resolveNodexHomeMarkFramebuffer({
+        devicePixelRatio: 1,
+        chargedScale: 1,
+      }).size,
+    ).toBe(100);
+    expect(
+      resolveNodexHomeMarkFramebuffer({
+        devicePixelRatio: 2,
+        chargedScale: 1,
+      }).size,
+    ).toBe(200);
+    expect(
+      resolveNodexHomeMarkFramebuffer({
+        devicePixelRatio: 4,
+        chargedScale: 1.17,
+      }).size,
+    ).toBe(298);
   });
 });

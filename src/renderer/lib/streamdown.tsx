@@ -4,11 +4,7 @@ import { createCodePlugin } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
 import { createMermaidPlugin } from "@streamdown/mermaid";
 import remarkBreaks from "remark-breaks";
-import {
-  defaultRemarkPlugins,
-  type Components,
-  type MermaidErrorComponentProps,
-} from "streamdown";
+import { defaultRemarkPlugins, type Components, type MermaidErrorComponentProps } from "streamdown";
 import type { Pluggable } from "unified";
 import {
   InlineMarkdownCode,
@@ -98,11 +94,7 @@ function createHeadingComponent(
     return (
       <Tag
         {...props}
-        className={cn(
-          headingClassName,
-          INLINE_MARKDOWN_HEADING_CLASS_NAME,
-          className,
-        )}
+        className={cn(headingClassName, INLINE_MARKDOWN_HEADING_CLASS_NAME, className)}
       >
         {children}
       </Tag>
@@ -122,10 +114,7 @@ export const streamdownComponents: Components = {
     return (
       <p
         {...props}
-        className={cn(
-          "text-size-chat leading-relaxed extension:leading-normal my-2",
-          className,
-        )}
+        className={cn("text-size-chat leading-relaxed extension:leading-normal my-2", className)}
       >
         {children}
       </p>
@@ -286,10 +275,7 @@ export const streamdownComponents: Components = {
     void node;
 
     return (
-      <th
-        {...props}
-        className={cn("p-1 text-left font-semibold text-token-foreground", className)}
-      >
+      <th {...props} className={cn("p-1 text-left font-semibold text-token-foreground", className)}>
         {children}
       </th>
     );

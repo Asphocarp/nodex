@@ -4,10 +4,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
-import {
-  createTestQueryClient,
-  TestQueryProvider,
-} from "../../../test/query";
+import { createTestQueryClient, TestQueryProvider } from "../../../test/query";
 import { queryKeys } from "../../../lib/query-keys";
 import { RendererStateProvider } from "../../../app-providers";
 import { WorkbenchSessionScopePath } from "../../../lib/workbench-ui-scopes";
@@ -52,11 +49,7 @@ function createConnectedThreadStageQueryClient() {
   return client;
 }
 
-function ConnectedThreadStageQueryProvider({
-  children,
-}: {
-  readonly children: ReactNode;
-}) {
+function ConnectedThreadStageQueryProvider({ children }: { readonly children: ReactNode }) {
   const [client] = useState(createConnectedThreadStageQueryClient);
   return <TestQueryProvider client={client}>{children}</TestQueryProvider>;
 }
@@ -87,17 +80,26 @@ vi.mock("../local-conversation-deps", () => ({
     invokeCalls.push({
       channel,
       args,
-      threadId: typeof firstArg === "string"
-        ? firstArg
-        : typeof firstArg === "object" && firstArg !== null && typeof (firstArg as { threadId?: unknown }).threadId === "string"
-          ? (firstArg as { threadId: string }).threadId
+      threadId:
+        typeof firstArg === "string"
+          ? firstArg
+          : typeof firstArg === "object" &&
+              firstArg !== null &&
+              typeof (firstArg as { threadId?: unknown }).threadId === "string"
+            ? (firstArg as { threadId: string }).threadId
+            : undefined,
+      active:
+        typeof firstArg === "object" &&
+        firstArg !== null &&
+        typeof (firstArg as { active?: unknown }).active === "boolean"
+          ? (firstArg as { active: boolean }).active
           : undefined,
-      active: typeof firstArg === "object" && firstArg !== null && typeof (firstArg as { active?: unknown }).active === "boolean"
-        ? (firstArg as { active: boolean }).active
-        : undefined,
-      presented: typeof firstArg === "object" && firstArg !== null && typeof (firstArg as { presented?: unknown }).presented === "boolean"
-        ? (firstArg as { presented: boolean }).presented
-        : undefined,
+      presented:
+        typeof firstArg === "object" &&
+        firstArg !== null &&
+        typeof (firstArg as { presented?: unknown }).presented === "boolean"
+          ? (firstArg as { presented: boolean }).presented
+          : undefined,
     });
     if (channel === "codex:account:read") {
       return {
@@ -186,13 +188,15 @@ function buildConversation(
     updatedAt: 2,
     linkedAt: "2026-03-21T00:00:00.000Z",
     resumeState: "resumed",
-    turns: [{
-      threadId,
-      turnId: "turn_ready",
-      status: "inProgress",
-      itemIds: [userItem.itemId],
-      items: [userItem],
-    }],
+    turns: [
+      {
+        threadId,
+        turnId: "turn_ready",
+        status: "inProgress",
+        itemIds: [userItem.itemId],
+        items: [userItem],
+      },
+    ],
     requests: [],
     queuedFollowUps: [],
     pendingSteers: [],
@@ -215,10 +219,7 @@ type TestThreadStreamDispatch = (
 
 function dispatchTestThreadStreamSnapshot(
   dispatch: TestThreadStreamDispatch,
-  event: Omit<
-    CodexThreadStreamStateChangedEvent,
-    "checkpoint" | "baseCheckpoint"
-  >,
+  event: Omit<CodexThreadStreamStateChangedEvent, "checkpoint" | "baseCheckpoint">,
 ): void {
   if (event.change.type !== "snapshot") {
     throw new Error("Expected a snapshot stream fixture");
@@ -275,10 +276,8 @@ async function renderStage(
     threadBodyVisible?: boolean;
   } = {},
 ) {
-  const {
-    __resetLocalConversationStoreForTests,
-    LocalConversationProvider,
-  } = await import("../local-conversation-store");
+  const { __resetLocalConversationStoreForTests, LocalConversationProvider } =
+    await import("../local-conversation-store");
   const { ConnectedThreadStage } = await import("./connected-thread-stage");
   __resetLocalConversationStoreForTests();
 
@@ -287,37 +286,33 @@ async function renderStage(
       <ThreadStageScope>
         <TooltipProvider>
           <LocalConversationProvider>
-          <ConnectedThreadStage
-            projectId="project_1"
-            projectWorkspacePath="/tmp/project"
-            isNewThreadTab={false}
-            newThreadTarget={null}
-            newThreadProjectSelector={null}
-            newThreadStartInSelector={null}
-            threadStartProgress={null}
-            activeThreadId={summary.threadId}
-            activeThreadSummary={summary}
-            availableModels={[]}
-            collaborationModes={[]}
-            selectedCollaborationMode="default"
-            selectedModel=""
-            selectedReasoningEffort="medium"
-            reasoningEffortOptions={[]}
-            permissionMode="auto"
-            isQueueingEnabled={false}
-            composerEnterBehavior="enter"
-            searchOpenTick={0}
-            backgroundAgentDetail={options.backgroundAgentDetail === true}
-            routeActive={options.routeActive}
-            rightPanelComposerOverlayEnabled={
-              options.rightPanelComposerOverlayEnabled
-            }
-            rightPanelComposerOverlayVisibility={
-              options.rightPanelComposerOverlayVisibility
-            }
-            threadBodyVisible={options.threadBodyVisible}
-            actions={buildActions()}
-          />
+            <ConnectedThreadStage
+              projectId="project_1"
+              projectWorkspacePath="/tmp/project"
+              isNewThreadTab={false}
+              newThreadTarget={null}
+              newThreadProjectSelector={null}
+              newThreadStartInSelector={null}
+              threadStartProgress={null}
+              activeThreadId={summary.threadId}
+              activeThreadSummary={summary}
+              availableModels={[]}
+              collaborationModes={[]}
+              selectedCollaborationMode="default"
+              selectedModel=""
+              selectedReasoningEffort="medium"
+              reasoningEffortOptions={[]}
+              permissionMode="auto"
+              isQueueingEnabled={false}
+              composerEnterBehavior="enter"
+              searchOpenTick={0}
+              backgroundAgentDetail={options.backgroundAgentDetail === true}
+              routeActive={options.routeActive}
+              rightPanelComposerOverlayEnabled={options.rightPanelComposerOverlayEnabled}
+              rightPanelComposerOverlayVisibility={options.rightPanelComposerOverlayVisibility}
+              threadBodyVisible={options.threadBodyVisible}
+              actions={buildActions()}
+            />
           </LocalConversationProvider>
         </TooltipProvider>
       </ThreadStageScope>
@@ -327,13 +322,9 @@ async function renderStage(
   return view;
 }
 
-async function renderPrimaryAndAuxiliaryThread(
-  auxiliaryMode: "background-detail" | "side-chat",
-) {
-  const {
-    __resetLocalConversationStoreForTests,
-    LocalConversationProvider,
-  } = await import("../local-conversation-store");
+async function renderPrimaryAndAuxiliaryThread(auxiliaryMode: "background-detail" | "side-chat") {
+  const { __resetLocalConversationStoreForTests, LocalConversationProvider } =
+    await import("../local-conversation-store");
   const { ConnectedThreadStage } = await import("./connected-thread-stage");
   __resetLocalConversationStoreForTests();
 
@@ -404,10 +395,8 @@ async function renderPrimaryAndAuxiliaryThread(
 async function renderNewThreadHome(overrides?: {
   threadStartProgress?: ThreadStageRouteInput["threadStartProgress"];
 }) {
-  const {
-    __resetLocalConversationStoreForTests,
-    LocalConversationProvider,
-  } = await import("../local-conversation-store");
+  const { __resetLocalConversationStoreForTests, LocalConversationProvider } =
+    await import("../local-conversation-store");
   const { ConnectedThreadStage } = await import("./connected-thread-stage");
   __resetLocalConversationStoreForTests();
   installWindowApi({
@@ -434,16 +423,18 @@ async function renderNewThreadHome(overrides?: {
         };
       }
       if (channel === "codex:composer-plugins:list") {
-        return [{
-          id: "browser@openai-bundled",
-          name: "Browser",
-          displayName: "Browser",
-          description: "Control the in-app browser with ChatGPT",
-          path: "plugin://browser@openai-bundled",
-          iconUrl: null,
-          iconUrlDark: null,
-          brandColor: "#4b8df8",
-        }];
+        return [
+          {
+            id: "browser@openai-bundled",
+            name: "Browser",
+            displayName: "Browser",
+            description: "Control the in-app browser with ChatGPT",
+            path: "plugin://browser@openai-bundled",
+            iconUrl: null,
+            iconUrlDark: null,
+            brandColor: "#4b8df8",
+          },
+        ];
       }
       if (channel === "codex:composer-skills:list") return [];
       if (channel === "codex:composer-sites:list") {
@@ -456,23 +447,25 @@ async function renderNewThreadHome(overrides?: {
         return { data: [], nextCursor: null };
       }
       if (channel === "codex:mcp-apps:list") {
-        return [{
-          id: "plugin-management",
-          name: "Plugin Management",
-          description: "Manage installed plugins",
-          logoUrl: null,
-          logoUrlDark: null,
-          iconAssets: null,
-          iconDarkAssets: null,
-          distributionChannel: null,
-          branding: null,
-          appMetadata: null,
-          labels: null,
-          installUrl: null,
-          isAccessible: true,
-          isEnabled: true,
-          pluginDisplayNames: [],
-        }];
+        return [
+          {
+            id: "plugin-management",
+            name: "Plugin Management",
+            description: "Manage installed plugins",
+            logoUrl: null,
+            logoUrlDark: null,
+            iconAssets: null,
+            iconDarkAssets: null,
+            distributionChannel: null,
+            branding: null,
+            appMetadata: null,
+            labels: null,
+            installUrl: null,
+            isAccessible: true,
+            isEnabled: true,
+            pluginDisplayNames: [],
+          },
+        ];
       }
       if (channel === "subscribe-live-query" || channel === "unsubscribe-live-query") {
         return true;
@@ -487,71 +480,75 @@ async function renderNewThreadHome(overrides?: {
       <ThreadStageScope>
         <TooltipProvider>
           <LocalConversationProvider>
-          <ConnectedThreadStage
-          projectId="project_1"
-          projectWorkspacePath="/tmp/nodex"
-          isNewThreadTab
-          newThreadTarget={{
-            projectId: "project_1",
-            projectName: "Nodex",
-            sessionId: "session_1",
-            threadTitle: "New thread",
-            runInTarget: "localProject",
-          }}
-          newThreadProjectSelector={{
-            projects: [
-              {
-                id: "project_1",
-                label: "Nodex",
-                appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
-                description: "/tmp/nodex",
-                primaryWorkspaceRoot: "/tmp/nodex",
-                searchText: "nodex /tmp/nodex",
-              },
-            ],
-            selectedProjectId: "project_1",
-            disabled: false,
-            canAddProject: true,
-          }}
-          newThreadStartInSelector={{
-            target: {
-              runInTarget: "localProject",
-              runInEnvironmentPath: null,
-            },
-            disabled: false,
-            worktreeAvailable: true,
-            environments: [],
-            environmentsLoading: false,
-            environmentsError: false,
-            selectedEnvironmentPath: null,
-            defaultEnvironmentPath: null,
-            environmentNeedsAttention: false,
-            environmentRepairConfigPath: null,
-          }}
-          threadStartProgress={overrides?.threadStartProgress ?? null}
-          activeThreadId={null}
-          activeThreadSummary={null}
-          availableModels={[{
-            id: "gpt-5.5",
-            model: "gpt-5.5",
-            displayName: "5.5",
-            description: "",
-            hidden: false,
-            isDefault: true,
-            defaultReasoningEffort: "xhigh",
-            supportedReasoningEfforts: [{ reasoningEffort: "xhigh", description: "Extra High" }],
-          }]}
-          collaborationModes={[]}
-          selectedCollaborationMode="default"
-          selectedModel="gpt-5.5"
-          selectedReasoningEffort="xhigh"
-          reasoningEffortOptions={[{ reasoningEffort: "xhigh", description: "Extra High" }]}
-          permissionMode="full-access"
-          isQueueingEnabled={false}
-          composerEnterBehavior="enter"
-          searchOpenTick={0}
-          actions={buildActions()}
-          />
+            <ConnectedThreadStage
+              projectId="project_1"
+              projectWorkspacePath="/tmp/nodex"
+              isNewThreadTab
+              newThreadTarget={{
+                projectId: "project_1",
+                projectName: "Nodex",
+                sessionId: "session_1",
+                threadTitle: "New thread",
+                runInTarget: "localProject",
+              }}
+              newThreadProjectSelector={{
+                projects: [
+                  {
+                    id: "project_1",
+                    label: "Nodex",
+                    appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
+                    description: "/tmp/nodex",
+                    primaryWorkspaceRoot: "/tmp/nodex",
+                    searchText: "nodex /tmp/nodex",
+                  },
+                ],
+                selectedProjectId: "project_1",
+                disabled: false,
+                canAddProject: true,
+              }}
+              newThreadStartInSelector={{
+                target: {
+                  runInTarget: "localProject",
+                  runInEnvironmentPath: null,
+                },
+                disabled: false,
+                worktreeAvailable: true,
+                environments: [],
+                environmentsLoading: false,
+                environmentsError: false,
+                selectedEnvironmentPath: null,
+                defaultEnvironmentPath: null,
+                environmentNeedsAttention: false,
+                environmentRepairConfigPath: null,
+              }}
+              threadStartProgress={overrides?.threadStartProgress ?? null}
+              activeThreadId={null}
+              activeThreadSummary={null}
+              availableModels={[
+                {
+                  id: "gpt-5.5",
+                  model: "gpt-5.5",
+                  displayName: "5.5",
+                  description: "",
+                  hidden: false,
+                  isDefault: true,
+                  defaultReasoningEffort: "xhigh",
+                  supportedReasoningEfforts: [
+                    { reasoningEffort: "xhigh", description: "Extra High" },
+                  ],
+                },
+              ]}
+              collaborationModes={[]}
+              selectedCollaborationMode="default"
+              selectedModel="gpt-5.5"
+              selectedReasoningEffort="xhigh"
+              reasoningEffortOptions={[{ reasoningEffort: "xhigh", description: "Extra High" }]}
+              permissionMode="full-access"
+              isQueueingEnabled={false}
+              composerEnterBehavior="enter"
+              searchOpenTick={0}
+              actions={buildActions()}
+            />
           </LocalConversationProvider>
         </TooltipProvider>
       </ThreadStageScope>
@@ -576,16 +573,20 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     });
 
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:view-active:set" &&
-        call.threadId === "thread_active" &&
-        call.active === true),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:view-active:set" &&
+          call.threadId === "thread_active" &&
+          call.active === true,
+      ),
     ).toBe(true);
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:presentation:set" &&
-        call.threadId === "thread_active" &&
-        call.presented === true),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:presentation:set" &&
+          call.threadId === "thread_active" &&
+          call.presented === true,
+      ),
     ).toBe(true);
 
     await act(async () => {
@@ -594,16 +595,20 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     });
 
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:view-active:set" &&
-        call.threadId === "thread_active" &&
-        call.active === false),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:view-active:set" &&
+          call.threadId === "thread_active" &&
+          call.active === false,
+      ),
     ).toBe(true);
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:presentation:set" &&
-        call.threadId === "thread_active" &&
-        call.presented === false),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:presentation:set" &&
+          call.threadId === "thread_active" &&
+          call.presented === false,
+      ),
     ).toBe(true);
   });
 
@@ -621,16 +626,22 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       await settleAsyncRender();
     });
 
-    expect(invokeCalls.some((call) =>
-      call.channel === "codex:thread:view-active:set"
-      && call.threadId === "thread_active"
-      && call.active === true
-    )).toBe(true);
-    expect(invokeCalls.some((call) =>
-      call.channel === "codex:thread:presentation:set"
-      && call.threadId === "thread_active"
-      && call.presented === true
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:view-active:set" &&
+          call.threadId === "thread_active" &&
+          call.active === true,
+      ),
+    ).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:presentation:set" &&
+          call.threadId === "thread_active" &&
+          call.presented === true,
+      ),
+    ).toBe(false);
 
     await act(async () => {
       view.unmount();
@@ -652,11 +663,14 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       await settleAsyncRender();
     });
 
-    expect(invokeCalls.some((call) =>
-      call.channel === "codex:thread:presentation:set"
-      && call.threadId === "thread_active"
-      && call.presented === true
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:presentation:set" &&
+          call.threadId === "thread_active" &&
+          call.presented === true,
+      ),
+    ).toBe(true);
 
     await act(async () => {
       view.unmount();
@@ -684,11 +698,14 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       await settleAsyncRender();
     });
 
-    expect(invokeCalls.some((call) =>
-      call.channel === "codex:thread:presentation:set"
-      && call.threadId === "thread_active"
-      && call.presented === true
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:presentation:set" &&
+          call.threadId === "thread_active" &&
+          call.presented === true,
+      ),
+    ).toBe(false);
 
     await act(async () => {
       view.unmount();
@@ -714,16 +731,18 @@ describe("ConnectedThreadStage archived resume behavior", () => {
           revision: 1,
           conversationState: buildConversation("thread_child", {
             source: { parentThreadId: "thread_active" },
-            requests: [{
-              type: "approval",
-              requestId: "background-approval",
-              kind: "command",
-              projectId: "project_1",
-              threadId: "thread_child",
-              turnId: "turn_ready",
-              itemId: "command-background",
-              createdAt: 3,
-            }],
+            requests: [
+              {
+                type: "approval",
+                requestId: "background-approval",
+                kind: "command",
+                projectId: "project_1",
+                threadId: "thread_child",
+                turnId: "turn_ready",
+                itemId: "command-background",
+                createdAt: 3,
+              },
+            ],
           }),
         },
       });
@@ -736,12 +755,14 @@ describe("ConnectedThreadStage archived resume behavior", () => {
           type: "snapshot",
           revision: 1,
           conversationState: buildConversation("thread_active", {
-            childMemberships: [{
-              threadId: "thread_child",
-              parentThreadId: "thread_active",
-              role: "backgroundChild",
-              actorName: "Worker 1",
-            }],
+            childMemberships: [
+              {
+                threadId: "thread_child",
+                parentThreadId: "thread_active",
+                role: "backgroundChild",
+                actorName: "Worker 1",
+              },
+            ],
           }),
         },
       });
@@ -749,11 +770,14 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     });
 
     await waitFor(() => {
-      if (!invokeCalls.some((call) =>
-        call.channel === "codex:thread:presentation:set"
-        && call.threadId === "thread_child"
-        && call.presented === true
-      )) {
+      if (
+        !invokeCalls.some(
+          (call) =>
+            call.channel === "codex:thread:presentation:set" &&
+            call.threadId === "thread_child" &&
+            call.presented === true,
+        )
+      ) {
         throw new Error("Expected background request conversation presentation.");
       }
     });
@@ -762,11 +786,14 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       view.unmount();
       await settleAsyncRender();
     });
-    expect(invokeCalls.some((call) =>
-      call.channel === "codex:thread:presentation:set"
-      && call.threadId === "thread_child"
-      && call.presented === false
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:presentation:set" &&
+          call.threadId === "thread_child" &&
+          call.presented === false,
+      ),
+    ).toBe(true);
   });
 
   test("does not mark ordinary child thread mounts as opened for full-fidelity subagent streaming", async () => {
@@ -794,10 +821,12 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     });
 
     await settleAsyncRender();
-    expect(invokeCalls.some((call) =>
-      call.channel === "codex:subagent-thread:opened" &&
-      call.threadId === "thread_active"
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:subagent-thread:opened" && call.threadId === "thread_active",
+      ),
+    ).toBe(false);
 
     await act(async () => {
       view.unmount();
@@ -828,10 +857,12 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     });
 
     await waitFor(() => {
-      if (!invokeCalls.some((call) =>
-        call.channel === "codex:subagent-thread:opened" &&
-        call.threadId === "thread_active"
-      )) {
+      if (
+        !invokeCalls.some(
+          (call) =>
+            call.channel === "codex:subagent-thread:opened" && call.threadId === "thread_active",
+        )
+      ) {
         throw new Error("Expected background-agent child opened signal.");
       }
     });
@@ -845,15 +876,17 @@ describe("ConnectedThreadStage archived resume behavior", () => {
   test("keeps background-agent detail read-only beside the primary thread composer", async () => {
     const view = await renderPrimaryAndAuxiliaryThread("background-detail");
 
-    expect(view.container.querySelectorAll('[data-local-conversation-composer-shell="true"]'))
-      .toHaveLength(1);
+    expect(
+      view.container.querySelectorAll('[data-local-conversation-composer-shell="true"]'),
+    ).toHaveLength(1);
   });
 
   test("gives a writable auxiliary thread its own composer scope", async () => {
     const view = await renderPrimaryAndAuxiliaryThread("side-chat");
 
-    expect(view.container.querySelectorAll('[data-local-conversation-composer-shell="true"]'))
-      .toHaveLength(2);
+    expect(
+      view.container.querySelectorAll('[data-local-conversation-composer-shell="true"]'),
+    ).toHaveLength(2);
   });
 
   test("does not auto-resume archived active thread summaries", async () => {
@@ -866,9 +899,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       await settleAsyncRender();
     });
 
-    expect(
-      invokeCalls.some((call) => call.channel === "codex:thread:resume:request"),
-    ).toBe(false);
+    expect(invokeCalls.some((call) => call.channel === "codex:thread:resume:request")).toBe(false);
   });
 
   test("auto-resumes non-archived active thread summaries", async () => {
@@ -882,9 +913,10 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     });
 
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:resume:request" &&
-      call.threadId === "thread_active"),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:resume:request" && call.threadId === "thread_active",
+      ),
     ).toBe(true);
   });
 
@@ -898,12 +930,8 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       await settleAsyncRender();
     });
 
-    expect(
-      invokeCalls.some((call) => call.channel === "codex:thread:view-active:set"),
-    ).toBe(false);
-    expect(
-      invokeCalls.some((call) => call.channel === "codex:thread:resume:request"),
-    ).toBe(false);
+    expect(invokeCalls.some((call) => call.channel === "codex:thread:view-active:set")).toBe(false);
+    expect(invokeCalls.some((call) => call.channel === "codex:thread:resume:request")).toBe(false);
   });
 
   test("keeps resume and view-active behavior for hidden active threads", async () => {
@@ -911,25 +939,31 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     invokeCalls = [];
     hostMessageListener = null;
 
-    await renderStage({
-      ...buildThreadSummary(false),
-      statusType: "active",
-      statusActiveFlags: ["waitingOnApproval"],
-    }, { routeActive: false });
+    await renderStage(
+      {
+        ...buildThreadSummary(false),
+        statusType: "active",
+        statusActiveFlags: ["waitingOnApproval"],
+      },
+      { routeActive: false },
+    );
     await act(async () => {
       await settleAsyncRender();
     });
 
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:view-active:set" &&
-        call.threadId === "thread_active" &&
-        call.active === true),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:view-active:set" &&
+          call.threadId === "thread_active" &&
+          call.active === true,
+      ),
     ).toBe(true);
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:resume:request" &&
-        call.threadId === "thread_active"),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:resume:request" && call.threadId === "thread_active",
+      ),
     ).toBe(true);
   });
 
@@ -949,10 +983,12 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     expect(view.container.querySelector("[data-local-conversation-transcript='true']")).toBe(null);
     expect(view.container.querySelector("[data-thread-find-composer='true']") !== null).toBe(true);
     expect(
-      invokeCalls.some((call) =>
-        call.channel === "codex:thread:view-active:set"
-        && call.threadId === "thread_active"
-        && call.active === true),
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:view-active:set" &&
+          call.threadId === "thread_active" &&
+          call.active === true,
+      ),
     ).toBe(true);
   });
 });
@@ -990,10 +1026,13 @@ describe("ConnectedThreadStage read-state control plane", () => {
       });
 
       await waitFor(() => {
-        if (!invokeCalls.some((call) =>
-          call.channel === "codex:conversation-unread:set"
-          && JSON.stringify(call.args) === JSON.stringify(["thread_active", false])
-        )) {
+        if (
+          !invokeCalls.some(
+            (call) =>
+              call.channel === "codex:conversation-unread:set" &&
+              JSON.stringify(call.args) === JSON.stringify(["thread_active", false]),
+          )
+        ) {
           throw new Error("Expected focused unread thread to be marked read.");
         }
       });
@@ -1047,9 +1086,9 @@ describe("ConnectedThreadStage read-state control plane", () => {
         await settleAsyncRender();
       });
 
-      expect(invokeCalls.some((call) =>
-        call.channel === "codex:conversation-unread:set"
-      )).toBe(false);
+      expect(invokeCalls.some((call) => call.channel === "codex:conversation-unread:set")).toBe(
+        false,
+      );
     } finally {
       view.unmount();
       if (hasFocusDescriptor) {
@@ -1089,9 +1128,9 @@ describe("ConnectedThreadStage read-state control plane", () => {
         });
         await settleAsyncRender();
       });
-      expect(invokeCalls.some((call) =>
-        call.channel === "codex:conversation-unread:set"
-      )).toBe(false);
+      expect(invokeCalls.some((call) => call.channel === "codex:conversation-unread:set")).toBe(
+        false,
+      );
 
       const stage = view.container.firstElementChild;
       if (!(stage instanceof HTMLElement)) {
@@ -1117,10 +1156,13 @@ describe("ConnectedThreadStage read-state control plane", () => {
           interact();
           await settleAsyncRender();
         });
-        expect(invokeCalls.some((call) =>
-          call.channel === "codex:conversation-unread:set"
-          && JSON.stringify(call.args) === JSON.stringify(["thread_active", false])
-        )).toBe(true);
+        expect(
+          invokeCalls.some(
+            (call) =>
+              call.channel === "codex:conversation-unread:set" &&
+              JSON.stringify(call.args) === JSON.stringify(["thread_active", false]),
+          ),
+        ).toBe(true);
       }
     } finally {
       view.unmount();
@@ -1140,9 +1182,15 @@ describe("ConnectedThreadStage new-chat home", () => {
     const view = await renderNewThreadHome();
     const home = view.container.querySelector<HTMLElement>("[data-new-thread-home-main='true']");
     const hero = view.container.querySelector<HTMLElement>("[data-new-thread-home-hero='true']");
-    const composer = view.container.querySelector<HTMLElement>("[data-new-thread-home-composer='true']");
-    const lowerStatusRow = view.container.querySelector<HTMLElement>("[data-composer-lower-status-row='true']");
-    const externalFooterSlot = view.container.querySelector<HTMLElement>("[data-composer-external-footer-slot='true']");
+    const composer = view.container.querySelector<HTMLElement>(
+      "[data-new-thread-home-composer='true']",
+    );
+    const lowerStatusRow = view.container.querySelector<HTMLElement>(
+      "[data-composer-lower-status-row='true']",
+    );
+    const externalFooterSlot = view.container.querySelector<HTMLElement>(
+      "[data-composer-external-footer-slot='true']",
+    );
     const promptEditor = view.container.querySelector<HTMLElement>("[data-codex-composer='true']");
     const mark = view.container.querySelector<HTMLElement>("[data-nodex-home-mark='true']");
     const projectTriggers = view.getAllByLabelText("Select project") as HTMLButtonElement[];
@@ -1185,9 +1233,7 @@ describe("ConnectedThreadStage new-chat home", () => {
     });
 
     await waitFor(() => {
-      const browserRow = view.container.querySelector(
-        '[data-add-context-plugin="Browser"]',
-      );
+      const browserRow = view.container.querySelector('[data-add-context-plugin="Browser"]');
       expect(browserRow).not.toBeNull();
       const pluginManagementRow = view.container.querySelector(
         '[data-add-context-app="Plugin Management"]',
@@ -1238,10 +1284,13 @@ describe("ConnectedThreadStage new-chat home", () => {
     expect(renderedText.includes("Thinking")).toBe(true);
     expect(renderedText.includes("Sending message")).toBe(false);
     expect(renderedText.includes("Message sent.")).toBe(false);
-    expect(invokeCalls.some((call) =>
-      call.channel === "codex:thread:view-active:set" &&
-      call.threadId === threadId &&
-      call.active === true
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.channel === "codex:thread:view-active:set" &&
+          call.threadId === threadId &&
+          call.active === true,
+      ),
+    ).toBe(true);
   });
 });

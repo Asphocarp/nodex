@@ -15,25 +15,22 @@ import type {
 } from "./desktop-data-authority";
 import type { ProjectWorkspaceReadSnapshot } from "./types";
 
-type CoreTurnAuthority = NonNullable<Extract<
-  ProjectWorkspaceReadSnapshot["value"],
-  { readonly kind: "turn_authority" }
->["resolution"]["authority"]>;
+type CoreTurnAuthority = NonNullable<
+  Extract<
+    ProjectWorkspaceReadSnapshot["value"],
+    { readonly kind: "turn_authority" }
+  >["resolution"]["authority"]
+>;
 
 const normalizeIdentity = (value: string): string | null => {
   const normalized = value.trim();
-  return normalized.length > 0 && normalized.length <= 512
-    ? normalized
-    : null;
+  return normalized.length > 0 && normalized.length <= 512 ? normalized : null;
 };
 
 const isNotFound = (error: unknown): boolean =>
-  error instanceof CoreModuleResponseError
-  && error.coreError.code === "not_found";
+  error instanceof CoreModuleResponseError && error.coreError.code === "not_found";
 
-const fromCoreAuthority = (
-  authority: CoreTurnAuthority,
-): FrozenNodexAgentTurnAuthority => ({
+const fromCoreAuthority = (authority: CoreTurnAuthority): FrozenNodexAgentTurnAuthority => ({
   threadId: authority.thread_id,
   turnId: authority.turn_id,
   rootThreadId: authority.root_thread_id,
@@ -60,17 +57,14 @@ const createCoreNodexAgentAuthorityPort = (
     pendingByThreadId.set(launch.snapshot.threadId, next);
   };
 
-  const readResolution = async (
-    input: CaptureNodexAgentTurnAuthorityInput,
-  ) => {
-    const snapshot = await runtime.clientForProject(input.actorProjectId)
-      .workspaceRead({
-        kind: "turn_authority",
-        thread_id: input.threadId,
-        turn_id: input.turnId,
-        root_thread_id: input.rootThreadId,
-        actor_project_id: input.actorProjectId,
-      });
+  const readResolution = async (input: CaptureNodexAgentTurnAuthorityInput) => {
+    const snapshot = await runtime.clientForProject(input.actorProjectId).workspaceRead({
+      kind: "turn_authority",
+      thread_id: input.threadId,
+      turn_id: input.turnId,
+      root_thread_id: input.rootThreadId,
+      actor_project_id: input.actorProjectId,
+    });
     if (snapshot.value.kind !== "turn_authority") {
       throw new Error("Core returned the wrong Turn authority read variant");
     }
@@ -87,7 +81,8 @@ const createCoreNodexAgentAuthorityPort = (
 
     let projectSnapshot: ProjectWorkspaceReadSnapshot;
     try {
-      projectSnapshot = await runtime.clientForProject(actorProjectId)
+      projectSnapshot = await runtime
+        .clientForProject(actorProjectId)
         .workspaceRead({ kind: "project", project_id: actorProjectId });
     } catch (error) {
       if (isNotFound(error)) return null;
@@ -102,13 +97,12 @@ const createCoreNodexAgentAuthorityPort = (
     }
 
     const inherited = input.inheritedAuthority;
-    const inheritsLibraryAuthority = inherited?.scope === "library"
-      && inherited.actorProjectId === actorProjectId
-      && inherited.libraryId === project.library_id
-      && inherited.storeEpoch === runtime.identity.storeEpoch;
-    const scope = input.builtinFullAccess || inheritsLibraryAuthority
-      ? "library"
-      : "project";
+    const inheritsLibraryAuthority =
+      inherited?.scope === "library" &&
+      inherited.actorProjectId === actorProjectId &&
+      inherited.libraryId === project.library_id &&
+      inherited.storeEpoch === runtime.identity.storeEpoch;
+    const scope = input.builtinFullAccess || inheritsLibraryAuthority ? "library" : "project";
     const source = input.builtinFullAccess
       ? "builtin_full_access"
       : inheritsLibraryAuthority
@@ -125,9 +119,7 @@ const createCoreNodexAgentAuthorityPort = (
         storeEpoch: runtime.identity.storeEpoch,
         scope,
         source,
-        permissionProfileId: scope === "library"
-          ? FULL_ACCESS_PERMISSION_PROFILE_ID
-          : null,
+        permissionProfileId: scope === "library" ? FULL_ACCESS_PERMISSION_PROFILE_ID : null,
         ...(inheritsLibraryAuthority && inherited
           ? {
               inheritedFrom: {
@@ -173,26 +165,25 @@ const createCoreNodexAgentAuthorityPort = (
       actorProjectId: launch.snapshot.actorProjectId,
     };
     if (!launch.boundTurnId) {
-      await runtime.clientForProject(launch.snapshot.actorProjectId)
-        .workspaceApply({
-          operationId: `electron:turn-authority:${launch.launchId}:${turnId}`,
-          intent: {
-            kind: "freeze_turn_authority",
-            thread_id: launch.snapshot.threadId,
-            turn_id: turnId,
-            root_thread_id: launch.snapshot.rootThreadId,
-            actor_project_id: launch.snapshot.actorProjectId,
-            source: launch.snapshot.source,
-            ...(launch.snapshot.inheritedFrom
-              ? {
-                  inherited_from: {
-                    thread_id: launch.snapshot.inheritedFrom.threadId,
-                    turn_id: launch.snapshot.inheritedFrom.turnId,
-                  },
-                }
-              : {}),
-          },
-        });
+      await runtime.clientForProject(launch.snapshot.actorProjectId).workspaceApply({
+        operationId: `electron:turn-authority:${launch.launchId}:${turnId}`,
+        intent: {
+          kind: "freeze_turn_authority",
+          thread_id: launch.snapshot.threadId,
+          turn_id: turnId,
+          root_thread_id: launch.snapshot.rootThreadId,
+          actor_project_id: launch.snapshot.actorProjectId,
+          source: launch.snapshot.source,
+          ...(launch.snapshot.inheritedFrom
+            ? {
+                inherited_from: {
+                  thread_id: launch.snapshot.inheritedFrom.threadId,
+                  turn_id: launch.snapshot.inheritedFrom.turnId,
+                },
+              }
+            : {}),
+        },
+      });
     }
     const authority = await capturePersisted(captureInput);
     if (!authority) {
@@ -209,8 +200,7 @@ const createCoreNodexAgentAuthorityPort = (
   ): Promise<FrozenNodexAgentTurnAuthority | null> => {
     const threadId = normalizeIdentity(rawThreadId);
     if (!threadId) return null;
-    const launch = pendingByThreadId.get(threadId)
-      ?.find((candidate) => !candidate.aborted) ?? null;
+    const launch = pendingByThreadId.get(threadId)?.find((candidate) => !candidate.aborted) ?? null;
     return await bindTurn(launch, rawTurnId);
   };
 
@@ -248,16 +238,12 @@ const createCoreNodexAgentAuthorityPort = (
   ): Promise<FrozenNodexAgentTurnAuthority | null> => {
     const resolution = await readResolution(input);
     if (resolution.persisted) {
-      return resolution.authority
-        ? fromCoreAuthority(resolution.authority)
-        : null;
+      return resolution.authority ? fromCoreAuthority(resolution.authority) : null;
     }
-    const launch = pendingByThreadId.get(input.threadId)
-      ?.find((candidate) => !candidate.aborted) ?? null;
+    const launch =
+      pendingByThreadId.get(input.threadId)?.find((candidate) => !candidate.aborted) ?? null;
     if (launch) return await bindTurn(launch, input.turnId);
-    return resolution.authority
-      ? fromCoreAuthority(resolution.authority)
-      : null;
+    return resolution.authority ? fromCoreAuthority(resolution.authority) : null;
   };
 
   return {
@@ -267,8 +253,7 @@ const createCoreNodexAgentAuthorityPort = (
     abortTurn,
     inheritTurn,
     capturePersisted,
-    hasRecordedAuthority: async (input) =>
-      (await readResolution(input)).persisted,
+    hasRecordedAuthority: async (input) => (await readResolution(input)).persisted,
     capture,
   };
 };
@@ -288,10 +273,8 @@ export const createDesktopNodexAgentAuthorityPort = (
   };
 
   return {
-    beginTurn: async (beginInput) =>
-      await (await resolve()).beginTurn(beginInput),
-    bindTurn: async (launch, turnId) =>
-      await (await resolve()).bindTurn(launch, turnId),
+    beginTurn: async (beginInput) => await (await resolve()).beginTurn(beginInput),
+    bindTurn: async (launch, turnId) => await (await resolve()).bindTurn(launch, turnId),
     observeTurnStarted: async (threadId, turnId) =>
       await (await resolve()).observeTurnStarted(threadId, turnId),
     abortTurn: (launch) => {
@@ -304,7 +287,6 @@ export const createDesktopNodexAgentAuthorityPort = (
       await (await resolve()).capturePersisted(captureInput),
     hasRecordedAuthority: async (captureInput) =>
       await (await resolve()).hasRecordedAuthority(captureInput),
-    capture: async (captureInput) =>
-      await (await resolve()).capture(captureInput),
+    capture: async (captureInput) => await (await resolve()).capture(captureInput),
   };
 };

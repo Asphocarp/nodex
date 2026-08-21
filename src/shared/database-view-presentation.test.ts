@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type {
-  DatabaseViewConfigV2,
-  DatabaseViewPresentationConfig,
-} from "./database-kernel";
+import type { DatabaseViewConfigV2, DatabaseViewPresentationConfig } from "./database-kernel";
 import {
   DatabaseMutationContractError,
   parseDatabaseViewConfigV4,
@@ -29,9 +26,7 @@ const capabilities: DatabaseViewCapabilities = {
 };
 
 const presentation: DatabaseViewPresentationConfig = {
-  sort: [
-    { field: { kind: "manual" }, direction: "asc", nulls: "last" },
-  ],
+  sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
   group: { propertyId: "status" },
   subgroup: null,
   groupDirection: "asc",
@@ -58,11 +53,13 @@ describe("Database View presentation", () => {
       layout: "board" as const,
       presentation: {
         ...presentation,
-        sort: [{
-          field: { kind: "property" as const, propertyId: "priority" },
-          direction: "desc" as const,
-          nulls: "last" as const,
-        }],
+        sort: [
+          {
+            field: { kind: "property" as const, propertyId: "priority" },
+            direction: "desc" as const,
+            nulls: "last" as const,
+          },
+        ],
         group: { propertyId: "priority" },
         layouts: {
           board: {
@@ -90,61 +87,76 @@ describe("Database View presentation", () => {
   });
 
   test("resolves primary manual order independently from fractional tie-breaking", () => {
-    const propertySort = [{
-      field: { kind: "property" as const, propertyId: "priority" },
-      direction: "desc" as const,
-      nulls: "last" as const,
-    }];
+    const propertySort = [
+      {
+        field: { kind: "property" as const, propertyId: "priority" },
+        direction: "desc" as const,
+        nulls: "last" as const,
+      },
+    ];
     expect(databaseViewPrimaryManualOrderDirection([])).toBe("asc");
     expect(databaseViewPrimaryManualOrderDirection(presentation.sort)).toBe("asc");
     expect(databaseViewPrimaryManualOrderDirection(propertySort)).toBeNull();
     expect(databaseViewFractionalOrderDirection([])).toBe("asc");
     expect(databaseViewFractionalOrderDirection(propertySort)).toBe("asc");
-    expect(databaseViewFractionalOrderDirection([propertySort[0]!, {
-      field: { kind: "manual" },
-      direction: "desc",
-      nulls: "last",
-    }])).toBe("desc");
-    expect(databaseViewFractionalOrderDirection([{
-      field: { kind: "title" },
-      direction: "asc",
-      nulls: "last",
-    }])).toBeNull();
+    expect(
+      databaseViewFractionalOrderDirection([
+        propertySort[0]!,
+        {
+          field: { kind: "manual" },
+          direction: "desc",
+          nulls: "last",
+        },
+      ]),
+    ).toBe("desc");
+    expect(
+      databaseViewFractionalOrderDirection([
+        {
+          field: { kind: "title" },
+          direction: "asc",
+          nulls: "last",
+        },
+      ]),
+    ).toBeNull();
   });
 
   test("rejects the canonical UUID as a presentation field", () => {
-    expect(() => parseDatabaseViewConfigV4({
-      schemaKey: "nodex.database-view",
-      schemaVersion: 4,
-      filter: { kind: "group", operator: "and", children: [] },
-      presentation: {
-        ...presentation,
-        layouts: {
-          ...presentation.layouts,
-          list: {
-            ...presentation.layouts.list,
-            fields: [
-              { kind: "intrinsic", field: "page_id" },
-              ...presentation.layouts.list.fields,
-            ],
+    expect(() =>
+      parseDatabaseViewConfigV4({
+        schemaKey: "nodex.database-view",
+        schemaVersion: 4,
+        filter: { kind: "group", operator: "and", children: [] },
+        presentation: {
+          ...presentation,
+          layouts: {
+            ...presentation.layouts,
+            list: {
+              ...presentation.layouts.list,
+              fields: [
+                { kind: "intrinsic", field: "page_id" },
+                ...presentation.layouts.list.fields,
+              ],
+            },
           },
         },
-      },
-    })).toThrow(DatabaseMutationContractError);
+      }),
+    ).toThrow(DatabaseMutationContractError);
   });
 
   test("parses sparse Profile overrides without accepting query fields", () => {
-    expect(parseDatabaseViewPresentationOverride({
-      layout: "list",
-      group: null,
-      groupDirection: "desc",
-      completion: { range: "past_week" },
-      layouts: {
-        list: {
-          fields: [{ kind: "property", propertyId: "priority" }],
+    expect(
+      parseDatabaseViewPresentationOverride({
+        layout: "list",
+        group: null,
+        groupDirection: "desc",
+        completion: { range: "past_week" },
+        layouts: {
+          list: {
+            fields: [{ kind: "property", propertyId: "priority" }],
+          },
         },
-      },
-    })).toEqual({
+      }),
+    ).toEqual({
       layout: "list",
       group: null,
       groupDirection: "desc",
@@ -155,9 +167,11 @@ describe("Database View presentation", () => {
         },
       },
     });
-    expect(() => parseDatabaseViewPresentationOverride({
-      filter: { kind: "group", operator: "and", children: [] },
-    })).toThrow(DatabaseMutationContractError);
+    expect(() =>
+      parseDatabaseViewPresentationOverride({
+        filter: { kind: "group", operator: "and", children: [] },
+      }),
+    ).toThrow(DatabaseMutationContractError);
   });
 
   test("defaults legacy description visibility and accepts a personal hide override", () => {
@@ -178,9 +192,11 @@ describe("Database View presentation", () => {
     });
 
     expect(parsed.presentation.layouts.board.showDescription).toBe(true);
-    expect(parseDatabaseViewPresentationOverride({
-      layouts: { board: { showDescription: false } },
-    })).toEqual({
+    expect(
+      parseDatabaseViewPresentationOverride({
+        layouts: { board: { showDescription: false } },
+      }),
+    ).toEqual({
       layouts: { board: { showDescription: false } },
     });
   });
@@ -190,9 +206,7 @@ describe("Database View presentation", () => {
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
-      sort: [
-        { field: { kind: "manual" }, direction: "asc", nulls: "last" },
-      ],
+      sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
       group: { propertyId: "status" },
       display: { propertyIds: ["priority", "estimate"], showTitle: false },
     };
@@ -298,12 +312,7 @@ describe("Database View presentation", () => {
   });
 
   test("compacts overrides and round-trips through the effective resolver", () => {
-    const durable = resolveEffectiveDatabaseView(
-      "board",
-      presentation,
-      undefined,
-      capabilities,
-    );
+    const durable = resolveEffectiveDatabaseView("board", presentation, undefined, capabilities);
     const desired = resolveEffectiveDatabaseView(
       "board",
       presentation,
@@ -332,15 +341,8 @@ describe("Database View presentation", () => {
       },
     });
     expect(
-      resolveEffectiveDatabaseView(
-        "board",
-        presentation,
-        compact ?? undefined,
-        capabilities,
-      ),
+      resolveEffectiveDatabaseView("board", presentation, compact ?? undefined, capabilities),
     ).toEqual(desired);
-    expect(
-      compactDatabaseViewPresentationOverride(durable, durable),
-    ).toBeNull();
+    expect(compactDatabaseViewPresentationOverride(durable, durable)).toBeNull();
   });
 });

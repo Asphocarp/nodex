@@ -24,10 +24,12 @@ describe("mapWithConcurrency", () => {
 
   test("rejects an invalid concurrency bound before starting work", async () => {
     let started = false;
-    await expect(mapWithConcurrency([1], 0, async () => {
-      started = true;
-      return 1;
-    })).rejects.toThrow("concurrency must be a positive integer");
+    await expect(
+      mapWithConcurrency([1], 0, async () => {
+        started = true;
+        return 1;
+      }),
+    ).rejects.toThrow("concurrency must be a positive integer");
     expect(started).toBe(false);
   });
 });

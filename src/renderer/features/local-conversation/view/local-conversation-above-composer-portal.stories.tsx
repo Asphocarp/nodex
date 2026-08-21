@@ -42,33 +42,33 @@ interface GoalStatusRowStoryOptions {
 
 function buildActions(): ThreadStageActions {
   return {
-    onCollaborationModeChange: () => { },
-    onModelChange: () => { },
-    onReasoningEffortChange: () => { },
-    onPermissionModeChange: () => { },
-    onQueueingEnabledChange: () => { },
-    onSendPrompt: async () => { },
-    onSteerPrompt: async () => { },
-    onInterruptTurn: async () => { },
-    onRespondApproval: async () => { },
-    onRespondUserInput: async () => { },
-    onRespondMcpElicitation: async () => { },
-    onResolvePlanImplementationRequest: async () => { },
-    onEnqueueQueuedFollowUp: async () => { },
-    onRemoveQueuedFollowUp: async () => { },
-    onReorderQueuedFollowUps: async () => { },
-    onSendQueuedFollowUpNow: async () => { },
-    onEditQueuedFollowUp: async () => { },
-    onEditLastUserTurn: async () => { },
-    onForkFromTurn: async () => { },
-    onUnarchiveThread: async () => { },
-    onOpenTurnDiffReview: () => { },
-    onConsumeComposerIntent: () => { },
-    onOpenThread: () => { },
-    onCleanBackgroundTerminals: async () => { },
+    onCollaborationModeChange: () => {},
+    onModelChange: () => {},
+    onReasoningEffortChange: () => {},
+    onPermissionModeChange: () => {},
+    onQueueingEnabledChange: () => {},
+    onSendPrompt: async () => {},
+    onSteerPrompt: async () => {},
+    onInterruptTurn: async () => {},
+    onRespondApproval: async () => {},
+    onRespondUserInput: async () => {},
+    onRespondMcpElicitation: async () => {},
+    onResolvePlanImplementationRequest: async () => {},
+    onEnqueueQueuedFollowUp: async () => {},
+    onRemoveQueuedFollowUp: async () => {},
+    onReorderQueuedFollowUps: async () => {},
+    onSendQueuedFollowUpNow: async () => {},
+    onEditQueuedFollowUp: async () => {},
+    onEditLastUserTurn: async () => {},
+    onForkFromTurn: async () => {},
+    onUnarchiveThread: async () => {},
+    onOpenTurnDiffReview: () => {},
+    onConsumeComposerIntent: () => {},
+    onOpenThread: () => {},
+    onCleanBackgroundTerminals: async () => {},
     onSetThreadGoal: async () => null,
-    onClearThreadGoal: async () => { },
-    onDismissThreadGoalResumeConfirmation: async () => { },
+    onClearThreadGoal: async () => {},
+    onDismissThreadGoalResumeConfirmation: async () => {},
   };
 }
 
@@ -84,19 +84,25 @@ function resolveStoryAboveComposerBlocks(
 
   const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation);
 
-  return buildTurnRenderModel({
-    turn: activeTurn,
-    requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
-    isLatestTurn: model.bodyModel.body.latestTurnId === activeTurnId,
-    isStreamingTurn: true,
-    cwd: conversation.cwd,
-    projectlessOutputDirectory: conversation.projectlessOutputDirectory,
-    canEditTurnUserPrefix: false,
-    canForkTurn: false,
-  }).aboveComposerBlocks ?? [];
+  return (
+    buildTurnRenderModel({
+      turn: activeTurn,
+      requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
+      isLatestTurn: model.bodyModel.body.latestTurnId === activeTurnId,
+      isStreamingTurn: true,
+      cwd: conversation.cwd,
+      projectlessOutputDirectory: conversation.projectlessOutputDirectory,
+      canEditTurnUserPrefix: false,
+      canForkTurn: false,
+    }).aboveComposerBlocks ?? []
+  );
 }
 
-function buildShellModel(customize?: (model: ReturnType<typeof buildThreadStageStorySurfaceModels>) => ReturnType<typeof buildThreadStageStorySurfaceModels>) {
+function buildShellModel(
+  customize?: (
+    model: ReturnType<typeof buildThreadStageStorySurfaceModels>,
+  ) => ReturnType<typeof buildThreadStageStorySurfaceModels>,
+) {
   const scenario = buildThreadStageStoryScenario(STORY_CONTROLS);
   const model = buildThreadStageStorySurfaceModels(scenario, STORY_CONTROLS, scenario.runtime);
   return customize ? customize(model) : model;
@@ -110,7 +116,8 @@ function buildGoalResumeConfirmationModel() {
 
     const goal: ThreadGoal = {
       threadId,
-      objective: "Finish goal parity with the Codex Electron resume prompt and keep the thread moving while idle.",
+      objective:
+        "Finish goal parity with the Codex Electron resume prompt and keep the thread moving while idle.",
       status: "paused",
       tokenBudget: null,
       tokensUsed: 42,
@@ -133,7 +140,9 @@ function buildGoalResumeConfirmationModel() {
   });
 }
 
-function buildGoalStatusRowModel(input: ThreadGoal["status"] | GoalStatusRowStoryOptions = "active") {
+function buildGoalStatusRowModel(
+  input: ThreadGoal["status"] | GoalStatusRowStoryOptions = "active",
+) {
   const options: GoalStatusRowStoryOptions = typeof input === "string" ? { status: input } : input;
   return buildShellModel((current) => {
     const threadId = current.footerModel.threadId;
@@ -143,10 +152,12 @@ function buildGoalStatusRowModel(input: ThreadGoal["status"] | GoalStatusRowStor
 
     const goal: ThreadGoal = {
       threadId,
-      objective: options.objective ?? [
-        "Drive the second research pass into a full implementation-ready parity package.",
-        "Keep API contracts, continuation state, UI layout, and fixture gaps synchronized until another agent can reproduce the feature from the docs.",
-      ].join(" "),
+      objective:
+        options.objective ??
+        [
+          "Drive the second research pass into a full implementation-ready parity package.",
+          "Keep API contracts, continuation state, UI layout, and fixture gaps synchronized until another agent can reproduce the feature from the docs.",
+        ].join(" "),
       status,
       tokenBudget: options.tokenBudget ?? 400000,
       tokensUsed: options.tokensUsed ?? 124000,
@@ -207,7 +218,8 @@ function buildPortalContentModel({
       kind: "userMessage",
       semanticKind: "userMessage",
       role: "user",
-      markdownText: "Fix context compaction parity and keep the above-composer portal aligned with Codex Electron.",
+      markdownText:
+        "Fix context compaction parity and keep the above-composer portal aligned with Codex Electron.",
       createdAt: 10_000,
       updatedAt: 10_000,
     }),
@@ -359,11 +371,11 @@ function buildLiveDraftedEditDiffModel({
     "--- a/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
     "+++ b/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
     "@@ -240,5 +240,14 @@",
-    "-  return <div className=\"old\">Files changed</div>;",
+    '-  return <div className="old">Files changed</div>;',
     "+  return (",
     "+    <div",
-    "+      className=\"bg-token-input-background/70 text-token-foreground border-token-border/80\"",
-    "+      codex.turn_diff.state=\"in_progress\"",
+    '+      className="bg-token-input-background/70 text-token-foreground border-token-border/80"',
+    '+      codex.turn_diff.state="in_progress"',
     "+    >",
     "+      <span>1 file changed</span>",
     "+      <AnimatedDiffStats additions={8} deletions={1} />",
@@ -385,7 +397,8 @@ function buildLiveDraftedEditDiffModel({
             kind: "userMessage",
             semanticKind: "userMessage",
             role: "user",
-            markdownText: "Draft the implementation changes and show live generated edit lines before the fileChange item starts.",
+            markdownText:
+              "Draft the implementation changes and show live generated edit lines before the fileChange item starts.",
             createdAt: 10_000,
             updatedAt: 10_000,
           }),
@@ -399,13 +412,16 @@ function buildLiveDraftedEditDiffModel({
                   semanticKind: "patch",
                   status: "inProgress",
                   fileChange: {
-                    changes: buildCodexFileChangeMap([{
-                      type: "update",
-                      path: "src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
-                      unifiedDiff: liveDraftDiff,
-                      movePath: null,
-                    }]),
-                    label: "Edited src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+                    changes: buildCodexFileChangeMap([
+                      {
+                        type: "update",
+                        path: "src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+                        unifiedDiff: liveDraftDiff,
+                        movePath: null,
+                      },
+                    ]),
+                    label:
+                      "Edited src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
                   },
                   toolCall: {
                     subtype: "fileChange",
@@ -478,7 +494,8 @@ function buildProjectlessScopedDiffModel() {
             kind: "userMessage",
             semanticKind: "userMessage",
             role: "user",
-            markdownText: "Generate an output artifact without surfacing unrelated workspace edits in the Review affordance.",
+            markdownText:
+              "Generate an output artifact without surfacing unrelated workspace edits in the Review affordance.",
             createdAt: 10_000,
             updatedAt: 10_000,
           }),
@@ -522,7 +539,9 @@ function AboveComposerStoryFrame({
     const attemptInteraction = (remainingAttempts: number) => {
       if (cancelled) return;
 
-      const target = document.querySelector<HTMLButtonElement>(`button[aria-label="${targetLabel}"]`);
+      const target = document.querySelector<HTMLButtonElement>(
+        `button[aria-label="${targetLabel}"]`,
+      );
       if (target) {
         target.click();
         return;
@@ -556,15 +575,23 @@ function AboveComposerStoryFrame({
           <div className="flex flex-col" data-thread-find-composer="true">
             <div className="relative h-0" data-thread-catch-up-control="true" />
             <div className="flex flex-col" data-thread-footer-stack="true">
-              <LocalConversationAboveComposerPortalHost conversationId={model.footerModel.threadId} />
-              <LocalConversationAboveComposerQueuePortalHost conversationId={model.footerModel.threadId} />
+              <LocalConversationAboveComposerPortalHost
+                conversationId={model.footerModel.threadId}
+              />
+              <LocalConversationAboveComposerQueuePortalHost
+                conversationId={model.footerModel.threadId}
+              />
               <LocalConversationAboveComposerPortal
                 blocks={resolveStoryAboveComposerBlocks(model)}
                 conversationId={model.footerModel.threadId}
-                isLatestTurn={model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId}
+                isLatestTurn={
+                  model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId
+                }
                 isStreamingTurn={true}
                 projectWorkspacePath={model.bodyModel.projectWorkspacePath}
-                projectlessOutputDirectory={model.footerModel.conversation?.projectlessOutputDirectory ?? null}
+                projectlessOutputDirectory={
+                  model.footerModel.conversation?.projectlessOutputDirectory ?? null
+                }
                 threadCwd={model.footerModel.conversation?.cwd ?? null}
               />
               <TestThreadRouteScopePath>
@@ -572,7 +599,7 @@ function AboveComposerStoryFrame({
                   model={model.footerModel}
                   actions={buildActions()}
                   errorMessage={null}
-                  onErrorMessage={() => { }}
+                  onErrorMessage={() => {}}
                 />
               </TestThreadRouteScopePath>
             </div>
@@ -832,7 +859,8 @@ export const GoalStatusBlocked: Story = {
       status: "blocked",
       tokenBudget: null,
       timeUsedSeconds: 3665,
-      objective: "Unblock goal parity by resolving the runtime contract question before continuing implementation.",
+      objective:
+        "Unblock goal parity by resolving the runtime contract question before continuing implementation.",
     }),
     title: "Goal Status Blocked",
     description:
@@ -847,7 +875,8 @@ export const GoalStatusUsageLimited: Story = {
       status: "usageLimited",
       tokenBudget: null,
       timeUsedSeconds: 90_061,
-      objective: "Wait for usage availability, then continue the same saved objective without losing runtime state.",
+      objective:
+        "Wait for usage availability, then continue the same saved objective without losing runtime state.",
     }),
     title: "Goal Status Usage Limited",
     description:
@@ -862,7 +891,8 @@ export const GoalStatusBudgetLimited: Story = {
       status: "budgetLimited",
       tokenBudget: 400000,
       tokensUsed: 400000,
-      objective: "Stop once the configured token budget is exhausted and keep the goal visible for review.",
+      objective:
+        "Stop once the configured token budget is exhausted and keep the goal visible for review.",
     }),
     title: "Goal Status Budget Limited",
     description:
@@ -877,7 +907,8 @@ export const GoalStatusCompleteHidden: Story = {
       status: "complete",
       tokenBudget: null,
       timeUsedSeconds: 125,
-      objective: "A transient complete goal is cached by runtime handling and cleared rather than kept above the composer.",
+      objective:
+        "A transient complete goal is cached by runtime handling and cleared rather than kept above the composer.",
     }),
     title: "Goal Status Complete Hidden",
     description:
@@ -913,7 +944,8 @@ export const GoalEditDialog: Story = {
       status: "active",
       tokenBudget: null,
       timeUsedSeconds: 125,
-      objective: "Edit this saved objective and restart it as the active goal without appending a transcript item.",
+      objective:
+        "Edit this saved objective and restart it as the active goal without appending a transcript item.",
     }),
     title: "Goal Edit Dialog",
     description:

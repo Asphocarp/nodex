@@ -26,25 +26,11 @@ import {
   type LibraryModuleApplyRequest,
   type LibraryModuleApplyResult,
 } from "../../shared/library-module";
-import {
-  libraryContentAccess,
-  projectContentAccess,
-} from "../../shared/content-access-context";
+import { libraryContentAccess, projectContentAccess } from "../../shared/content-access-context";
 import { isWorkflowStatus } from "../../shared/workflow-status";
-import type {
-  DatabaseJsonValue,
-  DatabasePropertyValueType,
-} from "../../shared/database-kernel";
-import type {
-  LibraryPageDetail,
-  PageDetail,
-} from "../../shared/page-detail";
-import type {
-  PageInput,
-  PageRunInTarget,
-  Estimate,
-  Priority,
-} from "../../shared/types";
+import type { DatabaseJsonValue, DatabasePropertyValueType } from "../../shared/database-kernel";
+import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
+import type { PageInput, PageRunInTarget, Estimate, Priority } from "../../shared/types";
 import { isPriority } from "../../shared/priority";
 import {
   applyDatabaseModule,
@@ -73,10 +59,7 @@ type DataSourceProperty = Extract<
 >["properties"][number];
 
 export interface PageDetailMetadataRuntimeDependencies {
-  readonly readDetail: (
-    projectId: string,
-    pageId: string,
-  ) => Promise<PageDetail | null>;
+  readonly readDetail: (projectId: string, pageId: string) => Promise<PageDetail | null>;
   readonly mutateProperties: (
     projectId: string,
     request: BlockPropertyMutationRequestV2,
@@ -89,10 +72,7 @@ export interface PageDetailMetadataRuntimeDependencies {
     projectId: string,
     request: LibraryModuleApplyRequest,
   ) => Promise<LibraryModuleApplyResult>;
-  readonly refreshDetail: (
-    projectId: string,
-    pageId: string,
-  ) => Promise<unknown>;
+  readonly refreshDetail: (projectId: string, pageId: string) => Promise<unknown>;
 }
 
 export interface PageMetadataCommitCursor {
@@ -128,9 +108,7 @@ export interface LibraryPageDetailMetadataRuntimeDependencies {
   readonly refreshDetail: (pageId: string) => Promise<unknown>;
 }
 
-const readLibraryDetail = async (
-  pageId: string,
-): Promise<LibraryPageDetail | null> => {
+const readLibraryDetail = async (pageId: string): Promise<LibraryPageDetail | null> => {
   const result = await readLibraryPageDetail(pageId);
   return result.ok ? result.value : null;
 };
@@ -139,8 +117,7 @@ const DEFAULT_LIBRARY_DEPENDENCIES: LibraryPageDetailMetadataRuntimeDependencies
   readDetail: readLibraryDetail,
   mutateProperties: mutateLibraryBlockProperties,
   applyDatabase: applyLibraryDatabaseModule,
-  applyMetadataProperties: (request) =>
-    applyLibraryModule(libraryContentAccess, request),
+  applyMetadataProperties: (request) => applyLibraryModule(libraryContentAccess, request),
   refreshDetail: readLibraryDetail,
 };
 
@@ -160,10 +137,7 @@ const DATABASE_FIELDS = {
   },
   assignee: { key: "assignee", ...BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS.assignee },
 } as const satisfies Partial<
-  Record<
-    keyof PageInput,
-    { readonly key: string; readonly valueType: DatabasePropertyValueType }
-  >
+  Record<keyof PageInput, { readonly key: string; readonly valueType: DatabasePropertyValueType }>
 >;
 
 const INTRINSIC_FIELDS = {
@@ -178,10 +152,8 @@ const INTRINSIC_FIELDS = {
   runInEnvironmentPath: "run.environmentPath",
 } as const satisfies Partial<Record<keyof PageInput, string>>;
 
-const hasOwn = <Key extends PropertyKey>(
-  value: object,
-  key: Key,
-): value is Record<Key, unknown> => Object.hasOwn(value, key);
+const hasOwn = <Key extends PropertyKey>(value: object, key: Key): value is Record<Key, unknown> =>
+  Object.hasOwn(value, key);
 
 const DATABASE_FIELD_NAMES = new Set<string>(Object.keys(DATABASE_FIELDS));
 const INTRINSIC_FIELD_NAMES = new Set<string>(Object.keys(INTRINSIC_FIELDS));
@@ -193,20 +165,11 @@ const PROJECT_EXECUTION_FIELD_NAMES = new Set<string>([
   "runInEnvironmentPath",
 ]);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
-const RUN_TARGETS = new Set<PageRunInTarget>([
-  "localProject",
-  "newWorktree",
-  "cloud",
-]);
+const RUN_TARGETS = new Set<PageRunInTarget>(["localProject", "newWorktree", "cloud"]);
 
-const portableValue = (
-  value: unknown,
-  label: string,
-): BlockPropertyJsonValueV2 => {
+const portableValue = (value: unknown, label: string): BlockPropertyJsonValueV2 => {
   try {
-    return JSON.parse(
-      stableStringifyBlockPropertyJsonV2(value),
-    ) as BlockPropertyJsonValueV2;
+    return JSON.parse(stableStringifyBlockPropertyJsonV2(value)) as BlockPropertyJsonValueV2;
   } catch (error) {
     throw new TypeError(`${label} must be bounded portable JSON`, {
       cause: error,
@@ -215,21 +178,17 @@ const portableValue = (
 };
 
 const stableEqual = (left: unknown, right: unknown): boolean =>
-  stableStringifyBlockPropertyJsonV2(left) ===
-  stableStringifyBlockPropertyJsonV2(right);
+  stableStringifyBlockPropertyJsonV2(left) === stableStringifyBlockPropertyJsonV2(right);
 
 export const isPageMetadataPatch = (patch: Partial<PageInput>): boolean => {
   const fields = Object.keys(patch);
-  return fields.length > 0 && fields.every(
-    (field) =>
-      DATABASE_FIELD_NAMES.has(field) || INTRINSIC_FIELD_NAMES.has(field),
+  return (
+    fields.length > 0 &&
+    fields.every((field) => DATABASE_FIELD_NAMES.has(field) || INTRINSIC_FIELD_NAMES.has(field))
   );
 };
 
-const databaseValue = (
-  field: keyof typeof DATABASE_FIELDS,
-  value: unknown,
-): DatabaseJsonValue => {
+const databaseValue = (field: keyof typeof DATABASE_FIELDS, value: unknown): DatabaseJsonValue => {
   if (value === undefined) {
     throw new TypeError(`Page ${field} must be omitted instead of undefined`);
   }
@@ -266,12 +225,7 @@ const databaseValue = (
   if (field === "tags") {
     if (!Array.isArray(value)) throw new TypeError("Page tags must be an array");
     const tags = value.map((tag, index) => {
-      if (
-        typeof tag === "string" &&
-        tag.length > 0 &&
-        tag.length <= 512 &&
-        tag === tag.trim()
-      ) {
+      if (typeof tag === "string" && tag.length > 0 && tag.length <= 512 && tag === tag.trim()) {
         return tag;
       }
       throw new TypeError(`Page tags[${index}] must be a canonical tag`);
@@ -322,14 +276,17 @@ const resolveTagOptionIds = (
 ): readonly DataSourceOptionId[] => {
   const propertyId = parseDataSourcePropertyId(property.propertyId);
   try {
-    return [...new Set(requestedOptionIds.map((optionId) =>
-      parseDataSourceOptionId({ propertyId, value: optionId })
-    ))].sort();
+    return [
+      ...new Set(
+        requestedOptionIds.map((optionId) =>
+          parseDataSourceOptionId({ propertyId, value: optionId }),
+        ),
+      ),
+    ].sort();
   } catch (cause) {
-    throw new Error(
-      `Data Source Property ${property.propertyId} requires canonical option IDs`,
-      { cause },
-    );
+    throw new Error(`Data Source Property ${property.propertyId} requires canonical option IDs`, {
+      cause,
+    });
   }
 };
 
@@ -354,9 +311,12 @@ const compileDataSourceFields = (
     throw new Error("This Page has no Data Source properties");
   }
   const context = detail.dataSourceContext;
-  const edits: Extract<DatabaseApplyOperationV2, {
-    readonly kind: "edit_property_values";
-  }>["edits"][number][] = [];
+  const edits: Extract<
+    DatabaseApplyOperationV2,
+    {
+      readonly kind: "edit_property_values";
+    }
+  >["edits"][number][] = [];
   for (const [field, definition] of requested) {
     const property = context.properties.find(
       (candidate) => candidate.propertyId === definition.key,
@@ -373,8 +333,7 @@ const compileDataSourceFields = (
     }
     const requestedValue = databaseValue(field, patch[field]);
     const current = context.values[property.propertyId];
-    const currentValue = current?.value ??
-      (property.valueType === "multi_select" ? [] : null);
+    const currentValue = current?.value ?? (property.valueType === "multi_select" ? [] : null);
     const propertyId = parseDataSourcePropertyId(property.propertyId);
     const dataSourceId = parseDataSourceId(context.dataSource.dataSourceId);
     if (property.valueType === "multi_select") {
@@ -382,11 +341,14 @@ const compileDataSourceFields = (
         throw new Error(`Data Source Property ${property.propertyId} requires option IDs`);
       }
       const value = resolveTagOptionIds(property, requestedValue);
-      if (!Array.isArray(currentValue) || !currentValue.every((entry) => typeof entry === "string")) {
+      if (
+        !Array.isArray(currentValue) ||
+        !currentValue.every((entry) => typeof entry === "string")
+      ) {
         throw new Error(`Data Source Property ${property.propertyId} has a corrupt value`);
       }
       const currentIds = currentValue.map((optionId) =>
-        parseDataSourceOptionId({ propertyId, value: optionId })
+        parseDataSourceOptionId({ propertyId, value: optionId }),
       );
       const currentSet = new Set(currentIds);
       const nextSet = new Set(value);
@@ -427,7 +389,9 @@ const compileDataSourceFields = (
     } else if (property.valueType === "text") {
       value = { kind: "text", value: requestedValue };
     } else {
-      throw new Error(`Page Detail cannot edit ${property.valueType} Property ${property.propertyId}`);
+      throw new Error(
+        `Page Detail cannot edit ${property.valueType} Property ${property.propertyId}`,
+      );
     }
     edits.push({
       pageId: detail.page.pageId,
@@ -452,19 +416,19 @@ const compileIntrinsicFields = (
   >;
   return entries.flatMap(([field, propertyKey]) => {
     if (!hasOwn(patch, field)) return [];
-    const current = detail.intrinsicProperties.find(
-      (property) => property.key === propertyKey,
-    );
+    const current = detail.intrinsicProperties.find((property) => property.key === propertyKey);
     const value = intrinsicValue(field, patch[field]);
     if (current && stableEqual(current.value, value)) return [];
-    return [{
-      scope: "intrinsic" as const,
-      blockId: detail.page.pageId,
-      propertyKey,
-      operation: "set" as const,
-      expectedRevision: current?.revision ?? 0,
-      value,
-    }];
+    return [
+      {
+        scope: "intrinsic" as const,
+        blockId: detail.page.pageId,
+        propertyKey,
+        operation: "set" as const,
+        expectedRevision: current?.revision ?? 0,
+        value,
+      },
+    ];
   });
 };
 
@@ -559,9 +523,7 @@ export const commitPageDetailMetadataPatchWithReceipt = async (input: {
         storeEpoch: detail.storeEpoch,
         operation: {
           kind: "apply_page_metadata_properties",
-          ...(input.clientSessionId
-            ? { clientSessionId: input.clientSessionId }
-            : {}),
+          ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
           databaseOperations: dataSourceOperations,
           intrinsicFields,
         },
@@ -607,8 +569,8 @@ export const commitPageDetailMetadataPatchWithReceipt = async (input: {
         return mutationEnvelope({ status: "conflict" });
       }
       if (
-        databaseResult.error.code === "resource_not_found"
-        || databaseResult.error.code === "authorization_denied"
+        databaseResult.error.code === "resource_not_found" ||
+        databaseResult.error.code === "authorization_denied"
       ) {
         return mutationEnvelope({ status: "not_found" });
       }
@@ -674,9 +636,7 @@ const compileDirectPropertyEdit = (
     throw new Error("This Page has no Data Source properties");
   }
   const context = detail.dataSourceContext;
-  const property = context.properties.find(
-    (candidate) => candidate.propertyId === propertyId,
-  );
+  const property = context.properties.find((candidate) => candidate.propertyId === propertyId);
   if (!property) {
     throw new Error(
       `Property ${propertyId} is no longer active in Data Source ${context.dataSource.dataSourceId}`,
@@ -772,11 +732,7 @@ export const commitPageDetailPropertyEdit = async (input: {
   const dependencies = input.dependencies ?? DEFAULT_DEPENDENCIES;
   const detail = await dependencies.readDetail(input.projectId, input.pageId);
   if (!detail) return { status: "not_found" };
-  const operations = compileDirectPropertyEdit(
-    detail,
-    input.propertyId,
-    input.edit,
-  );
+  const operations = compileDirectPropertyEdit(detail, input.propertyId, input.edit);
   const refresh = () => dependencies.refreshDetail(input.projectId, input.pageId);
   if (operations.length === 0) {
     await refresh();
@@ -847,9 +803,7 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
     throw new TypeError("Page metadata patch contains unsupported fields");
   }
   if (Object.keys(input.patch).some((field) => PROJECT_EXECUTION_FIELD_NAMES.has(field))) {
-    throw new TypeError(
-      "Page execution settings require an explicit Project context",
-    );
+    throw new TypeError("Page execution settings require an explicit Project context");
   }
   const detail = await dependencies.readDetail(input.pageId);
   if (!detail) return { status: "not_found" };
@@ -861,18 +815,19 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
   }
 
   if (dataSourceOperations.length > 0 && intrinsicFields.length > 0) {
-    const result = await retryLibraryMetadataPropertiesMutation({
-      operationId: input.operationId,
-      storeEpoch: detail.storeEpoch,
-      operation: {
-        kind: "apply_page_metadata_properties",
-        ...(input.clientSessionId
-          ? { clientSessionId: input.clientSessionId }
-          : {}),
-        databaseOperations: dataSourceOperations,
-        intrinsicFields,
+    const result = await retryLibraryMetadataPropertiesMutation(
+      {
+        operationId: input.operationId,
+        storeEpoch: detail.storeEpoch,
+        operation: {
+          kind: "apply_page_metadata_properties",
+          ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
+          databaseOperations: dataSourceOperations,
+          intrinsicFields,
+        },
       },
-    }, dependencies);
+      dependencies,
+    );
     if (!result.ok) {
       if (result.error.code === "revision_conflict") {
         await dependencies.refreshDetail(input.pageId);
@@ -888,11 +843,14 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
   }
 
   if (dataSourceOperations.length > 0) {
-    const databaseResult = await retryLibraryDatabaseMutation({
-      operationId: input.operationId,
-      storeEpoch: detail.storeEpoch,
-      operations: dataSourceOperations,
-    }, dependencies);
+    const databaseResult = await retryLibraryDatabaseMutation(
+      {
+        operationId: input.operationId,
+        storeEpoch: detail.storeEpoch,
+        operations: dataSourceOperations,
+      },
+      dependencies,
+    );
     if (!databaseResult.ok) {
       if (databaseResult.error.code === "revision_conflict") {
         await dependencies.refreshDetail(input.pageId);
@@ -904,12 +862,15 @@ export const commitLibraryPageDetailMetadataPatch = async (input: {
   }
 
   if (intrinsicFields.length > 0) {
-    const result = await retryLibraryPropertyMutation({
-      mutationId: input.operationId,
-      storeEpoch: detail.storeEpoch,
-      ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
-      fields: intrinsicFields,
-    }, dependencies);
+    const result = await retryLibraryPropertyMutation(
+      {
+        mutationId: input.operationId,
+        storeEpoch: detail.storeEpoch,
+        ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
+        fields: intrinsicFields,
+      },
+      dependencies,
+    );
     if (!result.ok) {
       if (result.error.code === "property_conflict") {
         await dependencies.refreshDetail(input.pageId);
@@ -935,20 +896,19 @@ export const commitLibraryPageDetailPropertyEdit = async (input: {
   const dependencies = input.dependencies ?? DEFAULT_LIBRARY_DEPENDENCIES;
   const detail = await dependencies.readDetail(input.pageId);
   if (!detail) return { status: "not_found" };
-  const operations = compileDirectPropertyEdit(
-    detail,
-    input.propertyId,
-    input.edit,
-  );
+  const operations = compileDirectPropertyEdit(detail, input.propertyId, input.edit);
   const refresh = () => dependencies.refreshDetail(input.pageId);
   if (operations.length === 0) {
     await refresh();
     return { status: "updated", didMutate: false };
   }
-  const result = await retryLibraryDatabaseMutation({
-    operationId: input.operationId,
-    storeEpoch: detail.storeEpoch,
-    operations,
-  }, dependencies);
+  const result = await retryLibraryDatabaseMutation(
+    {
+      operationId: input.operationId,
+      storeEpoch: detail.storeEpoch,
+      operations,
+    },
+    dependencies,
+  );
   return await propertyMutationResult(result, refresh);
 };

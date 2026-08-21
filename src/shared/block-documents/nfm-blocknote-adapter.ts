@@ -82,9 +82,7 @@ export function nfmToBlockNoteWithIds(
       }
       allocatedIds.add(id);
 
-      const children = Array.isArray(block.children)
-        ? assignIds(block.children)
-        : [];
+      const children = Array.isArray(block.children) ? assignIds(block.children) : [];
       return {
         ...block,
         id,
@@ -95,10 +93,7 @@ export function nfmToBlockNoteWithIds(
   return assignIds(nfmToBlockNote(blocks));
 }
 
-function nfmBlockToBN(
-  block: NfmBlock,
-  toggleStates?: Map<string, boolean>,
-): BNPartialBlock {
+function nfmBlockToBN(block: NfmBlock, toggleStates?: Map<string, boolean>): BNPartialBlock {
   const children = block.children.map((b) => nfmBlockToBN(b, toggleStates));
   const props = colorToProps(block.color);
 
@@ -113,8 +108,7 @@ function nfmBlockToBN(
 
     case "heading": {
       const isToggleHeading = block.isToggleable === true;
-      const headingId =
-        isToggleHeading && toggleStates ? crypto.randomUUID() : undefined;
+      const headingId = isToggleHeading && toggleStates ? crypto.randomUUID() : undefined;
       if (headingId && toggleStates) {
         toggleStates.set(headingId, block.isOpen === true);
       }
@@ -139,19 +133,18 @@ function nfmBlockToBN(
         children,
       };
 
-    case "numberedListItem":
-      {
-        const start = normalizeOrderedListStart(block.start);
-        return {
-          type: "numberedListItem",
-          props: {
-            ...props,
-            ...(start !== undefined ? { start } : {}),
-          },
-          content: nfmInlineToBN(block.content),
-          children,
-        };
-      }
+    case "numberedListItem": {
+      const start = normalizeOrderedListStart(block.start);
+      return {
+        type: "numberedListItem",
+        props: {
+          ...props,
+          ...(start !== undefined ? { start } : {}),
+        },
+        content: nfmInlineToBN(block.content),
+        children,
+      };
+    }
 
     case "checkListItem":
       return {
@@ -216,9 +209,7 @@ function nfmBlockToBN(
           ...props,
           url: block.source,
           caption: serializeInlineContent(block.caption),
-          ...(block.previewWidth !== undefined
-            ? { previewWidth: block.previewWidth }
-            : {}),
+          ...(block.previewWidth !== undefined ? { previewWidth: block.previewWidth } : {}),
         },
         children,
       };
@@ -229,7 +220,9 @@ function nfmBlockToBN(
         props: {
           sourceProjectId: block.sourceProjectId,
           rulesV2B64: block.rulesV2B64 ?? "",
-          propertyOrderCsv: (block.propertyOrder ?? ["priority", "estimate", "status", "tags"]).join(","),
+          propertyOrderCsv: (
+            block.propertyOrder ?? ["priority", "estimate", "status", "tags"]
+          ).join(","),
           hiddenPropertiesCsv: (block.hiddenProperties ?? []).join(","),
           showEmptyEstimate: block.showEmptyEstimate === true ? "true" : "false",
           showEmptyPriority: block.showEmptyPriority === true ? "true" : "false",
@@ -347,9 +340,7 @@ function nfmBlockToBN(
   }
 }
 
-export function nfmInlineToBlockNote(
-  items: NfmInlineContent[],
-): BlockNoteInlineContentValue[] {
+export function nfmInlineToBlockNote(items: NfmInlineContent[]): BlockNoteInlineContentValue[] {
   return nfmInlineToBN(items);
 }
 
@@ -492,9 +483,7 @@ function nfmStylesToBN(styles: NfmStyleSet): Record<string, boolean | string> {
   return result;
 }
 
-function colorToProps(
-  color?: NfmColor,
-): Record<string, string> {
+function colorToProps(color?: NfmColor): Record<string, string> {
   if (!color) return {};
   if (NFM_BG_COLORS.includes(color as NfmBgColor)) {
     return { backgroundColor: nfmBgToBlockNoteBackground(color as NfmBgColor) };
@@ -519,12 +508,8 @@ function readBlockNoteBlock(value: unknown): BNBlock {
     ...(typeof value.id === "string" ? { id: value.id } : {}),
     type: typeof value.type === "string" ? value.type : "",
     ...(isRecord(value.props) ? { props: value.props } : {}),
-    ...(Object.prototype.hasOwnProperty.call(value, "content")
-      ? { content: value.content }
-      : {}),
-    ...(Array.isArray(value.children)
-      ? { children: value.children.map(readBlockNoteBlock) }
-      : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, "content") ? { content: value.content } : {}),
+    ...(Array.isArray(value.children) ? { children: value.children.map(readBlockNoteBlock) } : {}),
   };
 }
 
@@ -538,9 +523,7 @@ function normalizeCodeBlockLanguage(language: unknown): string {
 }
 
 function bnBlockToNfm(block: BNBlock): NfmBlock | null {
-  const children = block.children
-    ? blockNoteToNfm(block.children)
-    : [];
+  const children = block.children ? blockNoteToNfm(block.children) : [];
   const color = propsToColor(block.props);
 
   switch (block.type) {
@@ -556,11 +539,7 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
     case "heading": {
       const rawLevel = block.props?.level;
       const levelValue = typeof rawLevel === "number" ? rawLevel : 1;
-      const level = Math.min(Math.max(levelValue, 1), 4) as
-        | 1
-        | 2
-        | 3
-        | 4;
+      const level = Math.min(Math.max(levelValue, 1), 4) as 1 | 2 | 3 | 4;
       return {
         type: "heading",
         level,
@@ -579,17 +558,16 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
         children,
       };
 
-    case "numberedListItem":
-      {
-        const start = normalizeOrderedListStart(block.props?.start);
-        return {
-          type: "numberedListItem",
-          ...(start !== undefined ? { start } : {}),
-          content: bnInlineToNfm(block.content),
-          color,
-          children,
-        };
-      }
+    case "numberedListItem": {
+      const start = normalizeOrderedListStart(block.props?.start);
+      return {
+        type: "numberedListItem",
+        ...(start !== undefined ? { start } : {}),
+        content: bnInlineToNfm(block.content),
+        color,
+        children,
+      };
+    }
 
     case "checkListItem":
       return {
@@ -658,8 +636,12 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
     case "toggleListInlineView": {
       const sourceProjectId = normalizeString(block.props?.sourceProjectId) ?? "default";
       const rulesV2B64 = normalizeString(block.props?.rulesV2B64);
-      const propertyOrder = parseCsvString(block.props?.propertyOrderCsv).filter(isToggleListPropertyKey);
-      const hiddenProperties = parseCsvString(block.props?.hiddenPropertiesCsv).filter(isToggleListPropertyKey);
+      const propertyOrder = parseCsvString(block.props?.propertyOrderCsv).filter(
+        isToggleListPropertyKey,
+      );
+      const hiddenProperties = parseCsvString(block.props?.hiddenPropertiesCsv).filter(
+        isToggleListPropertyKey,
+      );
       const showEmptyEstimate = normalizeBooleanString(block.props?.showEmptyEstimate);
       const showEmptyPriority = normalizeBooleanString(block.props?.showEmptyPriority);
 
@@ -790,16 +772,11 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
   }
 }
 
-function bnTableToNfm(
-  block: BNBlock,
-  color: NfmColor | undefined,
-): NfmTable {
+function bnTableToNfm(block: BNBlock, color: NfmColor | undefined): NfmTable {
   const content = isRecord(block.content) ? block.content : {};
   const sourceRows = Array.isArray(content.rows) ? content.rows : [];
   const rows = sourceRows.map((row: { cells?: unknown[] }) => ({
-    cells: Array.isArray(row.cells)
-      ? row.cells.map(readBNTableCell)
-      : [],
+    cells: Array.isArray(row.cells) ? row.cells.map(readBNTableCell) : [],
   }));
   const columnCount = Math.max(
     Array.isArray(content.columnWidths) ? content.columnWidths.length : 0,
@@ -906,10 +883,10 @@ function bnInlineToNfm(content: unknown): NfmInlineContent[] {
       const origin = normalizeString(item.props?.origin);
 
       if (
-        (kind !== "text" && kind !== "file" && kind !== "folder")
-        || (mode !== "materialized" && mode !== "link")
-        || !source
-        || !name
+        (kind !== "text" && kind !== "file" && kind !== "folder") ||
+        (mode !== "materialized" && mode !== "link") ||
+        !source ||
+        !name
       ) {
         continue;
       }
@@ -977,27 +954,18 @@ function bnInlineToNfm(content: unknown): NfmInlineContent[] {
       // NFM links don't support per-span formatting, so we take the dominant style.
       const contentArr = item.content ?? [];
       const text = contentArr.map((c: BNInlineContent) => c.text || "").join("");
-      const styles = contentArr.length > 0 && contentArr[0].styles
-        ? bnStylestoNfm(contentArr[0].styles)
-        : {};
+      const styles =
+        contentArr.length > 0 && contentArr[0].styles ? bnStylestoNfm(contentArr[0].styles) : {};
       pushLinkWithLinebreaks(items, text, item.href ?? "", styles);
     } else if (item.type === "text") {
-      pushTextWithLinebreaks(
-        items,
-        item.text ?? "",
-        bnStylestoNfm(item.styles || {}),
-      );
+      pushTextWithLinebreaks(items, item.text ?? "", bnStylestoNfm(item.styles || {}));
     }
   }
 
   return items;
 }
 
-function pushTextWithLinebreaks(
-  items: NfmInlineContent[],
-  text: string,
-  styles: NfmStyleSet,
-) {
+function pushTextWithLinebreaks(items: NfmInlineContent[], text: string, styles: NfmStyleSet) {
   const parts = text.split("\n");
 
   for (let index = 0; index < parts.length; index += 1) {
@@ -1041,9 +1009,7 @@ function pushLinkWithLinebreaks(
   }
 }
 
-function bnStylestoNfm(
-  styles: Record<string, boolean | string>,
-): NfmStyleSet {
+function bnStylestoNfm(styles: Record<string, boolean | string>): NfmStyleSet {
   const result: NfmStyleSet = {};
   if (styles.bold) result.bold = true;
   if (styles.italic) result.italic = true;
@@ -1064,9 +1030,7 @@ function bnStylestoNfm(
   return result;
 }
 
-function propsToColor(
-  props?: Record<string, unknown>,
-): NfmColor | undefined {
+function propsToColor(props?: Record<string, unknown>): NfmColor | undefined {
   if (!props) return undefined;
   if (props.backgroundColor && props.backgroundColor !== "default") {
     return blockNoteBackgroundToNfmBg(props.backgroundColor);
@@ -1076,9 +1040,7 @@ function propsToColor(
 
 function toNfmTextColor(value: unknown): NfmTextColor | undefined {
   if (typeof value !== "string" || value === "default") return undefined;
-  return NFM_TEXT_COLORS.includes(value as NfmTextColor)
-    ? (value as NfmTextColor)
-    : undefined;
+  return NFM_TEXT_COLORS.includes(value as NfmTextColor) ? (value as NfmTextColor) : undefined;
 }
 
 function nfmBgToBlockNoteBackground(color: NfmBgColor): string {
@@ -1117,9 +1079,7 @@ function blockNoteBackgroundToNfmBg(value: unknown): NfmBgColor | undefined {
 
 function extractCodeText(content: unknown): string {
   if (!content || !Array.isArray(content)) return "";
-  return content
-    .map((item: BNInlineContent) => item.text || "")
-    .join("");
+  return content.map((item: BNInlineContent) => item.text || "").join("");
 }
 
 function normalizeImageUrl(value: unknown): string | null {
@@ -1157,7 +1117,9 @@ function normalizePositiveNumber(value: unknown): number | undefined {
   return Math.floor(value);
 }
 
-function isToggleListPropertyKey(value: string): value is "priority" | "estimate" | "status" | "tags" {
+function isToggleListPropertyKey(
+  value: string,
+): value is "priority" | "estimate" | "status" | "tags" {
   return value === "priority" || value === "estimate" || value === "status" || value === "tags";
 }
 

@@ -73,53 +73,65 @@ describe("Canvas scene HTTP contract", () => {
   });
 
   test("rejects malformed successful sync and mutation envelopes", () => {
-    expect(() => decodeCanvasSceneSyncResultHttp(JSON.stringify({
-      ok: true,
-      value: {
-        kind: "snapshot",
-        syncRequestId: "sync-1",
-        libraryId: "library-1",
-        accessContext: { kind: "project", projectId: "project-1" },
-        documentId: "canvas-1",
-        storeEpoch: "store-1",
-        generation: 1,
-        headSeq: 0,
-        scene: emptyScene,
-      },
-    }))).toThrow("sceneHash");
-    expect(() => decodeCanvasSceneMutationResultHttp(JSON.stringify({
-      ok: true,
-      value: {
-        mutationId: "mutation-1",
-        libraryId: "library-1",
-        accessContext: { kind: "project", projectId: "project-1" },
-        documentId: "canvas-1",
-        storeEpoch: "store-1",
-        generation: 1,
-        baseHeadSeq: 0,
-        headSeq: 1,
-        duplicate: false,
-        outcome: "committed",
-        sceneHash: "a".repeat(64),
-        changedElementIds: [],
-        appliedAppStateKeys: [],
-        skippedAppStateKeys: [],
-        addedFileIds: [],
-        removedFileIds: [],
-      },
-    }))).toThrow();
+    expect(() =>
+      decodeCanvasSceneSyncResultHttp(
+        JSON.stringify({
+          ok: true,
+          value: {
+            kind: "snapshot",
+            syncRequestId: "sync-1",
+            libraryId: "library-1",
+            accessContext: { kind: "project", projectId: "project-1" },
+            documentId: "canvas-1",
+            storeEpoch: "store-1",
+            generation: 1,
+            headSeq: 0,
+            scene: emptyScene,
+          },
+        }),
+      ),
+    ).toThrow("sceneHash");
+    expect(() =>
+      decodeCanvasSceneMutationResultHttp(
+        JSON.stringify({
+          ok: true,
+          value: {
+            mutationId: "mutation-1",
+            libraryId: "library-1",
+            accessContext: { kind: "project", projectId: "project-1" },
+            documentId: "canvas-1",
+            storeEpoch: "store-1",
+            generation: 1,
+            baseHeadSeq: 0,
+            headSeq: 1,
+            duplicate: false,
+            outcome: "committed",
+            sceneHash: "a".repeat(64),
+            changedElementIds: [],
+            appliedAppStateKeys: [],
+            skippedAppStateKeys: [],
+            addedFileIds: [],
+            removedFileIds: [],
+          },
+        }),
+      ),
+    ).toThrow();
   });
 
   test("rejects malformed realtime coordinates and non-commit mutation events", () => {
-    expect(() => decodeCanvasSceneSseEvent(JSON.stringify({
-      type: "canvas_scene_resync_required",
-      libraryId: "library-1",
-      accessContext: { kind: "project", projectId: "project-1" },
-      documentId: "canvas-1",
-      storeEpoch: "store-1",
-      generation: 1,
-      headSeq: "1",
-    }))).toThrow("headSeq");
+    expect(() =>
+      decodeCanvasSceneSseEvent(
+        JSON.stringify({
+          type: "canvas_scene_resync_required",
+          libraryId: "library-1",
+          accessContext: { kind: "project", projectId: "project-1" },
+          documentId: "canvas-1",
+          storeEpoch: "store-1",
+          generation: 1,
+          headSeq: "1",
+        }),
+      ),
+    ).toThrow("headSeq");
     const value = {
       mutationId: "mutation-1",
       libraryId: "library-1",
@@ -145,19 +157,23 @@ describe("Canvas scene HTTP contract", () => {
         removedFileIds: [],
       },
     };
-    expect(() => decodeCanvasSceneMutationResultHttp(JSON.stringify({
-      ok: true,
-      value,
-      localCommit: committedLocalCommit("store-1", 1),
-      event: {
-        type: "canvas_scene_resync_required",
-        libraryId: "library-1",
-        accessContext: { kind: "project", projectId: "project-1" },
-        documentId: "canvas-1",
-        storeEpoch: "store-1",
-        generation: 1,
-        headSeq: 1,
-      },
-    }))).toThrow("must be a committed event");
+    expect(() =>
+      decodeCanvasSceneMutationResultHttp(
+        JSON.stringify({
+          ok: true,
+          value,
+          localCommit: committedLocalCommit("store-1", 1),
+          event: {
+            type: "canvas_scene_resync_required",
+            libraryId: "library-1",
+            accessContext: { kind: "project", projectId: "project-1" },
+            documentId: "canvas-1",
+            storeEpoch: "store-1",
+            generation: 1,
+            headSeq: 1,
+          },
+        }),
+      ),
+    ).toThrow("must be a committed event");
   });
 });

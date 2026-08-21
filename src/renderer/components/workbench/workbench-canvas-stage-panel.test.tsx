@@ -109,8 +109,9 @@ describe("WorkbenchCanvasStagePanel", () => {
         onTitleChange={vi.fn()}
       />,
     );
-    const firstScope = (await screen.findByTestId("canvas-document-surface"))
-      .getAttribute("data-viewport-preference-scope");
+    const firstScope = (await screen.findByTestId("canvas-document-surface")).getAttribute(
+      "data-viewport-preference-scope",
+    );
 
     rendered.rerender(
       <WorkbenchCanvasStagePanel
@@ -123,7 +124,8 @@ describe("WorkbenchCanvasStagePanel", () => {
       />,
     );
 
-    expect(screen.getByTestId("canvas-document-surface")
-      .getAttribute("data-viewport-preference-scope")).toBe(firstScope);
+    expect(
+      screen.getByTestId("canvas-document-surface").getAttribute("data-viewport-preference-scope"),
+    ).toBe(firstScope);
   });
 });

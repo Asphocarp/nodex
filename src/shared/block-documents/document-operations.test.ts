@@ -258,9 +258,7 @@ describe("Document operation contract", () => {
         ...BASE,
       }),
     );
-    expect(
-      rejectsContract({ ...BASE, nfm: "Body", operations: [] }, "nfm"),
-    ).toBe(true);
+    expect(rejectsContract({ ...BASE, nfm: "Body", operations: [] }, "nfm")).toBe(true);
   });
 
   test("strictly parses transport-neutral success and conflict results", () => {

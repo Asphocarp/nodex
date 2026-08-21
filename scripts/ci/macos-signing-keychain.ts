@@ -59,10 +59,7 @@ export const macosSigningSecurityCommands = (
 
 export const githubActionsMaskCommand = (value: string): string => {
   if (!value) throw new Error("Cannot mask an empty GitHub Actions value.");
-  const escaped = value
-    .replaceAll("%", "%25")
-    .replaceAll("\r", "%0D")
-    .replaceAll("\n", "%0A");
+  const escaped = value.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
   return `::add-mask::${escaped}\n`;
 };
 
@@ -89,9 +86,7 @@ const requiredEnvironmentValue = (name: string): string => {
 };
 
 const decodeBase64Secret = (value: string, label: string): Buffer => {
-  const payload = value.startsWith("data:")
-    ? value.slice(value.indexOf(",") + 1)
-    : value;
+  const payload = value.startsWith("data:") ? value.slice(value.indexOf(",") + 1) : value;
   const normalized = payload.replaceAll(/\s/gu, "");
   if (!normalized || !/^[A-Za-z0-9+/]+={0,2}$/u.test(normalized)) {
     throw new Error(`${label} must be a base64 payload or base64 data URL.`);

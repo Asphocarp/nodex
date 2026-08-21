@@ -17,10 +17,8 @@ const ORIGINAL_BACKUP_ENV = {
   sentryRelease: process.env.SENTRY_RELEASE,
   sentryTracesSampleRate: process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE,
   sentryReplayEnabled: process.env.NODEX_SENTRY_REPLAY_ENABLED,
-  sentryReplaysSessionSampleRate:
-    process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
-  sentryReplaysOnErrorSampleRate:
-    process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+  sentryReplaysSessionSampleRate: process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+  sentryReplaysOnErrorSampleRate: process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
   telemetryEnabled: process.env.NODEX_TELEMETRY_ENABLED,
   statsigClientKey: process.env.STATSIG_CLIENT_KEY,
   statsigEnvironment: process.env.STATSIG_ENVIRONMENT,
@@ -188,20 +186,14 @@ describe("Nodex home config", () => {
       const config = await importConfigModule();
 
       expect(config.getNodexHome()).toBe(environmentHome);
-      expect(config.getDatabasePath()).toBe(
-        path.join(environmentHome, "nodex.db"),
-      );
+      expect(config.getDatabasePath()).toBe(path.join(environmentHome, "nodex.db"));
     });
   });
 
   test("resolves the merged project home relative to the process cwd", async () => {
     await withTempConfigFixture(async ({ tempHome }) => {
       const userConfigDirectory = path.join(tempHome, ".nodex");
-      const projectConfigDirectory = path.join(
-        tempHome,
-        "workspace",
-        ".nodex",
-      );
+      const projectConfigDirectory = path.join(tempHome, "workspace", ".nodex");
       fs.mkdirSync(userConfigDirectory, { recursive: true });
       fs.mkdirSync(projectConfigDirectory, { recursive: true });
       fs.writeFileSync(
@@ -217,9 +209,7 @@ describe("Nodex home config", () => {
 
       const config = await importConfigModule();
 
-      expect(config.getNodexHome()).toBe(
-        path.join(process.cwd(), "project-home"),
-      );
+      expect(config.getNodexHome()).toBe(path.join(process.cwd(), "project-home"));
     });
   });
 });
@@ -305,7 +295,7 @@ describe("thread notification settings config", () => {
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("thread_notifications_turn_mode = \"always\"")).toBe(true);
+      expect(written.includes('thread_notifications_turn_mode = "always"')).toBe(true);
       expect(written.includes("thread_notifications_permissions_enabled = false")).toBe(true);
       expect(written.includes("thread_notifications_questions_enabled = false")).toBe(true);
 
@@ -324,7 +314,7 @@ describe("thread notification settings config", () => {
         path.join(projectConfigDir, "config.toml"),
         [
           "[server]",
-          "thread_notifications_turn_mode = \"off\"",
+          'thread_notifications_turn_mode = "off"',
           "thread_notifications_permissions_enabled = false",
           "thread_notifications_questions_enabled = false",
           "",
@@ -796,7 +786,9 @@ describe("Codex Git settings config", () => {
       const reloaded = await importConfigModule();
       expect(reloaded.getCodexGitSettings().branchPrefix).toBe("team/");
       expect(reloaded.getCodexGitSettings().commitInstructions).toBe("Keep commits focused.");
-      expect(reloaded.getCodexGitSettings().pullRequestInstructions).toBe("Include validation notes.");
+      expect(reloaded.getCodexGitSettings().pullRequestInstructions).toBe(
+        "Include validation notes.",
+      );
     });
   });
 });
@@ -833,9 +825,7 @@ describe("managed worktree settings config", () => {
     await withTempConfigFixture(async () => {
       const config = await importConfigModule();
       config.updateManagedWorktreeSettings({ worktreeRoot: "  ./custom-root  " });
-      expect(config.getManagedWorktreeSettings().worktreeRoot).toBe(
-        path.resolve("./custom-root"),
-      );
+      expect(config.getManagedWorktreeSettings().worktreeRoot).toBe(path.resolve("./custom-root"));
       expect(config.updateManagedWorktreeSettings({ worktreeRoot: "  " }).worktreeRoot).toBeNull();
 
       expect(() => config.updateManagedWorktreeSettings({ autoDeleteLimit: 0 })).toThrow(
@@ -857,18 +847,20 @@ describe("SSH execution host settings config", () => {
       const config = await importConfigModule();
       expect(config.getCodexExecutionHostSettings()).toEqual({ sshHosts: [] });
       const updated = config.updateCodexExecutionHostSettings({
-        sshHosts: [{
-          id: "ssh:build",
-          displayName: "Build Mac",
-          kind: "ssh",
-          sshAlias: "build-mac",
-          port: 2202,
-          managedRoot: "/Users/build/.nodex/worktrees",
-          repositoryRoots: ["/Users/build/src/project"],
-          codexBinary: "/Users/build/bin/codex",
-          codexHome: "/Users/build/.codex",
-          enabled: true,
-        }],
+        sshHosts: [
+          {
+            id: "ssh:build",
+            displayName: "Build Mac",
+            kind: "ssh",
+            sshAlias: "build-mac",
+            port: 2202,
+            managedRoot: "/Users/build/.nodex/worktrees",
+            repositoryRoots: ["/Users/build/src/project"],
+            codexBinary: "/Users/build/bin/codex",
+            codexHome: "/Users/build/.codex",
+            enabled: true,
+          },
+        ],
       });
       expect(updated.sshHosts).toHaveLength(1);
       expect(updated.sshHosts[0]?.sshAlias).toBe("build-mac");
@@ -895,11 +887,14 @@ describe("SSH execution host settings config", () => {
         codexHome: null,
         enabled: true,
       };
-      expect(() => config.updateCodexExecutionHostSettings({ sshHosts: [host, host] }))
-        .toThrow("Duplicate SSH execution host id");
-      expect(() => config.updateCodexExecutionHostSettings({
-        sshHosts: [{ ...host, sshAlias: "-oProxyCommand=bad" }],
-      })).toThrow("SSH alias is invalid");
+      expect(() => config.updateCodexExecutionHostSettings({ sshHosts: [host, host] })).toThrow(
+        "Duplicate SSH execution host id",
+      );
+      expect(() =>
+        config.updateCodexExecutionHostSettings({
+          sshHosts: [{ ...host, sshAlias: "-oProxyCommand=bad" }],
+        }),
+      ).toThrow("SSH alias is invalid");
     });
   });
 });
@@ -918,7 +913,9 @@ describe("command keybinding config", () => {
         type: "set",
         keybinding: { key: "CmdOrCtrl+Alt+W" },
       });
-      const customEntry = (customState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
+      const customEntry = (customState.entries as TestCommandKeymapEntry[]).find(
+        (entry) => entry.id === "openThreadInNewWindow",
+      );
       expect(customEntry?.keybindings[0]?.key).toBe("CmdOrCtrl+Alt+W");
       expect(customEntry?.isCustom).toBe(true);
 
@@ -926,7 +923,9 @@ describe("command keybinding config", () => {
         type: "remove",
         keybinding: { key: "CmdOrCtrl+Alt+W" },
       });
-      const unassignedEntry = (unassignedState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
+      const unassignedEntry = (unassignedState.entries as TestCommandKeymapEntry[]).find(
+        (entry) => entry.id === "openThreadInNewWindow",
+      );
       expect(unassignedEntry?.keybindings.length).toBe(0);
       expect(unassignedEntry?.isCustom).toBe(true);
 
@@ -935,8 +934,12 @@ describe("command keybinding config", () => {
       expect(written.includes("[server.command_keybindings]")).toBe(true);
       expect(written.includes("openThreadInNewWindow = []")).toBe(true);
 
-      const resetEntryState = config.updateCommandKeybinding("openThreadInNewWindow", { type: "reset" });
-      const resetEntry = (resetEntryState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
+      const resetEntryState = config.updateCommandKeybinding("openThreadInNewWindow", {
+        type: "reset",
+      });
+      const resetEntry = (resetEntryState.entries as TestCommandKeymapEntry[]).find(
+        (entry) => entry.id === "openThreadInNewWindow",
+      );
       expect(resetEntry?.isCustom).toBe(false);
 
       config.updateCommandKeybinding("renameThread", {

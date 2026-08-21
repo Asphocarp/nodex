@@ -47,10 +47,7 @@ export interface DeleteDataSourceOptionInput {
   readonly selectedValues: readonly unknown[];
 }
 
-export type DataSourceOptionSelection =
-  | null
-  | DataSourceOptionId
-  | readonly DataSourceOptionId[];
+export type DataSourceOptionSelection = null | DataSourceOptionId | readonly DataSourceOptionId[];
 
 export type DataSourceOptionRegistryErrorCode =
   | "invalid_registry"
@@ -70,25 +67,15 @@ export class DataSourceOptionRegistryError extends Error {
   }
 }
 
-const OPTION_CAPABLE_BUILT_IN_PROPERTIES = new Set([
-  "status",
-  "priority",
-  "estimate",
-  "tags",
-]);
+const OPTION_CAPABLE_BUILT_IN_PROPERTIES = new Set(["status", "priority", "estimate", "tags"]);
 
 const compareStrings = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
 
 const UTF8_ENCODER = new TextEncoder();
-const utf8ByteLength = (value: string): number =>
-  UTF8_ENCODER.encode(value).byteLength;
+const utf8ByteLength = (value: string): number => UTF8_ENCODER.encode(value).byteLength;
 
-const fail = (
-  code: DataSourceOptionRegistryErrorCode,
-  message: string,
-  cause?: unknown,
-): never => {
+const fail = (code: DataSourceOptionRegistryErrorCode, message: string, cause?: unknown): never => {
   throw new DataSourceOptionRegistryError(
     code,
     message,
@@ -99,10 +86,7 @@ const fail = (
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const requireRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const requireRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   return fail("invalid_registry", `${label} must be an object`);
 };
@@ -124,11 +108,7 @@ const requireExactKeys = (
   }
 };
 
-const requireCanonicalString = (
-  value: unknown,
-  label: string,
-  maximumLength: number,
-): string => {
+const requireCanonicalString = (value: unknown, label: string, maximumLength: number): string => {
   if (
     typeof value === "string" &&
     value.length > 0 &&
@@ -158,22 +138,15 @@ const parseRegistryCoordinates = (input: {
   } catch (error) {
     return fail(
       "invalid_registry",
-      `Option registry owner is invalid: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `Option registry owner is invalid: ${error instanceof Error ? error.message : String(error)}`,
       error,
     );
   }
 };
 
-const parseRegistryValueType = (
-  value: unknown,
-): DataSourceOptionRegistryValueType => {
+const parseRegistryValueType = (value: unknown): DataSourceOptionRegistryValueType => {
   if (value === "select" || value === "multi_select") return value;
-  return fail(
-    "invalid_registry",
-    "Option registry valueType must be select or multi_select",
-  );
+  return fail("invalid_registry", "Option registry valueType must be select or multi_select");
 };
 
 const validatePropertyRole = (
@@ -182,17 +155,11 @@ const validatePropertyRole = (
 ): void => {
   if (isCustomDataSourcePropertyId(propertyId)) return;
   if (!OPTION_CAPABLE_BUILT_IN_PROPERTIES.has(propertyId)) {
-    fail(
-      "invalid_registry",
-      `Built-in Property ${propertyId} cannot own an option registry`,
-    );
+    fail("invalid_registry", `Built-in Property ${propertyId} cannot own an option registry`);
   }
   if (propertyId === "tags" && valueType === "multi_select") return;
   if (propertyId !== "tags" && valueType === "select") return;
-  fail(
-    "invalid_registry",
-    `Built-in Property ${propertyId} cannot use ${valueType}`,
-  );
+  fail("invalid_registry", `Built-in Property ${propertyId} cannot use ${valueType}`);
 };
 
 const parseOptionId = (
@@ -219,11 +186,7 @@ const parseStoredOptionName = (
   label: string,
 ): string => {
   if (propertyId !== "tags") {
-    return requireCanonicalString(
-      value,
-      label,
-      MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
-    );
+    return requireCanonicalString(value, label, MAX_DATA_SOURCE_OPTION_NAME_LENGTH);
   }
   let canonical: string;
   try {
@@ -255,11 +218,7 @@ const canonicalizeMutationOptionName = (
   value: unknown,
 ): string => {
   if (propertyId !== "tags") {
-    return requireCanonicalString(
-      value,
-      "option.name",
-      MAX_DATA_SOURCE_OPTION_NAME_LENGTH,
-    );
+    return requireCanonicalString(value, "option.name", MAX_DATA_SOURCE_OPTION_NAME_LENGTH);
   }
   let canonical: string;
   try {
@@ -267,9 +226,7 @@ const canonicalizeMutationOptionName = (
   } catch (error) {
     return fail(
       "invalid_registry",
-      `option.name is invalid: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `option.name is invalid: ${error instanceof Error ? error.message : String(error)}`,
       error,
     );
   }
@@ -313,10 +270,7 @@ const assertUniqueRegistryEntries = (
   const seenNames = new Set<string>();
   for (const option of options) {
     if (seenIds.has(option.optionId)) {
-      fail(
-        "invalid_registry",
-        `Option registry repeats identity ${option.optionId}`,
-      );
+      fail("invalid_registry", `Option registry repeats identity ${option.optionId}`);
     }
     seenIds.add(option.optionId);
     if (propertyId !== "tags") continue;
@@ -339,10 +293,7 @@ export const parseDataSourceOptionRegistry = (
   const config = requireRecord(input.config, "optionRegistry.config");
   requireExactKeys(config, "optionRegistry.config", ["options"]);
   if (!Array.isArray(config.options)) {
-    return fail(
-      "invalid_registry",
-      "optionRegistry.config.options must be an array",
-    );
+    return fail("invalid_registry", "optionRegistry.config.options must be an array");
   }
   if (config.options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS) {
     return fail(
@@ -350,9 +301,7 @@ export const parseDataSourceOptionRegistry = (
       `Option registry cannot exceed ${MAX_DATA_SOURCE_PROPERTY_OPTIONS} options`,
     );
   }
-  const options = config.options.map((option, index) =>
-    parseOption(propertyId, option, index),
-  );
+  const options = config.options.map((option, index) => parseOption(propertyId, option, index));
   assertUniqueRegistryEntries(propertyId, options);
   return { dataSourceId, propertyId, valueType, options };
 };
@@ -378,10 +327,7 @@ export const resolveTagOptionByCanonicalName = (
   value: unknown,
 ): DataSourceOptionRegistryEntry | null => {
   if (registry.propertyId !== "tags" || registry.valueType !== "multi_select") {
-    return fail(
-      "invalid_registry",
-      "Canonical tag resolution requires the reserved tags registry",
-    );
+    return fail("invalid_registry", "Canonical tag resolution requires the reserved tags registry");
   }
   let name: string;
   try {
@@ -404,21 +350,14 @@ export const putDataSourceOption = (
 ): DataSourceOptionRegistry => {
   const optionId = parseOptionId(registry.propertyId, input.optionId);
   const name = canonicalizeMutationOptionName(registry.propertyId, input.name);
-  const color = input.color === undefined
-    ? undefined
-    : requireCanonicalString(
-        input.color,
-        "option.color",
-        MAX_DATA_SOURCE_OPTION_COLOR_LENGTH,
-      );
-  const existingIndex = registry.options.findIndex(
-    (option) => option.optionId === optionId,
-  );
+  const color =
+    input.color === undefined
+      ? undefined
+      : requireCanonicalString(input.color, "option.color", MAX_DATA_SOURCE_OPTION_COLOR_LENGTH);
+  const existingIndex = registry.options.findIndex((option) => option.optionId === optionId);
   if (
     registry.propertyId === "tags" &&
-    registry.options.some(
-      (option) => option.optionId !== optionId && option.name === name,
-    )
+    registry.options.some((option) => option.optionId !== optionId && option.name === name)
   ) {
     return fail(
       "option_name_conflict",
@@ -440,10 +379,7 @@ export const putDataSourceOption = (
     return { ...registry, options: [...registry.options, nextOption] };
   }
   const existing = registry.options[existingIndex];
-  if (
-    existing?.name === nextOption.name &&
-    existing.color === nextOption.color
-  ) {
+  if (existing?.name === nextOption.name && existing.color === nextOption.color) {
     return registry;
   }
   return {
@@ -459,15 +395,9 @@ export const validateDataSourceOptionSelection = (
   value: unknown,
 ): DataSourceOptionSelection => {
   if (value === null) return null;
-  const knownIds = new Set(
-    registry.options.map((option) => option.optionId),
-  );
+  const knownIds = new Set(registry.options.map((option) => option.optionId));
   if (registry.valueType === "select") {
-    const optionId = parseOptionId(
-      registry.propertyId,
-      value,
-      "invalid_selection",
-    );
+    const optionId = parseOptionId(registry.propertyId, value, "invalid_selection");
     if (knownIds.has(optionId)) return optionId;
     return fail(
       "invalid_selection",
@@ -480,15 +410,11 @@ export const validateDataSourceOptionSelection = (
       `Property ${registry.propertyId} requires an array of option IDs or null`,
     );
   }
-  const normalized = [...new Set(
-    value.map((candidate) =>
-      parseOptionId(
-        registry.propertyId,
-        candidate,
-        "invalid_selection",
-      ),
+  const normalized = [
+    ...new Set(
+      value.map((candidate) => parseOptionId(registry.propertyId, candidate, "invalid_selection")),
     ),
-  )].sort(compareStrings);
+  ].sort(compareStrings);
   const unknown = normalized.find((optionId) => !knownIds.has(optionId));
   if (!unknown) return normalized;
   return fail(
@@ -511,9 +437,7 @@ export const deleteDataSourceOption = (
   input: DeleteDataSourceOptionInput,
 ): DataSourceOptionRegistry => {
   const optionId = parseOptionId(registry.propertyId, input.optionId);
-  const exists = registry.options.some(
-    (option) => option.optionId === optionId,
-  );
+  const exists = registry.options.some((option) => option.optionId === optionId);
   if (!exists) {
     return fail(
       "option_not_found",
@@ -521,10 +445,7 @@ export const deleteDataSourceOption = (
     );
   }
   const selected = input.selectedValues.some((value) =>
-    selectionContains(
-      validateDataSourceOptionSelection(registry, value),
-      optionId,
-    ),
+    selectionContains(validateDataSourceOptionSelection(registry, value), optionId),
   );
   if (selected) {
     return fail(

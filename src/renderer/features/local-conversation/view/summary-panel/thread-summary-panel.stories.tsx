@@ -142,12 +142,14 @@ const SUMMARY_PANEL_STORY_KNOWN_CONVERSATIONS: Record<string, CodexConversationS
     threadId: "summary-listed-reviewer",
     name: "Reviewer",
     statusType: "active",
-    turns: [{
-      turnId: "summary-listed-reviewer-turn",
-      status: "inProgress",
-      diff: "@@ -1 +1,2 @@\n-old\n+new\n+another",
-      items: [],
-    }] as unknown as CodexConversationTurn[],
+    turns: [
+      {
+        turnId: "summary-listed-reviewer-turn",
+        status: "inProgress",
+        diff: "@@ -1 +1,2 @@\n-old\n+new\n+another",
+        items: [],
+      },
+    ] as unknown as CodexConversationTurn[],
   }),
   "summary-listed-waiting": makeSummaryPanelStorySubagentConversation({
     threadId: "summary-listed-waiting",
@@ -182,12 +184,14 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             <ThreadSummaryPanelRow
               aria-label="Open scheduled task"
               icon={<ClockIcon className="icon-xs shrink-0" />}
-              label={(
+              label={
                 <>
                   <span className="min-w-0 flex-1 truncate">Review release notes</span>
-                  <span className="max-w-48 shrink-0 truncate text-size-chat text-token-text-secondary">Every weekday</span>
+                  <span className="max-w-48 shrink-0 truncate text-size-chat text-token-text-secondary">
+                    Every weekday
+                  </span>
                 </>
-              )}
+              }
               labelClassName="flex min-w-0 flex-1 items-baseline gap-2"
               title="Next run: tomorrow at 9:00 AM"
               interactive
@@ -197,7 +201,11 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             <ThreadSummaryPanelRow
               label="Changes"
               icon={<ThreadSummaryChangesIcon className="icon-sm shrink-0" />}
-              trailing={<span className="text-size-chat text-token-text-tertiary">{noGit ? "No Git" : "+9,212 -4,412"}</span>}
+              trailing={
+                <span className="text-size-chat text-token-text-tertiary">
+                  {noGit ? "No Git" : "+9,212 -4,412"}
+                </span>
+              }
               trailingVisible
               disabled={noGit}
               interactive={!noGit}
@@ -205,7 +213,11 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             <ThreadSummaryPanelRow
               label={<StorySummaryDropdownRowLabel label="Local" />}
               labelClassName="flex min-w-0 items-center"
-              icon={<span className="shrink-0"><LocalStatusIcon className="icon-sm text-token-foreground" /></span>}
+              icon={
+                <span className="shrink-0">
+                  <LocalStatusIcon className="icon-sm text-token-foreground" />
+                </span>
+              }
             />
             <ThreadSummaryPanelRow
               label={<StorySummaryDropdownRowLabel label="dev-redesign" />}
@@ -222,15 +234,14 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             />
             <ThreadSummaryPanelRow
               label="Create pull request"
-              icon={<ThreadSummaryCreatePullRequestIcon className="icon-sm shrink-0 text-token-text-tertiary" />}
+              icon={
+                <ThreadSummaryCreatePullRequestIcon className="icon-sm shrink-0 text-token-text-tertiary" />
+              }
               disabled={noGit}
               interactive={!noGit}
             />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection
-            sectionKey="story-plan"
-            title="Plan"
-          >
+          <ThreadSummaryPanelSection sectionKey="story-plan" title="Plan">
             <ThreadSummaryPanelRow
               icon={<ComposerPlanModeIcon className="icon-xs shrink-0" />}
               label="Summary panel parity"
@@ -264,12 +275,15 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             />
             <ThreadSummaryPanelRow
               icon={<PluginCubeIcon className="size-3.5" aria-hidden={true} />}
-              label={(
+              label={
                 <span className="flex min-w-0 items-center gap-1">
                   <span className="truncate">Story app</span>
-                  <ExternalLink className="icon-xs shrink-0 opacity-0 group-hover/summary-panel-row:opacity-100" aria-hidden={true} />
+                  <ExternalLink
+                    className="icon-xs shrink-0 opacity-0 group-hover/summary-panel-row:opacity-100"
+                    aria-hidden={true}
+                  />
                 </span>
-              )}
+              }
               labelClassName="min-w-0"
               title="https://story-app.example.com"
               interactive
@@ -280,7 +294,11 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             title="Side chats"
             titleSuffix={<StoryCountSuffix count={1} />}
           >
-            <ThreadSummaryPanelRow label="Investigate header edge" icon={<MessageSquare className="icon-sm shrink-0" />} interactive />
+            <ThreadSummaryPanelRow
+              label="Investigate header edge"
+              icon={<MessageSquare className="icon-sm shrink-0" />}
+              interactive
+            />
           </ThreadSummaryPanelSection>
           <ThreadSummaryPanelSection
             sectionKey="story-background-subagents"
@@ -293,7 +311,7 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             sectionKey="story-background-tasks"
             title="Tasks"
             titleSuffix={<StoryCountSuffix count={1} />}
-            after={(
+            after={
               <button
                 type="button"
                 aria-label="View all processes"
@@ -301,7 +319,7 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
               >
                 <ListTree className="icon-xs" aria-hidden="true" />
               </button>
-            )}
+            }
           >
             <ThreadSummaryPanelRow
               label="bun test"
@@ -310,24 +328,28 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
               trailingVisible
             />
           </ThreadSummaryPanelSection>
-          <ThreadSummaryPanelSection sectionKey="story-computer-use-pip" mode="headerless" title="Computer Use">
+          <ThreadSummaryPanelSection
+            sectionKey="story-computer-use-pip"
+            mode="headerless"
+            title="Computer Use"
+          >
             <ThreadSummaryPanelRow
               aria-label="Show PiP"
-              icon={(
+              icon={
                 <ToolActivityIcon
                   descriptor={{ kind: "semantic", icon: "computer-use" }}
                   className="icon-xs shrink-0"
                 />
-              )}
+              }
               label="Computer Use"
               title="Show PiP"
               interactive
-              trailing={(
+              trailing={
                 <span className="relative flex size-5 shrink-0 items-center justify-center text-token-text-tertiary">
                   <PictureInPicture2 className="size-5" aria-hidden="true" />
                   <Slash className="absolute size-5" aria-hidden="true" />
                 </span>
-              )}
+              }
               trailingVisible
             />
           </ThreadSummaryPanelSection>
@@ -339,7 +361,9 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             <ThreadSummaryPanelRow
               label="Release notes"
               icon={<GlobeIcon className="icon-xs shrink-0" />}
-              trailing={<span className="text-size-chat text-token-text-tertiary">Right panel</span>}
+              trailing={
+                <span className="text-size-chat text-token-text-tertiary">Right panel</span>
+              }
               trailingVisible
               interactive
             />
@@ -399,12 +423,14 @@ function FloatingSummaryPanelStory({
     <div className="flex min-h-screen items-start justify-end overflow-x-auto bg-token-main-surface-primary p-10 text-token-text-primary">
       <div
         className="relative h-[640px] w-full max-w-4xl overflow-hidden border border-token-border-default bg-(--background)"
-        style={{
-          "--thread-floating-content-top-inset": "48px",
-          "--thread-floating-content-bottom-inset": "16px",
-          width: `${stageWidth}px`,
-          maxWidth: "100%",
-        } as CSSProperties}
+        style={
+          {
+            "--thread-floating-content-top-inset": "48px",
+            "--thread-floating-content-bottom-inset": "16px",
+            width: `${stageWidth}px`,
+            maxWidth: "100%",
+          } as CSSProperties
+        }
       >
         {mode === "overlay" ? (
           <div className="absolute top-3 right-3 z-10">
@@ -431,19 +457,23 @@ function FloatingSummaryPanelStory({
             scheduleSummary: "Every weekday",
             nextRunLabel: "tomorrow at 9:00 AM",
           }}
-          sideChatRows={[{ id: "side-chat", title: "Investigate layout", isResponseInProgress: true }]}
+          sideChatRows={[
+            { id: "side-chat", title: "Investigate layout", isResponseInProgress: true },
+          ]}
           computerUsePip={{ visible: false }}
-          browserRows={[{
-            id: "browser",
-            browserTabId: "browser-runtime",
-            workbenchTabId: null,
-            title: "Release notes",
-            displayUrl: "example.com",
-            url: "https://example.com/release-notes",
-            faviconUrl: null,
-            isAgentWorking: browserWorking,
-            isMaterialized: false,
-          }]}
+          browserRows={[
+            {
+              id: "browser",
+              browserTabId: "browser-runtime",
+              workbenchTabId: null,
+              title: "Release notes",
+              displayUrl: "example.com",
+              url: "https://example.com/release-notes",
+              faviconUrl: null,
+              isAgentWorking: browserWorking,
+              isMaterialized: false,
+            },
+          ]}
           actions={{
             onOpenSummaryBrowserRow: () => undefined,
             onToggleSummaryComputerUsePip: () => undefined,
@@ -483,7 +513,8 @@ export const PinnedOverlaySurface: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Surface chrome used by the pinned floating summary overlay while the workbench right panel is collapsed.",
+        story:
+          "Surface chrome used by the pinned floating summary overlay while the workbench right panel is collapsed.",
       },
     },
   },
@@ -494,7 +525,8 @@ export const FloatingPinnedShiftOpen: StoryObj<typeof FloatingSummaryPanelStory>
   parameters: {
     docs: {
       description: {
-        story: "Pinned floating summary body in the Codex shift band; Workbench applies the companion -158px body/footer shift while this panel springs in from the right.",
+        story:
+          "Pinned floating summary body in the Codex shift band; Workbench applies the companion -158px body/footer shift while this panel springs in from the right.",
       },
     },
   },
@@ -508,7 +540,8 @@ export const FloatingPinnedGutterOpen: StoryObj<typeof FloatingSummaryPanelStory
     },
     docs: {
       description: {
-        story: "Pinned floating summary body in gutter mode, where the panel is visible without shifting thread content.",
+        story:
+          "Pinned floating summary body in gutter mode, where the panel is visible without shifting thread content.",
       },
     },
   },
@@ -519,7 +552,8 @@ export const FloatingBrowserUseWorking: StoryObj<typeof FloatingSummaryPanelStor
   parameters: {
     docs: {
       description: {
-        story: "A runtime-only Browser Use page projected into the floating Environment surface while the agent is controlling it.",
+        story:
+          "A runtime-only Browser Use page projected into the floating Environment surface while the agent is controlling it.",
       },
     },
   },
@@ -530,7 +564,8 @@ export const Viewport1902SidebarOpenGutter: StoryObj<typeof FloatingSummaryPanel
   parameters: {
     docs: {
       description: {
-        story: "Acceptance state for a 1902px shell with a 300px left sidebar and no right panel: effective thread width is 1602px, so the summary panel stays pinned in gutter mode.",
+        story:
+          "Acceptance state for a 1902px shell with a 300px left sidebar and no right panel: effective thread width is 1602px, so the summary panel stays pinned in gutter mode.",
       },
     },
   },
@@ -541,7 +576,8 @@ export const Viewport1801SidebarOpenShift: StoryObj<typeof FloatingSummaryPanelS
   parameters: {
     docs: {
       description: {
-        story: "Acceptance state for a 1801px shell with a 300px left sidebar and no right panel: effective thread width is 1501px, so the summary panel stays pinned and shifts the body/footer by -158px.",
+        story:
+          "Acceptance state for a 1801px shell with a 300px left sidebar and no right panel: effective thread width is 1501px, so the summary panel stays pinned and shifts the body/footer by -158px.",
       },
     },
   },
@@ -552,7 +588,8 @@ export const Viewport1598SidebarRightPanelOverlay: StoryObj<typeof FloatingSumma
   parameters: {
     docs: {
       description: {
-        story: "Acceptance state for a 1598px shell with the left sidebar and a right panel competing for space: effective thread width falls below 1096px, so the mounted inline panel animates closed while the header trigger controls the popover.",
+        story:
+          "Acceptance state for a 1598px shell with the left sidebar and a right panel competing for space: effective thread width falls below 1096px, so the mounted inline panel animates closed while the header trigger controls the popover.",
       },
     },
   },
@@ -563,7 +600,8 @@ export const FloatingPinnedClosingReducedMotion: StoryObj<typeof FloatingSummary
   parameters: {
     docs: {
       description: {
-        story: "Reduced-motion close state: the Codex summary body snaps to opacity 0, translateX(100%), and scale 0.8 without a spring.",
+        story:
+          "Reduced-motion close state: the Codex summary body snaps to opacity 0, translateX(100%), and scale 0.8 without a spring.",
       },
     },
   },
@@ -610,7 +648,8 @@ export const BranchSetupDialog: StoryObj<typeof ThreadSummaryBranchSetupDialog> 
   parameters: {
     docs: {
       description: {
-        story: "Detached-checkout branch setup dialog opened from the floating summary Environment section before commit/push.",
+        story:
+          "Detached-checkout branch setup dialog opened from the floating summary Environment section before commit/push.",
       },
     },
   },
@@ -635,7 +674,8 @@ export const ManagedDefaultBranchSetupDialog: StoryObj<typeof ThreadSummaryBranc
   parameters: {
     docs: {
       description: {
-        story: "Managed-worktree branch setup dialog opened from the floating summary Environment section while the checkout is still on the default branch.",
+        story:
+          "Managed-worktree branch setup dialog opened from the floating summary Environment section while the checkout is still on the default branch.",
       },
     },
   },

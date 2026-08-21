@@ -9,31 +9,26 @@ import { cn } from "@/lib/utils";
 
 const COMPOSER_TOP_MENU_CHROME_HEIGHT_PX = 46;
 const COMPOSER_TOP_MENU_VIEWPORT_GAP_PX = 8;
-const COMPOSER_TOP_MENU_MAX_HEIGHT_PROPERTY =
-  "--composer-top-menu-max-height";
+const COMPOSER_TOP_MENU_MAX_HEIGHT_PROPERTY = "--composer-top-menu-max-height";
 
 export function calculateComposerHomeMenuMaxHeight(input: {
   readonly anchorBottomPx: number;
   readonly windowZoom: number;
 }): number {
-  const zoom = Number.isFinite(input.windowZoom) && input.windowZoom > 0
-    ? input.windowZoom
-    : 1;
+  const zoom = Number.isFinite(input.windowZoom) && input.windowZoom > 0 ? input.windowZoom : 1;
   return Math.max(
     0,
     Math.floor(
-      input.anchorBottomPx / zoom
-      - COMPOSER_TOP_MENU_CHROME_HEIGHT_PX
-      - COMPOSER_TOP_MENU_VIEWPORT_GAP_PX,
+      input.anchorBottomPx / zoom -
+        COMPOSER_TOP_MENU_CHROME_HEIGHT_PX -
+        COMPOSER_TOP_MENU_VIEWPORT_GAP_PX,
     ),
   );
 }
 
 function readComposerWindowZoom(element: HTMLElement): number {
   const value = Number.parseFloat(
-    window
-      .getComputedStyle(element)
-      .getPropertyValue("--codex-window-zoom"),
+    window.getComputedStyle(element).getPropertyValue("--codex-window-zoom"),
   );
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
@@ -44,14 +39,10 @@ export const ComposerSuggestionRow = forwardRef<
     readonly highlighted: boolean;
     readonly onHighlight?: () => void;
   }
->(function ComposerSuggestionRow({
-  highlighted,
-  onHighlight,
-  className,
-  onMouseDown,
-  onMouseMove,
-  ...props
-}, ref) {
+>(function ComposerSuggestionRow(
+  { highlighted, onHighlight, className, onMouseDown, onMouseMove, ...props },
+  ref,
+) {
   return (
     <button
       {...props}
@@ -107,10 +98,7 @@ export function ComposerSuggestionSurface({
       const value = `${maxHeight}px`;
       if (value === previousValue) return;
       previousValue = value;
-      element.style.setProperty(
-        COMPOSER_TOP_MENU_MAX_HEIGHT_PROPERTY,
-        value,
-      );
+      element.style.setProperty(COMPOSER_TOP_MENU_MAX_HEIGHT_PROPERTY, value);
     };
     const scheduleUpdate = () => {
       animationFrame ??= window.requestAnimationFrame(() => {
@@ -120,9 +108,8 @@ export function ComposerSuggestionSurface({
     };
 
     update();
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(scheduleUpdate);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleUpdate);
     observer?.observe(element);
     observer?.observe(document.documentElement);
 
@@ -152,7 +139,7 @@ export function ComposerSuggestionSurface({
           "border-token-border bg-token-dropdown-background/90 relative flex w-full flex-col overflow-hidden rounded-2xl border p-1 text-sm backdrop-blur-sm",
           isHomeMenu
             ? "max-h-[min(320px,var(--composer-top-menu-max-height,320px))]"
-            : maxHeightClassName ?? "max-h-[320px]",
+            : (maxHeightClassName ?? "max-h-[320px]"),
           className,
         )}
       >

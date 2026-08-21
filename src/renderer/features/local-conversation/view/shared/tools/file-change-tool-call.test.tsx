@@ -12,7 +12,11 @@ import {
   settleAsyncRender,
   textContent,
 } from "../../../../../test/dom";
-import type { CodexFileChange, CodexFileChangeView, CodexTranscriptEntry } from "../../../../../lib/types";
+import type {
+  CodexFileChange,
+  CodexFileChangeView,
+  CodexTranscriptEntry,
+} from "../../../../../lib/types";
 import { projectCodexCanonicalTurnItemViews } from "../../../../../../shared/codex-canonical-item-projector";
 import {
   buildCodexFileChangeMap,
@@ -54,8 +58,8 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
       movePath: "src/renderer/features/local-conversation/view/thread-stage-screen.tsx",
       unifiedDiff: [
         "@@ -1,5 +1,7 @@",
-        " import { useState } from \"react\";",
-        "+import { StoryShell } from \"./thread-stage-dev-story\";",
+        ' import { useState } from "react";',
+        '+import { StoryShell } from "./thread-stage-dev-story";',
         " ",
         " export function LocalConversationStageScreen() {",
         "+  return <StoryShell />;",
@@ -67,9 +71,10 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
   const sourceFileChange = overrides?.fileChange ?? buildFileChangeView(defaultChanges);
   const fileChange = {
     ...sourceFileChange,
-    success: sourceFileChange.success === undefined
-      ? resolveCodexPatchSuccess(status)
-      : sourceFileChange.success,
+    success:
+      sourceFileChange.success === undefined
+        ? resolveCodexPatchSuccess(status)
+        : sourceFileChange.success,
   };
   const label = fileChange.label ?? buildFileChangeLabel(defaultChanges[0]);
 
@@ -109,23 +114,27 @@ function buildNormalizedFileChangeEntry(input: {
     turnId: "turn-1",
     observedAtMs: 1,
     turnStatus: "inProgress",
-    items: [{
-      id: "item-file-change",
-      type: "fileChange",
-      status: input.status ?? "completed",
-      changes: input.changes,
-    }],
+    items: [
+      {
+        id: "item-file-change",
+        type: "fileChange",
+        status: input.status ?? "completed",
+        changes: input.changes,
+      },
+    ],
   })[0];
   if (!item) throw new Error("Expected normalized file change entry");
   return projectCodexItemViewToTranscriptEntry(item, "live", 0);
 }
 
 function fileChangeHeaders(container: HTMLElement): HTMLElement[] {
-  const headers = Array.from(container.querySelectorAll<HTMLElement>(
-    "[data-file-change-row-header], [data-testid='file-change-row-header']",
-  ));
-  return headers.map((header) =>
-    header.querySelector<HTMLElement>(":scope > button[aria-expanded]") ?? header
+  const headers = Array.from(
+    container.querySelectorAll<HTMLElement>(
+      "[data-file-change-row-header], [data-testid='file-change-row-header']",
+    ),
+  );
+  return headers.map(
+    (header) => header.querySelector<HTMLElement>(":scope > button[aria-expanded]") ?? header,
   );
 }
 
@@ -137,17 +146,14 @@ describe("FileChangeToolCall", () => {
     installMeasuredResizeObserver({ blockSize: 96, inlineSize: 320 });
     installWindowApi({
       invoke: async () => true,
-      on: () => () => { },
+      on: () => () => {},
     });
   });
 
   test("expands into an inline diff frame with the Codex-style inner header", async () => {
     const { container } = render(
       <TooltipProvider>
-        <FileChangeToolCall
-          item={buildFileChangeEntry()}
-          threadCwd="/tmp/project"
-        />
+        <FileChangeToolCall item={buildFileChangeEntry()} threadCwd="/tmp/project" />
       </TooltipProvider>,
     );
 
@@ -158,7 +164,9 @@ describe("FileChangeToolCall", () => {
     await settleAsyncRender();
 
     expect(Boolean(container.textContent?.includes("Edited file"))).toBe(true);
-    expect(Boolean(container.textContent?.includes("local-conversation-stage-screen.tsx"))).toBe(true);
+    expect(Boolean(container.textContent?.includes("local-conversation-stage-screen.tsx"))).toBe(
+      true,
+    );
     expect(Boolean(container.textContent?.includes("+2"))).toBe(true);
     expect(Boolean(container.textContent?.includes("-0"))).toBe(true);
     expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBe(true);
@@ -341,15 +349,14 @@ describe("FileChangeToolCall", () => {
     );
     expect(rows.length).toBe(1);
     const firstRow = rows[0];
-    expect(firstRow?.openPath ?? null).toBe("/tmp/project/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx");
+    expect(firstRow?.openPath ?? null).toBe(
+      "/tmp/project/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+    );
     expect(firstRow?.openLine ?? null).toBe(1);
 
     const { container } = render(
       <TooltipProvider>
-        <FileChangeToolCall
-          item={buildFileChangeEntry()}
-          threadCwd="/tmp/project"
-        />
+        <FileChangeToolCall item={buildFileChangeEntry()} threadCwd="/tmp/project" />
       </TooltipProvider>,
     );
 
@@ -397,17 +404,17 @@ describe("FileChangeToolCall", () => {
         movePath: null,
         unifiedDiff: [
           "@@ -3,11 +3,12 @@",
-          " import { LocalConversationFooter } from \"./local-conversation-footer\";",
-          " import { ThreadStageHeader } from \"./local-conversation-stage-header\";",
-          " import { LocalConversationThreadBody } from \"./local-conversation-thread-body\";",
-          "+import { StoryShell } from \"./thread-stage-dev-story\";",
+          ' import { LocalConversationFooter } from "./local-conversation-footer";',
+          ' import { ThreadStageHeader } from "./local-conversation-stage-header";',
+          ' import { LocalConversationThreadBody } from "./local-conversation-thread-body";',
+          '+import { StoryShell } from "./thread-stage-dev-story";',
           " ",
           " export function LocalConversationStageScreen({ model, actions, initialUiState }: ThreadStageScreenProps) {",
           "   const [errorMessage, setErrorMessage] = useState<string | null>(null);",
           " ",
           "   return (",
-          "-    <div className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
-          "+    <StoryShell className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
+          '-    <div className="flex h-full min-h-0 flex-col bg-(--background)">',
+          '+    <StoryShell className="flex h-full min-h-0 flex-col bg-(--background)">',
           "       <ThreadStageHeader model={model} actions={actions} onErrorMessage={setErrorMessage} />",
           "       <LocalConversationThreadBody",
           "@@ -22,6 +23,6 @@",
@@ -450,11 +457,7 @@ describe("FileChangeToolCall", () => {
         path: "src/malformed.ts",
         type: "update",
         movePath: null,
-        unifiedDiff: [
-          "this is not a hunk header",
-          "+added",
-          "-removed",
-        ].join("\n"),
+        unifiedDiff: ["this is not a hunk header", "+added", "-removed"].join("\n"),
       },
     ];
     const fileChange = buildFileChangeView(changes);
@@ -484,21 +487,13 @@ describe("FileChangeToolCall", () => {
         path: "src/one.ts",
         type: "update",
         movePath: null,
-        unifiedDiff: [
-          "@@ -1 +1 @@",
-          "-console.log('one');",
-          "+console.log('ONE');",
-        ].join("\n"),
+        unifiedDiff: ["@@ -1 +1 @@", "-console.log('one');", "+console.log('ONE');"].join("\n"),
       },
       {
         path: "src/two.ts",
         type: "update",
         movePath: null,
-        unifiedDiff: [
-          "@@ -1 +1 @@",
-          "-console.log('two');",
-          "+console.log('TWO');",
-        ].join("\n"),
+        unifiedDiff: ["@@ -1 +1 @@", "-console.log('two');", "+console.log('TWO');"].join("\n"),
       },
     ];
     const fileChange = buildFileChangeView(changes);
@@ -527,7 +522,9 @@ describe("FileChangeToolCall", () => {
     fireEvent.click(toggles[0]!);
 
     await waitFor(() => {
-      expect(container.querySelectorAll("[data-file-change-row-body] diffs-container").length).toBe(1);
+      expect(container.querySelectorAll("[data-file-change-row-body] diffs-container").length).toBe(
+        1,
+      );
     });
     expect(Boolean(textContent(container).includes("Edited file"))).toBe(true);
 
@@ -539,10 +536,7 @@ describe("FileChangeToolCall", () => {
   test("keeps the file-change body on explicit pixel height instead of switching to auto", async () => {
     const { container } = render(
       <TooltipProvider>
-        <FileChangeToolCall
-          item={buildFileChangeEntry()}
-          threadCwd="/tmp/project"
-        />
+        <FileChangeToolCall item={buildFileChangeEntry()} threadCwd="/tmp/project" />
       </TooltipProvider>,
     );
 
@@ -552,7 +546,7 @@ describe("FileChangeToolCall", () => {
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    const body = container.querySelector<HTMLElement>('[data-file-change-row-body]');
+    const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
     expect(Boolean(body)).toBe(true);
     expect(body?.style.height === "auto").toBe(false);
   });
@@ -560,10 +554,7 @@ describe("FileChangeToolCall", () => {
   test("does not mount non-streaming collapsed diff content before expansion", async () => {
     const { container } = render(
       <TooltipProvider>
-        <FileChangeToolCall
-          item={buildFileChangeEntry()}
-          threadCwd="/tmp/project"
-        />
+        <FileChangeToolCall item={buildFileChangeEntry()} threadCwd="/tmp/project" />
       </TooltipProvider>,
     );
 
@@ -585,15 +576,14 @@ describe("FileChangeToolCall", () => {
 
   test("skips inline parsing and bounds the fallback for oversized file changes", async () => {
     const item = buildFileChangeEntry({
-      fileChange: buildFileChangeView([{
-        path: "src/large.ts",
-        type: "update",
-        movePath: null,
-        unifiedDiff: [
-          "@@ -0,0 +1 @@",
-          `+${"x".repeat(256 * 1024)}`,
-        ].join("\n"),
-      }]),
+      fileChange: buildFileChangeView([
+        {
+          path: "src/large.ts",
+          type: "update",
+          movePath: null,
+          unifiedDiff: ["@@ -0,0 +1 @@", `+${"x".repeat(256 * 1024)}`].join("\n"),
+        },
+      ]),
     });
 
     const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(item, "/tmp/project", undefined);
@@ -618,7 +608,7 @@ describe("FileChangeToolCall", () => {
           path: "src/local-conversation-resume-loader.tsx",
           kind: { type: "add" },
           diff: [
-            "import { NodexLogoMarkIcon } from \"@/components/shared/icons\";",
+            'import { NodexLogoMarkIcon } from "@/components/shared/icons";',
             "",
             "const NODEX_LOGO_MASK_IMAGE = 'url(data:image/svg+xml,%3Csvg/...)';",
             "",
@@ -650,7 +640,9 @@ describe("FileChangeToolCall", () => {
     await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Created file"))).toBe(true);
-    expect(Boolean(textContent(container).includes("local-conversation-resume-loader.tsx"))).toBe(true);
+    expect(Boolean(textContent(container).includes("local-conversation-resume-loader.tsx"))).toBe(
+      true,
+    );
     const diffHost = container.querySelector<HTMLElement>(".nodex-inline-diff");
     expect(Boolean(diffHost)).toBe(true);
     await waitFor(() => {
@@ -665,7 +657,8 @@ describe("FileChangeToolCall", () => {
       {
         path: "tools/extract-thread-floating-activity-card-artifacts.mjs",
         type: "add",
-        content: "export const extractor = true;\nexport function extractArtifacts() {\n  return extractor;\n}\n",
+        content:
+          "export const extractor = true;\nexport function extractArtifacts() {\n  return extractor;\n}\n",
       },
       {
         path: "tools/verify-thread-floating-activity-card-artifacts.mjs",
@@ -699,7 +692,11 @@ describe("FileChangeToolCall", () => {
     await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Created file"))).toBe(true);
-    expect(Boolean(textContent(container).includes("extract-thread-floating-activity-card-artifacts.mjs"))).toBe(true);
+    expect(
+      Boolean(
+        textContent(container).includes("extract-thread-floating-activity-card-artifacts.mjs"),
+      ),
+    ).toBe(true);
     const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
     expect(body?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
     const diffHost = body?.querySelector<HTMLElement>("diffs-container.nodex-inline-diff") ?? null;
@@ -862,15 +859,21 @@ describe("FileChangeToolCall", () => {
 
     const summaryToggle = fileChangeHeaders(container)[0] ?? null;
     expect(Boolean(summaryToggle)).toBe(true);
-    expect(Boolean(container.querySelector("[data-testid='file-change-row-header'] svg"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-testid='file-change-row-header'] svg"))).toBe(
+      true,
+    );
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    const reviewButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((element) => textContent(element).includes("Auto-review denied high risk")) ?? null;
+    const reviewButton =
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((element) =>
+        textContent(element).includes("Auto-review denied high risk"),
+      ) ?? null;
     expect(Boolean(reviewButton)).toBe(true);
-    expect(Boolean(textContent(reviewButton as HTMLElement).includes("Auto-review denied high risk"))).toBe(true);
+    expect(
+      Boolean(textContent(reviewButton as HTMLElement).includes("Auto-review denied high risk")),
+    ).toBe(true);
     expect(Boolean(textContent(reviewButton as HTMLElement).includes("High risk"))).toBe(false);
     expect(reviewButton?.getAttribute("aria-expanded") ?? null).toBe("false");
 

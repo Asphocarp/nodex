@@ -11,16 +11,9 @@ import {
   type ProjectMarkerIcon,
 } from "../../../shared/project-appearance";
 import { NodexButton } from "@/components/ui/button";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import {
-  PROJECT_MARKER_COLOR_CLASSES,
-  ProjectMarker,
-} from "./project-marker";
+import { PROJECT_MARKER_COLOR_CLASSES, ProjectMarker } from "./project-marker";
 import { ProjectMarkerIconSvg } from "@/components/shared/icons";
 
 export interface ProjectMarkerPickerProps {
@@ -83,8 +76,7 @@ export function ProjectMarkerPicker({
     onAppearanceChange(selectProjectMarkerIcon(appearance, icon));
   }
 
-  const selectedIcon =
-    appearance.marker.kind === "icon" ? appearance.marker.icon : null;
+  const selectedIcon = appearance.marker.kind === "icon" ? appearance.marker.icon : null;
 
   return (
     <NodexPopover open={isOpen} onOpenChange={setOpen}>
@@ -175,9 +167,7 @@ export function ProjectMarkerPicker({
           })}
         </div>
 
-        {showDividers ? (
-          <div className="mx-3 border-t border-token-border" />
-        ) : null}
+        {showDividers ? <div className="mx-3 border-t border-token-border" /> : null}
 
         {iconGroupLabel != null ? (
           <div className="px-3 pt-2 text-xs font-medium text-token-description-foreground">

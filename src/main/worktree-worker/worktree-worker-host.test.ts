@@ -11,7 +11,9 @@ let fixturePath = "";
 beforeAll(async () => {
   fixtureRoot = await mkdtemp(path.join(tmpdir(), "nodex-worktree-worker-host-test-"));
   fixturePath = path.join(fixtureRoot, "fixture.mjs");
-  await writeFile(fixturePath, `
+  await writeFile(
+    fixturePath,
+    `
 import { parentPort, workerData } from "node:worker_threads";
 const port = parentPort;
 if (!port) throw new Error("missing parent port");
@@ -67,7 +69,9 @@ port.postMessage({
   hostId: workerData.hostId,
   protocolVersion: 4,
 });
-`, "utf8");
+`,
+    "utf8",
+  );
 });
 
 afterAll(async () => {
@@ -100,10 +104,12 @@ describe("Codex worktree worker host", () => {
       onInfrastructureError: (error) => infrastructureErrors.push(error.message),
     });
     try {
-      await expect(host.create(createInput("crash"), {
-        signal: new AbortController().signal,
-        onEvent: () => undefined,
-      })).rejects.toThrow("temporarily unavailable");
+      await expect(
+        host.create(createInput("crash"), {
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        }),
+      ).rejects.toThrow("temporarily unavailable");
       expect(infrastructureErrors.length).toBe(1);
 
       const events: string[] = [];
@@ -136,10 +142,12 @@ describe("Codex worktree worker host", () => {
       controller.abort();
       await expect(pending).rejects.toThrow("Request canceled");
 
-      await expect(host.create(createInput("success"), {
-        signal: new AbortController().signal,
-        onEvent: () => undefined,
-      })).resolves.toMatchObject({ setupError: null });
+      await expect(
+        host.create(createInput("success"), {
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        }),
+      ).resolves.toMatchObject({ setupError: null });
     } finally {
       await host.shutdown();
     }
@@ -148,17 +156,21 @@ describe("Codex worktree worker host", () => {
   test("cancels and rejects when an event consumer fails", async () => {
     const host = new CodexWorktreeWorkerHost({ hostId: "local", workerPath: fixturePath });
     try {
-      await expect(host.create(createInput("hang"), {
-        signal: new AbortController().signal,
-        onEvent: () => {
-          throw new Error("event consumer failed");
-        },
-      })).rejects.toThrow("event consumer failed");
+      await expect(
+        host.create(createInput("hang"), {
+          signal: new AbortController().signal,
+          onEvent: () => {
+            throw new Error("event consumer failed");
+          },
+        }),
+      ).rejects.toThrow("event consumer failed");
 
-      await expect(host.create(createInput("success"), {
-        signal: new AbortController().signal,
-        onEvent: () => undefined,
-      })).resolves.toMatchObject({ setupError: null });
+      await expect(
+        host.create(createInput("success"), {
+          signal: new AbortController().signal,
+          onEvent: () => undefined,
+        }),
+      ).resolves.toMatchObject({ setupError: null });
     } finally {
       await host.shutdown();
     }
@@ -172,22 +184,32 @@ describe("Codex worktree worker host", () => {
       onInfrastructureError: (error) => infrastructureErrors.push(error.message),
     });
     try {
-      await expect(host.create({
-        ...createInput("invalid"),
-        localEnvironmentConfigPath: "/repo/.codex/environments/environment.toml",
-      }, {
-        signal: new AbortController().signal,
-        onEvent: () => undefined,
-      })).rejects.toThrow("violates protocol version");
+      await expect(
+        host.create(
+          {
+            ...createInput("invalid"),
+            localEnvironmentConfigPath: "/repo/.codex/environments/environment.toml",
+          },
+          {
+            signal: new AbortController().signal,
+            onEvent: () => undefined,
+          },
+        ),
+      ).rejects.toThrow("violates protocol version");
       expect(infrastructureErrors).toEqual([]);
 
-      await expect(host.create({
-        ...createInput("success"),
-        localEnvironmentConfigPath: ".codex/environments/environment.toml",
-      }, {
-        signal: new AbortController().signal,
-        onEvent: () => undefined,
-      })).resolves.toMatchObject({ setupError: null });
+      await expect(
+        host.create(
+          {
+            ...createInput("success"),
+            localEnvironmentConfigPath: ".codex/environments/environment.toml",
+          },
+          {
+            signal: new AbortController().signal,
+            onEvent: () => undefined,
+          },
+        ),
+      ).resolves.toMatchObject({ setupError: null });
     } finally {
       await host.shutdown();
     }

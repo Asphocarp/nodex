@@ -124,7 +124,8 @@ export const parseStaticArguments = (args: readonly string[]): StaticCliArgument
     }
     groups.push(value as StaticGroup);
   }
-  if (new Set(groups).size !== groups.length) throw new Error("Static groups must not be repeated.");
+  if (new Set(groups).size !== groups.length)
+    throw new Error("Static groups must not be repeated.");
   return { groups };
 };
 
@@ -159,7 +160,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   try {
     main();
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     process.exitCode = 1;
   }
 }

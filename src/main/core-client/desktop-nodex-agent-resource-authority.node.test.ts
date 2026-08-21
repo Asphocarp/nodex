@@ -2,10 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./desktop-nodex-agent-resource-authority";
-import {
-  createFakeCoreHandshake,
-  FakeCoreClient,
-} from "./testing/fake-core-client";
+import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 
 const authority = {
   threadId: "thread:one",
@@ -18,23 +15,24 @@ const authority = {
   source: "project_turn" as const,
 };
 
-const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
-  backend: "rust",
-  identity: {
-    libraryId: "library:test",
-    profileId: "profile:test",
-    storeEpoch: "epoch:test",
-  },
-  rootClient: Object.assign(client, {
-    handshake: createFakeCoreHandshake({
+const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime =>
+  ({
+    backend: "rust",
+    identity: {
       libraryId: "library:test",
       profileId: "profile:test",
       storeEpoch: "epoch:test",
+    },
+    rootClient: Object.assign(client, {
+      handshake: createFakeCoreHandshake({
+        libraryId: "library:test",
+        profileId: "profile:test",
+        storeEpoch: "epoch:test",
+      }),
     }),
-  }),
-  clientForProject: () => client,
-  close: async () => undefined,
-}) as unknown as RustDataAuthorityRuntime;
+    clientForProject: () => client,
+    close: async () => undefined,
+  }) as unknown as RustDataAuthorityRuntime;
 
 describe("Desktop Nodex Agent resource authority", () => {
   test("maps exact-Turn planning and Core's resolved Page consent", async () => {
@@ -47,18 +45,20 @@ describe("Desktop Nodex Agent resource authority", () => {
         kind: "agent_resource_access_plan",
         value: {
           kind: "consent_required",
-          requirements: [{
-            intent: {
-              target: { kind: "page", page_id: "page:owner" },
-              action: "write",
+          requirements: [
+            {
+              intent: {
+                target: { kind: "page", page_id: "page:owner" },
+                action: "write",
+              },
+              grant: {
+                root: { kind: "page", page_id: "page:owner" },
+                access: "read_write",
+              },
+              reason: "grant_missing",
+              persistable: true,
             },
-            grant: {
-              root: { kind: "page", page_id: "page:owner" },
-              access: "read_write",
-            },
-            reason: "grant_missing",
-            persistable: true,
-          }],
+          ],
           inspection_access: {
             kind: "inspection",
             scope: "call",
@@ -69,10 +69,12 @@ describe("Desktop Nodex Agent resource authority", () => {
             actor_project_id: "project:one",
             library_id: "library:test",
             store_epoch: "epoch:test",
-            grants: [{
-              root: { kind: "page", page_id: "page:owner" },
-              access: "read_write",
-            }],
+            grants: [
+              {
+                root: { kind: "page", page_id: "page:owner" },
+                access: "read_write",
+              },
+            ],
           },
         },
       },
@@ -81,27 +83,33 @@ describe("Desktop Nodex Agent resource authority", () => {
       authority: Promise.resolve(runtimeFor(client)),
     });
 
-    await expect(port.plan({
-      authority,
-      callId: "call:one",
-      intents: [{
-        target: { kind: "page_or_block", id: "block:nested" },
-        action: "write",
-      }],
-    })).resolves.toEqual({
+    await expect(
+      port.plan({
+        authority,
+        callId: "call:one",
+        intents: [
+          {
+            target: { kind: "page_or_block", id: "block:nested" },
+            action: "write",
+          },
+        ],
+      }),
+    ).resolves.toEqual({
       kind: "consent_required",
-      requirements: [{
-        intent: {
-          target: { kind: "page", pageId: "page:owner" },
-          action: "write",
+      requirements: [
+        {
+          intent: {
+            target: { kind: "page", pageId: "page:owner" },
+            action: "write",
+          },
+          grant: {
+            root: { kind: "page", pageId: "page:owner" },
+            access: "read_write",
+          },
+          reason: "grant_missing",
+          persistable: true,
         },
-        grant: {
-          root: { kind: "page", pageId: "page:owner" },
-          access: "read_write",
-        },
-        reason: "grant_missing",
-        persistable: true,
-      }],
+      ],
       inspectionAccess: {
         kind: "inspection",
         scope: "call",
@@ -112,34 +120,40 @@ describe("Desktop Nodex Agent resource authority", () => {
         actorProjectId: "project:one",
         libraryId: "library:test",
         storeEpoch: "epoch:test",
-        grants: [{
-          root: { kind: "page", pageId: "page:owner" },
-          access: "read_write",
-        }],
+        grants: [
+          {
+            root: { kind: "page", pageId: "page:owner" },
+            access: "read_write",
+          },
+        ],
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "plan_agent_resource_access",
-      provenance: {
-        profile_id: "profile:test",
-        authority: {
-          thread_id: "thread:one",
-          turn_id: "turn:one",
-          root_thread_id: "thread:root",
-          actor_project_id: "project:one",
-          library_id: "library:test",
-          store_epoch: "epoch:test",
-          scope: "project",
-          source: "project_turn",
+    expect(client.reads).toEqual([
+      {
+        kind: "plan_agent_resource_access",
+        provenance: {
+          profile_id: "profile:test",
+          authority: {
+            thread_id: "thread:one",
+            turn_id: "turn:one",
+            root_thread_id: "thread:root",
+            actor_project_id: "project:one",
+            library_id: "library:test",
+            store_epoch: "epoch:test",
+            scope: "project",
+            source: "project_turn",
+          },
         },
+        call_id: "call:one",
+        intents: [
+          {
+            target: { kind: "page_or_block", id: "block:nested" },
+            action: "write",
+          },
+        ],
+        task_access: null,
       },
-      call_id: "call:one",
-      intents: [{
-        target: { kind: "page_or_block", id: "block:nested" },
-        action: "write",
-      }],
-      task_access: null,
-    }]);
+    ]);
   });
 
   test("persists a canonical Project grant batch through one native receipt", async () => {
@@ -175,37 +189,43 @@ describe("Desktop Nodex Agent resource authority", () => {
       authority: Promise.resolve(runtimeFor(client)),
     });
 
-    await expect(port.persistProjectGrants({
-      operationId: "agent-grants:one",
-      authority,
-      grants: [
-        { root: { kind: "page", pageId: "page:one" }, access: "read" },
-        { root: { kind: "page", pageId: "page:one" }, access: "read_write" },
-      ],
-    })).resolves.toBeUndefined();
-    expect(client.applies).toEqual([{
-      operationId: "agent-grants:one",
-      intent: {
-        kind: "persist_agent_project_resource_grants",
-        provenance: {
-          profile_id: "profile:test",
-          authority: {
-            thread_id: "thread:one",
-            turn_id: "turn:one",
-            root_thread_id: "thread:root",
-            actor_project_id: "project:one",
-            library_id: "library:test",
-            store_epoch: "epoch:test",
-            scope: "project",
-            source: "project_turn",
+    await expect(
+      port.persistProjectGrants({
+        operationId: "agent-grants:one",
+        authority,
+        grants: [
+          { root: { kind: "page", pageId: "page:one" }, access: "read" },
+          { root: { kind: "page", pageId: "page:one" }, access: "read_write" },
+        ],
+      }),
+    ).resolves.toBeUndefined();
+    expect(client.applies).toEqual([
+      {
+        operationId: "agent-grants:one",
+        intent: {
+          kind: "persist_agent_project_resource_grants",
+          provenance: {
+            profile_id: "profile:test",
+            authority: {
+              thread_id: "thread:one",
+              turn_id: "turn:one",
+              root_thread_id: "thread:root",
+              actor_project_id: "project:one",
+              library_id: "library:test",
+              store_epoch: "epoch:test",
+              scope: "project",
+              source: "project_turn",
+            },
           },
+          grants: [
+            {
+              root: { kind: "page", page_id: "page:one" },
+              access: "read_write",
+            },
+          ],
         },
-        grants: [{
-          root: { kind: "page", page_id: "page:one" },
-          access: "read_write",
-        }],
       },
-    }]);
+    ]);
   });
 
   test("rejects a Core task overlay outside the frozen Turn boundary", async () => {
@@ -225,10 +245,12 @@ describe("Desktop Nodex Agent resource authority", () => {
             actor_project_id: "project:one",
             library_id: "library:test",
             store_epoch: "epoch:test",
-            grants: [{
-              root: { kind: "page", page_id: "page:one" },
-              access: "read_write",
-            }],
+            grants: [
+              {
+                root: { kind: "page", page_id: "page:one" },
+                access: "read_write",
+              },
+            ],
           },
         },
       },
@@ -237,13 +259,17 @@ describe("Desktop Nodex Agent resource authority", () => {
       authority: Promise.resolve(runtimeFor(client)),
     });
 
-    await expect(port.plan({
-      authority,
-      callId: "call:one",
-      intents: [{
-        target: { kind: "page", pageId: "page:one" },
-        action: "write",
-      }],
-    })).rejects.toThrow("escaped its Turn authority");
+    await expect(
+      port.plan({
+        authority,
+        callId: "call:one",
+        intents: [
+          {
+            target: { kind: "page", pageId: "page:one" },
+            action: "write",
+          },
+        ],
+      }),
+    ).rejects.toThrow("escaped its Turn authority");
   });
 });

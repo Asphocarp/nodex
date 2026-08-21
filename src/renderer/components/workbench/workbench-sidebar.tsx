@@ -49,11 +49,7 @@ interface WorkbenchSidebarProps {
  * Owns the two chrome placements for one logical sidebar body. Placement can
  * change without duplicating the catalog/selection/command Interface.
  */
-export function WorkbenchSidebar({
-  body,
-  inline,
-  floating,
-}: WorkbenchSidebarProps) {
+export function WorkbenchSidebar({ body, inline, floating }: WorkbenchSidebarProps) {
   return (
     <>
       {inline.visible ? (
@@ -71,10 +67,7 @@ export function WorkbenchSidebar({
             key="codex-floating-left-panel"
             data-sidebar-floating-focus-area="true"
             data-testid="floating-project-session-sidebar-shell"
-            className={cn(
-              floating.outerClassName,
-              floating.resizing && "cursor-col-resize",
-            )}
+            className={cn(floating.outerClassName, floating.resizing && "cursor-col-resize")}
             style={{ width: body.width }}
             initial={floating.reducedMotion ? false : { opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}

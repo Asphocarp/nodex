@@ -1,18 +1,10 @@
-import {
-  hashKey,
-  type QueryClient,
-  type QueryKey,
-  type QueryMeta,
-} from "@tanstack/react-query";
+import { hashKey, type QueryClient, type QueryKey, type QueryMeta } from "@tanstack/react-query";
 import type {
   GitReviewLiveQuery,
   GitReviewLiveQueryMethod,
   GitReviewLiveQueryResult,
 } from "@/lib/types";
-import type {
-  GitWorkerMethod,
-  GitWorkerMethodMap,
-} from "../../../../shared/git-worker-protocol";
+import type { GitWorkerMethod, GitWorkerMethodMap } from "../../../../shared/git-worker-protocol";
 import { getGitWorkerClient } from "@/lib/api";
 import type { GitWorkerClient } from "@/lib/git-worker-client";
 
@@ -54,21 +46,25 @@ export function buildGitWorkerQueryKey<Method extends GitWorkerMethod>(input: {
   ] as const;
 }
 
-export function createGitWorkerQuery<Method extends GitWorkerMethod>(input: {
-  method: Method;
-  params: GitWorkerMethodMap[Method]["params"];
-  repository?: GitQueryRepositoryIdentity | null;
-}, client: Pick<GitWorkerClient, "request"> = getGitWorkerClient()) {
+export function createGitWorkerQuery<Method extends GitWorkerMethod>(
+  input: {
+    method: Method;
+    params: GitWorkerMethodMap[Method]["params"];
+    repository?: GitQueryRepositoryIdentity | null;
+  },
+  client: Pick<GitWorkerClient, "request"> = getGitWorkerClient(),
+) {
   // The transport client does not change repository data identity; including
   // its object identity would split otherwise shareable worker queries.
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
   return {
     queryKey: buildGitWorkerQueryKey(input),
-    queryFn: async ({ signal }: { signal: AbortSignal }) => await client.request({
-      method: input.method,
-      params: input.params,
-      signal,
-    }),
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
+      await client.request({
+        method: input.method,
+        params: input.params,
+        signal,
+      }),
     gcTime: GIT_QUERY_GC_MS,
     networkMode: "always" as const,
     refetchOnWindowFocus: false,
@@ -77,13 +73,14 @@ export function createGitWorkerQuery<Method extends GitWorkerMethod>(input: {
   };
 }
 
-export function createGitLiveWorkerQuery<
-  Method extends GitReviewLiveQueryMethod,
->(input: {
-  method: Method;
-  params: Extract<GitReviewLiveQuery, { method: Method }>["params"];
-  repository?: GitQueryRepositoryIdentity | null;
-}, client: Pick<GitWorkerClient, "request"> = getGitWorkerClient()) {
+export function createGitLiveWorkerQuery<Method extends GitReviewLiveQueryMethod>(
+  input: {
+    method: Method;
+    params: Extract<GitReviewLiveQuery, { method: Method }>["params"];
+    repository?: GitQueryRepositoryIdentity | null;
+  },
+  client: Pick<GitWorkerClient, "request"> = getGitWorkerClient(),
+) {
   return {
     ...createGitWorkerQuery(input, client),
     meta: {
@@ -114,10 +111,7 @@ export class GitLiveQueryCoordinator {
   readonly #unsubscribeCache: () => void;
   readonly #unsubscribe: () => void;
 
-  constructor(
-    queryClient: QueryClient,
-    client: GitWorkerQueryClient = getGitWorkerClient(),
-  ) {
+  constructor(queryClient: QueryClient, client: GitWorkerQueryClient = getGitWorkerClient()) {
     this.#queryClient = queryClient;
     this.#client = client;
     this.#unsubscribe = client.subscribe((message) => {
@@ -128,9 +122,7 @@ export class GitLiveQueryCoordinator {
         return;
       }
       if (message.type !== "git-live-query-event") return;
-      const entry = this.#entriesBySubscriptionId.get(
-        message.event.subscriptionId,
-      );
+      const entry = this.#entriesBySubscriptionId.get(message.event.subscriptionId);
       if (!entry || message.event.method !== entry.method) return;
       if (message.event.type === "git-live-query-failed") {
         this.#scheduleRecovery(entry);
@@ -175,10 +167,12 @@ export class GitLiveQueryCoordinator {
     for (const entry of this.#entriesByHash.values()) {
       if (entry.releaseTimer) clearTimeout(entry.releaseTimer);
       if (entry.recoveryTimer) clearTimeout(entry.recoveryTimer);
-      void this.#client.request({
-        method: "unsubscribe-live-query",
-        params: { subscriptionId: entry.subscriptionId },
-      }).catch(() => undefined);
+      void this.#client
+        .request({
+          method: "unsubscribe-live-query",
+          params: { subscriptionId: entry.subscriptionId },
+        })
+        .catch(() => undefined);
     }
     this.#entriesByHash.clear();
     this.#entriesBySubscriptionId.clear();
@@ -195,16 +189,18 @@ export class GitLiveQueryCoordinator {
   }
 
   #subscribe(entry: LiveEntry): void {
-    void this.#client.request({
-      method: "subscribe-live-query",
-      params: {
-        subscriptionId: entry.subscriptionId,
-        query: {
-          method: entry.method,
-          params: entry.params,
-        } as GitReviewLiveQuery,
-      },
-    }).catch(() => this.#scheduleRecovery(entry));
+    void this.#client
+      .request({
+        method: "subscribe-live-query",
+        params: {
+          subscriptionId: entry.subscriptionId,
+          query: {
+            method: entry.method,
+            params: entry.params,
+          } as GitReviewLiveQuery,
+        },
+      })
+      .catch(() => this.#scheduleRecovery(entry));
   }
 
   #scheduleRecovery(entry: LiveEntry): void {
@@ -212,12 +208,15 @@ export class GitLiveQueryCoordinator {
     entry.recoveryTimer = setTimeout(() => {
       entry.recoveryTimer = null;
       if (!this.#isActive(entry)) return;
-      void this.#client.request({
-        method: "recover-live-query",
-        params: { subscriptionId: entry.subscriptionId },
-      }).then((result) => {
-        if (!result.recovered) this.#subscribe(entry);
-      }).catch(() => this.#scheduleRecovery(entry));
+      void this.#client
+        .request({
+          method: "recover-live-query",
+          params: { subscriptionId: entry.subscriptionId },
+        })
+        .then((result) => {
+          if (!result.recovered) this.#subscribe(entry);
+        })
+        .catch(() => this.#scheduleRecovery(entry));
     }, GIT_LIVE_RECOVERY_DELAY_MS);
   }
 
@@ -259,10 +258,12 @@ export class GitLiveQueryCoordinator {
       this.#entriesByHash.delete(queryHash);
       this.#entriesBySubscriptionId.delete(entry.subscriptionId);
       if (entry.recoveryTimer) clearTimeout(entry.recoveryTimer);
-      void this.#client.request({
-        method: "unsubscribe-live-query",
-        params: { subscriptionId: entry.subscriptionId },
-      }).catch(() => undefined);
+      void this.#client
+        .request({
+          method: "unsubscribe-live-query",
+          params: { subscriptionId: entry.subscriptionId },
+        })
+        .catch(() => undefined);
     }, GIT_LIVE_RELEASE_DELAY_MS);
   }
 

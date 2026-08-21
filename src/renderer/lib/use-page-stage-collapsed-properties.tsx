@@ -5,11 +5,7 @@ import {
   writePageStageCollapsedProperties,
   type PageStageCollapsibleProperty,
 } from "./page-stage-collapsed-properties";
-import {
-  appScope,
-  scopedAtomWithInitializer,
-  useScopedAtom,
-} from "./maitai";
+import { appScope, scopedAtomWithInitializer, useScopedAtom } from "./maitai";
 
 interface PageStageCollapsedPropertiesContextValue {
   collapsedProperties: PageStageCollapsibleProperty[];
@@ -28,18 +24,24 @@ function usePageStageCollapsedPropertiesInternal(): PageStageCollapsedProperties
     pageStageCollapsedPropertiesAtom,
   );
 
-  const setCollapsedProperties = useCallback((value: PageStageCollapsibleProperty[]) => {
-    const next = writePageStageCollapsedProperties(value);
-    setCollapsedPropertiesState(next);
-  }, [setCollapsedPropertiesState]);
+  const setCollapsedProperties = useCallback(
+    (value: PageStageCollapsibleProperty[]) => {
+      const next = writePageStageCollapsedProperties(value);
+      setCollapsedPropertiesState(next);
+    },
+    [setCollapsedPropertiesState],
+  );
 
-  const toggleCollapsedProperty = useCallback((value: PageStageCollapsibleProperty) => {
-    setCollapsedPropertiesState((current) => {
-      const next = togglePageStageCollapsedProperty(current, value);
-      writePageStageCollapsedProperties(next);
-      return next;
-    });
-  }, [setCollapsedPropertiesState]);
+  const toggleCollapsedProperty = useCallback(
+    (value: PageStageCollapsibleProperty) => {
+      setCollapsedPropertiesState((current) => {
+        const next = togglePageStageCollapsedProperty(current, value);
+        writePageStageCollapsedProperties(next);
+        return next;
+      });
+    },
+    [setCollapsedPropertiesState],
+  );
 
   return {
     collapsedProperties,

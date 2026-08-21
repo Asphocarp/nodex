@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import {
-  forgetScrollPosition,
-  loadScrollPosition,
-  saveScrollPosition,
-} from "./page-stage-scroll";
+import { forgetScrollPosition, loadScrollPosition, saveScrollPosition } from "./page-stage-scroll";
 
 describe("Page Stage scroll state", () => {
   beforeEach(() => {

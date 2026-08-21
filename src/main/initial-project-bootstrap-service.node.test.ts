@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -55,8 +49,7 @@ class FakeProjectWorkspace {
 
   readonly port = {
     readProjectBootstrap: async () => ({ status: this.status }),
-    getProject: async (projectId: string) =>
-      this.project?.id === projectId ? this.project : null,
+    getProject: async (projectId: string) => (this.project?.id === projectId ? this.project : null),
     createInitialProject: async (
       input: DesktopInitialProjectCreateInput,
     ): Promise<DesktopInitialProjectCreateResult> => {
@@ -83,10 +76,7 @@ class FakeProjectWorkspace {
   } as unknown as DesktopProjectWorkspacePort;
 }
 
-function makeProject(input: {
-  id: string;
-  sourceRoot: string;
-}): Project {
+function makeProject(input: { id: string; sourceRoot: string }): Project {
   return {
     id: input.id,
     libraryId: "library:test",
@@ -149,16 +139,16 @@ describe("InitialProjectBootstrapService", () => {
       },
     });
     expect(extractPlainText(input?.starterPage.nfm ?? "")).toContain(sourceRoot);
-    expect(presentations).toEqual([{
-      projectId: input?.projectId,
-      defaultDatabaseViewId: "view:default",
-      starterPageId: input?.starterPage.pageId,
-      starterPageTitle: "Welcome to Nodex",
-    }]);
+    expect(presentations).toEqual([
+      {
+        projectId: input?.projectId,
+        defaultDatabaseViewId: "view:default",
+        starterPageId: input?.starterPage.pageId,
+        starterPageTitle: "Welcome to Nodex",
+      },
+    ]);
     expect(readdirSync(sourceRoot)).toEqual([]);
-    expect(existsSync(resolveInitialProjectJournalPath(
-      join(root, ".nodex"),
-    ))).toBe(false);
+    expect(existsSync(resolveInitialProjectJournalPath(join(root, ".nodex")))).toBe(false);
   });
 
   test("replays the exact operation after Core commit when presentation fails", async () => {
@@ -170,11 +160,13 @@ describe("InitialProjectBootstrapService", () => {
       createId: createIdFactory(),
     });
 
-    await expect(first.ensureInitialProject({
-      onProvisioned: async () => {
-        throw new Error("window session write failed");
-      },
-    })).rejects.toThrow("window session write failed");
+    await expect(
+      first.ensureInitialProject({
+        onProvisioned: async () => {
+          throw new Error("window session write failed");
+        },
+      }),
+    ).rejects.toThrow("window session write failed");
     const journalPath = resolveInitialProjectJournalPath(join(root, ".nodex"));
     expect(existsSync(journalPath)).toBe(true);
 
@@ -208,9 +200,7 @@ describe("InitialProjectBootstrapService", () => {
       onProvisioned: async () => {},
     });
 
-    expect(workspace.createInputs[0]?.sources).toEqual([
-      join(projectsDirectory, "My Project 2"),
-    ]);
+    expect(workspace.createInputs[0]?.sources).toEqual([join(projectsDirectory, "My Project 2")]);
     expect(readdirSync(join(projectsDirectory, "My Project"))).toEqual([]);
   });
 
@@ -234,8 +224,6 @@ describe("InitialProjectBootstrapService", () => {
     expect(presented).toBe(false);
     expect(existsSync(join(root, "workspace", "My Project"))).toBe(true);
     expect(readdirSync(join(root, "workspace", "My Project"))).toEqual([]);
-    expect(existsSync(resolveInitialProjectJournalPath(
-      join(root, ".nodex"),
-    ))).toBe(false);
+    expect(existsSync(resolveInitialProjectJournalPath(join(root, ".nodex")))).toBe(false);
   });
 });

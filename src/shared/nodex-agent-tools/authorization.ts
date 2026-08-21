@@ -1,7 +1,6 @@
 import type { NodexAgentV2ToolName, NodexAgentV3ToolName } from "./identity";
 
-export const NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD =
-  "nodex-agent-authorization" as const;
+export const NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD = "nodex-agent-authorization" as const;
 export const NODEX_AGENT_AUTHORIZATION_TIMEOUT_MS = 5 * 60_000;
 
 export type NodexAgentAuthorizationDecision =

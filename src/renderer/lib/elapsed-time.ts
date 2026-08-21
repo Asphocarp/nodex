@@ -36,10 +36,7 @@ export function getNextElapsedTimeUpdateDelay(updatedAtMs: number, nowMs: number
   } else if (elapsedMs < 7 * DAY_MS) {
     nextElapsedMs = (Math.floor(elapsedMs / DAY_MS) + 1) * DAY_MS;
   } else if (elapsedMs < 30 * DAY_MS) {
-    nextElapsedMs = Math.min(
-      (Math.floor(elapsedMs / (7 * DAY_MS)) + 1) * 7 * DAY_MS,
-      30 * DAY_MS,
-    );
+    nextElapsedMs = Math.min((Math.floor(elapsedMs / (7 * DAY_MS)) + 1) * 7 * DAY_MS, 30 * DAY_MS);
   } else if (elapsedMs < 365 * DAY_MS) {
     nextElapsedMs = Math.min(
       (Math.floor(elapsedMs / (30 * DAY_MS)) + 1) * 30 * DAY_MS,

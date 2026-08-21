@@ -34,10 +34,7 @@ import {
 
 const PENDING_ATTACHMENT_TTL_MS = 30_000;
 const mcpAppSandboxHostsByGuestId = new Map<number, McpAppSandboxHost>();
-const pendingMcpAppAttachmentsBySession = new Map<
-  Session,
-  PendingMcpAppAttachment[]
->();
+const pendingMcpAppAttachmentsBySession = new Map<Session, PendingMcpAppAttachment[]>();
 let guestMessageListenerInstalled = false;
 let defaultSessionHeadersInstalled = false;
 const configuredMcpAppSandboxSessions = new WeakSet<Session>();
@@ -74,8 +71,7 @@ function installGuestMessageListener(): void {
   if (guestMessageListenerInstalled) return;
   guestMessageListenerInstalled = true;
   ipcMain.on(MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL, (event, rawMessage) => {
-    mcpAppSandboxHostsByGuestId.get(event.sender.id)
-      ?.handleGuestMessage(event, rawMessage);
+    mcpAppSandboxHostsByGuestId.get(event.sender.id)?.handleGuestMessage(event, rawMessage);
   });
 }
 
@@ -83,8 +79,10 @@ function isSandboxHostUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
     const hostname = new URL(value).hostname;
-    return hostname === MCP_APP_SANDBOX_REMOTE_HOST
-      || hostname.endsWith(`.${MCP_APP_SANDBOX_REMOTE_HOST}`);
+    return (
+      hostname === MCP_APP_SANDBOX_REMOTE_HOST ||
+      hostname.endsWith(`.${MCP_APP_SANDBOX_REMOTE_HOST}`)
+    );
   } catch {
     return false;
   }
@@ -103,11 +101,12 @@ function installDefaultSessionHeaders(): void {
     const refererHeader = Object.entries(requestHeaders).find(
       ([name]) => name.toLowerCase() === "referer",
     )?.[1];
-    const belongsToSandbox = isSandboxHostUrl(frame?.origin)
-      || isSandboxHostUrl(frame?.url)
-      || isSandboxHostUrl(details.url)
-      || isSandboxHostUrl(originHeader)
-      || isSandboxHostUrl(refererHeader);
+    const belongsToSandbox =
+      isSandboxHostUrl(frame?.origin) ||
+      isSandboxHostUrl(frame?.url) ||
+      isSandboxHostUrl(details.url) ||
+      isSandboxHostUrl(originHeader) ||
+      isSandboxHostUrl(refererHeader);
     callback({
       requestHeaders: belongsToSandbox
         ? rewriteSandboxRequestHeaders(requestHeaders, defaultSession.getUserAgent())
@@ -140,10 +139,11 @@ function consumePendingAttachment(input: {
 }): OwnedMcpAppAttachment | null {
   const entries = pendingMcpAppAttachmentsBySession.get(input.session);
   if (!entries) return null;
-  const index = entries.findIndex(({ state }) => (
-    state.ownerWebContents.id === input.ownerWebContents.id
-    && (input.initId === null || state.initId === input.initId)
-  ));
+  const index = entries.findIndex(
+    ({ state }) =>
+      state.ownerWebContents.id === input.ownerWebContents.id &&
+      (input.initId === null || state.initId === input.initId),
+  );
   if (index < 0) return null;
   const [pending] = entries.splice(index, 1);
   if (!pending) return null;
@@ -183,8 +183,10 @@ export function isAllowedMcpAppSandboxRequestUrl(
   try {
     const url = new URL(value);
     if (url.protocol === `${MCP_APP_SANDBOX_SCHEME}:`) {
-      return url.hostname === MCP_APP_SANDBOX_REMOTE_HOST
-        || url.hostname.endsWith(`.${MCP_APP_SANDBOX_REMOTE_HOST}`);
+      return (
+        url.hostname === MCP_APP_SANDBOX_REMOTE_HOST ||
+        url.hostname.endsWith(`.${MCP_APP_SANDBOX_REMOTE_HOST}`)
+      );
     }
     if (["about:", "blob:", "data:", "devtools:", "https:", "wss:"].includes(url.protocol)) {
       return true;
@@ -203,10 +205,8 @@ function stripElectronProductTokens(userAgent: string): string {
   return ["Electron", app.getName()]
     .filter(Boolean)
     .reduce(
-      (value, product) => value.replace(
-        new RegExp(`\\s${escapeRegularExpression(product)}/[^\\s]+`, "gu"),
-        "",
-      ),
+      (value, product) =>
+        value.replace(new RegExp(`\\s${escapeRegularExpression(product)}/[^\\s]+`, "gu"), ""),
       userAgent,
     )
     .replace(/\s{2,}/gu, " ")
@@ -216,19 +216,13 @@ function stripElectronProductTokens(userAgent: string): string {
 function preferredAcceptLanguage(): string {
   const languages = app.getPreferredSystemLanguages();
   return (languages.length > 0 ? languages : [app.getLocale()])
-    .map((language, index) => (
-      index === 0
-        ? language
-        : `${language};q=${Math.max(1 - index * 0.1, 0.1).toFixed(1)}`
-    ))
+    .map((language, index) =>
+      index === 0 ? language : `${language};q=${Math.max(1 - index * 0.1, 0.1).toFixed(1)}`,
+    )
     .join(",");
 }
 
-function setRequestHeader(
-  headers: Record<string, string>,
-  name: string,
-  value: string,
-): void {
+function setRequestHeader(headers: Record<string, string>, name: string, value: string): void {
   const existingName = Object.keys(headers).find(
     (candidate) => candidate.toLowerCase() === name.toLowerCase(),
   );
@@ -253,11 +247,12 @@ function rewriteSandboxRequestHeaders(
     );
   }
   setRequestHeader(rewritten, "sec-ch-ua-mobile", "?0");
-  const platform = process.platform === "darwin"
-    ? '"macOS"'
-    : process.platform === "win32"
-      ? '"Windows"'
-      : '"Linux"';
+  const platform =
+    process.platform === "darwin"
+      ? '"macOS"'
+      : process.platform === "win32"
+        ? '"Windows"'
+        : '"Linux"';
   setRequestHeader(rewritten, "sec-ch-ua-platform", platform);
   return rewritten;
 }
@@ -266,10 +261,12 @@ function isSameSandboxDocument(expected: string, candidate: string): boolean {
   try {
     const expectedUrl = new URL(expected);
     const candidateUrl = new URL(candidate);
-    return candidateUrl.protocol === expectedUrl.protocol
-      && candidateUrl.host === expectedUrl.host
-      && candidateUrl.pathname === expectedUrl.pathname
-      && candidateUrl.search === expectedUrl.search;
+    return (
+      candidateUrl.protocol === expectedUrl.protocol &&
+      candidateUrl.host === expectedUrl.host &&
+      candidateUrl.pathname === expectedUrl.pathname &&
+      candidateUrl.search === expectedUrl.search
+    );
   } catch {
     return false;
   }
@@ -277,9 +274,7 @@ function isSameSandboxDocument(expected: string, candidate: string): boolean {
 
 function isBlockedSandboxSubframeUrl(value: string): boolean {
   try {
-    return !["about:", "blob:", "data:", "http:", "https:"].includes(
-      new URL(value).protocol,
-    );
+    return !["about:", "blob:", "data:", "http:", "https:"].includes(new URL(value).protocol);
   } catch {
     return true;
   }
@@ -400,9 +395,9 @@ export class McpAppSandboxHost {
     }
 
     if (
-      guest.session !== pending.session
-      || pending.ownerWebContents.id !== this.#owner.id
-      || this.#owner.isDestroyed()
+      guest.session !== pending.session ||
+      pending.ownerWebContents.id !== this.#owner.id ||
+      this.#owner.isDestroyed()
     ) {
       this.#options.logger.warn("Rejected mismatched MCP App guest", {
         guestWebContentsId: guest.id,
@@ -522,13 +517,15 @@ export class McpAppSandboxHost {
       });
     });
     guest.on("context-menu", () => {
-      Menu.buildFromTemplate([{
-        label: "DevTools",
-        click: () => {
-          if (guest.isDestroyed()) return;
-          guest.openDevTools({ mode: "detach" });
+      Menu.buildFromTemplate([
+        {
+          label: "DevTools",
+          click: () => {
+            if (guest.isDestroyed()) return;
+            guest.openDevTools({ mode: "detach" });
+          },
         },
-      }]).popup({
+      ]).popup({
         window: BrowserWindow.fromWebContents(attached.ownerWebContents) ?? undefined,
       });
     });
@@ -544,10 +541,10 @@ export class McpAppSandboxHost {
 
     const message = parseMcpAppSandboxGuestInitMessage(rawMessage);
     if (
-      !message
-      || message.initId !== attached.initId
-      || message.origin !== attached.origin
-      || message.portNames.length + 1 !== event.ports.length
+      !message ||
+      message.initId !== attached.initId ||
+      message.origin !== attached.origin ||
+      message.portNames.length + 1 !== event.ports.length
     ) {
       this.#options.logger.warn("Rejected MCP App guest port handoff", {
         guestWebContentsId: event.sender.id,
@@ -563,10 +560,6 @@ export class McpAppSandboxHost {
         ? { skybridgeCacheState: attached.skybridgeCacheState }
         : {}),
     };
-    this.#owner.postMessage(
-      MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL,
-      hostMessage,
-      event.ports,
-    );
+    this.#owner.postMessage(MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL, hostMessage, event.ports);
   }
 }

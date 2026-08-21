@@ -67,12 +67,8 @@ export interface SelectTurnRenderModelInput {
 type TurnRenderModelBuilder = (input: BuildTurnRenderModelInput) => ThreadTurnModel;
 type TurnRenderModelSelector = (input: SelectTurnRenderModelInput) => ThreadTurnModel;
 
-function hasIncompleteElicitation(
-  items: ReturnType<typeof buildRendererItemStream>,
-): boolean {
-  return items.some(
-    (item) => item.type === "mcpServerElicitation" && item.status !== "completed",
-  );
+function hasIncompleteElicitation(items: ReturnType<typeof buildRendererItemStream>): boolean {
+  return items.some((item) => item.type === "mcpServerElicitation" && item.status !== "completed");
 }
 
 function isTranscriptTurnDiffItem(entry: CodexConversationItem): boolean {
@@ -94,14 +90,16 @@ function readTurnDiffPayload(entry: CodexConversationItem): TurnDiffPayload | nu
     patchBatches?: unknown;
   };
   const patchBatches = normalizeTurnDiffPatchBatches(rawItem.patchBatches);
-  return filterTurnDiffPayload({
-    unifiedDiff: typeof rawItem.unifiedDiff === "string" ? rawItem.unifiedDiff : "",
-    cwd: typeof rawItem.cwd === "string" && rawItem.cwd.trim().length > 0
-      ? rawItem.cwd
-      : undefined,
-    showRevertButton: rawItem.showRevertButton === true,
-    patchBatches,
-  }, {});
+  return filterTurnDiffPayload(
+    {
+      unifiedDiff: typeof rawItem.unifiedDiff === "string" ? rawItem.unifiedDiff : "",
+      cwd:
+        typeof rawItem.cwd === "string" && rawItem.cwd.trim().length > 0 ? rawItem.cwd : undefined,
+      showRevertButton: rawItem.showRevertButton === true,
+      patchBatches,
+    },
+    {},
+  );
 }
 
 function buildDerivedTurnDiffEntry(
@@ -109,12 +107,15 @@ function buildDerivedTurnDiffEntry(
   entries: readonly CodexConversationItem[],
   scope: ProjectlessOutputScope,
 ): CodexConversationItem | null {
-  const payload = filterTurnDiffPayload({
-    unifiedDiff: turn.diff ?? "",
-    cwd: scope.cwd ?? undefined,
-    patchBatches: [],
-    showRevertButton: true,
-  }, scope);
+  const payload = filterTurnDiffPayload(
+    {
+      unifiedDiff: turn.diff ?? "",
+      cwd: scope.cwd ?? undefined,
+      patchBatches: [],
+      showRevertButton: true,
+    },
+    scope,
+  );
   if (!payload || !hasTurnDiffPayloadChanges(payload)) return null;
   if (entries.some(isTranscriptTurnDiffItem)) return null;
 
@@ -152,29 +153,35 @@ function appendDerivedTurnDiffEntry(
     if (!payload || !hasTurnDiffPayloadChanges(payload)) return [];
     const filtered = filterTurnDiffPayload(payload, scope);
     if (!filtered || !hasTurnDiffPayloadChanges(filtered)) return [];
-    return [{
-      ...entry,
-      rawItem: {
-        ...(entry.rawItem as Record<string, unknown>),
-        unifiedDiff: filtered.unifiedDiff,
-        ...(filtered.patchBatches === undefined ? {} : { patchBatches: filtered.patchBatches }),
-        ...(filtered.cwd ? { cwd: filtered.cwd } : {}),
+    return [
+      {
+        ...entry,
+        rawItem: {
+          ...(entry.rawItem as Record<string, unknown>),
+          unifiedDiff: filtered.unifiedDiff,
+          ...(filtered.patchBatches === undefined ? {} : { patchBatches: filtered.patchBatches }),
+          ...(filtered.cwd ? { cwd: filtered.cwd } : {}),
+        },
       },
-    }];
+    ];
   });
   const derived = buildDerivedTurnDiffEntry(turn, renderableEntries, scope);
   const turnDiffEntries = [
     ...renderableEntries.filter(isTranscriptTurnDiffItem),
     ...(derived ? [derived] : []),
   ];
-  const suppressDuplicate = turnDiffEntries.length > 0
-    && turnDiffEntries.every((entry) => {
+  const suppressDuplicate =
+    turnDiffEntries.length > 0 &&
+    turnDiffEntries.every((entry) => {
       const payload = readTurnDiffPayload(entry);
-      return payload !== null && shouldSuppressTurnDiffByEndResources({
-        payload,
-        endResourcePaths,
-        scope,
-      });
+      return (
+        payload !== null &&
+        shouldSuppressTurnDiffByEndResources({
+          payload,
+          endResourcePaths,
+          scope,
+        })
+      );
     });
   const visibleEntries = suppressDuplicate
     ? renderableEntries.filter((entry) => !isTranscriptTurnDiffItem(entry))
@@ -200,10 +207,11 @@ function findFirstNonUserIndex(items: ThreadRendererItemModel[]): number {
 }
 
 function findFirstFinalAnswerAssistantIndex(items: ThreadRendererItemModel[]): number {
-  return items.findIndex((item) =>
-    isTranscriptItem(item)
-    && item.type === "assistantMessage"
-    && item.entry.assistantPhase === "final_answer"
+  return items.findIndex(
+    (item) =>
+      isTranscriptItem(item) &&
+      item.type === "assistantMessage" &&
+      item.entry.assistantPhase === "final_answer",
   );
 }
 
@@ -285,21 +293,16 @@ function insertWorkedForItem(
 ): ThreadRendererItemModel[] {
   if (!workedForItem) return items;
 
-  const boundaryIndex = turn.status === "inProgress"
-    ? findFirstNonUserIndex(items)
-    : resolveWorkedForBoundaryIndex(turn, items);
+  const boundaryIndex =
+    turn.status === "inProgress"
+      ? findFirstNonUserIndex(items)
+      : resolveWorkedForBoundaryIndex(turn, items);
   if (boundaryIndex < 0) return items;
 
-  return [
-    ...items.slice(0, boundaryIndex),
-    workedForItem,
-    ...items.slice(boundaryIndex),
-  ];
+  return [...items.slice(0, boundaryIndex), workedForItem, ...items.slice(boundaryIndex)];
 }
 
-function startAfterTurnIntro(
-  items: ThreadRendererItemModel[],
-): ThreadRendererItemModel[] {
+function startAfterTurnIntro(items: ThreadRendererItemModel[]): ThreadRendererItemModel[] {
   const workedForIndex = items.findIndex((item) => item.type === "workedFor");
   if (workedForIndex >= 0) return items.slice(workedForIndex + 1);
 
@@ -309,9 +312,7 @@ function startAfterTurnIntro(
   return items.slice(firstNonUserIndex);
 }
 
-export function buildTurnRenderModel(
-  input: BuildTurnRenderModelInput,
-): ThreadTurnModel {
+export function buildTurnRenderModel(input: BuildTurnRenderModelInput): ThreadTurnModel {
   const turnKey = input.turnKey ?? input.turn.turnId;
   if (turnKey === null) {
     throw new Error("A nullable local turn requires its occurrence key");
@@ -343,19 +344,18 @@ export function buildTurnRenderModel(
       }
     : null;
   const itemsWithTurnIntro = insertWorkedForItem(input.turn, baseItems, workedForItem);
-  const items = input.surface === "preview"
-    ? startAfterTurnIntro(itemsWithTurnIntro)
-    : itemsWithTurnIntro;
+  const items =
+    input.surface === "preview" ? startAfterTurnIntro(itemsWithTurnIntro) : itemsWithTurnIntro;
   const buckets = bucketizeTurnItems({
     items,
     turnStatus: input.turn.status,
   });
   const isBlocked =
-    buckets.approvalItem !== null
-    || buckets.userInputItem !== null
-    || buckets.interactiveRequestItem !== null
-    || buckets.permissionRequestItems.length > 0
-    || hasIncompleteElicitation(items);
+    buckets.approvalItem !== null ||
+    buckets.userInputItem !== null ||
+    buckets.interactiveRequestItem !== null ||
+    buckets.permissionRequestItems.length > 0 ||
+    hasIncompleteElicitation(items);
 
   return buildTurnViewModel({
     turnId: input.turn.turnId,
@@ -429,14 +429,10 @@ export function createTurnRenderModelSelector(
       ]),
     ]);
     const cachedEntry = cacheByEntry.get(input.entry);
-    const isSameRevision = cachedEntry !== undefined
-      && areVisibleConversationTurnRenderRevisionsEqual(
-        cachedEntry.revision,
-        revision,
-      );
-    const cached = isSameRevision
-      ? cachedEntry.modelsByVariant.get(cacheKey)
-      : undefined;
+    const isSameRevision =
+      cachedEntry !== undefined &&
+      areVisibleConversationTurnRenderRevisionsEqual(cachedEntry.revision, revision);
+    const cached = isSameRevision ? cachedEntry.modelsByVariant.get(cacheKey) : undefined;
     if (cached) return cached;
 
     const model = build({

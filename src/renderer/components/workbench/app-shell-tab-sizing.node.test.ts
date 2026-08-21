@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  buildAppShellTabFlexSizing,
-  buildAppShellTabListWidth,
-} from "./app-shell-tab-sizing";
+import { buildAppShellTabFlexSizing, buildAppShellTabListWidth } from "./app-shell-tab-sizing";
 
 describe("app shell tab sizing", () => {
   test("distributes unlocked tabs equally within the shared min and max bounds", () => {

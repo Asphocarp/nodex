@@ -1,9 +1,4 @@
-import {
-  createContext,
-  useContext,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
 import { APP_SHELL_FLOATING_UI_LAYER_INDEX } from "@/lib/app-shell-layers";
 
 const NodexFloatingLayerContext = createContext<number | null>(null);
@@ -29,17 +24,11 @@ export function NodexFloatingLayerProvider({
   children: ReactNode;
   zIndex: number;
 }) {
-  return (
-    <NodexFloatingLayerContext value={zIndex}>
-      {children}
-    </NodexFloatingLayerContext>
-  );
+  return <NodexFloatingLayerContext value={zIndex}>{children}</NodexFloatingLayerContext>;
 }
 
 /** Resolves the layer for a shared floating surface and its descendants. */
-export function useNodexFloatingLayerIndex(
-  explicitZIndex?: CSSProperties["zIndex"],
-): number {
+export function useNodexFloatingLayerIndex(explicitZIndex?: CSSProperties["zIndex"]): number {
   const ownerZIndex = useContext(NodexFloatingLayerContext);
   const explicitLayerIndex = parseLayerIndex(explicitZIndex);
   if (explicitLayerIndex !== null) return explicitLayerIndex;

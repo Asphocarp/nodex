@@ -15,16 +15,7 @@ const ToolbarDropdown = forwardRef<
     label: ReactNode;
     ariaLabel?: string;
   }
->(function ToolbarDropdown(
-  {
-    label,
-    className,
-    ariaLabel,
-    type = "button",
-    ...props
-  },
-  ref,
-) {
+>(function ToolbarDropdown({ label, className, ariaLabel, type = "button", ...props }, ref) {
   return (
     <button
       {...props}
@@ -78,7 +69,9 @@ export function ToolbarDropdownMenu({
         <NodexDropdownTitle>{title}</NodexDropdownTitle>
         <div className="flex max-h-[250px] flex-col overflow-y-auto">
           {items.length === 0 ? (
-            <NodexDropdownMessage compact>{emptyLabel ?? "No options available"}</NodexDropdownMessage>
+            <NodexDropdownMessage compact>
+              {emptyLabel ?? "No options available"}
+            </NodexDropdownMessage>
           ) : (
             items.map((item) => {
               const icon = renderItemIcon?.(item.value);
@@ -87,13 +80,15 @@ export function ToolbarDropdownMenu({
                 <NodexDropdownItem
                   key={item.value}
                   onSelect={() => onSelect(item.value)}
-                  {...(
-                    selectedItemDataAttribute && item.value === selectedValue
-                      ? { [selectedItemDataAttribute]: "true" }
-                      : {}
-                  )}
+                  {...(selectedItemDataAttribute && item.value === selectedValue
+                    ? { [selectedItemDataAttribute]: "true" }
+                    : {})}
                   leftSlot={icon ? <span className="text-token-foreground">{icon}</span> : null}
-                  rightSlot={item.value === selectedValue ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+                  rightSlot={
+                    item.value === selectedValue ? (
+                      <CheckmarkIcon className="shrink-0 text-token-foreground" />
+                    ) : null
+                  }
                   subText={showDescriptions ? item.description : undefined}
                   allowWrap={showDescriptions}
                 >

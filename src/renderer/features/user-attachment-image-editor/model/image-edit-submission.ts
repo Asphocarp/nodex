@@ -53,9 +53,7 @@ function createImageEditSubmissionIntent(args: {
 }): ImageEditSubmissionIntent {
   return {
     analytics: args.analytics,
-    attachmentIds: args.attachments.map(
-      (attachment) => attachment.attachmentId,
-    ),
+    attachmentIds: args.attachments.map((attachment) => attachment.attachmentId),
     attachments: args.attachments,
     entrypoint: args.entrypoint,
     focusComposerAfterSubmit: true,
@@ -115,9 +113,7 @@ export function buildCommentSubmissionIntent(args: {
 }): ImageEditSubmissionIntent {
   const promptRaw = serializeImageCommentGroups({
     imageCommentGroups: args.commentedImages.flatMap((item, index) =>
-      item.comments.length === 0
-        ? []
-        : [{ comments: item.comments, imageNumber: index + 1 }],
+      item.comments.length === 0 ? [] : [{ comments: item.comments, imageNumber: index + 1 }],
     ),
     locales: args.locales,
     prompt: args.generalInstructions ?? "",
@@ -125,16 +121,11 @@ export function buildCommentSubmissionIntent(args: {
 
   return createImageEditSubmissionIntent({
     analytics: {
-      commentCount: args.commentedImages.reduce(
-        (count, item) => count + item.comments.length,
-        0,
-      ),
+      commentCount: args.commentedImages.reduce((count, item) => count + item.comments.length, 0),
       hasGeneralInstruction: (args.generalInstructions ?? "").trim().length > 0,
       selectedImageCount: args.commentedImages.length,
     },
-    attachments: args.commentedImages.map((item) =>
-      createAttachmentInput(item.image, "selected"),
-    ),
+    attachments: args.commentedImages.map((item) => createAttachmentInput(item.image, "selected")),
     entrypoint: args.entrypoint,
     mode: "comment",
     promptRaw,
@@ -151,9 +142,7 @@ export function buildSelectionSubmissionIntent(args: {
       hasGeneralInstruction: (args.promptRaw ?? "").trim().length > 0,
       selectedImageCount: args.images.length,
     },
-    attachments: args.images.map((image) =>
-      createAttachmentInput(image, "selected"),
-    ),
+    attachments: args.images.map((image) => createAttachmentInput(image, "selected")),
     entrypoint: args.entrypoint,
     mode: "select",
     promptRaw: args.promptRaw ?? "",

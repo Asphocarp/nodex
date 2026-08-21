@@ -8,11 +8,7 @@ import {
   SlidersHorizontal,
 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexIconButton, NodexSwitch } from "@/components/ui/button";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { databaseIntrinsicFieldsForLayout } from "@/lib/database-intrinsic-field-registry";
 import type {
@@ -60,9 +56,7 @@ function DisplayRow({
         disabled && "opacity-55",
       )}
     >
-      <span className="min-w-0 flex-1 truncate text-token-description-foreground">
-        {label}
-      </span>
+      <span className="min-w-0 flex-1 truncate text-token-description-foreground">{label}</span>
       <div className="flex shrink-0 items-center gap-1">{children}</div>
     </div>
   );
@@ -106,15 +100,9 @@ export function DatabaseViewDisplayOptions({
   onForcedFieldChange,
 }: DatabaseViewDisplayOptionsProps) {
   const [forcedField, setForcedField] = useState<DatabaseViewField | null>(null);
-  const activeProperties = properties.filter(
-    (property) => property.lifecycle === "active",
-  );
-  const sortable = activeProperties.filter(
-    (property) => property.capabilities.sortable,
-  );
-  const groupable = activeProperties.filter(
-    (property) => property.capabilities.groupable,
-  );
+  const activeProperties = properties.filter((property) => property.lifecycle === "active");
+  const sortable = activeProperties.filter((property) => property.capabilities.sortable);
+  const groupable = activeProperties.filter((property) => property.capabilities.groupable);
   const capabilities = {
     groupablePropertyIds: new Set(groupable.map((property) => String(property.propertyId))),
   };
@@ -128,23 +116,23 @@ export function DatabaseViewDisplayOptions({
     nulls: "last" as const,
   };
   const currentSortKey = sortFieldKey(currentSort.field);
-  const currentSortPropertyId = currentSort.field.kind === "property"
-    ? currentSort.field.propertyId
-    : null;
-  const currentSortLabel = currentSortPropertyId !== null
-    ? sortable.find((property) => property.propertyId === currentSortPropertyId)?.name
-      ?? "Missing property"
-    : currentSort.field.kind === "manual"
-      ? "Manual"
-      : currentSort.field.kind === "created"
-        ? "Created"
-        : "Title";
-  const groupLabel = groupable.find(
-    (property) => property.propertyId === presentation.group?.propertyId,
-  )?.name ?? "No grouping";
-  const subgroupLabel = groupable.find(
-    (property) => property.propertyId === presentation.subgroup?.propertyId,
-  )?.name ?? "No grouping";
+  const currentSortPropertyId =
+    currentSort.field.kind === "property" ? currentSort.field.propertyId : null;
+  const currentSortLabel =
+    currentSortPropertyId !== null
+      ? (sortable.find((property) => property.propertyId === currentSortPropertyId)?.name ??
+        "Missing property")
+      : currentSort.field.kind === "manual"
+        ? "Manual"
+        : currentSort.field.kind === "created"
+          ? "Created"
+          : "Title";
+  const groupLabel =
+    groupable.find((property) => property.propertyId === presentation.group?.propertyId)?.name ??
+    "No grouping";
+  const subgroupLabel =
+    groupable.find((property) => property.propertyId === presentation.subgroup?.propertyId)?.name ??
+    "No grouping";
   const dispatch = (action: DatabaseViewDisplayOptionAction): void => {
     onChange(reduceDisplayOptionChange(effective, action, capabilities));
   };
@@ -188,14 +176,16 @@ export function DatabaseViewDisplayOptions({
   const fieldGroups = [
     { label: "Display fields", fields },
     ...(advancedFields.length > 0
-      ? [{
-          label: "Advanced identity",
-          fields: advancedFields.map((descriptor) => ({
-            key: `intrinsic:${descriptor.field}`,
-            label: descriptor.label,
-            field: { kind: "intrinsic" as const, field: descriptor.field },
-          })),
-        }]
+      ? [
+          {
+            label: "Advanced identity",
+            fields: advancedFields.map((descriptor) => ({
+              key: `intrinsic:${descriptor.field}`,
+              label: descriptor.label,
+              field: { kind: "intrinsic" as const, field: descriptor.field },
+            })),
+          },
+        ]
       : []),
   ];
 
@@ -225,10 +215,10 @@ export function DatabaseViewDisplayOptions({
             aria-label="Database View layout"
             className="grid h-8 grid-cols-2 gap-1 rounded-lg bg-token-foreground/5 p-0.5"
           >
-            {([
+            {[
               { value: "list" as const, label: "List", icon: List },
               { value: "board" as const, label: "Board", icon: BoardIcon },
-            ]).map((candidate) => (
+            ].map((candidate) => (
               <NodexButton
                 key={candidate.value}
                 role="tab"
@@ -261,10 +251,12 @@ export function DatabaseViewDisplayOptions({
               valueLabel={groupLabel}
               disabled={busy}
               chrome="raised"
-              onValueChange={(value) => dispatch({
-                kind: "set_group",
-                propertyId: value || null,
-              })}
+              onValueChange={(value) =>
+                dispatch({
+                  kind: "set_group",
+                  propertyId: value || null,
+                })
+              }
               options={[
                 { value: "", label: "No grouping" },
                 ...groupable.map((property) => ({
@@ -279,9 +271,9 @@ export function DatabaseViewDisplayOptions({
               size="xs"
               ariaLabel="Group ordering"
               aria-pressed={presentation.groupDirection === "desc"}
-              title={presentation.groupDirection === "asc"
-                ? "Groups ascending"
-                : "Groups descending"}
+              title={
+                presentation.groupDirection === "asc" ? "Groups ascending" : "Groups descending"
+              }
               disabled={busy || presentation.group === null}
               onClick={() => dispatch({ kind: "toggle_group_direction" })}
               className="order-first"
@@ -296,16 +288,16 @@ export function DatabaseViewDisplayOptions({
               valueLabel={subgroupLabel}
               disabled={busy || presentation.group === null}
               chrome="raised"
-              onValueChange={(value) => dispatch({
-                kind: "set_subgroup",
-                propertyId: value || null,
-              })}
+              onValueChange={(value) =>
+                dispatch({
+                  kind: "set_subgroup",
+                  propertyId: value || null,
+                })
+              }
               options={[
                 { value: "", label: "No grouping" },
                 ...groupable
-                  .filter((property) =>
-                    property.propertyId !== presentation.group?.propertyId
-                  )
+                  .filter((property) => property.propertyId !== presentation.group?.propertyId)
                   .map((property) => ({
                     value: property.propertyId,
                     label: property.name,
@@ -340,9 +332,7 @@ export function DatabaseViewDisplayOptions({
               size="xs"
               ariaLabel="Direction"
               aria-pressed={currentSort.direction === "desc"}
-              title={currentSort.direction === "asc"
-                ? "Ascending"
-                : "Descending"}
+              title={currentSort.direction === "asc" ? "Ascending" : "Descending"}
               disabled={busy}
               onClick={() => dispatch({ kind: "toggle_order_direction" })}
               className="order-first"
@@ -354,10 +344,12 @@ export function DatabaseViewDisplayOptions({
               checked={presentation.completion.orderByRecency}
               disabled={busy}
               size="compact"
-              onCheckedChange={(enabled) => dispatch({
-                kind: "set_completed_recency",
-                enabled,
-              })}
+              onCheckedChange={(enabled) =>
+                dispatch({
+                  kind: "set_completed_recency",
+                  enabled,
+                })
+              }
             />
           </DisplayRow>
 
@@ -371,10 +363,12 @@ export function DatabaseViewDisplayOptions({
                   valueLabel={completedRangeLabel(presentation.completion.range)}
                   disabled={busy}
                   chrome="raised"
-                  onValueChange={(range) => dispatch({
-                    kind: "set_completed_range",
-                    range: range as DatabaseViewCompletedRange,
-                  })}
+                  onValueChange={(range) =>
+                    dispatch({
+                      kind: "set_completed_range",
+                      range: range as DatabaseViewCompletedRange,
+                    })
+                  }
                   options={[
                     { value: "all", label: "All" },
                     { value: "past_month", label: "Past month" },
@@ -394,10 +388,12 @@ export function DatabaseViewDisplayOptions({
               checked={presentation.hierarchy.showSubPages}
               disabled={busy}
               size="compact"
-              onCheckedChange={(enabled) => dispatch({
-                kind: "set_show_sub_pages",
-                enabled,
-              })}
+              onCheckedChange={(enabled) =>
+                dispatch({
+                  kind: "set_show_sub_pages",
+                  enabled,
+                })
+              }
             />
           </DisplayRow>
 
@@ -414,10 +410,12 @@ export function DatabaseViewDisplayOptions({
               checked={layout === "list" && presentation.hierarchy.nestedSubPages}
               disabled={busy || layout !== "list" || !presentation.hierarchy.showSubPages}
               size="compact"
-              onCheckedChange={(enabled) => dispatch({
-                kind: "set_nested_sub_pages",
-                enabled,
-              })}
+              onCheckedChange={(enabled) =>
+                dispatch({
+                  kind: "set_nested_sub_pages",
+                  enabled,
+                })
+              }
             />
           </DisplayRow>
           <DisplayRow label="Show empty groups" disabled={presentation.group === null}>
@@ -426,19 +424,23 @@ export function DatabaseViewDisplayOptions({
               checked={layoutConfig.showEmptyGroups}
               disabled={busy || presentation.group === null}
               size="compact"
-              onCheckedChange={(enabled) => dispatch({
-                kind: "set_show_empty_groups",
-                enabled,
-              })}
+              onCheckedChange={(enabled) =>
+                dispatch({
+                  kind: "set_show_empty_groups",
+                  enabled,
+                })
+              }
             />
           </DisplayRow>
 
           {fieldGroups.map((group, groupIndex) => (
             <div key={group.label}>
-              <div className={cn(
-                "px-3 pb-1 font-medium text-token-text-secondary",
-                groupIndex === 0 ? "pt-2 text-[13px]" : "pt-1 text-[12px]",
-              )}>
+              <div
+                className={cn(
+                  "px-3 pb-1 font-medium text-token-text-secondary",
+                  groupIndex === 0 ? "pt-2 text-[13px]" : "pt-1 text-[12px]",
+                )}
+              >
                 {group.label}
               </div>
               <div className="flex flex-wrap gap-1.5 px-3 pb-2">
@@ -446,8 +448,8 @@ export function DatabaseViewDisplayOptions({
                   const durableVisible = layoutConfig.fields.some(
                     (candidate) => databaseViewDisplayFieldKey(candidate) === key,
                   );
-                  const forced = forcedField !== null
-                    && databaseViewDisplayFieldKey(forcedField) === key;
+                  const forced =
+                    forcedField !== null && databaseViewDisplayFieldKey(forcedField) === key;
                   return (
                     <NodexButton
                       key={key}
@@ -456,9 +458,11 @@ export function DatabaseViewDisplayOptions({
                       aria-pressed={durableVisible}
                       data-forced-visible={forced || undefined}
                       disabled={busy}
-                      title={forced && !durableVisible
-                        ? "Visible while this field controls ordering"
-                        : undefined}
+                      title={
+                        forced && !durableVisible
+                          ? "Visible while this field controls ordering"
+                          : undefined
+                      }
                       onClick={() => dispatch({ kind: "toggle_field", field })}
                       className={cn(
                         "h-6 rounded-full border px-2 text-xs font-normal",
@@ -477,10 +481,12 @@ export function DatabaseViewDisplayOptions({
                     variant="secondary"
                     aria-pressed={layoutConfig.showDescription !== false}
                     disabled={busy}
-                    onClick={() => dispatch({
-                      kind: "set_show_description",
-                      enabled: layoutConfig.showDescription === false,
-                    })}
+                    onClick={() =>
+                      dispatch({
+                        kind: "set_show_description",
+                        enabled: layoutConfig.showDescription === false,
+                      })
+                    }
                     className={cn(
                       "h-6 rounded-full border px-2 text-xs font-normal",
                       layoutConfig.showDescription !== false
@@ -495,7 +501,10 @@ export function DatabaseViewDisplayOptions({
             </div>
           ))}
           {error ? (
-            <div role="alert" className="mx-3 mb-2 rounded-md bg-token-error-background px-2 py-1.5 text-xs text-token-error-foreground">
+            <div
+              role="alert"
+              className="mx-3 mb-2 rounded-md bg-token-error-background px-2 py-1.5 text-xs text-token-error-foreground"
+            >
               {error}
             </div>
           ) : null}

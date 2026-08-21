@@ -39,10 +39,10 @@ export function parseSparkleReleaseLock(value: unknown): SparkleReleaseLock {
     throw new Error("Unsupported Sparkle release lock schema.");
   }
   if (
-    !isObject(value.source)
-    || !isObject(value.archive)
-    || !isObject(value.framework)
-    || !isObject(value.license)
+    !isObject(value.source) ||
+    !isObject(value.archive) ||
+    !isObject(value.framework) ||
+    !isObject(value.license)
   ) {
     throw new Error("Sparkle release lock is missing required sections.");
   }
@@ -72,9 +72,10 @@ export function parseSparkleReleaseLock(value: unknown): SparkleReleaseLock {
   }
   const parsedArchiveUrl = new URL(archiveUrl);
   if (
-    parsedArchiveUrl.protocol !== "https:"
-    || parsedArchiveUrl.hostname !== "github.com"
-    || parsedArchiveUrl.pathname !== `/sparkle-project/Sparkle/releases/download/${version}/${archiveName}`
+    parsedArchiveUrl.protocol !== "https:" ||
+    parsedArchiveUrl.hostname !== "github.com" ||
+    parsedArchiveUrl.pathname !==
+      `/sparkle-project/Sparkle/releases/download/${version}/${archiveName}`
   ) {
     throw new Error("Sparkle archive URL must target the pinned official GitHub release asset.");
   }
@@ -91,10 +92,10 @@ export function parseSparkleReleaseLock(value: unknown): SparkleReleaseLock {
     throw new Error("Sparkle bundle version must be numeric.");
   }
   if (
-    !Array.isArray(architectures)
-    || architectures.length !== 2
-    || architectures[0] !== "arm64"
-    || architectures[1] !== "x86_64"
+    !Array.isArray(architectures) ||
+    architectures.length !== 2 ||
+    architectures[0] !== "arm64" ||
+    architectures[1] !== "x86_64"
   ) {
     throw new Error("Sparkle framework must retain the official arm64/x86_64 slices.");
   }

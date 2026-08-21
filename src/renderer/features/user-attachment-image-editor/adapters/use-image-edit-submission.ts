@@ -22,18 +22,13 @@ import { beginOptimisticGeneratedImageEdit } from "./generated-image-collection-
 import { resolveImageInputSupport } from "../model/feature-policy";
 
 function resolveSubmissionSource(image: EditableImageDescriptor): string | null {
-  const candidates = [
-    image.dataUrl,
-    image.downloadSrc,
-    image.attachmentSrc,
-    image.src,
-  ];
+  const candidates = [image.dataUrl, image.downloadSrc, image.attachmentSrc, image.src];
   for (const candidate of candidates) {
     const source = candidate?.trim() ?? "";
     if (
-      source.startsWith("data:image/")
-      || source.startsWith("http://")
-      || source.startsWith("https://")
+      source.startsWith("data:image/") ||
+      source.startsWith("http://") ||
+      source.startsWith("https://")
     ) {
       return source;
     }
@@ -94,9 +89,10 @@ export function useImageEditSubmission(args: {
   const control = useCodexAppServerControl(args.projectId);
   const hasActiveTurn = useCodexConversationValue(
     args.threadId,
-    (conversation) => conversation?.statusType === "active"
-      || conversation?.turns.some((turn) => turn.status === "inProgress")
-      || false,
+    (conversation) =>
+      conversation?.statusType === "active" ||
+      conversation?.turns.some((turn) => turn.status === "inProgress") ||
+      false,
   );
   const conversationExecutionProfile = useCodexConversationValue(
     args.threadId,
@@ -108,14 +104,14 @@ export function useImageEditSubmission(args: {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const notifyImageInputUnsupported = (
-    mode: "comment" | "edit" | "select",
-  ) => {
-    toast.danger(mode === "comment"
-      ? "Could not add image comment"
-      : mode === "select"
-        ? "Could not select image"
-        : "Could not edit image");
+  const notifyImageInputUnsupported = (mode: "comment" | "edit" | "select") => {
+    toast.danger(
+      mode === "comment"
+        ? "Could not add image comment"
+        : mode === "select"
+          ? "Could not select image"
+          : "Could not edit image",
+    );
   };
 
   const submit = async (intent: ImageEditSubmissionIntent): Promise<boolean> => {
@@ -134,29 +130,25 @@ export function useImageEditSubmission(args: {
         outcome: "unavailable",
         route: directRoute,
       });
-      notifyImageInputUnsupported(intent.mode === "comment"
-        ? "comment"
-        : intent.mode === "select"
-          ? "select"
-          : "edit");
+      notifyImageInputUnsupported(
+        intent.mode === "comment" ? "comment" : intent.mode === "select" ? "select" : "edit",
+      );
       return false;
     }
     setIsSubmitting(true);
     let optimisticEdit: ReturnType<typeof beginOptimisticGeneratedImageEdit> | null = null;
     try {
       if (args.composerTarget) {
-        const result = await requestImageEditComposerSubmit(
-          args.composerTarget.channelId,
-          { intent, source: "single" },
-        );
+        const result = await requestImageEditComposerSubmit(args.composerTarget.channelId, {
+          intent,
+          source: "single",
+        });
         if (result.status === "failed") return false;
         if (result.status !== "unavailable") return true;
         if (result.reason === "image-input-unsupported") {
-          notifyImageInputUnsupported(intent.mode === "comment"
-            ? "comment"
-            : intent.mode === "select"
-              ? "select"
-              : "edit");
+          notifyImageInputUnsupported(
+            intent.mode === "comment" ? "comment" : intent.mode === "select" ? "select" : "edit",
+          );
           return false;
         }
         if (result.reason === "asset-unresolvable") {
@@ -241,11 +233,9 @@ export function useImageEditSubmission(args: {
         outcome: "failed",
         route: directRoute,
       });
-      notifyImageInputUnsupported(intent.mode === "comment"
-        ? "comment"
-        : intent.mode === "select"
-          ? "select"
-          : "edit");
+      notifyImageInputUnsupported(
+        intent.mode === "comment" ? "comment" : intent.mode === "select" ? "select" : "edit",
+      );
       return false;
     } finally {
       setIsSubmitting(false);

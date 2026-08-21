@@ -40,9 +40,7 @@ export async function runSerializedProjectCatalogUpdate(
   });
 }
 
-export async function waitForProjectCatalogUpdates(
-  fallback: Project,
-): Promise<Project> {
+export async function waitForProjectCatalogUpdates(fallback: Project): Promise<Project> {
   while (true) {
     const tail = projectUpdateTails.get(fallback.id);
     if (!tail) break;

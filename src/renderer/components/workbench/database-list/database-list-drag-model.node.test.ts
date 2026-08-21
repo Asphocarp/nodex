@@ -85,18 +85,22 @@ const subtree = (): readonly DatabaseListProjectionRow[] => [
 
 describe("Database List subtree drag model", () => {
   test("classifies the exact row midpoint as after", () => {
-    expect(resolveDatabaseListRawEdge({
-      pointerY: 122,
-      top: 100,
-      height: 44,
-      explicitInside: false,
-    })).toBe("after");
-    expect(resolveDatabaseListRawEdge({
-      pointerY: 121.999,
-      top: 100,
-      height: 44,
-      explicitInside: false,
-    })).toBe("before");
+    expect(
+      resolveDatabaseListRawEdge({
+        pointerY: 122,
+        top: 100,
+        height: 44,
+        explicitInside: false,
+      }),
+    ).toBe("after");
+    expect(
+      resolveDatabaseListRawEdge({
+        pointerY: 121.999,
+        top: 100,
+        height: 44,
+        explicitInside: false,
+      }),
+    ).toBe("before");
   });
 
   test("normalizes an ancestor plus descendant selection to one visible subtree root", () => {
@@ -146,11 +150,13 @@ describe("Database List subtree drag model", () => {
 
     expect([...sources!.visibleClosurePageIds]).toEqual(["root", "deep"]);
     expect(sources?.concretePageCount).toBe(2);
-    expect(resolveDatabaseListDragSources({
-      rows,
-      selection: selected("context"),
-      initiatorOccurrenceKey: "context",
-    })).toBeNull();
+    expect(
+      resolveDatabaseListDragSources({
+        rows,
+        selection: selected("context"),
+        initiatorOccurrenceKey: "context",
+      }),
+    ).toBeNull();
   });
 
   test("previews after a parent as the first child slot", () => {
@@ -213,8 +219,9 @@ describe("Database List subtree drag model", () => {
       occurrenceKey: "y",
       indicatorEdge: "before",
     });
-    expect(databaseListDropTargetIdentity(lowerHalf))
-      .toBe(databaseListDropTargetIdentity(upperHalf));
+    expect(databaseListDropTargetIdentity(lowerHalf)).toBe(
+      databaseListDropTargetIdentity(upperHalf),
+    );
   });
 
   test("treats a drop back into the source's current sibling slot as a no-op", () => {
@@ -240,18 +247,17 @@ describe("Database List subtree drag model", () => {
       occurrenceKey: "x",
       indicatorEdge: "after",
     });
-    expect(databaseListDragTargetChangesPlacement({
-      rows,
-      sources,
-      target: target!,
-    })).toBe(false);
+    expect(
+      databaseListDragTargetChangesPlacement({
+        rows,
+        sources,
+        target: target!,
+      }),
+    ).toBe(false);
   });
 
   test("leaves bounded all-matching no-op authority to Core", () => {
-    const rows = [
-      page({ key: "x", pageId: "X" }),
-      page({ key: "y", pageId: "Y" }),
-    ];
+    const rows = [page({ key: "x", pageId: "X" }), page({ key: "y", pageId: "Y" })];
     const sources = resolveDatabaseListDragSources({
       rows,
       selection: {
@@ -269,11 +275,13 @@ describe("Database List subtree drag model", () => {
     });
 
     expect(sources.previewClosureComplete).toBe(false);
-    expect(databaseListDragTargetChangesPlacement({
-      rows,
-      sources,
-      target: target!,
-    })).toBe(true);
+    expect(
+      databaseListDragTargetChangesPlacement({
+        rows,
+        sources,
+        target: target!,
+      }),
+    ).toBe(true);
   });
 
   test("rejects every Page target inside the concrete closure", () => {
@@ -284,12 +292,14 @@ describe("Database List subtree drag model", () => {
       initiatorOccurrenceKey: "a",
     });
 
-    expect(normalizeDatabaseListDropTarget({
-      rows,
-      row: rows[2]!,
-      rawEdge: "before",
-      sources: sources!,
-    })).toBeNull();
+    expect(
+      normalizeDatabaseListDropTarget({
+        rows,
+        row: rows[2]!,
+        rawEdge: "before",
+        sources: sources!,
+      }),
+    ).toBeNull();
   });
 
   test("deduplicates a fully visible Page closure for the overlay count", () => {

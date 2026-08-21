@@ -33,11 +33,7 @@ function makeBlock(id: string, text = id) {
 
 function makeDoc() {
   return schema.node("doc", null, [
-    schema.node("blockGroup", null, [
-      makeBlock("a"),
-      makeBlock("b"),
-      makeBlock("c"),
-    ]),
+    schema.node("blockGroup", null, [makeBlock("a"), makeBlock("b"), makeBlock("c")]),
   ]);
 }
 
@@ -100,14 +96,9 @@ function installElementsFromPoint(
 function makeSideMenuView(
   active: ReturnType<typeof makeEditorCandidate>,
   root: Document | ShadowRoot = document,
-  interactionOwnership: (event: Event) => "self" | "other" | "none" = () =>
-    "none",
+  interactionOwnership: (event: Event) => "self" | "other" | "none" = () => "none",
 ) {
-  const droppedSlice = new Slice(
-    Fragment.from(makeBlock(active.block.dataset.id!)),
-    0,
-    0,
-  );
+  const droppedSlice = new Slice(Fragment.from(makeBlock(active.block.dataset.id!)), 0, 0);
   const pmView = {
     dom: active.editor,
     root,
@@ -183,10 +174,7 @@ describe("side-menu drop selection helpers", () => {
   });
 
   test("creates a MultipleNodeSelection for adjacent dropped block ids", () => {
-    const selection = createSideMenuDroppedBlockSelection(makeDoc(), [
-      "c",
-      "b",
-    ]);
+    const selection = createSideMenuDroppedBlockSelection(makeDoc(), ["c", "b"]);
 
     expect(selection instanceof MultipleNodeSelection).toBe(true);
     expect(selectionIds(selection)).toBe("b,c");
@@ -195,15 +183,9 @@ describe("side-menu drop selection helpers", () => {
   test("extracts dropped block ids from node-level selections and slices", () => {
     const doc = makeDoc();
     const selection = createSideMenuDroppedBlockSelection(doc, ["b", "c"]);
-    const slice = new Slice(
-      Fragment.fromArray([makeBlock("x"), makeBlock("y")]),
-      0,
-      0,
-    );
+    const slice = new Slice(Fragment.fromArray([makeBlock("x"), makeBlock("y")]), 0, 0);
 
-    expect(getSideMenuDroppedBlockIdsFromSelection(selection!).join(",")).toBe(
-      "b,c",
-    );
+    expect(getSideMenuDroppedBlockIdsFromSelection(selection!).join(",")).toBe("b,c");
     expect(getSideMenuDroppedBlockIdsFromSlice(slice).join(",")).toBe("x,y");
   });
 
@@ -211,15 +193,11 @@ describe("side-menu drop selection helpers", () => {
     const doc = makeDoc();
     const selection = createSideMenuDroppedBlockSelection(doc, ["b"]);
 
-    expect(
-      getSideMenuDroppedBlockIdsFromSlice(selection!.content()).join(","),
-    ).toBe("b");
+    expect(getSideMenuDroppedBlockIdsFromSlice(selection!.content()).join(",")).toBe("b");
   });
 
   test("returns undefined when dropped ids are not in the new document", () => {
-    expect(
-      createSideMenuDroppedBlockSelection(makeDoc(), ["missing"]) === undefined,
-    ).toBe(true);
+    expect(createSideMenuDroppedBlockSelection(makeDoc(), ["missing"]) === undefined).toBe(true);
   });
 
   test("ignores non-interactive editor geometry for side-menu hover and drop routing", () => {
@@ -233,10 +211,7 @@ describe("side-menu drop selection helpers", () => {
     inertHost.setAttribute("inert", "");
     inertHost.appendChild(inert.editor);
 
-    const pointerDisabled = makeEditorCandidate(
-      "pointer-disabled",
-      excludedRect,
-    );
+    const pointerDisabled = makeEditorCandidate("pointer-disabled", excludedRect);
     pointerDisabled.editor.style.pointerEvents = "none";
 
     const incomplete = document.createElement("div");
@@ -251,19 +226,14 @@ describe("side-menu drop selection helpers", () => {
       active.editor,
     );
 
-    const restoreElementsFromPoint = installElementsFromPoint(
-      document,
-      (clientX) => (clientX >= activeRect.left ? [active.block] : []),
+    const restoreElementsFromPoint = installElementsFromPoint(document, (clientX) =>
+      clientX >= activeRect.left ? [active.block] : [],
     );
     const runtime = makeSideMenuView(active);
 
     try {
-      runtime.view.onMouseMove(
-        new MouseEvent("mousemove", { clientX: 90, clientY: 150 }),
-      );
-      const dragContext = runtime.view.getDragEventContext(
-        makeDropEvent("dragover", 90, 150),
-      );
+      runtime.view.onMouseMove(new MouseEvent("mousemove", { clientX: 90, clientY: 150 }));
+      const dragContext = runtime.view.getDragEventContext(makeDropEvent("dragover", 90, 150));
 
       expect(runtime.getHoveredBlockId()).toBe("active");
       expect(dragContext).toMatchObject({
@@ -296,12 +266,8 @@ describe("side-menu drop selection helpers", () => {
     const runtime = makeSideMenuView(top);
 
     try {
-      runtime.view.onMouseMove(
-        new MouseEvent("mousemove", { clientX: 150, clientY: 150 }),
-      );
-      const dragContext = runtime.view.getDragEventContext(
-        makeDropEvent("dragover", 150, 150),
-      );
+      runtime.view.onMouseMove(new MouseEvent("mousemove", { clientX: 150, clientY: 150 }));
+      const dragContext = runtime.view.getDragEventContext(makeDropEvent("dragover", 150, 150));
 
       expect(runtime.getHoveredBlockId()).toBe("top");
       expect(dragContext).toMatchObject({
@@ -332,25 +298,14 @@ describe("side-menu drop selection helpers", () => {
     const outerOwner = BlockNoteEditor.create();
     const innerOwner = BlockNoteEditor.create();
     const unregisterOuter = outerOwner.registerInteractionRoot(outer.editor);
-    const unregisterInnerContent = innerOwner.registerInteractionRoot(
-      inner.editor,
-    );
-    const unregisterInnerPortal =
-      innerOwner.registerInteractionRoot(innerPortal);
+    const unregisterInnerContent = innerOwner.registerInteractionRoot(inner.editor);
+    const unregisterInnerPortal = innerOwner.registerInteractionRoot(innerPortal);
     const restoreElementsFromPoint = installElementsFromPoint(document, () => [
       inner.block,
       outer.block,
     ]);
-    const outerRuntime = makeSideMenuView(
-      outer,
-      document,
-      outerOwner.getInteractionOwnership,
-    );
-    const innerRuntime = makeSideMenuView(
-      inner,
-      document,
-      innerOwner.getInteractionOwnership,
-    );
+    const outerRuntime = makeSideMenuView(outer, document, outerOwner.getInteractionOwnership);
+    const innerRuntime = makeSideMenuView(inner, document, innerOwner.getInteractionOwnership);
 
     const contentPath = [
       inner.block,
@@ -405,22 +360,10 @@ describe("side-menu drop selection helpers", () => {
       expect(outerRuntime.isVisible()).toBe(false);
 
       const innerDropContext = innerRuntime.view.getDragEventContext(
-        makePointerEvent(
-          "dragover",
-          inner.block,
-          contentPath,
-          160,
-          160,
-        ) as DragEvent,
+        makePointerEvent("dragover", inner.block, contentPath, 160, 160) as DragEvent,
       );
       const outerDropContext = outerRuntime.view.getDragEventContext(
-        makePointerEvent(
-          "dragover",
-          inner.block,
-          contentPath,
-          160,
-          160,
-        ) as DragEvent,
+        makePointerEvent("dragover", inner.block, contentPath, 160, 160) as DragEvent,
       );
 
       expect(innerDropContext).toMatchObject({
@@ -450,12 +393,8 @@ describe("side-menu drop selection helpers", () => {
     const runtime = makeSideMenuView(active, root);
 
     try {
-      runtime.view.onMouseMove(
-        new MouseEvent("mousemove", { clientX: 150, clientY: 150 }),
-      );
-      const dragContext = runtime.view.getDragEventContext(
-        makeDropEvent("dragover", 150, 150),
-      );
+      runtime.view.onMouseMove(new MouseEvent("mousemove", { clientX: 150, clientY: 150 }));
+      const dragContext = runtime.view.getDragEventContext(makeDropEvent("dragover", 150, 150));
 
       expect(runtime.getHoveredBlockId()).toBe("");
       expect(dragContext).toBeUndefined();
@@ -488,9 +427,7 @@ describe("side-menu drop selection helpers", () => {
         move: true,
       },
       dispatch: () => {
-        throw new Error(
-          "outer drop handler should not collapse selection after synthetic drop",
-        );
+        throw new Error("outer drop handler should not collapse selection after synthetic drop");
       },
     };
     let pendingIds = "";
@@ -609,15 +546,9 @@ describe("side-menu drop selection helpers", () => {
     const dropTransaction = newState.tr.setMeta("uiEvent", "drop");
 
     try {
-      (pluginView as SideMenuView<never, never, never>).onDrop(
-        makeDropEvent("drop", 150, 150),
-      );
+      (pluginView as SideMenuView<never, never, never>).onDrop(makeDropEvent("drop", 150, 150));
 
-      const appended = plugin.spec.appendTransaction?.(
-        [dropTransaction],
-        newState,
-        newState,
-      );
+      const appended = plugin.spec.appendTransaction?.([dropTransaction], newState, newState);
       const nextState = appended ? newState.apply(appended) : newState;
       extension.blockDragEnd();
       extension.blockDragEnd();

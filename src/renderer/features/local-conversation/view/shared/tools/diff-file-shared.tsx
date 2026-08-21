@@ -45,10 +45,17 @@ export function DiffStats({
   return (
     <span
       data-thread-find-skip="true"
-      className={cn("inline-flex items-center gap-1 disambiguated-digits tabular-nums tracking-tight", className)}
+      className={cn(
+        "inline-flex items-center gap-1 disambiguated-digits tabular-nums tracking-tight",
+        className,
+      )}
     >
-      <span className="flex shrink-0 items-center text-token-git-decoration-added-resource-foreground">+{additions}</span>
-      <span className="flex shrink-0 items-center text-token-git-decoration-deleted-resource-foreground">-{deletions}</span>
+      <span className="flex shrink-0 items-center text-token-git-decoration-added-resource-foreground">
+        +{additions}
+      </span>
+      <span className="flex shrink-0 items-center text-token-git-decoration-deleted-resource-foreground">
+        -{deletions}
+      </span>
     </span>
   );
 }
@@ -60,23 +67,26 @@ function formatDiffNumber(value: number): string {
 function AnimatedDiffNumber({ value }: { value: number }) {
   const formatted = formatDiffNumber(value);
   let digitPlace = 0;
-  const parts = Array.from(formatted).reverse().map((char, indexFromRight) => {
-    if (!/\d/.test(char)) {
-      return {
-        key: `separator-${indexFromRight}-${char}`,
-        char,
-        digit: null,
-      };
-    }
+  const parts = Array.from(formatted)
+    .reverse()
+    .map((char, indexFromRight) => {
+      if (!/\d/.test(char)) {
+        return {
+          key: `separator-${indexFromRight}-${char}`,
+          char,
+          digit: null,
+        };
+      }
 
-    const part = {
-      key: `digit-${digitPlace}`,
-      char,
-      digit: Number(char),
-    };
-    digitPlace += 1;
-    return part;
-  }).reverse();
+      const part = {
+        key: `digit-${digitPlace}`,
+        char,
+        digit: Number(char),
+      };
+      digitPlace += 1;
+      return part;
+    })
+    .reverse();
 
   return (
     <>
@@ -89,7 +99,9 @@ function AnimatedDiffNumber({ value }: { value: number }) {
           <span
             key={part.key}
             className="diff-stat-digit-column"
-            data-diff-stat-digit-place={part.key.startsWith("digit-") ? part.key.slice("digit-".length) : undefined}
+            data-diff-stat-digit-place={
+              part.key.startsWith("digit-") ? part.key.slice("digit-".length) : undefined
+            }
             aria-hidden="true"
           >
             <span className={`diff-stat-digit-stack diff-stat-digit-stack-${part.digit}`}>
@@ -117,7 +129,10 @@ export function AnimatedDiffStats({
   return (
     <span
       data-thread-find-skip="true"
-      className={cn("inline-flex items-center gap-1 disambiguated-digits tabular-nums tracking-tight", className)}
+      className={cn(
+        "inline-flex items-center gap-1 disambiguated-digits tabular-nums tracking-tight",
+        className,
+      )}
     >
       <span
         className="flex flex-shrink-0 items-center text-token-git-decoration-added-resource-foreground"
@@ -144,7 +159,9 @@ export function Chevron({ expanded, className }: { expanded: boolean; className?
         className,
       )}
     >
-      <ChevronRightIcon className={cn("text-current transition-transform duration-200", expanded && "rotate-90")} />
+      <ChevronRightIcon
+        className={cn("text-current transition-transform duration-200", expanded && "rotate-90")}
+      />
     </span>
   );
 }
@@ -166,9 +183,9 @@ export function FilenameButton({
       className={className}
       onClick={(event) => {
         event.stopPropagation();
-        onOpen?.(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
-          ? "external"
-          : "primary");
+        onOpen?.(
+          event.metaKey || event.ctrlKey || event.altKey || event.shiftKey ? "external" : "primary",
+        );
       }}
       onDoubleClick={(event) => {
         event.preventDefault();

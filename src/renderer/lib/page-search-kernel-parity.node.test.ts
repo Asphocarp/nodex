@@ -10,10 +10,12 @@ import fixture from "../../../crates/nodex-page-search-kernel/tests/fixtures/par
 describe("Page search WASM adapter", () => {
   beforeAll(() => {
     initSync({
-      module: readFileSync(resolve(
-        import.meta.dirname,
-        "../generated/page-search-wasm/nodex_page_search_kernel_bg.wasm",
-      )),
+      module: readFileSync(
+        resolve(
+          import.meta.dirname,
+          "../generated/page-search-wasm/nodex_page_search_kernel_bg.wasm",
+        ),
+      ),
     });
   });
 
@@ -21,8 +23,10 @@ describe("Page search WASM adapter", () => {
     const index = new PageSearchPreviewIndex(fixture.documents);
     for (const parityCase of fixture.cases) {
       const hits = index.search(parityCase.request) as { pageId: string }[];
-      expect(hits.map((hit) => hit.pageId), parityCase.name)
-        .toEqual(parityCase.expectedPageIds);
+      expect(
+        hits.map((hit) => hit.pageId),
+        parityCase.name,
+      ).toEqual(parityCase.expectedPageIds);
     }
   });
 
@@ -39,8 +43,9 @@ describe("Page search WASM adapter", () => {
       ...fixture.cases[0].request,
       query: "replacement",
     };
-    expect((index.search(request) as { pageId: string }[]).map((hit) => hit.pageId))
-      .toEqual([replacement.pageId]);
+    expect((index.search(request) as { pageId: string }[]).map((hit) => hit.pageId)).toEqual([
+      replacement.pageId,
+    ]);
 
     index.applyDelta([], [replacement.pageId]);
     expect(index.search(request)).toEqual([]);

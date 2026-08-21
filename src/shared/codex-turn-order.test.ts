@@ -13,11 +13,9 @@ describe("codex turn order helpers", () => {
   });
 
   test("inserts ids after an anchor while preserving surrounding order", () => {
-    const result = insertOrderedStringIdsAfter(
-      ["user_1", "steer_1", "assistant_1"],
-      "steer_1",
-      ["steered_1"],
-    );
+    const result = insertOrderedStringIdsAfter(["user_1", "steer_1", "assistant_1"], "steer_1", [
+      "steered_1",
+    ]);
 
     expect(result.join(",")).toBe("user_1,steer_1,steered_1,assistant_1");
   });
@@ -39,7 +37,10 @@ describe("codex turn order helpers", () => {
   });
 
   test("removes all requested ids", () => {
-    const result = removeOrderedStringIds(["user_1", "steer_1", "steered_1"], ["steer_1", "missing"]);
+    const result = removeOrderedStringIds(
+      ["user_1", "steer_1", "steered_1"],
+      ["steer_1", "missing"],
+    );
 
     expect(result.join(",")).toBe("user_1,steered_1");
   });

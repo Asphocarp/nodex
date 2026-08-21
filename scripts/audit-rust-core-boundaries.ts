@@ -5,35 +5,23 @@ import { build } from "esbuild";
 const repositoryRoot = path.resolve(".");
 const failures: string[] = [];
 
-const read = (file: string): string =>
-  readFileSync(path.join(repositoryRoot, file), "utf8");
+const read = (file: string): string => readFileSync(path.join(repositoryRoot, file), "utf8");
 
-const assertAbsent = (
-  file: string,
-  forbidden: readonly RegExp[],
-  label: string,
-): void => {
+const assertAbsent = (file: string, forbidden: readonly RegExp[], label: string): void => {
   const content = read(file);
   for (const pattern of forbidden) {
     if (pattern.test(content)) failures.push(`${label}: ${file} matches ${pattern}`);
   }
 };
 
-const assertPresent = (
-  file: string,
-  required: readonly RegExp[],
-  label: string,
-): void => {
+const assertPresent = (file: string, required: readonly RegExp[], label: string): void => {
   const content = read(file);
   for (const pattern of required) {
     if (!pattern.test(content)) failures.push(`${label}: ${file} misses ${pattern}`);
   }
 };
 
-const sourceFiles = (
-  directory: string,
-  extensionPattern: RegExp = /\.rs$/,
-): readonly string[] => {
+const sourceFiles = (directory: string, extensionPattern: RegExp = /\.rs$/): readonly string[] => {
   const entries = readdirSync(path.join(repositoryRoot, directory), {
     withFileTypes: true,
   });
@@ -63,18 +51,12 @@ for (const moduleDirectory of [
   "library",
   "workspace",
 ]) {
-  const directory = path.join(
-    repositoryRoot,
-    "crates/nodex-core/src",
-    moduleDirectory,
-  );
+  const directory = path.join(repositoryRoot, "crates/nodex-core/src", moduleDirectory);
   if (!statSync(directory).isDirectory()) {
     failures.push(`missing vertical Module directory: ${directory}`);
     continue;
   }
-  for (const file of sourceFiles(
-    path.join("crates/nodex-core/src", moduleDirectory),
-  )) {
+  for (const file of sourceFiles(path.join("crates/nodex-core/src", moduleDirectory))) {
     assertAbsent(
       file,
       [/\baxum\b/, /\bhyper\b/, /\bnodex_core_protocol\b/],
@@ -84,21 +66,12 @@ for (const moduleDirectory of [
 }
 
 for (const [file, contractVersion] of [
-  [
-    "crates/nodex-core/src/administration/mod.rs",
-    "STORE_ADMINISTRATION_CONTRACT_VERSION",
-  ],
+  ["crates/nodex-core/src/administration/mod.rs", "STORE_ADMINISTRATION_CONTRACT_VERSION"],
   ["crates/nodex-core/src/automation/mod.rs", "AUTOMATION_CONTRACT_VERSION"],
   ["crates/nodex-core/src/database/mod.rs", "DATABASE_CONTRACT_VERSION"],
-  [
-    "crates/nodex-core/src/document/module.rs",
-    "OWNED_DOCUMENT_CONTRACT_VERSION",
-  ],
+  ["crates/nodex-core/src/document/module.rs", "OWNED_DOCUMENT_CONTRACT_VERSION"],
   ["crates/nodex-core/src/library/mod.rs", "LIBRARY_CONTRACT_VERSION"],
-  [
-    "crates/nodex-core/src/workspace/mod.rs",
-    "PROJECT_WORKSPACE_CONTRACT_VERSION",
-  ],
+  ["crates/nodex-core/src/workspace/mod.rs", "PROJECT_WORKSPACE_CONTRACT_VERSION"],
 ] as const) {
   assertPresent(
     file,
@@ -124,11 +97,7 @@ for (const file of [
 }
 
 for (const file of sourceFiles("crates/nodex-core-server/src")) {
-  assertAbsent(
-    file,
-    [/\brusqlite\b/],
-    "UDS routes must not import the SQLite implementation",
-  );
+  assertAbsent(file, [/\brusqlite\b/], "UDS routes must not import the SQLite implementation");
 }
 
 for (const file of sourceFiles("src/main/core-client", /\.ts$/)) {
@@ -172,7 +141,9 @@ const auditProductionMainBundle = (
     const normalizedInput = input.replaceAll("\\", "/");
     for (const retiredInput of retiredDocumentAuthorityInputs) {
       if (normalizedInput.endsWith(`/${retiredInput}`)) {
-        failures.push(`Desktop bootstrap transitively includes retired Document authority: ${input}`);
+        failures.push(
+          `Desktop bootstrap transitively includes retired Document authority: ${input}`,
+        );
       }
     }
     for (const imported of metadata.imports) {
@@ -218,9 +189,9 @@ const expectedRoutes = new Set([
   "/core/v1/health",
   "/core/v1/local-mutations/resolve",
   "/core/v1/requests/cancel",
-  ...["administration", "automation", "database", "document", "library", "workspace"]
-    .flatMap((module) => ["apply", "read"].map((operation) =>
-      `/core/v1/modules/${module}/${operation}`)),
+  ...["administration", "automation", "database", "document", "library", "workspace"].flatMap(
+    (module) => ["apply", "read"].map((operation) => `/core/v1/modules/${module}/${operation}`),
+  ),
 ]);
 interface OpenApiSchema {
   readonly properties?: Readonly<Record<string, unknown>>;
@@ -262,13 +233,7 @@ for (const [name, schema] of moduleRequestSchemas) {
 }
 
 const compatibilityManifest = schemas.CoreCompatibilityManifest;
-for (const axis of [
-  "manifest_version",
-  "transport",
-  "event_versions",
-  "modules",
-  "store",
-]) {
+for (const axis of ["manifest_version", "transport", "event_versions", "modules", "store"]) {
   if (!compatibilityManifest?.required?.includes(axis)) {
     failures.push(`CoreCompatibilityManifest does not require ${axis}`);
   }

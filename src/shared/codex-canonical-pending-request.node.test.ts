@@ -5,10 +5,7 @@ import {
   selectCanonicalInteractiveRequestForTurn,
 } from "./codex-canonical-pending-request";
 import { agentActivityV2UserInputRequest } from "./codex-conversation-state/test-fixtures/agent-activity-v2-request-family-corpus";
-import type {
-  CodexCanonicalServerRequest,
-  CodexConversationSnapshot,
-} from "./types";
+import type { CodexCanonicalServerRequest, CodexConversationSnapshot } from "./types";
 
 const THREAD_ID = "thread_1";
 const TURN_ID = "turn_1";
@@ -31,13 +28,15 @@ function buildConversation(
     updatedAt: 2,
     linkedAt: "2026-07-12T00:00:00.000Z",
     resumeState: "resumed",
-    turns: [{
-      threadId: THREAD_ID,
-      turnId: TURN_ID,
-      status: "inProgress",
-      itemIds: [],
-      items: [],
-    }],
+    turns: [
+      {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        status: "inProgress",
+        itemIds: [],
+        items: [],
+      },
+    ],
     canonicalRequests,
     requests: [],
     queuedFollowUps: [],
@@ -113,11 +112,13 @@ describe("canonical pending request projection", () => {
       id: "onboarding",
       tool: "request_onboarding_input",
       arguments: {
-        questions: [{
-          id: "task",
-          question: "What should Codex do first?",
-          options: [{ label: "Build" }, { label: "Review", description: "Review code" }],
-        }],
+        questions: [
+          {
+            id: "task",
+            question: "What should Codex do first?",
+            options: [{ label: "Build" }, { label: "Review", description: "Review code" }],
+          },
+        ],
       },
     });
     const option = directOptionPicker("option", "Option");
@@ -204,9 +205,9 @@ describe("canonical pending request projection", () => {
         options: [{ label: "UI" }],
       },
     };
-    const bucket = buildCodexCanonicalPendingRequestBuckets(
-      buildConversation([numericOption]),
-    ).get(TURN_ID);
+    const bucket = buildCodexCanonicalPendingRequestBuckets(buildConversation([numericOption])).get(
+      TURN_ID,
+    );
 
     expect(bucket?.latestOptionPickerRequest?.requestId).toBe(73);
   });

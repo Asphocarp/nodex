@@ -1,11 +1,5 @@
-import type {
-  CodexProtocolRequestId,
-  CodexUserInputRequest,
-} from "../../../../../lib/types";
-import {
-  useEffect,
-  useState,
-} from "react";
+import type { CodexProtocolRequestId, CodexUserInputRequest } from "../../../../../lib/types";
+import { useEffect, useState } from "react";
 import {
   REQUEST_INPUT_COMPOSER_POLICY,
   RequestComposerView,
@@ -20,14 +14,15 @@ import {
   snoozeUserInput,
   useUserInputAutoResolution,
 } from "../../../user-input-auto-resolution-state";
-import type {
-  CodexUserInputAutoResolutionEntry,
-} from "../../../../../../shared/codex-user-input-auto-resolution";
+import type { CodexUserInputAutoResolutionEntry } from "../../../../../../shared/codex-user-input-auto-resolution";
 
 interface CodexUserInputRequestCardProps {
   conversationId: string;
   request: CodexUserInputRequest;
-  onRespond: (requestId: CodexProtocolRequestId, answers: Record<string, string[]>) => Promise<void>;
+  onRespond: (
+    requestId: CodexProtocolRequestId,
+    answers: Record<string, string[]>,
+  ) => Promise<void>;
   onInterrupt?: () => Promise<void>;
 }
 
@@ -45,22 +40,19 @@ interface CodexUserInputRequestCardViewProps {
   onResolved?: () => void;
 }
 
-export function CodexUserInputAutoResolutionCountdown({
-  deadlineMs,
-}: {
-  deadlineMs: number;
-}) {
+export function CodexUserInputAutoResolutionCountdown({ deadlineMs }: { deadlineMs: number }) {
   const [now, setNow] = useState(Date.now);
 
   useEffect(() => {
     const remainingMs = deadlineMs - Date.now();
     if (remainingMs <= 0) return;
 
-    const timer = setTimeout(() => {
-      setNow(Date.now());
-    }, remainingMs > 60_000
-      ? remainingMs - 60_000
-      : Math.min(1_000, remainingMs));
+    const timer = setTimeout(
+      () => {
+        setNow(Date.now());
+      },
+      remainingMs > 60_000 ? remainingMs - 60_000 : Math.min(1_000, remainingMs),
+    );
     return () => {
       clearTimeout(timer);
     };
@@ -93,17 +85,16 @@ export function CodexUserInputRequestCardView({
     <RequestComposerView
       request={request}
       policy={REQUEST_INPUT_COMPOSER_POLICY}
-      headerAccessory={autoResolution?.phase.type === "scheduled"
-        ? <CodexUserInputAutoResolutionCountdown deadlineMs={autoResolution.phase.deadlineMs} />
-        : null}
+      headerAccessory={
+        autoResolution?.phase.type === "scheduled" ? (
+          <CodexUserInputAutoResolutionCountdown deadlineMs={autoResolution.phase.deadlineMs} />
+        ) : null
+      }
       initialDraft={initialDraft}
       onDraftChange={onDraftChange}
       onUserInteraction={onUserInteraction}
       onSubmit={async (nextRequest, state) => {
-        await onRespond(
-          nextRequest.requestId,
-          buildUserInputAnswers(nextRequest, state),
-        );
+        await onRespond(nextRequest.requestId, buildUserInputAnswers(nextRequest, state));
         onResolved?.();
       }}
       onEscapeDismiss={async (nextRequest) => {
@@ -136,23 +127,16 @@ export function CodexUserInputRequestCard({
         })),
       }
     : request;
-  const {
-    initialDraft,
-    saveDraft,
-    clearDraft,
-  } = useCodexUserInputDraft(conversationId, viewRequest);
-  const autoResolution = useUserInputAutoResolution(
+  const { initialDraft, saveDraft, clearDraft } = useCodexUserInputDraft(
     conversationId,
-    request.requestId,
+    viewRequest,
   );
+  const autoResolution = useUserInputAutoResolution(conversationId, request.requestId);
 
   useEffect(() => {
     const recordActivity = (event: KeyboardEvent | PointerEvent) => {
       const target = event.target;
-      if (
-        target instanceof Element
-        && target.closest("[data-user-input-auto-resolution]")
-      ) {
+      if (target instanceof Element && target.closest("[data-user-input-auto-resolution]")) {
         return;
       }
       void recordUserInputActivity(conversationId);
@@ -176,16 +160,11 @@ export function CodexUserInputRequestCard({
       }}
       onRespond={onRespond}
       onDismiss={async (nextRequest) => {
-        const claimed = await snoozeUserInput(
-          conversationId,
-          request.requestId,
-        );
-        const tracked = claimed
-          || autoResolution !== null
-          || await isUserInputAutoResolutionTracked(
-            conversationId,
-            request.requestId,
-          );
+        const claimed = await snoozeUserInput(conversationId, request.requestId);
+        const tracked =
+          claimed ||
+          autoResolution !== null ||
+          (await isUserInputAutoResolutionTracked(conversationId, request.requestId));
         if (request.isOnboardingDynamicInput || tracked) {
           await onRespond(nextRequest.requestId, {});
           return;

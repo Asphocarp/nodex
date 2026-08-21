@@ -1,8 +1,4 @@
-import {
-  createContext,
-  useContext,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import type { CodexThreadActiveFlag, CodexThreadStatusType } from "@/lib/types";
 
 export interface ThreadSectionLinkedThreadState {

@@ -34,7 +34,7 @@ export type CodexSidebarThreadMovePlacement =
       afterThreadId?: never;
       insertAtEnd?: never;
       useDefaultOrder?: never;
-  }
+    }
   | {
       beforeThreadId: null;
       afterThreadId: string;
@@ -60,8 +60,8 @@ export type CodexSidebarThreadMovePlacement =
       useDefaultOrder?: never;
     };
 
-export type CodexSidebarThreadMoveInput = CodexSidebarThreadMoveBase
-  & CodexSidebarThreadMovePlacement;
+export type CodexSidebarThreadMoveInput = CodexSidebarThreadMoveBase &
+  CodexSidebarThreadMovePlacement;
 
 export interface CodexSidebarThreadMoveScope {
   projectId: string | null;
@@ -90,20 +90,28 @@ export type CodexSidebarThreadMoveResult =
   | CodexSidebarThreadMoveSuccess
   | CodexSidebarThreadMoveConfirmationRequired;
 
-const ContainerIdSchema = z.string().trim().min(1).refine((value) => (
-  value === "pinned"
-  || value === "chats"
-  || value === "cloud"
-  || value.startsWith("project-pinned:") && value.length > "project-pinned:".length
-  || value.startsWith("project:") && value.length > "project:".length
-  || value.startsWith("reorder-only:") && value.length > "reorder-only:".length
-), "Invalid sidebar thread container id") as z.ZodType<CodexSidebarThreadContainerId>;
+const ContainerIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine(
+    (value) =>
+      value === "pinned" ||
+      value === "chats" ||
+      value === "cloud" ||
+      (value.startsWith("project-pinned:") && value.length > "project-pinned:".length) ||
+      (value.startsWith("project:") && value.length > "project:".length) ||
+      (value.startsWith("reorder-only:") && value.length > "reorder-only:".length),
+    "Invalid sidebar thread container id",
+  ) as z.ZodType<CodexSidebarThreadContainerId>;
 
-const ProjectAccessGrantSchema = z.object({
-  targetProjectId: z.string().trim().min(1),
-  expectedBindingRevision: z.number().int().positive().safe(),
-  missingProjectSources: z.array(z.string().trim().min(1)).min(1),
-}).strict() satisfies z.ZodType<CodexSidebarThreadMoveProjectAccessGrant>;
+const ProjectAccessGrantSchema = z
+  .object({
+    targetProjectId: z.string().trim().min(1),
+    expectedBindingRevision: z.number().int().positive().safe(),
+    missingProjectSources: z.array(z.string().trim().min(1)).min(1),
+  })
+  .strict() satisfies z.ZodType<CodexSidebarThreadMoveProjectAccessGrant>;
 
 const MoveBaseSchema = z.object({
   hostId: z.literal("local"),
@@ -149,10 +157,7 @@ const MovePlacementSchema = z.union([
 export const CodexSidebarThreadMoveInputSchema = MoveBaseSchema.and(
   MovePlacementSchema,
 ).superRefine((input, context) => {
-  if (
-    input.beforeThreadId !== input.threadId
-    && input.afterThreadId !== input.threadId
-  ) {
+  if (input.beforeThreadId !== input.threadId && input.afterThreadId !== input.threadId) {
     return;
   }
   context.addIssue({
@@ -202,8 +207,6 @@ export function codexSidebarProjectThreadContainerId(
   return pinned ? `project-pinned:${projectId}` : `project:${projectId}`;
 }
 
-export function isCodexSidebarPinnedThreadContainerId(
-  containerId: string,
-): boolean {
+export function isCodexSidebarPinnedThreadContainerId(containerId: string): boolean {
   return containerId === "pinned" || containerId.startsWith("project-pinned:");
 }

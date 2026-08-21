@@ -1,11 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,10 +12,7 @@ const packageRoot = join(repositoryRoot, "packages/core-protocol");
 const codegenPackageRoot = join(repositoryRoot, "packages/core-protocol-codegen");
 const committedOpenApi = join(packageRoot, "openapi.json");
 const committedTypes = join(packageRoot, "src/generated.ts");
-const committedRequirements = join(
-  packageRoot,
-  "src/compatibility.generated.ts",
-);
+const committedRequirements = join(packageRoot, "src/compatibility.generated.ts");
 
 interface GeneratedArtifacts {
   readonly openApi: string;

@@ -86,30 +86,20 @@ describe("BrowserUseThreadConfigBuilder", () => {
         CODEX_HOME: path.resolve(runtimeStateHome),
         NODE_REPL_DISABLE_ANALYTICS: "1",
         NODE_REPL_NODE_MODULE_DIRS: [
-          path.join(
-            bundleRoot,
-            "marketplace",
-            "plugins",
-            "browser",
-            "node_modules",
-          ),
+          path.join(bundleRoot, "marketplace", "plugins", "browser", "node_modules"),
           path.join(bundleRoot, "runtime", "lib", "node_modules"),
         ].join(path.delimiter),
         NODE_REPL_NODE_PATH: path.join(bundleRoot, "bin", "node"),
-        NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S:
-          browserRuntime.bundle.browserPluginClientSha256,
-        NODE_REPL_TRUSTED_CODE_PATHS: [
-          path.resolve(runtimeStateHome),
-          bundleRoot,
-        ].join(path.delimiter),
+        NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: browserRuntime.bundle.browserPluginClientSha256,
+        NODE_REPL_TRUSTED_CODE_PATHS: [path.resolve(runtimeStateHome), bundleRoot].join(
+          path.delimiter,
+        ),
       },
     });
-    expect(config?.[
-      "shell_environment_policy.set.BROWSER_USE_DISABLE_AMBIENT_NETWORK"
-    ]).toBeUndefined();
-    expect(config?.[
-      "shell_environment_policy.set.NODE_REPL_DISABLE_ANALYTICS"
-    ]).toBeUndefined();
+    expect(
+      config?.["shell_environment_policy.set.BROWSER_USE_DISABLE_AMBIENT_NETWORK"],
+    ).toBeUndefined();
+    expect(config?.["shell_environment_policy.set.NODE_REPL_DISABLE_ANALYTICS"]).toBeUndefined();
     expect(JSON.stringify(config)).not.toContain("NODE_REPL_TRUST_ALL_CODE");
     expect(JSON.stringify(config)).not.toContain("experimental_thread_config_endpoint");
   });
@@ -169,16 +159,13 @@ describe("BrowserUseThreadConfigBuilder", () => {
       command: browserRuntime.bundle.paths.node,
     });
     expect(nodeRepl.env).toMatchObject({
-      NODE_REPL_HOST_SERVICES_PIPE_PATH:
-        "/tmp/nodex-host-services/runtime.sock",
+      NODE_REPL_HOST_SERVICES_PIPE_PATH: "/tmp/nodex-host-services/runtime.sock",
       NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE:
         "Control desktop apps on macOS through Computer Use.",
-      NODE_REPL_TRUSTED_CODE_PATHS: [
-        path.resolve(runtimeStateHome),
-        bundleRoot,
-      ].join(path.delimiter),
-      SKY_CUA_SERVICE_PATH:
-        "/tmp/nodex-agent/computer-use/Codex Computer Use.app",
+      NODE_REPL_TRUSTED_CODE_PATHS: [path.resolve(runtimeStateHome), bundleRoot].join(
+        path.delimiter,
+      ),
+      SKY_CUA_SERVICE_PATH: "/tmp/nodex-agent/computer-use/Codex Computer Use.app",
     });
     expect(nodeRepl.env?.BROWSER_USE_AVAILABLE_BACKENDS).toBe("");
     expect(nodeRepl.env?.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S).toBe(

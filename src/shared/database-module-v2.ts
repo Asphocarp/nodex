@@ -111,10 +111,7 @@ export interface DatabaseContainerDescriptorV2 {
   readonly views: readonly DatabaseViewRecordV2[];
 }
 
-export type DatabasePageKeyPrefixAvailabilityV2 =
-  | "available"
-  | "current"
-  | "reserved";
+export type DatabasePageKeyPrefixAvailabilityV2 = "available" | "current" | "reserved";
 
 export interface DatabasePageKeyPrefixPreviewV2 {
   readonly prefix: string;
@@ -344,10 +341,10 @@ export type DatabaseReadV2 = (
       readonly mode: "option_window";
       readonly window?: { readonly after?: string | null; readonly first?: number };
     }
-  ) & {
-    /** Main/Core adapter read barrier for a previously returned local commit. */
-    readonly minimumCommitSeq?: number;
-  };
+) & {
+  /** Main/Core adapter read barrier for a previously returned local commit. */
+  readonly minimumCommitSeq?: number;
+};
 
 export type DatabaseReadValueV2 =
   | {
@@ -449,8 +446,10 @@ export interface LibraryDatabaseModuleReadRequestV2 {
   readonly read: LibraryDatabaseReadV2;
 }
 
-export interface LibraryDatabaseModuleReadSnapshotV2
-  extends Omit<DatabaseModuleReadSnapshotV2, "projectId"> {
+export interface LibraryDatabaseModuleReadSnapshotV2 extends Omit<
+  DatabaseModuleReadSnapshotV2,
+  "projectId"
+> {
   readonly accessContext: { readonly kind: "library" };
 }
 
@@ -463,9 +462,7 @@ export type LibraryDatabaseModuleReadResultV2 =
  * option registry. The current Property schemas have no mutable config outside
  * that registry, so v2 accepts only an empty object here.
  */
-export type DataSourcePropertyMutationConfigV2 = Readonly<
-  Record<string, never>
->;
+export type DataSourcePropertyMutationConfigV2 = Readonly<Record<string, never>>;
 
 export interface PutDataSourcePropertyOperationV2 {
   readonly kind: "put_property";
@@ -765,10 +762,7 @@ export interface DatabaseApplyV2 {
   readonly operations: readonly DatabaseApplyOperationV2[];
 }
 
-export type LibraryDatabaseApplyV2 = Omit<
-  DatabaseApplyV2,
-  "projectId" | "actor"
->;
+export type LibraryDatabaseApplyV2 = Omit<DatabaseApplyV2, "projectId" | "actor">;
 
 export interface DatabaseApplyReceiptV2 {
   readonly operationId: string;
@@ -787,8 +781,7 @@ export interface DatabaseApplyReceiptV2 {
   readonly committedAt: string;
 }
 
-export interface LibraryDatabaseApplyReceiptV2
-  extends Omit<DatabaseApplyReceiptV2, "projectId"> {
+export interface LibraryDatabaseApplyReceiptV2 extends Omit<DatabaseApplyReceiptV2, "projectId"> {
   readonly accessContext: { readonly kind: "library" };
 }
 

@@ -3,15 +3,10 @@ import { act } from "react";
 import { describe, expect, test, vi } from "vitest";
 
 import { render, settleAsyncRender } from "@/test/dom";
-import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "./dropdown";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "./dropdown";
 
 const trigger = (label: string) => (
-  <NodexDropdownButtonTrigger aria-label={label}>
-    Select
-  </NodexDropdownButtonTrigger>
+  <NodexDropdownButtonTrigger aria-label={label}>Select</NodexDropdownButtonTrigger>
 );
 
 describe("NodexOptionPicker", () => {

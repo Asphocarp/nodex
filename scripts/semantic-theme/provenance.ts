@@ -1,13 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { SEMANTIC_THEME_GENERATOR_VERSION, SEMANTIC_THEME_PROFILE } from "./profile";
-import type {
-  SemanticThemeArtifact,
-  SemanticThemeProvenance,
-} from "./types";
+import type { SemanticThemeArtifact, SemanticThemeProvenance } from "./types";
 
-export const sha256 = (value: string): string =>
-  createHash("sha256").update(value).digest("hex");
+export const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 
 const canonicalize = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -19,8 +15,7 @@ const canonicalize = (value: unknown): unknown => {
   );
 };
 
-export const canonicalJson = (value: unknown): string =>
-  JSON.stringify(canonicalize(value));
+export const canonicalJson = (value: unknown): string => JSON.stringify(canonicalize(value));
 
 export const semanticThemeProfileSha256 = (): string =>
   sha256(canonicalJson(SEMANTIC_THEME_PROFILE));
@@ -38,9 +33,8 @@ export const createSemanticThemeProvenance = (
     .sort((left, right) => left.path.localeCompare(right.path)),
 });
 
-export const renderSemanticThemeProvenance = (
-  provenance: SemanticThemeProvenance,
-): string => `${JSON.stringify(provenance, null, 2)}\n`;
+export const renderSemanticThemeProvenance = (provenance: SemanticThemeProvenance): string =>
+  `${JSON.stringify(provenance, null, 2)}\n`;
 
 const PROVENANCE_KEYS = [
   "artifacts",
@@ -61,11 +55,11 @@ export const parseSemanticThemeProvenance = (value: string): SemanticThemeProven
     throw new Error("THEME_PROVENANCE_INVALID");
   }
   if (
-    record.schemaVersion !== 1
-    || typeof record.refVersion !== "string"
-    || typeof record.profileSha256 !== "string"
-    || record.generatorVersion !== SEMANTIC_THEME_GENERATOR_VERSION
-    || !Array.isArray(record.artifacts)
+    record.schemaVersion !== 1 ||
+    typeof record.refVersion !== "string" ||
+    typeof record.profileSha256 !== "string" ||
+    record.generatorVersion !== SEMANTIC_THEME_GENERATOR_VERSION ||
+    !Array.isArray(record.artifacts)
   ) {
     throw new Error("THEME_PROVENANCE_INVALID");
   }
@@ -75,9 +69,9 @@ export const parseSemanticThemeProvenance = (value: string): SemanticThemeProven
     }
     const identity = artifact as Record<string, unknown>;
     if (
-      JSON.stringify(Object.keys(identity).sort()) !== JSON.stringify(["path", "sha256"])
-      || typeof identity.path !== "string"
-      || typeof identity.sha256 !== "string"
+      JSON.stringify(Object.keys(identity).sort()) !== JSON.stringify(["path", "sha256"]) ||
+      typeof identity.path !== "string" ||
+      typeof identity.sha256 !== "string"
     ) {
       throw new Error("THEME_PROVENANCE_INVALID");
     }

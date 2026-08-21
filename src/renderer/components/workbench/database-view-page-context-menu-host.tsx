@@ -1,26 +1,16 @@
-import {
-  useState,
-  type MouseEvent as ReactMouseEvent,
-  type ReactElement,
-} from "react";
+import { useState, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 
-import {
-  NodexContextMenuRoot,
-  NodexContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { NodexContextMenuRoot, NodexContextMenuTrigger } from "@/components/ui/context-menu";
 import {
   DatabaseViewPageContextMenuOverlay,
   type DatabaseViewPageMenuSession,
 } from "./database-view-page-context-menu";
 
-export const DATABASE_VIEW_PAGE_MENU_TARGET_ATTRIBUTE =
-  "data-database-view-page-menu-target";
+export const DATABASE_VIEW_PAGE_MENU_TARGET_ATTRIBUTE = "data-database-view-page-menu-target";
 
 export interface DatabaseViewPageContextMenuHostProps {
   readonly children: ReactElement;
-  readonly resolveSession: (
-    targetKey: string,
-  ) => DatabaseViewPageMenuSession | null;
+  readonly resolveSession: (targetKey: string) => DatabaseViewPageMenuSession | null;
 }
 
 /**
@@ -49,9 +39,7 @@ export function DatabaseViewPageContextMenuHost({
     const target = event.target.closest<HTMLElement>(
       `[${DATABASE_VIEW_PAGE_MENU_TARGET_ATTRIBUTE}]`,
     );
-    const nextTargetKey = target?.getAttribute(
-      DATABASE_VIEW_PAGE_MENU_TARGET_ATTRIBUTE,
-    );
+    const nextTargetKey = target?.getAttribute(DATABASE_VIEW_PAGE_MENU_TARGET_ATTRIBUTE);
     if (!nextTargetKey || !resolveSession(nextTargetKey)) {
       event.stopPropagation();
       return;

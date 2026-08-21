@@ -1,15 +1,6 @@
-import {
-  useEffect,
-  useState,
-  type CSSProperties,
-  type Ref,
-} from "react";
+import { useEffect, useState, type CSSProperties, type Ref } from "react";
 import { motion } from "motion/react";
-import {
-  CheckmarkIcon,
-  ImageCommentIcon,
-  ImageMultiSelectIcon,
-} from "@/components/shared/icons";
+import { CheckmarkIcon, ImageCommentIcon, ImageMultiSelectIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { RotateCcw } from "@/components/shared/icons/generic-icons";
 import { cn } from "@/lib/utils";
@@ -18,16 +9,9 @@ import {
   formatGeneratedImageGroupTime,
   isGeneratedImageTileEmphasized,
 } from "../model/generated-image-canvas-presentation";
-import type {
-  GeneratedImageDescriptor,
-  ImageComment,
-  PlaygroundTool,
-} from "../model/types";
+import type { GeneratedImageDescriptor, ImageComment, PlaygroundTool } from "../model/types";
 import { ImageCommentSurface } from "./image-comment-surface";
-import {
-  ImageCommentModeToolbar,
-  ImageEditorToolbarPill,
-} from "./image-editor-toolbar";
+import { ImageCommentModeToolbar, ImageEditorToolbarPill } from "./image-editor-toolbar";
 import { ImageZoomControl } from "./image-zoom-control";
 import { useImageZoomGestures } from "./use-image-zoom-gestures";
 import { GeneratedImageDotField } from "./generated-image-dot-field";
@@ -58,13 +42,7 @@ export interface GeneratedImagePlaygroundProps {
   onZoomPercentChange: (zoomPercent: number) => void;
 }
 
-function GeneratedImageLoadingCard({
-  active,
-  imageId,
-}: {
-  active: boolean;
-  imageId: string;
-}) {
+function GeneratedImageLoadingCard({ active, imageId }: { active: boolean; imageId: string }) {
   return (
     <div
       aria-busy="true"
@@ -123,12 +101,12 @@ function GeneratedImagePlaygroundCard({
     if (!displaySrc) return;
     setRenderFailed(false);
     onResolvedSource(
-      asset.dataUrl
-      ?? image.dataUrl
-      ?? image.localPath
-      ?? image.downloadSrc
-      ?? image.attachmentSrc
-      ?? image.src,
+      asset.dataUrl ??
+        image.dataUrl ??
+        image.localPath ??
+        image.downloadSrc ??
+        image.attachmentSrc ??
+        image.src,
     );
   }, [
     asset.dataUrl,
@@ -145,10 +123,10 @@ function GeneratedImagePlaygroundCard({
     return <GeneratedImageLoadingCard active={active} imageId={image.id} />;
   }
   if (
-    asset.isError
-    || renderFailed
-    || !displaySrc
-    || (image.status === "failed" && !statusRetryRequested)
+    asset.isError ||
+    renderFailed ||
+    !displaySrc ||
+    (image.status === "failed" && !statusRetryRequested)
   ) {
     return (
       <div
@@ -181,12 +159,7 @@ function GeneratedImagePlaygroundCard({
       tool,
     });
     return (
-      <div
-        className={cn(
-          "relative max-w-full shrink-0",
-          active && isViewTransitioning && "z-10",
-        )}
-      >
+      <div className={cn("relative max-w-full shrink-0", active && isViewTransitioning && "z-10")}>
         <div
           className={cn(
             "relative flex max-w-full shrink-0 items-center rounded-xl bg-token-bg-tertiary outline-none",
@@ -218,12 +191,7 @@ function GeneratedImagePlaygroundCard({
     tool,
   });
   return (
-    <div
-      className={cn(
-        "relative max-w-full shrink-0",
-        active && isViewTransitioning && "z-10",
-      )}
-    >
+    <div className={cn("relative max-w-full shrink-0", active && isViewTransitioning && "z-10")}>
       <button
         ref={active ? focusedImageRef : undefined}
         type="button"
@@ -326,10 +294,12 @@ export function GeneratedImagePlayground({
   onZoomPercentChange,
 }: GeneratedImagePlaygroundProps) {
   const commentCount = groups.reduce(
-    (total, group) => total + group.images.reduce(
-      (groupTotal, image) => groupTotal + (commentsByImageId[image.id]?.length ?? 0),
-      0,
-    ),
+    (total, group) =>
+      total +
+      group.images.reduce(
+        (groupTotal, image) => groupTotal + (commentsByImageId[image.id]?.length ?? 0),
+        0,
+      ),
     0,
   );
   const zoomStyle = { zoom: zoomPercent / 100 } as CSSProperties;
@@ -343,11 +313,7 @@ export function GeneratedImagePlayground({
       className="relative h-full min-h-0 bg-token-bg-primary"
       data-testid="generated-image-playground"
       onKeyDown={(event) => {
-        if (
-          event.key !== "Escape"
-          || event.defaultPrevented
-          || tool === "navigate"
-        ) return;
+        if (event.key !== "Escape" || event.defaultPrevented || tool === "navigate") return;
         event.preventDefault();
         event.stopPropagation();
         onToolChange("navigate");
@@ -389,17 +355,17 @@ export function GeneratedImagePlayground({
             <motion.div
               key={group.id}
               initial={{
-                opacity: !isViewTransitioning
-                  || group.images.some((image) => image.id === activeImageId)
-                  ? 1
-                  : 0,
+                opacity:
+                  !isViewTransitioning || group.images.some((image) => image.id === activeImageId)
+                    ? 1
+                    : 0,
               }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.14, delay: isViewTransitioning ? 0.24 : 0 }}
               className={cn(
                 "relative flex max-w-full gap-2",
-                (group.turnStartedAtMs !== null
-                  || group.images.some((image) => image.loading)) && "pt-6",
+                (group.turnStartedAtMs !== null || group.images.some((image) => image.loading)) &&
+                  "pt-6",
               )}
             >
               {group.turnStartedAtMs !== null ? (
@@ -415,10 +381,7 @@ export function GeneratedImagePlayground({
                 if (image.loading || image.status === "loading") {
                   return (
                     <div key={image.id} className="w-72 max-w-full shrink-0">
-                      <GeneratedImageLoadingCard
-                        active={active}
-                        imageId={image.id}
-                      />
+                      <GeneratedImageLoadingCard active={active} imageId={image.id} />
                     </div>
                   );
                 }
@@ -452,9 +415,9 @@ export function GeneratedImagePlayground({
                       onCommentsChange(
                         image.id,
                         existing
-                          ? comments.map((candidate) => (
-                              candidate.id === comment.id ? comment : candidate
-                            ))
+                          ? comments.map((candidate) =>
+                              candidate.id === comment.id ? comment : candidate,
+                            )
                           : [...comments, comment],
                       );
                     }}

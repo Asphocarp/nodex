@@ -13,9 +13,7 @@ export interface TieredTestFiles {
   readonly isStress: boolean;
 }
 
-export function resolveVitestTestTier(
-  value = process.env.NODEX_TEST_TIER,
-): VitestTestTier {
+export function resolveVitestTestTier(value = process.env.NODEX_TEST_TIER): VitestTestTier {
   if (value === undefined || value === "default") return "default";
   if (value === "stress") return "stress";
   throw new Error(

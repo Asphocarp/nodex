@@ -5,10 +5,7 @@ import {
   installMotionPreferenceForTest,
 } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import {
-  renderWithMaitai as render,
-  settleAsyncRender,
-} from "../../../test/dom";
+import { renderWithMaitai as render, settleAsyncRender } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
@@ -222,9 +219,7 @@ describe("LocalConversationFooter", () => {
             statusType: "idle",
             statusActiveFlags: [],
             turns: base.conversation.turns.map((turn, index, turns) =>
-              index === turns.length - 1
-                ? { ...turn, status: "interrupted" }
-                : turn
+              index === turns.length - 1 ? { ...turn, status: "interrupted" } : turn,
             ),
           }
         : null,
@@ -303,9 +298,7 @@ describe("LocalConversationFooter", () => {
     );
 
     await waitFor(() => {
-      const prompt = view.container.querySelector(
-        '[data-codex-composer="true"]',
-      );
+      const prompt = view.container.querySelector('[data-codex-composer="true"]');
       if (!prompt) throw new Error("Expected pending worktree composer");
       expect(prompt.getAttribute("aria-label")).toBe(blockedReason);
       expect(prompt.getAttribute("contenteditable")).toBe("false");
@@ -358,7 +351,9 @@ describe("LocalConversationFooter", () => {
     fireEvent.click(view.getByLabelText("Add files and more"));
 
     await waitFor(() => {
-      const planRow = view.container.ownerDocument.body.querySelector('[data-add-context-row="plan-mode"]');
+      const planRow = view.container.ownerDocument.body.querySelector(
+        '[data-add-context-row="plan-mode"]',
+      );
       if (!planRow) {
         throw new Error("Expected the Plan mode row.");
       }
@@ -448,7 +443,9 @@ describe("LocalConversationFooter", () => {
     });
 
     await waitFor(() => {
-      expect(Boolean(container.querySelector('[aria-label="Scroll to latest message"]'))).toBe(true);
+      expect(Boolean(container.querySelector('[aria-label="Scroll to latest message"]'))).toBe(
+        true,
+      );
     });
 
     scrollToCalls.length = 0;
@@ -462,7 +459,9 @@ describe("LocalConversationFooter", () => {
     const footerStack = footerOwner?.querySelector('[data-thread-footer-stack="true"]');
     const aboveComposerPortal = footerStack?.querySelector("#above-composer-portal");
     const queuePortal = footerStack?.querySelector("#above-composer-queue-portal");
-    const composerShell = footerStack?.querySelector('[data-local-conversation-composer-shell="true"]');
+    const composerShell = footerStack?.querySelector(
+      '[data-local-conversation-composer-shell="true"]',
+    );
     expect(footerOwner !== null).toBe(true);
     expect(catchUpSlot !== null).toBe(true);
     expect(footerStack !== null).toBe(true);
@@ -504,26 +503,48 @@ describe("LocalConversationFooter", () => {
       expect(overlay.querySelector('[data-thread-footer-stack="true"]') !== null).toBe(true);
       expect(overlay.querySelector("#above-composer-portal") !== null).toBe(true);
       expect(overlay.querySelector("#above-composer-queue-portal") !== null).toBe(true);
-      expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]') !== null).toBe(true);
-      expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]') !== null).toBe(true);
+      expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]') !== null).toBe(
+        true,
+      );
+      expect(
+        overlay.querySelector('[data-local-conversation-composer-shell="true"]') !== null,
+      ).toBe(true);
     });
 
-    const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
+    const overlay = document.body.querySelector(
+      '[data-testid="right-panel-composer-overlay"]',
+    ) as HTMLElement;
     const footerOwner = overlay.querySelector('[data-thread-find-composer="true"]');
     const catchUpSlot = footerOwner?.querySelector('[data-thread-catch-up-control="true"]');
     const footerStack = footerOwner?.querySelector('[data-thread-footer-stack="true"]');
     const aboveComposerPortal = footerStack?.querySelector("#above-composer-portal");
     const queuePortal = footerStack?.querySelector("#above-composer-queue-portal");
-    const latestTurnPreview = footerStack?.querySelector('[data-right-panel-latest-turn-preview="true"]');
-    const composerShell = footerStack?.querySelector('[data-local-conversation-composer-shell="true"]');
+    const latestTurnPreview = footerStack?.querySelector(
+      '[data-right-panel-latest-turn-preview="true"]',
+    );
+    const composerShell = footerStack?.querySelector(
+      '[data-local-conversation-composer-shell="true"]',
+    );
     if (!aboveComposerPortal || !queuePortal || !latestTurnPreview || !composerShell) {
       throw new Error("Expected overlay fixture nodes");
     }
 
     expect(isBefore(catchUpSlot, footerStack)).toBe(true);
-    expect(Boolean(aboveComposerPortal.compareDocumentPosition(queuePortal) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(Boolean(queuePortal.compareDocumentPosition(latestTurnPreview) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(Boolean(latestTurnPreview.compareDocumentPosition(composerShell) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(
+      Boolean(
+        aboveComposerPortal.compareDocumentPosition(queuePortal) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        queuePortal.compareDocumentPosition(latestTurnPreview) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        latestTurnPreview.compareDocumentPosition(composerShell) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
 
     await waitFor(() => {
       expect(overlay.getAttribute("aria-hidden")).toBe("false");
@@ -531,17 +552,11 @@ describe("LocalConversationFooter", () => {
       if (!prompt) throw new Error("Expected floating prompt editor");
       expect(prompt.getAttribute("aria-label")).toBe("Do anything");
     });
-    const addContext = overlay.querySelector(
-      'button[aria-label="Add files and more"]',
-    );
+    const addContext = overlay.querySelector('button[aria-label="Add files and more"]');
     const prompt = overlay.querySelector('[data-codex-composer="true"]');
     const permission = overlay.querySelector('button[aria-label="Permission mode"]');
-    const formFooter = overlay.querySelector(
-      '[data-composer-form-footer="true"]',
-    );
-    const inputSlot = formFooter?.querySelector(
-      '[data-composer-input-slot="true"]',
-    );
+    const formFooter = overlay.querySelector('[data-composer-form-footer="true"]');
+    const inputSlot = formFooter?.querySelector('[data-composer-input-slot="true"]');
     expect(isBefore(addContext, prompt)).toBe(true);
     expect(isBefore(prompt, permission)).toBe(true);
     expect(permission?.textContent).toBe("");
@@ -580,8 +595,12 @@ describe("LocalConversationFooter", () => {
               target,
               leadingContent: (
                 <div className="contents">
-                  <button type="button" className="order-1">Greet user</button>
-                  <button type="button" className="order-3">Open task</button>
+                  <button type="button" className="order-1">
+                    Greet user
+                  </button>
+                  <button type="button" className="order-3">
+                    Open task
+                  </button>
                 </div>
               ),
             }}
@@ -638,9 +657,11 @@ describe("LocalConversationFooter", () => {
     });
     const rails = overlay.querySelectorAll('[data-composer-context-rail="true"]');
     expect(rails).toHaveLength(1);
-    expect(within(rails[0] as HTMLElement).getByRole("button", {
-      name: "Greet user",
-    })).not.toBeNull();
+    expect(
+      within(rails[0] as HTMLElement).getByRole("button", {
+        name: "Greet user",
+      }),
+    ).not.toBeNull();
     expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]')).toBeNull();
   });
 
@@ -661,17 +682,19 @@ describe("LocalConversationFooter", () => {
         runInTarget: "localProject",
       },
       newThreadProjectSelector: {
-        projects: [{
-          id: "project_1",
-          label: "Project",
-          appearance: {
-            color: "blue",
-            marker: { kind: "icon", icon: "folder" },
+        projects: [
+          {
+            id: "project_1",
+            label: "Project",
+            appearance: {
+              color: "blue",
+              marker: { kind: "icon", icon: "folder" },
+            },
+            description: "/tmp/project",
+            primaryWorkspaceRoot: "/tmp/project",
+            searchText: "project /tmp/project",
           },
-          description: "/tmp/project",
-          primaryWorkspaceRoot: "/tmp/project",
-          searchText: "project /tmp/project",
-        }],
+        ],
         selectedProjectId: "project_1",
         disabled: true,
         canAddProject: false,
@@ -755,9 +778,7 @@ describe("LocalConversationFooter", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(
-        document.body.querySelector('button[aria-label="Copy"]'),
-      ).not.toBeNull();
+      expect(document.body.querySelector('button[aria-label="Copy"]')).not.toBeNull();
     });
 
     await act(async () => {
@@ -768,9 +789,7 @@ describe("LocalConversationFooter", () => {
     const nextPreview = document.body.querySelector<HTMLElement>(
       '[data-right-panel-latest-turn-preview="true"]',
     );
-    expect(
-      nextPreview?.querySelector("button")?.getAttribute("aria-expanded"),
-    ).toBe("false");
+    expect(nextPreview?.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
     expect(document.body.querySelector('button[aria-label="Copy"]')).toBeNull();
   });
 
@@ -809,15 +828,9 @@ describe("LocalConversationFooter", () => {
       const formFooter = document.body.querySelector(
         '[data-testid="right-panel-composer-overlay"] [data-composer-form-footer="true"]',
       );
-      const inputSlot = formFooter?.querySelector(
-        '[data-composer-input-slot="true"]',
-      );
-      const leadingSlot = formFooter?.querySelector(
-        '[data-composer-footer-leading="true"]',
-      );
-      const trailingSlot = formFooter?.querySelector(
-        '[data-composer-footer-trailing="true"]',
-      );
+      const inputSlot = formFooter?.querySelector('[data-composer-input-slot="true"]');
+      const leadingSlot = formFooter?.querySelector('[data-composer-footer-leading="true"]');
+      const trailingSlot = formFooter?.querySelector('[data-composer-footer-trailing="true"]');
       expect(composer?.textContent).toContain("First line");
       expect(composer?.textContent).toContain("Second line");
       expect(attachmentTray !== null).toBe(true);
@@ -834,27 +847,26 @@ describe("LocalConversationFooter", () => {
     const target = document.createElement("div");
     document.body.appendChild(target);
     const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
-    const measurement = vi.spyOn(
-      HTMLElement.prototype,
-      "getBoundingClientRect",
-    ).mockImplementation(function measuredComposerRect(this: HTMLElement) {
-      if (this.dataset.codexComposer === "true" && this.style.position === "fixed") {
-        return new DOMRect(0, 0, 520, 20);
-      }
-      if (this.dataset.composerFormFooter === "true") {
-        return new DOMRect(0, 0, 736, 44);
-      }
-      if (this.dataset.composerFooterLeading === "true") {
-        return new DOMRect(0, 0, 28, 28);
-      }
-      if (this.dataset.composerInputSlot === "true") {
-        return new DOMRect(0, 0, 400, 20);
-      }
-      if (this.dataset.composerFooterTrailing === "true") {
-        return new DOMRect(0, 0, 280, 28);
-      }
-      return originalGetBoundingClientRect.call(this);
-    });
+    const measurement = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function measuredComposerRect(this: HTMLElement) {
+        if (this.dataset.codexComposer === "true" && this.style.position === "fixed") {
+          return new DOMRect(0, 0, 520, 20);
+        }
+        if (this.dataset.composerFormFooter === "true") {
+          return new DOMRect(0, 0, 736, 44);
+        }
+        if (this.dataset.composerFooterLeading === "true") {
+          return new DOMRect(0, 0, 28, 28);
+        }
+        if (this.dataset.composerInputSlot === "true") {
+          return new DOMRect(0, 0, 400, 20);
+        }
+        if (this.dataset.composerFooterTrailing === "true") {
+          return new DOMRect(0, 0, 280, 28);
+        }
+        return originalGetBoundingClientRect.call(this);
+      });
     let view: ReturnType<typeof render> | null = null;
 
     try {
@@ -865,7 +877,8 @@ describe("LocalConversationFooter", () => {
               model={{
                 ...buildModelWithRenderableLatestTurn(),
                 composerIntent: {
-                  prompt: "This prompt contains no newline but is wider than the compact composer input.",
+                  prompt:
+                    "This prompt contains no newline but is wider than the compact composer input.",
                   focusNonce: 1,
                 },
               }}
@@ -879,30 +892,16 @@ describe("LocalConversationFooter", () => {
       );
 
       await waitFor(() => {
-        const overlay = document.body.querySelector(
-          '[data-testid="right-panel-composer-overlay"]',
-        );
-        const formFooter = overlay?.querySelector(
-          '[data-composer-form-footer="true"]',
-        );
-        const inputSlot = formFooter?.querySelector(
-          '[data-composer-input-slot="true"]',
-        );
-        const leadingSlot = formFooter?.querySelector(
-          '[data-composer-footer-leading="true"]',
-        );
-        const trailingSlot = formFooter?.querySelector(
-          '[data-composer-footer-trailing="true"]',
-        );
-        const permissionTrigger = formFooter?.querySelector(
-          'button[aria-label="Permission mode"]',
-        );
+        const overlay = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
+        const formFooter = overlay?.querySelector('[data-composer-form-footer="true"]');
+        const inputSlot = formFooter?.querySelector('[data-composer-input-slot="true"]');
+        const leadingSlot = formFooter?.querySelector('[data-composer-footer-leading="true"]');
+        const trailingSlot = formFooter?.querySelector('[data-composer-footer-trailing="true"]');
+        const permissionTrigger = formFooter?.querySelector('button[aria-label="Permission mode"]');
         const modelTrigger = formFooter?.querySelector(
           'button[data-intelligence-selector-trigger="true"]',
         );
-        const sendButton = formFooter?.querySelector(
-          'button[aria-label="Send prompt"]',
-        );
+        const sendButton = formFooter?.querySelector('button[aria-label="Send prompt"]');
         expect(formFooter?.getAttribute("data-composer-layout")).toBe("multiline");
         expect(inputSlot?.getAttribute("data-composer-footer-row")).toBe("prompt");
         expect(leadingSlot?.contains(permissionTrigger ?? null)).toBe(true);
@@ -995,7 +994,9 @@ describe("LocalConversationFooter", () => {
         return element;
       });
 
-      const latestTurnPreview = overlay.querySelector('[data-right-panel-latest-turn-preview="true"]');
+      const latestTurnPreview = overlay.querySelector(
+        '[data-right-panel-latest-turn-preview="true"]',
+      );
       const previewToggle = latestTurnPreview?.querySelector("button");
       expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
 
@@ -1038,8 +1039,12 @@ describe("LocalConversationFooter", () => {
       </TooltipProvider>,
     );
 
-    expect(document.body.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBe(true);
-    expect(container.querySelector('[data-local-conversation-composer-shell="true"]') === null).toBe(true);
+    expect(
+      document.body.querySelector('[data-testid="right-panel-composer-overlay"]') === null,
+    ).toBe(true);
+    expect(
+      container.querySelector('[data-local-conversation-composer-shell="true"]') === null,
+    ).toBe(true);
     expect(container.querySelector('[data-thread-find-composer="true"]') !== null).toBe(true);
     expect(container.querySelector("#above-composer-portal") !== null).toBe(true);
     expect(container.querySelector("#above-composer-queue-portal") !== null).toBe(true);
@@ -1075,16 +1080,15 @@ describe("LocalConversationFooter", () => {
     );
 
     const overlay = await waitFor(() => {
-      const element = document.body.querySelector(
-        '[data-testid="right-panel-composer-overlay"]',
-      );
+      const element = document.body.querySelector('[data-testid="right-panel-composer-overlay"]');
       if (!element) throw new Error("Expected controlled Dock overlay");
       return element;
     });
-    expect(within(overlay as HTMLElement).getByRole("button", {
-      name: "Choose task",
-    }) !== null).toBe(true);
-    expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]'))
-      .toBe(null);
+    expect(
+      within(overlay as HTMLElement).getByRole("button", {
+        name: "Choose task",
+      }) !== null,
+    ).toBe(true);
+    expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]')).toBe(null);
   });
 });

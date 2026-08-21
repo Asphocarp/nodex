@@ -57,14 +57,16 @@ const OPTIONS: NormalizedUserAttachmentImageEditorOptions = {
   entrypoint: "image_click",
   generatedImages: null,
   imageSource: "uploaded",
-  images: [{
-    id: "uploaded-image",
-    alt: "Uploaded image",
-    attachmentSrc: IMAGE_SRC,
-    dataUrl: IMAGE_SRC,
-    source: "uploaded",
-    src: IMAGE_SRC,
-  }],
+  images: [
+    {
+      id: "uploaded-image",
+      alt: "Uploaded image",
+      attachmentSrc: IMAGE_SRC,
+      dataUrl: IMAGE_SRC,
+      source: "uploaded",
+      src: IMAGE_SRC,
+    },
+  ],
   initialImageId: "uploaded-image",
   initialPlaygroundTool: "navigate",
   initialView: "single",
@@ -78,18 +80,20 @@ const OPTIONS: NormalizedUserAttachmentImageEditorOptions = {
 
 function seedCommentDraft(): void {
   replaceImageEditComposerDraft(THREAD_ID, {
-    attachments: [{
-      asset: {
-        hostId: null,
-        localPath: null,
-        managedSource: null,
-        src: IMAGE_SRC,
+    attachments: [
+      {
+        asset: {
+          hostId: null,
+          localPath: null,
+          managedSource: null,
+          src: IMAGE_SRC,
+        },
+        comments: [{ id: "comment-1", text: "Remove the label", x: 0.25, y: 0.75 }],
+        filename: "Uploaded image",
+        id: "image-playground:uploaded-image",
+        imageSource: "uploaded",
       },
-      comments: [{ id: "comment-1", text: "Remove the label", x: 0.25, y: 0.75 }],
-      filename: "Uploaded image",
-      id: "image-playground:uploaded-image",
-      imageSource: "uploaded",
-    }],
+    ],
     mode: "comment",
   });
 }
@@ -132,12 +136,12 @@ const GENERATED_OPTIONS: NormalizedUserAttachmentImageEditorOptions = {
   tooltip: "Generated image 1",
 };
 
-function renderGeneratedSurface(props: {
-  fullWidth?: boolean;
-  onStateChange?: ComponentProps<
-    typeof UserAttachmentImageEditorSurface
-  >["onStateChange"];
-} = {}) {
+function renderGeneratedSurface(
+  props: {
+    fullWidth?: boolean;
+    onStateChange?: ComponentProps<typeof UserAttachmentImageEditorSurface>["onStateChange"];
+  } = {},
+) {
   return renderWithMaitai(
     <TestQueryProvider>
       <div className="h-[700px] w-[800px]">
@@ -187,28 +191,27 @@ describe("UserAttachmentImageEditorSurface", () => {
   test("publishes Canvas ownership before measuring the transition destination", async () => {
     let projectedView = "single";
     const events: string[] = [];
-    const measurement = vi.spyOn(
-      HTMLElement.prototype,
-      "getBoundingClientRect",
-    ).mockImplementation(function measure(this: HTMLElement) {
-      if (
-        this.getAttribute("aria-label") === "Generated image 1"
-        || this.getAttribute("alt") === "Generated image 1"
-      ) {
-        events.push(`measure:${projectedView}`);
-      }
-      return {
-        bottom: 200,
-        height: 100,
-        left: 20,
-        right: 220,
-        top: 100,
-        width: 200,
-        x: 20,
-        y: 100,
-        toJSON: () => ({}),
-      };
-    });
+    const measurement = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function measure(this: HTMLElement) {
+        if (
+          this.getAttribute("aria-label") === "Generated image 1" ||
+          this.getAttribute("alt") === "Generated image 1"
+        ) {
+          events.push(`measure:${projectedView}`);
+        }
+        return {
+          bottom: 200,
+          height: 100,
+          left: 20,
+          right: 220,
+          top: 100,
+          width: 200,
+          x: 20,
+          y: 100,
+          toJSON: () => ({}),
+        };
+      });
     const view = renderGeneratedSurface({
       onStateChange: (state) => {
         projectedView = state.view;
@@ -223,10 +226,10 @@ describe("UserAttachmentImageEditorSurface", () => {
       });
 
       expect(events.indexOf("measure:single")).toBeGreaterThanOrEqual(0);
-      expect(events.indexOf("state:playground"))
-        .toBeGreaterThan(events.indexOf("measure:single"));
-      expect(events.lastIndexOf("measure:playground"))
-        .toBeGreaterThan(events.indexOf("state:playground"));
+      expect(events.indexOf("state:playground")).toBeGreaterThan(events.indexOf("measure:single"));
+      expect(events.lastIndexOf("measure:playground")).toBeGreaterThan(
+        events.indexOf("state:playground"),
+      );
     } finally {
       measurement.mockRestore();
     }
@@ -267,15 +270,17 @@ describe("UserAttachmentImageEditorSurface", () => {
           <UserAttachmentImageEditorSurface
             options={{
               ...OPTIONS,
-              images: [{
-                ...OPTIONS.images[0]!,
-                attachmentId: "composer-uploaded-image",
-                attachmentSrc: managedSource,
-                dataUrl: managedSource,
-                hostId: "default",
-                managedSource,
-                src: managedSource,
-              }],
+              images: [
+                {
+                  ...OPTIONS.images[0]!,
+                  attachmentId: "composer-uploaded-image",
+                  attachmentSrc: managedSource,
+                  dataUrl: managedSource,
+                  hostId: "default",
+                  managedSource,
+                  src: managedSource,
+                },
+              ],
             }}
           />
         </div>
@@ -286,17 +291,19 @@ describe("UserAttachmentImageEditorSurface", () => {
       fireEvent.click(view.getByRole("button", { name: "Comment" }));
     });
 
-    await waitFor(() => expect(
-      getImageEditComposerDraftSnapshot(THREAD_ID).attachments,
-    ).toEqual([expect.objectContaining({
-      id: "composer-uploaded-image",
-      asset: {
-        hostId: "default",
-        localPath: null,
-        managedSource,
-        src: managedSource,
-      },
-    })]));
+    await waitFor(() =>
+      expect(getImageEditComposerDraftSnapshot(THREAD_ID).attachments).toEqual([
+        expect.objectContaining({
+          id: "composer-uploaded-image",
+          asset: {
+            hostId: "default",
+            localPath: null,
+            managedSource,
+            src: managedSource,
+          },
+        }),
+      ]),
+    );
   });
 
   test("Cancel discards saved positional comments from the composer draft", async () => {
@@ -308,8 +315,7 @@ describe("UserAttachmentImageEditorSurface", () => {
       fireEvent.click(view.getByRole("button", { name: "Cancel" }));
     });
 
-    await waitFor(() => expect(getImageEditComposerDraftSnapshot(THREAD_ID).mode)
-      .toBeNull());
+    await waitFor(() => expect(getImageEditComposerDraftSnapshot(THREAD_ID).mode).toBeNull());
     expect(view.queryByRole("button", { name: "Edit comment 1" })).toBeNull();
   });
 
@@ -322,8 +328,7 @@ describe("UserAttachmentImageEditorSurface", () => {
       fireEvent.keyDown(marker, { key: "Escape" });
     });
 
-    await waitFor(() => expect(getImageEditComposerDraftSnapshot(THREAD_ID).mode)
-      .toBeNull());
+    await waitFor(() => expect(getImageEditComposerDraftSnapshot(THREAD_ID).mode).toBeNull());
     expect(view.getByRole("button", { name: "Comment" })).toBeTruthy();
   });
 
@@ -342,18 +347,20 @@ describe("UserAttachmentImageEditorSurface", () => {
       fireEvent.click(view.getByRole("button", { name: "Multi-select" }));
     });
 
-    await waitFor(() => expect(
-      getImageEditComposerDraftSnapshot(GENERATED_THREAD_ID).attachments.map(
-        (attachment) => attachment.id,
-      ),
-    ).toEqual(["image-playground:generated-2"]));
+    await waitFor(() =>
+      expect(
+        getImageEditComposerDraftSnapshot(GENERATED_THREAD_ID).attachments.map(
+          (attachment) => attachment.id,
+        ),
+      ).toEqual(["image-playground:generated-2"]),
+    );
   });
 
   test("focuses an optimistic edit and transfers focus to its generated result", async () => {
     const view = renderGeneratedSurface();
-    await waitFor(() => expect(
-      getImageEditComposerDraftSnapshot(GENERATED_THREAD_ID).attachments,
-    ).toHaveLength(1));
+    await waitFor(() =>
+      expect(getImageEditComposerDraftSnapshot(GENERATED_THREAD_ID).attachments).toHaveLength(1),
+    );
     const generatedImages = GENERATED_OPTIONS.generatedImages ?? [];
     let removeHistoric: () => void = () => undefined;
     await act(async () => {
@@ -374,15 +381,15 @@ describe("UserAttachmentImageEditorSurface", () => {
     expect(optimistic).not.toBeNull();
     if (!optimistic) throw new Error("Expected an optimistic image edit");
 
-    await waitFor(() => expect(getImageEditComposerDraftSnapshot(
-      GENERATED_THREAD_ID,
-    ).mode).toBeNull());
+    await waitFor(() =>
+      expect(getImageEditComposerDraftSnapshot(GENERATED_THREAD_ID).mode).toBeNull(),
+    );
     expect(view.getAllByRole("status").length).toBeGreaterThan(0);
-    await waitFor(() => expect(
-      view.getByRole("button", { name: "Generating image…" }).getAttribute(
-        "aria-current",
-      ),
-    ).toBe("true"));
+    await waitFor(() =>
+      expect(
+        view.getByRole("button", { name: "Generating image…" }).getAttribute("aria-current"),
+      ).toBe("true"),
+    );
     const replacement = {
       ...generatedImages[0]!,
       id: "generated-3",
@@ -395,22 +402,19 @@ describe("UserAttachmentImageEditorSurface", () => {
     };
     let removeReplacement: () => void = () => undefined;
     await act(async () => {
-      removeReplacement = replaceGeneratedImageLiveGroup(
-        GENERATED_THREAD_ID,
-        {
-          id: "turn-replacement",
-          images: [replacement],
-          pendingImageCount: 0,
-          turnStartedAtMs: replacement.turnStartedAtMs ?? null,
-        },
-      );
+      removeReplacement = replaceGeneratedImageLiveGroup(GENERATED_THREAD_ID, {
+        id: "turn-replacement",
+        images: [replacement],
+        pendingImageCount: 0,
+        turnStartedAtMs: replacement.turnStartedAtMs ?? null,
+      });
     });
 
-    await waitFor(() => expect(
-      view.getByRole("button", { name: "Generated image 3" }).getAttribute(
-        "aria-current",
-      ),
-    ).toBe("true"));
+    await waitFor(() =>
+      expect(
+        view.getByRole("button", { name: "Generated image 3" }).getAttribute("aria-current"),
+      ).toBe("true"),
+    );
     await act(async () => {
       removeReplacement();
       removeHistoric();
@@ -429,11 +433,13 @@ describe("UserAttachmentImageEditorSurface", () => {
       fireEvent.click(view.getByRole("button", { name: "Comment" }));
     });
 
-    expect(submissionState.notifyImageInputUnsupported.mock.calls)
-      .toEqual([["select"], ["comment"]]);
-    expect(view.getByRole("button", { name: "Multi-select" }).getAttribute(
-      "aria-pressed",
-    )).toBe("false");
+    expect(submissionState.notifyImageInputUnsupported.mock.calls).toEqual([
+      ["select"],
+      ["comment"],
+    ]);
+    expect(view.getByRole("button", { name: "Multi-select" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
     expect(getImageEditComposerDraftSnapshot(GENERATED_THREAD_ID).mode).toBeNull();
   });
 });

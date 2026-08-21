@@ -20,9 +20,7 @@ export interface PageDetailIpcDependencies {
   ) => Promise<PageDetailResult>;
 }
 
-export const registerPageDetailIpcHandler = (
-  dependencies: PageDetailIpcDependencies,
-): void => {
+export const registerPageDetailIpcHandler = (dependencies: PageDetailIpcDependencies): void => {
   dependencies.registerHandle(
     PAGE_DETAIL_IPC_CHANNEL,
     async (event, projectId, pageId, minimumCommitSeq) => {

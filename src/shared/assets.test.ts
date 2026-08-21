@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  getAssetSource,
-  parseAssetSource,
-} from "./assets";
+import { getAssetSource, parseAssetSource } from "./assets";
 
 describe("shared asset helpers", () => {
   test("getAssetSource returns the canonical asset URI", () => {

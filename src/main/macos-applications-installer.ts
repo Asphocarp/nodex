@@ -11,10 +11,16 @@ export interface MacApplicationsInstallerEnvironment {
   isPackaged: boolean;
   isInApplicationsFolder: () => boolean;
   showInstallPrompt: () => Promise<MacApplicationsInstallerPromptChoice>;
-  showMoveFailedPrompt: (error: unknown) => Promise<Exclude<MacApplicationsInstallerPromptChoice, "move">>;
+  showMoveFailedPrompt: (
+    error: unknown,
+  ) => Promise<Exclude<MacApplicationsInstallerPromptChoice, "move">>;
   moveToApplicationsFolder: (options: MoveToApplicationsFolderOptions) => boolean;
   confirmMoveConflict?: (conflictType: MacApplicationsMoveConflict) => boolean;
-  log?: (level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>) => void;
+  log?: (
+    level: "info" | "warn" | "error",
+    message: string,
+    fields?: Record<string, unknown>,
+  ) => void;
 }
 
 export async function runMacApplicationsInstallerGate(

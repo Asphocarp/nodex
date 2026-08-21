@@ -45,7 +45,9 @@ function hasExplicitMacIntelUserAgent(navigatorLike: NavigatorLike): boolean {
   return /\b(x86_64|x64|intel)\b/i.test(userAgent);
 }
 
-async function resolveClientHintArch(navigatorLike: NavigatorLike): Promise<MacDownloadArch | null> {
+async function resolveClientHintArch(
+  navigatorLike: NavigatorLike,
+): Promise<MacDownloadArch | null> {
   if (!isMacLikeNavigator(navigatorLike)) {
     return null;
   }
@@ -67,7 +69,11 @@ async function resolveClientHintArch(navigatorLike: NavigatorLike): Promise<MacD
       return "arm64";
     }
 
-    if (architecture.includes("x86") || architecture.includes("x64") || architecture.includes("intel")) {
+    if (
+      architecture.includes("x86") ||
+      architecture.includes("x64") ||
+      architecture.includes("intel")
+    ) {
       return "x64";
     }
   } catch {

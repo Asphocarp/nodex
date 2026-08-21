@@ -13,12 +13,17 @@ import { NodexTooltip } from "@/components/ui/tooltip";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { cn } from "@/lib/utils";
 
-export const SIDEBAR_NEW_CHAT_ROW_CLASS = "focus-visible:outline-token-border relative h-[var(--height-token-nav-row)] px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
-export const SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
-export const SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0 text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
-export const SIDEBAR_SCROLL_AREA_CLASS = "sidebar-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto -mt-[var(--sidebar-scroll-header-spacing,8px)] pt-[var(--sidebar-scroll-content-top-padding,var(--sidebar-scroll-header-spacing,8px))] [contain:layout_paint]";
+export const SIDEBAR_NEW_CHAT_ROW_CLASS =
+  "focus-visible:outline-token-border relative h-[var(--height-token-nav-row)] px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
+export const SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS =
+  "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
+export const SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS =
+  "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0 text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
+export const SIDEBAR_SCROLL_AREA_CLASS =
+  "sidebar-scroll-fade-mask relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto -mt-[var(--sidebar-scroll-header-spacing,8px)] pt-[var(--sidebar-scroll-content-top-padding,var(--sidebar-scroll-header-spacing,8px))] [contain:layout_paint]";
 
-const SIDEBAR_HEADER_SEARCH_BUTTON_CLASS = "border-token-border no-drag cursor-interaction ml-auto flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-transparent p-1 text-token-foreground select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background";
+const SIDEBAR_HEADER_SEARCH_BUTTON_CLASS =
+  "border-token-border no-drag cursor-interaction ml-auto flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-transparent p-1 text-token-foreground select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background";
 
 interface SidebarScrollChromeState {
   scrolledContentUnderHeader: boolean;
@@ -36,9 +41,7 @@ function getSidebarScrollChromeStyle({
 }: SidebarScrollChromeState): CSSProperties {
   return {
     "--sidebar-footer-height": "0px",
-    "--sidebar-scroll-footer-edge-offset": hasContentBelow
-      ? "0px"
-      : "calc(var(--spacing) * 10)",
+    "--sidebar-scroll-footer-edge-offset": hasContentBelow ? "0px" : "calc(var(--spacing) * 10)",
     "--sidebar-scroll-content-top-padding": "1px",
     "--sidebar-scroll-header-fade-distance": scrolledContentUnderHeader
       ? "calc(var(--spacing) * 4)"
@@ -58,15 +61,14 @@ export function useSidebarScrollChrome() {
 
     const nextState = {
       scrolledContentUnderHeader: scrollArea.scrollTop > 0,
-      hasContentBelow:
-        scrollArea.scrollHeight - scrollArea.clientHeight - scrollArea.scrollTop > 1,
+      hasContentBelow: scrollArea.scrollHeight - scrollArea.clientHeight - scrollArea.scrollTop > 1,
     };
-    setState((currentState) => (
-      currentState.scrolledContentUnderHeader === nextState.scrolledContentUnderHeader
-      && currentState.hasContentBelow === nextState.hasContentBelow
+    setState((currentState) =>
+      currentState.scrolledContentUnderHeader === nextState.scrolledContentUnderHeader &&
+      currentState.hasContentBelow === nextState.hasContentBelow
         ? currentState
-        : nextState
-    ));
+        : nextState,
+    );
   }, []);
 
   useLayoutEffect(() => {
@@ -118,13 +120,15 @@ export function SidebarExpandedHeader({
       data-scrolled-content-under-header={scrolledContentUnderHeader}
       className={cn(
         "relative z-10 flex shrink-0 flex-col gap-2 px-row-x pb-[var(--sidebar-scroll-header-spacing)]",
-        scrolledContentUnderHeader
-          && "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[0.5px] after:bg-token-foreground/10 after:content-['']",
+        scrolledContentUnderHeader &&
+          "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[0.5px] after:bg-token-foreground/10 after:content-['']",
       )}
     >
       <div className="ml-2 flex items-center">
         <div className="-ml-2 flex h-8 min-w-0 items-center gap-1.5 rounded-xl border border-transparent px-2 text-[17px] leading-6 font-medium select-none">
-          <span className="min-w-0 truncate font-semibold text-token-foreground">{productName}</span>
+          <span className="min-w-0 truncate font-semibold text-token-foreground">
+            {productName}
+          </span>
           {productStatusLabel ? (
             <span className="inline-flex h-4.5 shrink-0 items-center rounded-sm bg-token-foreground/5 px-1.5 text-xs font-medium leading-none text-token-description-foreground">
               {productStatusLabel}
@@ -148,7 +152,10 @@ export function SidebarExpandedHeader({
 }
 
 function stopProjectActionPropagation(
-  event: MouseEvent<HTMLButtonElement> | PointerEvent<HTMLButtonElement> | KeyboardEvent<HTMLButtonElement>,
+  event:
+    | MouseEvent<HTMLButtonElement>
+    | PointerEvent<HTMLButtonElement>
+    | KeyboardEvent<HTMLButtonElement>,
 ) {
   event.stopPropagation();
 }
@@ -164,11 +171,7 @@ export function SidebarNewChatButton({
     <div className="shrink-0" data-testid="sidebar-new-chat-row-wrapper">
       <div className="flex flex-col gap-1">
         <div className="flex flex-col gap-px">
-          <button
-            type="button"
-            className={SIDEBAR_NEW_CHAT_ROW_CLASS}
-            onClick={onClick}
-          >
+          <button type="button" className={SIDEBAR_NEW_CHAT_ROW_CLASS} onClick={onClick}>
             <div className="flex min-w-0 items-center text-base gap-2 flex-1 text-token-foreground">
               <TitlebarNewChatIcon className="icon-xs" />
               <span className="truncate">New chat</span>
@@ -203,7 +206,7 @@ export function SidebarProjectNewChatButton({
     <div className="relative mr-0.5 h-6 w-6 shrink-0" data-testid="project-new-chat-action-shell">
       <NodexTooltip
         delayOpen
-        tooltipContent={disabled ? disabledLabel ?? label : label}
+        tooltipContent={disabled ? (disabledLabel ?? label) : label}
         side="right"
       >
         <span className={cn("inline-flex opacity-0 group-hover/folder-row:opacity-100", className)}>
@@ -240,11 +243,7 @@ export function SidebarCompactNewChatButton({
   onClick: () => void;
 }) {
   return (
-    <NodexTooltip
-      delayOpen
-      tooltipContent={label}
-      side={tooltipSide}
-    >
+    <NodexTooltip delayOpen tooltipContent={label} side={tooltipSide}>
       <button
         type="button"
         className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}

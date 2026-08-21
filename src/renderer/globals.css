@@ -59,8 +59,7 @@
   }
 
   .hide-scrollbar:hover {
-    scrollbar-color: color-mix(in srgb, var(--foreground) 14%, transparent)
-      transparent;
+    scrollbar-color: color-mix(in srgb, var(--foreground) 14%, transparent) transparent;
   }
 
   .hide-scrollbar::-webkit-scrollbar-thumb {
@@ -86,7 +85,7 @@
   }
 
   .right-panel-composer-overlay-enter {
-    animation: right-panel-composer-overlay-enter .12s var(--cubic-enter) both;
+    animation: right-panel-composer-overlay-enter 0.12s var(--cubic-enter) both;
   }
 
   @keyframes subagent-activity-chip-enter {
@@ -108,7 +107,7 @@
 
   .subagent-activity-chip[data-animate-entrance] {
     transform-origin: 0;
-    animation: subagent-activity-chip-enter .28s cubic-bezier(.23, 1, .32, 1) both;
+    animation: subagent-activity-chip-enter 0.28s cubic-bezier(0.23, 1, 0.32, 1) both;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -213,12 +212,9 @@
   cursor: pointer;
 }
 
-.nfm-editor :is(
-  [data-mention-inline-chip="true"]
-):is(
-  :focus-visible,
-  [data-mention-token-selected="true"]
-) > [data-mention-inline-label="true"] {
+.nfm-editor
+  :is([data-mention-inline-chip="true"]):is(:focus-visible, [data-mention-token-selected="true"])
+  > [data-mention-inline-label="true"] {
   text-decoration-color: currentColor !important;
 }
 
@@ -255,9 +251,7 @@
   -webkit-font-smoothing: auto;
 }
 
-.nfm-editor
-  .bn-block-content[data-is-empty-and-focused]
-  [data-placeholder]::before {
+.nfm-editor .bn-block-content[data-is-empty-and-focused] [data-placeholder]::before {
   color: var(--foreground-tertiary);
 }
 
@@ -298,10 +292,7 @@
   line-height: 1.3;
 }
 
-.nfm-editor
-  .bn-block-outer[data-prev-type="heading"]
-  > .bn-block
-  > .bn-block-content,
+.nfm-editor .bn-block-outer[data-prev-type="heading"] > .bn-block > .bn-block-content,
 .nfm-editor
   .bn-block-outer:not([data-prev-type])
   > .bn-block
@@ -377,13 +368,14 @@
   transition-delay: 0s;
 }
 
-.bn-root[data-color-scheme="light"] .bn-block-content[data-content-type="codeBlock"] > div > select {
+.bn-root[data-color-scheme="light"]
+  .bn-block-content[data-content-type="codeBlock"]
+  > div
+  > select {
   color: var(--foreground);
 }
 
-.bn-root[data-color-scheme="dark"]
-  .bn-block-content[data-content-type="codeBlock"]
-  .shiki {
+.bn-root[data-color-scheme="dark"] .bn-block-content[data-content-type="codeBlock"] .shiki {
   color: var(--shiki-dark, var(--foreground)) !important;
 }
 
@@ -534,17 +526,11 @@
   margin-right: 7px;
   position: relative;
 }
-.nfm-editor
-  .bn-block-content[data-content-type="checkListItem"]
-  > div
-  > input:checked {
+.nfm-editor .bn-block-content[data-content-type="checkListItem"] > div > input:checked {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
 }
-.nfm-editor
-  .bn-block-content[data-content-type="checkListItem"]
-  > div
-  > input:checked::after {
+.nfm-editor .bn-block-content[data-content-type="checkListItem"] > div > input:checked::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -598,11 +584,7 @@
 }
 
 [data-codex-window-type="electron"] .nfm-editor .bn-inline-content code {
-  background-color: color-mix(
-    in oklab,
-    var(--color-token-list-hover-background) 60%,
-    transparent
-  );
+  background-color: color-mix(in oklab, var(--color-token-list-hover-background) 60%, transparent);
   mix-blend-mode: normal;
 }
 
@@ -630,9 +612,7 @@
   padding: 0;
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  .tableWrapper-inner {
+.nfm-editor .bn-block-content[data-content-type="table"] .tableWrapper-inner {
   width: max-content;
   min-width: 100%;
 }
@@ -718,64 +698,51 @@
   background-color: color-mix(in srgb, var(--color-token-charts-red) 24%, transparent);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="gray"] {
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="gray"] {
   color: color-mix(in srgb, var(--color-token-foreground) 42%, transparent);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="brown"] {
-  color: color-mix(in srgb, var(--color-token-charts-orange) 70%, var(--color-token-foreground) 18%);
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="brown"] {
+  color: color-mix(
+    in srgb,
+    var(--color-token-charts-orange) 70%,
+    var(--color-token-foreground) 18%
+  );
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="orange"] {
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="orange"] {
   color: var(--color-token-charts-orange);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="yellow"] {
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="yellow"] {
   color: var(--color-token-charts-yellow);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="green"] {
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="green"] {
   color: var(--color-token-charts-green);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="blue"] {
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="blue"] {
   color: var(--color-token-charts-blue);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="purple"] {
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="purple"] {
   color: var(--color-token-charts-purple);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="pink"] {
-  color: color-mix(in srgb, var(--color-token-charts-purple) 56%, var(--color-token-charts-red) 44%);
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="pink"] {
+  color: color-mix(
+    in srgb,
+    var(--color-token-charts-purple) 56%,
+    var(--color-token-charts-red) 44%
+  );
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :where(th, td)[data-text-color="red"] {
+.nfm-editor .bn-block-content[data-content-type="table"] :where(th, td)[data-text-color="red"] {
   color: var(--color-token-charts-red);
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  :is(th, td)
-  > * {
+.nfm-editor .bn-block-content[data-content-type="table"] :is(th, td) > * {
   min-height: 32px;
   padding: 7px 9px;
 }
@@ -793,9 +760,7 @@
   transition: background 150ms ease 50ms;
 }
 
-.nfm-editor
-  .bn-block-content[data-content-type="table"]
-  .column-resize-handle:hover {
+.nfm-editor .bn-block-content[data-content-type="table"] .column-resize-handle:hover {
   background: color-mix(in srgb, var(--accent-blue) 65%, transparent);
 }
 
@@ -1067,8 +1032,7 @@
   inset: 0;
   pointer-events: none;
   background: color-mix(in srgb, var(--accent-blue) 24%, transparent);
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--accent-blue) 45%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-blue) 45%, transparent);
 }
 
 .nfm-editor > [data-toggle-drop-overlay] {
@@ -1198,10 +1162,7 @@
 }
 
 /* The host editor already supplies the Page body's one native Block indent. */
-.nfm-editor
-  [data-embedded-page-document]
-  .bn-editor
-  > .bn-block-group {
+.nfm-editor [data-embedded-page-document] .bn-editor > .bn-block-group {
   margin-left: 0;
 }
 
@@ -1260,7 +1221,9 @@
 .codex-markdown [data-streamdown="code-block"]:hover [data-streamdown="code-block-header"],
 .codex-markdown [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-header"],
 .codex-markdown-plan [data-streamdown="code-block"]:hover [data-streamdown="code-block-header"],
-.codex-markdown-plan [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-header"],
+.codex-markdown-plan
+  [data-streamdown="code-block"]:focus-within
+  [data-streamdown="code-block-header"],
 .nfm-code-block [data-streamdown="code-block"]:hover [data-streamdown="code-block-header"],
 .nfm-code-block [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-header"] {
   opacity: 0.5;
@@ -1315,7 +1278,9 @@
 }
 
 .codex-markdown [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]),
-.codex-markdown-plan [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]),
+.codex-markdown-plan
+  [data-streamdown="code-block"]
+  > div:has(> [data-streamdown="code-block-actions"]),
 .nfm-code-block [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
   display: contents;
 }
@@ -1341,7 +1306,9 @@
 .codex-markdown [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"],
 .codex-markdown [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-actions"],
 .codex-markdown-plan [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"],
-.codex-markdown-plan [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-actions"],
+.codex-markdown-plan
+  [data-streamdown="code-block"]:focus-within
+  [data-streamdown="code-block-actions"],
 .nfm-code-block [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"],
 .nfm-code-block [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-actions"] {
   opacity: 1;

@@ -11,18 +11,37 @@ vi.mock("./api", () => ({
 }));
 
 const project: Project = {
-  id: "project-1", libraryId: "library-1", databaseId: "database-1",
-  defaultDatabaseViewId: "view-1", lifecycle: "active", bindingRevision: 1,
-  name: "Lab", description: "", appearance: DEFAULT_PROJECT_APPEARANCE,
-  sources: [], primaryWorkspaceRoot: null, pinned: false, pinnedOrder: null,
+  id: "project-1",
+  libraryId: "library-1",
+  databaseId: "database-1",
+  defaultDatabaseViewId: "view-1",
+  lifecycle: "active",
+  bindingRevision: 1,
+  name: "Lab",
+  description: "",
+  appearance: DEFAULT_PROJECT_APPEARANCE,
+  sources: [],
+  primaryWorkspaceRoot: null,
+  pinned: false,
+  pinnedOrder: null,
   created: new Date("2026-08-14T00:00:00.000Z"),
   updated: new Date("2026-08-14T00:00:00.000Z"),
 };
 
 const result: PageSearchResult = {
-  projectId: "project-1", pageId: "page-1", pageKey: "LAB-13", title: "Launch",
-  status: "build", priority: null, tags: [], assignee: null,
-  locationLabel: "Lab", titleParts: [], excerpt: null, excerptParts: [], matches: [],
+  projectId: "project-1",
+  pageId: "page-1",
+  pageKey: "LAB-13",
+  title: "Launch",
+  status: "build",
+  priority: null,
+  tags: [],
+  assignee: null,
+  locationLabel: "Lab",
+  titleParts: [],
+  excerpt: null,
+  excerptParts: [],
+  matches: [],
   updatedAt: "2026-08-14T00:00:00.000Z",
 };
 
@@ -33,14 +52,20 @@ describe("Project Page destination search", () => {
     __testing.installIndex([project.id], {
       replace: () => undefined,
       applyDelta: () => undefined,
-      search: (request: { query?: string }) => request.query === "lab-13" ? [result] : [],
+      search: (request: { query?: string }) => (request.query === "lab-13" ? [result] : []),
     });
-    const hook = renderHook(() => useProjectPageDestinationSearch({
-      projects: [project], query: "LAB-13", enabled: true,
-    }));
+    const hook = renderHook(() =>
+      useProjectPageDestinationSearch({
+        projects: [project],
+        query: "LAB-13",
+        enabled: true,
+      }),
+    );
 
     expect(hook.result.current.pageHits[0]).toMatchObject({
-      pageId: "page-1", pageKey: "LAB-13", pageTitle: "Launch",
+      pageId: "page-1",
+      pageKey: "LAB-13",
+      pageTitle: "Launch",
     });
     expect(hook.result.current.enrichment).toBe("loading");
     hook.unmount();

@@ -27,7 +27,6 @@ describe("projectSessionThreadLinkToSummary", () => {
       linkedAt: "2026-07-28T00:00:00.000Z",
     };
 
-    expect(projectSessionThreadLinkToSummary(link).executionProfile)
-      .toEqual(executionProfile);
+    expect(projectSessionThreadLinkToSummary(link).executionProfile).toEqual(executionProfile);
   });
 });

@@ -84,9 +84,9 @@ describe("context menu interaction in Chromium", () => {
     expect(view.getByText("Second action")).toBeTruthy();
 
     await act(settleFloatingSurface);
-    const content = view.getByText("Second action").closest<HTMLElement>(
-      "[data-slot='context-menu-subcontent']",
-    );
+    const content = view
+      .getByText("Second action")
+      .closest<HTMLElement>("[data-slot='context-menu-subcontent']");
     if (!content) throw new Error("Expected the open submenu surface.");
     const contentRect = content.getBoundingClientRect();
     expect(Math.abs(contentRect.left - root.getBoundingClientRect().right)).toBeLessThanOrEqual(4);

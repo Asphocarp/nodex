@@ -54,7 +54,10 @@ export function resolveAllDayToTimedDurationMs(
   return originalDurationMs;
 }
 
-export function toAllDayRangeFromTimedDrop(dayDate: Date, timedDurationMs: number): { start: Date; end: Date } {
+export function toAllDayRangeFromTimedDrop(
+  dayDate: Date,
+  timedDurationMs: number,
+): { start: Date; end: Date } {
   const start = normalizeDay(dayDate);
   const spanDays = resolveTimedToAllDaySpanDays(timedDurationMs);
   return { start, end: addDays(start, spanDays) };
@@ -123,4 +126,3 @@ export function packAllDaySegments<T extends AllDaySegmentInput>(
 
   return packed;
 }
-

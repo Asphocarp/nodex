@@ -7,9 +7,10 @@ export function LocalConversationViewStateCleanupController() {
   const appHandle = useScopeHandle(appScope);
 
   useEffect(
-    () => subscribeCodexAppServerMessage("thread-deleted", ({ threadId }) => {
-      removeLocalConversationViewState(appHandle, threadId);
-    }),
+    () =>
+      subscribeCodexAppServerMessage("thread-deleted", ({ threadId }) => {
+        removeLocalConversationViewState(appHandle, threadId);
+      }),
     [appHandle],
   );
 

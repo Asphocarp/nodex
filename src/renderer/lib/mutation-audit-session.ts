@@ -62,9 +62,8 @@ const resolveSessionStorage = (): SessionStorageLike | null => {
 let defaultResolver: (() => string) | null = null;
 
 export function getMutationAuditSessionId(): string {
-  defaultResolver ??= createMutationAuditSessionResolver(
-    resolveSessionStorage(),
-    () => crypto.randomUUID(),
+  defaultResolver ??= createMutationAuditSessionResolver(resolveSessionStorage(), () =>
+    crypto.randomUUID(),
   );
   return defaultResolver();
 }

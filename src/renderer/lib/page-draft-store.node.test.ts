@@ -34,14 +34,17 @@ describe("page draft store", () => {
   });
 
   test("merges overlays without touching unrelated fields", () => {
-    const merged = mergePageDraftOverlay({
-      id: "page-1",
-      title: "Persisted title",
-      description: "Persisted body",
-      priority: "p2-medium",
-    }, {
-      title: "Draft title",
-    });
+    const merged = mergePageDraftOverlay(
+      {
+        id: "page-1",
+        title: "Persisted title",
+        description: "Persisted body",
+        priority: "p2-medium",
+      },
+      {
+        title: "Draft title",
+      },
+    );
 
     expect(merged?.title).toBe("Draft title");
     expect(merged?.description).toBe("Persisted body");

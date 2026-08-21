@@ -42,8 +42,17 @@ interface ThreadBlockRendererProps {
   projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
-  onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
-  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onEditLastUserTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+  }) => void | Promise<void>;
+  onForkFromTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
@@ -105,7 +114,13 @@ export function ThreadBlockRenderer({
   }
 
   if (block.type === "userAttachmentStrip") {
-    return <ThreadUserAttachmentStripBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadUserAttachmentStripBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "workedFor") {
@@ -113,11 +128,11 @@ export function ThreadBlockRenderer({
   }
 
   if (
-    block.type === "exec"
-    || block.type === "fileChange"
-    || block.type === "mcpToolCall"
-    || block.type === "dynamicToolCall"
-    || block.type === "webSearch"
+    block.type === "exec" ||
+    block.type === "fileChange" ||
+    block.type === "mcpToolCall" ||
+    block.type === "dynamicToolCall" ||
+    block.type === "webSearch"
   ) {
     return (
       <ThreadToolSurfaceBlock
@@ -138,7 +153,13 @@ export function ThreadBlockRenderer({
   }
 
   if (block.type === "automaticApprovalReview") {
-    return <ThreadAutomaticApprovalReviewBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadAutomaticApprovalReviewBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "multiAgentAction") {
@@ -232,36 +253,34 @@ export function ThreadBlockRenderer({
 
   if (block.type === "assistantMessage") {
     const assistantAfter =
-      block.assistantAfterBlocks && block.assistantAfterBlocks.length > 0
-        ? (
-            <div className="flex w-full flex-col gap-3" data-assistant-after-blocks={block.id}>
-              {block.assistantAfterBlocks.map((assistantAfterBlock) => (
-                <ThreadBlockRenderer
-                  key={assistantAfterBlock.id}
-                  block={assistantAfterBlock}
-                  isLatestTurn={isLatestTurn}
-                  isStreamingTurn={isStreamingTurn}
-                  projectWorkspacePath={projectWorkspacePath}
-                  childMemberships={childMemberships}
-                  threadCwd={threadCwd}
-                  onEditLastUserTurn={onEditLastUserTurn}
-                  onForkFromTurn={onForkFromTurn}
-                  onOpenTurnDiffReview={onOpenTurnDiffReview}
-                  onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
-                  onOpenSideChat={onOpenSideChat}
-                  onOpenThread={onOpenThread}
-                  onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
-                  onOpenPlanInSidePanel={onOpenPlanInSidePanel}
-                  onClosePlanSidePanel={onClosePlanSidePanel}
-                  planSidePanelState={planSidePanelState}
-                  allowInProgressTurnDiff={allowInProgressTurnDiff}
-                  turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-                  alwaysShowAssistantMessageActions={alwaysShowAssistantMessageActions}
-                />
-              ))}
-            </div>
-          )
-        : null;
+      block.assistantAfterBlocks && block.assistantAfterBlocks.length > 0 ? (
+        <div className="flex w-full flex-col gap-3" data-assistant-after-blocks={block.id}>
+          {block.assistantAfterBlocks.map((assistantAfterBlock) => (
+            <ThreadBlockRenderer
+              key={assistantAfterBlock.id}
+              block={assistantAfterBlock}
+              isLatestTurn={isLatestTurn}
+              isStreamingTurn={isStreamingTurn}
+              projectWorkspacePath={projectWorkspacePath}
+              childMemberships={childMemberships}
+              threadCwd={threadCwd}
+              onEditLastUserTurn={onEditLastUserTurn}
+              onForkFromTurn={onForkFromTurn}
+              onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+              onOpenSideChat={onOpenSideChat}
+              onOpenThread={onOpenThread}
+              onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+              onOpenPlanInSidePanel={onOpenPlanInSidePanel}
+              onClosePlanSidePanel={onClosePlanSidePanel}
+              planSidePanelState={planSidePanelState}
+              allowInProgressTurnDiff={allowInProgressTurnDiff}
+              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+              alwaysShowAssistantMessageActions={alwaysShowAssistantMessageActions}
+            />
+          ))}
+        </div>
+      ) : null;
     const body = (
       <ThreadAssistantBodyBlock
         block={block}
@@ -301,15 +320,33 @@ export function ThreadBlockRenderer({
   }
 
   if (block.type === "userInputResponse") {
-    return <ThreadUserInputResponseCard block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadUserInputResponseCard
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "mcpServerElicitation") {
-    return <ThreadMcpServerElicitationBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadMcpServerElicitationBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "imageView") {
-    return <ThreadImageViewBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadImageViewBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "generatedImageGallery") {
@@ -323,27 +360,63 @@ export function ThreadBlockRenderer({
   }
 
   if (block.type === "hook") {
-    return <ThreadHookBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadHookBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "planImplementation") {
-    return <ThreadPlanImplementationBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadPlanImplementationBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "contextCompaction") {
-    return <ThreadContextCompactionBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadContextCompactionBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "worktreeInit") {
-    return <ThreadWorktreeInitBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadWorktreeInitBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "streamError") {
-    return <ThreadStreamErrorBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadStreamErrorBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   if (block.type === "systemError") {
-    return <ThreadSystemErrorBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+    return (
+      <ThreadSystemErrorBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+      />
+    );
   }
 
   return (

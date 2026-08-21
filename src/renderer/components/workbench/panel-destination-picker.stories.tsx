@@ -81,9 +81,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
         {
           id: "build",
           name: "Build",
-          cards: [
-            makeCard("page-stage", "LAB-22", "Page Stage retained editor", "build", 0),
-          ],
+          cards: [makeCard("page-stage", "LAB-22", "Page Stage retained editor", "build", 0)],
         },
       ],
     },
@@ -95,9 +93,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
         {
           id: "plan",
           name: "Plan",
-          cards: [
-            makeCard("research", "CODEX-7", "Move-to picker research notes", "plan", 0),
-          ],
+          cards: [makeCard("research", "CODEX-7", "Move-to picker research notes", "plan", 0)],
         },
       ],
     },
@@ -129,37 +125,43 @@ const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptorV2>(
       createdAt: STORY_DATE.toISOString(),
       updatedAt: STORY_DATE.toISOString(),
     });
-    return [project.id, {
-      database: {
-        databaseId,
-        libraryId: "library:test",
-        name: "Tasks",
-        lifecycle: "active",
-        defaultViewId: parseDatabaseViewId(`view:${project.id}:primary`),
-        accessRevision: 1,
-        metadataRevision: 1,
-        createdAt: STORY_DATE.toISOString(),
-        updatedAt: STORY_DATE.toISOString(),
+    return [
+      project.id,
+      {
+        database: {
+          databaseId,
+          libraryId: "library:test",
+          name: "Tasks",
+          lifecycle: "active",
+          defaultViewId: parseDatabaseViewId(`view:${project.id}:primary`),
+          accessRevision: 1,
+          metadataRevision: 1,
+          createdAt: STORY_DATE.toISOString(),
+          updatedAt: STORY_DATE.toISOString(),
+        },
+        dataSources: [
+          {
+            dataSourceId,
+            libraryId: "library:test",
+            homeDatabaseId: databaseId,
+            name: "Pages",
+            schemaKey: "nodex.page",
+            schemaRevision: 1,
+            lifecycle: "active",
+            rankKey: "0",
+            createdAt: STORY_DATE.toISOString(),
+            updatedAt: STORY_DATE.toISOString(),
+          },
+        ],
+        views:
+          project.id === "nodex"
+            ? [
+                makeView("primary", "Primary board", true),
+                makeView("focused", "Focused work", false),
+              ]
+            : [makeView("primary", "Primary board", true)],
       },
-      dataSources: [{
-        dataSourceId,
-        libraryId: "library:test",
-        homeDatabaseId: databaseId,
-        name: "Pages",
-        schemaKey: "nodex.page",
-        schemaRevision: 1,
-        lifecycle: "active",
-        rankKey: "0",
-        createdAt: STORY_DATE.toISOString(),
-        updatedAt: STORY_DATE.toISOString(),
-      }],
-      views: project.id === "nodex"
-        ? [
-            makeView("primary", "Primary board", true),
-            makeView("focused", "Focused work", false),
-          ]
-        : [makeView("primary", "Primary board", true)],
-    }] as const;
+    ] as const;
   }),
 );
 
@@ -240,7 +242,8 @@ export const PageOnly: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Page-only add-tab picker leads with Page status, gives the title the primary lane, and shows Project names only for results outside the Current project section.",
+        story:
+          "Page-only add-tab picker leads with Page status, gives the title the primary lane, and shows Project names only for results outside the Current project section.",
       },
     },
   },

@@ -47,31 +47,41 @@ describe("review diff model", () => {
   });
 
   test("detects codex-style large diffs", () => {
-    expect(isReviewLargeDiff({
-      fileCount: 129,
-      totalChangedLines: 0,
-      totalChangedBytes: 0,
-    })).toBe(true);
-    expect(isReviewLargeDiff({
-      fileCount: 1,
-      totalChangedLines: 1,
-      totalChangedBytes: 1,
-    })).toBe(false);
-    expect(isReviewLargeDiff({
-      fileCount: 128,
-      totalChangedLines: 9_000,
-      totalChangedBytes: 12 * 1024 * 1024,
-    })).toBe(false);
-    expect(isReviewLargeDiff({
-      fileCount: 1,
-      totalChangedLines: 9_001,
-      totalChangedBytes: 0,
-    })).toBe(true);
-    expect(isReviewLargeDiff({
-      fileCount: 1,
-      totalChangedLines: 0,
-      totalChangedBytes: 12 * 1024 * 1024 + 1,
-    })).toBe(true);
+    expect(
+      isReviewLargeDiff({
+        fileCount: 129,
+        totalChangedLines: 0,
+        totalChangedBytes: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isReviewLargeDiff({
+        fileCount: 1,
+        totalChangedLines: 1,
+        totalChangedBytes: 1,
+      }),
+    ).toBe(false);
+    expect(
+      isReviewLargeDiff({
+        fileCount: 128,
+        totalChangedLines: 9_000,
+        totalChangedBytes: 12 * 1024 * 1024,
+      }),
+    ).toBe(false);
+    expect(
+      isReviewLargeDiff({
+        fileCount: 1,
+        totalChangedLines: 9_001,
+        totalChangedBytes: 0,
+      }),
+    ).toBe(true);
+    expect(
+      isReviewLargeDiff({
+        fileCount: 1,
+        totalChangedLines: 0,
+        totalChangedBytes: 12 * 1024 * 1024 + 1,
+      }),
+    ).toBe(true);
   });
 
   test("disables word diffs above two thousand changed lines", () => {
@@ -81,18 +91,22 @@ describe("review diff model", () => {
   });
 
   test("detects codex-style single-file large diffs", () => {
-    expect(isReviewLargeDiff({
-      fileCount: 1,
-      totalChangedLines: 1,
-      totalChangedBytes: 1,
-      largestFileChangedLines: 15_001,
-    })).toBe(true);
-    expect(isReviewLargeDiff({
-      fileCount: 1,
-      totalChangedLines: 1,
-      totalChangedBytes: 1,
-      largestFileChangedLines: 15_000,
-    })).toBe(false);
+    expect(
+      isReviewLargeDiff({
+        fileCount: 1,
+        totalChangedLines: 1,
+        totalChangedBytes: 1,
+        largestFileChangedLines: 15_001,
+      }),
+    ).toBe(true);
+    expect(
+      isReviewLargeDiff({
+        fileCount: 1,
+        totalChangedLines: 1,
+        totalChangedBytes: 1,
+        largestFileChangedLines: 15_000,
+      }),
+    ).toBe(false);
   });
 
   test("filters review files by file path only", () => {
@@ -101,13 +115,9 @@ describe("review diff model", () => {
 
   test("keeps an empty file filter separate from uncapped review visibility", () => {
     expect(filterReviewFiles(FILES, "")).toEqual(FILES);
-    expect(buildReviewVisibleFiles(
-      FILES,
-      null,
-      false,
-      true,
-      REVIEW_CAPPED_MATCH_PAGE_SIZE,
-    )).toEqual(FILES);
+    expect(
+      buildReviewVisibleFiles(FILES, null, false, true, REVIEW_CAPPED_MATCH_PAGE_SIZE),
+    ).toEqual(FILES);
   });
 
   test("resolves capped selected path to the first visible file", () => {
@@ -147,5 +157,4 @@ describe("review diff model", () => {
 
     expect(result.length).toBe(20);
   });
-
 });

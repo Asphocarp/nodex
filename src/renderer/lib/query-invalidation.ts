@@ -1,14 +1,7 @@
-import {
-  hashKey,
-  type QueryClient,
-  type QueryKey,
-} from "@tanstack/react-query";
+import { hashKey, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import type { ProjectionCursor } from "../../shared/projection-stream";
 
-const trailingRefreshes = new WeakMap<
-  QueryClient,
-  Map<string, Promise<void>>
->();
+const trailingRefreshes = new WeakMap<QueryClient, Map<string, Promise<void>>>();
 
 /**
  * Invalidates one canonical query and closes TanStack Query's initial-fetch
@@ -19,8 +12,7 @@ export const invalidateExactQuery = (
   queryKey: QueryKey,
 ): Promise<void> => {
   const state = queryClient.getQueryState(queryKey);
-  const needsTrailingRead = state?.fetchStatus === "fetching"
-    && state.data === undefined;
+  const needsTrailingRead = state?.fetchStatus === "fetching" && state.data === undefined;
   if (!needsTrailingRead) {
     return queryClient.invalidateQueries({ queryKey, exact: true });
   }
@@ -33,11 +25,13 @@ export const invalidateExactQuery = (
 
   const refresh = queryClient
     .invalidateQueries({ queryKey, exact: true })
-    .then(() => queryClient.refetchQueries({
-      queryKey,
-      exact: true,
-      type: "active",
-    }))
+    .then(() =>
+      queryClient.refetchQueries({
+        queryKey,
+        exact: true,
+        type: "active",
+      }),
+    )
     .finally(() => {
       if (clientRefreshes.get(queryHash) !== refresh) return;
       clientRefreshes.delete(queryHash);
@@ -53,9 +47,7 @@ export const invalidateQueryFamilyExactly = async (
   familyKey: QueryKey,
 ): Promise<void> => {
   const queries = queryClient.getQueryCache().findAll({ queryKey: familyKey });
-  await Promise.all(
-    queries.map((query) => invalidateExactQuery(queryClient, query.queryKey)),
-  );
+  await Promise.all(queries.map((query) => invalidateExactQuery(queryClient, query.queryKey)));
 };
 
 interface CursorBearingSnapshot {
@@ -68,10 +60,10 @@ const snapshotCursor = (data: unknown): ProjectionCursor | null => {
   if ("storeEpoch" in data && "commitSeq" in data) {
     const snapshot = data as CursorBearingSnapshot;
     if (
-      typeof snapshot.storeEpoch !== "string"
-      || !snapshot.storeEpoch
-      || !Number.isSafeInteger(snapshot.commitSeq)
-      || snapshot.commitSeq < 0
+      typeof snapshot.storeEpoch !== "string" ||
+      !snapshot.storeEpoch ||
+      !Number.isSafeInteger(snapshot.commitSeq) ||
+      snapshot.commitSeq < 0
     ) {
       return null;
     }
@@ -86,9 +78,7 @@ const snapshotCursor = (data: unknown): ProjectionCursor | null => {
   return commonCursor(data.pages.map(snapshotCursor));
 };
 
-const commonCursor = (
-  cursors: readonly (ProjectionCursor | null)[],
-): ProjectionCursor | null => {
+const commonCursor = (cursors: readonly (ProjectionCursor | null)[]): ProjectionCursor | null => {
   if (cursors.length === 0 || cursors.some((cursor) => cursor === null)) return null;
   const present = cursors as readonly ProjectionCursor[];
   const storeEpoch = present[0]?.storeEpoch;

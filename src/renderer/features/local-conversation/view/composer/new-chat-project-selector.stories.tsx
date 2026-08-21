@@ -2,15 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { NewChatProjectSelectorModel, ThreadStageActions } from "../../thread-stage-types";
-import {
-  ComposerContextRail,
-  ComposerContextRailSlot,
-} from "../composer-context-rail";
+import { ComposerContextRail, ComposerContextRailSlot } from "../composer-context-rail";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 
-function buildActions(input: {
-  onSelect: (projectId: string | null) => void;
-}): ThreadStageActions {
+function buildActions(input: { onSelect: (projectId: string | null) => void }): ThreadStageActions {
   const noopAsync = async () => undefined;
   return {
     onCollaborationModeChange: () => undefined,
@@ -32,7 +27,7 @@ function buildActions(input: {
     onEditQueuedFollowUp: noopAsync,
     onEditLastUserTurn: noopAsync,
     onForkFromTurn: noopAsync,
-    onUnarchiveThread: async () => { },
+    onUnarchiveThread: async () => {},
     onOpenTurnDiffReview: () => undefined,
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,
@@ -46,50 +41,51 @@ function buildModel(input: {
   selectedProjectId: string | null;
   state: "default" | "empty" | "disabled";
 }): NewChatProjectSelectorModel {
-  const projects: NewChatProjectSelectorModel["projects"] = input.state === "empty"
-    ? []
-    : [
-        {
-          id: "nodex",
-          label: "nodex",
-          appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
-          description: "/Users/asc/repo/nodex",
-          primaryWorkspaceRoot: "/Users/asc/repo/nodex",
-          searchText: "nodex /users/asc/repo/nodex",
-        },
-        {
-          id: "devtools-codex",
-          label: "devtools-codex",
-          appearance: { color: "blue", marker: { kind: "icon", icon: "function" } },
-          description: "/Users/asc/repo/devtools-codex",
-          primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
-          searchText: "devtools-codex /users/asc/repo/devtools-codex",
-        },
-        {
-          id: "get-job",
-          label: "get-job",
-          appearance: { color: "orange", marker: { kind: "icon", icon: "suitcase" } },
-          description: "/Users/asc/repo/get-job",
-          primaryWorkspaceRoot: "/Users/asc/repo/get-job",
-          searchText: "get-job /users/asc/repo/get-job",
-        },
-        {
-          id: "videos",
-          label: "videos",
-          appearance: { color: "pink", marker: { kind: "icon", icon: "popcorn" } },
-          description: "/Users/asc/repo/videos",
-          primaryWorkspaceRoot: "/Users/asc/repo/videos",
-          searchText: "videos /users/asc/repo/videos",
-        },
-        {
-          id: "c-kindavim",
-          label: "c-kindavim",
-          appearance: { color: "purple", marker: { kind: "emoji", emoji: "⌨️" } },
-          description: "/Users/asc/repo/c-kindavim",
-          primaryWorkspaceRoot: "/Users/asc/repo/c-kindavim",
-          searchText: "c-kindavim /users/asc/repo/c-kindavim",
-        },
-      ];
+  const projects: NewChatProjectSelectorModel["projects"] =
+    input.state === "empty"
+      ? []
+      : [
+          {
+            id: "nodex",
+            label: "nodex",
+            appearance: { color: "green", marker: { kind: "icon", icon: "plant" } },
+            description: "/Users/asc/repo/nodex",
+            primaryWorkspaceRoot: "/Users/asc/repo/nodex",
+            searchText: "nodex /users/asc/repo/nodex",
+          },
+          {
+            id: "devtools-codex",
+            label: "devtools-codex",
+            appearance: { color: "blue", marker: { kind: "icon", icon: "function" } },
+            description: "/Users/asc/repo/devtools-codex",
+            primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
+            searchText: "devtools-codex /users/asc/repo/devtools-codex",
+          },
+          {
+            id: "get-job",
+            label: "get-job",
+            appearance: { color: "orange", marker: { kind: "icon", icon: "suitcase" } },
+            description: "/Users/asc/repo/get-job",
+            primaryWorkspaceRoot: "/Users/asc/repo/get-job",
+            searchText: "get-job /users/asc/repo/get-job",
+          },
+          {
+            id: "videos",
+            label: "videos",
+            appearance: { color: "pink", marker: { kind: "icon", icon: "popcorn" } },
+            description: "/Users/asc/repo/videos",
+            primaryWorkspaceRoot: "/Users/asc/repo/videos",
+            searchText: "videos /users/asc/repo/videos",
+          },
+          {
+            id: "c-kindavim",
+            label: "c-kindavim",
+            appearance: { color: "purple", marker: { kind: "emoji", emoji: "⌨️" } },
+            description: "/Users/asc/repo/c-kindavim",
+            primaryWorkspaceRoot: "/Users/asc/repo/c-kindavim",
+            searchText: "c-kindavim /users/asc/repo/c-kindavim",
+          },
+        ];
 
   return {
     projects,
@@ -108,7 +104,10 @@ function NewChatProjectSelectorStory(args: StoryArgs) {
   const [selectedProjectId, setSelectedProjectId] = useState(args.selectedProjectId);
   return (
     <TooltipProvider>
-      <div className="min-h-[280px] bg-token-main-surface-primary p-8" data-codex-window-type="electron">
+      <div
+        className="min-h-[280px] bg-token-main-surface-primary p-8"
+        data-codex-window-type="electron"
+      >
         <div className="max-w-3xl">
           <ComposerContextRailSlot visible>
             <ComposerContextRail>
@@ -120,7 +119,9 @@ function NewChatProjectSelectorStory(args: StoryArgs) {
           </ComposerContextRailSlot>
           <div className="composer-surface-chrome relative z-10 flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:dark:bg-token-dropdown-background _multilineSurface_1u8sk_2">
             <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-              <div className="mb-1 min-h-16 px-3 pt-3 text-sm text-token-input-placeholder-foreground">Do anything</div>
+              <div className="mb-1 min-h-16 px-3 pt-3 text-sm text-token-input-placeholder-foreground">
+                Do anything
+              </div>
               <div className="mb-2 flex items-center gap-1 px-2">
                 <span className="inline-flex size-7 rounded-full bg-token-foreground/5" />
                 <span className="inline-flex h-7 w-24 rounded-full bg-token-foreground/5" />

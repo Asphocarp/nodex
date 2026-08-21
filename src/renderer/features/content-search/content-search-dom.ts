@@ -179,10 +179,7 @@ function escapeAttributeSelectorValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function queryContentSearchRoot(
-  root: ContentSearchRoot,
-  selector: string,
-): HTMLElement | null {
+function queryContentSearchRoot(root: ContentSearchRoot, selector: string): HTMLElement | null {
   if (root instanceof HTMLElement && root.matches(selector)) return root;
   return root.querySelector<HTMLElement>(selector);
 }
@@ -203,35 +200,24 @@ function findContentSearchDiffLine(input: {
   side?: "additions" | "deletions";
 }): HTMLElement | null {
   const line = escapeAttributeSelectorValue(String(input.lineNumber));
-  const sideSelector = input.side === "additions"
-    ? "[data-additions]"
-    : input.side === "deletions"
-      ? "[data-deletions]"
-      : null;
+  const sideSelector =
+    input.side === "additions"
+      ? "[data-additions]"
+      : input.side === "deletions"
+        ? "[data-deletions]"
+        : null;
 
   for (const root of collectContentSearchRoots(input.root, true)) {
     if (sideSelector) {
       const sideLine =
-        queryContentSearchRoot(
-          root,
-          `${sideSelector}[data-line="${line}"]`,
-        ) ??
-        queryContentSearchRoot(
-          root,
-          `${sideSelector} [data-line="${line}"]`,
-        ) ??
-        queryContentSearchRoot(
-          root,
-          `[data-line="${line}"] ${sideSelector}`,
-        );
+        queryContentSearchRoot(root, `${sideSelector}[data-line="${line}"]`) ??
+        queryContentSearchRoot(root, `${sideSelector} [data-line="${line}"]`) ??
+        queryContentSearchRoot(root, `[data-line="${line}"] ${sideSelector}`);
       if (sideLine) return sideLine;
       if (hasSideSpecificDiffLines(root)) continue;
     }
 
-    const lineElement = queryContentSearchRoot(
-      root,
-      `[data-line="${line}"]`,
-    );
+    const lineElement = queryContentSearchRoot(root, `[data-line="${line}"]`);
     if (lineElement) return lineElement;
   }
   return null;
@@ -243,10 +229,7 @@ export function findContentSearchDomMatch(input: {
   includeShadowRoots?: boolean;
 }): HTMLElement | null {
   const escapedId = escapeAttributeSelectorValue(input.matchId);
-  for (const root of collectContentSearchRoots(
-    input.root,
-    input.includeShadowRoots === true,
-  )) {
+  for (const root of collectContentSearchRoots(input.root, input.includeShadowRoots === true)) {
     const element = root.querySelector<HTMLElement>(
       `[${CONTENT_SEARCH_MATCH_ID_ATTRIBUTE}="${escapedId}"]`,
     );
@@ -260,15 +243,10 @@ export function clearContentSearchMarks(
   options: { includeShadowRoots?: boolean } = {},
 ): void {
   if (!root) return;
-  const roots = collectContentSearchRoots(
-    root,
-    options.includeShadowRoots === true,
-  );
+  const roots = collectContentSearchRoots(root, options.includeShadowRoots === true);
   for (const searchRoot of roots) {
     const marks = Array.from(
-      searchRoot.querySelectorAll<HTMLElement>(
-        `mark.${CONTENT_SEARCH_MARK_CLASS}`,
-      ),
+      searchRoot.querySelectorAll<HTMLElement>(`mark.${CONTENT_SEARCH_MARK_CLASS}`),
     );
     for (const mark of marks) {
       const parent = mark.parentNode;
@@ -319,9 +297,10 @@ export function applyContentSearchDomMarks(input: {
       domRange.setStart(startNode.node, range.start - startNode.start);
       domRange.setEnd(endNode.node, range.end - endNode.start);
       const mark = document.createElement("mark");
-      mark.className = input.activeMatchId === id
-        ? `${CONTENT_SEARCH_MARK_CLASS} ${CONTENT_SEARCH_ACTIVE_MARK_CLASS}`
-        : CONTENT_SEARCH_MARK_CLASS;
+      mark.className =
+        input.activeMatchId === id
+          ? `${CONTENT_SEARCH_MARK_CLASS} ${CONTENT_SEARCH_ACTIVE_MARK_CLASS}`
+          : CONTENT_SEARCH_MARK_CLASS;
       mark.setAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE, id);
       mark.append(domRange.extractContents());
       domRange.insertNode(mark);
@@ -411,8 +390,7 @@ export function applyContentSearchDiffDomMarks(input: {
   if (
     foundLine ||
     (groups.size > 0 &&
-      (input.root.matches("[data-line]") ||
-        input.root.querySelector("[data-line]") !== null))
+      (input.root.matches("[data-line]") || input.root.querySelector("[data-line]") !== null))
   ) {
     return {
       matches: markedMatches,
@@ -431,16 +409,10 @@ export function setActiveContentSearchDomMatch(
 ): HTMLElement | null {
   if (!root) return null;
   let activeElement: HTMLElement | null = null;
-  for (const searchRoot of collectContentSearchRoots(
-    root,
-    options.includeShadowRoots === true,
-  )) {
-    const marks = searchRoot.querySelectorAll<HTMLElement>(
-      `mark.${CONTENT_SEARCH_MARK_CLASS}`,
-    );
+  for (const searchRoot of collectContentSearchRoots(root, options.includeShadowRoots === true)) {
+    const marks = searchRoot.querySelectorAll<HTMLElement>(`mark.${CONTENT_SEARCH_MARK_CLASS}`);
     for (const mark of marks) {
-      const isActive =
-        mark.getAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE) === activeMatchId;
+      const isActive = mark.getAttribute(CONTENT_SEARCH_MATCH_ID_ATTRIBUTE) === activeMatchId;
       mark.classList.toggle(CONTENT_SEARCH_ACTIVE_MARK_CLASS, isActive);
       if (isActive) activeElement = mark;
     }
@@ -459,15 +431,8 @@ export function countContentSearchDomMatches(input: {
   const limit = input.limit ?? 250;
   let totalMatches = 0;
   let capped = false;
-  for (const root of collectContentSearchRoots(
-    input.root,
-    input.includeShadowRoots === true,
-  )) {
-    const found = findTextRanges(
-      collectTextNodes(root),
-      query,
-      limit - totalMatches,
-    );
+  for (const root of collectContentSearchRoots(input.root, input.includeShadowRoots === true)) {
+    const found = findTextRanges(collectTextNodes(root), query, limit - totalMatches);
     totalMatches += found.ranges.length;
     capped ||= found.capped;
     if (capped || totalMatches >= limit) break;

@@ -56,15 +56,11 @@ const envelope = <Result>(
 const operationIdFor = (
   request: Pick<PrepareNodexAgentCreatePagesRequest, "threadId" | "callId">,
 ): string =>
-  `nodex-agent-create-pages:${createHash("sha256").update(JSON.stringify([
-    request.threadId,
-    request.callId,
-    "create_pages",
-  ])).digest("hex")}`;
+  `nodex-agent-create-pages:${createHash("sha256")
+    .update(JSON.stringify([request.threadId, request.callId, "create_pages"]))
+    .digest("hex")}`;
 
-const coreRequest = (
-  request: PrepareNodexAgentCreatePagesRequest,
-): CoreCreateRequest => ({
+const coreRequest = (request: PrepareNodexAgentCreatePagesRequest): CoreCreateRequest => ({
   destination: toCoreAgentPageDestination(request.input.destination, []),
   pages: request.input.pages.map((page) => ({
     title_markdown: page.title,
@@ -78,26 +74,20 @@ const coreRequest = (
   include_etags: request.input.return?.includes("etags") ?? false,
 });
 
-const output = (
-  result: CoreCreateResult,
-  request: PrepareNodexAgentCreatePagesRequest,
-) => CreatePagesV6OutputSchema.parse({
-  data: {
-    pages: result.pages.map((page) => ({
-      pageId: page.page_id,
-      pageKey: page.page_key ?? null,
-      location: nativeAgentPageLocation(page.location),
-      bodyBlocksCreated: page.body_blocks_created,
-      ...(request.input.return?.includes("block_ids")
-        ? { blockIds: page.block_ids }
-        : {}),
-      ...(page.etags
-        ? { etags: { title: page.etags.title, body: page.etags.body } }
-        : {}),
-    })),
-    created: result.pages.length,
-  },
-});
+const output = (result: CoreCreateResult, request: PrepareNodexAgentCreatePagesRequest) =>
+  CreatePagesV6OutputSchema.parse({
+    data: {
+      pages: result.pages.map((page) => ({
+        pageId: page.page_id,
+        pageKey: page.page_key ?? null,
+        location: nativeAgentPageLocation(page.location),
+        bodyBlocksCreated: page.body_blocks_created,
+        ...(request.input.return?.includes("block_ids") ? { blockIds: page.block_ids } : {}),
+        ...(page.etags ? { etags: { title: page.etags.title, body: page.etags.body } } : {}),
+      })),
+      created: result.pages.length,
+    },
+  });
 
 const normalizedDestination = (
   request: PrepareNodexAgentCreatePagesRequest,
@@ -171,12 +161,8 @@ const command = (
           ...(request.input.return
             ? {
                 return: {
-                  ...(request.input.return.includes("block_ids")
-                    ? { blockIds: true }
-                    : {}),
-                  ...(request.input.return.includes("etags")
-                    ? { etags: true }
-                    : {}),
+                  ...(request.input.return.includes("block_ids") ? { blockIds: true } : {}),
+                  ...(request.input.return.includes("etags") ? { etags: true } : {}),
                 },
               }
             : {}),
@@ -224,15 +210,17 @@ export class NativeNodexAgentPageCreateRuntime {
         const committed = preparation.committed?.outcome.agent_create_pages;
         if (!committed) throw new Error("Core Agent Page-create replay omitted its result");
         this.pending.delete(operationId);
-        return envelope({
-          ok: true,
-          value: { kind: "completed", output: output(committed, request) },
-        }, operationId);
+        return envelope(
+          {
+            ok: true,
+            value: { kind: "completed", output: output(committed, request) },
+          },
+          operationId,
+        );
       }
       const token = preparation.preparation.token;
       if (!token) throw new Error("Core Agent Page-create preparation omitted its token");
-      if (!this.pending.has(operationId)
-        && this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES) {
+      if (!this.pending.has(operationId) && this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES) {
         throw new Error("Native Agent Page-create preparation capacity is exhausted");
       }
       const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
@@ -243,24 +231,27 @@ export class NativeNodexAgentPageCreateRuntime {
         coreRequest: createRequest,
         documentHeads,
       });
-      return envelope({
-        ok: true,
-        value: {
-          kind: "prepared",
-          command: command(request, operationId, preparation),
-          documentHeads,
-          previews: preparation.pages.map((page, index) => {
-            const draft = request.input.pages[index];
-            if (!draft) throw new Error(`Agent Page draft ${index} is unavailable`);
-            return {
-              pageId: page.page_id,
-              title: draft.title,
-              bodyBlockCount: page.body_block_ids.length,
-              targetMarkdown: draft.markdown ?? "",
-            };
-          }),
+      return envelope(
+        {
+          ok: true,
+          value: {
+            kind: "prepared",
+            command: command(request, operationId, preparation),
+            documentHeads,
+            previews: preparation.pages.map((page, index) => {
+              const draft = request.input.pages[index];
+              if (!draft) throw new Error(`Agent Page draft ${index} is unavailable`);
+              return {
+                pageId: page.page_id,
+                title: draft.title,
+                bodyBlockCount: page.body_block_ids.length,
+                targetMarkdown: draft.markdown ?? "",
+              };
+            }),
+          },
         },
-      }, operationId);
+        operationId,
+      );
     } catch (error) {
       return envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId);
     }
@@ -271,12 +262,14 @@ export class NativeNodexAgentPageCreateRuntime {
     documentHeads: readonly NodexAgentDocumentHead[],
   ): Promise<ExecuteNodexAgentCreatePagesResult> {
     const pending = this.pending.get(command.mutationId);
-    if (!pending
-      || pending.request.projectId !== command.projectId
-      || pending.request.callId !== command.callId
-      || pending.request.threadId !== command.threadId
-      || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentDocumentHeads(pending.documentHeads, documentHeads)) {
+    if (
+      !pending ||
+      pending.request.projectId !== command.projectId ||
+      pending.request.callId !== command.callId ||
+      pending.request.threadId !== command.threadId ||
+      pending.request.authority?.storeEpoch !== command.storeEpoch ||
+      !hasExactNativeAgentDocumentHeads(pending.documentHeads, documentHeads)
+    ) {
       return {
         ok: false,
         error: {
@@ -300,7 +293,8 @@ export class NativeNodexAgentPageCreateRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
+      const committed = await this.runtime
+        .clientForProject(pending.request.projectId)
         .libraryApply({
           operationId: pending.operationId,
           intent: {

@@ -250,22 +250,24 @@ function createBrowserDateMentionClockEnvironment(): DateMentionClockEnvironment
   return {
     now: () => new Date(),
     setTimeout: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
-    clearTimeout: (timer) => globalThis.clearTimeout(timer as ReturnType<typeof globalThis.setTimeout>),
-    addDocumentEventListener: typeof document === "undefined"
-      ? undefined
-      : (type, listener) => {
-          document.addEventListener(type, listener);
-          return () => document.removeEventListener(type, listener);
-        },
-    addWindowEventListener: typeof window === "undefined"
-      ? undefined
-      : (type, listener) => {
-          window.addEventListener(type, listener);
-          return () => window.removeEventListener(type, listener);
-        },
-    isDocumentVisible: typeof document === "undefined"
-      ? undefined
-      : () => document.visibilityState !== "hidden",
+    clearTimeout: (timer) =>
+      globalThis.clearTimeout(timer as ReturnType<typeof globalThis.setTimeout>),
+    addDocumentEventListener:
+      typeof document === "undefined"
+        ? undefined
+        : (type, listener) => {
+            document.addEventListener(type, listener);
+            return () => document.removeEventListener(type, listener);
+          },
+    addWindowEventListener:
+      typeof window === "undefined"
+        ? undefined
+        : (type, listener) => {
+            window.addEventListener(type, listener);
+            return () => window.removeEventListener(type, listener);
+          },
+    isDocumentVisible:
+      typeof document === "undefined" ? undefined : () => document.visibilityState !== "hidden",
   };
 }
 

@@ -80,10 +80,7 @@ const databaseValue = (
   revision: 1,
 });
 
-const makeRow = (
-  pageId: string,
-  status: "triage" | "build" = "build",
-): DataSourcePageRowV2 => ({
+const makeRow = (pageId: string, status: "triage" | "build" = "build"): DataSourcePageRowV2 => ({
   pageKey: null,
   page: {
     pageId,
@@ -114,16 +111,8 @@ const makeRow = (
     estimate: databaseValue("estimate", "select", "m"),
     tags: databaseValue("tags", "multi_select", ["o_BBBBBBBB", "o_AAAAAAAA"]),
     due_date: databaseValue("due_date", "date", "2026-07-25"),
-    scheduled_start: databaseValue(
-      "scheduled_start",
-      "datetime",
-      "2026-07-25T08:00:00.000Z",
-    ),
-    scheduled_end: databaseValue(
-      "scheduled_end",
-      "datetime",
-      "2026-07-25T09:00:00.000Z",
-    ),
+    scheduled_start: databaseValue("scheduled_start", "datetime", "2026-07-25T08:00:00.000Z"),
+    scheduled_end: databaseValue("scheduled_end", "datetime", "2026-07-25T09:00:00.000Z"),
     assignee: databaseValue("assignee", "text", "Ada"),
   },
   bodyNfm: "# Detail\n\nA body with **structure**.",
@@ -157,9 +146,7 @@ const makeRow = (
   effectiveSubgroupKey: null,
 });
 
-const makeQuery = (
-  rows: readonly DataSourcePageRowV2[],
-): DatabaseViewQueryResultV2 => ({
+const makeQuery = (rows: readonly DataSourcePageRowV2[]): DatabaseViewQueryResultV2 => ({
   database: {
     databaseId,
     libraryId: "library:test",
@@ -193,11 +180,13 @@ const makeQuery = (
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
-      sort: [{
-        field: { kind: "manual" },
-        direction: "asc",
-        nulls: "last",
-      }],
+      sort: [
+        {
+          field: { kind: "manual" },
+          direction: "asc",
+          nulls: "last",
+        },
+      ],
       group: { propertyId: "status" },
       display: { propertyIds: ["status"], showTitle: true },
     }),
@@ -261,11 +250,13 @@ describe("native Database Page projections", () => {
       scheduledEnd: undefined,
       assignee: undefined,
     });
-    expect(projectCoreDatabaseQueryRow(row, {
-      libraryId: "library:test",
-      dataSourceId,
-      properties,
-    }).values.tags?.value).toEqual(["o_AAAAAAAA"]);
+    expect(
+      projectCoreDatabaseQueryRow(row, {
+        libraryId: "library:test",
+        dataSourceId,
+        properties,
+      }).values.tags?.value,
+    ).toEqual(["o_AAAAAAAA"]);
   });
 
   test("builds the complete renderer Page from one native query row", () => {
@@ -300,9 +291,7 @@ describe("native Database Page projections", () => {
     const withoutBody = { ...row, bodyNfm: undefined };
     const withoutIntrinsic = { ...row, intrinsicProperties: undefined };
 
-    expect(() => projectDatabasePage(withoutBody)).toThrowError(
-      DatabasePageProjectionError,
-    );
+    expect(() => projectDatabasePage(withoutBody)).toThrowError(DatabasePageProjectionError);
     expect(() => projectDatabasePage(withoutIntrinsic)).toThrow(
       "missing intrinsic Property evidence",
     );
@@ -316,11 +305,12 @@ describe("native Database Page projections", () => {
             ...propertyValue,
             value: { frequency: "weekly", interval: 1 },
           }
-        : propertyValue
+        : propertyValue,
     );
 
-    expect(() => projectDatabasePage({ ...row, intrinsicProperties }))
-      .toThrow("invalid relational metadata");
+    expect(() => projectDatabasePage({ ...row, intrinsicProperties })).toThrow(
+      "invalid relational metadata",
+    );
   });
 
   test("projects View identity and excludes an inline host without another read", () => {

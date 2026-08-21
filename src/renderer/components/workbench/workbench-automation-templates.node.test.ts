@@ -8,12 +8,18 @@ import {
 
 describe("workbench automation templates", () => {
   test("filters templates by name, prompt, and schedule label", () => {
-    const ciMatches = filterWorkbenchAutomationTemplates(WORKBENCH_AUTOMATION_TEMPLATES, "ci failures");
+    const ciMatches = filterWorkbenchAutomationTemplates(
+      WORKBENCH_AUTOMATION_TEMPLATES,
+      "ci failures",
+    );
     expect(ciMatches.length).toBe(2);
     expect(ciMatches[0]?.id).toBe("nightly-ci-report");
     expect(ciMatches[1]?.id).toBe("ci-monitor");
 
-    const scheduleMatches = filterWorkbenchAutomationTemplates(WORKBENCH_AUTOMATION_TEMPLATES, "720 hours");
+    const scheduleMatches = filterWorkbenchAutomationTemplates(
+      WORKBENCH_AUTOMATION_TEMPLATES,
+      "720 hours",
+    );
     expect(scheduleMatches.length).toBe(1);
     expect(scheduleMatches[0]?.id).toBe("dependency-sweep");
   });
@@ -40,7 +46,7 @@ describe("workbench automation templates", () => {
 
     expect(prompt.includes("Personalize this scheduled task")).toBe(true);
     expect(prompt.includes("automation_update")).toBe(true);
-    expect(prompt.includes("mode: \"suggested_create\"")).toBe(true);
-    expect(prompt.includes("Template: \"Daily bug scan\"")).toBe(true);
+    expect(prompt.includes('mode: "suggested_create"')).toBe(true);
+    expect(prompt.includes('Template: "Daily bug scan"')).toBe(true);
   });
 });

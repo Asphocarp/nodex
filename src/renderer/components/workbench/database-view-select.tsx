@@ -61,7 +61,7 @@ export function DatabaseViewSelect({
         searchText: option.searchText,
         disabled: option.disabled,
       }))}
-      triggerButton={(
+      triggerButton={
         <NodexDropdownButtonTrigger
           aria-label={ariaLabel}
           aria-disabled={disabled}
@@ -71,7 +71,7 @@ export function DatabaseViewSelect({
         >
           <span className="min-w-0 flex-1 truncate text-left">{valueLabel}</span>
         </NodexDropdownButtonTrigger>
-      )}
+      }
     />
   );
 }

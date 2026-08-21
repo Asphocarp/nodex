@@ -38,10 +38,12 @@ describe("WorktreeInitActivityList", () => {
     };
     const view = renderActivities([worktree, setup], <button type="button">Retry</button>);
 
-    expect(view.getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded"))
-      .toBe("false");
     expect(
-      view.getByRole("button", { name: "Failed to set up the environment" })
+      view.getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(
+      view
+        .getByRole("button", { name: "Failed to set up the environment" })
         .getAttribute("aria-expanded"),
     ).toBe("true");
 
@@ -55,11 +57,13 @@ describe("WorktreeInitActivityList", () => {
     );
 
     expect(
-      view.getByRole("button", { name: "Failed to set up the environment" })
+      view
+        .getByRole("button", { name: "Failed to set up the environment" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
     expect(
-      view.getByRole("button", { name: "Failed to start the conversation" })
+      view
+        .getByRole("button", { name: "Failed to start the conversation" })
         .getAttribute("aria-expanded"),
     ).toBe("true");
   });
@@ -80,11 +84,11 @@ describe("WorktreeInitActivityList", () => {
       },
     ]);
 
-    expect(view.getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded"))
-      .toBe("false");
     expect(
-      view.getByRole("button", { name: "Environment setup skipped" })
-        .getAttribute("aria-expanded"),
+      view.getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(
+      view.getByRole("button", { name: "Environment setup skipped" }).getAttribute("aria-expanded"),
     ).toBe("false");
     const worktreeButton = view.getByRole("button", { name: "Worktree created" });
     const worktreeBody = worktreeButton.parentElement?.nextElementSibling;
@@ -122,18 +126,24 @@ describe("WorktreeInitActivityList", () => {
 
   test("renders a running conversation as shimmer text without disclosure or actions", () => {
     const view = renderActivities(
-      [{
-        id: "pending:1:conversation",
-        kind: "conversation",
-        status: "running",
-        outputText: "",
-      }],
+      [
+        {
+          id: "pending:1:conversation",
+          kind: "conversation",
+          status: "running",
+          outputText: "",
+        },
+      ],
       <button type="button">Retry</button>,
     );
 
-    expect(Boolean(view.getByText("Starting the conversation", {
-      selector: ".loading-shimmer-pure-text",
-    }))).toBe(true);
+    expect(
+      Boolean(
+        view.getByText("Starting the conversation", {
+          selector: ".loading-shimmer-pure-text",
+        }),
+      ),
+    ).toBe(true);
     expect(view.queryByRole("button", { name: "Starting the conversation" })).toBe(null);
     expect(view.queryByRole("button", { name: "Retry" })).toBe(null);
     expect(Boolean(view.container.querySelector(".loading-shimmer-pure-text"))).toBe(true);

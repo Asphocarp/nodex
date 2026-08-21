@@ -14,12 +14,7 @@ import {
   replacePageDocumentBodyFromNfm,
 } from "./legacy-nfm-shadow-translator";
 
-const createGenesis = (
-  documentId: string,
-  title: string,
-  nfm: string,
-  ids: readonly string[],
-) => {
+const createGenesis = (documentId: string, title: string, nfm: string, ids: readonly string[]) => {
   let index = 0;
   return createPageDocumentGenesis({
     documentId,
@@ -48,12 +43,7 @@ const captureEngineError = (operation: () => unknown): string => {
 
 describe("Document operation engine", () => {
   test("persists formatting-only rich title changes as replayable authority", () => {
-    const source = createGenesis(
-      "operation-rich-title",
-      "Same words",
-      "Body",
-      ["body"],
-    );
+    const source = createGenesis("operation-rich-title", "Same words", "Body", ["body"]);
     const prepared = prepareDocumentOperationUpdate({
       document: source.document,
       operations: [
@@ -77,32 +67,24 @@ describe("Document operation engine", () => {
     const replica = new Y.Doc({ guid: source.document.guid });
     Y.applyUpdate(replica, source.update);
     Y.applyUpdate(replica, prepared.update);
-    expect(materializePageDocument(replica).richTitle).toEqual(
-      prepared.materialization.richTitle,
-    );
+    expect(materializePageDocument(replica).richTitle).toEqual(prepared.materialization.richTitle);
     replica.destroy();
     source.document.destroy();
   });
 
   test("applies one stable-ID batch on a detached clone and emits one replayable update", () => {
-    const source = createGenesis(
-      "operation-source",
-      "Before",
-      "Alpha\nBeta\nGamma",
-      ["alpha", "beta", "gamma"],
-    );
-    const inserted = createGenesis(
-      "operation-insert-template",
-      "",
-      "Inserted\n\tChild",
-      ["inserted", "inserted-child"],
-    );
-    const updated = createGenesis(
-      "operation-update-template",
-      "",
-      "Alpha updated",
-      ["updated-template"],
-    );
+    const source = createGenesis("operation-source", "Before", "Alpha\nBeta\nGamma", [
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+    const inserted = createGenesis("operation-insert-template", "", "Inserted\n\tChild", [
+      "inserted",
+      "inserted-child",
+    ]);
+    const updated = createGenesis("operation-update-template", "", "Alpha updated", [
+      "updated-template",
+    ]);
     const sourceBefore = encodedState(source.document);
     const insertedRoot = inserted.materialization.blockTree[0] as BlockTreeNode;
     const updatedRoot = updated.materialization.blockTree[0] as BlockTreeNode;
@@ -122,9 +104,7 @@ describe("Document operation engine", () => {
           patch: {
             type: updatedRoot.type,
             props: updatedRoot.props,
-            ...(updatedRoot.content === undefined
-              ? {}
-              : { content: updatedRoot.content }),
+            ...(updatedRoot.content === undefined ? {} : { content: updatedRoot.content }),
           },
         },
         { kind: "move_block", blockId: "gamma", parentBlockId: "alpha" },
@@ -135,26 +115,19 @@ describe("Document operation engine", () => {
     expect(encodedState(source.document)).toBe(sourceBefore);
     expect(prepared.update.byteLength > 0).toBe(true);
     expect(prepared.materialization.title).toBe("After");
-    expect(prepared.materialization.nfm).toBe(
-      "Alpha updated\n\tGamma\nInserted\n\tChild",
-    );
+    expect(prepared.materialization.nfm).toBe("Alpha updated\n\tGamma\nInserted\n\tChild");
     expect(prepared.writeFenceBlockIds.join(",")).toBe("alpha,beta,gamma");
     expect(prepared.titleWriteFenceRequired).toBe(true);
     expect(
       prepared.materialization.blockTree
-        .flatMap((block) => [
-          block.id,
-          ...block.children.map((child) => child.id),
-        ])
+        .flatMap((block) => [block.id, ...block.children.map((child) => child.id)])
         .join(","),
     ).toBe("alpha,gamma,inserted,inserted-child");
 
     const replica = new Y.Doc({ guid: source.document.guid });
     Y.applyUpdate(replica, source.update);
     Y.applyUpdate(replica, prepared.update);
-    expect(materializePageDocument(replica).nfm).toBe(
-      prepared.materialization.nfm,
-    );
+    expect(materializePageDocument(replica).nfm).toBe(prepared.materialization.nfm);
     const afterFirstApply = encodedState(replica);
     Y.applyUpdate(replica, prepared.update);
     expect(encodedState(replica)).toBe(afterFirstApply);
@@ -166,18 +139,8 @@ describe("Document operation engine", () => {
   });
 
   test("retains a title fence when a batch rewrites back to its original value", () => {
-    const source = createGenesis(
-      "operation-net-zero-title",
-      "Original",
-      "Body",
-      ["body"],
-    );
-    const inserted = createGenesis(
-      "operation-net-zero-insert",
-      "",
-      "Inserted",
-      ["inserted"],
-    );
+    const source = createGenesis("operation-net-zero-title", "Original", "Body", ["body"]);
+    const inserted = createGenesis("operation-net-zero-insert", "", "Inserted", ["inserted"]);
     try {
       const prepared = prepareDocumentOperationUpdate({
         document: source.document,
@@ -200,12 +163,7 @@ describe("Document operation engine", () => {
   });
 
   test("rejects deleting the final editable Block", () => {
-    const source = createGenesis(
-      "operation-final-root",
-      "Title only",
-      "",
-      ["empty-root"],
-    );
+    const source = createGenesis("operation-final-root", "Title only", "", ["empty-root"]);
 
     expect(
       captureEngineError(() =>
@@ -238,18 +196,12 @@ describe("Document operation engine", () => {
   });
 
   test("rejects duplicate IDs, ancestor cycles, and missing anchors without mutating the source", () => {
-    const source = createGenesis(
-      "operation-failures",
-      "Guarded",
-      "Parent\n\tChild\nSibling",
-      ["parent", "child", "sibling"],
-    );
-    const duplicate = createGenesis(
-      "operation-duplicate-template",
-      "",
-      "Duplicate",
-      ["sibling"],
-    );
+    const source = createGenesis("operation-failures", "Guarded", "Parent\n\tChild\nSibling", [
+      "parent",
+      "child",
+      "sibling",
+    ]);
+    const duplicate = createGenesis("operation-duplicate-template", "", "Duplicate", ["sibling"]);
     const before = encodedState(source.document);
 
     expect(
@@ -269,9 +221,7 @@ describe("Document operation engine", () => {
       captureEngineError(() =>
         prepareDocumentOperationUpdate({
           document: source.document,
-          operations: [
-            { kind: "move_block", blockId: "parent", parentBlockId: "child" },
-          ],
+          operations: [{ kind: "move_block", blockId: "parent", parentBlockId: "child" }],
         }),
       ),
     ).toBe("ancestor_cycle");
@@ -296,9 +246,7 @@ describe("Document operation engine", () => {
   });
 
   test("rejects a fully normalized no-op instead of manufacturing Yjs structs", () => {
-    const source = createGenesis("operation-noop", "Same title", "Same body", [
-      "same",
-    ]);
+    const source = createGenesis("operation-noop", "Same title", "Same body", ["same"]);
     expect(
       captureEngineError(() =>
         prepareDocumentOperationUpdate({
@@ -317,12 +265,7 @@ describe("Document operation engine", () => {
         }),
       ),
     ).toBe("no_change");
-    const insertTemplate = createGenesis(
-      "operation-noop-insert",
-      "",
-      "Transient",
-      ["transient"],
-    );
+    const insertTemplate = createGenesis("operation-noop-insert", "", "Transient", ["transient"]);
     expect(
       captureEngineError(() =>
         prepareDocumentOperationUpdate({
@@ -330,8 +273,7 @@ describe("Document operation engine", () => {
           operations: [
             {
               kind: "insert_block",
-              block: insertTemplate.materialization
-                .blockTree[0] as BlockTreeNode,
+              block: insertTemplate.materialization.blockTree[0] as BlockTreeNode,
             },
             { kind: "delete_block", blockId: "transient" },
           ],
@@ -343,12 +285,7 @@ describe("Document operation engine", () => {
   });
 
   test("rejects Block props that the canonical codec would silently discard", () => {
-    const source = createGenesis(
-      "operation-invalid-props",
-      "Schema",
-      "Existing",
-      ["existing"],
-    );
+    const source = createGenesis("operation-invalid-props", "Schema", "Existing", ["existing"]);
     expect(
       captureEngineError(() =>
         prepareDocumentOperationUpdate({
@@ -372,12 +309,11 @@ describe("Document operation engine", () => {
   });
 
   test("NFM replacement preserves title structs and resolves repeated-content identity deterministically", () => {
-    const source = createGenesis(
-      "operation-nfm-replace",
-      "Preserved title",
-      "Same\nSame\nTail",
-      ["same-1", "same-2", "tail"],
-    );
+    const source = createGenesis("operation-nfm-replace", "Preserved title", "Same\nSame\nTail", [
+      "same-1",
+      "same-2",
+      "tail",
+    ]);
     let firstAllocation = 0;
     const first = replacePageDocumentBodyFromNfm({
       document: source.document,
@@ -390,12 +326,12 @@ describe("Document operation engine", () => {
       nfm: "Same revised\nSame\nTail",
       allocateBlockId: () => `fresh-${++secondAllocation}`,
     });
-    expect(
-      first.materialization.blockTree.map((block) => block.id).join(","),
-    ).toBe(second.materialization.blockTree.map((block) => block.id).join(","));
-    expect(
-      first.materialization.blockTree.map((block) => block.id).join(","),
-    ).toBe("fresh-1,fresh-2,tail");
+    expect(first.materialization.blockTree.map((block) => block.id).join(",")).toBe(
+      second.materialization.blockTree.map((block) => block.id).join(","),
+    );
+    expect(first.materialization.blockTree.map((block) => block.id).join(",")).toBe(
+      "fresh-1,fresh-2,tail",
+    );
     expect(first.materialization.title).toBe("Preserved title");
 
     const replica = new Y.Doc({ guid: source.document.guid });
@@ -436,12 +372,10 @@ describe("Document operation engine", () => {
   });
 
   test("NFM Card UUIDs exactly preserve and reorder existing owning shells", () => {
-    const source = createGenesis(
-      "operation-nfm-card-pins",
-      "Cards",
-      "<page />\n<page />",
-      ["card-a", "card-b"],
-    );
+    const source = createGenesis("operation-nfm-card-pins", "Cards", "<page />\n<page />", [
+      "card-a",
+      "card-b",
+    ]);
     let allocationCount = 0;
     const replacement = replacePageDocumentBodyFromNfm({
       document: source.document,
@@ -449,12 +383,11 @@ describe("Document operation engine", () => {
       allocateBlockId: () => `unexpected-${++allocationCount}`,
     });
 
-    expect(
-      replacement.materialization.blockTree.map((block) => block.id),
-    ).toEqual(["card-b", "card-a"]);
-    expect(replacement.materialization.nfm).toBe(
-      '<page uuid="card-b" />\n<page uuid="card-a" />',
-    );
+    expect(replacement.materialization.blockTree.map((block) => block.id)).toEqual([
+      "card-b",
+      "card-a",
+    ]);
+    expect(replacement.materialization.nfm).toBe('<page uuid="card-b" />\n<page uuid="card-a" />');
     expect(allocationCount).toBe(0);
     source.document.destroy();
   });
@@ -488,23 +421,18 @@ describe("Document operation engine", () => {
     let allocationCount = 0;
     const replacement = replacePageDocumentBodyFromNfm({
       document: source.document,
-      nfm: [
-        "Parent",
-        '\t<page uuid="card-b" />',
-        "Parent",
-        '\t<page uuid="card-a" />',
-      ].join("\n"),
+      nfm: ["Parent", '\t<page uuid="card-b" />', "Parent", '\t<page uuid="card-a" />'].join("\n"),
       allocateBlockId: () => `unexpected-${++allocationCount}`,
     });
 
-    expect(
-      replacement.materialization.blockTree.map((block) => block.id),
-    ).toEqual(["parent-b", "parent-a"]);
-    expect(
-      replacement.materialization.blockTree.map(
-        (block) => block.children[0]?.id,
-      ),
-    ).toEqual(["card-b", "card-a"]);
+    expect(replacement.materialization.blockTree.map((block) => block.id)).toEqual([
+      "parent-b",
+      "parent-a",
+    ]);
+    expect(replacement.materialization.blockTree.map((block) => block.children[0]?.id)).toEqual([
+      "card-b",
+      "card-a",
+    ]);
     expect(allocationCount).toBe(0);
     source.document.destroy();
   });
@@ -554,12 +482,9 @@ describe("Document operation engine", () => {
   });
 
   test("NFM Card UUID pins reject malformed explicit identities", () => {
-    const source = createGenesis(
-      "operation-nfm-malformed-card-pin",
-      "Cards",
-      "<page />",
-      ["card-a"],
-    );
+    const source = createGenesis("operation-nfm-malformed-card-pin", "Cards", "<page />", [
+      "card-a",
+    ]);
     const before = encodedState(source.document);
 
     for (const nfm of ['<page uuid=" card-a" />', '<page uuid="" />']) {
@@ -583,28 +508,24 @@ describe("Document operation engine", () => {
     });
 
     expect(genesis.materialization.blockTree[0]?.id).toBe("fresh-card");
-    expect(genesis.materialization.nfm).toBe(
-      '<page uuid="fresh-card" />',
-    );
+    expect(genesis.materialization.nfm).toBe('<page uuid="fresh-card" />');
     genesis.document.destroy();
   });
 
   test("NFM identity matching allocates fresh IDs when same-type replacement has no confident anchor", () => {
-    const source = createGenesis(
-      "operation-nfm-all-replaced",
-      "Replace",
-      "Alpha\nBeta",
-      ["alpha-old", "beta-old"],
-    );
+    const source = createGenesis("operation-nfm-all-replaced", "Replace", "Alpha\nBeta", [
+      "alpha-old",
+      "beta-old",
+    ]);
     let nextId = 0;
     const replacement = replacePageDocumentBodyFromNfm({
       document: source.document,
       nfm: "Completely different one\nCompletely different two",
       allocateBlockId: () => `replacement-${++nextId}`,
     });
-    expect(
-      replacement.materialization.blockTree.map((block) => block.id).join(","),
-    ).toBe("replacement-1,replacement-2");
+    expect(replacement.materialization.blockTree.map((block) => block.id).join(",")).toBe(
+      "replacement-1,replacement-2",
+    );
     expect(nextId).toBe(2);
     source.document.destroy();
   });
@@ -615,10 +536,7 @@ describe("Document operation engine", () => {
       "operation-nfm-threshold",
       "Threshold",
       Array.from({ length: sourceCount }, () => "Same").join("\n"),
-      Array.from(
-        { length: sourceCount },
-        (_, index) => `threshold-old-${index}`,
-      ),
+      Array.from({ length: sourceCount }, (_, index) => `threshold-old-${index}`),
     );
     let allocationCount = 0;
     const replacement = replacePageDocumentBodyFromNfm({
@@ -628,9 +546,7 @@ describe("Document operation engine", () => {
     });
     expect(allocationCount).toBe(sourceCount - 1);
     expect(
-      replacement.materialization.blockTree.some((block) =>
-        block.id.startsWith("threshold-old-"),
-      ),
+      replacement.materialization.blockTree.some((block) => block.id.startsWith("threshold-old-")),
     ).toBe(false);
     source.document.destroy();
   });

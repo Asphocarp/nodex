@@ -35,34 +35,42 @@ describe("CodexComposerExternalSuggestionService", () => {
   });
 
   test("gates Sites inventory through access before calling the bounded tool", async () => {
-    const requestChatGptDesktop = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ enabled: true }), {
-        status: 200,
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        result: {
-          isError: false,
-          structuredContent: {
-            cursor: null,
-            items: [
-              {
-                id: "appgprj_release",
-                title: " Release notes ",
-                slug: "release-notes",
-                current_live_url: "https://release.chatgpt.site/docs?mode=live",
+    const requestChatGptDesktop = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ enabled: true }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            jsonrpc: "2.0",
+            result: {
+              isError: false,
+              structuredContent: {
+                cursor: null,
+                items: [
+                  {
+                    id: "appgprj_release",
+                    title: " Release notes ",
+                    slug: "release-notes",
+                    current_live_url: "https://release.chatgpt.site/docs?mode=live",
+                  },
+                  {
+                    id: "",
+                    title: "Invalid",
+                    slug: "invalid",
+                    current_live_url: null,
+                  },
+                ],
               },
-              {
-                id: "",
-                title: "Invalid",
-                slug: "invalid",
-                current_live_url: null,
-              },
-            ],
-          },
-        },
-      }), { status: 200 }));
+            },
+          }),
+          { status: 200 },
+        ),
+      );
     const service = new CodexComposerExternalSuggestionService({
       readAuthMethod: vi.fn().mockResolvedValue("chatgpt"),
       readConfig: vi.fn().mockResolvedValue(buildConfig()),
@@ -71,13 +79,15 @@ describe("CodexComposerExternalSuggestionService", () => {
 
     await expect(service.listSites()).resolves.toEqual({
       available: true,
-      sites: [{
-        id: "appgprj_release",
-        title: " Release notes ",
-        slug: "release-notes",
-        currentLiveUrl: "https://release.chatgpt.site/docs?mode=live",
-        path: "sites-project://appgprj_release",
-      }],
+      sites: [
+        {
+          id: "appgprj_release",
+          title: " Release notes ",
+          slug: "release-notes",
+          currentLiveUrl: "https://release.chatgpt.site/docs?mode=live",
+          path: "sites-project://appgprj_release",
+        },
+      ],
     });
     expect(requestChatGptDesktop).toHaveBeenNthCalledWith(
       1,
@@ -88,11 +98,13 @@ describe("CodexComposerExternalSuggestionService", () => {
       }),
     );
     const toolCall = requestChatGptDesktop.mock.calls[1]?.[0];
-    expect(toolCall).toEqual(expect.objectContaining({
-      baseUrl: "https://chatgpt.example.test",
-      method: "POST",
-      path: "/wham/apps",
-    }));
+    expect(toolCall).toEqual(
+      expect.objectContaining({
+        baseUrl: "https://chatgpt.example.test",
+        method: "POST",
+        path: "/wham/apps",
+      }),
+    );
     expect(JSON.parse(toolCall?.body as string)).toEqual({
       id: 1,
       jsonrpc: "2.0",
@@ -105,16 +117,29 @@ describe("CodexComposerExternalSuggestionService", () => {
   });
 
   test("uses recent and source-ranked search endpoints with canonical mention paths", async () => {
-    const requestChatGptDesktop = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        items: [{ id: "recent/id", title: "Recent research" }],
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        items: [{
-          conversation_id: "search/id",
-          title: "Searched research",
-        }],
-      }), { status: 200 }));
+    const requestChatGptDesktop = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [{ id: "recent/id", title: "Recent research" }],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                conversation_id: "search/id",
+                title: "Searched research",
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
     const service = new CodexComposerExternalSuggestionService({
       readAuthMethod: vi.fn().mockResolvedValue("chatgptAuthTokens"),
       readConfig: vi.fn().mockResolvedValue(buildConfig()),
@@ -123,19 +148,23 @@ describe("CodexComposerExternalSuggestionService", () => {
 
     await expect(service.listChatGptConversations("")).resolves.toEqual({
       available: true,
-      conversations: [{
-        conversationId: "recent/id",
-        title: "Recent research",
-        path: "chatgpt-conversation://recent%2Fid",
-      }],
+      conversations: [
+        {
+          conversationId: "recent/id",
+          title: "Recent research",
+          path: "chatgpt-conversation://recent%2Fid",
+        },
+      ],
     });
     await expect(service.listChatGptConversations(" release plan ")).resolves.toEqual({
       available: true,
-      conversations: [{
-        conversationId: "search/id",
-        title: "Searched research",
-        path: "chatgpt-conversation://search%2Fid",
-      }],
+      conversations: [
+        {
+          conversationId: "search/id",
+          title: "Searched research",
+          path: "chatgpt-conversation://search%2Fid",
+        },
+      ],
     });
     expect(requestChatGptDesktop).toHaveBeenNthCalledWith(
       1,
@@ -153,9 +182,9 @@ describe("CodexComposerExternalSuggestionService", () => {
   });
 
   test("bounds ChatGPT search text before crossing the authenticated boundary", async () => {
-    const requestChatGptDesktop = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ items: [] }), { status: 200 }),
-    );
+    const requestChatGptDesktop = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ items: [] }), { status: 200 }));
     const service = new CodexComposerExternalSuggestionService({
       readAuthMethod: vi.fn().mockResolvedValue("chatgpt"),
       readConfig: vi.fn().mockResolvedValue(buildConfig()),
@@ -174,19 +203,25 @@ describe("CodexComposerExternalSuggestionService", () => {
 
 describe("composer external suggestion parsers", () => {
   test("rejects JSON-RPC failures and deduplicates malformed provider rows", () => {
-    expect(parseComposerSitesToolResponse({
-      result: { isError: true, structuredContent: { items: [] } },
-    })).toEqual([]);
-    expect(parseComposerChatGptConversations({
-      items: [
-        { conversation_id: "conversation-1", title: null },
-        { id: "conversation-1", title: "duplicate" },
-        { id: "", title: "invalid" },
-      ],
-    })).toEqual([{
-      conversationId: "conversation-1",
-      title: "",
-      path: "chatgpt-conversation://conversation-1",
-    }]);
+    expect(
+      parseComposerSitesToolResponse({
+        result: { isError: true, structuredContent: { items: [] } },
+      }),
+    ).toEqual([]);
+    expect(
+      parseComposerChatGptConversations({
+        items: [
+          { conversation_id: "conversation-1", title: null },
+          { id: "conversation-1", title: "duplicate" },
+          { id: "", title: "invalid" },
+        ],
+      }),
+    ).toEqual([
+      {
+        conversationId: "conversation-1",
+        title: "",
+        path: "chatgpt-conversation://conversation-1",
+      },
+    ]);
   });
 });

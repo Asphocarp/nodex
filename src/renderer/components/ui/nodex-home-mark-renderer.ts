@@ -221,12 +221,15 @@ function buildTargetBoundaryCoefficients(): Float32Array {
     for (let step = 1; step <= 8; step += 1) {
       const amount = step / 8;
       const inverse = 1 - amount;
-      values.push(current.map((value, index) =>
-        inverse ** 3 * value
-        + 3 * inverse ** 2 * amount * segment.c1[index]
-        + 3 * inverse * amount ** 2 * segment.c2[index]
-        + amount ** 3 * segment.end[index]
-      ));
+      values.push(
+        current.map(
+          (value, index) =>
+            inverse ** 3 * value +
+            3 * inverse ** 2 * amount * segment.c1[index] +
+            3 * inverse * amount ** 2 * segment.c2[index] +
+            amount ** 3 * segment.end[index],
+        ),
+      );
     }
     current = segment.end;
   }
@@ -243,11 +246,7 @@ function decodePackedVertices(): Int16Array {
   return new Int16Array(bytes.buffer);
 }
 
-function compileShader(
-  gl: WebGL2RenderingContext,
-  type: number,
-  source: string,
-): WebGLShader {
+function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type);
   if (!shader) throw new Error("Unable to allocate a Nodex mark shader.");
   gl.shaderSource(shader, source);
@@ -291,10 +290,7 @@ function requiredUniform(
   return location;
 }
 
-function resolveUniforms(
-  gl: WebGL2RenderingContext,
-  program: WebGLProgram,
-): RendererUniforms {
+function resolveUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): RendererUniforms {
   return {
     resolution: requiredUniform(gl, program, "uResolution"),
     framebufferResolution: requiredUniform(gl, program, "uFramebufferResolution"),
@@ -317,10 +313,7 @@ function resolveUniforms(
   };
 }
 
-function writeColumnMajor(
-  matrix: NodexMarkMat3,
-  target = new Float32Array(9),
-): Float32Array {
+function writeColumnMajor(matrix: NodexMarkMat3, target = new Float32Array(9)): Float32Array {
   target[0] = matrix[0];
   target[1] = matrix[3];
   target[2] = matrix[6];
@@ -373,12 +366,7 @@ function writeScreenPoint(input: {
   const y = fitted[fittedOffset + 1] + (regularY - fitted[fittedOffset + 1]) * morph;
   const z = fitted[fittedOffset + 2] + (regularZ - fitted[fittedOffset + 2]) * morph;
   const posed = matVec3(rotation, x, y, z);
-  const camera = matVec3(
-    NODEX_HOME_MARK_BASE_ROTATION,
-    posed[0],
-    posed[1],
-    posed[2],
-  );
+  const camera = matVec3(NODEX_HOME_MARK_BASE_ROTATION, posed[0], posed[1], posed[2]);
   target[targetOffset] = principalX + camera[0] * scale;
   target[targetOffset + 1] = principalY + camera[1] * scale;
 }
@@ -387,8 +375,8 @@ function writeOutwardNormals(boundary: Float32Array, output: Float32Array) {
   let doubledArea = 0;
   for (let index = 0; index < PANEL_VERTEX_COUNT; index += 1) {
     const next = (index + 1) % PANEL_VERTEX_COUNT;
-    doubledArea += boundary[index * 2] * boundary[next * 2 + 1]
-      - boundary[index * 2 + 1] * boundary[next * 2];
+    doubledArea +=
+      boundary[index * 2] * boundary[next * 2 + 1] - boundary[index * 2 + 1] * boundary[next * 2];
   }
   const orientation = doubledArea > 0 ? -1 : 1;
   for (let index = 0; index < PANEL_VERTEX_COUNT; index += 1) {
@@ -396,8 +384,8 @@ function writeOutwardNormals(boundary: Float32Array, output: Float32Array) {
     const x = boundary[next * 2] - boundary[index * 2];
     const y = boundary[next * 2 + 1] - boundary[index * 2 + 1];
     const length = Math.hypot(x, y) || 1;
-    output[index * 2] = orientation * -y / length;
-    output[index * 2 + 1] = orientation * x / length;
+    output[index * 2] = (orientation * -y) / length;
+    output[index * 2 + 1] = (orientation * x) / length;
   }
 }
 
@@ -517,24 +505,21 @@ export function createNodexHomeMarkRenderer(input: {
       canvas.width = framebuffer.size;
       canvas.height = framebuffer.size;
     }
-    const scale = (FITTED_SCALE + (FLIGHT_SCALE - FITTED_SCALE) * morph)
-      * HERO_GEOMETRY_SCALE;
-    const principalX = FITTED_PRINCIPAL[0]
-      + (400 - FITTED_PRINCIPAL[0]) * morph
-      + FRAME_OFFSET;
-    const principalY = FITTED_PRINCIPAL[1]
-      + (400 - FITTED_PRINCIPAL[1]) * morph
-      + FRAME_OFFSET;
+    const scale = (FITTED_SCALE + (FLIGHT_SCALE - FITTED_SCALE) * morph) * HERO_GEOMETRY_SCALE;
+    const principalX = FITTED_PRINCIPAL[0] + (400 - FITTED_PRINCIPAL[0]) * morph + FRAME_OFFSET;
+    const principalY = FITTED_PRINCIPAL[1] + (400 - FITTED_PRINCIPAL[1]) * morph + FRAME_OFFSET;
     const canonicalHalf = Math.max(0.06, 0.5 - REGULAR_BEVEL - PANEL_MARGIN);
     const radius = Math.min(PANEL_RADIUS, canonicalHalf);
 
     for (let index = 0; index < PANEL_VERTEX_COUNT; index += 1) {
       const coefficientOffset = index * 4;
       const screenOffset = index * 2;
-      const u = TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset] * canonicalHalf
-        + TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset + 2] * radius;
-      const v = TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset + 1] * canonicalHalf
-        + TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset + 3] * radius;
+      const u =
+        TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset] * canonicalHalf +
+        TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset + 2] * radius;
+      const v =
+        TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset + 1] * canonicalHalf +
+        TARGET_BOUNDARY_COEFFICIENTS[coefficientOffset + 3] * radius;
       writeScreenPoint({
         target: topScreen,
         targetOffset: screenOffset,
@@ -602,12 +587,7 @@ export function createNodexHomeMarkRenderer(input: {
     }
 
     const posedTop = matVec3(rotation, 0, -1, 0);
-    const cameraTop = matVec3(
-      NODEX_HOME_MARK_BASE_ROTATION,
-      posedTop[0],
-      posedTop[1],
-      posedTop[2],
-    );
+    const cameraTop = matVec3(NODEX_HOME_MARK_BASE_ROTATION, posedTop[0], posedTop[1], posedTop[2]);
     const posedFront = matVec3(rotation, 0, 0, 1);
     const cameraFront = matVec3(
       NODEX_HOME_MARK_BASE_ROTATION,
@@ -629,9 +609,8 @@ export function createNodexHomeMarkRenderer(input: {
       posedFrontY[1],
       posedFrontY[2],
     );
-    const faceScale = Math.sqrt(
-      Math.hypot(frontX[0], frontX[1]) * Math.hypot(frontY[0], frontY[1]),
-    ) * scale;
+    const faceScale =
+      Math.sqrt(Math.hypot(frontX[0], frontX[1]) * Math.hypot(frontY[0], frontY[1])) * scale;
     for (let index = 0; index < glyphScene.segments.length; index += 1) {
       glyphRadii[index] = glyphScene.segments[index].radius * faceScale;
     }
@@ -646,19 +625,11 @@ export function createNodexHomeMarkRenderer(input: {
     gl.useProgram(program);
     gl.bindVertexArray(vertexArray);
     gl.uniform2f(uniforms.resolution, FRAME_COORD_SIZE, FRAME_COORD_SIZE);
-    gl.uniform2f(
-      uniforms.framebufferResolution,
-      framebuffer.size,
-      framebuffer.size,
-    );
+    gl.uniform2f(uniforms.framebufferResolution, framebuffer.size, framebuffer.size);
     gl.uniform1f(uniforms.aaHalfWidth, framebuffer.aaHalfWidth);
     gl.uniform1f(uniforms.scale, scale);
     gl.uniform2f(uniforms.principal, principalX, principalY);
-    gl.uniformMatrix3fv(
-      uniforms.camera,
-      false,
-      cameraMatrix,
-    );
+    gl.uniformMatrix3fv(uniforms.camera, false, cameraMatrix);
     gl.uniformMatrix3fv(uniforms.pose, false, writeColumnMajor(rotation, poseMatrix));
     gl.uniform1f(uniforms.morph, morph);
     gl.uniform3f(uniforms.color, color[0], color[1], color[2]);

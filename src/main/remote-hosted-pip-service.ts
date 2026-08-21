@@ -36,9 +36,7 @@ interface RemoteHostedPipServiceDeps {
     payload: IpcEvents[Channel],
   ) => void;
   getFocusedWindow: () => RemoteHostedPipWindowLike | null;
-  getWindowForSender: (
-    sender: RemoteHostedPipWebContentsLike,
-  ) => RemoteHostedPipWindowLike | null;
+  getWindowForSender: (sender: RemoteHostedPipWebContentsLike) => RemoteHostedPipWindowLike | null;
   isEnabled?: () => boolean;
   isThreadSurfacePresented?: (threadId: string) => boolean;
   readAlwaysHide?: () => boolean;
@@ -148,12 +146,13 @@ export class RemoteHostedPipService {
         event.surface.browserId,
         screenshot.tabId,
       ])}`;
-      const inserted = this.deps.addon?.upsertBrowserUsePIPContent(
-        presentationId,
-        event.threadId,
-        screenshot.url,
-        null,
-      ) === true;
+      const inserted =
+        this.deps.addon?.upsertBrowserUsePIPContent(
+          presentationId,
+          event.threadId,
+          screenshot.url,
+          null,
+        ) === true;
       if (inserted) {
         session ??= {
           presentationIdsByTabId: new Map(),
@@ -226,9 +225,7 @@ export class RemoteHostedPipService {
     this.contentHostStarted = false;
   }
 
-  private trackSender(
-    sender: RemoteHostedPipWebContentsLike,
-  ): RemoteHostedPipWindowLike | null {
+  private trackSender(sender: RemoteHostedPipWebContentsLike): RemoteHostedPipWindowLike | null {
     const window = this.deps.getWindowForSender(sender);
     if (!window || window.isDestroyed()) return null;
     if (!this.trackedWindowIds.has(window.id)) {
@@ -273,17 +270,18 @@ export class RemoteHostedPipService {
     if (existingOwnerWindowId !== undefined && existingOwnerWindowId !== window.id) {
       this.unregisterWindowHost(existingOwnerWindowId);
     }
-    const registered = this.deps.addon?.registerRemoteHostedPIPContentHost({
-      anchors: layout.anchors,
-      anchorRect: layout.anchorRect,
-      animated: layout.animated && this.deps.addon.hasRemoteHostedPIPContentAnyPresentation(),
-      contentBounds: window.getContentBounds(),
-      id: layout.hostId,
-      isCodexHomeAvailable: false,
-      nativeWindowHandle: window.getNativeWindowHandle?.() ?? null,
-      presentationScope: layout.presentationScope,
-      title: window.getTitle(),
-    }) === true;
+    const registered =
+      this.deps.addon?.registerRemoteHostedPIPContentHost({
+        anchors: layout.anchors,
+        anchorRect: layout.anchorRect,
+        animated: layout.animated && this.deps.addon.hasRemoteHostedPIPContentAnyPresentation(),
+        contentBounds: window.getContentBounds(),
+        id: layout.hostId,
+        isCodexHomeAvailable: false,
+        nativeWindowHandle: window.getNativeWindowHandle?.() ?? null,
+        presentationScope: layout.presentationScope,
+        title: window.getTitle(),
+      }) === true;
     if (!registered) return false;
     this.hostIdByWindowId.set(window.id, layout.hostId);
     this.hostOwnerWindowIdByHostId.set(layout.hostId, window.id);
@@ -307,19 +305,17 @@ export class RemoteHostedPipService {
       placement: "Send Picture-in-Picture to Pet",
     });
     if (!this.contentHostStarted) return false;
-    this.deps.addon.setRemoteHostedPIPContentVisibilityRequestHandler(
-      (isVisible, threadIds) => this.handleNativeVisibilityRequest(isVisible, threadIds),
+    this.deps.addon.setRemoteHostedPIPContentVisibilityRequestHandler((isVisible, threadIds) =>
+      this.handleNativeVisibilityRequest(isVisible, threadIds),
     );
-    this.deps.addon.setRemoteHostedPIPContentShouldShowTaskHandler(
-      (threadId) => this.shouldShowNativeTask(threadId),
+    this.deps.addon.setRemoteHostedPIPContentShouldShowTaskHandler((threadId) =>
+      this.shouldShowNativeTask(threadId),
     );
-    this.deps.addon.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler(
-      (size) => {
-        if (Number.isFinite(size) && size > 0) {
-          this.deps.writeMaxDisplaySize?.(size);
-        }
-      },
-    );
+    this.deps.addon.setRemoteHostedPIPContentMaxDisplaySizeChangedHandler((size) => {
+      if (Number.isFinite(size) && size > 0) {
+        this.deps.writeMaxDisplaySize?.(size);
+      }
+    });
     const maxDisplaySize = this.deps.readMaxDisplaySize?.() ?? null;
     if (maxDisplaySize !== null && Number.isFinite(maxDisplaySize) && maxDisplaySize > 0) {
       this.deps.addon.setRemoteHostedPIPContentMaxDisplaySize(maxDisplaySize);
@@ -352,25 +348,17 @@ export class RemoteHostedPipService {
         surfaceSuppressedThreadIds.add(threadId);
       }
     }
-    const suppressedThreadIds = new Set([
-      ...this.hiddenThreadIds,
-      ...surfaceSuppressedThreadIds,
-    ]);
-    this.deps.addon?.setRemoteHostedPIPContentSuppressedThreadIDs(
-      [...suppressedThreadIds].sort(),
-    );
+    const suppressedThreadIds = new Set([...this.hiddenThreadIds, ...surfaceSuppressedThreadIds]);
+    this.deps.addon?.setRemoteHostedPIPContentSuppressedThreadIDs([...suppressedThreadIds].sort());
 
     const focusedThreadId = focusedWindow
-      ? this.activeThreadByWindowId.get(focusedWindow.id) ?? null
+      ? (this.activeThreadByWindowId.get(focusedWindow.id) ?? null)
       : null;
-    const hostRegistered = focusedWindow
-      ? this.hostIdByWindowId.has(focusedWindow.id)
-      : false;
-    const nextSelectedThreadId = hostRegistered
-      && focusedThreadId
-      && !surfaceSuppressedThreadIds.has(focusedThreadId)
-      ? focusedThreadId
-      : null;
+    const hostRegistered = focusedWindow ? this.hostIdByWindowId.has(focusedWindow.id) : false;
+    const nextSelectedThreadId =
+      hostRegistered && focusedThreadId && !surfaceSuppressedThreadIds.has(focusedThreadId)
+        ? focusedThreadId
+        : null;
     const previousSelectedThreadId = this.selectedThreadId;
     if (previousSelectedThreadId !== nextSelectedThreadId) {
       this.selectedThreadId = nextSelectedThreadId;
@@ -385,10 +373,7 @@ export class RemoteHostedPipService {
     const selectedThreadId = this.selectedThreadId;
     if (!selectedThreadId) return;
     const activeThreadIds = this.deps.addon.getRemoteHostedPIPContentActiveTaskIDs();
-    this.publishStreamState(
-      selectedThreadId,
-      activeThreadIds.includes(selectedThreadId),
-    );
+    this.publishStreamState(selectedThreadId, activeThreadIds.includes(selectedThreadId));
   }
 
   private shouldShowNativeTask(threadId: string): boolean {
@@ -403,8 +388,8 @@ export class RemoteHostedPipService {
     };
     const previousState = this.publishedStreamStateByConversationId.get(conversationId);
     if (
-      previousState?.isActive === state.isActive
-      && previousState.isAnyActive === state.isAnyActive
+      previousState?.isActive === state.isActive &&
+      previousState.isAnyActive === state.isAnyActive
     ) {
       return;
     }
@@ -437,10 +422,7 @@ export class RemoteHostedPipService {
     this.reconcileNativeState();
   }
 
-  private handleNativeVisibilityRequest(
-    isVisible: boolean,
-    threadIds: readonly string[],
-  ): void {
+  private handleNativeVisibilityRequest(isVisible: boolean, threadIds: readonly string[]): void {
     for (const threadId of threadIds) {
       if (isVisible) {
         this.hiddenThreadIds.delete(threadId);

@@ -23,8 +23,7 @@ const preparedRelativePath = `${resourcesRelativePath}/prepared-electron-build.j
 const appAsarRelativePath = `${resourcesRelativePath}/app.asar`;
 const nativeManifestRelativePath = `${resourcesRelativePath}/bin/rust-core-runtime.json`;
 const agentManifestRelativePath = `${resourcesRelativePath}/agent-runtime.json`;
-const browserManifestRelativePath =
-  `${resourcesRelativePath}/browser-runtime/browser-runtime-manifest.json`;
+const browserManifestRelativePath = `${resourcesRelativePath}/browser-runtime/browser-runtime-manifest.json`;
 const agentSkillsRelativePath = `${resourcesRelativePath}/agent-skills`;
 const sparkleManifestRelativePath = `${resourcesRelativePath}/native/sparkle-runtime.json`;
 const sparkleArtifactRelativePaths = {
@@ -35,8 +34,7 @@ const sparkleArtifactRelativePaths = {
   updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
 };
 
-const isObject = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
 const sha256Bytes = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -118,14 +116,8 @@ const parsePreparedManifest = (value) => {
     ["manifestSha256", "treeSha256"],
     "Prepared Electron Agent Skills",
   );
-  requireSha256(
-    value.agentSkills.manifestSha256,
-    "Prepared Electron Agent Skills manifestSha256",
-  );
-  requireSha256(
-    value.agentSkills.treeSha256,
-    "Prepared Electron Agent Skills treeSha256",
-  );
+  requireSha256(value.agentSkills.manifestSha256, "Prepared Electron Agent Skills manifestSha256");
+  requireSha256(value.agentSkills.treeSha256, "Prepared Electron Agent Skills treeSha256");
   const { generationId, ...withoutGeneration } = value;
   if (sha256Bytes(JSON.stringify(withoutGeneration)) !== generationId) {
     throw new Error("Packaged prepared Electron generation identity is invalid");
@@ -146,19 +138,14 @@ const fileIdentity = (appPath, relativePath) => {
   };
 };
 
-const optionalFileIdentity = (appPath, relativePath) => (
+const optionalFileIdentity = (appPath, relativePath) =>
   existsSync(path.join(appPath, ...relativePath.split("/")))
     ? fileIdentity(appPath, relativePath)
-    : null
-);
+    : null;
 
-const isBrowserRuntimeCompatible = (browserManifest, agentManifest) => (
-  browserManifest === null
-    || isBrowserRuntimeCompatibleWithCodex(
-      browserManifest,
-      agentManifest.codexCompatibilityVersion,
-    )
-);
+const isBrowserRuntimeCompatible = (browserManifest, agentManifest) =>
+  browserManifest === null ||
+  isBrowserRuntimeCompatibleWithCodex(browserManifest, agentManifest.codexCompatibilityVersion);
 
 const contentsFileIdentity = (appPath, relativePath) => {
   const filePath = path.join(appPath, "Contents", ...relativePath.split("/"));
@@ -186,9 +173,9 @@ const parseFileIdentity = (value, expectedPath, label) => {
 const verifyFileIdentity = (appPath, actual, relativePath, label) => {
   const expected = fileIdentity(appPath, relativePath);
   if (
-    actual.path !== expected.path
-    || actual.sha256 !== expected.sha256
-    || actual.size !== expected.size
+    actual.path !== expected.path ||
+    actual.sha256 !== expected.sha256 ||
+    actual.size !== expected.size
   ) {
     throw new Error(`${label} does not match the packaged provenance`);
   }
@@ -197,9 +184,9 @@ const verifyFileIdentity = (appPath, actual, relativePath, label) => {
 const verifyContentsFileIdentity = (appPath, actual, relativePath, label) => {
   const expected = contentsFileIdentity(appPath, relativePath);
   if (
-    actual.path !== expected.path
-    || actual.sha256 !== expected.sha256
-    || actual.size !== expected.size
+    actual.path !== expected.path ||
+    actual.sha256 !== expected.sha256 ||
+    actual.size !== expected.size
   ) {
     throw new Error(`${label} does not match the packaged provenance`);
   }
@@ -212,35 +199,36 @@ const parseSparkleRuntimeManifest = (value) => {
   if (value.architecture !== "arm64" && value.architecture !== "x64") {
     throw new Error("Packaged Sparkle runtime architecture is invalid");
   }
-  if (value.buildChannel !== "disabled" && value.buildChannel !== "stable" && value.buildChannel !== "nightly") {
+  if (
+    value.buildChannel !== "disabled" &&
+    value.buildChannel !== "stable" &&
+    value.buildChannel !== "nightly"
+  ) {
     throw new Error("Packaged Sparkle runtime channel is invalid");
   }
   if (
-    (value.buildChannel === "disabled" && value.feedUrls !== null)
-    || (value.buildChannel !== "disabled" && (
-      !isObject(value.feedUrls)
-      || value.feedUrls.stable !== `https://nodex.jyu.app/updates/stable/${value.architecture}/appcast.xml`
-      || value.feedUrls.nightly !== `https://nodex.jyu.app/updates/nightly/${value.architecture}/appcast.xml`
-    ))
+    (value.buildChannel === "disabled" && value.feedUrls !== null) ||
+    (value.buildChannel !== "disabled" &&
+      (!isObject(value.feedUrls) ||
+        value.feedUrls.stable !==
+          `https://nodex.jyu.app/updates/stable/${value.architecture}/appcast.xml` ||
+        value.feedUrls.nightly !==
+          `https://nodex.jyu.app/updates/nightly/${value.architecture}/appcast.xml`))
   ) {
     throw new Error("Packaged Sparkle runtime feed is invalid");
   }
   if (
-    typeof value.publicKey !== "string"
-    || !/^[A-Za-z0-9+/]{43}=$/u.test(value.publicKey)
-    || Buffer.from(value.publicKey, "base64").length !== 32
-    || value.minimumMacOS !== "12.0"
-    || typeof value.sparkleVersion !== "string"
-    || !/^[a-f0-9]{64}$/u.test(value.sparkleArchiveSha256)
+    typeof value.publicKey !== "string" ||
+    !/^[A-Za-z0-9+/]{43}=$/u.test(value.publicKey) ||
+    Buffer.from(value.publicKey, "base64").length !== 32 ||
+    value.minimumMacOS !== "12.0" ||
+    typeof value.sparkleVersion !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(value.sparkleArchiveSha256)
   ) {
     throw new Error("Packaged Sparkle runtime identity is invalid");
   }
   for (const [name, relativePath] of Object.entries(sparkleArtifactRelativePaths)) {
-    parseFileIdentity(
-      value.artifacts[name],
-      relativePath,
-      `Packaged Sparkle ${name}`,
-    );
+    parseFileIdentity(value.artifacts[name], relativePath, `Packaged Sparkle ${name}`);
   }
   return value;
 };
@@ -259,58 +247,52 @@ export const writePackagedBuildProvenance = (appPath) => {
     path.join(resolvedAppPath, ...agentManifestRelativePath.split("/")),
     "Packaged Agent runtime manifest",
   );
-  const browserManifestPath = path.join(
-    resolvedAppPath,
-    ...browserManifestRelativePath.split("/"),
-  );
+  const browserManifestPath = path.join(resolvedAppPath, ...browserManifestRelativePath.split("/"));
   const browserManifest = existsSync(browserManifestPath)
     ? readJson(browserManifestPath, "Packaged Browser runtime manifest")
     : null;
-  const sparkleManifestPath = path.join(
-    resolvedAppPath,
-    ...sparkleManifestRelativePath.split("/"),
-  );
+  const sparkleManifestPath = path.join(resolvedAppPath, ...sparkleManifestRelativePath.split("/"));
   const sparkleManifest = parseSparkleRuntimeManifest(
     readJson(sparkleManifestPath, "Packaged Sparkle runtime manifest"),
   );
-  const sparkleArtifacts = Object.fromEntries(Object.entries(
-    sparkleArtifactRelativePaths,
-  ).map(([name, relativePath]) => [
-    name,
-    contentsFileIdentity(resolvedAppPath, relativePath),
-  ]));
+  const sparkleArtifacts = Object.fromEntries(
+    Object.entries(sparkleArtifactRelativePaths).map(([name, relativePath]) => [
+      name,
+      contentsFileIdentity(resolvedAppPath, relativePath),
+    ]),
+  );
   const agentSkills = inspectOfficialAgentSkillsArtifact(
     path.join(resolvedAppPath, ...agentSkillsRelativePath.split("/")),
   );
   for (const name of Object.keys(sparkleArtifactRelativePaths)) {
     if (
-      sparkleManifest.artifacts[name].path !== sparkleArtifacts[name].path
-      || sparkleManifest.artifacts[name].sha256 !== sparkleArtifacts[name].sha256
-      || sparkleManifest.artifacts[name].size !== sparkleArtifacts[name].size
+      sparkleManifest.artifacts[name].path !== sparkleArtifacts[name].path ||
+      sparkleManifest.artifacts[name].sha256 !== sparkleArtifacts[name].sha256 ||
+      sparkleManifest.artifacts[name].size !== sparkleArtifacts[name].size
     ) {
       throw new Error(`Packaged Sparkle ${name} manifest identity does not match its artifact`);
     }
   }
   if (
-    agentSkills.manifestSha256 !== prepared.agentSkills.manifestSha256
-    || agentSkills.treeSha256 !== prepared.agentSkills.treeSha256
-    || agentSkills.releaseVersion !== (prepared.releaseIdentity?.sourceVersion ?? prepared.product.version)
+    agentSkills.manifestSha256 !== prepared.agentSkills.manifestSha256 ||
+    agentSkills.treeSha256 !== prepared.agentSkills.treeSha256 ||
+    agentSkills.releaseVersion !==
+      (prepared.releaseIdentity?.sourceVersion ?? prepared.product.version)
   ) {
     throw new Error("Packaged Agent Skills do not match the prepared Electron source");
   }
   const targetArch = nativeManifest.targetArch;
   if (
-    nativeManifest.targetPlatform !== "darwin"
-    || (targetArch !== "arm64" && targetArch !== "x64")
-    || nativeManifest.productVersion !== prepared.product.version
-    || agentManifest.targetPlatform !== "darwin"
-    || agentManifest.targetArch !== targetArch
-    || sparkleManifest.architecture !== targetArch
-    || (browserManifest !== null && (
-      browserManifest.targetPlatform !== "darwin"
-      || browserManifest.targetArch !== targetArch
-      || !isBrowserRuntimeCompatible(browserManifest, agentManifest)
-    ))
+    nativeManifest.targetPlatform !== "darwin" ||
+    (targetArch !== "arm64" && targetArch !== "x64") ||
+    nativeManifest.productVersion !== prepared.product.version ||
+    agentManifest.targetPlatform !== "darwin" ||
+    agentManifest.targetArch !== targetArch ||
+    sparkleManifest.architecture !== targetArch ||
+    (browserManifest !== null &&
+      (browserManifest.targetPlatform !== "darwin" ||
+        browserManifest.targetArch !== targetArch ||
+        !isBrowserRuntimeCompatible(browserManifest, agentManifest)))
   ) {
     throw new Error("Packaged runtime targets do not agree");
   }
@@ -337,10 +319,7 @@ export const writePackagedBuildProvenance = (appPath) => {
       appAsar: fileIdentity(resolvedAppPath, appAsarRelativePath),
       nativeRuntimeManifest: fileIdentity(resolvedAppPath, nativeManifestRelativePath),
       agentRuntimeManifest: fileIdentity(resolvedAppPath, agentManifestRelativePath),
-      browserRuntimeManifest: optionalFileIdentity(
-        resolvedAppPath,
-        browserManifestRelativePath,
-      ),
+      browserRuntimeManifest: optionalFileIdentity(resolvedAppPath, browserManifestRelativePath),
       sparkle: {
         artifacts: sparkleArtifacts,
         buildChannel: sparkleManifest.buildChannel,
@@ -355,10 +334,7 @@ export const writePackagedBuildProvenance = (appPath) => {
     ...body,
     provenanceId: sha256StableJson(body),
   };
-  const provenancePath = path.join(
-    resolvedAppPath,
-    ...provenanceRelativePath.split("/"),
-  );
+  const provenancePath = path.join(resolvedAppPath, ...provenanceRelativePath.split("/"));
   const temporaryPath = `${provenancePath}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporaryPath, `${JSON.stringify(manifest, null, 2)}\n`, {
@@ -372,33 +348,28 @@ export const writePackagedBuildProvenance = (appPath) => {
   return manifest;
 };
 
-export const verifyPackagedBuildProvenance = (
-  appPath,
-  options = {},
-) => {
+export const verifyPackagedBuildProvenance = (appPath, options = {}) => {
   const resolvedAppPath = path.resolve(appPath);
-  const provenancePath = path.join(
-    resolvedAppPath,
-    ...provenanceRelativePath.split("/"),
-  );
+  const provenancePath = path.join(resolvedAppPath, ...provenanceRelativePath.split("/"));
   const value = readJson(provenancePath, "Packaged build provenance");
-  assertExactKeys(value, [
-    "schemaVersion",
-    "product",
-    "target",
-    "preparedElectron",
-    "agentSkills",
-    "payload",
-    "provenanceId",
-  ], "Packaged build provenance");
+  assertExactKeys(
+    value,
+    [
+      "schemaVersion",
+      "product",
+      "target",
+      "preparedElectron",
+      "agentSkills",
+      "payload",
+      "provenanceId",
+    ],
+    "Packaged build provenance",
+  );
   if (value.schemaVersion !== PROVENANCE_SCHEMA_VERSION) {
     throw new Error("Packaged build provenance schema is unsupported");
   }
   const { provenanceId, ...body } = value;
-  if (
-    requireSha256(provenanceId, "Packaged provenanceId")
-    !== sha256StableJson(body)
-  ) {
+  if (requireSha256(provenanceId, "Packaged provenanceId") !== sha256StableJson(body)) {
     throw new Error("Packaged build provenance identity is invalid");
   }
   assertExactKeys(value.product, ["name", "version"], "Packaged product");
@@ -406,8 +377,8 @@ export const verifyPackagedBuildProvenance = (
   requireString(value.product.version, "Packaged product version");
   assertExactKeys(value.target, ["platform", "arch"], "Packaged target");
   if (
-    value.target.platform !== "darwin"
-    || (value.target.arch !== "arm64" && value.target.arch !== "x64")
+    value.target.platform !== "darwin" ||
+    (value.target.arch !== "arm64" && value.target.arch !== "x64")
   ) {
     throw new Error("Packaged build target is invalid");
   }
@@ -421,27 +392,15 @@ export const verifyPackagedBuildProvenance = (
     ["generationId", "manifestSha256"],
     "Packaged prepared Electron identity",
   );
-  requireSha256(
-    value.preparedElectron.generationId,
-    "Packaged prepared Electron generationId",
-  );
+  requireSha256(value.preparedElectron.generationId, "Packaged prepared Electron generationId");
   assertExactKeys(
     value.agentSkills,
     ["manifestSha256", "treeSha256"],
     "Packaged Agent Skills identity",
   );
-  requireSha256(
-    value.agentSkills.manifestSha256,
-    "Packaged Agent Skills manifestSha256",
-  );
-  requireSha256(
-    value.agentSkills.treeSha256,
-    "Packaged Agent Skills treeSha256",
-  );
-  requireSha256(
-    value.preparedElectron.manifestSha256,
-    "Packaged prepared Electron manifestSha256",
-  );
+  requireSha256(value.agentSkills.manifestSha256, "Packaged Agent Skills manifestSha256");
+  requireSha256(value.agentSkills.treeSha256, "Packaged Agent Skills treeSha256");
+  requireSha256(value.preparedElectron.manifestSha256, "Packaged prepared Electron manifestSha256");
   assertExactKeys(
     value.payload,
     [
@@ -464,13 +423,14 @@ export const verifyPackagedBuildProvenance = (
     "agent-runtime.json",
     "Packaged Agent runtime manifest",
   );
-  const browserRuntimeManifest = value.payload.browserRuntimeManifest === null
-    ? null
-    : parseFileIdentity(
-        value.payload.browserRuntimeManifest,
-        "browser-runtime/browser-runtime-manifest.json",
-        "Packaged Browser runtime manifest",
-      );
+  const browserRuntimeManifest =
+    value.payload.browserRuntimeManifest === null
+      ? null
+      : parseFileIdentity(
+          value.payload.browserRuntimeManifest,
+          "browser-runtime/browser-runtime-manifest.json",
+          "Packaged Browser runtime manifest",
+        );
   assertExactKeys(
     value.payload.sparkle,
     ["artifacts", "buildChannel", "feedUrls", "publicKey", "runtimeManifest", "sparkleVersion"],
@@ -486,13 +446,16 @@ export const verifyPackagedBuildProvenance = (
     Object.keys(sparkleArtifactRelativePaths),
     "Packaged Sparkle artifacts",
   );
-  const sparkleArtifacts = Object.fromEntries(Object.entries(
-    sparkleArtifactRelativePaths,
-  ).map(([name, relativePath]) => [name, parseFileIdentity(
-    value.payload.sparkle.artifacts[name],
-    relativePath,
-    `Packaged Sparkle ${name}`,
-  )]));
+  const sparkleArtifacts = Object.fromEntries(
+    Object.entries(sparkleArtifactRelativePaths).map(([name, relativePath]) => [
+      name,
+      parseFileIdentity(
+        value.payload.sparkle.artifacts[name],
+        relativePath,
+        `Packaged Sparkle ${name}`,
+      ),
+    ]),
+  );
 
   const preparedPath = path.join(resolvedAppPath, ...preparedRelativePath.split("/"));
   const prepared = parsePreparedManifest(
@@ -502,15 +465,16 @@ export const verifyPackagedBuildProvenance = (
     path.join(resolvedAppPath, ...agentSkillsRelativePath.split("/")),
   );
   if (
-    sha256File(preparedPath) !== value.preparedElectron.manifestSha256
-    || prepared.generationId !== value.preparedElectron.generationId
-    || prepared.product.name !== value.product.name
-    || prepared.product.version !== value.product.version
-    || prepared.agentSkills.manifestSha256 !== value.agentSkills.manifestSha256
-    || prepared.agentSkills.treeSha256 !== value.agentSkills.treeSha256
-    || agentSkills.manifestSha256 !== value.agentSkills.manifestSha256
-    || agentSkills.treeSha256 !== value.agentSkills.treeSha256
-    || agentSkills.releaseVersion !== (prepared.releaseIdentity?.sourceVersion ?? value.product.version)
+    sha256File(preparedPath) !== value.preparedElectron.manifestSha256 ||
+    prepared.generationId !== value.preparedElectron.generationId ||
+    prepared.product.name !== value.product.name ||
+    prepared.product.version !== value.product.version ||
+    prepared.agentSkills.manifestSha256 !== value.agentSkills.manifestSha256 ||
+    prepared.agentSkills.treeSha256 !== value.agentSkills.treeSha256 ||
+    agentSkills.manifestSha256 !== value.agentSkills.manifestSha256 ||
+    agentSkills.treeSha256 !== value.agentSkills.treeSha256 ||
+    agentSkills.releaseVersion !==
+      (prepared.releaseIdentity?.sourceVersion ?? value.product.version)
   ) {
     throw new Error("Packaged prepared Electron manifest does not match provenance");
   }
@@ -520,8 +484,8 @@ export const verifyPackagedBuildProvenance = (
       readJson(expectedPreparedPath, "Current prepared Electron manifest"),
     );
     if (
-      sha256File(expectedPreparedPath) !== value.preparedElectron.manifestSha256
-      || expectedPrepared.generationId !== value.preparedElectron.generationId
+      sha256File(expectedPreparedPath) !== value.preparedElectron.manifestSha256 ||
+      expectedPrepared.generationId !== value.preparedElectron.generationId
     ) {
       throw new Error("Packaged build is stale for the current prepared Electron source");
     }
@@ -586,29 +550,28 @@ export const verifyPackagedBuildProvenance = (
   );
   for (const name of Object.keys(sparkleArtifactRelativePaths)) {
     if (
-      sparkleManifest.artifacts[name].path !== sparkleArtifacts[name].path
-      || sparkleManifest.artifacts[name].sha256 !== sparkleArtifacts[name].sha256
-      || sparkleManifest.artifacts[name].size !== sparkleArtifacts[name].size
+      sparkleManifest.artifacts[name].path !== sparkleArtifacts[name].path ||
+      sparkleManifest.artifacts[name].sha256 !== sparkleArtifacts[name].sha256 ||
+      sparkleManifest.artifacts[name].size !== sparkleArtifacts[name].size
     ) {
       throw new Error(`Packaged Sparkle ${name} manifest identity does not match provenance`);
     }
   }
   if (
-    nativeManifest.targetPlatform !== value.target.platform
-    || nativeManifest.targetArch !== value.target.arch
-    || nativeManifest.productVersion !== value.product.version
-    || agentManifest.targetPlatform !== value.target.platform
-    || agentManifest.targetArch !== value.target.arch
-    || sparkleManifest.architecture !== value.target.arch
-    || sparkleManifest.buildChannel !== value.payload.sparkle.buildChannel
-    || JSON.stringify(sparkleManifest.feedUrls) !== JSON.stringify(value.payload.sparkle.feedUrls)
-    || sparkleManifest.publicKey !== value.payload.sparkle.publicKey
-    || sparkleManifest.sparkleVersion !== value.payload.sparkle.sparkleVersion
-    || (browserManifest !== null && (
-      browserManifest.targetPlatform !== value.target.platform
-      || browserManifest.targetArch !== value.target.arch
-      || !isBrowserRuntimeCompatible(browserManifest, agentManifest)
-    ))
+    nativeManifest.targetPlatform !== value.target.platform ||
+    nativeManifest.targetArch !== value.target.arch ||
+    nativeManifest.productVersion !== value.product.version ||
+    agentManifest.targetPlatform !== value.target.platform ||
+    agentManifest.targetArch !== value.target.arch ||
+    sparkleManifest.architecture !== value.target.arch ||
+    sparkleManifest.buildChannel !== value.payload.sparkle.buildChannel ||
+    JSON.stringify(sparkleManifest.feedUrls) !== JSON.stringify(value.payload.sparkle.feedUrls) ||
+    sparkleManifest.publicKey !== value.payload.sparkle.publicKey ||
+    sparkleManifest.sparkleVersion !== value.payload.sparkle.sparkleVersion ||
+    (browserManifest !== null &&
+      (browserManifest.targetPlatform !== value.target.platform ||
+        browserManifest.targetArch !== value.target.arch ||
+        !isBrowserRuntimeCompatible(browserManifest, agentManifest)))
   ) {
     throw new Error("Packaged runtime target does not match provenance");
   }

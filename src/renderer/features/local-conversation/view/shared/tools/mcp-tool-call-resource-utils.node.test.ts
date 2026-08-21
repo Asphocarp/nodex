@@ -50,25 +50,31 @@ describe("mcp-tool-call-resource-utils", () => {
       },
     });
     const statuses: ProtocolListMcpServerStatusResponse = {
-      data: [{
-        name: "docs",
-        serverInfo: null,
-        tools: {
-          search: {
-            name: "search",
-            inputSchema: {},
-            _meta: { "openai/outputTemplate": "ui://tool.html" },
+      data: [
+        {
+          name: "docs",
+          serverInfo: null,
+          tools: {
+            search: {
+              name: "search",
+              inputSchema: {},
+              _meta: { "openai/outputTemplate": "ui://tool.html" },
+            },
           },
+          resources: [],
+          resourceTemplates: [],
+          authStatus: "unsupported",
         },
-        resources: [],
-        resourceTemplates: [],
-        authStatus: "unsupported",
-      }],
+      ],
       nextCursor: null,
     };
 
-    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: statuses })).toBe("ui://tool.html");
-    expect(resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses: statuses })).toBe("ui://tool.html");
+    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: statuses })).toBe(
+      "ui://tool.html",
+    );
+    expect(resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses: statuses })).toBe(
+      "ui://tool.html",
+    );
   });
 
   test("matches server status tool metadata by tool name when the map key differs", () => {
@@ -76,24 +82,28 @@ describe("mcp-tool-call-resource-utils", () => {
       invocation: { server: "docs", tool: "search", arguments: {} },
     });
     const statuses: ProtocolListMcpServerStatusResponse = {
-      data: [{
-        name: "docs",
-        serverInfo: null,
-        tools: {
-          aliased: {
-            name: "search",
-            inputSchema: {},
-            _meta: { "openai/outputTemplate": "ui://named-tool.html" },
+      data: [
+        {
+          name: "docs",
+          serverInfo: null,
+          tools: {
+            aliased: {
+              name: "search",
+              inputSchema: {},
+              _meta: { "openai/outputTemplate": "ui://named-tool.html" },
+            },
           },
+          resources: [],
+          resourceTemplates: [],
+          authStatus: "unsupported",
         },
-        resources: [],
-        resourceTemplates: [],
-        authStatus: "unsupported",
-      }],
+      ],
       nextCursor: null,
     };
 
-    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: statuses })).toBe("ui://named-tool.html");
+    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: statuses })).toBe(
+      "ui://named-tool.html",
+    );
   });
 
   test("promotes a completed item resource URI into the rendered resource scope", () => {
@@ -108,8 +118,12 @@ describe("mcp-tool-call-resource-utils", () => {
     });
 
     const emptyStatuses: ProtocolListMcpServerStatusResponse = { data: [], nextCursor: null };
-    expect(resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses: emptyStatuses })).toBe("ui://item.html");
-    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: emptyStatuses })).toBe("ui://item.html");
+    expect(resolveMcpAppResourceScopeUri({ payload, mcpServerStatuses: emptyStatuses })).toBe(
+      "ui://item.html",
+    );
+    expect(resolveMcpAppResourceUri({ payload, mcpServerStatuses: emptyStatuses })).toBe(
+      "ui://item.html",
+    );
   });
 
   test("parses widget metadata aliases", () => {
@@ -138,43 +152,51 @@ describe("mcp-tool-call-resource-utils", () => {
 
   test("selects HTML MCP app resources and hides duplicate text fallback", () => {
     const response: ProtocolMcpResourceReadResponse = {
-      contents: [{
-        uri: "ui://docs/search.html",
-        mimeType: "text/html;profile=mcp-app",
-        text: "<main>Docs</main>",
-        _meta: { "openai/widgetHeightHint": 320 },
-      }],
+      contents: [
+        {
+          uri: "ui://docs/search.html",
+          mimeType: "text/html;profile=mcp-app",
+          text: "<main>Docs</main>",
+          _meta: { "openai/widgetHeightHint": 320 },
+        },
+      ],
     };
     const resource = resolveMcpRenderableResource("ui://docs/search.html", response);
 
     expect(resource?.mode ?? "").toBe("html");
     expect(resource?.metadata.heightHint ?? 0).toBe(320);
-    expect(shouldHideDuplicateMcpTextContent({ type: "text", text: "<main>Docs</main>" }, resource)).toBe(true);
+    expect(
+      shouldHideDuplicateMcpTextContent({ type: "text", text: "<main>Docs</main>" }, resource),
+    ).toBe(true);
   });
 
   test("resolves embedded HTML MCP app resources from successful tool results", () => {
     const payload = buildPayload({
       result: {
         type: "success",
-        content: [{
-          type: "embedded_resource",
-          resource: {
-            uri: "ui://docs/search.html",
-            mimeType: "text/html;profile=mcp-app",
-            text: "<main>Embedded Docs</main>",
-          },
-        }],
-        structuredContent: null,
-        raw: {
-          content: [{
+        content: [
+          {
             type: "embedded_resource",
             resource: {
               uri: "ui://docs/search.html",
               mimeType: "text/html;profile=mcp-app",
               text: "<main>Embedded Docs</main>",
-              _meta: { "openai/widgetHeightHint": 360 },
             },
-          }],
+          },
+        ],
+        structuredContent: null,
+        raw: {
+          content: [
+            {
+              type: "embedded_resource",
+              resource: {
+                uri: "ui://docs/search.html",
+                mimeType: "text/html;profile=mcp-app",
+                text: "<main>Embedded Docs</main>",
+                _meta: { "openai/widgetHeightHint": 360 },
+              },
+            },
+          ],
           structuredContent: null,
           _meta: { "openai/outputTemplate": "ui://docs/search.html" },
         },
@@ -190,11 +212,13 @@ describe("mcp-tool-call-resource-utils", () => {
 
   test("uses HTML fallback for DIL resources while DIL rendering is disabled", () => {
     const dilOnly: ProtocolMcpResourceReadResponse = {
-      contents: [{
-        uri: "ui://docs/app.dil",
-        mimeType: "text/x-dil;profile=mcp-app",
-        text: "component tree",
-      }],
+      contents: [
+        {
+          uri: "ui://docs/app.dil",
+          mimeType: "text/x-dil;profile=mcp-app",
+          text: "component tree",
+        },
+      ],
     };
     const withHtmlFallback: ProtocolMcpResourceReadResponse = {
       contents: [
@@ -212,47 +236,55 @@ describe("mcp-tool-call-resource-utils", () => {
     };
 
     expect(resolveMcpRenderableResource("ui://docs/app.dil", dilOnly)).toBe(null);
-    expect(resolveMcpRenderableResource("ui://docs/app.dil", withHtmlFallback)?.html ?? "").toBe("<main>Fallback app</main>");
+    expect(resolveMcpRenderableResource("ui://docs/app.dil", withHtmlFallback)?.html ?? "").toBe(
+      "<main>Fallback app</main>",
+    );
   });
 
   test("deduplicates single JSON text content against structured content when expanded", () => {
     const display = resolveMcpExpandedSuccessDisplay({
-      content: [{ type: "text", text: "{\"ok\":true}" }],
-      structuredContentJson: "{\n  \"ok\": true\n}",
+      content: [{ type: "text", text: '{"ok":true}' }],
+      structuredContentJson: '{\n  "ok": true\n}',
       isExpanded: true,
     });
 
     expect(display.displayContent.length).toBe(0);
-    expect(display.displayStructuredContentJson ?? "").toBe("{\n  \"ok\": true\n}");
+    expect(display.displayStructuredContentJson ?? "").toBe('{\n  "ok": true\n}');
   });
 
   test("keeps annotated JSON text visible because it is not a structured duplicate", () => {
     const display = resolveMcpExpandedSuccessDisplay({
-      content: [{ type: "text", text: "{\"ok\":true}", annotations: { audience: ["assistant"] } }],
-      structuredContentJson: "{\n  \"ok\": true\n}",
+      content: [{ type: "text", text: '{"ok":true}', annotations: { audience: ["assistant"] } }],
+      structuredContentJson: '{\n  "ok": true\n}',
       isExpanded: true,
     });
 
     expect(display.displayContent.length).toBe(1);
-    expect(display.displayStructuredContentJson ?? "").toBe("{\n  \"ok\": true\n}");
+    expect(display.displayStructuredContentJson ?? "").toBe('{\n  "ok": true\n}');
   });
 
   test("hides structured JSON only for scope-backed MCP app branches", () => {
-    expect(shouldShowMcpStructuredContent({
-      structuredContentJson: "{\n  \"ok\": true\n}",
-      hasMcpAppBranch: true,
-      hasResourceScope: true,
-    })).toBe(false);
-    expect(shouldShowMcpStructuredContent({
-      structuredContentJson: "{\n  \"ok\": true\n}",
-      hasMcpAppBranch: true,
-      hasResourceScope: false,
-    })).toBe(true);
-    expect(shouldShowMcpStructuredContent({
-      structuredContentJson: null,
-      hasMcpAppBranch: false,
-      hasResourceScope: false,
-    })).toBe(false);
+    expect(
+      shouldShowMcpStructuredContent({
+        structuredContentJson: '{\n  "ok": true\n}',
+        hasMcpAppBranch: true,
+        hasResourceScope: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowMcpStructuredContent({
+        structuredContentJson: '{\n  "ok": true\n}',
+        hasMcpAppBranch: true,
+        hasResourceScope: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowMcpStructuredContent({
+        structuredContentJson: null,
+        hasMcpAppBranch: false,
+        hasResourceScope: false,
+      }),
+    ).toBe(false);
   });
 
   test("checks MCP app HTML size using encoded byte size", () => {

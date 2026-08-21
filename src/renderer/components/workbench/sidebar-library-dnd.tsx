@@ -1,14 +1,7 @@
-import {
-  useDraggable,
-  useDroppable,
-  type Data,
-} from "@dnd-kit/core";
+import { useDraggable, useDroppable, type Data } from "@dnd-kit/core";
 import type { ReactNode } from "react";
 
-import type {
-  LibraryPlacementAnchor,
-  LibraryWriteParent,
-} from "../../../shared/library-module";
+import type { LibraryPlacementAnchor, LibraryWriteParent } from "../../../shared/library-module";
 import type { LibraryResourceTarget } from "../library/library-resource-actions";
 
 export interface SidebarLibraryDragResource {
@@ -65,9 +58,7 @@ export const resolveSidebarLibraryDropDecision = (
   if (!resource) return { kind: "reject" };
   const ownership = readSidebarLibraryOwnershipDropTarget(overData);
   if (ownership) {
-    const parent = preferNest && ownership.nestParent
-      ? ownership.nestParent
-      : ownership.parent;
+    const parent = preferNest && ownership.nestParent ? ownership.nestParent : ownership.parent;
     if (
       resource.target.kind === "page" &&
       parent.kind === "page" &&
@@ -84,16 +75,16 @@ export const resolveSidebarLibraryDropDecision = (
 const resourceKey = (target: LibraryResourceTarget): string =>
   target.kind === "page" ? `page:${target.pageId}` : `database:${target.databaseId}`;
 
-export const useSidebarLibraryResourceDnd = (input: Readonly<{
-  resource: Omit<SidebarLibraryDragResource, "kind"> | null;
-  disabledKey: string;
-  ownerParent: LibraryWriteParent;
-  nestParent?: LibraryWriteParent;
-  before?: LibraryPlacementAnchor;
-}>) => {
-  const key = input.resource
-    ? resourceKey(input.resource.target)
-    : `disabled:${input.disabledKey}`;
+export const useSidebarLibraryResourceDnd = (
+  input: Readonly<{
+    resource: Omit<SidebarLibraryDragResource, "kind"> | null;
+    disabledKey: string;
+    ownerParent: LibraryWriteParent;
+    nestParent?: LibraryWriteParent;
+    before?: LibraryPlacementAnchor;
+  }>,
+) => {
+  const key = input.resource ? resourceKey(input.resource.target) : `disabled:${input.disabledKey}`;
   const draggable = useDraggable({
     id: `sidebar-library-resource:${key}`,
     disabled: input.resource === null,
@@ -126,10 +117,11 @@ export const useSidebarLibraryResourceDnd = (input: Readonly<{
   };
 };
 
-export const useSidebarLibraryRootDropTarget = () => useDroppable({
-  id: "sidebar-library-target:root",
-  data: {
-    kind: "sidebar-library-ownership-target",
-    parent: { kind: "library" },
-  },
-});
+export const useSidebarLibraryRootDropTarget = () =>
+  useDroppable({
+    id: "sidebar-library-target:root",
+    data: {
+      kind: "sidebar-library-ownership-target",
+      parent: { kind: "library" },
+    },
+  });

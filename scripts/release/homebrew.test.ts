@@ -19,9 +19,11 @@ test("generateHomebrewCask binds immutable version tags to canonical DMGs", () =
 });
 
 test("generateHomebrewCask rejects malformed checksums", () => {
-  expect(() => generateHomebrewCask({
-    arm64Sha256: "bad",
-    version: "0.2.0",
-    x64Sha256: "b".repeat(64),
-  })).toThrow("SHA-256");
+  expect(() =>
+    generateHomebrewCask({
+      arm64Sha256: "bad",
+      version: "0.2.0",
+      x64Sha256: "b".repeat(64),
+    }),
+  ).toThrow("SHA-256");
 });

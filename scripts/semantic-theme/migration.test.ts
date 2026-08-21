@@ -8,16 +8,21 @@ describe("semantic theme migration ratchet", () => {
       path: "fixture.tsx",
       forbiddenClassNames: ["text-token-error-foreground"],
     } as const;
-    const violations = collectSemanticMigrationViolations(`
+    const violations = collectSemanticMigrationViolations(
+      `
       const prose = "prefix-text-token-error-foreground-suffix";
       export const View = () => (
         <div className={cn("flex", failed && "text-token-error-foreground")} />
       );
-    `, policy);
+    `,
+      policy,
+    );
 
-    expect(violations).toEqual([expect.objectContaining({
-      className: "text-token-error-foreground",
-      line: 4,
-    })]);
+    expect(violations).toEqual([
+      expect.objectContaining({
+        className: "text-token-error-foreground",
+        line: 4,
+      }),
+    ]);
   });
 });

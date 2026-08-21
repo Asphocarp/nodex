@@ -92,9 +92,7 @@ export type BlockDocumentSurfaceProviderFactory = (
   options: NodexYProviderOptions,
 ) => BlockDocumentSurfaceProvider;
 
-export type BlockDocumentSurfaceDocumentFactory = (
-  descriptor: OwnedDocumentDescriptor,
-) => Y.Doc;
+export type BlockDocumentSurfaceDocumentFactory = (descriptor: OwnedDocumentDescriptor) => Y.Doc;
 
 export type BlockDocumentSurfaceOpenDocument = (
   document: Y.Doc,
@@ -115,9 +113,7 @@ export interface BlockDocumentSurfaceRuntimeOptions {
   readonly localCheckpointStore?: DocumentLocalCheckpointStore | null;
   readonly closeTimeoutMs?: number;
   readonly scheduleCloseTimeout?: BlockDocumentSurfaceCloseTimeoutScheduler;
-  readonly reload?: (
-    context: BlockDocumentSurfaceReloadContext,
-  ) => void | Promise<void>;
+  readonly reload?: (context: BlockDocumentSurfaceReloadContext) => void | Promise<void>;
 }
 
 interface ReadyWaiter {
@@ -141,9 +137,7 @@ const requirePositiveTimeout = (value: number | undefined): number => {
   throw new TypeError("closeTimeoutMs must be positive");
 };
 
-const validateDescriptor = (
-  descriptor: OwnedDocumentDescriptor,
-): OwnedDocumentDescriptor => {
+const validateDescriptor = (descriptor: OwnedDocumentDescriptor): OwnedDocumentDescriptor => {
   if (!descriptor.libraryId || descriptor.libraryId !== descriptor.libraryId.trim()) {
     throw new TypeError("Block Document descriptor has an invalid libraryId");
   }
@@ -177,9 +171,8 @@ const validateDescriptor = (
   return descriptor;
 };
 
-const createEmptyDocument: BlockDocumentSurfaceDocumentFactory = (
-  descriptor,
-): Y.Doc => new Y.Doc({ guid: descriptor.documentId });
+const createEmptyDocument: BlockDocumentSurfaceDocumentFactory = (descriptor): Y.Doc =>
+  new Y.Doc({ guid: descriptor.documentId });
 
 const createProvider: BlockDocumentSurfaceProviderFactory = (
   options,
@@ -204,24 +197,21 @@ const defaultCloseTimeoutScheduler: BlockDocumentSurfaceCloseTimeoutScheduler = 
 };
 
 const providerError = (status: NodexYProviderStatus): Error => {
-  const message =
-    status.error?.message ?? `Document provider entered ${status.phase}`;
+  const message = status.error?.message ?? `Document provider entered ${status.phase}`;
   return new BlockDocumentSurfaceError(message, {
     syncError: status.error,
   });
 };
 
-const observeCloseTask = (
-  task: Promise<void>,
-  state: CloseTaskState,
-): Promise<void> => task.then(
-  () => {
-    state.completed = true;
-  },
-  () => {
-    state.failed = true;
-  },
-);
+const observeCloseTask = (task: Promise<void>, state: CloseTaskState): Promise<void> =>
+  task.then(
+    () => {
+      state.completed = true;
+    },
+    () => {
+      state.failed = true;
+    },
+  );
 
 /**
  * Serializes cache operations and can permanently isolate a surface boundary.
@@ -294,8 +284,7 @@ export class BlockDocumentSurfaceRuntime {
   private readonly scheduleCloseTimeout: BlockDocumentSurfaceCloseTimeoutScheduler;
   private readonly reloadHandler?: BlockDocumentSurfaceRuntimeOptions["reload"];
   private readonly listeners = new Set<() => void>();
-  private readonly persistPreparers =
-    new Set<BlockDocumentSurfacePersistPreparer>();
+  private readonly persistPreparers = new Set<BlockDocumentSurfacePersistPreparer>();
   private readonly readyWaiters = new Set<ReadyWaiter>();
   private readonly unsubscribeProviderStatus: () => void;
 
@@ -303,8 +292,7 @@ export class BlockDocumentSurfaceRuntime {
   private terminal: SurfaceTerminalState | null = null;
   private isolationPromise: Promise<void> | null = null;
   private connectPromise: Promise<void> | null = null;
-  private durableMutationPreparationPromise:
-    Promise<BlockDocumentSurfaceStatus> | null = null;
+  private durableMutationPreparationPromise: Promise<BlockDocumentSurfaceStatus> | null = null;
   private persistPromise: Promise<BlockDocumentSurfacePersistResult> | null = null;
   private closePromise: Promise<BlockDocumentSurfaceCloseResult> | null = null;
   private reloadPromise: Promise<void> | null = null;
@@ -316,22 +304,20 @@ export class BlockDocumentSurfaceRuntime {
     this.descriptor = validateDescriptor(options.descriptor);
     this.openDocument = options.openDocument ?? openValidatedOwnedDocument;
     this.closeTimeoutMs = requirePositiveTimeout(options.closeTimeoutMs);
-    this.scheduleCloseTimeout = options.scheduleCloseTimeout
-      ?? defaultCloseTimeoutScheduler;
+    this.scheduleCloseTimeout = options.scheduleCloseTimeout ?? defaultCloseTimeoutScheduler;
     this.reloadHandler = options.reload;
 
-    const document = (options.createDocument ?? createEmptyDocument)(
-      this.descriptor,
-    );
+    const document = (options.createDocument ?? createEmptyDocument)(this.descriptor);
     if (document.guid !== this.descriptor.documentId) {
       document.destroy();
       throw new TypeError("Block Document factory returned a mismatched guid");
     }
     this.document = document;
 
-    const checkpointDelegate = options.localCheckpointStore === undefined
-      ? createDefaultDocumentLocalCheckpointStore()
-      : options.localCheckpointStore;
+    const checkpointDelegate =
+      options.localCheckpointStore === undefined
+        ? createDefaultDocumentLocalCheckpointStore()
+        : options.localCheckpointStore;
     this.checkpointStore = new IsolatedDocumentCheckpointStore(
       checkpointDelegate,
       this.descriptor.documentId,
@@ -357,9 +343,7 @@ export class BlockDocumentSurfaceRuntime {
     }
 
     this.status = this.buildStatus(this.provider.getStatus());
-    this.unsubscribeProviderStatus = this.provider.subscribeStatus(
-      this.handleProviderStatus,
-    );
+    this.unsubscribeProviderStatus = this.provider.subscribeStatus(this.handleProviderStatus);
     this.handleProviderStatus();
   }
 
@@ -381,9 +365,7 @@ export class BlockDocumentSurfaceRuntime {
     return () => this.listeners.delete(listener);
   };
 
-  registerPersistPreparer = (
-    preparer: BlockDocumentSurfacePersistPreparer,
-  ): (() => void) => {
+  registerPersistPreparer = (preparer: BlockDocumentSurfacePersistPreparer): (() => void) => {
     if (this.closed || this.closing) return () => undefined;
     this.persistPreparers.add(preparer);
     return () => this.persistPreparers.delete(preparer);
@@ -398,7 +380,8 @@ export class BlockDocumentSurfaceRuntime {
     }
     if (this.connectPromise) return this.connectPromise;
 
-    this.connectPromise = this.provider.connect()
+    this.connectPromise = this.provider
+      .connect()
       .then(() => {
         this.handleProviderStatus();
       })
@@ -443,9 +426,7 @@ export class BlockDocumentSurfaceRuntime {
 
     const promise = (async () => {
       await Promise.all(
-        [...this.persistPreparers].map((preparer) =>
-          Promise.resolve().then(() => preparer()),
-        ),
+        [...this.persistPreparers].map((preparer) => Promise.resolve().then(() => preparer())),
       );
       await this.provider.flush();
       return this.getStatus();
@@ -463,12 +444,12 @@ export class BlockDocumentSurfaceRuntime {
     const generation = status.provider.generation ?? status.descriptor.generation;
     const storeEpoch = status.provider.storeEpoch ?? status.descriptor.storeEpoch;
     if (
-      status.provider.documentId !== status.descriptor.documentId
-      || !storeEpoch
-      || !Number.isSafeInteger(generation)
-      || generation < 1
-      || !Number.isSafeInteger(status.provider.headSeq)
-      || status.provider.headSeq < 0
+      status.provider.documentId !== status.descriptor.documentId ||
+      !storeEpoch ||
+      !Number.isSafeInteger(generation) ||
+      generation < 1 ||
+      !Number.isSafeInteger(status.provider.headSeq) ||
+      status.provider.headSeq < 0
     ) {
       throw new BlockDocumentSurfaceError(
         "The Document did not expose a durable causal head after flush",
@@ -557,10 +538,7 @@ export class BlockDocumentSurfaceRuntime {
       return;
     }
     if (providerStatus.phase === "destroyed") {
-      this.enterTerminal(
-        "fatal",
-        new Error("Block Document provider was destroyed unexpectedly"),
-      );
+      this.enterTerminal("fatal", new Error("Block Document provider was destroyed unexpectedly"));
       return;
     }
     if (providerStatus.phase === "synced" && !this.readyDocument) {
@@ -568,20 +546,14 @@ export class BlockDocumentSurfaceRuntime {
         this.readyDocument = this.openDocument(this.document, this.descriptor);
         this.resolveReadyWaiters(this.readyDocument);
       } catch (error) {
-        this.enterTerminal(
-          "fatal",
-          error instanceof Error ? error : new Error(String(error)),
-        );
+        this.enterTerminal("fatal", error instanceof Error ? error : new Error(String(error)));
         return;
       }
     }
     this.refreshStatus();
   };
 
-  private enterTerminal(
-    reason: SurfaceTerminalState["reason"],
-    error: Error,
-  ): void {
+  private enterTerminal(reason: SurfaceTerminalState["reason"], error: Error): void {
     if (this.terminal || this.closed || this.closing) return;
     this.terminal = { reason, error };
     this.readyDocument = null;
@@ -602,13 +574,9 @@ export class BlockDocumentSurfaceRuntime {
     const terminal = this.terminal;
     const checkpointState: CloseTaskState = { completed: false, failed: false };
     const terminalTimedOut = terminal
-      ? await this.waitForCloseTasks(
-          observeCloseTask(this.isolateCheckpoints(), checkpointState),
-        )
+      ? await this.waitForCloseTasks(observeCloseTask(this.isolateCheckpoints(), checkpointState))
       : false;
-    const persisted = terminal
-      ? null
-      : await (this.persistPromise ?? this.persistOwnedDocument());
+    const persisted = terminal ? null : await (this.persistPromise ?? this.persistOwnedDocument());
 
     this.unsubscribeProviderStatus();
     try {
@@ -626,16 +594,14 @@ export class BlockDocumentSurfaceRuntime {
 
     return {
       timedOut: persisted?.timedOut ?? terminalTimedOut,
-      flush: terminal
-        ? "skipped"
-        : persisted?.flush ?? "failed",
+      flush: terminal ? "skipped" : (persisted?.flush ?? "failed"),
       checkpoint: terminal
         ? terminalTimedOut && !checkpointState.completed && !checkpointState.failed
           ? "timed-out"
           : checkpointState.failed
             ? "failed"
             : "isolated"
-        : persisted?.checkpoint ?? "failed",
+        : (persisted?.checkpoint ?? "failed"),
     };
   }
 
@@ -643,9 +609,7 @@ export class BlockDocumentSurfaceRuntime {
     const flushState: CloseTaskState = { completed: false, failed: false };
     const checkpointState: CloseTaskState = { completed: false, failed: false };
     const prepare = Promise.all(
-      [...this.persistPreparers].map((preparer) =>
-        Promise.resolve().then(() => preparer()),
-      ),
+      [...this.persistPreparers].map((preparer) => Promise.resolve().then(() => preparer())),
     );
     const tasks = [
       observeCloseTask(
@@ -660,16 +624,18 @@ export class BlockDocumentSurfaceRuntime {
     const timedOut = await this.waitForCloseTasks(Promise.all(tasks));
     return {
       timedOut,
-      flush: timedOut && !flushState.completed && !flushState.failed
-        ? "timed-out"
-        : flushState.failed
-          ? "failed"
-          : "completed",
-      checkpoint: timedOut && !checkpointState.completed && !checkpointState.failed
-        ? "timed-out"
-        : checkpointState.failed
-          ? "failed"
-          : "completed",
+      flush:
+        timedOut && !flushState.completed && !flushState.failed
+          ? "timed-out"
+          : flushState.failed
+            ? "failed"
+            : "completed",
+      checkpoint:
+        timedOut && !checkpointState.completed && !checkpointState.failed
+          ? "timed-out"
+          : checkpointState.failed
+            ? "failed"
+            : "completed",
     };
   }
 
@@ -708,9 +674,7 @@ export class BlockDocumentSurfaceRuntime {
     this.readyWaiters.clear();
   }
 
-  private buildStatus(
-    provider: NodexYProviderStatus,
-  ): BlockDocumentSurfaceStatus {
+  private buildStatus(provider: NodexYProviderStatus): BlockDocumentSurfaceStatus {
     let phase: BlockDocumentSurfacePhase;
     if (this.closed) {
       phase = "closed";
@@ -733,11 +697,7 @@ export class BlockDocumentSurfaceRuntime {
     }
     return {
       phase,
-      ready:
-        this.readyDocument !== null
-        && !this.terminal
-        && !this.closed
-        && !this.closing,
+      ready: this.readyDocument !== null && !this.terminal && !this.closed && !this.closing,
       reloadRequired: this.terminal !== null,
       descriptor: this.descriptor,
       provider,
@@ -749,5 +709,4 @@ export class BlockDocumentSurfaceRuntime {
     this.status = this.buildStatus(this.provider.getStatus());
     for (const listener of this.listeners) listener();
   }
-
 }

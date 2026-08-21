@@ -10,9 +10,11 @@ import {
   WindowSessionCatalogSchema,
 } from "./window-session";
 
-function record(lifecycle: { state: "open" } | { state: "closed"; closedAt: string } = {
-  state: "open",
-}) {
+function record(
+  lifecycle: { state: "open" } | { state: "closed"; closedAt: string } = {
+    state: "open",
+  },
+) {
   return {
     id: "window-1",
     lifecycle,
@@ -55,47 +57,65 @@ describe("WindowSession schemas", () => {
     const missingLifecycle = record() as Record<string, unknown>;
     delete missingLifecycle.lifecycle;
 
-    expect(() => WindowSessionCatalogSchema.parse({
-      version: 3,
-      lastActiveSessionId: "window-1",
-      sessions: [missing],
-    })).toThrow();
-    expect(() => WindowSessionCatalogSchema.parse({
-      version: 3,
-      lastActiveSessionId: "window-1",
-      sessions: [{ ...record(), layoutRevision: -1 }],
-    })).toThrow();
-    expect(() => WindowSessionCatalogSchema.parse({
-      version: 3,
-      lastActiveSessionId: "window-1",
-      sessions: [missingLifecycle],
-    })).toThrow();
-    expect(() => WindowSessionCatalogSchema.parse({
-      version: 3,
-      lastActiveSessionId: "window-1",
-      sessions: [record({ state: "closed", closedAt: "" })],
-    })).toThrow();
-    expect(() => WindowSessionCatalogSchema.parse({
-      version: 3,
-      lastActiveSessionId: "window-1",
-      sessions: [{
-        ...record(),
-        lifecycle: { state: "open", closedAt: "2026-07-24T00:00:00.000Z" },
-      }],
-    })).toThrow();
-    expect(() => WindowSessionCatalogSchema.parse({
-      version: 3,
-      lastActiveSessionId: "window-1",
-      sessions: [{
-        ...record(),
-        lifecycle: { state: "closed" },
-      }],
-    })).toThrow();
-    expect(() => WindowSessionCatalogSchema.parse({
-      version: 2,
-      lastActiveSessionId: "window-1",
-      sessions: [record()],
-    })).toThrow();
+    expect(() =>
+      WindowSessionCatalogSchema.parse({
+        version: 3,
+        lastActiveSessionId: "window-1",
+        sessions: [missing],
+      }),
+    ).toThrow();
+    expect(() =>
+      WindowSessionCatalogSchema.parse({
+        version: 3,
+        lastActiveSessionId: "window-1",
+        sessions: [{ ...record(), layoutRevision: -1 }],
+      }),
+    ).toThrow();
+    expect(() =>
+      WindowSessionCatalogSchema.parse({
+        version: 3,
+        lastActiveSessionId: "window-1",
+        sessions: [missingLifecycle],
+      }),
+    ).toThrow();
+    expect(() =>
+      WindowSessionCatalogSchema.parse({
+        version: 3,
+        lastActiveSessionId: "window-1",
+        sessions: [record({ state: "closed", closedAt: "" })],
+      }),
+    ).toThrow();
+    expect(() =>
+      WindowSessionCatalogSchema.parse({
+        version: 3,
+        lastActiveSessionId: "window-1",
+        sessions: [
+          {
+            ...record(),
+            lifecycle: { state: "open", closedAt: "2026-07-24T00:00:00.000Z" },
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      WindowSessionCatalogSchema.parse({
+        version: 3,
+        lastActiveSessionId: "window-1",
+        sessions: [
+          {
+            ...record(),
+            lifecycle: { state: "closed" },
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      WindowSessionCatalogSchema.parse({
+        version: 2,
+        lastActiveSessionId: "window-1",
+        sessions: [record()],
+      }),
+    ).toThrow();
   });
 
   test("decodes legacy catalog v2 without accepting lifecycle fields", () => {
@@ -109,11 +129,13 @@ describe("WindowSession schemas", () => {
 
     expect(parsed.sessions[0]?.id).toBe("window-1");
     expect(parsed.sessions[0]?.layoutRevision).toBe(3);
-    expect(() => LegacyWindowSessionCatalogV2Schema.parse({
-      version: 2,
-      lastActiveSessionId: "window-1",
-      sessions: [record()],
-    })).toThrow();
+    expect(() =>
+      LegacyWindowSessionCatalogV2Schema.parse({
+        version: 2,
+        lastActiveSessionId: "window-1",
+        sessions: [record()],
+      }),
+    ).toThrow();
   });
 
   test("decodes legacy catalog layouts into Workbench v7", () => {
@@ -129,10 +151,12 @@ describe("WindowSession schemas", () => {
     const parsed = LegacyWindowSessionCatalogV1Schema.parse({
       version: 1,
       lastActiveSessionId: "window-1",
-      sessions: [{
-        ...legacyRecord,
-        layout: legacyLayout,
-      }],
+      sessions: [
+        {
+          ...legacyRecord,
+          layout: legacyLayout,
+        },
+      ],
     });
 
     expect(parsed.sessions[0]?.layout.version).toBe(7);

@@ -6,17 +6,20 @@ import {
   databaseListPropertyHasValue,
 } from "./database-list-property-presentation";
 
-const property = (valueType: DataSourcePropertyRecordV2["valueType"]): DataSourcePropertyRecordV2 => ({
+const property = (
+  valueType: DataSourcePropertyRecordV2["valueType"],
+): DataSourcePropertyRecordV2 => ({
   propertyId: "custom:test" as DataSourcePropertyRecordV2["propertyId"],
   dataSourceId: "data-source:test" as DataSourcePropertyRecordV2["dataSourceId"],
   name: "Test",
-  schema: valueType === "relation"
-    ? {
-        kind: "relation",
-        targetDataSourceId: "data-source:test" as DataSourcePropertyRecordV2["dataSourceId"],
-        cardinality: "many",
-      }
-    : { kind: valueType },
+  schema:
+    valueType === "relation"
+      ? {
+          kind: "relation",
+          targetDataSourceId: "data-source:test" as DataSourcePropertyRecordV2["dataSourceId"],
+          cardinality: "many",
+        }
+      : { kind: valueType },
   capabilities: {
     filterOperators: [],
     sortable: true,
@@ -36,9 +39,7 @@ describe("Database List property presence", () => {
   test("presents canonical workflow status labels without rewriting custom options", () => {
     expect(databaseListGroupLabel("status", "triage", "triage")).toBe("Triage");
     expect(databaseListGroupLabel("status", "build", "build")).toBe("Build");
-    expect(databaseListGroupLabel("custom:phase", "build", "Engineering")).toBe(
-      "Engineering",
-    );
+    expect(databaseListGroupLabel("custom:phase", "build", "Engineering")).toBe("Engineering");
   });
 
   test("omits visual placeholders while preserving meaningful falsy values", () => {
@@ -62,5 +63,4 @@ describe("Database List property presence", () => {
     } as const;
     expect(databaseListPropertyHasValue(property("relation"), emptyRelation)).toBe(false);
   });
-
 });

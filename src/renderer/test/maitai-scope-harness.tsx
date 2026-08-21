@@ -28,11 +28,7 @@ const TEST_COMPOSER_SCOPE: ComposerScopeDescriptor = {
 
 export function TestThreadRouteScopePath({ children }: { readonly children: ReactNode }) {
   return (
-    <WorkbenchSessionScopePath
-      thread={TEST_THREAD_SCOPE}
-      route={TEST_ROUTE_SCOPE}
-      selected
-    >
+    <WorkbenchSessionScopePath thread={TEST_THREAD_SCOPE} route={TEST_ROUTE_SCOPE} selected>
       {children}
     </WorkbenchSessionScopePath>
   );

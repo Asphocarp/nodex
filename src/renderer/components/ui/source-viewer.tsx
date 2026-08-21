@@ -45,23 +45,32 @@ export function SourceViewer({
   const codeViewRef = useRef<CodeViewHandle<undefined>>(null);
   const { resolved } = useTheme();
   const contentVersion = useMemo(() => getSourceContentVersion(value), [value]);
-  const file = useMemo(() => ({
-    name: filename,
-    contents: value,
-    cacheKey: `${sourceIdentity ?? filename}:${contentVersion}`,
-    lang: language ?? undefined,
-  }), [contentVersion, filename, language, sourceIdentity, value]);
-  const items = useMemo(() => [{
-    id: sourceIdentity ?? filename,
-    type: "file" as const,
-    version: contentVersion,
-    file,
-  }], [contentVersion, file, filename, sourceIdentity]);
-  const options = useMemo(
-    () => getNodexSourceOptions(resolved, true, {
-      disableLineNumbers: !lineNumbers,
-      wrap,
+  const file = useMemo(
+    () => ({
+      name: filename,
+      contents: value,
+      cacheKey: `${sourceIdentity ?? filename}:${contentVersion}`,
+      lang: language ?? undefined,
     }),
+    [contentVersion, filename, language, sourceIdentity, value],
+  );
+  const items = useMemo(
+    () => [
+      {
+        id: sourceIdentity ?? filename,
+        type: "file" as const,
+        version: contentVersion,
+        file,
+      },
+    ],
+    [contentVersion, file, filename, sourceIdentity],
+  );
+  const options = useMemo(
+    () =>
+      getNodexSourceOptions(resolved, true, {
+        disableLineNumbers: !lineNumbers,
+        wrap,
+      }),
     [lineNumbers, resolved, wrap],
   );
   const style = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
@@ -92,10 +101,7 @@ export function SourceViewer({
         items={items}
         options={options}
         disableWorkerPool
-        className={cn(
-          NODEX_SOURCE_HOST_CLASS,
-          "h-full min-h-0 overflow-auto",
-        )}
+        className={cn(NODEX_SOURCE_HOST_CLASS, "h-full min-h-0 overflow-auto")}
         style={style}
       />
     </section>

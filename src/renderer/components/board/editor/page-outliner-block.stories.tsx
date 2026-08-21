@@ -19,13 +19,7 @@ const RICH_TITLE: PortableRichText = [
   { type: "threadMention", uuid: "019f4b50-35af-7153-b195-c8a7a0e7058c" },
 ];
 
-type OutlinerStoryState =
-  | "available"
-  | "loading"
-  | "error"
-  | "missing"
-  | "archived"
-  | "cycle";
+type OutlinerStoryState = "available" | "loading" | "error" | "missing" | "archived" | "cycle";
 
 function PageOutlinerStory({
   state = "available",
@@ -46,8 +40,7 @@ function PageOutlinerStory({
     replaceYTextWithPortableRichText(document.getText("title"), RICH_TITLE);
     return document;
   });
-  const available =
-    state === "available" || state === "loading" || state === "error";
+  const available = state === "available" || state === "loading" || state === "error";
   const expandable = available;
   const stateLabel =
     state === "available"
@@ -71,10 +64,7 @@ function PageOutlinerStory({
         <div className="nfm-editor">
           <div className="bn-block-group">
             <div className="bn-block">
-              <div
-                className="bn-block-content"
-                data-content-type="pageRef"
-              >
+              <div className="bn-block-content" data-content-type="pageRef">
                 <PageOutlinerRow
                   targetBlockId="page-outliner-story"
                   accessKind="project"
@@ -105,10 +95,7 @@ function PageOutlinerStory({
                   {expanded && state === "loading" ? (
                     <PageOutlinerBodySkeleton />
                   ) : expanded && state === "error" ? (
-                    <div
-                      role="alert"
-                      className="py-1 text-sm text-token-error-foreground"
-                    >
+                    <div role="alert" className="py-1 text-sm text-token-error-foreground">
                       Connection closed. Retry
                     </div>
                   ) : expanded && state === "available" ? (
@@ -129,9 +116,7 @@ function PageOutlinerStory({
                           <p>Nested body</p>
                         </PageOutlinerRow>
                       ) : null}
-                      <p>
-                        Its presentation still follows the host outliner rhythm.
-                      </p>
+                      <p>Its presentation still follows the host outliner rhythm.</p>
                     </div>
                   ) : null}
                 </PageOutlinerRow>
@@ -164,7 +149,8 @@ export const CollapsedEditing: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The authoritative title stays editable while collapsed. Its first pointer activation preserves the clicked caret position; Cmd/Ctrl+Enter toggles this occurrence's body without leaving the title surface.",
+        story:
+          "The authoritative title stays editable while collapsed. Its first pointer activation preserves the clicked caret position; Cmd/Ctrl+Enter toggles this occurrence's body without leaving the title surface.",
       },
     },
   },

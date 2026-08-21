@@ -52,12 +52,14 @@ describe("LocalConversationStreamState", () => {
   test("applies patches only for the active follower owner and drops mismatches from bundle 40608-40613", () => {
     const streamState = new LocalConversationStreamState();
 
-    expect(streamState.evaluatePatch({
-      conversationId: "thread-1",
-      baseCheckpoint: checkpoint(0),
-      checkpoint: checkpoint(1),
-      sourceClientId: "owner-a",
-    }).type).toBe("drop");
+    expect(
+      streamState.evaluatePatch({
+        conversationId: "thread-1",
+        baseCheckpoint: checkpoint(0),
+        checkpoint: checkpoint(1),
+        sourceClientId: "owner-a",
+      }).type,
+    ).toBe("drop");
 
     streamState.acceptSnapshot({
       conversationId: "thread-1",
@@ -65,24 +67,30 @@ describe("LocalConversationStreamState", () => {
       sourceClientId: "owner-a",
     });
 
-    expect(streamState.evaluatePatch({
-      conversationId: "thread-1",
-      baseCheckpoint: checkpoint(3),
-      checkpoint: checkpoint(4),
-      sourceClientId: "owner-a",
-    }).type).toBe("apply");
-    expect(streamState.evaluatePatch({
-      conversationId: "thread-1",
-      baseCheckpoint: checkpoint(3),
-      checkpoint: checkpoint(4),
-      sourceClientId: "owner-b",
-    })).toEqual({ type: "resync", reason: "owner-mismatch" });
-    expect(streamState.evaluatePatch({
-      conversationId: "thread-1",
-      baseCheckpoint: checkpoint(2),
-      checkpoint: checkpoint(3),
-      sourceClientId: "owner-a",
-    })).toEqual({ type: "resync", reason: "revision-gap" });
+    expect(
+      streamState.evaluatePatch({
+        conversationId: "thread-1",
+        baseCheckpoint: checkpoint(3),
+        checkpoint: checkpoint(4),
+        sourceClientId: "owner-a",
+      }).type,
+    ).toBe("apply");
+    expect(
+      streamState.evaluatePatch({
+        conversationId: "thread-1",
+        baseCheckpoint: checkpoint(3),
+        checkpoint: checkpoint(4),
+        sourceClientId: "owner-b",
+      }),
+    ).toEqual({ type: "resync", reason: "owner-mismatch" });
+    expect(
+      streamState.evaluatePatch({
+        conversationId: "thread-1",
+        baseCheckpoint: checkpoint(2),
+        checkpoint: checkpoint(3),
+        sourceClientId: "owner-a",
+      }),
+    ).toEqual({ type: "resync", reason: "revision-gap" });
   });
 
   test("tracks streaming conversation ids without inventing an unowned stream role", () => {
@@ -143,9 +151,7 @@ describe("LocalConversationStreamState", () => {
       role: "follower",
       ownerClientId: "owner-b",
     });
-    expect(streamState.getCheckpoint("thread-1")).toEqual(
-      checkpoint(11, 2, "b"),
-    );
+    expect(streamState.getCheckpoint("thread-1")).toEqual(checkpoint(11, 2, "b"));
   });
 
   test("resolves revision waiters when matching owner reaches the target revision", async () => {
@@ -161,14 +167,16 @@ describe("LocalConversationStreamState", () => {
       checkpoint: checkpoint(1),
       sourceClientId: "owner-a",
     });
-    const waiter = streamState.waitForRevision({
-      conversationId: "thread-1",
-      ownerClientId: "owner-a",
-      revision: 2,
-      timeoutMs: 50,
-    }).then(() => {
-      resolved = true;
-    });
+    const waiter = streamState
+      .waitForRevision({
+        conversationId: "thread-1",
+        ownerClientId: "owner-a",
+        revision: 2,
+        timeoutMs: 50,
+      })
+      .then(() => {
+        resolved = true;
+      });
 
     streamState.acceptPatch({
       conversationId: "thread-1",

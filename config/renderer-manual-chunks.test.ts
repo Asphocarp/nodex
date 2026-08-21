@@ -3,16 +3,12 @@ import { resolveRendererManualChunk } from "./renderer-manual-chunks";
 
 describe("resolveRendererManualChunk", () => {
   test("isolates React runtime packages", () => {
-    expect(
-      resolveRendererManualChunk(
-        "/Users/asc/repo/nodex/node_modules/react/index.js",
-      ),
-    ).toBe("vendor-react");
-    expect(
-      resolveRendererManualChunk(
-        "C:\\repo\\nodex\\node_modules\\react-dom\\client.js",
-      ),
-    ).toBe("vendor-react");
+    expect(resolveRendererManualChunk("/Users/asc/repo/nodex/node_modules/react/index.js")).toBe(
+      "vendor-react",
+    );
+    expect(resolveRendererManualChunk("C:\\repo\\nodex\\node_modules\\react-dom\\client.js")).toBe(
+      "vendor-react",
+    );
   });
 
   test("keeps editor and markdown dependencies in one chunk", () => {
@@ -22,9 +18,7 @@ describe("resolveRendererManualChunk", () => {
       ),
     ).toBe("vendor-editor-markdown");
     expect(
-      resolveRendererManualChunk(
-        "C:\\repo\\nodex\\node_modules\\streamdown\\dist\\index.js",
-      ),
+      resolveRendererManualChunk("C:\\repo\\nodex\\node_modules\\streamdown\\dist\\index.js"),
     ).toBe("vendor-editor-markdown");
     expect(
       resolveRendererManualChunk(

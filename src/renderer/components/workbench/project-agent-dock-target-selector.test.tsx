@@ -35,9 +35,7 @@ const unreadRow = {
   indicator: "unread",
 } as const;
 
-function makeModel(
-  overrides: Partial<ProjectAgentDockModel> = {},
-): ProjectAgentDockModel {
+function makeModel(overrides: Partial<ProjectAgentDockModel> = {}): ProjectAgentDockModel {
   return {
     trigger: newRow,
     rows: [newRow, runningRow, unreadRow],
@@ -104,10 +102,14 @@ describe("ProjectAgentDockTargetSelector", () => {
     const loadMore = view.getByRole("button", { name: "Load more" });
     loadMore.focus();
 
-    view.rerender(renderSelector(makeModel({
-      rows: [newRow, unreadRow, runningRow],
-      hasMore: true,
-    })));
+    view.rerender(
+      renderSelector(
+        makeModel({
+          rows: [newRow, unreadRow, runningRow],
+          hasMore: true,
+        }),
+      ),
+    );
 
     await waitFor(() => expect(document.activeElement).toBe(loadMore));
   });

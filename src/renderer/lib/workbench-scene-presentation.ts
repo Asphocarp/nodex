@@ -16,8 +16,7 @@ import type { WorkbenchSessionRenderProjection } from "./workbench-session-prese
 export type WorkbenchSurfaceUpdatePatch = WorkbenchTabUpdateInput;
 
 function makeRuntimeId(prefix: string): string {
-  return `${prefix}:${globalThis.crypto?.randomUUID?.()
-    ?? `${Date.now()}-${Math.random()}`}`;
+  return `${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 }
 
 function resourceProjectId(
@@ -25,17 +24,15 @@ function resourceProjectId(
   surface: WorkbenchSurfaceDescriptor,
 ): string | null {
   if (
-    surface.kind === "db_view"
-    || surface.kind === "page_stage"
-    || surface.kind === "canvas_stage"
+    surface.kind === "db_view" ||
+    surface.kind === "page_stage" ||
+    surface.kind === "canvas_stage"
   ) {
     return surface.config.accessContext.kind === "project"
       ? surface.config.accessContext.projectId
       : null;
   }
-  return "projectId" in surface.config
-    ? surface.config.projectId
-    : session.projectId;
+  return "projectId" in surface.config ? surface.config.projectId : session.projectId;
 }
 
 function requireProjectAccess(
@@ -47,16 +44,11 @@ function requireProjectAccess(
   if (surface.config.accessContext.kind === "project") {
     return surface.config.accessContext.projectId;
   }
-  throw new Error(
-    "A Library resource surface cannot be rendered as a Session panel tab",
-  );
+  throw new Error("A Library resource surface cannot be rendered as a Session panel tab");
 }
 
 function projectionConfig(
-  surface: Exclude<
-    WorkbenchSurfaceDescriptor,
-    { readonly kind: "conversation" }
-  >,
+  surface: Exclude<WorkbenchSurfaceDescriptor, { readonly kind: "conversation" }>,
 ): WorkbenchTabProjection["config"] {
   if (surface.kind === "db_view") {
     if (surface.config.target.kind !== "database-view") {
@@ -73,18 +65,14 @@ function projectionConfig(
     return {
       projectId: requireProjectAccess(surface),
       pageId: surface.config.pageId,
-      ...(surface.config.titleSnapshot
-        ? { titleSnapshot: surface.config.titleSnapshot }
-        : {}),
+      ...(surface.config.titleSnapshot ? { titleSnapshot: surface.config.titleSnapshot } : {}),
     };
   }
   if (surface.kind === "canvas_stage") {
     return {
       projectId: requireProjectAccess(surface),
       canvasBlockId: surface.config.canvasBlockId,
-      ...(surface.config.titleSnapshot
-        ? { titleSnapshot: surface.config.titleSnapshot }
-        : {}),
+      ...(surface.config.titleSnapshot ? { titleSnapshot: surface.config.titleSnapshot } : {}),
     };
   }
   if (surface.kind !== "browser") return surface.config;
@@ -98,9 +86,7 @@ function projectionConfig(
       : {}),
     ...(surface.config.url ? { url: surface.config.url } : {}),
     ...(surface.config.title ? { title: surface.config.title } : {}),
-    ...(surface.config.faviconUrl
-      ? { faviconUrl: surface.config.faviconUrl }
-      : {}),
+    ...(surface.config.faviconUrl ? { faviconUrl: surface.config.faviconUrl } : {}),
     ...(surface.config.deviceToolbarVisible === undefined
       ? {}
       : { deviceToolbarVisible: surface.config.deviceToolbarVisible }),
@@ -142,7 +128,7 @@ export function presentWorkbenchSessionDomainWithScene(
           ? { ...base, browserTabId: surface.config.browserTabId }
           : { ...base, browserTabId: null };
       })
-      .filter((tab): tab is WorkbenchTabProjection => Boolean(tab))
+      .filter((tab): tab is WorkbenchTabProjection => Boolean(tab)),
   );
   return {
     ...session,
@@ -167,24 +153,19 @@ export function workbenchSurfaceFromCreateInput(
       kind: "browser",
       config: {
         browserTabId: input.browserTabId ?? makeRuntimeId("browser"),
-        ...("browserUseSource" in input.config
-          && input.config.browserUseSource
+        ...("browserUseSource" in input.config && input.config.browserUseSource
           ? { browserUseSource: input.config.browserUseSource }
           : {}),
         browserStorageId:
-          ("browserStorageId" in input.config
-            && input.config.browserStorageId)
-          || makeRuntimeId("browser"),
+          ("browserStorageId" in input.config && input.config.browserStorageId) ||
+          makeRuntimeId("browser"),
         ...(input.config.url ? { url: input.config.url } : {}),
         ...(input.config.title ? { title: input.config.title } : {}),
-        ...(input.config.faviconUrl
-          ? { faviconUrl: input.config.faviconUrl }
-          : {}),
+        ...(input.config.faviconUrl ? { faviconUrl: input.config.faviconUrl } : {}),
         ...(input.config.deviceToolbarVisible === undefined
           ? {}
           : { deviceToolbarVisible: input.config.deviceToolbarVisible }),
-        ...("deviceToolbarState" in input.config
-          && input.config.deviceToolbarState !== undefined
+        ...("deviceToolbarState" in input.config && input.config.deviceToolbarState !== undefined
           ? { deviceToolbarState: input.config.deviceToolbarState }
           : {}),
       },
@@ -216,9 +197,7 @@ export function workbenchSurfaceFromCreateInput(
           projectId: input.config.projectId,
         },
         pageId: input.config.pageId,
-        ...(input.config.titleSnapshot
-          ? { titleSnapshot: input.config.titleSnapshot }
-          : {}),
+        ...(input.config.titleSnapshot ? { titleSnapshot: input.config.titleSnapshot } : {}),
       },
     };
   }
@@ -232,9 +211,7 @@ export function workbenchSurfaceFromCreateInput(
           projectId: input.config.projectId,
         },
         canvasBlockId: input.config.canvasBlockId,
-        ...(input.config.titleSnapshot
-          ? { titleSnapshot: input.config.titleSnapshot }
-          : {}),
+        ...(input.config.titleSnapshot ? { titleSnapshot: input.config.titleSnapshot } : {}),
       },
     };
   }
@@ -269,20 +246,16 @@ export function applyWorkbenchSurfacePatch(
             ? { browserUseSource: surface.config.browserUseSource }
             : {}),
         browserStorageId:
-          ("browserStorageId" in config && config.browserStorageId)
-          || surface.config.browserStorageId
-          || makeRuntimeId("browser"),
+          ("browserStorageId" in config && config.browserStorageId) ||
+          surface.config.browserStorageId ||
+          makeRuntimeId("browser"),
         ...("url" in config && config.url ? { url: config.url } : {}),
         ...("title" in config && config.title ? { title: config.title } : {}),
-        ...("faviconUrl" in config && config.faviconUrl
-          ? { faviconUrl: config.faviconUrl }
-          : {}),
-        ...("deviceToolbarVisible" in config
-          && config.deviceToolbarVisible !== undefined
+        ...("faviconUrl" in config && config.faviconUrl ? { faviconUrl: config.faviconUrl } : {}),
+        ...("deviceToolbarVisible" in config && config.deviceToolbarVisible !== undefined
           ? { deviceToolbarVisible: config.deviceToolbarVisible }
           : {}),
-        ...("deviceToolbarState" in config
-          && config.deviceToolbarState !== undefined
+        ...("deviceToolbarState" in config && config.deviceToolbarState !== undefined
           ? { deviceToolbarState: config.deviceToolbarState }
           : {}),
       },
@@ -317,9 +290,7 @@ export function applyWorkbenchSurfacePatch(
           projectId: patch.config.projectId,
         },
         pageId: patch.config.pageId,
-        ...(patch.config.titleSnapshot
-          ? { titleSnapshot: patch.config.titleSnapshot }
-          : {}),
+        ...(patch.config.titleSnapshot ? { titleSnapshot: patch.config.titleSnapshot } : {}),
       },
     };
   }
@@ -333,9 +304,7 @@ export function applyWorkbenchSurfacePatch(
           projectId: patch.config.projectId,
         },
         canvasBlockId: patch.config.canvasBlockId,
-        ...(patch.config.titleSnapshot
-          ? { titleSnapshot: patch.config.titleSnapshot }
-          : {}),
+        ...(patch.config.titleSnapshot ? { titleSnapshot: patch.config.titleSnapshot } : {}),
       },
     };
   }

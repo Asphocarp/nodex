@@ -101,11 +101,7 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
         if (end !== -1) {
           flushText();
           let codeText = input.slice(i + fenceLength, end);
-          if (
-            codeText.startsWith(" ")
-            && codeText.endsWith(" ")
-            && codeText.trim().length > 0
-          ) {
+          if (codeText.startsWith(" ") && codeText.endsWith(" ") && codeText.trim().length > 0) {
             codeText = codeText.slice(1, -1);
           }
           items.push({ type: "text", text: codeText, styles: { ...styles, code: true } });
@@ -164,7 +160,10 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
     let depth = 0;
     let j = i + 1;
     while (j < len) {
-      if (input[j] === "\\" && j + 1 < len) { j += 2; continue; }
+      if (input[j] === "\\" && j + 1 < len) {
+        j += 2;
+        continue;
+      }
       if (input[j] === "[") depth++;
       if (input[j] === "]") {
         if (depth === 0) break;
@@ -193,9 +192,8 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
     const href = input.slice(urlStart, urlEnd);
     i = urlEnd + 1;
     const parsedLabel = parseInlineContent(rawText);
-    const uniformLabel = parsedLabel.length === 1 && parsedLabel[0]?.type === "text"
-      ? parsedLabel[0]
-      : null;
+    const uniformLabel =
+      parsedLabel.length === 1 && parsedLabel[0]?.type === "text" ? parsedLabel[0] : null;
     return {
       type: "link",
       text: uniformLabel?.text ?? unescapeNfm(rawText),
@@ -244,10 +242,10 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
     const origin = getXmlAttr(attrString, "origin");
 
     if (
-      (kind !== "text" && kind !== "file" && kind !== "folder")
-      || (mode !== "materialized" && mode !== "link")
-      || !source
-      || !name
+      (kind !== "text" && kind !== "file" && kind !== "folder") ||
+      (mode !== "materialized" && mode !== "link") ||
+      !source ||
+      !name
     ) {
       return null;
     }
@@ -317,13 +315,11 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
 
     const rawAttributes = match[1] ?? "";
     const attributes = parseXmlAttrs(rawAttributes);
-    const unmatchedAttributes = rawAttributes
-      .replace(/[A-Za-z][A-Za-z0-9_-]*="[^"]*"/g, "")
-      .trim();
+    const unmatchedAttributes = rawAttributes.replace(/[A-Za-z][A-Za-z0-9_-]*="[^"]*"/g, "").trim();
     if (
-      unmatchedAttributes
-      || Object.keys(attributes).length !== 1
-      || typeof attributes.url !== "string"
+      unmatchedAttributes ||
+      Object.keys(attributes).length !== 1 ||
+      typeof attributes.url !== "string"
     ) {
       return null;
     }
@@ -357,11 +353,7 @@ function repeatedRunLength(input: string, start: number, marker: string): number
   return end - start;
 }
 
-function findClosingCodeFence(
-  input: string,
-  start: number,
-  fence: string,
-): number {
+function findClosingCodeFence(input: string, start: number, fence: string): number {
   let candidate = input.indexOf(fence, start);
   while (candidate !== -1) {
     const runStartIsExact = candidate === 0 || input[candidate - 1] !== "`";

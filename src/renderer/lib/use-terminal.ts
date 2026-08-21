@@ -91,11 +91,7 @@ function getWindowZoom(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function scaleMouseEventCoordinates(
-  event: unknown,
-  rect: DOMRect,
-  zoom: number,
-): unknown {
+function scaleMouseEventCoordinates(event: unknown, rect: DOMRect, zoom: number): unknown {
   if (zoom === 1 || !(event instanceof MouseEvent)) return event;
   const clientX = rect.left + (event.clientX - rect.left) / zoom;
   const clientY = rect.top + (event.clientY - rect.top) / zoom;
@@ -143,13 +139,12 @@ function patchXtermWindowZoomMouseCoordinates(term: Terminal): () => void {
   };
 
   if (selectionService && originalGetMouseEventScrollAmount && screenElement) {
-    selectionService._getMouseEventScrollAmount =
-      function patchedGetMouseEventScrollAmount(this: unknown, event: unknown) {
-        return originalGetMouseEventScrollAmount.call(
-          this,
-          scaledEvent(event, screenElement),
-        );
-      };
+    selectionService._getMouseEventScrollAmount = function patchedGetMouseEventScrollAmount(
+      this: unknown,
+      event: unknown,
+    ) {
+      return originalGetMouseEventScrollAmount.call(this, scaledEvent(event, screenElement));
+    };
   }
 
   return () => {
@@ -240,20 +235,18 @@ function installCodexKeyHandler(
     }
 
     if (event.key === "Enter") {
-      window.dispatchEvent(new CustomEvent("nodex:terminal-enter", {
-        detail: { terminalId },
-      }));
+      window.dispatchEvent(
+        new CustomEvent("nodex:terminal-enter", {
+          detail: { terminalId },
+        }),
+      );
     }
 
     return true;
   });
 }
 
-function fitAndResize(
-  terminalId: string,
-  term: Terminal,
-  fit: FitAddon,
-): TerminalSize | null {
+function fitAndResize(terminalId: string, term: Terminal, fit: FitAddon): TerminalSize | null {
   try {
     fit.fit();
     const size = { cols: term.cols, rows: term.rows };
@@ -475,9 +468,11 @@ export function useTerminal({
     };
 
     const unsubscribe = terminalSessionStore.subscribe(terminalId, handleStoreEvent);
-    disposables.push(term.onData((data) => {
-      terminalSessionStore.write(terminalId, data);
-    }));
+    disposables.push(
+      term.onData((data) => {
+        terminalSessionStore.write(terminalId, data);
+      }),
+    );
 
     const observer = new ResizeObserver(() => {
       window.cancelAnimationFrame(resizeRaf);
@@ -511,17 +506,19 @@ export function useTerminal({
         cols: term.cols,
         rows: term.rows,
       };
-      void terminalSessionStore.createOrAttach({
-        sessionId: terminalId,
-        conversationId,
-        projectSessionId,
-        cwd: normalizedCwd,
-        size,
-      }).catch((reason: unknown) => {
-        if (disposed) return;
-        const message = reason instanceof Error ? reason.message : "Failed to attach terminal.";
-        setError(message);
-      });
+      void terminalSessionStore
+        .createOrAttach({
+          sessionId: terminalId,
+          conversationId,
+          projectSessionId,
+          cwd: normalizedCwd,
+          size,
+        })
+        .catch((reason: unknown) => {
+          if (disposed) return;
+          const message = reason instanceof Error ? reason.message : "Failed to attach terminal.";
+          setError(message);
+        });
     });
 
     const themeObserver = new MutationObserver(() => {
@@ -562,14 +559,7 @@ export function useTerminal({
       fitRef.current = null;
       setIsConnected(false);
     };
-  }, [
-    conversationId,
-    hasValidCwd,
-    normalizedCwd,
-    projectSessionId,
-    terminalId,
-    visible,
-  ]);
+  }, [conversationId, hasValidCwd, normalizedCwd, projectSessionId, terminalId, visible]);
 
   useEffect(() => {
     const snapshot = terminalSessionStore.getSnapshot(terminalId);

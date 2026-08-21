@@ -46,12 +46,7 @@ export type NodexYProviderPhase =
   | "reset-required"
   | "destroyed";
 
-export type DocumentCheckpointPhase =
-  | "idle"
-  | "saving"
-  | "ready"
-  | "degraded"
-  | "disabled";
+export type DocumentCheckpointPhase = "idle" | "saving" | "ready" | "degraded" | "disabled";
 
 export interface DocumentCheckpointStatus {
   readonly phase: DocumentCheckpointPhase;
@@ -73,10 +68,7 @@ export interface NodexYProviderStatus {
   readonly error?: DocumentSyncCommandError;
 }
 
-export type NodexYProviderRetryScheduler = (
-  callback: () => void,
-  attempt: number,
-) => () => void;
+export type NodexYProviderRetryScheduler = (callback: () => void, attempt: number) => () => void;
 
 export interface NodexYProviderOptions {
   readonly documentId: DocumentId;
@@ -87,10 +79,7 @@ export interface NodexYProviderOptions {
   readonly expectedStoreEpoch?: string;
   readonly expectedGeneration?: number;
   readonly autoConnect?: boolean;
-  readonly createUpdateId?: (
-    clientSessionId: string,
-    sequence: number,
-  ) => string;
+  readonly createUpdateId?: (clientSessionId: string, sequence: number) => string;
   /** touchedBlockIds are diagnostics until the writer derives them itself. */
   readonly resolveTouchedBlockIds?: (update: Uint8Array) => readonly BlockId[];
   readonly scheduleRetry?: NodexYProviderRetryScheduler;
@@ -173,10 +162,7 @@ export const mergeNextBoundedYjsUpdate = (
   let consumedUpdates = 0;
   let rawBytes = 0;
   for (const update of updates) {
-    if (
-      consumedUpdates > 0
-      && rawBytes + update.byteLength > maxUpdateBytes
-    ) break;
+    if (consumedUpdates > 0 && rawBytes + update.byteLength > maxUpdateBytes) break;
     rawBytes += update.byteLength;
     consumedUpdates += 1;
   }
@@ -205,10 +191,7 @@ const makeClientSessionId = (): string => {
 const defaultUpdateId = (clientSessionId: string, sequence: number): string =>
   `${clientSessionId}:update:${sequence.toString(36)}`;
 
-const defaultRetryScheduler: NodexYProviderRetryScheduler = (
-  callback,
-  attempt,
-) => {
+const defaultRetryScheduler: NodexYProviderRetryScheduler = (callback, attempt) => {
   const delayMs = Math.min(5_000, 100 * 2 ** Math.min(attempt - 1, 6));
   const timeout = globalThis.setTimeout(callback, delayMs);
   return () => globalThis.clearTimeout(timeout);
@@ -247,33 +230,25 @@ const resetBoundaryError = (message: string): DocumentSyncCommandError => ({
   resetRequired: true,
 });
 
-const generationBoundaryError = (
-  message: string,
-): DocumentSyncCommandError => ({
+const generationBoundaryError = (message: string): DocumentSyncCommandError => ({
   code: "document_generation_mismatch",
   message,
   retryable: false,
   resetRequired: true,
 });
 
-const providerDestroyedError = (): Error =>
-  new Error("The Nodex Yjs provider has been destroyed");
+const providerDestroyedError = (): Error => new Error("The Nodex Yjs provider has been destroyed");
 
-const isNonNegativeInteger = (value: number): boolean =>
-  Number.isInteger(value) && value >= 0;
+const isNonNegativeInteger = (value: number): boolean => Number.isInteger(value) && value >= 0;
 
 export const isDocumentApplyAckHeadValid = (
-  ack: Pick<
-    DocumentSyncApplyAck,
-    "status" | "committedSeq" | "headSeq" | "duplicate"
-  >,
+  ack: Pick<DocumentSyncApplyAck, "status" | "committedSeq" | "headSeq" | "duplicate">,
   request: Pick<DocumentSyncApplyRequest, "baseHeadSeq">,
 ): boolean =>
   isNonNegativeInteger(ack.committedSeq) &&
   isNonNegativeInteger(ack.headSeq) &&
-  ack.committedSeq >= request.baseHeadSeq + (
-    ack.status === "committed" && !ack.duplicate ? 1 : 0
-  ) &&
+  ack.committedSeq >=
+    request.baseHeadSeq + (ack.status === "committed" && !ack.duplicate ? 1 : 0) &&
   ack.committedSeq <= ack.headSeq;
 
 const requireNonEmpty = (value: string, field: string): string => {
@@ -303,9 +278,7 @@ export class NodexYProvider {
   private readonly adapter: DocumentSyncAdapter;
   private readonly expectedStoreEpoch?: string;
   private readonly expectedGeneration?: number;
-  private readonly createUpdateId: NonNullable<
-    NodexYProviderOptions["createUpdateId"]
-  >;
+  private readonly createUpdateId: NonNullable<NodexYProviderOptions["createUpdateId"]>;
   private readonly resolveTouchedBlockIds: NonNullable<
     NodexYProviderOptions["resolveTouchedBlockIds"]
   >;
@@ -355,10 +328,7 @@ export class NodexYProvider {
   private checkpointLastFailureMessage: string | undefined;
   private localUpdateSequence = 0;
 
-  private readonly handleDocumentUpdate = (
-    update: Uint8Array,
-    origin: unknown,
-  ): void => {
+  private readonly handleDocumentUpdate = (update: Uint8Array, origin: unknown): void => {
     if (
       this.destroyed ||
       this.terminalError ||
@@ -581,9 +551,7 @@ export class NodexYProvider {
     this.statusListeners.clear();
   };
 
-  private readonly handleRealtimeEvent = (
-    event: DocumentSyncRealtimeEvent,
-  ): void => {
+  private readonly handleRealtimeEvent = (event: DocumentSyncRealtimeEvent): void => {
     if (this.destroyed || this.terminalError) {
       return;
     }
@@ -614,17 +582,16 @@ export class NodexYProvider {
     }
     if (event.kind === "resync-required") {
       if (
-        event.reason === "resource-integrity-failure"
-        || event.reason === "identity-boundary-changed"
-        || event.reason === "access-revoked"
+        event.reason === "resource-integrity-failure" ||
+        event.reason === "identity-boundary-changed" ||
+        event.reason === "access-revoked"
       ) {
         this.enterReset({
-          code: event.reason === "access-revoked"
-            ? "unauthorized"
-            : "recovery_required",
-          message: event.reason === "access-revoked"
-            ? `Access to Document ${this.documentId} was revoked`
-            : `Document ${this.documentId} crossed a local identity or integrity boundary`,
+          code: event.reason === "access-revoked" ? "unauthorized" : "recovery_required",
+          message:
+            event.reason === "access-revoked"
+              ? `Access to Document ${this.documentId} was revoked`
+              : `Document ${this.documentId} crossed a local identity or integrity boundary`,
           retryable: false,
           resetRequired: true,
         });
@@ -677,11 +644,7 @@ export class NodexYProvider {
     }
 
     try {
-      applyAwarenessUpdate(
-        this.awareness,
-        copyBytes(event.update),
-        REMOTE_AWARENESS_ORIGIN,
-      );
+      applyAwarenessUpdate(this.awareness, copyBytes(event.update), REMOTE_AWARENESS_ORIGIN);
     } catch (error) {
       this.enterFatal(
         invalidResponseError(
@@ -700,12 +663,7 @@ export class NodexYProvider {
   }
 
   private requestSync(): Promise<void> {
-    if (
-      this.destroyed ||
-      this.terminalError ||
-      !this.connected ||
-      this.retryCancel
-    ) {
+    if (this.destroyed || this.terminalError || !this.connected || this.retryCancel) {
       return Promise.resolve();
     }
     if (this.syncPromise) {
@@ -723,12 +681,7 @@ export class NodexYProvider {
       this.refreshStatus();
       const shouldSyncAgain = this.syncAgain;
       this.syncAgain = false;
-      if (
-        shouldSyncAgain &&
-        !this.destroyed &&
-        !this.terminalError &&
-        this.connected
-      ) {
+      if (shouldSyncAgain && !this.destroyed && !this.terminalError && this.connected) {
         void this.requestSync();
         return;
       }
@@ -768,11 +721,7 @@ export class NodexYProvider {
     }
 
     try {
-      Y.applyUpdate(
-        this.document,
-        copyBytes(response.update),
-        REMOTE_DOCUMENT_ORIGIN,
-      );
+      Y.applyUpdate(this.document, copyBytes(response.update), REMOTE_DOCUMENT_ORIGIN);
     } catch (error) {
       // Yjs observers run synchronously during apply and may throw after the
       // CRDT update has already mutated this Y.Doc. Never retry or classify
@@ -797,9 +746,7 @@ export class NodexYProvider {
   private validateSyncResponse(response: DocumentSyncResponse): boolean {
     if (response.documentId !== this.documentId) {
       this.enterFatal(
-        invalidResponseError(
-          `Sync for ${this.documentId} received ${response.documentId}`,
-        ),
+        invalidResponseError(`Sync for ${this.documentId} received ${response.documentId}`),
       );
       return false;
     }
@@ -810,9 +757,7 @@ export class NodexYProvider {
       !Number.isInteger(response.generation) ||
       response.generation < 1
     ) {
-      this.enterFatal(
-        invalidResponseError("Sync response has an invalid head"),
-      );
+      this.enterFatal(invalidResponseError("Sync response has an invalid head"));
       return false;
     }
     return true;
@@ -891,9 +836,7 @@ export class NodexYProvider {
       return;
     }
     if (!Number.isInteger(event.headSeq) || event.headSeq < 1) {
-      this.enterFatal(
-        invalidResponseError("Realtime document update has an invalid head"),
-      );
+      this.enterFatal(invalidResponseError("Realtime document update has an invalid head"));
       return;
     }
     if (event.headSeq <= this.headSeq) {
@@ -905,11 +848,7 @@ export class NodexYProvider {
     }
 
     try {
-      Y.applyUpdate(
-        this.document,
-        copyBytes(event.update),
-        REMOTE_DOCUMENT_ORIGIN,
-      );
+      Y.applyUpdate(this.document, copyBytes(event.update), REMOTE_DOCUMENT_ORIGIN);
     } catch (error) {
       this.enterReset(documentIntegrationError("realtime document", error));
       return;
@@ -969,10 +908,7 @@ export class NodexYProvider {
       mergedUpdate = batch.update;
       consumedUpdates = batch.consumedUpdates;
       touchedBlockIds = [...new Set(this.resolveTouchedBlockIds(mergedUpdate))];
-      updateId = this.createUpdateId(
-        this.clientSessionId,
-        this.updateSequence + 1,
-      );
+      updateId = this.createUpdateId(this.clientSessionId, this.updateSequence + 1);
       if (updateId.trim().length === 0) {
         throw new Error("createUpdateId returned an empty id");
       }
@@ -1030,9 +966,7 @@ export class NodexYProvider {
     });
   }
 
-  private async applyDurableUpdate(
-    pending: PendingDurableUpdate,
-  ): Promise<void> {
+  private async applyDurableUpdate(pending: PendingDurableUpdate): Promise<void> {
     if (this.inFlight !== pending || this.destroyed || this.terminalError) {
       return;
     }
@@ -1059,10 +993,7 @@ export class NodexYProvider {
     const ack = result.value;
     this.inFlight = null;
     this.transientError = undefined;
-    if (
-      ack.committedSeq === previousHeadSeq + 1 &&
-      ack.headSeq === ack.committedSeq
-    ) {
+    if (ack.committedSeq === previousHeadSeq + 1 && ack.headSeq === ack.committedSeq) {
       this.headSeq = ack.headSeq;
     } else if (ack.headSeq > previousHeadSeq) {
       this.requestResync();
@@ -1070,49 +1001,36 @@ export class NodexYProvider {
     this.refreshStatus();
   }
 
-  private validateApplyAck(
-    ack: DocumentSyncApplyAck,
-    request: DocumentSyncApplyRequest,
-  ): boolean {
-    if (
-      ack.documentId !== request.documentId ||
-      ack.updateId !== request.updateId
-    ) {
-      this.enterFatal(
-        invalidResponseError("Document update ACK does not match its request"),
-      );
+  private validateApplyAck(ack: DocumentSyncApplyAck, request: DocumentSyncApplyRequest): boolean {
+    if (ack.documentId !== request.documentId || ack.updateId !== request.updateId) {
+      this.enterFatal(invalidResponseError("Document update ACK does not match its request"));
       return false;
     }
     if (!this.assertBoundary(ack.storeEpoch, ack.generation)) {
       return false;
     }
     if (!isDocumentApplyAckHeadValid(ack, request)) {
-      this.enterFatal(
-        invalidResponseError("Document update ACK has an invalid head"),
-      );
+      this.enterFatal(invalidResponseError("Document update ACK has an invalid head"));
       return false;
     }
     return true;
   }
 
-  private async hydrateLocalCheckpoint(
-    response: DocumentSyncResponse,
-  ): Promise<void> {
-    if (
-      this.checkpointHydrated ||
-      this.checkpointDisabled ||
-      !this.localCheckpointStore
-    ) {
+  private async hydrateLocalCheckpoint(response: DocumentSyncResponse): Promise<void> {
+    if (this.checkpointHydrated || this.checkpointDisabled || !this.localCheckpointStore) {
       return;
     }
     this.checkpointHydrated = true;
 
     try {
-      const checkpoint = await this.localCheckpointStore.read({
-        documentId: this.documentId,
-        storeEpoch: response.storeEpoch,
-        generation: response.generation,
-      }, this.documentSchemaAdapter.limits);
+      const checkpoint = await this.localCheckpointStore.read(
+        {
+          documentId: this.documentId,
+          storeEpoch: response.storeEpoch,
+          generation: response.generation,
+        },
+        this.documentSchemaAdapter.limits,
+      );
       if (this.destroyed || this.terminalError) {
         return;
       }
@@ -1120,10 +1038,7 @@ export class NodexYProvider {
         this.checkpointHydrated = false;
         return;
       }
-      if (
-        this.storeEpoch !== response.storeEpoch
-        || this.generation !== response.generation
-      ) {
+      if (this.storeEpoch !== response.storeEpoch || this.generation !== response.generation) {
         this.checkpointHydrated = false;
         return;
       }
@@ -1155,14 +1070,8 @@ export class NodexYProvider {
     }
   }
 
-  private startLocalCheckpointHydration(
-    response: DocumentSyncResponse,
-  ): void {
-    if (
-      this.checkpointHydrated
-      || this.checkpointDisabled
-      || !this.localCheckpointStore
-    ) {
+  private startLocalCheckpointHydration(response: DocumentSyncResponse): void {
+    if (this.checkpointHydrated || this.checkpointDisabled || !this.localCheckpointStore) {
       return;
     }
 
@@ -1178,37 +1087,30 @@ export class NodexYProvider {
       })
       .catch((error: unknown) => {
         this.recordCheckpointFailure(error);
-    });
+      });
     this.checkpointChain = hydration;
   }
 
   private queueLocalCheckpointBestEffort(): void {
     if (
-      this.checkpointDisabled
-      || !this.localCheckpointStore
-      || !this.storeEpoch
-      || this.generation === undefined
-      || this.checkpointUpdates.length === 0
-    ) return;
+      this.checkpointDisabled ||
+      !this.localCheckpointStore ||
+      !this.storeEpoch ||
+      this.generation === undefined ||
+      this.checkpointUpdates.length === 0
+    )
+      return;
     this.checkpointScheduler.request();
   }
 
   private drainScheduledLocalCheckpoint(): void {
-    if (
-      this.checkpointUpdates.length === 0
-      || this.destroyed
-      || this.checkpointDisabled
-    ) {
+    if (this.checkpointUpdates.length === 0 || this.destroyed || this.checkpointDisabled) {
       return;
     }
     void this.queueLocalCheckpoint()
       .catch(() => undefined)
       .finally(() => {
-        if (
-          this.checkpointUpdates.length > 0
-          && !this.checkpointRetryBlocked
-          && !this.destroyed
-        ) {
+        if (this.checkpointUpdates.length > 0 && !this.checkpointRetryBlocked && !this.destroyed) {
           this.checkpointScheduler.request();
         }
       });
@@ -1240,17 +1142,14 @@ export class NodexYProvider {
     const write = this.checkpointChain
       .then(async () => {
         if (
-          this.checkpointDisabled
-          || !this.localCheckpointStore
-          || !this.storeEpoch
-          || this.generation === undefined
+          this.checkpointDisabled ||
+          !this.localCheckpointStore ||
+          !this.storeEpoch ||
+          this.generation === undefined
         ) {
           return;
         }
-        await this.localCheckpointStore.write(
-          checkpoint,
-          this.documentSchemaAdapter.limits,
-        );
+        await this.localCheckpointStore.write(checkpoint, this.documentSchemaAdapter.limits);
       })
       .then(() => {
         if (this.checkpointDisabled) return;
@@ -1262,10 +1161,9 @@ export class NodexYProvider {
         if (!this.destroyed && !this.checkpointDisabled) {
           // Keep one compact retry payload. In particular, a persistent quota
           // failure must not retain one Uint8Array object per editor gesture.
-          this.checkpointUpdates = [copyBytes(Y.mergeUpdates([
-            ...checkpointUpdates,
-            ...this.checkpointUpdates,
-          ]))];
+          this.checkpointUpdates = [
+            copyBytes(Y.mergeUpdates([...checkpointUpdates, ...this.checkpointUpdates])),
+          ];
           this.checkpointRetryBlocked = true;
         }
         // A best-effort cache failure must not become a hot retry loop. A new
@@ -1296,17 +1194,12 @@ export class NodexYProvider {
 
   private recordCheckpointFailure(error: unknown): void {
     this.checkpointFailureCount += 1;
-    this.checkpointLastFailureMessage = error instanceof Error
-      ? error.message
-      : String(error);
+    this.checkpointLastFailureMessage = error instanceof Error ? error.message : String(error);
     this.checkpointPhase = this.checkpointDisabled ? "disabled" : "degraded";
     this.refreshStatus();
   }
 
-  private handleCommandError(
-    error: DocumentSyncCommandError,
-    kind: RetryKind,
-  ): void {
+  private handleCommandError(error: DocumentSyncCommandError, kind: RetryKind): void {
     if (
       error.resetRequired ||
       error.code === "store_epoch_mismatch" ||
@@ -1340,10 +1233,7 @@ export class NodexYProvider {
       return;
     }
 
-    const attempt =
-      kind === "apply"
-        ? (this.inFlight?.attempt ?? 1)
-        : (this.syncRetryAttempt += 1);
+    const attempt = kind === "apply" ? (this.inFlight?.attempt ?? 1) : (this.syncRetryAttempt += 1);
     this.retryKind = kind;
     this.retryCancel = this.scheduleRetry(() => {
       this.retryCancel = null;
@@ -1382,16 +1272,12 @@ export class NodexYProvider {
       clientSessionId: this.clientSessionId,
       storeEpoch: this.storeEpoch,
       generation: this.generation,
-      update: copyBytes(
-        encodeAwarenessUpdate(this.awareness, [this.document.clientID]),
-      ),
+      update: copyBytes(encodeAwarenessUpdate(this.awareness, [this.document.clientID])),
     };
     this.publishAwarenessBestEffort(request);
   }
 
-  private publishAwarenessBestEffort(
-    request: DocumentAwarenessPublishRequest,
-  ): void {
+  private publishAwarenessBestEffort(request: DocumentAwarenessPublishRequest): void {
     try {
       void this.adapter.publishAwareness(request).catch(() => undefined);
     } catch {
@@ -1419,11 +1305,7 @@ export class NodexYProvider {
     if (remoteClients.length === 0) {
       return;
     }
-    removeAwarenessStates(
-      this.awareness,
-      remoteClients,
-      REMOTE_AWARENESS_ORIGIN,
-    );
+    removeAwarenessStates(this.awareness, remoteClients, REMOTE_AWARENESS_ORIGIN);
   }
 
   private enterReset(error: DocumentSyncCommandError): void {
@@ -1469,8 +1351,7 @@ export class NodexYProvider {
   }
 
   private buildStatus(): NodexYProviderStatus {
-    const pendingUpdateCount =
-      this.queuedUpdates.length + (this.inFlight ? 1 : 0);
+    const pendingUpdateCount = this.queuedUpdates.length + (this.inFlight ? 1 : 0);
     let phase: NodexYProviderPhase;
     if (this.destroyed) {
       phase = "destroyed";
@@ -1482,11 +1363,7 @@ export class NodexYProvider {
       phase = "idle";
     } else if (!this.connected) {
       phase = "offline";
-    } else if (
-      this.syncing ||
-      !this.storeEpoch ||
-      this.generation === undefined
-    ) {
+    } else if (this.syncing || !this.storeEpoch || this.generation === undefined) {
       phase = "connecting";
     } else if (pendingUpdateCount > 0 || this.retryKind !== null) {
       phase = "saving";

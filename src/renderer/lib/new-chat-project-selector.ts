@@ -22,12 +22,9 @@ export function formatNewChatProjectSelectorOption(project: Project): NewChatPro
   const label = project.name.trim() || project.id;
   const primaryWorkspaceRoot = getPrimaryWorkspaceRoot(project);
   const description = primaryWorkspaceRoot || project.description.trim() || null;
-  const searchText = normalizeSearchText([
-    project.id,
-    project.name,
-    project.description,
-    primaryWorkspaceRoot ?? "",
-  ].join(" "));
+  const searchText = normalizeSearchText(
+    [project.id, project.name, project.description, primaryWorkspaceRoot ?? ""].join(" "),
+  );
 
   return {
     id: project.id,

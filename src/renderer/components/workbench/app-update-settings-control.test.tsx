@@ -8,7 +8,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("./app-update-settings-control-deps", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./app-update-settings-control-deps")>(),
+  ...(await importOriginal<typeof import("./app-update-settings-control-deps")>()),
   invoke: async (...args: unknown[]) => {
     mockState.invokeCalls.push(args);
     const channel = args[0];
@@ -36,7 +36,8 @@ vi.mock("./app-update-settings-control-deps", async (importOriginal) => ({
         };
       case "settings:app-updates:update":
         return {
-          automaticChecksEnabled: (args[1] as { automaticChecksEnabled?: boolean }).automaticChecksEnabled ?? true,
+          automaticChecksEnabled:
+            (args[1] as { automaticChecksEnabled?: boolean }).automaticChecksEnabled ?? true,
           channel: (args[1] as { channel?: "stable" | "nightly" }).channel ?? "stable",
         };
       case "app:update:check":
@@ -63,7 +64,9 @@ vi.mock("./app-update-settings-control-deps", async (importOriginal) => ({
         return null;
     }
   },
-  subscribeAppUpdateStatus: (callback: (status: import("../../lib/types").AppUpdateStatus) => void) => {
+  subscribeAppUpdateStatus: (
+    callback: (status: import("../../lib/types").AppUpdateStatus) => void,
+  ) => {
     mockState.subscribeCallback = callback;
     return () => {
       mockState.subscribeCallback = null;
@@ -82,16 +85,21 @@ describe("AppUpdateSettingsControl", () => {
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Nodex 0.1.5")).toBe(true);
-    expect(textContent(view.container).includes("Automatic background checks are ready.")).toBe(true);
-    expect(mockState.invokeCalls.some((entry) => entry[0] === "settings:app-updates:get")).toBe(true);
+    expect(textContent(view.container).includes("Automatic background checks are ready.")).toBe(
+      true,
+    );
+    expect(mockState.invokeCalls.some((entry) => entry[0] === "settings:app-updates:get")).toBe(
+      true,
+    );
     expect(mockState.invokeCalls.some((entry) => entry[0] === "app:update:status")).toBe(true);
 
     fireEvent.click(view.getByRole("switch"));
     await settleAsyncRender();
     expect(
       mockState.invokeCalls.some(
-        (entry) => entry[0] === "settings:app-updates:update"
-          && JSON.stringify(entry[1]) === JSON.stringify({ automaticChecksEnabled: false }),
+        (entry) =>
+          entry[0] === "settings:app-updates:update" &&
+          JSON.stringify(entry[1]) === JSON.stringify({ automaticChecksEnabled: false }),
       ),
     ).toBe(true);
 
@@ -121,7 +129,9 @@ describe("AppUpdateSettingsControl", () => {
     });
     await settleAsyncRender();
 
-    expect(textContent(view.container).includes("Update ready. Restart Nodex to install it.")).toBe(true);
+    expect(textContent(view.container).includes("Update ready. Restart Nodex to install it.")).toBe(
+      true,
+    );
 
     fireEvent.click(view.getByText("Restart to Update"));
     await settleAsyncRender();

@@ -50,10 +50,7 @@ import {
   ReviewUnifiedDiffIcon,
   ReviewWordDiffsIcon,
 } from "../shared/icons";
-import {
-  FileTypeIcon,
-  FileTypeIconSprite,
-} from "@/components/shared/icons";
+import { FileTypeIcon, FileTypeIconSprite } from "@/components/shared/icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
@@ -243,8 +240,7 @@ import {
 } from "@/features/local-conversation/view/shared/tools/diff-file-shared";
 
 type TranscriptReviewSource = "selected-turn" | "last-turn";
-type GitReviewLoadStatus =
-  "idle" | "loading" | "loaded" | "load-failed";
+type GitReviewLoadStatus = "idle" | "loading" | "loaded" | "load-failed";
 
 interface ReviewDiffPanelProps {
   conversationProjection: ReviewConversationProjection;
@@ -268,13 +264,8 @@ interface ReviewDiffPanelDeps {
   initialSummaryQuery?: boolean;
 }
 
-function resolveStateUpdate<Value>(
-  current: Value,
-  update: SetStateAction<Value>,
-): Value {
-  return typeof update === "function"
-    ? (update as (previous: Value) => Value)(current)
-    : update;
+function resolveStateUpdate<Value>(current: Value, update: SetStateAction<Value>): Value {
+  return typeof update === "function" ? (update as (previous: Value) => Value)(current) : update;
 }
 
 interface ReviewFileEntry {
@@ -304,10 +295,7 @@ interface GitReviewFileEntryCacheRecord {
   entry: ReviewFileEntry;
 }
 
-const gitReviewFileEntryCache = new WeakMap<
-  GitReviewFileSummary,
-  GitReviewFileEntryCacheRecord
->();
+const gitReviewFileEntryCache = new WeakMap<GitReviewFileSummary, GitReviewFileEntryCacheRecord>();
 const EMPTY_REVIEW_CODE_COMMENTS: ReviewCodeComment[] = [];
 const EMPTY_REVIEW_COMMENT_ATTACHMENTS: CodexReviewDiffCommentAttachment[] = [];
 const EMPTY_REVIEW_BRANCH_COMMITS: GitReviewBranchCommit[] = [];
@@ -337,10 +325,8 @@ const REVIEW_FILE_TREE_MIN_WIDTH_PX = 200;
 const REVIEW_FILE_TREE_MAX_WIDTH_RATIO = 0.6;
 const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
 const REVIEW_FULL_FILE_MAX_BYTES = 5_000_000;
-const REVIEW_OPTIONS_MENU_ICON_CLASS_NAME =
-  "icon-xs shrink-0";
-const REVIEW_AGGREGATE_DIFF_STATS_CLASS_NAME =
-  "text-size-chat mr-1 shrink-0 select-none";
+const REVIEW_OPTIONS_MENU_ICON_CLASS_NAME = "icon-xs shrink-0";
+const REVIEW_AGGREGATE_DIFF_STATS_CLASS_NAME = "text-size-chat mr-1 shrink-0 select-none";
 const REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME =
   "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px]";
 const REVIEW_EMPTY_STATE_ILLUSTRATION_PATH =
@@ -363,8 +349,7 @@ const REVIEW_FILE_TREE_HOST_STYLE = {
   "--trees-bg": "var(--color-token-main-surface-primary)",
   "--trees-bg-muted": "var(--color-token-list-hover-background)",
   "--trees-border-color": "var(--color-token-border)",
-  "--trees-indent-guide-bg":
-    "color-mix(in lab, var(--trees-fg-muted) 25%, transparent)",
+  "--trees-indent-guide-bg": "color-mix(in lab, var(--trees-fg-muted) 25%, transparent)",
   "--trees-selected-fg": "var(--color-token-list-active-selection-foreground)",
   "--trees-selected-bg": "var(--color-token-list-active-selection-background)",
   "--trees-focus-ring-color": "var(--color-token-list-focus-outline)",
@@ -381,9 +366,7 @@ const DEFAULT_REVIEW_DIFF_PANEL_DEPS: ReviewDiffPanelDeps = {
 
 const REVIEW_RENDERABLE_FILE_SAFETY = buildReviewFileSafety();
 
-function getReviewChangedLines(
-  entry: Pick<ReviewFileEntry, "additions" | "deletions">,
-): number {
+function getReviewChangedLines(entry: Pick<ReviewFileEntry, "additions" | "deletions">): number {
   return (entry.additions ?? 0) + (entry.deletions ?? 0);
 }
 
@@ -410,10 +393,7 @@ function buildReviewContentSearchMatches(input: {
   contextId: string;
   locations: readonly ReviewSearchLocation[];
 }): ContentSearchLocalMatch[] {
-  const matchesByPath = new Map<
-    string,
-    Array<{ id: string; location: ReviewSearchLocation }>
-  >();
+  const matchesByPath = new Map<string, Array<{ id: string; location: ReviewSearchLocation }>>();
   const identities = input.locations.map(
     (location) => `diff:${location.path}:${location.hunkId}:${location.start}`,
   );
@@ -529,9 +509,7 @@ function buildReviewJumpCanvasFont(style: CSSStyleDeclaration): string {
   ].join(" ");
 }
 
-function createReviewJumpTextMeasurer(
-  font: string,
-): ((value: string) => number | null) | null {
+function createReviewJumpTextMeasurer(font: string): ((value: string) => number | null) | null {
   if (typeof document === "undefined") return null;
 
   const canvas = document.createElement("canvas");
@@ -545,13 +523,7 @@ function createReviewJumpTextMeasurer(
   };
 }
 
-function ReviewJumpMiddleTruncatedText({
-  className,
-  text,
-}: {
-  className?: string;
-  text: string;
-}) {
+function ReviewJumpMiddleTruncatedText({ className, text }: { className?: string; text: string }) {
   const [element, setElement] = useState<HTMLSpanElement | null>(null);
   const [measurement, setMeasurement] = useState<{
     font: string;
@@ -571,8 +543,7 @@ function ReviewJumpMiddleTruncatedText({
       maxWidthPx: element.clientWidth,
     };
     setMeasurement((current) =>
-      current?.font === nextMeasurement.font &&
-      current.maxWidthPx === nextMeasurement.maxWidthPx
+      current?.font === nextMeasurement.font && current.maxWidthPx === nextMeasurement.maxWidthPx
         ? current
         : nextMeasurement,
     );
@@ -591,20 +562,13 @@ function ReviewJumpMiddleTruncatedText({
     if (!measurement) return text;
     const measureTextWidth = createReviewJumpTextMeasurer(measurement.font);
     if (!measureTextWidth) return text;
-    return middleTruncateReviewJumpText(
-      text,
-      measurement.maxWidthPx,
-      measureTextWidth,
-    );
+    return middleTruncateReviewJumpText(text, measurement.maxWidthPx, measureTextWidth);
   }, [measurement, text]);
 
   const body = (
     <span
       ref={setElement}
-      className={cn(
-        "block min-w-0 overflow-hidden whitespace-nowrap",
-        className,
-      )}
+      className={cn("block min-w-0 overflow-hidden whitespace-nowrap", className)}
     >
       {renderedText}
     </span>
@@ -640,19 +604,12 @@ function buildReviewGitApplyCommand(diff: string): string {
   return ` (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' \n${diff.trimEnd()} \nEOF\n)`;
 }
 
-function isTranscriptReviewSource(
-  source: ReviewSource,
-): source is TranscriptReviewSource {
+function isTranscriptReviewSource(source: ReviewSource): source is TranscriptReviewSource {
   return source === "selected-turn" || source === "last-turn";
 }
 
 function isGitReviewSource(source: ReviewSource): source is GitReviewSource {
-  return (
-    source === "branch" ||
-    source === "commit" ||
-    source === "staged" ||
-    source === "unstaged"
-  );
+  return source === "branch" || source === "commit" || source === "staged" || source === "unstaged";
 }
 
 function resolveReviewNoFilesEmptyStateCopy(
@@ -715,10 +672,7 @@ function ReviewPanelIcon({ className }: { className?: string }) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
-      className={cn(
-        "h-18 w-auto text-token-input-placeholder-foreground",
-        className,
-      )}
+      className={cn("h-18 w-auto text-token-input-placeholder-foreground", className)}
     >
       <path d={REVIEW_EMPTY_STATE_ILLUSTRATION_PATH} fill="currentColor" />
     </svg>
@@ -751,9 +705,7 @@ function MoreHorizontalIcon({ className }: { className?: string }) {
   );
 }
 
-function normalizeReviewBasePath(
-  cwd: string | null | undefined,
-): string | null {
+function normalizeReviewBasePath(cwd: string | null | undefined): string | null {
   if (!cwd) return null;
   const normalizedPath = normalizePathSegments(cwd);
   return normalizedPath.length > 0 ? normalizedPath : null;
@@ -763,10 +715,7 @@ function resolveOpenLine(fileDiff: FileDiffMetadata): number | undefined {
   const firstHunk = fileDiff.hunks[0];
   if (!firstHunk) return undefined;
 
-  const line =
-    firstHunk.additionStart > 0
-      ? firstHunk.additionStart
-      : firstHunk.deletionStart;
+  const line = firstHunk.additionStart > 0 ? firstHunk.additionStart : firstHunk.deletionStart;
   return line > 0 ? line : 1;
 }
 
@@ -777,26 +726,19 @@ function resolveReviewEntryLoadStatus(input: {
 }): ReviewDiffLoadStatus {
   if (input.safety.skipReason === "binary") return "binary";
   if (input.safety.skipReason === "tooLarge") return "diff-too-large";
-  if (
-    input.safety.skipReason === "invalidText" ||
-    input.safety.skipReason === "unsupported"
-  )
+  if (input.safety.skipReason === "invalidText" || input.safety.skipReason === "unsupported")
     return "unsupported";
   if (input.fallbackStatus) return input.fallbackStatus;
   return input.fileDiff ? "loaded" : "unsupported";
 }
 
-function readReviewDiffEntryStatus(
-  summary: GitReviewFileSummary,
-): ReviewDiffLoadStatus | null {
+function readReviewDiffEntryStatus(summary: GitReviewFileSummary): ReviewDiffLoadStatus | null {
   const candidate = summary as Partial<ReviewDiffEntry>;
   const loadStatus = candidate.loadStatus;
   return typeof loadStatus === "string" ? loadStatus : null;
 }
 
-function readReviewDiffEntryPatch(
-  summary: GitReviewFileSummary,
-): string | null {
+function readReviewDiffEntryPatch(summary: GitReviewFileSummary): string | null {
   const candidate = summary as Partial<ReviewDiffEntry>;
   return typeof candidate.diff === "string" ? candidate.diff : null;
 }
@@ -818,20 +760,12 @@ function buildReviewFileEntryFromSummary(
   const summarySafety = summary.safety ?? REVIEW_RENDERABLE_FILE_SAFETY;
   const summaryPatch = readReviewDiffEntryPatch(summary);
   const summaryLoadStatus = readReviewDiffEntryStatus(summary);
-  const fileDiff = summarySafety.renderable
-    ? (existing?.fileDiff ?? null)
-    : null;
-  const patchText = summarySafety.renderable
-    ? (summaryPatch ?? existing?.patchText ?? "")
-    : "";
-  const safety =
-    summarySafety.renderable && existing?.safety
-      ? existing.safety
-      : summarySafety;
+  const fileDiff = summarySafety.renderable ? (existing?.fileDiff ?? null) : null;
+  const patchText = summarySafety.renderable ? (summaryPatch ?? existing?.patchText ?? "") : "";
+  const safety = summarySafety.renderable && existing?.safety ? existing.safety : summarySafety;
   const fallbackStatus =
     summarySafety.renderable && !fileDiff
-      ? (summaryLoadStatus ??
-        (patchText.trim().length > 0 ? "loaded" : "loading"))
+      ? (summaryLoadStatus ?? (patchText.trim().length > 0 ? "loaded" : "loading"))
       : summaryLoadStatus;
 
   return {
@@ -847,14 +781,8 @@ function buildReviewFileEntryFromSummary(
     openLine: existing?.openLine,
     additions: summary.additions,
     deletions: summary.deletions,
-    diffBytes:
-      readReviewDiffEntryBytes(summary, "diffBytes") ??
-      existing?.diffBytes ??
-      0,
-    changedBytes:
-      readReviewDiffEntryBytes(summary, "changedBytes") ??
-      existing?.changedBytes ??
-      0,
+    diffBytes: readReviewDiffEntryBytes(summary, "diffBytes") ?? existing?.diffBytes ?? 0,
+    changedBytes: readReviewDiffEntryBytes(summary, "changedBytes") ?? existing?.changedBytes ?? 0,
     fileDiff,
     loadStatus: resolveReviewEntryLoadStatus({
       safety,
@@ -900,9 +828,7 @@ function buildReviewFileEntries(
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
   metadataFiles: GitReviewFileSummary[] = [],
 ): ReviewFileEntry[] {
-  const metadataByPath = new Map(
-    metadataFiles.map((file) => [stripPatchPrefix(file.path), file]),
-  );
+  const metadataByPath = new Map(metadataFiles.map((file) => [stripPatchPrefix(file.path), file]));
   const entriesByPath = new Map<string, ReviewFileEntry>();
   const orderedPaths: string[] = [];
 
@@ -911,31 +837,21 @@ function buildReviewFileEntries(
     let flatFileIndex = 0;
 
     try {
-      for (const [patchIndex, parsedPatch] of parsePatchFiles(
-        patch,
-      ).entries()) {
+      for (const [patchIndex, parsedPatch] of parsePatchFiles(patch).entries()) {
         for (const [fileIndex, fileDiff] of parsedPatch.files.entries()) {
           const additionsDeletions = summarizeFileDiffMetadata(fileDiff);
           const displayPath = stripPatchPrefix(
-            fileDiff.name ??
-              fileDiff.prevName ??
-              `file-${patchIndex}-${fileIndex}`,
+            fileDiff.name ?? fileDiff.prevName ?? `file-${patchIndex}-${fileIndex}`,
           );
           const patchText = filePatches[flatFileIndex] ?? patch;
           flatFileIndex += 1;
           const existing = entriesByPath.get(displayPath) ?? null;
           const metadata = metadataByPath.get(displayPath) ?? null;
-          const nextPatchText = existing
-            ? `${existing.patchText}\n${patchText}`
-            : patchText;
+          const nextPatchText = existing ? `${existing.patchText}\n${patchText}` : patchText;
           const safety = metadata?.safety ?? REVIEW_RENDERABLE_FILE_SAFETY;
           const fileDiffForEntry = safety.renderable ? fileDiff : null;
-          const diffBytes = metadata
-            ? readReviewDiffEntryBytes(metadata, "diffBytes")
-            : null;
-          const changedBytes = metadata
-            ? readReviewDiffEntryBytes(metadata, "changedBytes")
-            : null;
+          const diffBytes = metadata ? readReviewDiffEntryBytes(metadata, "diffBytes") : null;
+          const changedBytes = metadata ? readReviewDiffEntryBytes(metadata, "changedBytes") : null;
           const fallbackPatchBytes =
             diffBytes === null || changedBytes === null
               ? new TextEncoder().encode(nextPatchText).length
@@ -946,31 +862,18 @@ function buildReviewFileEntries(
             key: displayPath,
             displayPath,
             previousPath:
-              fileDiff.prevName ??
-              metadata?.previousPath ??
-              existing?.previousPath ??
-              null,
+              fileDiff.prevName ?? metadata?.previousPath ?? existing?.previousPath ?? null,
             gitStatus: metadata?.status ?? null,
             revision: metadata?.revision ?? existing?.revision ?? null,
-            oldOid:
-              metadata?.oldOid ??
-              fileDiff.prevObjectId ??
-              existing?.oldOid ??
-              null,
-            newOid:
-              metadata?.newOid ??
-              fileDiff.newObjectId ??
-              existing?.newOid ??
-              null,
+            oldOid: metadata?.oldOid ?? fileDiff.prevObjectId ?? existing?.oldOid ?? null,
+            newOid: metadata?.newOid ?? fileDiff.newObjectId ?? existing?.newOid ?? null,
             patchText: safety.renderable ? nextPatchText : "",
             openPath: resolveOpenPath(displayPath, basePath),
             openLine: resolveOpenLine(fileDiff) ?? existing?.openLine,
             additions:
-              metadata?.additions ??
-              (existing?.additions ?? 0) + additionsDeletions.additions,
+              metadata?.additions ?? (existing?.additions ?? 0) + additionsDeletions.additions,
             deletions:
-              metadata?.deletions ??
-              (existing?.deletions ?? 0) + additionsDeletions.deletions,
+              metadata?.deletions ?? (existing?.deletions ?? 0) + additionsDeletions.deletions,
             diffBytes: diffBytes ?? fallbackPatchBytes,
             changedBytes: changedBytes ?? fallbackPatchBytes,
             fileDiff: fileDiffForEntry,
@@ -993,10 +896,7 @@ function buildReviewFileEntries(
     const displayPath = stripPatchPrefix(metadata.path);
     const existing = entriesByPath.get(displayPath) ?? null;
     if (!existing) orderedPaths.push(displayPath);
-    entriesByPath.set(
-      displayPath,
-      buildReviewFileEntryFromSummary(metadata, basePath, existing),
-    );
+    entriesByPath.set(displayPath, buildReviewFileEntryFromSummary(metadata, basePath, existing));
   }
 
   return orderedPaths.flatMap((displayPath) => {
@@ -1012,10 +912,7 @@ function buildGitReviewFileEntries(
 ): ReviewFileEntry[] {
   return metadataFiles.flatMap((file) => {
     const cached = gitReviewFileEntryCache.get(file);
-    if (
-      cached?.basePath === basePath &&
-      cached.parsePatchFiles === parsePatchFiles
-    ) {
+    if (cached?.basePath === basePath && cached.parsePatchFiles === parsePatchFiles) {
       return [cached.entry];
     }
 
@@ -1068,24 +965,17 @@ function buildPatchBatchMetadataFiles(
         safety?: unknown;
       };
       if (candidate.type !== "nonRenderable") continue;
-      if (
-        typeof candidate.path !== "string" ||
-        candidate.path.trim().length === 0
-      )
-        continue;
+      if (typeof candidate.path !== "string" || candidate.path.trim().length === 0) continue;
       if (!isReviewFileSafety(candidate.safety)) continue;
 
       const displayPath = stripPatchPrefix(candidate.path.trim());
       summariesByPath.set(displayPath, {
         path: displayPath,
         previousPath:
-          typeof candidate.movePath === "string" &&
-          candidate.movePath.trim().length > 0
+          typeof candidate.movePath === "string" && candidate.movePath.trim().length > 0
             ? candidate.movePath
             : null,
-        status: mapCodexChangeKindToGitStatus(
-          String(candidate.originalType ?? "update"),
-        ),
+        status: mapCodexChangeKindToGitStatus(String(candidate.originalType ?? "update")),
         rawStatus: null,
         oldOid: null,
         newOid: null,
@@ -1150,9 +1040,7 @@ function buildReviewFullContentKey(input: {
   ]);
 }
 
-function buildUnavailableReviewFullContents(
-  entry: ReviewFileEntry,
-): ReviewFullFileContents {
+function buildUnavailableReviewFullContents(entry: ReviewFileEntry): ReviewFullFileContents {
   return {
     path: entry.displayPath,
     previousPath: entry.previousPath,
@@ -1162,9 +1050,7 @@ function buildUnavailableReviewFullContents(
     newExists: false,
     oldStatus: "unsupported",
     newStatus: "unsupported",
-    safety: entry.safety.renderable
-      ? buildReviewFileSafety({ unsupported: true })
-      : entry.safety,
+    safety: entry.safety.renderable ? buildReviewFileSafety({ unsupported: true }) : entry.safety,
     errorMessage: null,
   };
 }
@@ -1176,17 +1062,13 @@ interface ReviewCatFileTextRead {
   safety: ReviewFileSafety;
 }
 
-function normalizeReviewObjectId(
-  value: string | null | undefined,
-): string | null {
+function normalizeReviewObjectId(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   if (!normalized || /^0+$/.test(normalized)) return null;
   return normalized;
 }
 
-function buildReviewCatFileTextRead(
-  result: GitCatFileResult | undefined,
-): ReviewCatFileTextRead {
+function buildReviewCatFileTextRead(result: GitCatFileResult | undefined): ReviewCatFileTextRead {
   if (!result || (result.type === "error" && result.error.type === "unknown")) {
     return {
       text: null,
@@ -1239,8 +1121,7 @@ function mergeReviewCatFileSafety(
   if (!oldRead.safety.renderable) return oldRead.safety;
   if (!newRead.safety.renderable) return newRead.safety;
   return buildReviewFileSafety({
-    sizeBytes:
-      (oldRead.safety.sizeBytes ?? 0) + (newRead.safety.sizeBytes ?? 0),
+    sizeBytes: (oldRead.safety.sizeBytes ?? 0) + (newRead.safety.sizeBytes ?? 0),
   });
 }
 
@@ -1249,9 +1130,7 @@ function isReviewNewFile(fileDiff: FileDiffMetadata): boolean {
 }
 
 function isReviewDeletedFile(fileDiff: FileDiffMetadata): boolean {
-  return (
-    String(fileDiff.type) === "deleted" || String(fileDiff.type) === "delete"
-  );
+  return String(fileDiff.type) === "deleted" || String(fileDiff.type) === "delete";
 }
 
 function hasPatchLineArrays(fileDiff: FileDiffMetadata): boolean {
@@ -1298,11 +1177,7 @@ function areLineArraysEqual(left: string[], right: string[]): boolean {
   return left.every((line, index) => line === right[index]);
 }
 
-function slicePatchLines(
-  lines: string[],
-  startIndex: number,
-  count: number,
-): string[] | null {
+function slicePatchLines(lines: string[], startIndex: number, count: number): string[] | null {
   if (startIndex < 0 || count < 0) return null;
   const endIndex = startIndex + count;
   if (endIndex > lines.length) return null;
@@ -1337,11 +1212,7 @@ function reconstructOldTextFromCurrentText(
     ) {
       return null;
     }
-    oldLines.splice(
-      startIndex,
-      expectedNewLines.length,
-      ...replacementOldLines,
-    );
+    oldLines.splice(startIndex, expectedNewLines.length, ...replacementOldLines);
   }
 
   return oldLines.join("");
@@ -1352,10 +1223,7 @@ function buildTranscriptFullContentsFromPatch(
   currentText: string,
 ): ReviewFullFileContents {
   if (!entry.fileDiff) return buildUnavailableReviewFullContents(entry);
-  const oldText = reconstructOldTextFromCurrentText(
-    entry.fileDiff,
-    currentText,
-  );
+  const oldText = reconstructOldTextFromCurrentText(entry.fileDiff, currentText);
   if (oldText === null) return buildUnavailableReviewFullContents(entry);
 
   return {
@@ -1374,12 +1242,9 @@ function buildTranscriptFullContentsFromPatch(
   };
 }
 
-function buildTranscriptDeletedFileContents(
-  entry: ReviewFileEntry,
-): ReviewFullFileContents {
+function buildTranscriptDeletedFileContents(entry: ReviewFileEntry): ReviewFullFileContents {
   if (!entry.fileDiff) return buildUnavailableReviewFullContents(entry);
-  if (!hasPatchLineArrays(entry.fileDiff))
-    return buildUnavailableReviewFullContents(entry);
+  if (!hasPatchLineArrays(entry.fileDiff)) return buildUnavailableReviewFullContents(entry);
 
   return {
     path: entry.displayPath,
@@ -1397,12 +1262,9 @@ function buildTranscriptDeletedFileContents(
   };
 }
 
-function buildTranscriptNewFileContentsFromPatch(
-  entry: ReviewFileEntry,
-): ReviewFullFileContents {
+function buildTranscriptNewFileContentsFromPatch(entry: ReviewFileEntry): ReviewFullFileContents {
   if (!entry.fileDiff) return buildUnavailableReviewFullContents(entry);
-  if (!hasPatchLineArrays(entry.fileDiff))
-    return buildUnavailableReviewFullContents(entry);
+  if (!hasPatchLineArrays(entry.fileDiff)) return buildUnavailableReviewFullContents(entry);
 
   return {
     path: entry.displayPath,
@@ -1429,15 +1291,8 @@ function buildLastTurnSnapshot(
   const patch = conversation.lastTurnPatch;
   const cwd = conversation.cwd ?? projectWorkspacePath ?? null;
   const basePath = normalizeReviewBasePath(cwd);
-  const metadataFiles = buildPatchBatchMetadataFiles(
-    conversation.lastTurnPatchBatches,
-  );
-  const files = buildReviewFileEntries(
-    patch,
-    basePath,
-    parsePatchFiles,
-    metadataFiles,
-  );
+  const metadataFiles = buildPatchBatchMetadataFiles(conversation.lastTurnPatchBatches);
+  const files = buildReviewFileEntries(patch, basePath, parsePatchFiles, metadataFiles);
 
   return {
     source: "last-turn",
@@ -1449,10 +1304,7 @@ function buildLastTurnSnapshot(
     currentBranch: null,
     defaultBranch: null,
     errorMessage: null,
-    emptyReason:
-      patch.trim().length === 0 && files.length === 0
-        ? "noLongerAvailable"
-        : null,
+    emptyReason: patch.trim().length === 0 && files.length === 0 ? "noLongerAvailable" : null,
     snapshotGeneration: 0,
   };
 }
@@ -1465,18 +1317,10 @@ function buildSelectedTurnSnapshot(
   isGitRepository: boolean,
 ): ReviewSnapshot {
   const patch = selectedTurnDiff?.patch ?? "";
-  const cwd =
-    selectedTurnDiff?.cwd ?? conversation.cwd ?? projectWorkspacePath ?? null;
+  const cwd = selectedTurnDiff?.cwd ?? conversation.cwd ?? projectWorkspacePath ?? null;
   const basePath = normalizeReviewBasePath(cwd);
-  const metadataFiles = buildPatchBatchMetadataFiles(
-    selectedTurnDiff?.patchBatches,
-  );
-  const files = buildReviewFileEntries(
-    patch,
-    basePath,
-    parsePatchFiles,
-    metadataFiles,
-  );
+  const metadataFiles = buildPatchBatchMetadataFiles(selectedTurnDiff?.patchBatches);
+  const files = buildReviewFileEntries(patch, basePath, parsePatchFiles, metadataFiles);
 
   return {
     source: "selected-turn",
@@ -1488,10 +1332,7 @@ function buildSelectedTurnSnapshot(
     currentBranch: null,
     defaultBranch: null,
     errorMessage: null,
-    emptyReason:
-      patch.trim().length === 0 && files.length === 0
-        ? "noLongerAvailable"
-        : null,
+    emptyReason: patch.trim().length === 0 && files.length === 0 ? "noLongerAvailable" : null,
     snapshotGeneration: 0,
   };
 }
@@ -1503,11 +1344,7 @@ function buildGitSnapshot(
   const cwd = gitSnapshot?.cwd ?? null;
   const basePath = normalizeReviewBasePath(cwd);
   const patch = gitSnapshot?.patch ?? "";
-  const files = buildGitReviewFileEntries(
-    basePath,
-    parsePatchFiles,
-    gitSnapshot?.files ?? [],
-  );
+  const files = buildGitReviewFileEntries(basePath, parsePatchFiles, gitSnapshot?.files ?? []);
 
   return {
     source: gitSnapshot?.source ?? "unstaged",
@@ -1519,20 +1356,14 @@ function buildGitSnapshot(
     currentBranch: gitSnapshot?.currentBranch ?? null,
     defaultBranch: gitSnapshot?.defaultBranch ?? null,
     errorMessage: gitSnapshot?.errorMessage ?? null,
-    emptyReason:
-      patch.trim().length === 0 && files.length === 0 ? "noDiff" : null,
+    emptyReason: patch.trim().length === 0 && files.length === 0 ? "noDiff" : null,
     snapshotGeneration: gitSnapshot?.snapshotGeneration ?? 0,
   };
 }
 
-function isReviewDiffEntryLike(
-  file: GitReviewFileSummary,
-): file is ReviewDiffEntry {
+function isReviewDiffEntryLike(file: GitReviewFileSummary): file is ReviewDiffEntry {
   const candidate = file as Partial<ReviewDiffEntry>;
-  return (
-    typeof candidate.diff === "string" &&
-    typeof candidate.loadStatus === "string"
-  );
+  return typeof candidate.diff === "string" && typeof candidate.loadStatus === "string";
 }
 
 interface GitReviewFilePathDiffCacheRecord {
@@ -1554,13 +1385,8 @@ const gitReviewSnapshotPathDiffCache = new WeakMap<
   GitReviewSnapshotPathDiffCacheRecord
 >();
 
-function buildFailedGitReviewPathDiff(
-  file: GitReviewFileSummary,
-  error: Error,
-): ReviewDiffEntry {
-  const loadStatus = error.message.includes("timed out")
-    ? "timed-out"
-    : "load-failed";
+function buildFailedGitReviewPathDiff(file: GitReviewFileSummary, error: Error): ReviewDiffEntry {
+  const loadStatus = error.message.includes("timed out") ? "timed-out" : "load-failed";
   return {
     ...file,
     diff: "",
@@ -1610,10 +1436,9 @@ function mergeGitSnapshotWithPathDiffs(
     return cached.snapshot;
   }
 
-  const nextSnapshot =
-    files.every((file, index) => file === snapshot.files[index])
-      ? snapshot
-      : { ...snapshot, files };
+  const nextSnapshot = files.every((file, index) => file === snapshot.files[index])
+    ? snapshot
+    : { ...snapshot, files };
   gitReviewSnapshotPathDiffCache.set(snapshot, {
     files,
     snapshot: nextSnapshot,
@@ -1637,8 +1462,7 @@ const REVIEW_FILE_ROW_SURFACE_STYLE = {
   backgroundColor: "var(--codex-diffs-surface)",
 } satisfies CSSProperties & Record<`--${string}`, string>;
 const REVIEW_FILE_ROW_HEADER_STYLE = {
-  backgroundColor:
-    "color-mix(in srgb, var(--codex-diffs-surface) 88%, transparent)",
+  backgroundColor: "color-mix(in srgb, var(--codex-diffs-surface) 88%, transparent)",
 } satisfies CSSProperties;
 
 function toolbarIconButtonClassName(options?: {
@@ -1673,10 +1497,7 @@ function ReviewPanelEmptyState({
 }) {
   return (
     <div
-      className={cn(
-        "flex w-full flex-col items-center justify-center px-3 py-6 h-full",
-        className,
-      )}
+      className={cn("flex w-full flex-col items-center justify-center px-3 py-6 h-full", className)}
     >
       <div className="flex w-full max-w-xl flex-col items-center justify-center text-center gap-6">
         {illustration ? (
@@ -1685,17 +1506,11 @@ function ReviewPanelEmptyState({
           </div>
         ) : null}
         <div className="flex flex-col items-center gap-2">
-          <div className="font-medium text-base text-token-foreground">
-            {title}
-          </div>
-          <div className="text-base text-token-description-foreground">
-            {description}
-          </div>
+          <div className="font-medium text-base text-token-foreground">{title}</div>
+          <div className="text-base text-token-description-foreground">{description}</div>
         </div>
         {action ? (
-          <div className="flex w-full flex-wrap items-center justify-center gap-2">
-            {action}
-          </div>
+          <div className="flex w-full flex-wrap items-center justify-center gap-2">{action}</div>
         ) : null}
       </div>
     </div>
@@ -1745,8 +1560,7 @@ function ReviewDiffCommentAnnotationCard({
   });
   const trimmedValue = draftValue.trim();
   const isLocalComment = metadata.kind === "local-comment";
-  const authorLabel =
-    metadata.kind === "model-comment" ? "Nodex" : "Local comment";
+  const authorLabel = metadata.kind === "model-comment" ? "Nodex" : "Local comment";
   const title = metadata.title?.trim() || authorLabel;
 
   return (
@@ -1784,11 +1598,7 @@ function ReviewDiffCommentAnnotationCard({
                     onChange?.(nextValue);
                   }}
                   onKeyDown={(event) => {
-                    if (
-                      event.key !== "Enter" ||
-                      (!event.metaKey && !event.ctrlKey)
-                    )
-                      return false;
+                    if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return false;
                     event.preventDefault();
                     onSubmit?.(draftValue);
                     return true;
@@ -1822,9 +1632,7 @@ function ReviewDiffCommentAnnotationCard({
 
 function ReviewFileDiffPlaceholder({ entry }: { entry: ReviewFileEntry }) {
   const message =
-    entry.loadStatus === "loading"
-      ? "Loading diff..."
-      : describeReviewFileSafety(entry.safety);
+    entry.loadStatus === "loading" ? "Loading diff..." : describeReviewFileSafety(entry.safety);
   const detail =
     entry.loadStatus === "loading"
       ? "Preparing this file diff."
@@ -1869,8 +1677,7 @@ interface ReviewFileRowProps {
 function areShallowArraysEqual<T>(left: T[], right: T[]): boolean {
   return (
     left === right ||
-    (left.length === right.length &&
-      left.every((value, index) => value === right[index]))
+    (left.length === right.length && left.every((value, index) => value === right[index]))
   );
 }
 
@@ -1902,10 +1709,7 @@ function buildStableReviewCommentAttachmentsByPath(
   return unchanged ? previous : grouped;
 }
 
-function areReviewFileEntriesEqual(
-  left: ReviewFileEntry,
-  right: ReviewFileEntry,
-): boolean {
+function areReviewFileEntriesEqual(left: ReviewFileEntry, right: ReviewFileEntry): boolean {
   return (
     left === right ||
     (left.key === right.key &&
@@ -1928,10 +1732,7 @@ function areReviewFileEntriesEqual(
   );
 }
 
-function areReviewFileRowPropsEqual(
-  left: ReviewFileRowProps,
-  right: ReviewFileRowProps,
-): boolean {
+function areReviewFileRowPropsEqual(left: ReviewFileRowProps, right: ReviewFileRowProps): boolean {
   return (
     areReviewFileEntriesEqual(left.entry, right.entry) &&
     left.diffMode === right.diffMode &&
@@ -1948,10 +1749,7 @@ function areReviewFileRowPropsEqual(
     areShallowArraysEqual(left.comments, right.comments) &&
     left.threadId === right.threadId &&
     left.sourceKey === right.sourceKey &&
-    areShallowArraysEqual(
-      left.pendingCommentAttachments,
-      right.pendingCommentAttachments,
-    ) &&
+    areShallowArraysEqual(left.pendingCommentAttachments, right.pendingCommentAttachments) &&
     left.deps === right.deps &&
     left.onToggleExpandedKey === right.onToggleExpandedKey
   );
@@ -1983,24 +1781,13 @@ const ReviewFileRow = memo(function ReviewFileRow({
   const { resolved } = useTheme();
   const rowRef = useRef<HTMLElement | null>(null);
   const fullContentState = useReviewFullContentState(fullContentKey);
-  const diffHostStyle = getNodexDiffHostStyle(
-    resolved === "dark" ? "dark" : "light",
-  );
-  const supportsWordDiffs = isReviewWordDiffEnabled(
-    getReviewChangedLines(entry),
-    true,
-  );
+  const diffHostStyle = getNodexDiffHostStyle(resolved === "dark" ? "dark" : "light");
+  const supportsWordDiffs = isReviewWordDiffEnabled(getReviewChangedLines(entry), true);
   const renderWordDiffs = supportsWordDiffs && wordDiffsEnabled;
   const lineDiffType = renderWordDiffs ? "word-alt" : "none";
-  const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(
-    null,
-  );
-  const [draftsByKey, setDraftsByKey] = useState<
-    Record<string, ReviewDiffDraft>
-  >({});
-  const [draftStorageHydratedScope, setDraftStorageHydratedScope] = useState<
-    string | null
-  >(null);
+  const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
+  const [draftsByKey, setDraftsByKey] = useState<Record<string, ReviewDiffDraft>>({});
+  const [draftStorageHydratedScope, setDraftStorageHydratedScope] = useState<string | null>(null);
   const hoveredLineRef = useRef<{
     side: ReviewDiffAnnotationSide;
     lineNumber: number;
@@ -2014,15 +1801,9 @@ const ReviewFileRow = memo(function ReviewFileRow({
       }),
     [entry.displayPath, sourceKey, threadId],
   );
-  const fileLevelComments = useMemo(
-    () => comments.filter((comment) => !comment.start),
-    [comments],
-  );
+  const fileLevelComments = useMemo(() => comments.filter((comment) => !comment.start), [comments]);
   const modelLineComments = useMemo(
-    () =>
-      comments.filter(
-        (comment) => typeof comment.start === "number" && comment.start > 0,
-      ),
+    () => comments.filter((comment) => typeof comment.start === "number" && comment.start > 0),
     [comments],
   );
   const pendingFileComments = pendingCommentAttachments;
@@ -2030,24 +1811,16 @@ const ReviewFileRow = memo(function ReviewFileRow({
     const keys = new Set<string>();
     for (const comment of modelLineComments) {
       if (!comment.start) continue;
-      const lineNumber =
-        comment.end && comment.end !== comment.start
-          ? comment.end
-          : comment.start;
+      const lineNumber = comment.end && comment.end !== comment.start ? comment.end : comment.start;
       keys.add(buildReviewDiffAnnotationKey("additions", lineNumber));
     }
     for (const attachment of pendingFileComments) {
-      const side = mapReviewDiffPositionSideToAnnotationSide(
-        attachment.position.side,
-      );
+      const side = mapReviewDiffPositionSideToAnnotationSide(attachment.position.side);
       keys.add(buildReviewDiffAnnotationKey(side, attachment.position.line));
     }
     return keys;
   }, [modelLineComments, pendingFileComments]);
-  const draftKeys = useMemo(
-    () => new Set(Object.keys(draftsByKey)),
-    [draftsByKey],
-  );
+  const draftKeys = useMemo(() => new Set(Object.keys(draftsByKey)), [draftsByKey]);
 
   useEffect(() => {
     const storedDrafts = readReviewDiffDraftStorage(draftStorageScope);
@@ -2055,8 +1828,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
       Object.fromEntries(
         Object.entries(storedDrafts).flatMap(([key, text]) => {
           const [side, rawLineNumber] = key.split(":");
-          if ((side !== "additions" && side !== "deletions") || !rawLineNumber)
-            return [];
+          if ((side !== "additions" && side !== "deletions") || !rawLineNumber) return [];
           const lineNumber = Number(rawLineNumber);
           if (!Number.isFinite(lineNumber) || lineNumber <= 0) return [];
           const draft = createReviewDiffDraftFromLine({
@@ -2167,9 +1939,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
 
   const updateLocalComment = useCallback(
     (attachmentId: string, text: string) => {
-      const attachment = pendingFileComments.find(
-        (candidate) => candidate.id === attachmentId,
-      );
+      const attachment = pendingFileComments.find((candidate) => candidate.id === attachmentId);
       const trimmedText = text.trim();
       if (!attachment || trimmedText.length === 0) return;
 
@@ -2211,10 +1981,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
       event.preventDefault();
       event.stopPropagation();
 
-      const key = buildReviewDiffAnnotationKey(
-        hoveredLine.side,
-        hoveredLine.lineNumber,
-      );
+      const key = buildReviewDiffAnnotationKey(hoveredLine.side, hoveredLine.lineNumber);
       const enabled = !shouldBlockReviewDiffDraft({
         key,
         existingKeys: existingAnnotationKeys,
@@ -2247,26 +2014,16 @@ const ReviewFileRow = memo(function ReviewFileRow({
         })
         .catch(() => {});
     },
-    [
-      createDraft,
-      draftKeys,
-      entry.displayPath,
-      entry.patchText,
-      existingAnnotationKeys,
-    ],
+    [createDraft, draftKeys, entry.displayPath, entry.patchText, existingAnnotationKeys],
   );
 
-  const lineAnnotations = useMemo<
-    Array<DiffLineAnnotation<ReviewDiffAnnotationMetadata>>
-  >(
+  const lineAnnotations = useMemo<Array<DiffLineAnnotation<ReviewDiffAnnotationMetadata>>>(
     () => [
       ...modelLineComments.flatMap(
         (comment): Array<DiffLineAnnotation<ReviewDiffAnnotationMetadata>> => {
           if (!comment.start) return [];
           const lineNumber =
-            comment.end && comment.end !== comment.start
-              ? comment.end
-              : comment.start;
+            comment.end && comment.end !== comment.start ? comment.end : comment.start;
           return [
             {
               side: "additions",
@@ -2288,34 +2045,28 @@ const ReviewFileRow = memo(function ReviewFileRow({
           ];
         },
       ),
-      ...pendingFileComments.map(
-        (attachment): DiffLineAnnotation<ReviewDiffAnnotationMetadata> => {
-          const side = mapReviewDiffPositionSideToAnnotationSide(
-            attachment.position.side,
-          );
-          const startSide = attachment.position.start_side
-            ? mapReviewDiffPositionSideToAnnotationSide(
-                attachment.position.start_side,
-              )
-            : undefined;
-          return {
+      ...pendingFileComments.map((attachment): DiffLineAnnotation<ReviewDiffAnnotationMetadata> => {
+        const side = mapReviewDiffPositionSideToAnnotationSide(attachment.position.side);
+        const startSide = attachment.position.start_side
+          ? mapReviewDiffPositionSideToAnnotationSide(attachment.position.start_side)
+          : undefined;
+        return {
+          side,
+          lineNumber: attachment.position.line,
+          metadata: {
+            kind: "local-comment",
+            key: buildReviewDiffAnnotationKey(side, attachment.position.line),
+            path: entry.displayPath,
             side,
             lineNumber: attachment.position.line,
-            metadata: {
-              kind: "local-comment",
-              key: buildReviewDiffAnnotationKey(side, attachment.position.line),
-              path: entry.displayPath,
-              side,
-              lineNumber: attachment.position.line,
-              ...(startSide ? { startSide } : {}),
-              ...(attachment.position.start_line
-                ? { startLine: attachment.position.start_line }
-                : {}),
-              attachmentId: attachment.id,
-            },
-          };
-        },
-      ),
+            ...(startSide ? { startSide } : {}),
+            ...(attachment.position.start_line
+              ? { startLine: attachment.position.start_line }
+              : {}),
+            attachmentId: attachment.id,
+          },
+        };
+      }),
       ...Object.values(draftsByKey).map(buildReviewDiffDraftAnnotation),
     ],
     [draftsByKey, entry.displayPath, modelLineComments, pendingFileComments],
@@ -2347,20 +2098,14 @@ const ReviewFileRow = memo(function ReviewFileRow({
           <ReviewDiffCommentAnnotationCard
             metadata={metadata}
             value={attachment ? getReviewDiffCommentText(attachment) : ""}
-            onSubmit={(nextValue) =>
-              updateLocalComment(metadata.attachmentId ?? "", nextValue)
-            }
+            onSubmit={(nextValue) => updateLocalComment(metadata.attachmentId ?? "", nextValue)}
             onDelete={() => removeLocalComment(metadata.attachmentId ?? "")}
           />
         );
       }
 
       return (
-        <ReviewDiffCommentAnnotationCard
-          metadata={metadata}
-          value={metadata.body ?? ""}
-          readonly
-        />
+        <ReviewDiffCommentAnnotationCard metadata={metadata} value={metadata.body ?? ""} readonly />
       );
     },
     [
@@ -2433,13 +2178,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
     });
     observer.observe(row);
     return () => observer.disconnect();
-  }, [
-    entry,
-    fullContentKey,
-    ignoreWhitespace,
-    loadFullContents,
-    shouldRequestFullContents,
-  ]);
+  }, [entry, fullContentKey, ignoreWhitespace, loadFullContents, shouldRequestFullContents]);
 
   const pendingFileDiff = useMemo(() => {
     if (!entry.fileDiff || !fullContentState.isLoadingFullContent) return null;
@@ -2449,8 +2188,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
       lang: "text",
     } satisfies FileDiffMetadata;
   }, [entry.fileDiff, entry.key, fullContentState.isLoadingFullContent]);
-  const renderedFileDiff =
-    fullContentState.fullDiffMetadata ?? pendingFileDiff ?? entry.fileDiff;
+  const renderedFileDiff = fullContentState.fullDiffMetadata ?? pendingFileDiff ?? entry.fileDiff;
   const presentationFileDiff = useMemo(() => {
     if (!renderedFileDiff || supportsWordDiffs) return renderedFileDiff;
     return {
@@ -2498,19 +2236,14 @@ const ReviewFileRow = memo(function ReviewFileRow({
       <div
         className="cursor-interaction select-none focus-visible:outline-none z-10 sticky top-0 backdrop-blur-sm"
         style={REVIEW_FILE_ROW_HEADER_STYLE}
-        onClick={() =>
-          onToggleExpandedKey(entry.key, entry.gitStatus !== "deleted")
-        }
+        onClick={() => onToggleExpandedKey(entry.key, entry.gitStatus !== "deleted")}
       >
         <div>
           <div className="group/diff-header text-size-chat @container/diff-header relative flex items-center gap-2 py-0.5 ps-3 pe-2 hover:bg-token-list-hover-background bg-[color-mix(in_srgb,var(--color-token-main-surface-primary)_88%,transparent)] [.dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] [.electron-dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] mb-0.5">
             <div className="text-size-chat flex min-w-0 flex-1 items-center text-token-text-primary gap-0.5">
               <div className="flex min-w-0 items-center gap-2 pl-1">
                 <FileTypeIcon path={entry.displayPath} />
-                <span
-                  className="min-w-0"
-                  onClick={(event) => event.stopPropagation()}
-                >
+                <span className="min-w-0" onClick={(event) => event.stopPropagation()}>
                   <FilenameButton
                     displayPath={entry.displayPath}
                     onOpen={entry.openPath ? openFile : null}
@@ -2527,10 +2260,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
                   aria-label="Toggle file diff"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onToggleExpandedKey(
-                      entry.key,
-                      entry.gitStatus !== "deleted",
-                    );
+                    onToggleExpandedKey(entry.key, entry.gitStatus !== "deleted");
                   }}
                 >
                   <ReviewFileToggleChevronIcon
@@ -2544,10 +2274,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
             </div>
             <div className="ms-auto flex items-center gap-0">
               <span className="flex shrink-0 items-center me-1">
-                <DiffStats
-                  additions={entry.additions ?? 0}
-                  deletions={entry.deletions ?? 0}
-                />
+                <DiffStats additions={entry.additions ?? 0} deletions={entry.deletions ?? 0} />
               </span>
               {entry.openPath ? (
                 <button
@@ -2593,9 +2320,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
                     <div className="truncate font-medium text-token-foreground">
                       {comment.title}
                     </div>
-                    <div className="text-token-description-foreground">
-                      {comment.body}
-                    </div>
+                    <div className="text-token-description-foreground">{comment.body}</div>
                   </div>
                 </div>
               ))}
@@ -2632,11 +2357,7 @@ interface ReviewFileTreePaneProps {
   onToggleDirectory: (path: string) => void;
 }
 
-function ReviewFileTreeFlattenedLabel({
-  row,
-}: {
-  row: ReviewFileTreeRow<ReviewFileEntry>;
-}) {
+function ReviewFileTreeFlattenedLabel({ row }: { row: ReviewFileTreeRow<ReviewFileEntry> }) {
   if (row.flattenedParts.length === 0) {
     return row.label;
   }
@@ -2645,9 +2366,7 @@ function ReviewFileTreeFlattenedLabel({
     <span data-item-flattened-subitems="true">
       {row.hasLeadingSlash ? (
         <>
-          <span
-            data-item-flattened-subitem={row.flattenedParts[0]?.id ?? "root"}
-          />
+          <span data-item-flattened-subitem={row.flattenedParts[0]?.id ?? "root"} />
           {" / "}
         </>
       ) : null}
@@ -2680,25 +2399,16 @@ function ReviewFileTreePane({
     start: 0,
     end: -1,
   });
-  const [itemHeight, setItemHeight] = useState(
-    REVIEW_FILE_TREE_FALLBACK_ITEM_HEIGHT_PX,
-  );
+  const [itemHeight, setItemHeight] = useState(REVIEW_FILE_TREE_FALLBACK_ITEM_HEIGHT_PX);
   const [viewportHeight, setViewportHeight] = useState(0);
   const isVirtualized = isReviewFileTreeVirtualizationEnabled(
     rows.length,
     REVIEW_FILE_TREE_VIRTUALIZE_THRESHOLD,
   );
-  const rowById = useMemo(
-    () => new Map(rows.map((row) => [row.id, row])),
-    [rows],
-  );
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
 
   const selectedIndex = useMemo(
-    () =>
-      resolveReviewFileTreeSelectedVisibleIndex(
-        rows,
-        focusedTreeItemId ?? selectedTreeItemId,
-      ),
+    () => resolveReviewFileTreeSelectedVisibleIndex(rows, focusedTreeItemId ?? selectedTreeItemId),
     [focusedTreeItemId, rows, selectedTreeItemId],
   );
   const layout = useMemo(
@@ -2732,9 +2442,7 @@ function ReviewFileTreePane({
       const nextViewportHeight = scrollNode.clientHeight;
       const nextOffset = getReviewFileTreeOffset(listNode, scrollNode);
 
-      setItemHeight((current) =>
-        current === nextItemHeight ? current : nextItemHeight,
-      );
+      setItemHeight((current) => (current === nextItemHeight ? current : nextItemHeight));
       setViewportHeight((current) =>
         current === nextViewportHeight ? current : nextViewportHeight,
       );
@@ -2750,9 +2458,7 @@ function ReviewFileTreePane({
           },
           current,
         );
-        return areReviewFileTreeRangesEqual(current, nextRange)
-          ? current
-          : nextRange;
+        return areReviewFileTreeRangesEqual(current, nextRange) ? current : nextRange;
       });
     };
 
@@ -2773,9 +2479,7 @@ function ReviewFileTreePane({
     syncMeasurements();
     scrollNode.addEventListener("scroll", handleScroll, { passive: true });
     const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(syncMeasurements);
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(syncMeasurements);
     observer?.observe(scrollNode);
 
     return () => {
@@ -2825,9 +2529,7 @@ function ReviewFileTreePane({
   }, [isVirtualized, itemHeight, rows.length, selectedIndex]);
 
   const highlightedAncestorIds = useMemo(() => {
-    const activeRow = rowById.get(
-      focusedTreeItemId ?? selectedTreeItemId ?? "",
-    );
+    const activeRow = rowById.get(focusedTreeItemId ?? selectedTreeItemId ?? "");
     return new Set(activeRow?.ancestorIds ?? []);
   }, [focusedTreeItemId, rowById, selectedTreeItemId]);
 
@@ -2873,11 +2575,7 @@ function ReviewFileTreePane({
       moveTreeSelection(-1);
       return;
     }
-    if (
-      event.key === "ArrowRight" &&
-      row.type === "folder" &&
-      !row.isExpanded
-    ) {
+    if (event.key === "ArrowRight" && row.type === "folder" && !row.isExpanded) {
       event.preventDefault();
       onFocusTreeItemId(row.id);
       onSelectTreeItemId(row.id);
@@ -2959,9 +2657,7 @@ function ReviewFileTreePane({
         data-item-focused={row.isFocused ? "true" : undefined}
         data-item-search-match={row.isSearchMatch ? "true" : undefined}
         data-item-git-status={row.gitStatus ?? undefined}
-        data-item-contains-git-change={
-          row.containsGitChange ? "true" : undefined
-        }
+        data-item-contains-git-change={row.containsGitChange ? "true" : undefined}
         data-item-locked={row.isLocked ? "true" : undefined}
         className={cn(
           "border-none relative mx-[var(--trees-item-margin-x)] flex w-full items-center gap-[var(--trees-item-row-gap)] rounded-[var(--trees-border-radius)] bg-token-main-surface-primary text-left outline-none",
@@ -2974,9 +2670,7 @@ function ReviewFileTreePane({
           row.isFocused
             ? "outline outline-1 -outline-offset-1 outline-token-list-focus-outline z-[2]"
             : undefined,
-          row.isFocused && row.isSelected
-            ? "outline-token-list-focus-outline"
-            : undefined,
+          row.isFocused && row.isSelected ? "outline-token-list-focus-outline" : undefined,
         )}
         style={{
           height: "var(--trees-row-height)",
@@ -3002,21 +2696,16 @@ function ReviewFileTreePane({
                 key={`${row.id}:spacing:${spacingIndex + 1}`}
                 data-item-section="spacing-item"
                 data-ancestor-id={
-                  row.ancestorIds[spacingIndex] ??
-                  `${row.id}:ancestor:${spacingIndex + 1}`
+                  row.ancestorIds[spacingIndex] ?? `${row.id}:ancestor:${spacingIndex + 1}`
                 }
                 data-ancestor-active={
-                  highlightedAncestorIds.has(
-                    row.ancestorIds[spacingIndex] ?? "",
-                  )
+                  highlightedAncestorIds.has(row.ancestorIds[spacingIndex] ?? "")
                     ? "true"
                     : undefined
                 }
                 className={cn(
                   "inline-block h-full shrink-0 translate-x-[-0.25px] border-l opacity-0 transition-opacity duration-150 ease-in group-hover/review-file-tree:opacity-75",
-                  highlightedAncestorIds.has(
-                    row.ancestorIds[spacingIndex] ?? "",
-                  )
+                  highlightedAncestorIds.has(row.ancestorIds[spacingIndex] ?? "")
                     ? "opacity-100"
                     : undefined,
                 )}
@@ -3063,11 +2752,7 @@ function ReviewFileTreePane({
                 : "text-[var(--trees-file-fg)]",
           )}
         >
-          {row.type === "folder" ? (
-            <ReviewFileTreeFlattenedLabel row={row} />
-          ) : (
-            row.label
-          )}
+          {row.type === "folder" ? <ReviewFileTreeFlattenedLabel row={row} /> : row.label}
         </div>
         {statusSlot ? (
           <div
@@ -3076,9 +2761,7 @@ function ReviewFileTreePane({
               "flex w-3 shrink-0 items-center justify-center text-center",
               row.gitStatus === "added" ? "text-token-charts-green" : undefined,
               row.gitStatus === "deleted" ? "text-token-charts-red" : undefined,
-              row.gitStatus
-                ? "text-[11px] font-semibold leading-none"
-                : undefined,
+              row.gitStatus ? "text-[11px] font-semibold leading-none" : undefined,
             )}
           >
             {statusSlot}
@@ -3105,10 +2788,7 @@ function ReviewFileTreePane({
         ...RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
       }}
     >
-      <div
-        data-file-tree-search-container="true"
-        className="shrink-0 px-2 pt-2 pb-px"
-      >
+      <div data-file-tree-search-container="true" className="shrink-0 px-2 pt-2 pb-px">
         <label className="sr-only" htmlFor={REVIEW_FILE_TREE_SEARCH_INPUT_ID}>
           Filter files
         </label>
@@ -3122,9 +2802,7 @@ function ReviewFileTreePane({
             data-file-tree-search-input="true"
             aria-controls={treeDomId}
             aria-activedescendant={
-              focusedTreeItemId
-                ? `${treeDomId}-${focusedTreeItemId}`
-                : undefined
+              focusedTreeItemId ? `${treeDomId}-${focusedTreeItemId}` : undefined
             }
             className="w-full appearance-none border-none bg-transparent py-0 ps-0 pe-1.5 text-token-foreground ring-0 outline-none select-text placeholder:text-token-input-placeholder-foreground focus:border-none focus:ring-0 focus:outline-none [&::placeholder]:select-none"
           />
@@ -3154,9 +2832,7 @@ function ReviewFileTreePane({
           style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
         >
           {rows.length === 0 ? (
-            <div className="py-2 text-sm text-token-description-foreground">
-              No matching files
-            </div>
+            <div className="py-2 text-sm text-token-description-foreground">No matching files</div>
           ) : isVirtualized ? (
             <div
               ref={listRef}
@@ -3228,32 +2904,31 @@ export function ReviewDiffPanel({
     richPreviewEnabled,
     loadFullFilesEnabled,
   } = preferences;
-  const {
-    source,
-    commitSha,
-    fileTreeOpen,
-    fileTreeWidth,
-    fileFilter,
-    selectedPath,
-  } = routeState;
-  const updatePreference = useCallback(<Key extends keyof typeof preferences>(
-    key: Key,
-    update: SetStateAction<(typeof preferences)[Key]>,
-  ) => {
-    setPreferences((current) => ({
-      ...current,
-      [key]: resolveStateUpdate(current[key], update),
-    }));
-  }, [setPreferences]);
-  const updateRouteState = useCallback(<Key extends keyof ReviewRouteState>(
-    key: Key,
-    update: SetStateAction<ReviewRouteState[Key]>,
-  ) => {
-    setRouteState((current) => ({
-      ...current,
-      [key]: resolveStateUpdate(current[key], update),
-    }));
-  }, [setRouteState]);
+  const { source, commitSha, fileTreeOpen, fileTreeWidth, fileFilter, selectedPath } = routeState;
+  const updatePreference = useCallback(
+    <Key extends keyof typeof preferences>(
+      key: Key,
+      update: SetStateAction<(typeof preferences)[Key]>,
+    ) => {
+      setPreferences((current) => ({
+        ...current,
+        [key]: resolveStateUpdate(current[key], update),
+      }));
+    },
+    [setPreferences],
+  );
+  const updateRouteState = useCallback(
+    <Key extends keyof ReviewRouteState>(
+      key: Key,
+      update: SetStateAction<ReviewRouteState[Key]>,
+    ) => {
+      setRouteState((current) => ({
+        ...current,
+        [key]: resolveStateUpdate(current[key], update),
+      }));
+    },
+    [setRouteState],
+  );
   const setDiffMode = useCallback(
     (update: SetStateAction<ReviewDiffMode>) => updatePreference("diffMode", update),
     [updatePreference],
@@ -3317,20 +2992,13 @@ export function ReviewDiffPanel({
     },
     [setRouteState],
   );
-  const [selectedTreeItemId, setSelectedTreeItemId] = useState<string | null>(
-    null,
-  );
-  const [focusedTreeItemId, setFocusedTreeItemId] = useState<string | null>(
-    null,
-  );
+  const [selectedTreeItemId, setSelectedTreeItemId] = useState<string | null>(null);
+  const [focusedTreeItemId, setFocusedTreeItemId] = useState<string | null>(null);
   const [branchCommitsRequested, setBranchCommitsRequested] = useState(false);
   const diffExpansionOverrides = useMemo(
     () =>
       new Map(
-        routeState.diffExpansionOverrides.map((override) => [
-          override.key,
-          override.expanded,
-        ]),
+        routeState.diffExpansionOverrides.map((override) => [override.key, override.expanded]),
       ),
     [routeState.diffExpansionOverrides],
   );
@@ -3350,15 +3018,11 @@ export function ReviewDiffPanel({
     [gitWorkerClient, queryClient],
   );
   const reviewThreadId = reviewConversation.threadId ?? threadId ?? null;
-  const pendingReviewCommentAttachments =
-    useReviewDiffCommentAttachments(reviewThreadId);
+  const pendingReviewCommentAttachments = useReviewDiffCommentAttachments(reviewThreadId);
 
   const reviewCwd = isTranscriptReviewSource(source)
     ? source === "selected-turn"
-      ? (selectedTurnDiff?.cwd ??
-        reviewConversation.cwd ??
-        projectWorkspacePath ??
-        null)
+      ? (selectedTurnDiff?.cwd ?? reviewConversation.cwd ?? projectWorkspacePath ?? null)
       : (reviewConversation.cwd ?? projectWorkspacePath ?? null)
     : (projectWorkspacePath ?? reviewConversation.cwd ?? null);
 
@@ -3374,12 +3038,7 @@ export function ReviewDiffPanel({
       commitSha: initialCommitSha,
       fileTreeOpen: initialFileTreeOpen,
     });
-  }, [
-    initialCommitSha,
-    initialFileTreeOpen,
-    initialSource,
-    initializeRouteState,
-  ]);
+  }, [initialCommitSha, initialFileTreeOpen, initialSource, initializeRouteState]);
 
   useEffect(() => {
     if (source !== "commit" || commitSha) return;
@@ -3392,8 +3051,7 @@ export function ReviewDiffPanel({
         ...current,
         source: nextSource,
         selectedTurn: nextSource === "selected-turn" ? current.selectedTurn : null,
-        transcriptThreadId:
-          nextSource === "selected-turn" ? current.transcriptThreadId : null,
+        transcriptThreadId: nextSource === "selected-turn" ? current.transcriptThreadId : null,
         commitSha: nextSource === "commit" ? current.commitSha : null,
         branchBaseRef: nextSource === "branch" ? current.branchBaseRef : null,
         selectedPath: null,
@@ -3423,20 +3081,17 @@ export function ReviewDiffPanel({
 
   const normalizedGitCwd = reviewCwd?.trim() ?? "";
   const metadataQueryEnabled = normalizedGitCwd.length > 0;
-  const gitQueryEnabled =
-    isGitReviewSource(source) && normalizedGitCwd.length > 0;
-  const gitReviewSource: GitReviewSource = isGitReviewSource(source)
-    ? source
-    : "unstaged";
-  const gitRepositoryMetadataInput = useMemo(() => ({
-    method: "stable-metadata" as const,
-    params: { cwd: normalizedGitCwd },
-  }), [normalizedGitCwd]);
+  const gitQueryEnabled = isGitReviewSource(source) && normalizedGitCwd.length > 0;
+  const gitReviewSource: GitReviewSource = isGitReviewSource(source) ? source : "unstaged";
+  const gitRepositoryMetadataInput = useMemo(
+    () => ({
+      method: "stable-metadata" as const,
+      params: { cwd: normalizedGitCwd },
+    }),
+    [normalizedGitCwd],
+  );
   const gitRepositoryMetadataOptions = useMemo(
-    () => createGitLiveWorkerQuery(
-      gitRepositoryMetadataInput,
-      gitWorkerClient,
-    ),
+    () => createGitLiveWorkerQuery(gitRepositoryMetadataInput, gitWorkerClient),
     [gitRepositoryMetadataInput, gitWorkerClient],
   );
   const gitRepositoryMetadataQueryKey = gitRepositoryMetadataOptions.queryKey;
@@ -3482,13 +3137,15 @@ export function ReviewDiffPanel({
       root: metadata.root,
     };
   }, [gitRepositoryMetadataQuery.data]);
-  const gitRequestCwd =
-    gitRepositoryMetadataQuery.data?.root ?? normalizedGitCwd;
-  const gitBaseBranchInput = useMemo(() => ({
-    method: "base-branch" as const,
-    params: { cwd: gitRequestCwd },
-    repository: gitRepositoryIdentity,
-  }), [gitRepositoryIdentity, gitRequestCwd]);
+  const gitRequestCwd = gitRepositoryMetadataQuery.data?.root ?? normalizedGitCwd;
+  const gitBaseBranchInput = useMemo(
+    () => ({
+      method: "base-branch" as const,
+      params: { cwd: gitRequestCwd },
+      repository: gitRepositoryIdentity,
+    }),
+    [gitRepositoryIdentity, gitRequestCwd],
+  );
   const gitBaseBranchOptions = useMemo(
     () => createGitLiveWorkerQuery(gitBaseBranchInput, gitWorkerClient),
     [gitBaseBranchInput, gitWorkerClient],
@@ -3498,31 +3155,34 @@ export function ReviewDiffPanel({
     enabled: gitQueryEnabled && gitRepositoryIdentity !== null,
   });
   const resolvedBaseBranch =
-    routeState.branchBaseRef
-    ?? gitBaseBranchQuery.data?.remote
-    ?? gitBaseBranchQuery.data?.local
-    ?? gitRepositoryMetadataQuery.data?.defaultBranch
-    ?? null;
+    routeState.branchBaseRef ??
+    gitBaseBranchQuery.data?.remote ??
+    gitBaseBranchQuery.data?.local ??
+    gitRepositoryMetadataQuery.data?.defaultBranch ??
+    null;
   const gitSummaryBaseBranch = source === "branch" ? resolvedBaseBranch : null;
-  const gitSummaryInput = useMemo(() => ({
-    method: "review-summary" as const,
-    params: {
-      cwd: gitRequestCwd,
-      source: gitReviewSource,
-      baseBranch: gitSummaryBaseBranch,
-      commitSha: gitReviewSource === "commit" ? commitSha : null,
+  const gitSummaryInput = useMemo(
+    () => ({
+      method: "review-summary" as const,
+      params: {
+        cwd: gitRequestCwd,
+        source: gitReviewSource,
+        baseBranch: gitSummaryBaseBranch,
+        commitSha: gitReviewSource === "commit" ? commitSha : null,
+        hideWhitespace,
+        includeUntrackedFiles: true,
+      },
+      repository: gitRepositoryIdentity,
+    }),
+    [
+      commitSha,
+      gitRepositoryIdentity,
+      gitRequestCwd,
+      gitReviewSource,
+      gitSummaryBaseBranch,
       hideWhitespace,
-      includeUntrackedFiles: true,
-    },
-    repository: gitRepositoryIdentity,
-  }), [
-    commitSha,
-    gitRepositoryIdentity,
-    gitRequestCwd,
-    gitReviewSource,
-    gitSummaryBaseBranch,
-    hideWhitespace,
-  ]);
+    ],
+  );
   const gitSummaryOptions = useMemo(
     () => createGitLiveWorkerQuery(gitSummaryInput, gitWorkerClient),
     [gitSummaryInput, gitWorkerClient],
@@ -3531,9 +3191,9 @@ export function ReviewDiffPanel({
   const gitSummaryQuery = useQuery({
     ...gitSummaryOptions,
     enabled:
-      gitQueryEnabled
-      && gitRepositoryIdentity !== null
-      && (source !== "branch" || gitBaseBranchQuery.data !== undefined),
+      gitQueryEnabled &&
+      gitRepositoryIdentity !== null &&
+      (source !== "branch" || gitBaseBranchQuery.data !== undefined),
   });
   const gitSummarySnapshot = useMemo(() => {
     if (!gitQueryEnabled || !gitSummaryQuery.data) return null;
@@ -3549,9 +3209,10 @@ export function ReviewDiffPanel({
         baseRef: source === "branch" ? resolvedBaseBranch : null,
         currentBranch: metadata.currentBranch,
         defaultBranch: metadata.defaultBranch,
-        errorMessage: gitSummaryQuery.data.type === "error"
-          ? gitSummaryQuery.data.errorMessage
-          : "The repository changed while loading this review.",
+        errorMessage:
+          gitSummaryQuery.data.type === "error"
+            ? gitSummaryQuery.data.errorMessage
+            : "The repository changed while loading this review.",
         snapshotGeneration: 0,
       } satisfies GitReviewSnapshot;
     }
@@ -3561,10 +3222,7 @@ export function ReviewDiffPanel({
       patch: "",
       files: gitSummaryQuery.data.files,
       isGitRepository: metadata.isGitRepository,
-      baseRef:
-        source === "branch"
-          ? resolvedBaseBranch
-          : null,
+      baseRef: source === "branch" ? resolvedBaseBranch : null,
       currentBranch: metadata.currentBranch,
       defaultBranch: metadata.defaultBranch,
       errorMessage: metadata.errorMessage,
@@ -3578,19 +3236,19 @@ export function ReviewDiffPanel({
     resolvedBaseBranch,
     source,
   ]);
-  const branchCommitsBaseBranch =
-    gitSummarySnapshot?.baseRef
-    ?? resolvedBaseBranch
-    ?? null;
-  const branchCommitsInput = useMemo(() => ({
-    method: "branch-commits" as const,
-    params: {
-      cwd: gitRequestCwd,
-      baseBranch: branchCommitsBaseBranch,
-      operationSource: "review_model" as const,
-    },
-    repository: gitRepositoryIdentity,
-  }), [branchCommitsBaseBranch, gitRepositoryIdentity, gitRequestCwd]);
+  const branchCommitsBaseBranch = gitSummarySnapshot?.baseRef ?? resolvedBaseBranch ?? null;
+  const branchCommitsInput = useMemo(
+    () => ({
+      method: "branch-commits" as const,
+      params: {
+        cwd: gitRequestCwd,
+        baseBranch: branchCommitsBaseBranch,
+        operationSource: "review_model" as const,
+      },
+      repository: gitRepositoryIdentity,
+    }),
+    [branchCommitsBaseBranch, gitRepositoryIdentity, gitRequestCwd],
+  );
   const branchCommitsOptions = useMemo(
     () => createGitLiveWorkerQuery(branchCommitsInput, gitWorkerClient),
     [branchCommitsInput, gitWorkerClient],
@@ -3598,17 +3256,12 @@ export function ReviewDiffPanel({
   const branchCommitsQueryKey = branchCommitsOptions.queryKey;
   const branchCommitsQuery = useQuery({
     ...branchCommitsOptions,
-    enabled:
-      gitQueryEnabled
-      && branchCommitsRequested
-      && gitRepositoryIdentity !== null,
+    enabled: gitQueryEnabled && branchCommitsRequested && gitRepositoryIdentity !== null,
   });
-  const branchCommits =
-    branchCommitsQuery.data?.commits ?? EMPTY_REVIEW_BRANCH_COMMITS;
+  const branchCommits = branchCommitsQuery.data?.commits ?? EMPTY_REVIEW_BRANCH_COMMITS;
   const branchCommitsLoadStatus = !branchCommitsRequested
     ? "idle"
-    : branchCommitsQuery.isError
-        || branchCommitsQuery.data?.errorMessage
+    : branchCommitsQuery.isError || branchCommitsQuery.data?.errorMessage
       ? "error"
       : branchCommitsQuery.data
         ? "loaded"
@@ -3617,9 +3270,9 @@ export function ReviewDiffPanel({
     ? "idle"
     : gitSummaryQuery.isPending || gitRepositoryMetadataQuery.isPending
       ? "loading"
-      : gitSummaryQuery.isError
-          || gitRepositoryMetadataQuery.isError
-          || (gitSummaryQuery.data && gitSummaryQuery.data.type !== "success")
+      : gitSummaryQuery.isError ||
+          gitRepositoryMetadataQuery.isError ||
+          (gitSummaryQuery.data && gitSummaryQuery.data.type !== "success")
         ? "load-failed"
         : "loaded";
   const gitLoading = gitLoadStatus === "loading";
@@ -3641,113 +3294,113 @@ export function ReviewDiffPanel({
     [gitSummarySnapshot, reviewPathDiffs],
   );
 
-  const loadReviewFileContents = useCallback(async (
-    entry: ReviewFileEntry,
-  ): Promise<ReviewFullFileContents> => {
-    if (!entry.safety.renderable || !entry.fileDiff) {
-      return buildUnavailableReviewFullContents(entry);
-    }
-
-    if (isTranscriptReviewSource(source)) {
-      if (isReviewNewFile(entry.fileDiff)) {
-        return buildTranscriptNewFileContentsFromPatch(entry);
-      }
-
-      if (isReviewDeletedFile(entry.fileDiff)) {
-        return buildTranscriptDeletedFileContents(entry);
-      }
-
-      if (
-        !entry.openPath ||
-        !hasPatchLineArrays(entry.fileDiff)
-      ) {
+  const loadReviewFileContents = useCallback(
+    async (entry: ReviewFileEntry): Promise<ReviewFullFileContents> => {
+      if (!entry.safety.renderable || !entry.fileDiff) {
         return buildUnavailableReviewFullContents(entry);
       }
 
-      try {
-        const contents = await readExactWorkspaceTextFile({
-          path: entry.openPath,
-          maxBytes: REVIEW_FULL_FILE_MAX_BYTES,
-          contentSampleByteLimit: 8_192,
-        }, {
-          readMetadata: (input) => invoke("read-file-metadata", input),
-          readText: (input) => invoke("read-file", input),
-        });
-        if (contents === null) {
+      if (isTranscriptReviewSource(source)) {
+        if (isReviewNewFile(entry.fileDiff)) {
+          return buildTranscriptNewFileContentsFromPatch(entry);
+        }
+
+        if (isReviewDeletedFile(entry.fileDiff)) {
+          return buildTranscriptDeletedFileContents(entry);
+        }
+
+        if (!entry.openPath || !hasPatchLineArrays(entry.fileDiff)) {
+          return buildUnavailableReviewFullContents(entry);
+        }
+
+        try {
+          const contents = await readExactWorkspaceTextFile(
+            {
+              path: entry.openPath,
+              maxBytes: REVIEW_FULL_FILE_MAX_BYTES,
+              contentSampleByteLimit: 8_192,
+            },
+            {
+              readMetadata: (input) => invoke("read-file-metadata", input),
+              readText: (input) => invoke("read-file", input),
+            },
+          );
+          if (contents === null) {
+            return isReviewNewFile(entry.fileDiff)
+              ? buildTranscriptNewFileContentsFromPatch(entry)
+              : buildUnavailableReviewFullContents(entry);
+          }
+          return buildTranscriptFullContentsFromPatch(entry, contents);
+        } catch {
           return isReviewNewFile(entry.fileDiff)
             ? buildTranscriptNewFileContentsFromPatch(entry)
             : buildUnavailableReviewFullContents(entry);
         }
-        return buildTranscriptFullContentsFromPatch(entry, contents);
-      } catch {
-        return isReviewNewFile(entry.fileDiff)
-          ? buildTranscriptNewFileContentsFromPatch(entry)
-          : buildUnavailableReviewFullContents(entry);
       }
-    }
 
-    const normalizedCwd = gitSnapshot?.cwd?.trim() ?? reviewCwd?.trim() ?? "";
-    if (!normalizedCwd) {
-      throw new Error(
-        "Working directory is required to load full review files.",
-      );
-    }
+      const normalizedCwd = gitSnapshot?.cwd?.trim() ?? reviewCwd?.trim() ?? "";
+      if (!normalizedCwd) {
+        throw new Error("Working directory is required to load full review files.");
+      }
 
-    const snapshotGeneration = gitSnapshot?.snapshotGeneration ?? 0;
-    if (snapshotGeneration <= 0) {
-      return buildUnavailableReviewFullContents(entry);
-    }
-    const oldObjectSpec = normalizeReviewObjectId(
-      entry.oldOid ?? entry.fileDiff.prevObjectId,
-    );
-    if (!oldObjectSpec) return buildUnavailableReviewFullContents(entry);
-    const newObjectSpec = normalizeReviewObjectId(
-      entry.newOid ?? entry.fileDiff.newObjectId,
-    );
-    const results = await requestReviewCatFile({
-      bucketKey: `${source}:${gitSnapshot?.baseRef ?? ""}:${commitSha ?? ""}`,
-      cwd: normalizedCwd,
-      snapshotGeneration,
-      requests: [
-        {
-          oid: oldObjectSpec,
-          path: entry.previousPath ?? entry.displayPath,
-        },
-        {
-          oid: newObjectSpec,
-          path: entry.displayPath,
-          fallbackToDisk: source === "unstaged",
-        },
-      ],
-    client: gitWorkerClient,
-    });
-    const oldRead = buildReviewCatFileTextRead(results[0]);
-    const newRead = buildReviewCatFileTextRead(results[1]);
-    return {
-      path: entry.displayPath,
-      previousPath: entry.previousPath,
-      oldText: oldRead.text,
-      newText: newRead.text,
-      oldExists: oldRead.exists,
-      newExists: newRead.exists,
-      oldStatus: oldRead.status,
-      newStatus: newRead.status,
-      safety: mergeReviewCatFileSafety(oldRead, newRead),
-      errorMessage:
-        oldRead.status === "load-failed" || newRead.status === "load-failed"
-          ? "Could not load full review file."
-          : null,
-    };
-  }, [commitSha, gitSnapshot?.baseRef, gitSnapshot?.cwd, gitSnapshot?.snapshotGeneration, gitWorkerClient, invoke, reviewCwd, source]);
+      const snapshotGeneration = gitSnapshot?.snapshotGeneration ?? 0;
+      if (snapshotGeneration <= 0) {
+        return buildUnavailableReviewFullContents(entry);
+      }
+      const oldObjectSpec = normalizeReviewObjectId(entry.oldOid ?? entry.fileDiff.prevObjectId);
+      if (!oldObjectSpec) return buildUnavailableReviewFullContents(entry);
+      const newObjectSpec = normalizeReviewObjectId(entry.newOid ?? entry.fileDiff.newObjectId);
+      const results = await requestReviewCatFile({
+        bucketKey: `${source}:${gitSnapshot?.baseRef ?? ""}:${commitSha ?? ""}`,
+        cwd: normalizedCwd,
+        snapshotGeneration,
+        requests: [
+          {
+            oid: oldObjectSpec,
+            path: entry.previousPath ?? entry.displayPath,
+          },
+          {
+            oid: newObjectSpec,
+            path: entry.displayPath,
+            fallbackToDisk: source === "unstaged",
+          },
+        ],
+        client: gitWorkerClient,
+      });
+      const oldRead = buildReviewCatFileTextRead(results[0]);
+      const newRead = buildReviewCatFileTextRead(results[1]);
+      return {
+        path: entry.displayPath,
+        previousPath: entry.previousPath,
+        oldText: oldRead.text,
+        newText: newRead.text,
+        oldExists: oldRead.exists,
+        newExists: newRead.exists,
+        oldStatus: oldRead.status,
+        newStatus: newRead.status,
+        safety: mergeReviewCatFileSafety(oldRead, newRead),
+        errorMessage:
+          oldRead.status === "load-failed" || newRead.status === "load-failed"
+            ? "Could not load full review file."
+            : null,
+      };
+    },
+    [
+      commitSha,
+      gitSnapshot?.baseRef,
+      gitSnapshot?.cwd,
+      gitSnapshot?.snapshotGeneration,
+      gitWorkerClient,
+      invoke,
+      reviewCwd,
+      source,
+    ],
+  );
 
   const snapshot = useMemo(() => {
     if (transcriptSnapshot) return transcriptSnapshot;
     return buildGitSnapshot(gitSnapshot, parsePatchFiles);
-  }, [
-    gitSnapshot,
-    parsePatchFiles,
-    transcriptSnapshot,
-  ]);
+  }, [gitSnapshot, parsePatchFiles, transcriptSnapshot]);
   const reviewFullContentKeysByPath = useMemo(
     () =>
       new Map(
@@ -3757,14 +3410,11 @@ export function ReviewDiffPanel({
             entry,
             cwd: reviewCwd,
             hostConfigKey: "local",
-            nextFallbackToDisk:
-              source === "unstaged" || isTranscriptReviewSource(source),
+            nextFallbackToDisk: source === "unstaged" || isTranscriptReviewSource(source),
             ignoreWhitespace: hideWhitespace,
             loadFullFilesEnabled,
             snapshotGeneration:
-              snapshot.snapshotGeneration > 0
-                ? snapshot.snapshotGeneration
-                : null,
+              snapshot.snapshotGeneration > 0 ? snapshot.snapshotGeneration : null,
           }),
         ]),
       ),
@@ -3780,8 +3430,8 @@ export function ReviewDiffPanel({
   const reviewDiffCommentSourceKey = useMemo(() => {
     const sourceParts = [
       source,
-      source === "last-turn" ? reviewConversation.lastTurnId ?? "" : "",
-      source === "last-turn" ? reviewConversation.lastTurnEntryId ?? "" : "",
+      source === "last-turn" ? (reviewConversation.lastTurnId ?? "") : "",
+      source === "last-turn" ? (reviewConversation.lastTurnEntryId ?? "") : "",
       commitSha ?? "",
       selectedTurnDiff?.turnId ?? "",
       selectedTurnDiff?.entryId ?? "",
@@ -3812,8 +3462,7 @@ export function ReviewDiffPanel({
     [snapshot.files],
   );
   const selectedCommitSubject = useMemo(
-    () =>
-      branchCommits.find((commit) => commit.sha === commitSha)?.subject ?? null,
+    () => branchCommits.find((commit) => commit.sha === commitSha)?.subject ?? null,
     [branchCommits, commitSha],
   );
   const loadBranchCommits = () => {
@@ -3849,11 +3498,7 @@ export function ReviewDiffPanel({
         totalChangedBytes,
         totalChangedLines,
       }),
-    [
-      snapshot.files,
-      totalChangedBytes,
-      totalChangedLines,
-    ],
+    [snapshot.files, totalChangedBytes, totalChangedLines],
   );
 
   useEffect(() => {
@@ -3871,37 +3516,42 @@ export function ReviewDiffPanel({
     [projectWorkspacePath, reviewCwd, snapshot.cwd],
   );
   const canonicalPathByEntryKey = useMemo(
-    () => new Map(
-      snapshot.files.map((entry) => [
-        entry.key,
-        getReviewPathAliases({
-          displayPath: entry.displayPath,
-          previousPath: entry.previousPath,
-          gitPath: entry.fileDiff?.name ?? null,
-        }, reviewPathRoots)[0]
-          ?? canonicalizeReviewPath(entry.displayPath, reviewPathRoots),
-      ]),
-    ),
+    () =>
+      new Map(
+        snapshot.files.map((entry) => [
+          entry.key,
+          getReviewPathAliases(
+            {
+              displayPath: entry.displayPath,
+              previousPath: entry.previousPath,
+              gitPath: entry.fileDiff?.name ?? null,
+            },
+            reviewPathRoots,
+          )[0] ?? canonicalizeReviewPath(entry.displayPath, reviewPathRoots),
+        ]),
+      ),
     [reviewPathRoots, snapshot.files],
   );
   const selectedEntry = useMemo(
-    () => selectedPath
-      ? resolveReviewPathCandidate(snapshot.files, selectedPath, reviewPathRoots)
-      : null,
+    () =>
+      selectedPath
+        ? resolveReviewPathCandidate(snapshot.files, selectedPath, reviewPathRoots)
+        : null,
     [reviewPathRoots, selectedPath, snapshot.files],
   );
   const selectedDisplayPath = selectedEntry?.displayPath ?? null;
   const reviewSourceBucketKey = useMemo(
-    () => [
-      source,
-      routeState.transcriptThreadId ?? "",
-      routeState.selectedTurn?.threadId ?? "",
-      routeState.selectedTurn?.turnId ?? "",
-      routeState.selectedTurn?.entryId ?? "",
-      routeState.branchBaseRef ?? "",
-      commitSha ?? "",
-      snapshot.baseRef ?? "",
-    ].join(":"),
+    () =>
+      [
+        source,
+        routeState.transcriptThreadId ?? "",
+        routeState.selectedTurn?.threadId ?? "",
+        routeState.selectedTurn?.turnId ?? "",
+        routeState.selectedTurn?.entryId ?? "",
+        routeState.branchBaseRef ?? "",
+        commitSha ?? "",
+        snapshot.baseRef ?? "",
+      ].join(":"),
     [
       commitSha,
       routeState.branchBaseRef,
@@ -3917,15 +3567,11 @@ export function ReviewDiffPanel({
     [snapshot.files],
   );
   const fileTreeGitStatusByPath = useMemo(() => {
-    return new Map(
-      snapshot.files.map((file) => [file.displayPath, file.gitStatus]),
-    );
+    return new Map(snapshot.files.map((file) => [file.displayPath, file.gitStatus]));
   }, [snapshot.files]);
   const lockedTreePaths = useMemo(() => {
     return new Set(
-      snapshot.files
-        .filter((file) => file.openPath === null)
-        .map((file) => file.displayPath),
+      snapshot.files.filter((file) => file.openPath === null).map((file) => file.displayPath),
     );
   }, [snapshot.files]);
   const fileTreeState = useMemo(
@@ -3952,11 +3598,7 @@ export function ReviewDiffPanel({
   useEffect(() => {
     const nextFileKeys = new Set(snapshot.files.map((file) => file.key));
     setRouteState((current) =>
-      reconcileReviewDiffExpansionSource(
-        current,
-        reviewSourceBucketKey,
-        nextFileKeys,
-      ),
+      reconcileReviewDiffExpansionSource(current, reviewSourceBucketKey, nextFileKeys),
     );
   }, [reviewSourceBucketKey, setRouteState, snapshot.files]);
 
@@ -3968,10 +3610,10 @@ export function ReviewDiffPanel({
       isCappedMode,
     );
     const nextEntry = nextSelectedPath
-      ? snapshot.files.find((entry) => entry.displayPath === nextSelectedPath) ?? null
+      ? (snapshot.files.find((entry) => entry.displayPath === nextSelectedPath) ?? null)
       : null;
     const nextCanonicalPath = nextEntry
-      ? canonicalPathByEntryKey.get(nextEntry.key) ?? null
+      ? (canonicalPathByEntryKey.get(nextEntry.key) ?? null)
       : null;
     if (nextCanonicalPath === selectedPath) return;
     setSelectedPath(nextCanonicalPath);
@@ -3999,11 +3641,7 @@ export function ReviewDiffPanel({
   }, [reviewSourceBucketKey, setRouteState, snapshot.files]);
 
   const selectedAncestorPaths = useMemo(
-    () =>
-      buildReviewFileTreeExpandedPathsForSelection(
-        fullFileTreeModel,
-        selectedDisplayPath,
-      ),
+    () => buildReviewFileTreeExpandedPathsForSelection(fullFileTreeModel, selectedDisplayPath),
     [fullFileTreeModel, selectedDisplayPath],
   );
 
@@ -4090,50 +3728,56 @@ export function ReviewDiffPanel({
     if (registered) return registered;
     const root = reviewContentRootRef.current;
     if (!root) return null;
-    return Array.from(root.querySelectorAll<HTMLElement>("[data-review-path]"))
-      .find((candidate) => candidate.dataset.reviewPath === path) ?? null;
+    return (
+      Array.from(root.querySelectorAll<HTMLElement>("[data-review-path]")).find(
+        (candidate) => candidate.dataset.reviewPath === path,
+      ) ?? null
+    );
   }, []);
 
-  const revealReviewEntry = useCallback(async (
-    entry: ReviewFileEntry,
-    options: {
-      readonly signal: AbortSignal;
-      readonly block: ScrollLogicalPosition;
-      readonly clearFilter?: boolean;
-    },
-  ): Promise<boolean> => {
-    const canonicalPath = canonicalPathByEntryKey.get(entry.key);
-    if (!canonicalPath) return false;
-    if (options.clearFilter && fileFilter.length > 0) setFileFilter("");
-    setSelectedPath(canonicalPath);
-    setRouteState((current) =>
-      setReviewDiffExpanded(
-        current,
-        entry.key,
-        true,
-        current.allDiffsExpanded && entry.gitStatus !== "deleted",
-      ),
-    );
+  const revealReviewEntry = useCallback(
+    async (
+      entry: ReviewFileEntry,
+      options: {
+        readonly signal: AbortSignal;
+        readonly block: ScrollLogicalPosition;
+        readonly clearFilter?: boolean;
+      },
+    ): Promise<boolean> => {
+      const canonicalPath = canonicalPathByEntryKey.get(entry.key);
+      if (!canonicalPath) return false;
+      if (options.clearFilter && fileFilter.length > 0) setFileFilter("");
+      setSelectedPath(canonicalPath);
+      setRouteState((current) =>
+        setReviewDiffExpanded(
+          current,
+          entry.key,
+          true,
+          current.allDiffsExpanded && entry.gitStatus !== "deleted",
+        ),
+      );
 
-    await nextReviewAnimationFrame(options.signal);
-    await nextReviewAnimationFrame(options.signal);
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      const row = findReviewRow(canonicalPath);
-      if (row) {
-        row.scrollIntoView({ block: options.block, inline: "nearest" });
-        return true;
+      await nextReviewAnimationFrame(options.signal);
+      await nextReviewAnimationFrame(options.signal);
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const row = findReviewRow(canonicalPath);
+        if (row) {
+          row.scrollIntoView({ block: options.block, inline: "nearest" });
+          return true;
+        }
+        await waitForReviewRevealRetry(options.signal);
       }
-      await waitForReviewRevealRetry(options.signal);
-    }
-    return false;
-  }, [
-    canonicalPathByEntryKey,
-    fileFilter.length,
-    findReviewRow,
-    setRouteState,
-    setFileFilter,
-    setSelectedPath,
-  ]);
+      return false;
+    },
+    [
+      canonicalPathByEntryKey,
+      fileFilter.length,
+      findReviewRow,
+      setRouteState,
+      setFileFilter,
+      setSelectedPath,
+    ],
+  );
 
   const revealFromReviewNavigation = useCallback(
     (entry: ReviewFileEntry, block: ScrollLogicalPosition = "start") => {
@@ -4154,9 +3798,7 @@ export function ReviewDiffPanel({
         .catch((error) => {
           if (controller.signal.aborted) return;
           toast.danger(
-            error instanceof Error
-              ? error.message
-              : "Could not reveal the Review file.",
+            error instanceof Error ? error.message : "Could not reveal the Review file.",
           );
         })
         .finally(() => {
@@ -4240,9 +3882,7 @@ export function ReviewDiffPanel({
           isGitReviewSource(source) &&
           (isCappedMode ||
             snapshot.files.length === 0 ||
-            snapshot.files.some(
-              (entry) => typeof entry.generated !== "boolean",
-            ) ||
+            snapshot.files.some((entry) => typeof entry.generated !== "boolean") ||
             snapshot.files.some((entry) => entry.loadStatus !== "loaded"));
         if (requiresServerSearch && searchCwd) {
           if (options?.signal.aborted) {
@@ -4274,14 +3914,12 @@ export function ReviewDiffPanel({
               entry.displayPath,
             ]),
           );
-          const locations: ReviewSearchLocation[] = result.matches.map(
-            (location) => ({
-              ...location,
-              path:
-                displayPathByGitPath.get(stripPatchPrefix(location.path)) ??
-                stripPatchPrefix(location.path),
-            }),
-          );
+          const locations: ReviewSearchLocation[] = result.matches.map((location) => ({
+            ...location,
+            path:
+              displayPathByGitPath.get(stripPatchPrefix(location.path)) ??
+              stripPatchPrefix(location.path),
+          }));
           return {
             query: result.query,
             matches: buildReviewContentSearchMatches({
@@ -4294,9 +3932,7 @@ export function ReviewDiffPanel({
         }
 
         const generatedPaths = new Set(
-          snapshot.files.flatMap((entry) =>
-            entry.generated === true ? [entry.displayPath] : [],
-          ),
+          snapshot.files.flatMap((entry) => (entry.generated === true ? [entry.displayPath] : [])),
         );
         const files = buildReviewSearchFiles(
           snapshot.files.map((entry) => ({
@@ -4325,9 +3961,7 @@ export function ReviewDiffPanel({
       async ensureVisible(match, options) {
         if (!isReviewSearchMatchMeta(match.meta)) return;
         const location = match.meta.location;
-        const entry = snapshot.files.find(
-          (file) => file.displayPath === location.path,
-        );
+        const entry = snapshot.files.find((file) => file.displayPath === location.path);
         if (!entry) return;
 
         await revealReviewEntry(entry, {
@@ -4339,9 +3973,7 @@ export function ReviewDiffPanel({
       async activate(match, query, options) {
         if (!isReviewSearchMatchMeta(match.meta)) return;
         const meta = match.meta;
-        const entry = snapshot.files.find(
-          (file) => file.displayPath === meta.location.path,
-        );
+        const entry = snapshot.files.find((file) => file.displayPath === meta.location.path);
         if (!entry) return;
 
         const root = reviewContentRootRef.current;
@@ -4361,9 +3993,7 @@ export function ReviewDiffPanel({
               hunkId: pathMatch.location.hunkId,
               lineStart: pathMatch.location.lineStart,
               lineEnd: pathMatch.location.lineEnd,
-              ...(pathMatch.location.side
-                ? { side: pathMatch.location.side }
-                : {}),
+              ...(pathMatch.location.side ? { side: pathMatch.location.side } : {}),
             })),
           });
           const activeElement = findContentSearchDomMatch({
@@ -4405,23 +4035,12 @@ export function ReviewDiffPanel({
   useRegisterContentSearchSource(contentSearchSource);
   const allDiffsExpanded = routeState.allDiffsExpanded;
   const jumpToFileMatches = useMemo(() => {
-    return selectReviewJumpToFileMatches(
-      snapshot.files,
-      deferredJumpToFileQuery,
-    );
+    return selectReviewJumpToFileMatches(snapshot.files, deferredJumpToFileQuery);
   }, [deferredJumpToFileQuery, snapshot.files]);
   const handleJumpToFileSelect = useCallback(
     (file: ReviewFileEntry) => {
-      const freshMatches = selectReviewJumpToFileMatches(
-        snapshot.files,
-        jumpToFileQuery,
-      );
-      if (
-        !freshMatches.some(
-          (candidate) => candidate.displayPath === file.displayPath,
-        )
-      )
-        return;
+      const freshMatches = selectReviewJumpToFileMatches(snapshot.files, jumpToFileQuery);
+      if (!freshMatches.some((candidate) => candidate.displayPath === file.displayPath)) return;
       setJumpToFileQuery("");
       revealFromReviewNavigation(file);
     },
@@ -4444,11 +4063,7 @@ export function ReviewDiffPanel({
   const toggleReviewRow = useCallback(
     (entryKey: string, canInheritExpanded: boolean) => {
       setRouteState((current) =>
-        toggleReviewDiffExpanded(
-          current,
-          entryKey,
-          current.allDiffsExpanded && canInheritExpanded,
-        ),
+        toggleReviewDiffExpanded(current, entryKey, current.allDiffsExpanded && canInheritExpanded),
       );
     },
     [setRouteState],
@@ -4465,10 +4080,7 @@ export function ReviewDiffPanel({
       ? reviewCommentsCache.value
       : new Map(
           snapshot.files.map((entry) => {
-            const comments = filterReviewCodeCommentsForPath(
-              reviewCodeComments,
-              entry.displayPath,
-            );
+            const comments = filterReviewCodeCommentsForPath(reviewCodeComments, entry.displayPath);
             return [
               entry.displayPath,
               comments.length > 0 ? comments : EMPTY_REVIEW_CODE_COMMENTS,
@@ -4519,21 +4131,15 @@ export function ReviewDiffPanel({
         }
         cwd={reviewCwd}
         workspaceRoot={projectWorkspacePath ?? reviewCwd}
-        fullContentKey={
-          reviewFullContentKeysByPath.get(entry.displayPath) ?? entry.key
-        }
+        fullContentKey={reviewFullContentKeysByPath.get(entry.displayPath) ?? entry.key}
         loadFullContents={loadReviewFileContents}
-        comments={
-          reviewCommentsByPath.get(entry.displayPath) ??
-          EMPTY_REVIEW_CODE_COMMENTS
-        }
+        comments={reviewCommentsByPath.get(entry.displayPath) ?? EMPTY_REVIEW_CODE_COMMENTS}
         threadId={reviewThreadId}
         sourceKey={`${reviewDiffCommentSourceKey}:${
           entry.revision ?? hashReviewDiffSourceKey(entry.patchText)
         }`}
         pendingCommentAttachments={
-          pendingReviewCommentsByPath.get(entry.displayPath) ??
-          EMPTY_REVIEW_COMMENT_ATTACHMENTS
+          pendingReviewCommentsByPath.get(entry.displayPath) ?? EMPTY_REVIEW_COMMENT_ATTACHMENTS
         }
         deps={resolvedDeps}
         onToggleExpandedKey={toggleReviewRow}
@@ -4551,12 +4157,9 @@ export function ReviewDiffPanel({
     try {
       await gitLiveQueryCoordinator.refresh(gitSummaryQueryKey);
     } catch (error) {
-      toast.danger(
-        error instanceof Error ? error.message : "Could not refresh review.",
-        {
-          id: "review-diff-notice",
-        },
-      );
+      toast.danger(error instanceof Error ? error.message : "Could not refresh review.", {
+        id: "review-diff-notice",
+      });
     }
   };
 
@@ -4587,36 +4190,25 @@ export function ReviewDiffPanel({
     try {
       await onStartThreadPrompt(threadId, prompt);
     } catch (error) {
-      toast.danger(
-        error instanceof Error ? error.message : "Could not start a Nodex turn.",
-        {
-          id: "review-diff-notice",
-        },
-      );
+      toast.danger(error instanceof Error ? error.message : "Could not start a Nodex turn.", {
+        id: "review-diff-notice",
+      });
     }
   };
 
   const canUseThreadGitActions = Boolean(
     reviewConversation.threadId && snapshot.isGitRepository && reviewCwd,
   );
-  const reviewOptionsWordWrapLabel = wrap
-    ? "Disable word wrap"
-    : "Enable word wrap";
-  const reviewOptionsExpandLabel = allDiffsExpanded
-    ? "Collapse all diffs"
-    : "Expand all diffs";
+  const reviewOptionsWordWrapLabel = wrap ? "Disable word wrap" : "Enable word wrap";
+  const reviewOptionsExpandLabel = allDiffsExpanded ? "Collapse all diffs" : "Expand all diffs";
   const reviewOptionsFullFilesLabel = loadFullFilesEnabled
     ? "Don't load full files"
     : "Load full files";
   const reviewOptionsRichPreviewLabel = richPreviewEnabled
     ? "Disable rich preview"
     : "Enable rich preview";
-  const reviewOptionsWordDiffsLabel = wordDiffsEnabled
-    ? "Disable word diffs"
-    : "Enable word diffs";
-  const reviewOptionsWhitespaceLabel = hideWhitespace
-    ? "Show white space"
-    : "Hide white space";
+  const reviewOptionsWordDiffsLabel = wordDiffsEnabled ? "Disable word diffs" : "Enable word diffs";
+  const reviewOptionsWhitespaceLabel = hideWhitespace ? "Show white space" : "Hide white space";
   const canCopyGitApplyCommand =
     isGitReviewSource(source) && snapshot.isGitRepository && Boolean(reviewCwd);
 
@@ -4641,10 +4233,7 @@ export function ReviewDiffPanel({
         return;
       }
       const patchResult: GitReviewPatchResult = result;
-      if (
-        patchResult.diff.type !== "success" ||
-        patchResult.diff.unifiedDiff.trim().length === 0
-      ) {
+      if (patchResult.diff.type !== "success" || patchResult.diff.unifiedDiff.trim().length === 0) {
         toast.danger("Could not copy git apply command.", {
           id: "review-diff-notice",
         });
@@ -4670,11 +4259,7 @@ export function ReviewDiffPanel({
   };
 
   const sourceTrigger = (
-    <button
-      type="button"
-      className={toolbarSourceButtonClassName()}
-      aria-label="Review source"
-    >
+    <button type="button" className={toolbarSourceButtonClassName()} aria-label="Review source">
       <span className="flex max-w-full min-w-0 items-center gap-1.5 truncate">
         {SOURCE_LABELS[source]}
       </span>
@@ -4683,26 +4268,17 @@ export function ReviewDiffPanel({
   );
 
   const optionsTrigger = (
-    <button
-      type="button"
-      className={toolbarIconButtonClassName()}
-      aria-label="Review options"
-    >
+    <button type="button" className={toolbarIconButtonClassName()} aria-label="Review options">
       <MoreHorizontalIcon />
     </button>
   );
 
   const jumpToFileTrigger = (
-    <button
-      type="button"
-      className={toolbarIconButtonClassName()}
-      aria-label="Jump to file"
-    >
+    <button type="button" className={toolbarIconButtonClassName()} aria-label="Jump to file">
       <ReviewJumpToFileIcon className="icon-xs text-token-description-foreground" />
     </button>
   );
-  const diffModeLabel =
-    diffMode === "unified" ? "Switch to split diff" : "Switch to unified diff";
+  const diffModeLabel = diffMode === "unified" ? "Switch to split diff" : "Switch to unified diff";
   const toggleFileTreeLabel = fileTreeOpen ? "Hide files" : "Show files";
   const handleToggleDirectory = (path: string) => {
     setExpandedDirectoryPaths((current) => {
@@ -4715,9 +4291,7 @@ export function ReviewDiffPanel({
       return next;
     });
   };
-  const handleFileTreeResizePointerDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
+  const handleFileTreeResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -4731,14 +4305,10 @@ export function ReviewDiffPanel({
     const startWidth = fileTreeWidth;
     const maxWidth = Math.max(
       REVIEW_FILE_TREE_MIN_WIDTH_PX,
-      splitRoot.getBoundingClientRect().width *
-        REVIEW_FILE_TREE_MAX_WIDTH_RATIO,
+      splitRoot.getBoundingClientRect().width * REVIEW_FILE_TREE_MAX_WIDTH_RATIO,
     );
     const clampWidth = (width: number) =>
-      Math.min(
-        maxWidth,
-        Math.max(REVIEW_FILE_TREE_MIN_WIDTH_PX, Math.round(width)),
-      );
+      Math.min(maxWidth, Math.max(REVIEW_FILE_TREE_MIN_WIDTH_PX, Math.round(width)));
 
     const previousCursor = ownerDocument.body.style.cursor;
     const previousUserSelect = ownerDocument.body.style.userSelect;
@@ -4780,16 +4350,10 @@ export function ReviewDiffPanel({
   }
 
   const canViewBranchDiffFromEmptyState =
-    snapshot.isGitRepository &&
-    reviewCwd.trim().length > 0 &&
-    source !== "branch";
-  const noFilesEmptyStateCopy = resolveReviewNoFilesEmptyStateCopy(
-    source,
-    snapshot.emptyReason,
-  );
+    snapshot.isGitRepository && reviewCwd.trim().length > 0 && source !== "branch";
+  const noFilesEmptyStateCopy = resolveReviewNoFilesEmptyStateCopy(source, snapshot.emptyReason);
   const viewBranchDiffAction =
-    noFilesEmptyStateCopy.showViewBranchDiffAction &&
-    canViewBranchDiffFromEmptyState ? (
+    noFilesEmptyStateCopy.showViewBranchDiffAction && canViewBranchDiffFromEmptyState ? (
       <button
         type="button"
         className={REVIEW_EMPTY_STATE_ACTION_BUTTON_CLASS_NAME}
@@ -4815,9 +4379,7 @@ export function ReviewDiffPanel({
         aria-orientation="vertical"
         className="group absolute flex touch-none select-none z-40 top-0 bottom-0 left-0 w-4 -translate-x-2 cursor-col-resize active:cursor-col-resize"
         onPointerDown={handleFileTreeResizePointerDown}
-        onDoubleClick={() =>
-          setFileTreeWidth(REVIEW_FILE_TREE_DEFAULT_WIDTH_PX)
-        }
+        onDoubleClick={() => setFileTreeWidth(REVIEW_FILE_TREE_DEFAULT_WIDTH_PX)}
       >
         <div className="sidebar-resize-handle-line pointer-events-none m-auto opacity-0 h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent group-hover:opacity-100 group-active:opacity-100" />
       </div>
@@ -4896,10 +4458,7 @@ export function ReviewDiffPanel({
             This diff is large, showing one file at a time
           </div>
         ) : null}
-        <div
-          ref={reviewContentRootRef}
-          className="flex flex-col extension:gap-2"
-        >
+        <div ref={reviewContentRootRef} className="flex flex-col extension:gap-2">
           {reviewRows}
         </div>
       </ReviewDiffVirtualizer>
@@ -4920,11 +4479,7 @@ export function ReviewDiffPanel({
               >
                 <NodexDropdownItem
                   onSelect={() => selectReviewSource("unstaged")}
-                  rightSlot={
-                    source === "unstaged" ? (
-                      <CheckmarkIcon className="size-4" />
-                    ) : null
-                  }
+                  rightSlot={source === "unstaged" ? <CheckmarkIcon className="size-4" /> : null}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span className="truncate">Unstaged</span>
@@ -4935,11 +4490,7 @@ export function ReviewDiffPanel({
                 </NodexDropdownItem>
                 <NodexDropdownItem
                   onSelect={() => selectReviewSource("staged")}
-                  rightSlot={
-                    source === "staged" ? (
-                      <CheckmarkIcon className="size-4" />
-                    ) : null
-                  }
+                  rightSlot={source === "staged" ? <CheckmarkIcon className="size-4" /> : null}
                 >
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span className="truncate">Staged</span>
@@ -4957,47 +4508,35 @@ export function ReviewDiffPanel({
                   contentClassName="min-w-[320px]"
                 >
                   {branchCommitsLoadStatus === "loading" ? (
-                    <NodexDropdownMessage compact>
-                      Loading commits...
-                    </NodexDropdownMessage>
+                    <NodexDropdownMessage compact>Loading commits...</NodexDropdownMessage>
                   ) : branchCommitsLoadStatus === "error" ? (
                     <>
                       <NodexDropdownMessage compact tone="error">
-                        {branchCommitsQuery.data?.errorMessage
-                          ?? "Unable to load commits"}
+                        {branchCommitsQuery.data?.errorMessage ?? "Unable to load commits"}
                       </NodexDropdownMessage>
-                      <NodexDropdownItem
-                        onSelect={() => void loadBranchCommits()}
-                      >
+                      <NodexDropdownItem onSelect={() => void loadBranchCommits()}>
                         Retry
                       </NodexDropdownItem>
                     </>
                   ) : branchCommits.length === 0 ? (
-                    <NodexDropdownMessage compact>
-                      No commits on branch
-                    </NodexDropdownMessage>
+                    <NodexDropdownMessage compact>No commits on branch</NodexDropdownMessage>
                   ) : (
                     <NodexDropdownScrollList className="max-h-80">
                       {branchCommits.map((commit) => {
-                        const relativeTime = formatReviewCommitRelativeTime(
-                          commit.committedAt,
-                        );
+                        const relativeTime = formatReviewCommitRelativeTime(commit.committedAt);
                         return (
                           <NodexDropdownItem
                             key={commit.sha}
                             onSelect={() => selectReviewCommit(commit)}
                             tooltipText={commit.subject}
                             rightSlot={
-                              source === "commit" &&
-                              commitSha === commit.sha ? (
+                              source === "commit" && commitSha === commit.sha ? (
                                 <CheckmarkIcon className="size-4" />
                               ) : null
                             }
                           >
                             <span className="flex min-w-0 items-center justify-between gap-3">
-                              <span className="min-w-0 truncate">
-                                {commit.subject}
-                              </span>
+                              <span className="min-w-0 truncate">{commit.subject}</span>
                               {relativeTime ? (
                                 <span className="shrink-0 text-xs text-token-description-foreground">
                                   {relativeTime} ago
@@ -5012,11 +4551,7 @@ export function ReviewDiffPanel({
                 </NodexDropdownFlyoutSubmenuItem>
                 <NodexDropdownItem
                   onSelect={() => selectReviewSource("branch")}
-                  rightSlot={
-                    source === "branch" ? (
-                      <CheckmarkIcon className="size-4" />
-                    ) : null
-                  }
+                  rightSlot={source === "branch" ? <CheckmarkIcon className="size-4" /> : null}
                 >
                   Branch
                 </NodexDropdownItem>
@@ -5038,14 +4573,8 @@ export function ReviewDiffPanel({
               </span>
             ) : null}
             <DiffStats
-              additions={snapshot.files.reduce(
-                (total, file) => total + (file.additions ?? 0),
-                0,
-              )}
-              deletions={snapshot.files.reduce(
-                (total, file) => total + (file.deletions ?? 0),
-                0,
-              )}
+              additions={snapshot.files.reduce((total, file) => total + (file.additions ?? 0), 0)}
+              deletions={snapshot.files.reduce((total, file) => total + (file.deletions ?? 0), 0)}
               className={REVIEW_AGGREGATE_DIFF_STATS_CLASS_NAME}
             />
           </div>
@@ -5060,11 +4589,7 @@ export function ReviewDiffPanel({
                 <NodexDropdownItem
                   onSelect={() => void refreshGitSnapshot()}
                   disabled={gitLoading}
-                  leftSlot={
-                    <ReviewRefreshIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
-                  }
+                  leftSlot={<ReviewRefreshIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
                 >
                   Refresh
                 </NodexDropdownItem>
@@ -5073,13 +4598,9 @@ export function ReviewDiffPanel({
                 onSelect={() => setWrap((current) => !current)}
                 leftSlot={
                   wrap ? (
-                    <ReviewDisableWordWrapIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
+                    <ReviewDisableWordWrapIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
                   ) : (
-                    <ReviewEnableWordWrapIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
+                    <ReviewEnableWordWrapIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
                   )
                 }
               >
@@ -5088,11 +4609,7 @@ export function ReviewDiffPanel({
               <NodexDropdownSeparator />
               <NodexDropdownItem
                 onSelect={() => setLoadFullFilesEnabled((current) => !current)}
-                leftSlot={
-                  <FileIcon
-                    className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                  />
-                }
+                leftSlot={<FileIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
               >
                 {reviewOptionsFullFilesLabel}
               </NodexDropdownItem>
@@ -5100,13 +4617,9 @@ export function ReviewDiffPanel({
                 onSelect={() => setRichPreviewEnabled((current) => !current)}
                 leftSlot={
                   richPreviewEnabled ? (
-                    <ReviewDisableRichPreviewIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
+                    <ReviewDisableRichPreviewIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
                   ) : (
-                    <ReviewRichPreviewIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
+                    <ReviewRichPreviewIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
                   )
                 }
               >
@@ -5116,13 +4629,9 @@ export function ReviewDiffPanel({
                 onSelect={() => setWordDiffsEnabled((current) => !current)}
                 leftSlot={
                   wordDiffsEnabled ? (
-                    <ReviewDisableWordDiffsIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
+                    <ReviewDisableWordDiffsIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
                   ) : (
-                    <ReviewWordDiffsIcon
-                      className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                    />
+                    <ReviewWordDiffsIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
                   )
                 }
               >
@@ -5132,9 +4641,7 @@ export function ReviewDiffPanel({
                 onSelect={() => setHideWhitespace((current) => !current)}
                 disabled={!isGitReviewSource(source)}
                 leftSlot={
-                  <ReviewHideWhitespaceIcon
-                    className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                  />
+                  <ReviewHideWhitespaceIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />
                 }
               >
                 {reviewOptionsWhitespaceLabel}
@@ -5142,11 +4649,7 @@ export function ReviewDiffPanel({
               <NodexDropdownItem
                 onSelect={() => void handleCopyGitApplyCommand()}
                 disabled={!canCopyGitApplyCommand}
-                leftSlot={
-                  <FileIcon
-                    className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME}
-                  />
-                }
+                leftSlot={<FileIcon className={REVIEW_OPTIONS_MENU_ICON_CLASS_NAME} />}
               >
                 Copy git apply command
               </NodexDropdownItem>
@@ -5157,9 +4660,7 @@ export function ReviewDiffPanel({
                 className={toolbarIconButtonClassName()}
                 aria-label={reviewOptionsExpandLabel}
                 onClick={() =>
-                  setRouteState((current) =>
-                    setAllReviewDiffsExpanded(current, !allDiffsExpanded),
-                  )
+                  setRouteState((current) => setAllReviewDiffsExpanded(current, !allDiffsExpanded))
                 }
               >
                 {allDiffsExpanded ? (
@@ -5183,9 +4684,7 @@ export function ReviewDiffPanel({
                 aria-label="Jump to file"
               />
               {jumpToFileMatches.length === 0 ? (
-                <NodexDropdownMessage compact>
-                  No matching files
-                </NodexDropdownMessage>
+                <NodexDropdownMessage compact>No matching files</NodexDropdownMessage>
               ) : (
                 jumpToFileMatches.map((file) => (
                   <NodexDropdownItem
@@ -5208,9 +4707,7 @@ export function ReviewDiffPanel({
               className={toolbarIconButtonClassName()}
               aria-label={diffModeLabel}
               onClick={() =>
-                setDiffMode((current) =>
-                  current === "unified" ? "split" : "unified",
-                )
+                setDiffMode((current) => (current === "unified" ? "split" : "unified"))
               }
             >
               {diffMode === "unified" ? (
@@ -5232,36 +4729,25 @@ export function ReviewDiffPanel({
               className={REVIEW_HEADER_ACTION_BUTTON_CLASS_NAME}
               aria-label="Commit or push"
               disabled={!canUseThreadGitActions}
-              onClick={() =>
-                void startThreadPrompt(GIT_ACTION_COMMIT_OR_PUSH_PROMPT)
-              }
+              onClick={() => void startThreadPrompt(GIT_ACTION_COMMIT_OR_PUSH_PROMPT)}
             >
               <ReviewCommitOrPushIcon className="icon-xs shrink-0" />
-              <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>
-                Commit or push
-              </span>
+              <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>Commit or push</span>
             </button>
             <button
               type="button"
               className={REVIEW_HEADER_ACTION_BUTTON_CLASS_NAME}
               aria-label="Create PR"
               disabled={!canUseThreadGitActions}
-              onClick={() =>
-                void startThreadPrompt(GIT_ACTION_CREATE_PR_PROMPT)
-              }
+              onClick={() => void startThreadPrompt(GIT_ACTION_CREATE_PR_PROMPT)}
             >
               <ReviewCreatePrIcon className="icon-xs shrink-0" />
-              <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>
-                Create PR
-              </span>
+              <span className={REVIEW_HEADER_ACTION_LABEL_CLASS_NAME}>Create PR</span>
             </button>
           </div>
         </div>
 
-        <div
-          ref={reviewSplitRootRef}
-          className="flex min-h-0 max-w-full min-w-0"
-        >
+        <div ref={reviewSplitRootRef} className="flex min-h-0 max-w-full min-w-0">
           {reviewMainContent}
           {fileTreePane}
         </div>

@@ -6,15 +6,9 @@ import type {
   BlockDocumentSurfaceRuntime,
   BlockDocumentSurfaceStatus,
 } from "./block-document-surface-runtime";
-import {
-  DocumentSessionRegistry,
-  makeEditorSurfaceKey,
-} from "./document-session-registry";
+import { DocumentSessionRegistry, makeEditorSurfaceKey } from "./document-session-registry";
 
-const descriptor = (
-  generation = 1,
-  headSeq = 1,
-): OwnedDocumentDescriptor => ({
+const descriptor = (generation = 1, headSeq = 1): OwnedDocumentDescriptor => ({
   libraryId: "library-1",
   accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "page-1",
@@ -164,12 +158,8 @@ describe("DocumentSessionRegistry", () => {
     const firstEditor = { _tiptapEditor: { destroy: vi.fn() } };
     const secondEditor = { _tiptapEditor: { destroy: vi.fn() } };
 
-    expect(first.getOrCreateEditor("page-editor", () => firstEditor)).toBe(
-      firstEditor,
-    );
-    expect(second.getOrCreateEditor("page-editor", () => secondEditor)).toBe(
-      secondEditor,
-    );
+    expect(first.getOrCreateEditor("page-editor", () => firstEditor)).toBe(firstEditor);
+    expect(second.getOrCreateEditor("page-editor", () => secondEditor)).toBe(secondEditor);
     expect(firstEditor).not.toBe(secondEditor);
     expect(first.runtime).toBe(second.runtime);
 
@@ -275,10 +265,7 @@ describe("DocumentSessionRegistry", () => {
       user: { name: "Right" },
       nodex: {
         activeSurfaceId: second.awarenessLease.surfaceId,
-        surfaceIds: [
-          first.awarenessLease.surfaceId,
-          second.awarenessLease.surfaceId,
-        ].sort(),
+        surfaceIds: [first.awarenessLease.surfaceId, second.awarenessLease.surfaceId].sort(),
       },
     });
     first.awarenessLease.release();
@@ -355,11 +342,7 @@ describe("DocumentSessionRegistry", () => {
     });
     releaseOldClose();
     await connecting;
-    expect(calls).toEqual([
-      "old-close-start",
-      "old-close-end",
-      "next-connect",
-    ]);
+    expect(calls).toEqual(["old-close-start", "old-close-end", "next-connect"]);
   });
 
   test("ignores stale view cleanup and backgrounds only the latest claim", async () => {
@@ -456,16 +439,9 @@ describe("DocumentSessionRegistry", () => {
       createRuntime: () => runtime.runtime,
     });
     const destroy = vi.fn();
-    session.getOrCreateEditor(
-      "editor-1",
-      () => ({ _tiptapEditor: { destroy } }),
-    );
+    session.getOrCreateEditor("editor-1", () => ({ _tiptapEditor: { destroy } }));
 
-    await Promise.all([
-      registry.dispose(key),
-      registry.dispose(key),
-      session.dispose(),
-    ]);
+    await Promise.all([registry.dispose(key), registry.dispose(key), session.dispose()]);
 
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(runtime.close).toHaveBeenCalledTimes(1);

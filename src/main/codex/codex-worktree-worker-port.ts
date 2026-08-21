@@ -18,8 +18,7 @@ export const CODEX_WORKTREE_WORKER_OPERATIONS = [
   "cleanup-transfer-handoff",
 ] as const;
 
-export type CodexWorktreeWorkerOperation =
-  (typeof CODEX_WORKTREE_WORKER_OPERATIONS)[number];
+export type CodexWorktreeWorkerOperation = (typeof CODEX_WORKTREE_WORKER_OPERATIONS)[number];
 
 export type CodexManagedWorktreeRemovalReason =
   | "archive"
@@ -44,27 +43,18 @@ export const CODEX_WORKTREE_HANDOFF_STEPS = [
   "import-bundle",
 ] as const;
 
-export type CodexWorktreeHandoffStep =
-  (typeof CODEX_WORKTREE_HANDOFF_STEPS)[number];
+export type CodexWorktreeHandoffStep = (typeof CODEX_WORKTREE_HANDOFF_STEPS)[number];
 
-export type CodexWorktreeHandoffStepStatus =
-  | "started"
-  | "completed"
-  | "skipped"
-  | "failed";
+export type CodexWorktreeHandoffStepStatus = "started" | "completed" | "skipped" | "failed";
 
-export type CodexManagedWorktreeSnapshotPolicy =
-  | "required"
-  | "best-effort"
-  | "ephemeral";
+export type CodexManagedWorktreeSnapshotPolicy = "required" | "best-effort" | "ephemeral";
 
 interface CodexWorktreeWorkerRequestIdentity {
   readonly requestId: string;
   readonly hostId: string;
 }
 
-export interface CodexWorktreeWorkerCreateInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerCreateInput extends CodexWorktreeWorkerRequestIdentity {
   readonly repositoryPath: string;
   readonly nodexHome: string;
   readonly managedRoot: string;
@@ -117,14 +107,12 @@ export interface CodexWorktreeWorkerCreateResult {
   readonly shellEnvironment: CodexStoredShellEnvironment | null;
 }
 
-export interface CodexWorktreeWorkerPathInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerPathInput extends CodexWorktreeWorkerRequestIdentity {
   readonly managedRoot: string;
   readonly worktreeGitRoot: string;
 }
 
-export interface CodexWorktreeWorkerListInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerListInput extends CodexWorktreeWorkerRequestIdentity {
   readonly managedRoot: string;
 }
 
@@ -140,8 +128,7 @@ export interface CodexWorktreeWorkerListResult {
   readonly entries: readonly CodexWorktreeWorkerListEntry[];
 }
 
-export interface CodexWorktreeWorkerInspectInput
-  extends CodexWorktreeWorkerPathInput {
+export interface CodexWorktreeWorkerInspectInput extends CodexWorktreeWorkerPathInput {
   readonly cwd: string;
   readonly candidateRepositoryPaths: readonly string[];
 }
@@ -164,8 +151,7 @@ export interface CodexWorktreeWorkerInspectResult {
   readonly availability: CodexWorktreeWorkerAvailability;
 }
 
-export interface CodexWorktreeWorkerSnapshotInput
-  extends CodexWorktreeWorkerPathInput {
+export interface CodexWorktreeWorkerSnapshotInput extends CodexWorktreeWorkerPathInput {
   readonly reason: CodexManagedWorktreeRemovalReason;
 }
 
@@ -177,8 +163,7 @@ export interface CodexWorktreeWorkerSnapshotResult {
   readonly changed: boolean;
 }
 
-export interface CodexWorktreeWorkerRemoveInput
-  extends CodexWorktreeWorkerPathInput {
+export interface CodexWorktreeWorkerRemoveInput extends CodexWorktreeWorkerPathInput {
   readonly reason: CodexManagedWorktreeRemovalReason;
   readonly snapshotPolicy: CodexManagedWorktreeSnapshotPolicy;
 }
@@ -190,8 +175,7 @@ export interface CodexWorktreeWorkerRemoveResult {
   readonly warnings: readonly string[];
 }
 
-export interface CodexWorktreeWorkerRestoreInput
-  extends CodexWorktreeWorkerInspectInput {
+export interface CodexWorktreeWorkerRestoreInput extends CodexWorktreeWorkerInspectInput {
   readonly ownerThreadId: string | null;
 }
 
@@ -203,8 +187,7 @@ export interface CodexWorktreeWorkerRestoreResult {
   readonly ownerWarning: string | null;
 }
 
-export interface CodexWorktreeWorkerSetOwnerInput
-  extends CodexWorktreeWorkerPathInput {
+export interface CodexWorktreeWorkerSetOwnerInput extends CodexWorktreeWorkerPathInput {
   readonly ownerThreadId: string;
 }
 
@@ -212,8 +195,7 @@ export interface CodexWorktreeWorkerSetOwnerResult {
   readonly ownerThreadId: string;
 }
 
-export interface CodexWorktreeWorkerPrepareHandoffInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerPrepareHandoffInput extends CodexWorktreeWorkerRequestIdentity {
   readonly managedRoot: string;
   readonly nodexHome: string;
   readonly projectId: string;
@@ -250,8 +232,7 @@ export type CodexWorktreeWorkerPreparedHandoff =
       readonly warnings: readonly string[];
     };
 
-export interface CodexWorktreeWorkerRollbackHandoffInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerRollbackHandoffInput extends CodexWorktreeWorkerRequestIdentity {
   readonly managedRoot: string;
   readonly prepared: CodexWorktreeWorkerPreparedHandoff;
 }
@@ -261,8 +242,7 @@ export interface CodexWorktreeWorkerRollbackHandoffResult {
   readonly warnings: readonly string[];
 }
 
-export interface CodexWorktreeWorkerCleanupHandoffInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerCleanupHandoffInput extends CodexWorktreeWorkerRequestIdentity {
   readonly managedRoot: string;
   readonly prepared: CodexWorktreeWorkerPreparedHandoff;
   readonly outcome: "committed" | "rolled-back";
@@ -278,8 +258,7 @@ export interface CodexRepositoryIdentity {
   readonly keys: readonly string[];
 }
 
-export interface CodexWorktreeWorkerExportHandoffInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerExportHandoffInput extends CodexWorktreeWorkerRequestIdentity {
   readonly transferId: string;
   readonly sourceCwd: string;
   readonly sourceWorkspaceRoot: string;
@@ -295,8 +274,7 @@ export interface CodexWorktreeWorkerExportHandoffResult {
   readonly bundle: CodexExecutionHostFileDescriptor;
 }
 
-export interface CodexWorktreeWorkerImportHandoffInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerImportHandoffInput extends CodexWorktreeWorkerRequestIdentity {
   readonly transferId: string;
   readonly bundlePath: string;
   readonly rolloutPath: string;
@@ -322,8 +300,7 @@ export interface CodexWorktreeWorkerImportHandoffResult {
   readonly destinationRolloutCreated: boolean;
 }
 
-export interface CodexWorktreeWorkerCleanupTransferHandoffInput
-  extends CodexWorktreeWorkerRequestIdentity {
+export interface CodexWorktreeWorkerCleanupTransferHandoffInput extends CodexWorktreeWorkerRequestIdentity {
   readonly transferId: string;
   readonly stagingRoot: string;
   readonly repositoryPath: string;
@@ -385,11 +362,20 @@ export type CodexWorktreeWorkerSuccess =
   | { readonly operation: "restore"; readonly value: CodexWorktreeWorkerRestoreResult }
   | { readonly operation: "set-owner"; readonly value: CodexWorktreeWorkerSetOwnerResult }
   | { readonly operation: "prepare-handoff"; readonly value: CodexWorktreeWorkerPreparedHandoff }
-  | { readonly operation: "rollback-handoff"; readonly value: CodexWorktreeWorkerRollbackHandoffResult }
-  | { readonly operation: "cleanup-handoff"; readonly value: CodexWorktreeWorkerCleanupHandoffResult }
+  | {
+      readonly operation: "rollback-handoff";
+      readonly value: CodexWorktreeWorkerRollbackHandoffResult;
+    }
+  | {
+      readonly operation: "cleanup-handoff";
+      readonly value: CodexWorktreeWorkerCleanupHandoffResult;
+    }
   | { readonly operation: "export-handoff"; readonly value: CodexWorktreeWorkerExportHandoffResult }
   | { readonly operation: "import-handoff"; readonly value: CodexWorktreeWorkerImportHandoffResult }
-  | { readonly operation: "cleanup-transfer-handoff"; readonly value: CodexWorktreeWorkerCleanupTransferHandoffResult };
+  | {
+      readonly operation: "cleanup-transfer-handoff";
+      readonly value: CodexWorktreeWorkerCleanupTransferHandoffResult;
+    };
 
 export interface CodexWorktreeWorkerRequestOptions {
   readonly signal: AbortSignal;

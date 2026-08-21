@@ -28,9 +28,7 @@ function FocusRestorePreview() {
   );
 }
 
-function renderPreview(
-  props: Partial<ComponentProps<typeof ImagePreviewDialog>> = {},
-) {
+function renderPreview(props: Partial<ComponentProps<typeof ImagePreviewDialog>> = {}) {
   return render(
     <TestQueryProvider>
       <ImagePreviewDialog
@@ -87,7 +85,9 @@ describe("ImagePreviewDialog", () => {
       configurable: true,
       value: revokeObjectURL,
     });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
     const view = renderPreview({ downloadFileName: "diagram.png" });
 
     await act(async () => {

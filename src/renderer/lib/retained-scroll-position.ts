@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  type UIEventHandler,
-} from "react";
+import { useCallback, useLayoutEffect, useRef, type UIEventHandler } from "react";
 
 const MAX_RETAINED_SCROLL_ENTRIES = 200;
 
@@ -159,26 +154,29 @@ export function useRetainedScrollPosition<T extends HTMLElement>(
     }
   }, []);
 
-  const restoreNodePosition = useCallback((snapshotKey: string, node: T) => {
-    restoreVersionRef.current += 1;
-    const restoreVersion = restoreVersionRef.current;
-    const snapshot = readRetainedScrollPosition(snapshotKey);
-    if (!snapshot) return;
-    applyScrollSnapshot(node, snapshot, axis);
-    lastKnownSnapshotRef.current = { key: snapshotKey, snapshot };
-
-    if (retryFrames <= 0 || typeof requestAnimationFrame !== "function") return;
-    let remainingFrames = retryFrames;
-    const retryRestore = () => {
-      if (restoreVersionRef.current !== restoreVersion) return;
-      if (nodeRef.current !== node) return;
-      if (nodeKeyRef.current !== snapshotKey) return;
+  const restoreNodePosition = useCallback(
+    (snapshotKey: string, node: T) => {
+      restoreVersionRef.current += 1;
+      const restoreVersion = restoreVersionRef.current;
+      const snapshot = readRetainedScrollPosition(snapshotKey);
+      if (!snapshot) return;
       applyScrollSnapshot(node, snapshot, axis);
-      remainingFrames -= 1;
-      if (remainingFrames > 0) requestAnimationFrame(retryRestore);
-    };
-    requestAnimationFrame(retryRestore);
-  }, [axis, retryFrames]);
+      lastKnownSnapshotRef.current = { key: snapshotKey, snapshot };
+
+      if (retryFrames <= 0 || typeof requestAnimationFrame !== "function") return;
+      let remainingFrames = retryFrames;
+      const retryRestore = () => {
+        if (restoreVersionRef.current !== restoreVersion) return;
+        if (nodeRef.current !== node) return;
+        if (nodeKeyRef.current !== snapshotKey) return;
+        applyScrollSnapshot(node, snapshot, axis);
+        remainingFrames -= 1;
+        if (remainingFrames > 0) requestAnimationFrame(retryRestore);
+      };
+      requestAnimationFrame(retryRestore);
+    },
+    [axis, retryFrames],
+  );
 
   const saveNow = useCallback(() => {
     const node = nodeRef.current;
@@ -187,18 +185,21 @@ export function useRetainedScrollPosition<T extends HTMLElement>(
     rememberNodePosition(currentKey, node);
   }, [rememberNodePosition]);
 
-  const ref = useCallback((node: T | null) => {
-    const previousNode = nodeRef.current;
-    const previousKey = nodeKeyRef.current;
-    if (previousNode && previousKey) {
-      rememberNodePosition(previousKey, previousNode);
-    }
+  const ref = useCallback(
+    (node: T | null) => {
+      const previousNode = nodeRef.current;
+      const previousKey = nodeKeyRef.current;
+      if (previousNode && previousKey) {
+        rememberNodePosition(previousKey, previousNode);
+      }
 
-    nodeRef.current = node;
-    nodeKeyRef.current = latestKeyRef.current;
-    if (!node || !latestKeyRef.current) return;
-    restoreNodePosition(latestKeyRef.current, node);
-  }, [rememberNodePosition, restoreNodePosition]);
+      nodeRef.current = node;
+      nodeKeyRef.current = latestKeyRef.current;
+      if (!node || !latestKeyRef.current) return;
+      restoreNodePosition(latestKeyRef.current, node);
+    },
+    [rememberNodePosition, restoreNodePosition],
+  );
 
   const onScroll = useCallback<UIEventHandler<T>>((event) => {
     const currentKey = nodeKeyRef.current ?? latestKeyRef.current;

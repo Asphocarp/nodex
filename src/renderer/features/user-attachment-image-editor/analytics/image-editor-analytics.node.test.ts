@@ -73,28 +73,18 @@ describe("image editor analytics", () => {
       outcome: "pinned",
     });
 
-    expect(logTelemetryEvent).toHaveBeenNthCalledWith(
-      1,
-      "image_edit_submit_outcome",
-      undefined,
-      {
-        failure_reason: "composer-unmounted",
-        image_source: "uploaded",
-        mode: "remove",
-        outcome: "unavailable",
-        route: "new_thread",
-      },
-    );
-    expect(logTelemetryEvent).toHaveBeenNthCalledWith(
-      2,
-      "image_editor_pin_outcome",
-      undefined,
-      {
-        entrypoint: "lightbox_edit_button",
-        image_source: "generated",
-        outcome: "pinned",
-        reason: undefined,
-      },
-    );
+    expect(logTelemetryEvent).toHaveBeenNthCalledWith(1, "image_edit_submit_outcome", undefined, {
+      failure_reason: "composer-unmounted",
+      image_source: "uploaded",
+      mode: "remove",
+      outcome: "unavailable",
+      route: "new_thread",
+    });
+    expect(logTelemetryEvent).toHaveBeenNthCalledWith(2, "image_editor_pin_outcome", undefined, {
+      entrypoint: "lightbox_edit_button",
+      image_source: "generated",
+      outcome: "pinned",
+      reason: undefined,
+    });
   });
 });

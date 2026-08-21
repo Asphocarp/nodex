@@ -15,11 +15,7 @@ const DOT_FIELD_DURATIONS = {
   fieldSize2: 2_400,
 } as const;
 
-export type GeneratedImageLoadingPresentation =
-  | "default"
-  | "single"
-  | "playground"
-  | "thumbnail";
+export type GeneratedImageLoadingPresentation = "default" | "single" | "playground" | "thumbnail";
 
 export interface GeneratedImageDotFieldPresentation {
   readonly radius: number | null;
@@ -47,9 +43,7 @@ export function resolveGeneratedImageDotFieldGridSpacing(
   if (presentation === "playground" || presentation === "thumbnail") {
     return spacing;
   }
-  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
-    ? devicePixelRatio
-    : 1;
+  const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
   return Math.max(1, spacing / dpr);
 }
 
@@ -102,9 +96,7 @@ export function generatedImageDotFieldSmoothStep(value: number): number {
 }
 
 function cubicEaseInOut(value: number): number {
-  return value < 0.5
-    ? 4 * value * value * value
-    : 1 - ((-2 * value + 2) ** 3) / 2;
+  return value < 0.5 ? 4 * value * value * value : 1 - (-2 * value + 2) ** 3 / 2;
 }
 
 function triangleWave(value: number): number {
@@ -138,9 +130,8 @@ export function createStableGeneratedImageRandom(seed: string): () => number {
 export function createGeneratedImageDotFieldConfig(
   random: () => number = Math.random,
 ): GeneratedImageDotFieldConfig {
-  const randomDuration = (duration: number) => (
-    duration * DOT_FIELD_DURATION_FACTOR * randomBetween(1, 1.35, random)
-  );
+  const randomDuration = (duration: number) =>
+    duration * DOT_FIELD_DURATION_FACTOR * randomBetween(1, 1.35, random);
   return {
     durations: {
       offsetX1: randomDuration(DOT_FIELD_DURATIONS.offsetX1),
@@ -182,9 +173,7 @@ export function resolveGeneratedImageDotFieldFrame(
   config: GeneratedImageDotFieldConfig,
 ): GeneratedImageDotFieldFrame {
   const elapsed = Math.max(0, elapsedMs);
-  const phase = (duration: number, offset: number) => (
-    triangleWave(elapsed / duration + offset)
-  );
+  const phase = (duration: number, offset: number) => triangleWave(elapsed / duration + offset);
   return {
     firstX: interpolate(
       config.bounds.x1Start,
@@ -194,9 +183,7 @@ export function resolveGeneratedImageDotFieldFrame(
     firstY: interpolate(
       config.bounds.y1Start,
       config.bounds.y1End,
-      generatedImageDotFieldSmoothStep(
-        phase(config.durations.offsetY1, config.phases.offsetY1),
-      ),
+      generatedImageDotFieldSmoothStep(phase(config.durations.offsetY1, config.phases.offsetY1)),
     ),
     secondX: interpolate(
       config.bounds.x2Start,
@@ -206,23 +193,25 @@ export function resolveGeneratedImageDotFieldFrame(
     secondY: interpolate(
       config.bounds.y2Start,
       config.bounds.y2End,
-      generatedImageDotFieldSmoothStep(
-        phase(config.durations.offsetY2, config.phases.offsetY2),
-      ),
+      generatedImageDotFieldSmoothStep(phase(config.durations.offsetY2, config.phases.offsetY2)),
     ),
-    firstSize: DOT_FIELD_SIZE_FACTOR * interpolate(
-      config.sizeRange.firstStart,
-      config.sizeRange.firstEnd,
-      generatedImageDotFieldSmoothStep(
-        phase(config.durations.fieldSize1, config.phases.fieldSize1),
+    firstSize:
+      DOT_FIELD_SIZE_FACTOR *
+      interpolate(
+        config.sizeRange.firstStart,
+        config.sizeRange.firstEnd,
+        generatedImageDotFieldSmoothStep(
+          phase(config.durations.fieldSize1, config.phases.fieldSize1),
+        ),
       ),
-    ),
-    secondSize: DOT_FIELD_SIZE_FACTOR * interpolate(
-      config.sizeRange.secondStart,
-      config.sizeRange.secondEnd,
-      generatedImageDotFieldSmoothStep(
-        phase(config.durations.fieldSize2, config.phases.fieldSize2),
+    secondSize:
+      DOT_FIELD_SIZE_FACTOR *
+      interpolate(
+        config.sizeRange.secondStart,
+        config.sizeRange.secondEnd,
+        generatedImageDotFieldSmoothStep(
+          phase(config.durations.fieldSize2, config.phases.fieldSize2),
+        ),
       ),
-    ),
   };
 }

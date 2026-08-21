@@ -135,34 +135,40 @@ export function BranchSelectorPopover({
     [search, state.branches],
   );
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (nextOpen) {
-      void onRefresh();
-      return;
-    }
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        void onRefresh();
+        return;
+      }
 
-    setSearch("");
-  }, [onRefresh]);
+      setSearch("");
+    },
+    [onRefresh],
+  );
 
-  const handleBranchSelect = useCallback(async (branch: string) => {
-    const didCheckout = await onCheckout(branch);
-    if (!didCheckout) return;
-    setOpen(false);
-  }, [onCheckout]);
+  const handleBranchSelect = useCallback(
+    async (branch: string) => {
+      const didCheckout = await onCheckout(branch);
+      if (!didCheckout) return;
+      setOpen(false);
+    },
+    [onCheckout],
+  );
 
-  const existingBranchNames = useMemo(() => new Set([
-    ...state.branches,
-    ...(state.currentBranch ? [state.currentBranch] : []),
-    ...(state.defaultBranch ? [state.defaultBranch] : []),
-  ]), [state.branches, state.currentBranch, state.defaultBranch]);
+  const existingBranchNames = useMemo(
+    () =>
+      new Set([
+        ...state.branches,
+        ...(state.currentBranch ? [state.currentBranch] : []),
+        ...(state.defaultBranch ? [state.defaultBranch] : []),
+      ]),
+    [state.branches, state.currentBranch, state.defaultBranch],
+  );
   const createBranchValue = createBranchName.trim();
   const createBranchValidation = validateCreateBranchName(createBranchName, existingBranchNames);
-  const createBranchCanSubmit = Boolean(
-    onCreate
-    && createBranchValidation === null
-    && !busy,
-  );
+  const createBranchCanSubmit = Boolean(onCreate && createBranchValidation === null && !busy);
 
   const handleOpenCreateDialog = useCallback(() => {
     if (!onCreate) return;
@@ -171,49 +177,53 @@ export function BranchSelectorPopover({
     setCreateDialogOpen(true);
   }, [onCreate, search]);
 
-  const handleCreateSubmit = useCallback(async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
-    if (!createBranchCanSubmit || !onCreate) return;
+  const handleCreateSubmit = useCallback(
+    async (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      if (!createBranchCanSubmit || !onCreate) return;
 
-    const didCreate = await onCreate(createBranchValue);
-    if (!didCreate) return;
-    setCreateDialogOpen(false);
-    setCreateBranchName("");
-  }, [createBranchCanSubmit, createBranchValue, onCreate]);
+      const didCreate = await onCreate(createBranchValue);
+      if (!didCreate) return;
+      setCreateDialogOpen(false);
+      setCreateBranchName("");
+    },
+    [createBranchCanSubmit, createBranchValue, onCreate],
+  );
 
   const activeSelectedBranch = selectedBranch?.trim() || null;
   const currentBranch = activeSelectedBranch ?? state.currentBranch;
   const triggerLabel = currentBranch ?? state.defaultBranch ?? "No branch";
   const isDisabled = disabled || !cwd || busy;
-  const hasRepositoryState = state.currentBranch !== null || state.branches.length > 0 || Boolean(state.defaultBranch);
-  const emptyBranchMessage = !cwd
-    ? "Working directory unavailable"
-    : "No branches found";
-  const canCreateBranch = Boolean(onCreate && cwd && !busy && hasRepositoryState && !loading && !error);
+  const hasRepositoryState =
+    state.currentBranch !== null || state.branches.length > 0 || Boolean(state.defaultBranch);
+  const emptyBranchMessage = !cwd ? "Working directory unavailable" : "No branches found";
+  const canCreateBranch = Boolean(
+    onCreate && cwd && !busy && hasRepositoryState && !loading && !error,
+  );
   const triggerTitle = cwd ? "Switch branch" : "Working directory unavailable";
-  const triggerButton = renderTrigger
-    ? renderTrigger({
-        triggerLabel,
-        title: triggerTitle,
-        disabled: isDisabled,
-      })
-    : (
-      <NodexDropdownButtonTrigger
-        aria-label="Switch branch"
-        title={triggerTitle}
-        disabled={isDisabled}
-        size="sm"
-        chrome="transparent"
-        shape="pill"
-        muted
-        className={cn("px-1.5", triggerClassName)}
-      >
-        <span className="inline-flex min-w-0 items-center gap-1">
-          <BranchStatusIcon className="size-3.5 shrink-0" />
-          <span className="max-w-40 truncate text-sm">{triggerLabel}</span>
-        </span>
-      </NodexDropdownButtonTrigger>
-    );
+  const triggerButton = renderTrigger ? (
+    renderTrigger({
+      triggerLabel,
+      title: triggerTitle,
+      disabled: isDisabled,
+    })
+  ) : (
+    <NodexDropdownButtonTrigger
+      aria-label="Switch branch"
+      title={triggerTitle}
+      disabled={isDisabled}
+      size="sm"
+      chrome="transparent"
+      shape="pill"
+      muted
+      className={cn("px-1.5", triggerClassName)}
+    >
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <BranchStatusIcon className="size-3.5 shrink-0" />
+        <span className="max-w-40 truncate text-sm">{triggerLabel}</span>
+      </span>
+    </NodexDropdownButtonTrigger>
+  );
 
   return (
     <>
@@ -281,10 +291,13 @@ export function BranchSelectorPopover({
         ) : null}
       </NodexDropdownMenu>
 
-      <NodexDialog open={createDialogOpen} onOpenChange={(nextOpen) => {
-        setCreateDialogOpen(nextOpen);
-        if (!nextOpen) setCreateBranchName("");
-      }}>
+      <NodexDialog
+        open={createDialogOpen}
+        onOpenChange={(nextOpen) => {
+          setCreateDialogOpen(nextOpen);
+          if (!nextOpen) setCreateBranchName("");
+        }}
+      >
         <NodexDialogContent size="compact" showCloseButton={false}>
           <NodexDialogForm onSubmit={(event) => void handleCreateSubmit(event)}>
             <NodexDialogHeader>
@@ -351,9 +364,7 @@ function NodexDropdownScrollBranchList({
       ) : error ? (
         <NodexDropdownSection className="flex flex-col gap-1">
           <NodexDropdownSectionLabel>Unable to load branches</NodexDropdownSectionLabel>
-          <NodexDropdownItem onSelect={() => void onRetry()}>
-            Retry
-          </NodexDropdownItem>
+          <NodexDropdownItem onSelect={() => void onRetry()}>Retry</NodexDropdownItem>
         </NodexDropdownSection>
       ) : filteredBranches.length === 0 ? (
         <NodexDropdownMessage compact>{emptyBranchMessage}</NodexDropdownMessage>

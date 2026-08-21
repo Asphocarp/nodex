@@ -1,10 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  constants,
-  copyFileSync,
-  lstatSync,
-  readFileSync,
-} from "node:fs";
+import { constants, copyFileSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const manifestFilename = "browser-runtime-manifest.json";
@@ -14,22 +9,17 @@ const stagedBrowserRuntimePath = [
   "agent-runtime",
   "browser-runtime",
 ];
-const packagedBrowserRuntimePath = [
-  "Contents",
-  "Resources",
-  "browser-runtime",
-];
+const packagedBrowserRuntimePath = ["Contents", "Resources", "browser-runtime"];
 const electronBuilderSkippedBasenames = new Set([".gitkeep"]);
 
-const sha256File = (filePath) =>
-  createHash("sha256").update(readFileSync(filePath)).digest("hex");
+const sha256File = (filePath) => createHash("sha256").update(readFileSync(filePath)).digest("hex");
 
 const requireSafeArtifactPath = (value, manifestPath) => {
   if (
-    typeof value !== "string"
-    || value.length === 0
-    || value.startsWith("/")
-    || value.includes("\\")
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.startsWith("/") ||
+    value.includes("\\")
   ) {
     throw new Error(`Invalid Browser runtime artifact path in ${manifestPath}`);
   }
@@ -58,11 +48,11 @@ const requireRealDirectoryChain = (rootPath, segments) => {
 const requireExactArtifact = (artifactPath, entry, label) => {
   const metadata = lstatSync(artifactPath);
   if (
-    metadata.isSymbolicLink()
-    || !metadata.isFile()
-    || (metadata.mode & 0o111) !== 0
-    || metadata.size !== entry.size
-    || sha256File(artifactPath) !== entry.sha256
+    metadata.isSymbolicLink() ||
+    !metadata.isFile() ||
+    (metadata.mode & 0o111) !== 0 ||
+    metadata.size !== entry.size ||
+    sha256File(artifactPath) !== entry.sha256
   ) {
     throw new Error(`${label} Browser runtime artifact does not match its manifest: ${entry.path}`);
   }
@@ -81,10 +71,7 @@ export const restorePackagedBrowserRuntimeClosure = ({
   }
 
   const manifest = JSON.parse(sourceManifestBytes.toString("utf8"));
-  if (
-    manifest.schemaVersion !== 4
-    || !Array.isArray(manifest.artifacts)
-  ) {
+  if (manifest.schemaVersion !== 4 || !Array.isArray(manifest.artifacts)) {
     throw new Error(`Unsupported Browser runtime manifest: ${sourceManifestPath}`);
   }
 
@@ -93,10 +80,10 @@ export const restorePackagedBrowserRuntimeClosure = ({
     const segments = requireSafeArtifactPath(entry.path, sourceManifestPath);
     if (!electronBuilderSkippedBasenames.has(segments.at(-1))) continue;
     if (
-      entry.kind !== "data"
-      || entry.executable !== false
-      || typeof entry.size !== "number"
-      || typeof entry.sha256 !== "string"
+      entry.kind !== "data" ||
+      entry.executable !== false ||
+      typeof entry.size !== "number" ||
+      typeof entry.sha256 !== "string"
     ) {
       throw new Error(`Invalid restorable Browser runtime artifact: ${entry.path}`);
     }
@@ -123,10 +110,7 @@ export const restorePackagedBrowserRuntimeClosure = ({
 export default async function restorePackagedRuntimeClosure(context) {
   if (context.electronPlatformName !== "darwin") return;
   const projectRoot = context.packager.projectDir;
-  const appPath = path.join(
-    context.appOutDir,
-    `${context.packager.appInfo.productFilename}.app`,
-  );
+  const appPath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
   const restored = restorePackagedBrowserRuntimeClosure({
     sourceBrowserRoot: path.join(projectRoot, ...stagedBrowserRuntimePath),
     packagedBrowserRoot: path.join(appPath, ...packagedBrowserRuntimePath),

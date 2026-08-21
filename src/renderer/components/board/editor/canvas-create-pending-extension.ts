@@ -1,11 +1,6 @@
 import { createExtension, getBlockInfo, getNodeById } from "@blocknote/core";
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model";
-import {
-  Plugin,
-  PluginKey,
-  type EditorState,
-  type Transaction,
-} from "@tiptap/pm/state";
+import { Plugin, PluginKey, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 interface CanvasCreatePendingState {
@@ -23,13 +18,11 @@ interface EditorWithCanvasCreatePending {
   transact: <T>(callback: (transaction: Transaction) => T) => T;
 }
 
-export const canvasCreatePendingPluginKey =
-  new PluginKey<CanvasCreatePendingState>("canvas-create-pending");
+export const canvasCreatePendingPluginKey = new PluginKey<CanvasCreatePendingState>(
+  "canvas-create-pending",
+);
 
-function pendingParagraphPosition(
-  document: ProsemirrorNode,
-  blockId: string,
-): number | null {
+function pendingParagraphPosition(document: ProsemirrorNode, blockId: string): number | null {
   const position = getNodeById(blockId, document);
   if (!position) return null;
   const block = getBlockInfo(position);
@@ -59,8 +52,7 @@ function createPendingIndicator(blockId: string): HTMLElement {
   ].join(" ");
 
   const activity = document.createElement("span");
-  activity.className =
-    "size-1.5 rounded-full bg-token-text-secondary";
+  activity.className = "size-1.5 rounded-full bg-token-text-secondary";
   activity.setAttribute("aria-hidden", "true");
   indicator.append(activity, "Creating Canvas…");
   return indicator;
@@ -80,11 +72,10 @@ function buildPendingDecorations(
     if (position === null) continue;
     retainedBlockIds.add(blockId);
     decorations.push(
-      Decoration.widget(
-        position,
-        () => createPendingIndicator(blockId),
-        { key: `canvas-create:${blockId}`, side: -1 },
-      ),
+      Decoration.widget(position, () => createPendingIndicator(blockId), {
+        key: `canvas-create:${blockId}`,
+        side: -1,
+      }),
     );
   }
   return {
@@ -102,9 +93,9 @@ function createCanvasCreatePendingPlugin(): Plugin<CanvasCreatePendingState> {
         decorations: DecorationSet.empty,
       }),
       apply: (transaction, previousState) => {
-        const action = transaction.getMeta(
-          canvasCreatePendingPluginKey,
-        ) as CanvasCreatePendingAction | undefined;
+        const action = transaction.getMeta(canvasCreatePendingPluginKey) as
+          | CanvasCreatePendingAction
+          | undefined;
         if (!action && !transaction.docChanged) return previousState;
 
         const blockIds = new Set(previousState.blockIds);
@@ -118,8 +109,7 @@ function createCanvasCreatePendingPlugin(): Plugin<CanvasCreatePendingState> {
     },
     props: {
       decorations: (state) =>
-        canvasCreatePendingPluginKey.getState(state)?.decorations
-        ?? DecorationSet.empty,
+        canvasCreatePendingPluginKey.getState(state)?.decorations ?? DecorationSet.empty,
     },
   });
 }

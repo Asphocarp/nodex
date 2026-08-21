@@ -116,8 +116,9 @@ export function normalizeFileLinkOpenerId(value: unknown): FileLinkOpenerId {
       filemanager: "fileManager",
     };
     const canonical = aliasMap[normalized] ?? aliasMap[lowercased] ?? normalized;
-    const match = FILE_LINK_OPENER_OPTIONS.find((option) =>
-      option.id === canonical || option.id.toLowerCase() === lowercased);
+    const match = FILE_LINK_OPENER_OPTIONS.find(
+      (option) => option.id === canonical || option.id.toLowerCase() === lowercased,
+    );
     if (match) return match.id;
   }
 

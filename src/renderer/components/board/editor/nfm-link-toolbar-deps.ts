@@ -1,9 +1,4 @@
-import {
-  useBlockNoteEditor,
-  useDictionary,
-  useEditorState,
-  useExtension,
-} from "@blocknote/react";
+import { useBlockNoteEditor, useDictionary, useEditorState, useExtension } from "@blocknote/react";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import {
   openNfmResolvedLinkAction,

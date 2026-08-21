@@ -2,18 +2,10 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, test, vi } from "vitest";
 
-import {
-  materializePortableCanvasScene,
-} from "../../shared/block-documents";
-import {
-  type BlockTransferIntent,
-} from "../../shared/block-transfer";
-import type {
-  DocumentSyncClientTarget,
-} from "../document-sync-transport";
-import type {
-  DocumentSyncSubscribeRequest,
-} from "../../shared/block-documents/document-sync";
+import { materializePortableCanvasScene } from "../../shared/block-documents";
+import { type BlockTransferIntent } from "../../shared/block-transfer";
+import type { DocumentSyncClientTarget } from "../document-sync-transport";
+import type { DocumentSyncSubscribeRequest } from "../../shared/block-documents/document-sync";
 import type { ExecuteNodexAgentDuplicatePageResult } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
@@ -24,19 +16,10 @@ import {
   type DesktopDocumentSyncScope,
 } from "./desktop-document-sync-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import {
-  createFakeCoreHandshake,
-  FakeCoreClient,
-} from "./testing/fake-core-client";
+import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
-import {
-  CoreEventCompatibilityError,
-  CoreHttpError,
-} from "./uds-http";
-import type {
-  CoreAuthorizedDeliveryPacket,
-  DocumentLiveBarrier,
-} from "./types";
+import { CoreEventCompatibilityError, CoreHttpError } from "./uds-http";
+import type { CoreAuthorizedDeliveryPacket, DocumentLiveBarrier } from "./types";
 import { LocalCommitCoordinator } from "./local-commit-coordinator";
 
 class FakeTarget implements DocumentSyncClientTarget {
@@ -72,9 +55,7 @@ class RejectFirstDocumentStreamClient extends FakeCoreClient {
   ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
     this.attempts += 1;
     if (this.attempts === 1) {
-      return Promise.reject(
-        new CoreHttpError(401, "Core SSE failed to open"),
-      );
+      return Promise.reject(new CoreHttpError(401, "Core SSE failed to open"));
     }
     return super.openDocumentEventStream(...args);
   }
@@ -104,9 +85,7 @@ class TerminalDocumentStreamClient extends FakeCoreClient {
   }
 
   terminate(): void {
-    this.rejectActive(new CoreEventCompatibilityError(
-      "Core event Store epoch is invalid",
-    ));
+    this.rejectActive(new CoreEventCompatibilityError("Core event Store epoch is invalid"));
   }
 }
 
@@ -319,7 +298,8 @@ const canvasSubscribeRequest = {
 
 const canvasSyncSnapshot = (
   syncRequestId: string,
-  accessContext: typeof canvasSubscribeRequest.accessContext
+  accessContext:
+    | typeof canvasSubscribeRequest.accessContext
     | { readonly kind: "library" } = canvasSubscribeRequest.accessContext,
 ) => ({
   kind: "snapshot" as const,
@@ -335,23 +315,25 @@ const canvasSyncSnapshot = (
 });
 
 const ownedDocumentDescriptorSnapshot = (
-  accessContext: { readonly kind: "project"; readonly projectId: string }
+  accessContext:
+    | { readonly kind: "project"; readonly projectId: string }
     | { readonly kind: "library" } = {
-      kind: "project",
-      projectId: "project:one",
-    },
+    kind: "project",
+    projectId: "project:one",
+  },
 ) => ({
   contract_version: 7 as const,
   store_epoch: "epoch:test",
   commit_head: 2,
   authorization: authorizedReadStampFixture({
-    deliveryAddress: accessContext.kind === "project"
-      ? {
-          kind: "project" as const,
-          library_id: "library:test",
-          project_id: accessContext.projectId,
-        }
-      : { kind: "library" as const, library_id: "library:test" },
+    deliveryAddress:
+      accessContext.kind === "project"
+        ? {
+            kind: "project" as const,
+            library_id: "library:test",
+            project_id: accessContext.projectId,
+          }
+        : { kind: "library" as const, library_id: "library:test" },
     subject: { kind: "page", page_id: "page:one" },
     commitSeq: 2,
     storeEpoch: "epoch:test",
@@ -405,12 +387,7 @@ const documentVersionSummary = () => ({
 
 const prepareOperationId = (scope: string): string =>
   `electron:prepare-owner:${createHash("sha256")
-    .update(JSON.stringify([
-      scope,
-      "page:one",
-      "epoch:test",
-      "binding:test",
-    ]))
+    .update(JSON.stringify([scope, "page:one", "epoch:test", "binding:test"]))
     .digest("hex")}`;
 
 const preparedDocumentCommit = (operationId: string) => ({
@@ -449,43 +426,53 @@ describe("Desktop Document sync bridge", () => {
     const other = new FakeTarget(2);
     const scope = { kind: "project", projectId: "project:one" } as const;
 
-    await expect(bridge.subscribe(scope, owner, subscribeRequest)).resolves
-      .toEqual({ ok: true, value: { subscribed: true } });
-    await expect(bridge.subscribe(scope, owner, {
-      ...subscribeRequest,
-      documentId: "document:two",
-    })).resolves.toMatchObject({
+    await expect(bridge.subscribe(scope, owner, subscribeRequest)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
+    await expect(
+      bridge.subscribe(scope, owner, {
+        ...subscribeRequest,
+        documentId: "document:two",
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "unauthorized" },
     });
-    await expect(bridge.subscribe(
-      { kind: "library" },
-      other,
-      subscribeRequest,
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.subscribe({ kind: "library" }, other, subscribeRequest),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "unauthorized" },
     });
-    await expect(bridge.subscribe(scope, other, subscribeRequest)).resolves
-      .toMatchObject({ ok: false, error: { code: "unauthorized" } });
-    await expect(bridge.sync(scope, other, {
-      ...subscribeRequest,
-      stateVector: new Uint8Array(),
-    })).resolves.toMatchObject({
+    await expect(bridge.subscribe(scope, other, subscribeRequest)).resolves.toMatchObject({
       ok: false,
       error: { code: "unauthorized" },
     });
-    await expect(bridge.sync(scope, owner, {
-      ...subscribeRequest,
-      stateVector: new Uint8Array(),
-    })).resolves.toMatchObject({
+    await expect(
+      bridge.sync(scope, other, {
+        ...subscribeRequest,
+        stateVector: new Uint8Array(),
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "unauthorized" },
+    });
+    await expect(
+      bridge.sync(scope, owner, {
+        ...subscribeRequest,
+        stateVector: new Uint8Array(),
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: { documentId: subscribeRequest.documentId, headSeq: 2 },
     });
 
     owner.destroy();
-    await expect(bridge.subscribe(scope, other, subscribeRequest)).resolves
-      .toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.subscribe(scope, other, subscribeRequest)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
   });
 
   test("acknowledges only an open Core stream and releases a failed opening binding", async () => {
@@ -495,11 +482,9 @@ describe("Desktop Document sync bridge", () => {
     });
     const scope = { kind: "project", projectId: "project:one" } as const;
 
-    await expect(bridge.subscribe(
-      scope,
-      new FakeTarget(1),
-      subscribeRequest,
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.subscribe(scope, new FakeTarget(1), subscribeRequest),
+    ).resolves.toMatchObject({
       ok: false,
       error: {
         code: "transport_unavailable",
@@ -507,11 +492,10 @@ describe("Desktop Document sync bridge", () => {
         retryable: true,
       },
     });
-    await expect(bridge.subscribe(
-      scope,
-      new FakeTarget(2),
-      subscribeRequest,
-    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.subscribe(scope, new FakeTarget(2), subscribeRequest)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
     expect(client.attempts).toBe(2);
   });
 
@@ -530,9 +514,7 @@ describe("Desktop Document sync bridge", () => {
       expect(client.openings).toHaveLength(1);
     });
 
-    client.openings[0]?.fail(
-      new CoreHttpError(401, "Core SSE failed to open"),
-    );
+    client.openings[0]?.fail(new CoreHttpError(401, "Core SSE failed to open"));
     await expect(first).resolves.toMatchObject({
       ok: false,
       error: { code: "transport_unavailable" },
@@ -559,16 +541,10 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
     const target = new FakeTarget(30);
-    const opening = bridge.subscribe(
-      { kind: "library" },
-      target,
-      subscribeRequest,
-    );
+    const opening = bridge.subscribe({ kind: "library" }, target, subscribeRequest);
     await vi.waitFor(() => expect(client.openings).toHaveLength(1));
 
-    bridge.publishDocumentEffects(documentCommitEnvelope(1, [
-      subscribeRequest.documentId,
-    ]));
+    bridge.publishDocumentEffects(documentCommitEnvelope(1, [subscribeRequest.documentId]));
     expect(target.sent).toHaveLength(0);
 
     client.openings[0]?.open();
@@ -576,12 +552,15 @@ describe("Desktop Document sync bridge", () => {
       ok: true,
       value: { subscribed: true },
     });
-    expect(target.sent.filter((delivery) =>
-      typeof delivery.payload === "object"
-      && delivery.payload !== null
-      && "kind" in delivery.payload
-      && delivery.payload.kind === "document-update"
-    )).toHaveLength(0);
+    expect(
+      target.sent.filter(
+        (delivery) =>
+          typeof delivery.payload === "object" &&
+          delivery.payload !== null &&
+          "kind" in delivery.payload &&
+          delivery.payload.kind === "document-update",
+      ),
+    ).toHaveLength(0);
   });
 
   test("admits an exact session at its barrier but withholds bytes until canonical sync", async () => {
@@ -601,25 +580,20 @@ describe("Desktop Document sync bridge", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(target.sent).toHaveLength(0);
 
-    await activateYjsSubscription(
-      bridge,
-      client,
-      scope,
-      target,
-      subscribeRequest,
-      1,
-    );
+    await activateYjsSubscription(bridge, client, scope, target, subscribeRequest, 1);
     client.emitDocument(subscribeRequest.documentId, {
       transport_version: 8,
       packet: documentCommitEnvelope(2, [subscribeRequest.documentId]),
     });
     await vi.waitFor(() => {
-      expect(target.sent).toEqual([expect.objectContaining({
-        payload: expect.objectContaining({
-          kind: "document-update",
-          headSeq: 2,
+      expect(target.sent).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            kind: "document-update",
+            headSeq: 2,
+          }),
         }),
-      })]);
+      ]);
     });
   });
 
@@ -631,14 +605,7 @@ describe("Desktop Document sync bridge", () => {
     const target = new FakeTarget(32);
     const scope = { kind: "library" } as const;
     await bridge.subscribe(scope, target, subscribeRequest);
-    await activateYjsSubscription(
-      bridge,
-      client,
-      scope,
-      target,
-      subscribeRequest,
-      1,
-    );
+    await activateYjsSubscription(bridge, client, scope, target, subscribeRequest, 1);
     target.sent.splice(0);
 
     client.emitDocumentRepair(subscribeRequest.documentId, {
@@ -651,13 +618,15 @@ describe("Desktop Document sync bridge", () => {
     });
 
     await vi.waitFor(() => {
-      expect(target.sent).toContainEqual(expect.objectContaining({
-        payload: expect.objectContaining({
-          kind: "resync-required",
-          storeEpoch: "epoch:replacement",
-          reason: "identity-boundary-changed",
+      expect(target.sent).toContainEqual(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            kind: "resync-required",
+            storeEpoch: "epoch:replacement",
+            reason: "identity-boundary-changed",
+          }),
         }),
-      }));
+      );
     });
   });
 
@@ -669,8 +638,10 @@ describe("Desktop Document sync bridge", () => {
     const scope = { kind: "project", projectId: "project:one" } as const;
     const owner = new FakeTarget(1);
 
-    await expect(bridge.subscribe(scope, owner, subscribeRequest)).resolves
-      .toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.subscribe(scope, owner, subscribeRequest)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
 
     client.terminate();
     await vi.waitFor(() => {
@@ -685,11 +656,10 @@ describe("Desktop Document sync bridge", () => {
       });
     });
 
-    await expect(bridge.subscribe(
-      scope,
-      new FakeTarget(2),
-      subscribeRequest,
-    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.subscribe(scope, new FakeTarget(2), subscribeRequest)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
     expect(client.attempts).toBe(2);
   });
 
@@ -710,12 +680,16 @@ describe("Desktop Document sync bridge", () => {
     const target = new FakeTarget(1);
     const scope = { kind: "library" } as const;
 
-    await expect(bridge.subscribe(scope, target, subscribeRequest)).resolves
-      .toEqual({ ok: true, value: { subscribed: true } });
-    await expect(bridge.sync(scope, target, {
-      ...subscribeRequest,
-      stateVector: new Uint8Array(),
-    })).resolves.toMatchObject({
+    await expect(bridge.subscribe(scope, target, subscribeRequest)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
+    await expect(
+      bridge.sync(scope, target, {
+        ...subscribeRequest,
+        stateVector: new Uint8Array(),
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: { documentId: subscribeRequest.documentId, headSeq: 3 },
     });
@@ -732,29 +706,22 @@ describe("Desktop Document sync bridge", () => {
     const projectTwo = new FakeTarget(2);
     const library = new FakeTarget(3);
     const unrelated = new FakeTarget(4);
-    await bridge.subscribe(
-      { kind: "project", projectId: "project:one" },
-      projectOne,
-      { ...subscribeRequest, clientSessionId: "renderer:project:one" },
-    );
-    await bridge.subscribe(
-      { kind: "project", projectId: "project:two" },
-      projectTwo,
-      { ...subscribeRequest, clientSessionId: "renderer:project:two" },
-    );
-    await bridge.subscribe(
-      { kind: "library" },
-      library,
-      { ...subscribeRequest, clientSessionId: "renderer:library" },
-    );
-    await bridge.subscribe(
-      { kind: "project", projectId: "project:two" },
-      unrelated,
-      {
-        documentId: "document:unrelated",
-        clientSessionId: "renderer:unrelated",
-      },
-    );
+    await bridge.subscribe({ kind: "project", projectId: "project:one" }, projectOne, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:project:one",
+    });
+    await bridge.subscribe({ kind: "project", projectId: "project:two" }, projectTwo, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:project:two",
+    });
+    await bridge.subscribe({ kind: "library" }, library, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:library",
+    });
+    await bridge.subscribe({ kind: "project", projectId: "project:two" }, unrelated, {
+      documentId: "document:unrelated",
+      clientSessionId: "renderer:unrelated",
+    });
     await activateYjsSubscription(
       bridge,
       client,
@@ -783,20 +750,20 @@ describe("Desktop Document sync bridge", () => {
       target.sent.splice(0);
     }
 
-    bridge.publishDocumentEffects(documentCommitEnvelope(3, [
-      subscribeRequest.documentId,
-    ]));
+    bridge.publishDocumentEffects(documentCommitEnvelope(3, [subscribeRequest.documentId]));
 
     for (const target of [projectOne, projectTwo, library]) {
-      expect(target.sent).toEqual([expect.objectContaining({
-        channel: "document-sync:event",
-        payload: expect.objectContaining({
-          kind: "document-update",
-          documentId: subscribeRequest.documentId,
-          headSeq: 3,
-          clientSessionId: "core:authorized-delivery",
+      expect(target.sent).toEqual([
+        expect.objectContaining({
+          channel: "document-sync:event",
+          payload: expect.objectContaining({
+            kind: "document-update",
+            documentId: subscribeRequest.documentId,
+            headSeq: 3,
+            clientSessionId: "core:authorized-delivery",
+          }),
         }),
-      })]);
+      ]);
     }
     expect(unrelated.sent).toHaveLength(0);
   });
@@ -809,21 +776,18 @@ describe("Desktop Document sync bridge", () => {
     const source = new FakeTarget(5);
     const target = new FakeTarget(6);
     const library = new FakeTarget(7);
-    await bridge.subscribe(
-      { kind: "project", projectId: "project:one" },
-      source,
-      { ...subscribeRequest, clientSessionId: "renderer:source" },
-    );
-    await bridge.subscribe(
-      { kind: "project", projectId: "project:two" },
-      target,
-      { ...subscribeRequest, clientSessionId: "renderer:target" },
-    );
-    await bridge.subscribe(
-      { kind: "library" },
-      library,
-      { ...subscribeRequest, clientSessionId: "renderer:library" },
-    );
+    await bridge.subscribe({ kind: "project", projectId: "project:one" }, source, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:source",
+    });
+    await bridge.subscribe({ kind: "project", projectId: "project:two" }, target, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:target",
+    });
+    await bridge.subscribe({ kind: "library" }, library, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:library",
+    });
     await activateYjsSubscription(
       bridge,
       client,
@@ -872,12 +836,14 @@ describe("Desktop Document sync bridge", () => {
 
     bridge.publishResourceRevocation(packet, revocation);
 
-    expect(source.sent).toEqual([expect.objectContaining({
-      payload: expect.objectContaining({
-        kind: "resync-required",
-        reason: "access-revoked",
+    expect(source.sent).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "resync-required",
+          reason: "access-revoked",
+        }),
       }),
-    })]);
+    ]);
     expect(target.sent).toHaveLength(0);
     expect(library.sent).toHaveLength(0);
 
@@ -894,16 +860,14 @@ describe("Desktop Document sync bridge", () => {
     });
     const source = new FakeTarget(8);
     const target = new FakeTarget(9);
-    await bridge.subscribe(
-      { kind: "project", projectId: "project:one" },
-      source,
-      { ...subscribeRequest, clientSessionId: "renderer:source-barrier" },
-    );
-    await bridge.subscribe(
-      { kind: "project", projectId: "project:two" },
-      target,
-      { ...subscribeRequest, clientSessionId: "renderer:target-barrier" },
-    );
+    await bridge.subscribe({ kind: "project", projectId: "project:one" }, source, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:source-barrier",
+    });
+    await bridge.subscribe({ kind: "project", projectId: "project:two" }, target, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:target-barrier",
+    });
     await activateYjsSubscription(
       bridge,
       client,
@@ -935,34 +899,42 @@ describe("Desktop Document sync bridge", () => {
     };
     const packet = {
       ...documentCommitEnvelope(4, [subscribeRequest.documentId]),
-      visibility_deltas: [{
-        authorization_scope: revocation.authorization_scope,
-        change: {
-          kind: "revoke" as const,
-          reason: revocation.reason,
+      visibility_deltas: [
+        {
+          authorization_scope: revocation.authorization_scope,
+          change: {
+            kind: "revoke" as const,
+            reason: revocation.reason,
+          },
+          roots: [
+            {
+              kind: "document" as const,
+              document_id: revocation.resource_id,
+            },
+          ],
+          delta_hash: "e".repeat(64),
         },
-        roots: [{
-          kind: "document" as const,
-          document_id: revocation.resource_id,
-        }],
-        delta_hash: "e".repeat(64),
-      }],
+      ],
     };
 
     bridge.publishDocumentEffects(packet);
 
     expect(source.sent).toHaveLength(0);
-    expect(target.sent).toEqual([expect.objectContaining({
-      payload: expect.objectContaining({ kind: "document-update" }),
-    })]);
+    expect(target.sent).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({ kind: "document-update" }),
+      }),
+    ]);
 
     bridge.publishResourceRevocation(packet, revocation);
-    expect(source.sent).toEqual([expect.objectContaining({
-      payload: expect.objectContaining({
-        kind: "resync-required",
-        reason: "access-revoked",
+    expect(source.sent).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "resync-required",
+          reason: "access-revoked",
+        }),
       }),
-    })]);
+    ]);
   });
 
   test("closes an exact Document subscription recovered from its durable stream", async () => {
@@ -995,18 +967,24 @@ describe("Desktop Document sync bridge", () => {
       }),
     });
 
-    await vi.waitFor(() => expect(target.sent).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          kind: "resync-required",
-          reason: "access-revoked",
-        }),
+    await vi.waitFor(() =>
+      expect(target.sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              kind: "resync-required",
+              reason: "access-revoked",
+            }),
+          }),
+        ]),
+      ),
+    );
+    await expect(
+      bridge.sync(scope, target, {
+        ...subscribeRequest,
+        stateVector: new Uint8Array(),
       }),
-    ])));
-    await expect(bridge.sync(scope, target, {
-      ...subscribeRequest,
-      stateVector: new Uint8Array(),
-    })).resolves.toMatchObject({
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "unauthorized" },
     });
@@ -1045,10 +1023,7 @@ describe("Desktop Document sync bridge", () => {
     );
     first.sent.splice(0);
     second.sent.splice(0);
-    const packet = documentCommitEnvelope(3, [
-      "document:first",
-      "document:second",
-    ]);
+    const packet = documentCommitEnvelope(3, ["document:first", "document:second"]);
 
     bridge.publishDocumentEffects(packet, "document:first");
 
@@ -1090,11 +1065,7 @@ describe("Desktop Document sync bridge", () => {
     );
     first.sent.splice(0);
     second.sent.splice(0);
-    const packet = documentCommitEnvelope(
-      3,
-      [subscribeRequest.documentId],
-      { inline: false },
-    );
+    const packet = documentCommitEnvelope(3, [subscribeRequest.documentId], { inline: false });
     client.enqueueDocumentRead(updateResourceSnapshot(packet));
 
     bridge.publishDocumentEffects(packet);
@@ -1122,11 +1093,7 @@ describe("Desktop Document sync bridge", () => {
     const target = new FakeTarget(13);
     await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
     target.sent.splice(0);
-    const packet = documentCommitEnvelope(
-      4,
-      [subscribeRequest.documentId],
-      { inline: false },
-    );
+    const packet = documentCommitEnvelope(4, [subscribeRequest.documentId], { inline: false });
     const reference = packet.document_effects[0]?.reference;
     if (!reference) throw new Error("Expected a Document effect fixture");
     client.enqueueDocumentRead({
@@ -1166,15 +1133,10 @@ describe("Desktop Document sync bridge", () => {
     const target = new FakeTarget(14);
     await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
     target.sent.splice(0);
-    const fetchedPacket = documentCommitEnvelope(
-      5,
-      [subscribeRequest.documentId],
-      { inline: false },
-    );
-    client.enqueueDocumentRead(updateResourceSnapshot(
-      fetchedPacket,
-      [9, 9, 9],
-    ));
+    const fetchedPacket = documentCommitEnvelope(5, [subscribeRequest.documentId], {
+      inline: false,
+    });
+    client.enqueueDocumentRead(updateResourceSnapshot(fetchedPacket, [9, 9, 9]));
 
     bridge.publishDocumentEffects(fetchedPacket);
 
@@ -1188,24 +1150,25 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
     });
     const inlineTarget = new FakeTarget(15);
-    await inlineBridge.subscribe(
-      { kind: "library" },
-      inlineTarget,
-      { ...subscribeRequest, clientSessionId: "renderer:inline-integrity" },
-    );
+    await inlineBridge.subscribe({ kind: "library" }, inlineTarget, {
+      ...subscribeRequest,
+      clientSessionId: "renderer:inline-integrity",
+    });
     inlineTarget.sent.splice(0);
     const inlinePacket = documentCommitEnvelope(6, [subscribeRequest.documentId]);
     const inlineEffect = inlinePacket.document_effects[0];
     if (!inlineEffect) throw new Error("Expected a Document effect fixture");
     inlineBridge.publishDocumentEffects({
       ...inlinePacket,
-      document_effects: [{
-        ...inlineEffect,
-        reference: {
-          ...inlineEffect.reference,
-          update_hash: "0".repeat(64),
+      document_effects: [
+        {
+          ...inlineEffect,
+          reference: {
+            ...inlineEffect.reference,
+            update_hash: "0".repeat(64),
+          },
         },
-      }],
+      ],
     });
     expect(inlineTarget.sent[0]?.payload).toMatchObject({
       kind: "resync-required",
@@ -1219,19 +1182,8 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
     const target = new FakeTarget(1);
-    await bridge.subscribe(
-      { kind: "library" },
-      target,
-      subscribeRequest,
-    );
-    await activateYjsSubscription(
-      bridge,
-      client,
-      { kind: "library" },
-      target,
-      subscribeRequest,
-      3,
-    );
+    await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
+    await activateYjsSubscription(bridge, client, { kind: "library" }, target, subscribeRequest, 3);
     target.sent.splice(0);
 
     const envelope = documentCommitEnvelope(4, [subscribeRequest.documentId]);
@@ -1247,19 +1199,8 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
     const target = new FakeTarget(2);
-    await bridge.subscribe(
-      { kind: "library" },
-      target,
-      subscribeRequest,
-    );
-    await activateYjsSubscription(
-      bridge,
-      client,
-      { kind: "library" },
-      target,
-      subscribeRequest,
-      5,
-    );
+    await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
+    await activateYjsSubscription(bridge, client, { kind: "library" }, target, subscribeRequest, 5);
     target.sent.splice(0);
 
     const coordinator = new LocalCommitCoordinator({
@@ -1276,12 +1217,15 @@ describe("Desktop Document sync bridge", () => {
     expect(coordinator.admit(envelope, "tailer").kind).toBe("duplicate");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(target.sent.filter((delivery) =>
-      typeof delivery.payload === "object"
-      && delivery.payload !== null
-      && "kind" in delivery.payload
-      && delivery.payload.kind === "document-update"
-    )).toHaveLength(1);
+    expect(
+      target.sent.filter(
+        (delivery) =>
+          typeof delivery.payload === "object" &&
+          delivery.payload !== null &&
+          "kind" in delivery.payload &&
+          delivery.payload.kind === "document-update",
+      ),
+    ).toHaveLength(1);
   });
 
   test("turns a compacted Document effect into a history resync", async () => {
@@ -1289,28 +1233,23 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(new FakeCoreClient())),
     });
     const target = new FakeTarget(1);
-    await bridge.subscribe(
-      { kind: "library" },
-      target,
-      subscribeRequest,
-    );
+    await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
     target.sent.splice(0);
 
-    bridge.publishDocumentEffects(compactedDocumentCommitEnvelope(
-      5,
-      subscribeRequest.documentId,
-    ));
+    bridge.publishDocumentEffects(compactedDocumentCommitEnvelope(5, subscribeRequest.documentId));
 
-    expect(target.sent).toEqual([expect.objectContaining({
-      channel: "document-sync:event",
-      payload: expect.objectContaining({
-        kind: "resync-required",
-        documentId: subscribeRequest.documentId,
-        generation: 1,
-        headSeq: 5,
-        reason: "history-compacted",
+    expect(target.sent).toEqual([
+      expect.objectContaining({
+        channel: "document-sync:event",
+        payload: expect.objectContaining({
+          kind: "resync-required",
+          documentId: subscribeRequest.documentId,
+          generation: 1,
+          headSeq: 5,
+          reason: "history-compacted",
+        }),
       }),
-    })]);
+    ]);
   });
 
   test("buffers out-of-order local Document effects until the durable head is contiguous", async () => {
@@ -1339,9 +1278,9 @@ describe("Desktop Document sync bridge", () => {
     expect(target.sent).toHaveLength(0);
 
     bridge.publishDocumentEffects(documentCommitEnvelope(2, [subscribeRequest.documentId]));
-    expect(target.sent.map((delivery) =>
-      (delivery.payload as { readonly headSeq: number }).headSeq,
-    )).toEqual([2, 3]);
+    expect(
+      target.sent.map((delivery) => (delivery.payload as { readonly headSeq: number }).headSeq),
+    ).toEqual([2, 3]);
   });
 
   test("reads and prepares Project and Library owners through their exact clients", async () => {
@@ -1352,24 +1291,22 @@ describe("Desktop Document sync bridge", () => {
     });
     projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
 
-    await expect(bridge.getOwnedDocumentDescriptor(
-      "project:one",
-      "page:one",
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.getOwnedDocumentDescriptor("project:one", "page:one"),
+    ).resolves.toMatchObject({
       libraryId: "library:test",
       accessContext: { kind: "project", projectId: "project:one" },
       ownerBlockId: "page:one",
       documentId: "document:one",
     });
 
-    projectClient.enqueueDocumentApply(preparedDocumentCommit(
-      prepareOperationId("project:project:one"),
-    ));
+    projectClient.enqueueDocumentApply(
+      preparedDocumentCommit(prepareOperationId("project:project:one")),
+    );
     projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
-    await expect(bridge.prepareOwnedBlockDocument(
-      "project:one",
-      "page:one",
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.prepareOwnedBlockDocument("project:one", "page:one"),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         accessContext: { kind: "project", projectId: "project:one" },
@@ -1385,15 +1322,13 @@ describe("Desktop Document sync bridge", () => {
       /^electron:prepare-owner:[a-f0-9]{64}$/u,
     );
 
-    rootClient.enqueueDocumentApply(preparedDocumentCommit(
-      prepareOperationId("library"),
-    ));
-    rootClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot({
-      kind: "library",
-    }));
-    const libraryPrepared = await bridge.prepareLibraryOwnedBlockDocument(
-      "page:one",
+    rootClient.enqueueDocumentApply(preparedDocumentCommit(prepareOperationId("library")));
+    rootClient.enqueueDocumentRead(
+      ownedDocumentDescriptorSnapshot({
+        kind: "library",
+      }),
     );
+    const libraryPrepared = await bridge.prepareLibraryOwnedBlockDocument("page:one");
     expect(libraryPrepared).toEqual({
       ok: true,
       value: expect.objectContaining({
@@ -1426,11 +1361,13 @@ describe("Desktop Document sync bridge", () => {
           created_block_ids: ["block:source", "block:content"],
           preserved_block_ids: [],
           deleted_block_ids: [],
-          document_heads: [{
-            document_id: "document:source",
-            generation: 1,
-            head_seq: 1,
-          }],
+          document_heads: [
+            {
+              document_id: "document:source",
+              generation: 1,
+              head_seq: 1,
+            },
+          ],
         },
       },
       receipt: {
@@ -1442,26 +1379,30 @@ describe("Desktop Document sync bridge", () => {
       },
     });
 
-    await expect(bridge.applyAdditionalDocumentCommand({
-      operationId: "owner:create",
-      projectId: "project:one",
-      storeEpoch: "epoch:test",
-      clientSessionId: "renderer:one",
-      actor: { kind: "electron_renderer" },
-      coordination: { kind: "fifo_only" },
-      operation: {
-        kind: "create_synced_source",
-        sourceBlockId: "block:source",
-        documentId: "document:source",
-        initialBlocks: [{
-          id: "block:content",
-          type: "paragraph",
-          props: {},
-          children: [],
-        }],
-        placement: { kind: "library" },
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      bridge.applyAdditionalDocumentCommand({
+        operationId: "owner:create",
+        projectId: "project:one",
+        storeEpoch: "epoch:test",
+        clientSessionId: "renderer:one",
+        actor: { kind: "electron_renderer" },
+        coordination: { kind: "fifo_only" },
+        operation: {
+          kind: "create_synced_source",
+          sourceBlockId: "block:source",
+          documentId: "document:source",
+          initialBlocks: [
+            {
+              id: "block:content",
+              type: "paragraph",
+              props: {},
+              children: [],
+            },
+          ],
+          placement: { kind: "library" },
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: { operationId: "owner:create", projectId: "project:one" },
     });
@@ -1486,21 +1427,25 @@ describe("Desktop Document sync bridge", () => {
       },
     });
 
-    await expect(bridge.listVersions({
-      projectId: "project:one",
-      documentId: "document:one",
-      limit: 20,
-    })).resolves.toEqual({ ok: true, value: [documentVersionSummary()] });
-    expect(rootClient.documentReads).toHaveLength(0);
-    expect(projectClient.documentReads).toEqual([{
-      clientSessionId: "electron:document-history",
-      read: {
-        kind: "list_versions",
-        document_id: "document:one",
-        before: undefined,
+    await expect(
+      bridge.listVersions({
+        projectId: "project:one",
+        documentId: "document:one",
         limit: 20,
+      }),
+    ).resolves.toEqual({ ok: true, value: [documentVersionSummary()] });
+    expect(rootClient.documentReads).toHaveLength(0);
+    expect(projectClient.documentReads).toEqual([
+      {
+        clientSessionId: "electron:document-history",
+        read: {
+          kind: "list_versions",
+          document_id: "document:one",
+          before: undefined,
+          limit: 20,
+        },
       },
-    }]);
+    ]);
   });
 
   test("commits a destructive Document mutation at the exact local head", async () => {
@@ -1566,9 +1511,7 @@ describe("Desktop Document sync bridge", () => {
       document_id: request.documentId,
       expected_head_seq: 2,
     });
-    expect(projectClient.documentApplies[0]?.intent).not.toHaveProperty(
-      "write_fence_prepared",
-    );
+    expect(projectClient.documentApplies[0]?.intent).not.toHaveProperty("write_fence_prepared");
   });
 
   test("commits a merge-friendly public Document operation without a lease", async () => {
@@ -1583,16 +1526,18 @@ describe("Desktop Document sync bridge", () => {
       expectedHeadSeq: 2,
       clientSessionId: subscribeRequest.clientSessionId,
       actor: { kind: "electron_renderer" },
-      operations: [{
-        kind: "insert_block" as const,
-        block: {
-          id: "block:inserted",
-          type: "paragraph",
-          props: {},
-          content: [],
-          children: [],
+      operations: [
+        {
+          kind: "insert_block" as const,
+          block: {
+            id: "block:inserted",
+            type: "paragraph",
+            props: {},
+            content: [],
+            children: [],
+          },
         },
-      }],
+      ],
     };
     projectClient.enqueueDocumentApply({
       store_epoch: request.storeEpoch,
@@ -1669,23 +1614,26 @@ describe("Desktop Document sync bridge", () => {
         },
       },
       final_location_revisions: { "block:root": 2 },
-      document_commits: [{
-        document_id: "document:source",
-        generation: 1,
-        base_head_seq: 2,
-        head_seq: 3,
-        update_id: "update:source",
-        update: [1, 2],
-        state_vector: [3],
-      }, {
-        document_id: "document:target",
-        generation: 1,
-        base_head_seq: 5,
-        head_seq: 6,
-        update_id: "update:target",
-        update: [4, 5],
-        state_vector: [6],
-      }],
+      document_commits: [
+        {
+          document_id: "document:source",
+          generation: 1,
+          base_head_seq: 2,
+          head_seq: 3,
+          update_id: "update:source",
+          update: [1, 2],
+          state_vector: [3],
+        },
+        {
+          document_id: "document:target",
+          generation: 1,
+          base_head_seq: 5,
+          head_seq: 6,
+          update_id: "update:target",
+          update: [4, 5],
+          state_vector: [6],
+        },
+      ],
       affected_database_ids: [],
       page_keys: {},
       page_etags: {},
@@ -1763,23 +1711,28 @@ describe("Desktop Document sync bridge", () => {
         intent: { root_block_ids: ["block:root"] },
       },
     });
-    bridge.publishDocumentEffects(documentCommitEnvelope(9, [
-      "document:source",
-      "document:target",
-    ]));
+    bridge.publishDocumentEffects(
+      documentCommitEnvelope(9, ["document:source", "document:target"]),
+    );
     for (const target of [sourceTarget, targetTarget]) {
-      expect(target.sent.some((delivery) =>
-        typeof delivery.payload === "object"
-        && delivery.payload !== null
-        && "kind" in delivery.payload
-        && delivery.payload.kind === "document-update"
-      )).toBe(true);
-      expect(target.sent.some((delivery) =>
-        typeof delivery.payload === "object"
-        && delivery.payload !== null
-        && "kind" in delivery.payload
-        && delivery.payload.kind === "relocation-lease-release"
-      )).toBe(false);
+      expect(
+        target.sent.some(
+          (delivery) =>
+            typeof delivery.payload === "object" &&
+            delivery.payload !== null &&
+            "kind" in delivery.payload &&
+            delivery.payload.kind === "document-update",
+        ),
+      ).toBe(true);
+      expect(
+        target.sent.some(
+          (delivery) =>
+            typeof delivery.payload === "object" &&
+            delivery.payload !== null &&
+            "kind" in delivery.payload &&
+            delivery.payload.kind === "relocation-lease-release",
+        ),
+      ).toBe(false);
     }
   });
 
@@ -1819,15 +1772,17 @@ describe("Desktop Document sync bridge", () => {
           },
         }),
         duplicate: false,
-        documentCommits: [{
-          documentId: "document:agent-target",
-          generation: 2,
-          baseHeadSeq: 7,
-          headSeq: 8,
-          updateId: "update:agent-copy",
-          update: new Uint8Array([1, 2, 3]),
-          stateVector: new Uint8Array([4, 5]),
-        }],
+        documentCommits: [
+          {
+            documentId: "document:agent-target",
+            generation: 2,
+            baseHeadSeq: 7,
+            headSeq: 8,
+            updateId: "update:agent-copy",
+            update: new Uint8Array([1, 2, 3]),
+            stateVector: new Uint8Array([4, 5]),
+          },
+        ],
         affectedDatabaseBlockIds: [],
         commitSeq: 14,
       },
@@ -1851,15 +1806,16 @@ describe("Desktop Document sync bridge", () => {
     });
     expect(result).toMatchObject({ ok: true, value: { commitSeq: 14 } });
     expect(execute).toHaveBeenCalledOnce();
-    bridge.publishDocumentEffects(documentCommitEnvelope(14, [
-      "document:agent-target",
-    ]));
-    expect(target.sent.some((delivery) =>
-      typeof delivery.payload === "object"
-      && delivery.payload !== null
-      && "kind" in delivery.payload
-      && delivery.payload.kind === "document-update"
-    )).toBe(true);
+    bridge.publishDocumentEffects(documentCommitEnvelope(14, ["document:agent-target"]));
+    expect(
+      target.sent.some(
+        (delivery) =>
+          typeof delivery.payload === "object" &&
+          delivery.payload !== null &&
+          "kind" in delivery.payload &&
+          delivery.payload.kind === "document-update",
+      ),
+    ).toBe(true);
   });
 
   test("acknowledges Canvas only after its Core stream opens and releases a failed binding", async () => {
@@ -1868,10 +1824,9 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(client)),
     });
 
-    await expect(bridge.subscribeCanvasScene(
-      new FakeTarget(1),
-      canvasSubscribeRequest,
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.subscribeCanvasScene(new FakeTarget(1), canvasSubscribeRequest),
+    ).resolves.toMatchObject({
       ok: false,
       error: {
         code: "unknown",
@@ -1879,10 +1834,9 @@ describe("Desktop Document sync bridge", () => {
         retryable: true,
       },
     });
-    await expect(bridge.subscribeCanvasScene(
-      new FakeTarget(2),
-      canvasSubscribeRequest,
-    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(
+      bridge.subscribeCanvasScene(new FakeTarget(2), canvasSubscribeRequest),
+    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
     expect(client.attempts).toBe(2);
   });
 
@@ -1897,34 +1851,37 @@ describe("Desktop Document sync bridge", () => {
     const canvasTarget = new FakeTarget(2);
     const otherTarget = new FakeTarget(3);
 
-    await expect(bridge.subscribe(
-      { kind: "project", projectId: "project:one" },
-      yjsTarget,
-      subscribeRequest,
-    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
-    await expect(bridge.subscribeCanvasScene(canvasTarget, {
-      ...canvasSubscribeRequest,
-      clientSessionId: subscribeRequest.clientSessionId,
-    })).resolves.toMatchObject({
+    await expect(
+      bridge.subscribe({ kind: "project", projectId: "project:one" }, yjsTarget, subscribeRequest),
+    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(
+      bridge.subscribeCanvasScene(canvasTarget, {
+        ...canvasSubscribeRequest,
+        clientSessionId: subscribeRequest.clientSessionId,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "access_scope_mismatch" },
     });
 
-    await expect(bridge.subscribeCanvasScene(
-      canvasTarget,
-      canvasSubscribeRequest,
-    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
-    await expect(bridge.syncCanvasScene(
-      otherTarget,
-      { ...canvasSubscribeRequest, syncRequestId: "sync:foreign" },
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.subscribeCanvasScene(canvasTarget, canvasSubscribeRequest),
+    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(
+      bridge.syncCanvasScene(otherTarget, {
+        ...canvasSubscribeRequest,
+        syncRequestId: "sync:foreign",
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "access_scope_mismatch" },
     });
-    await expect(bridge.syncCanvasScene(
-      canvasTarget,
-      { ...canvasSubscribeRequest, syncRequestId: "sync:canvas" },
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.syncCanvasScene(canvasTarget, {
+        ...canvasSubscribeRequest,
+        syncRequestId: "sync:canvas",
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         libraryId: "library:test",
@@ -1936,10 +1893,12 @@ describe("Desktop Document sync bridge", () => {
     });
     expect(rootClient.documentReads).toHaveLength(0);
     expect(projectClient.documentReads).toHaveLength(0);
-    expect(projectClient.documentCanvasSyncs).toEqual([{
-      ...canvasSubscribeRequest,
-      syncRequestId: "sync:canvas",
-    }]);
+    expect(projectClient.documentCanvasSyncs).toEqual([
+      {
+        ...canvasSubscribeRequest,
+        syncRequestId: "sync:canvas",
+      },
+    ]);
   });
 
   test("binds Library Canvas sync directly to Library authority", async () => {
@@ -1951,18 +1910,18 @@ describe("Desktop Document sync bridge", () => {
       accessContext,
       clientSessionId: "renderer:library-canvas",
     };
-    rootClient.enqueueDocumentCanvasSync(
-      canvasSyncSnapshot("sync:library-canvas", accessContext),
-    );
+    rootClient.enqueueDocumentCanvasSync(canvasSyncSnapshot("sync:library-canvas", accessContext));
     const bridge = createDesktopDocumentSyncBridge({
       authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
     });
     const target = new FakeTarget(31);
 
-    await expect(bridge.subscribeCanvasScene(new FakeTarget(30), {
-      ...request,
-      accessContext: { kind: "forged" } as never,
-    })).resolves.toMatchObject({
+    await expect(
+      bridge.subscribeCanvasScene(new FakeTarget(30), {
+        ...request,
+        accessContext: { kind: "forged" } as never,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "access_scope_mismatch" },
     });
@@ -1970,10 +1929,12 @@ describe("Desktop Document sync bridge", () => {
       ok: true,
       value: { subscribed: true },
     });
-    await expect(bridge.syncCanvasScene(target, {
-      ...request,
-      syncRequestId: "sync:library-canvas",
-    })).resolves.toMatchObject({
+    await expect(
+      bridge.syncCanvasScene(target, {
+        ...request,
+        syncRequestId: "sync:library-canvas",
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         libraryId: "library:test",
@@ -1981,10 +1942,12 @@ describe("Desktop Document sync bridge", () => {
         documentId: request.documentId,
       },
     });
-    expect(rootClient.documentCanvasSyncs).toEqual([{
-      ...request,
-      syncRequestId: "sync:library-canvas",
-    }]);
+    expect(rootClient.documentCanvasSyncs).toEqual([
+      {
+        ...request,
+        syncRequestId: "sync:library-canvas",
+      },
+    ]);
     expect(projectClient.documentCanvasSyncs).toHaveLength(0);
   });
 
@@ -2012,12 +1975,14 @@ describe("Desktop Document sync bridge", () => {
     });
 
     await vi.waitFor(() => {
-      expect(target.sent).toContainEqual(expect.objectContaining({
-        payload: expect.objectContaining({
-          type: "canvas_scene_resync_required",
-          storeEpoch: "epoch:replacement",
+      expect(target.sent).toContainEqual(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            type: "canvas_scene_resync_required",
+            storeEpoch: "epoch:replacement",
+          }),
         }),
-      }));
+      );
     });
   });
 
@@ -2040,9 +2005,7 @@ describe("Desktop Document sync bridge", () => {
       syncRequestId: "sync:presence:b",
     });
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(
-        rustRuntime(new FakeCoreClient(), projectClient),
-      ),
+      authority: Promise.resolve(rustRuntime(new FakeCoreClient(), projectClient)),
     });
     const targetA = new FakeTarget(41);
     const targetB = new FakeTarget(42);
@@ -2061,26 +2024,28 @@ describe("Desktop Document sync bridge", () => {
     const coreSyncCount = projectClient.documentCanvasSyncs.length;
     const coreApplyCount = projectClient.documentApplies.length;
 
-    await expect(bridge.publishCanvasPresence(targetA, {
-      accessContext: requestA.accessContext,
-      clientSessionId: requestA.clientSessionId,
-      publication: {
-        engine: "canvas_scene",
-        documentId: requestA.documentId,
-        generation: 1,
-        clock: 1,
-        state: {
-          pointer: {
-            x: 20,
-            y: 30,
-            button: "up",
-            tool: "pointer",
+    await expect(
+      bridge.publishCanvasPresence(targetA, {
+        accessContext: requestA.accessContext,
+        clientSessionId: requestA.clientSessionId,
+        publication: {
+          engine: "canvas_scene",
+          documentId: requestA.documentId,
+          generation: 1,
+          clock: 1,
+          state: {
+            pointer: {
+              x: 20,
+              y: 30,
+              button: "up",
+              tool: "pointer",
+            },
+            selectedElementIds: [],
+            idle: "active",
           },
-          selectedElementIds: [],
-          idle: "active",
         },
-      },
-    })).resolves.toEqual({
+      }),
+    ).resolves.toEqual({
       ok: true,
       value: { accepted: true, applied: true },
     });
@@ -2180,9 +2145,10 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.resolve(rustRuntime(new FakeCoreClient(), projectClient)),
     });
     const target = new FakeTarget(20);
-    await expect(
-      bridge.subscribeCanvasScene(target, canvasSubscribeRequest),
-    ).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.subscribeCanvasScene(target, canvasSubscribeRequest)).resolves.toEqual({
+      ok: true,
+      value: { subscribed: true },
+    });
     const result = await bridge.compactCanvasScene(target, {
       ...canvasSubscribeRequest,
       mutationId: operationId,
@@ -2228,11 +2194,13 @@ describe("Desktop Document sync bridge", () => {
       authority: Promise.reject(new Error("Core startup failed")),
     });
 
-    await expect(bridge.subscribe(
-      { kind: "project", projectId: "project:one" },
-      new FakeTarget(1),
-      subscribeRequest,
-    )).resolves.toMatchObject({
+    await expect(
+      bridge.subscribe(
+        { kind: "project", projectId: "project:one" },
+        new FakeTarget(1),
+        subscribeRequest,
+      ),
+    ).resolves.toMatchObject({
       ok: false,
       error: {
         code: "transport_unavailable",

@@ -27,10 +27,7 @@ export const MoveAndOptionCopyCues: Story = {
           Editor Block → Board · move (Option copies)
         </p>
         <div className="relative h-16 rounded-lg bg-(--background-secondary) px-3 pt-4">
-          <DropIndicator
-            className="absolute inset-x-3 top-4"
-            label="Move to Database"
-          />
+          <DropIndicator className="absolute inset-x-3 top-4" label="Move to Database" />
         </div>
       </section>
     </div>

@@ -17,9 +17,12 @@ interface ElectronExtension {
 
 interface ElectronExtensionsApi {
   getAllExtensions(): ElectronExtension[];
-  loadExtension(extensionPath: string, options?: {
-    allowFileAccess?: boolean;
-  }): Promise<ElectronExtension>;
+  loadExtension(
+    extensionPath: string,
+    options?: {
+      allowFileAccess?: boolean;
+    },
+  ): Promise<ElectronExtension>;
   removeExtension(extensionId: string): void;
 }
 
@@ -28,10 +31,10 @@ export class BrowserExtensionsProvider {
 
   capability(): BrowserCapabilityStatus {
     if (
-      this.extensions
-      && typeof this.extensions.getAllExtensions === "function"
-      && typeof this.extensions.loadExtension === "function"
-      && typeof this.extensions.removeExtension === "function"
+      this.extensions &&
+      typeof this.extensions.getAllExtensions === "function" &&
+      typeof this.extensions.loadExtension === "function" &&
+      typeof this.extensions.removeExtension === "function"
     ) {
       return {
         available: true,
@@ -52,7 +55,8 @@ export class BrowserExtensionsProvider {
     }
     return {
       capability,
-      extensions: this.extensions.getAllExtensions()
+      extensions: this.extensions
+        .getAllExtensions()
         .map(toSummary)
         .sort((left, right) => left.name.localeCompare(right.name)),
     };
@@ -70,9 +74,11 @@ export class BrowserExtensionsProvider {
     if (!manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
       throw new Error("Browser extension manifest is missing");
     }
-    return toSummary(await extensions.loadExtension(resolvedPath, {
-      allowFileAccess: false,
-    }));
+    return toSummary(
+      await extensions.loadExtension(resolvedPath, {
+        allowFileAccess: false,
+      }),
+    );
   }
 
   remove(extensionId: string): void {
@@ -92,8 +98,7 @@ function toSummary(extension: ElectronExtension): BrowserExtensionSummary {
   return {
     id: extension.id,
     name: extension.name,
-    version: extension.version
-      ?? (typeof manifestVersion === "string" ? manifestVersion : ""),
+    version: extension.version ?? (typeof manifestVersion === "string" ? manifestVersion : ""),
     path: extension.path,
     url: extension.url,
   };

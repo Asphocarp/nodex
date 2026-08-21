@@ -17,11 +17,7 @@ import type {
   DatabasePropertyValueType,
   EffectiveDatabaseViewPresentation,
 } from "../../shared/database-kernel";
-import type {
-  DatabaseId,
-  DatabaseViewId,
-  DataSourceId,
-} from "../../shared/database-identities";
+import type { DatabaseId, DatabaseViewId, DataSourceId } from "../../shared/database-identities";
 import { readDatabasePropertyOptions } from "./database-view-authoring";
 import type { Estimate, Priority } from "./types";
 import { isPriority } from "../../shared/priority";
@@ -86,9 +82,10 @@ export const groupScopeKeyForColumn = (groupKey: string | null): string =>
 export const groupScopeKeyForPath = (
   groupKey: string | null,
   subgroupKey: string | null,
-): string => subgroupKey === null
-  ? groupScopeKeyForColumn(groupKey)
-  : `${groupScopeKeyForColumn(groupKey)}/sub:${JSON.stringify(subgroupKey)}`;
+): string =>
+  subgroupKey === null
+    ? groupScopeKeyForColumn(groupKey)
+    : `${groupScopeKeyForColumn(groupKey)}/sub:${JSON.stringify(subgroupKey)}`;
 
 export interface DatabaseViewRenderColumn {
   readonly id: string;
@@ -104,8 +101,7 @@ const propertyById = (
   propertyId: string,
 ): DataSourcePropertyRecordV2 | null =>
   properties.find(
-    (property) =>
-      property.lifecycle === "active" && property.propertyId === propertyId,
+    (property) => property.lifecycle === "active" && property.propertyId === propertyId,
   ) ?? null;
 
 const readValue = (
@@ -151,27 +147,12 @@ export const projectDataSourcePageRowToDatabaseViewRenderRow = (
   properties: readonly DataSourcePropertyRecordV2[],
 ): DatabaseViewRenderRow => {
   const statusValue = readNullableString(row, propertyById(properties, "status"));
-  const priorityValue = readNullableString(
-    row,
-    propertyById(properties, "priority"),
-  );
-  const estimateValue = readNullableString(
-    row,
-    propertyById(properties, "estimate"),
-  );
+  const priorityValue = readNullableString(row, propertyById(properties, "priority"));
+  const estimateValue = readNullableString(row, propertyById(properties, "estimate"));
   const dueDate = readDate(row, propertyById(properties, "due_date"));
-  const scheduledStart = readDate(
-    row,
-    propertyById(properties, "scheduled_start"),
-  );
-  const scheduledEnd = readDate(
-    row,
-    propertyById(properties, "scheduled_end"),
-  );
-  const assignee = readNullableString(
-    row,
-    propertyById(properties, "assignee"),
-  );
+  const scheduledStart = readDate(row, propertyById(properties, "scheduled_start"));
+  const scheduledEnd = readDate(row, propertyById(properties, "scheduled_end"));
+  const assignee = readNullableString(row, propertyById(properties, "assignee"));
 
   return {
     pageId: row.page.pageId,
@@ -179,9 +160,7 @@ export const projectDataSourcePageRowToDatabaseViewRenderRow = (
     ...(row.taskParent.parentPageId
       ? {
           parentPageId: row.taskParent.parentPageId,
-          ...(row.taskParent.siblingRank
-            ? { siblingRank: row.taskParent.siblingRank }
-            : {}),
+          ...(row.taskParent.siblingRank ? { siblingRank: row.taskParent.siblingRank } : {}),
         }
       : {}),
     taskParentValueRevision: row.taskParent.valueRevision,
@@ -191,9 +170,7 @@ export const projectDataSourcePageRowToDatabaseViewRenderRow = (
     preview: row.page.preview,
     plainText: row.page.plainText,
     ...(isWorkflowStatus(statusValue) ? { status: statusValue } : {}),
-    ...(isPriority(priorityValue)
-      ? { priority: priorityValue }
-      : {}),
+    ...(isPriority(priorityValue) ? { priority: priorityValue } : {}),
     ...(estimateValue && ESTIMATES.has(estimateValue as Estimate)
       ? { estimate: estimateValue as Estimate }
       : {}),
@@ -234,48 +211,41 @@ export const buildDatabaseViewColumns = (
   );
   const rows = query.rows.map((row) => ({
     row,
-    renderRow: projectDataSourcePageRowToDatabaseViewRenderRow(
-      row,
-      query.properties,
-    ),
+    renderRow: projectDataSourcePageRowToDatabaseViewRenderRow(row, query.properties),
   }));
   if (!statusGrouped) {
     if (!groupPropertyId) {
-      return [{
-        id: DEFAULT_WORKFLOW_STATUS,
-        groupKey: null,
-        name: query.view.name,
-        scopeKey: UNGROUPED_SCOPE_KEY,
-        rows: rows.map(({ renderRow }) => renderRow),
-      }];
+      return [
+        {
+          id: DEFAULT_WORKFLOW_STATUS,
+          groupKey: null,
+          name: query.view.name,
+          scopeKey: UNGROUPED_SCOPE_KEY,
+          rows: rows.map(({ renderRow }) => renderRow),
+        },
+      ];
     }
     const groupProperty = query.properties.find(
-      (property) =>
-        property.propertyId === groupPropertyId
-        && property.lifecycle === "active",
+      (property) => property.propertyId === groupPropertyId && property.lifecycle === "active",
     );
     if (!groupProperty) {
-      return [{
-        id: DEFAULT_WORKFLOW_STATUS,
-        groupKey: null,
-        name: query.view.name,
-        scopeKey: UNGROUPED_SCOPE_KEY,
-        rows: rows.map(({ renderRow }) => renderRow),
-      }];
+      return [
+        {
+          id: DEFAULT_WORKFLOW_STATUS,
+          groupKey: null,
+          name: query.view.name,
+          scopeKey: UNGROUPED_SCOPE_KEY,
+          rows: rows.map(({ renderRow }) => renderRow),
+        },
+      ];
     }
     const options = readDatabasePropertyOptions(groupProperty);
-    const optionNames = new Map(
-      options.map((option) => [option.id, option.name]),
-    );
+    const optionNames = new Map(options.map((option) => [option.id, option.name]));
     const configuredGroupKeys = [
       ...(showEmptyGroups ? options.map((option) => option.id) : []),
       ...rows.map(({ row }) => row.effectiveGroupKey),
-    ].filter(
-      (key, index, all): key is string | null => all.indexOf(key) === index,
-    );
-    const groupKeys = configuredGroupKeys.length > 0
-      ? configuredGroupKeys
-      : [null];
+    ].filter((key, index, all): key is string | null => all.indexOf(key) === index);
+    const groupKeys = configuredGroupKeys.length > 0 ? configuredGroupKeys : [null];
     const groupName = (key: string | null): string => {
       if (key === null) return `No ${groupProperty.name}`;
       const optionName = optionNames.get(key);
@@ -283,13 +253,8 @@ export const buildDatabaseViewColumns = (
       if (groupProperty.valueType === "multi_select") {
         try {
           const optionIds = JSON.parse(key) as unknown;
-          if (
-            Array.isArray(optionIds)
-            && optionIds.every((id) => typeof id === "string")
-          ) {
-            return optionIds
-              .map((id) => optionNames.get(id) ?? id)
-              .join(" · ");
+          if (Array.isArray(optionIds) && optionIds.every((id) => typeof id === "string")) {
+            return optionIds.map((id) => optionNames.get(id) ?? id).join(" · ");
           }
         } catch {
           // Unknown canonical group keys remain visible.
@@ -305,20 +270,23 @@ export const buildDatabaseViewColumns = (
       name: groupName(groupKey),
       scopeKey: groupScopeKeyForColumn(groupKey),
       rows: rows.flatMap(({ row, renderRow }) =>
-        row.effectiveGroupKey === groupKey ? [renderRow] : []),
+        row.effectiveGroupKey === groupKey ? [renderRow] : [],
+      ),
     }));
   }
 
   const workflowColumns = showEmptyGroups
     ? WORKFLOW_STATUS_COLUMNS
     : WORKFLOW_STATUS_COLUMNS.filter((column) =>
-      rows.some(({ row }) => row.effectiveGroupKey === column.id));
+        rows.some(({ row }) => row.effectiveGroupKey === column.id),
+      );
   return workflowColumns.map((column) => ({
     ...column,
     groupKey: column.id,
     scopeKey: groupScopeKeyForColumn(column.id),
     rows: rows.flatMap(({ row, renderRow }) =>
-      row.effectiveGroupKey === column.id ? [renderRow] : []),
+      row.effectiveGroupKey === column.id ? [renderRow] : [],
+    ),
   }));
 };
 
@@ -345,10 +313,7 @@ export const withEffectiveDatabaseViewPresentation = (
   };
   return {
     ...model,
-    columns: buildDatabaseViewColumns(
-      query,
-      effective.presentation.group?.propertyId ?? null,
-    ),
+    columns: buildDatabaseViewColumns(query, effective.presentation.group?.propertyId ?? null),
     query,
   };
 };
@@ -361,25 +326,24 @@ const queryFromSnapshot = (
 };
 
 export const buildDatabaseViewRenderModel = (
-  snapshot:
-    | DatabaseModuleReadSnapshotV2
-    | LibraryDatabaseModuleReadSnapshotV2,
+  snapshot: DatabaseModuleReadSnapshotV2 | LibraryDatabaseModuleReadSnapshotV2,
 ): DatabaseViewRenderModel => {
   const query = queryFromSnapshot(snapshot);
   if (
-    query.database.libraryId !== snapshot.libraryId
-    || query.dataSource.libraryId !== snapshot.libraryId
-    || query.view.databaseId !== query.database.databaseId
-    || query.view.dataSourceId !== query.dataSource.dataSourceId
+    query.database.libraryId !== snapshot.libraryId ||
+    query.dataSource.libraryId !== snapshot.libraryId ||
+    query.view.databaseId !== query.database.databaseId ||
+    query.view.dataSourceId !== query.dataSource.dataSourceId
   ) {
     throw new Error("Database View query has mismatched Library resource identity");
   }
   const groupPropertyId = query.view.config.presentation.group?.propertyId ?? null;
 
   return {
-    accessContext: "accessContext" in snapshot
-      ? { kind: "library" }
-      : { kind: "project", projectId: snapshot.projectId },
+    accessContext:
+      "accessContext" in snapshot
+        ? { kind: "library" }
+        : { kind: "project", projectId: snapshot.projectId },
     libraryId: snapshot.libraryId,
     databaseViewId: query.view.viewId,
     databaseId: query.database.databaseId,

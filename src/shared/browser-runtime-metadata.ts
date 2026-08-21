@@ -20,20 +20,20 @@ export type BrowserRuntimeBundledPlugin = {
 
 export type BrowserRuntimeComputerUseCapability =
   | {
-    reason: "architecture-unsupported";
-    status: "unavailable";
-  }
+      reason: "architecture-unsupported";
+      status: "unavailable";
+    }
   | {
-    appBundle: string;
-    appBundleIdentifier: string;
-    client: string;
-    ipcProtocol: "CodexComputerUseIPC-2";
-    minimumMacOSVersion: "14.4";
-    plugin: BrowserRuntimeBundledPlugin;
-    serviceExecutable: string;
-    signingTeamId: string;
-    status: "available";
-  };
+      appBundle: string;
+      appBundleIdentifier: string;
+      client: string;
+      ipcProtocol: "CodexComputerUseIPC-2";
+      minimumMacOSVersion: "14.4";
+      plugin: BrowserRuntimeBundledPlugin;
+      serviceExecutable: string;
+      signingTeamId: string;
+      status: "available";
+    };
 
 export type BrowserRuntimeNativePipCapability = {
   addon: string;
@@ -113,7 +113,8 @@ function parseArtifact(value: unknown): BrowserRuntimeArtifact | null {
   if (!isObject(value)) return null;
   if (typeof value.path !== "string" || !isSafeBrowserRuntimeRelativePath(value.path)) return null;
   if (typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(value.sha256)) return null;
-  if (typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0) return null;
+  if (typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0)
+    return null;
   if (typeof value.executable !== "boolean") return null;
   if (!["any", "arm64", "universal", "x64"].includes(String(value.architecture))) return null;
   if (!["data", "executable", "native-addon"].includes(String(value.kind))) return null;
@@ -157,38 +158,33 @@ function parseBrowserPlugin(value: unknown): BrowserRuntimeManifest["browserPlug
   const marketplaceRoot = parseNonEmptyString(value.marketplaceRoot);
   const marketplaceManifest = parseNonEmptyString(value.marketplaceManifest);
   if (
-    !version
-    || !root
-    || !manifest
-    || !client
-    || !docs
-    || !marketplaceRoot
-    || !marketplaceManifest
-  ) return null;
-  const pluginPaths = [
-    root,
-    manifest,
-    client,
-    docs,
-    marketplaceRoot,
-    marketplaceManifest,
-  ];
+    !version ||
+    !root ||
+    !manifest ||
+    !client ||
+    !docs ||
+    !marketplaceRoot ||
+    !marketplaceManifest
+  )
+    return null;
+  const pluginPaths = [root, manifest, client, docs, marketplaceRoot, marketplaceManifest];
   if (!pluginPaths.every(isSafeBrowserRuntimeRelativePath)) return null;
   const rootPrefix = `${root}/`;
   if (![manifest, client, docs].every((entry) => entry.startsWith(rootPrefix))) return null;
   const marketplaceRootPrefix = `${marketplaceRoot}/`;
   if (
-    !root.startsWith(marketplaceRootPrefix)
-    || !marketplaceManifest.startsWith(marketplaceRootPrefix)
-  ) return null;
+    !root.startsWith(marketplaceRootPrefix) ||
+    !marketplaceManifest.startsWith(marketplaceRootPrefix)
+  )
+    return null;
   if (!Array.isArray(value.nodeModuleDirs)) return null;
   const nodeModuleDirs = value.nodeModuleDirs.map(parseNonEmptyString);
   if (nodeModuleDirs.some((entry) => entry === null)) return null;
   const parsedNodeModuleDirs = nodeModuleDirs as string[];
   if (
-    parsedNodeModuleDirs.length === 0
-    || new Set(parsedNodeModuleDirs).size !== parsedNodeModuleDirs.length
-    || !parsedNodeModuleDirs.every(isSafeBrowserRuntimeRelativePath)
+    parsedNodeModuleDirs.length === 0 ||
+    new Set(parsedNodeModuleDirs).size !== parsedNodeModuleDirs.length ||
+    !parsedNodeModuleDirs.every(isSafeBrowserRuntimeRelativePath)
   ) {
     return null;
   }
@@ -228,9 +224,9 @@ function parseComputerUsePlugin(value: unknown): BrowserRuntimeBundledPlugin | n
   if (nodeModuleDirs.some((entry) => entry === null)) return null;
   const parsedNodeModuleDirs = nodeModuleDirs as string[];
   if (
-    parsedNodeModuleDirs.length === 0
-    || new Set(parsedNodeModuleDirs).size !== parsedNodeModuleDirs.length
-    || !parsedNodeModuleDirs.every(isSafeBrowserRuntimeRelativePath)
+    parsedNodeModuleDirs.length === 0 ||
+    new Set(parsedNodeModuleDirs).size !== parsedNodeModuleDirs.length ||
+    !parsedNodeModuleDirs.every(isSafeBrowserRuntimeRelativePath)
   ) {
     return null;
   }
@@ -246,9 +242,7 @@ function parseComputerUsePlugin(value: unknown): BrowserRuntimeBundledPlugin | n
   };
 }
 
-function parseNativePipCapability(
-  value: unknown,
-): BrowserRuntimeNativePipCapability | null {
+function parseNativePipCapability(value: unknown): BrowserRuntimeNativePipCapability | null {
   if (!isObject(value) || value.minimumMacOSVersion !== "13.0") return null;
   const addon = parseNonEmptyString(value.addon);
   if (!addon || !isSafeBrowserRuntimeRelativePath(addon)) return null;
@@ -257,17 +251,15 @@ function parseNativePipCapability(
   if (controlAssets.some((entry) => entry === null)) return null;
   const parsedControlAssets = controlAssets as string[];
   if (
-    new Set(parsedControlAssets).size !== parsedControlAssets.length
-    || !parsedControlAssets.every(isSafeBrowserRuntimeRelativePath)
+    new Set(parsedControlAssets).size !== parsedControlAssets.length ||
+    !parsedControlAssets.every(isSafeBrowserRuntimeRelativePath)
   ) {
     return null;
   }
   return { addon, controlAssets: parsedControlAssets, minimumMacOSVersion: "13.0" };
 }
 
-function parseComputerUseCapability(
-  value: unknown,
-): BrowserRuntimeComputerUseCapability | null {
+function parseComputerUseCapability(value: unknown): BrowserRuntimeComputerUseCapability | null {
   if (!isObject(value)) return null;
   if (value.status === "unavailable") {
     return value.reason === "architecture-unsupported"
@@ -275,9 +267,9 @@ function parseComputerUseCapability(
       : null;
   }
   if (
-    value.status !== "available"
-    || value.minimumMacOSVersion !== "14.4"
-    || value.ipcProtocol !== "CodexComputerUseIPC-2"
+    value.status !== "available" ||
+    value.minimumMacOSVersion !== "14.4" ||
+    value.ipcProtocol !== "CodexComputerUseIPC-2"
   ) {
     return null;
   }
@@ -287,7 +279,14 @@ function parseComputerUseCapability(
   const serviceExecutable = parseNonEmptyString(value.serviceExecutable);
   const signingTeamId = parseNonEmptyString(value.signingTeamId);
   const plugin = parseComputerUsePlugin(value.plugin);
-  if (!appBundle || !appBundleIdentifier || !client || !serviceExecutable || !signingTeamId || !plugin) {
+  if (
+    !appBundle ||
+    !appBundleIdentifier ||
+    !client ||
+    !serviceExecutable ||
+    !signingTeamId ||
+    !plugin
+  ) {
     return null;
   }
   if (![appBundle, client, serviceExecutable].every(isSafeBrowserRuntimeRelativePath)) return null;
@@ -306,9 +305,7 @@ function parseComputerUseCapability(
   };
 }
 
-function parseRuntimeVersions(
-  value: unknown,
-): BrowserRuntimeManifest["runtimeVersions"] | null {
+function parseRuntimeVersions(value: unknown): BrowserRuntimeManifest["runtimeVersions"] | null {
   if (!isObject(value)) return null;
   const codexCli = parseNonEmptyString(value.codexCli);
   const cuaRuntime = parseNonEmptyString(value.cuaRuntime);
@@ -346,12 +343,8 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
   const desktopBuildNumber = parseNonEmptyString(value.desktopBuildNumber);
   const buildFlavor = parseNonEmptyString(value.buildFlavor);
   const codexCompatibilityVersion = parseNonEmptyString(value.codexCompatibilityVersion);
-  if (
-    !desktopBuild
-    || !desktopBuildNumber
-    || !buildFlavor
-    || !codexCompatibilityVersion
-  ) return null;
+  if (!desktopBuild || !desktopBuildNumber || !buildFlavor || !codexCompatibilityVersion)
+    return null;
 
   if (!Array.isArray(value.artifacts)) return null;
   const artifacts = value.artifacts.map(parseArtifact);
@@ -364,45 +357,45 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
   const browserPlugin = parseBrowserPlugin(value.browserPlugin);
   const capabilities = isObject(value.capabilities)
     ? {
-      computerUse: parseComputerUseCapability(value.capabilities.computerUse),
-      nativePip: parseNativePipCapability(value.capabilities.nativePip),
-    }
+        computerUse: parseComputerUseCapability(value.capabilities.computerUse),
+        nativePip: parseNativePipCapability(value.capabilities.nativePip),
+      }
     : null;
   const peerAuthorization = parsePeerAuthorization(value.peerAuthorization);
   const runtimeVersions = parseRuntimeVersions(value.runtimeVersions);
   const supportedBackends = parseSupportedBackends(value.supportedBackends);
   if (
-    !entrypoints
-    || !browserPlugin
-    || !capabilities?.computerUse
-    || !capabilities.nativePip
-    || !peerAuthorization
-    || !runtimeVersions
-    || !supportedBackends
-  ) return null;
+    !entrypoints ||
+    !browserPlugin ||
+    !capabilities?.computerUse ||
+    !capabilities.nativePip ||
+    !peerAuthorization ||
+    !runtimeVersions ||
+    !supportedBackends
+  )
+    return null;
 
   const targetArch = value.targetArch;
-  const isCompatibleBinary = (artifact: BrowserRuntimeArtifact | undefined): boolean => (
-    artifact !== undefined
-    && (artifact.architecture === targetArch || artifact.architecture === "universal")
-  );
+  const isCompatibleBinary = (artifact: BrowserRuntimeArtifact | undefined): boolean =>
+    artifact !== undefined &&
+    (artifact.architecture === targetArch || artifact.architecture === "universal");
   const codexCli = artifactsByPath.get(entrypoints.codexCli);
   const node = artifactsByPath.get(entrypoints.node);
   const nodeRepl = artifactsByPath.get(entrypoints.nodeRepl);
   const peerAddon = artifactsByPath.get(entrypoints.peerAuthorization);
   if (
-    !isCompatibleBinary(codexCli)
-    || codexCli?.kind !== "executable"
-    || !isCompatibleBinary(node)
-    || node?.kind !== "executable"
-    || nodeRepl?.kind !== "executable"
-    || !(
-      nodeRepl.architecture === "any"
-      || nodeRepl.architecture === targetArch
-      || nodeRepl.architecture === "universal"
-    )
-    || !isCompatibleBinary(peerAddon)
-    || peerAddon?.kind !== "native-addon"
+    !isCompatibleBinary(codexCli) ||
+    codexCli?.kind !== "executable" ||
+    !isCompatibleBinary(node) ||
+    node?.kind !== "executable" ||
+    nodeRepl?.kind !== "executable" ||
+    !(
+      nodeRepl.architecture === "any" ||
+      nodeRepl.architecture === targetArch ||
+      nodeRepl.architecture === "universal"
+    ) ||
+    !isCompatibleBinary(peerAddon) ||
+    peerAddon?.kind !== "native-addon"
   ) {
     return null;
   }
@@ -436,7 +429,10 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
     ];
     if (computerUseArtifacts.some((artifact) => artifact === undefined)) return null;
     if (computerUseArtifacts.slice(0, 3).some((artifact) => artifact?.kind !== "data")) return null;
-    if (computerUseArtifacts[3]?.kind !== "data" && computerUseArtifacts[3]?.kind !== "executable") {
+    if (
+      computerUseArtifacts[3]?.kind !== "data" &&
+      computerUseArtifacts[3]?.kind !== "executable"
+    ) {
       return null;
     }
     if (computerUseArtifacts[4]?.kind !== "executable") return null;

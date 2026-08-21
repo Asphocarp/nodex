@@ -4,7 +4,10 @@ import {
 } from "@/features/user-attachment-image-editor";
 import { useConversationImageAssetContext } from "../conversation-image-asset-context";
 
-export type ConversationImageAssetResolution = Omit<ResolvedImageAsset, "error" | "localPath" | "materialize">;
+export type ConversationImageAssetResolution = Omit<
+  ResolvedImageAsset,
+  "error" | "localPath" | "materialize"
+>;
 
 export function useConversationImageAsset(
   rawSource: string,

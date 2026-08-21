@@ -1,17 +1,10 @@
-import type {
-  WorkspaceFileWriteResult,
-} from "@/lib/types";
+import type { WorkspaceFileWriteResult } from "@/lib/types";
 import type { WorkspaceFilesDraftState } from "./workspace-file-types";
 
 export const WORKSPACE_EDIT_STABILIZATION_MS = 550;
 export const WORKSPACE_AUTOSAVE_DELAY_MS = 3_000;
 
-export type WorkspaceTextDocumentStatus =
-  | "clean"
-  | "dirty"
-  | "saving"
-  | "conflict"
-  | "error";
+export type WorkspaceTextDocumentStatus = "clean" | "dirty" | "saving" | "conflict" | "error";
 
 export interface WorkspaceTextDocumentSnapshot {
   readonly path: string;
@@ -66,8 +59,7 @@ export class WorkspaceTextDocumentController {
     this.#dependencies = dependencies;
     const draft = input.draft?.path === input.path ? input.draft : undefined;
     const hasRecoverableDraft = draft !== undefined && draft.content !== input.content;
-    const draftConflictsWithDisk = hasRecoverableDraft
-      && draft.baseMtimeMs !== input.mtimeMs;
+    const draftConflictsWithDisk = hasRecoverableDraft && draft.baseMtimeMs !== input.mtimeMs;
     this.#snapshot = {
       path: input.path,
       content: hasRecoverableDraft ? draft.content : input.content,
@@ -75,11 +67,7 @@ export class WorkspaceTextDocumentController {
       diskContent: draftConflictsWithDisk ? input.content : null,
       diskMtimeMs: draftConflictsWithDisk ? input.mtimeMs : null,
       documentVersion: 0,
-      status: draftConflictsWithDisk
-        ? "conflict"
-        : hasRecoverableDraft
-          ? "dirty"
-          : "clean",
+      status: draftConflictsWithDisk ? "conflict" : hasRecoverableDraft ? "dirty" : "clean",
       message: null,
     };
     if (hasRecoverableDraft && !draftConflictsWithDisk) {
@@ -112,9 +100,7 @@ export class WorkspaceTextDocumentController {
     this.#clearScheduledDraftPersistence();
     while (this.#snapshot.status !== "clean") {
       if (this.#snapshot.status === "conflict") return false;
-      const saved = this.#savePromise
-        ? await this.#savePromise
-        : await this.#save();
+      const saved = this.#savePromise ? await this.#savePromise : await this.#save();
       if (!saved) return false;
       this.#clearScheduledAutosave();
       this.#clearScheduledDraftPersistence();
@@ -155,10 +141,7 @@ export class WorkspaceTextDocumentController {
   }
 
   useDiskVersion(): void {
-    if (
-      this.#snapshot.status !== "conflict"
-      || this.#snapshot.diskContent === null
-    ) {
+    if (this.#snapshot.status !== "conflict" || this.#snapshot.diskContent === null) {
       return;
     }
     this.#clearScheduledDraftPersistence();
@@ -252,50 +235,50 @@ export class WorkspaceTextDocumentController {
       status: "saving",
       message: null,
     });
-    this.#savePromise = this.#dependencies.write(
-      this.#snapshot.path,
-      savedContent,
-      expectedMtimeMs,
-    ).then(async (result) => {
-      if (result.outcome === "conflict") {
-        const disk = await this.#dependencies.readDisk(this.#snapshot.path);
+    this.#savePromise = this.#dependencies
+      .write(this.#snapshot.path, savedContent, expectedMtimeMs)
+      .then(async (result) => {
+        if (result.outcome === "conflict") {
+          const disk = await this.#dependencies.readDisk(this.#snapshot.path);
+          this.#setSnapshot({
+            ...this.#snapshot,
+            diskContent: disk.content,
+            diskMtimeMs: disk.mtimeMs,
+            status: "conflict",
+            message: null,
+          });
+          this.#persistDraft();
+          return false;
+        }
+
+        const changedDuringSave = this.#snapshot.content !== savedContent;
         this.#setSnapshot({
           ...this.#snapshot,
-          diskContent: disk.content,
-          diskMtimeMs: disk.mtimeMs,
-          status: "conflict",
+          baseMtimeMs: result.mtimeMs,
+          status: changedDuringSave ? "dirty" : "clean",
           message: null,
+        });
+        if (changedDuringSave) {
+          this.#persistDraft();
+          this.#scheduleAutosave();
+        } else {
+          this.#clearScheduledDraftPersistence();
+          this.#dependencies.clearDraft();
+        }
+        return true;
+      })
+      .catch((error: unknown) => {
+        this.#setSnapshot({
+          ...this.#snapshot,
+          status: "error",
+          message: error instanceof Error ? error.message : "Unable to save file.",
         });
         this.#persistDraft();
         return false;
-      }
-
-      const changedDuringSave = this.#snapshot.content !== savedContent;
-      this.#setSnapshot({
-        ...this.#snapshot,
-        baseMtimeMs: result.mtimeMs,
-        status: changedDuringSave ? "dirty" : "clean",
-        message: null,
+      })
+      .finally(() => {
+        this.#savePromise = null;
       });
-      if (changedDuringSave) {
-        this.#persistDraft();
-        this.#scheduleAutosave();
-      } else {
-        this.#clearScheduledDraftPersistence();
-        this.#dependencies.clearDraft();
-      }
-      return true;
-    }).catch((error: unknown) => {
-      this.#setSnapshot({
-        ...this.#snapshot,
-        status: "error",
-        message: error instanceof Error ? error.message : "Unable to save file.",
-      });
-      this.#persistDraft();
-      return false;
-    }).finally(() => {
-      this.#savePromise = null;
-    });
     return this.#savePromise;
   }
 }
@@ -319,8 +302,7 @@ class WorkspaceTextDocumentRegistry {
 
   async flushAll(): Promise<boolean> {
     const outcomes = await Promise.all(
-      [...this.#controllers.values()].map(async (controller) =>
-        await controller.flush()),
+      [...this.#controllers.values()].map(async (controller) => await controller.flush()),
     );
     return outcomes.every(Boolean);
   }

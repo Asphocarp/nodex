@@ -107,10 +107,7 @@ describe("Browser Use capability projection", () => {
     });
 
     expect(result.apiMembers).toEqual(["TabDev.call"]);
-    expect(result.disabledApiMembers).toEqual([
-      "Tabs.new",
-      "BrowserUser.history",
-    ]);
+    expect(result.disabledApiMembers).toEqual(["Tabs.new", "BrowserUser.history"]);
     expect(result.browserCapabilities).toEqual([]);
     expect(result.tabCapabilities).toEqual(["webmcp"]);
     expect(result.reasons.map(({ code }) => code)).toEqual(
@@ -138,9 +135,11 @@ describe("Browser Use capability projection", () => {
     expect(result.fullCdpAccess).toBe(false);
     expect(result.apiMembers).toEqual(["Tabs.new", "BrowserUser.history"]);
     expect(result.disabledApiMembers).toEqual(["TabDev.call"]);
-    expect(result.reasons).toContainEqual(expect.objectContaining({
-      code: "full-cdp-enterprise-unverified",
-    }));
+    expect(result.reasons).toContainEqual(
+      expect.objectContaining({
+        code: "full-cdp-enterprise-unverified",
+      }),
+    );
   });
 
   test("closes the runtime for invalid stages and unavailable backends", () => {
@@ -196,14 +195,8 @@ describe("Browser Use capability projection", () => {
 
     expect(result.status).toBe("unavailable");
     expect(result.backend).toBe(null);
-    expect(result.disabledApiMembers).toEqual([
-      "Tabs.new",
-      "BrowserUser.history",
-      "TabDev.call",
-    ]);
-    expect(result.reasons[0]?.code).toBe(
-      "artifact-contract-version-mismatch",
-    );
+    expect(result.disabledApiMembers).toEqual(["Tabs.new", "BrowserUser.history", "TabDev.call"]);
+    expect(result.reasons[0]?.code).toBe("artifact-contract-version-mismatch");
   });
 
   test("bounds diagnostics when a backend advertises unknown capabilities", () => {

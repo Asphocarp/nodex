@@ -1,8 +1,5 @@
 import { NodexHomeMark } from "@/components/ui/nodex-home-mark";
-import type {
-  ThreadStageActions,
-  ThreadStageRouteInput,
-} from "../thread-stage-types";
+import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-types";
 import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
 
 export function NewThreadHomeHero({
@@ -21,11 +18,7 @@ export function NewThreadHomeHero({
         <span className="inline-block max-w-full">
           {"What should we build in "}
           {projectSelector ? (
-            <NewChatProjectSelector
-              model={projectSelector}
-              actions={actions}
-              variant="heading"
-            />
+            <NewChatProjectSelector model={projectSelector} actions={actions} variant="heading" />
           ) : (
             <>{projectName}?</>
           )}

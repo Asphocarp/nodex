@@ -24,16 +24,11 @@ interface EditorWithProsemirrorView {
 }
 
 const MENTION_NODE_TYPES = new Set(["pageMention", "threadMention"]);
-const PAGE_MENTION_ANCHOR_SELECTOR =
-  '[data-page-mention-inline-anchor="true"]';
-const MENTION_INLINE_CHIP_SELECTOR =
-  '[data-mention-inline-chip="true"]';
-export const MENTION_TOKEN_SELECTED_CLASS =
-  "nodex-mention-token-selected";
+const PAGE_MENTION_ANCHOR_SELECTOR = '[data-page-mention-inline-anchor="true"]';
+const MENTION_INLINE_CHIP_SELECTOR = '[data-mention-inline-chip="true"]';
+export const MENTION_TOKEN_SELECTED_CLASS = "nodex-mention-token-selected";
 
-function isMentionNode(
-  node: ProsemirrorNode | null | undefined,
-): node is ProsemirrorNode {
+function isMentionNode(node: ProsemirrorNode | null | undefined): node is ProsemirrorNode {
   return Boolean(node && MENTION_NODE_TYPES.has(node.type.name));
 }
 
@@ -48,9 +43,8 @@ export function getAdjacentMentionTokenRange(
 ): MentionChipTokenRange | null {
   if (!selection.empty) return null;
 
-  const adjacentNode = direction === "left"
-    ? selection.$from.nodeBefore
-    : selection.$from.nodeAfter;
+  const adjacentNode =
+    direction === "left" ? selection.$from.nodeBefore : selection.$from.nodeAfter;
   if (!isMentionNode(adjacentNode)) return null;
 
   if (direction === "left") {
@@ -99,10 +93,7 @@ export function selectAdjacentMention(
   return true;
 }
 
-function findElement(
-  dom: Node | null,
-  selector: string,
-): HTMLElement | null {
+function findElement(dom: Node | null, selector: string): HTMLElement | null {
   if (!(dom instanceof Element)) return null;
   if (dom.matches(selector)) return dom as HTMLElement;
   return dom.querySelector<HTMLElement>(selector);
@@ -124,15 +115,11 @@ function findMentionActivationTarget(
 
   return findElement(
     view.nodeDOM(range.from),
-    node.type.name === "pageMention"
-      ? PAGE_MENTION_ANCHOR_SELECTOR
-      : MENTION_INLINE_CHIP_SELECTOR,
+    node.type.name === "pageMention" ? PAGE_MENTION_ANCHOR_SELECTOR : MENTION_INLINE_CHIP_SELECTOR,
   );
 }
 
-export function activateSelectedMention(
-  editor: EditorWithProsemirrorView,
-): boolean {
+export function activateSelectedMention(editor: EditorWithProsemirrorView): boolean {
   const { prosemirrorView: view } = editor;
   const range = getSelectedMentionTokenRange(view.state);
   if (!range) return false;
@@ -144,74 +131,69 @@ export function activateSelectedMention(
   return true;
 }
 
-export const mentionChipKeyboardNavigationExtension = createExtension(
-  ({ editor }) => ({
-    key: "mention-chip-keyboard-navigation",
-    prosemirrorPlugins: [
-      new Plugin({
-        props: {
-          handleKeyDown(view: EditorView, event: KeyboardEvent) {
+export const mentionChipKeyboardNavigationExtension = createExtension(({ editor }) => ({
+  key: "mention-chip-keyboard-navigation",
+  prosemirrorPlugins: [
+    new Plugin({
+      props: {
+        handleKeyDown(view: EditorView, event: KeyboardEvent) {
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
             if (
-              event.key === "ArrowLeft"
-              || event.key === "ArrowRight"
-            ) {
-              if (
-                event.isComposing
-                || event.shiftKey
-                || event.altKey
-                || event.ctrlKey
-                || event.metaKey
-              ) {
-                return false;
-              }
-              const direction = event.key === "ArrowLeft" ? "left" : "right";
-              return selectAdjacentMention(editor, direction);
-            }
-
-            if (
-              event.key !== "Enter"
-              || event.isComposing
-              || event.shiftKey
-              || event.altKey
-              || event.ctrlKey
-              || event.metaKey
+              event.isComposing ||
+              event.shiftKey ||
+              event.altKey ||
+              event.ctrlKey ||
+              event.metaKey
             ) {
               return false;
             }
+            const direction = event.key === "ArrowLeft" ? "left" : "right";
+            return selectAdjacentMention(editor, direction);
+          }
 
-            return activateSelectedMention({ prosemirrorView: view });
-          },
+          if (
+            event.key !== "Enter" ||
+            event.isComposing ||
+            event.shiftKey ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey
+          ) {
+            return false;
+          }
+
+          return activateSelectedMention({ prosemirrorView: view });
         },
-        view(view) {
-          let selectedNodeDOM: HTMLElement | null = null;
+      },
+      view(view) {
+        let selectedNodeDOM: HTMLElement | null = null;
 
-          const clearSelectedNode = () => {
-            if (!selectedNodeDOM) return;
-            selectedNodeDOM.classList.remove(MENTION_TOKEN_SELECTED_CLASS);
-            delete selectedNodeDOM.dataset.mentionTokenSelected;
-            selectedNodeDOM = null;
-          };
+        const clearSelectedNode = () => {
+          if (!selectedNodeDOM) return;
+          selectedNodeDOM.classList.remove(MENTION_TOKEN_SELECTED_CLASS);
+          delete selectedNodeDOM.dataset.mentionTokenSelected;
+          selectedNodeDOM = null;
+        };
 
-          const syncSelectedNode = (nextView: EditorView) => {
-            clearSelectedNode();
-            const range = getSelectedMentionTokenRange(nextView.state);
-            if (!range) return;
+        const syncSelectedNode = (nextView: EditorView) => {
+          clearSelectedNode();
+          const range = getSelectedMentionTokenRange(nextView.state);
+          if (!range) return;
 
-            const nodeDOM = findMentionHighlightTarget(nextView, range);
-            if (!nodeDOM) return;
+          const nodeDOM = findMentionHighlightTarget(nextView, range);
+          if (!nodeDOM) return;
 
-            nodeDOM.classList.add(MENTION_TOKEN_SELECTED_CLASS);
-            nodeDOM.dataset.mentionTokenSelected = "true";
-            selectedNodeDOM = nodeDOM;
-          };
+          nodeDOM.classList.add(MENTION_TOKEN_SELECTED_CLASS);
+          nodeDOM.dataset.mentionTokenSelected = "true";
+          selectedNodeDOM = nodeDOM;
+        };
 
-          syncSelectedNode(view);
-          return {
-            update: syncSelectedNode,
-            destroy: clearSelectedNode,
-          };
-        },
-      }),
-    ],
-  }),
-);
+        syncSelectedNode(view);
+        return {
+          update: syncSelectedNode,
+          destroy: clearSelectedNode,
+        };
+      },
+    }),
+  ],
+}));

@@ -53,16 +53,16 @@ describe("buildSubagentsPanelMemberships", () => {
       summaries: { direct, nested },
     });
 
-    expect(memberships.map((membership) => membership.threadId)).toEqual([
-      "direct",
-      "nested",
-    ]);
+    expect(memberships.map((membership) => membership.threadId)).toEqual(["direct", "nested"]);
     expect(memberships[1]?.parentThreadId).toBe("direct");
     expect(memberships[1]?.showInlineActivity).toBe(true);
   });
 });
 
-function buildRow(index: number, status: "active" | "done"): ThreadComposerShellBackgroundAgentRowModel {
+function buildRow(
+  index: number,
+  status: "active" | "done",
+): ThreadComposerShellBackgroundAgentRowModel {
   return {
     conversationId: `${status}-${index}`,
     parentConversationId: "root",

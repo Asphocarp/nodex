@@ -56,9 +56,7 @@ describe("parseBrowserRuntimeReleaseLock", () => {
   test("accepts an exact dual-architecture release contract", () => {
     const lock = parseBrowserRuntimeReleaseLock(makeLock());
 
-    expect(lock.assets["darwin-arm64"].runtimeVersions.cuaRuntime).toBe(
-      "0.0.6/build",
-    );
+    expect(lock.assets["darwin-arm64"].runtimeVersions.cuaRuntime).toBe("0.0.6/build");
     expect(lock.source.buildNumber).toBe("6067");
   });
 
@@ -76,16 +74,11 @@ describe("parseBrowserRuntimeReleaseLock", () => {
     const assets = lock.assets as Record<string, Record<string, unknown>>;
     assets["darwin-arm64"]!.url = "file:///tmp/browser-runtime.tar.gz";
 
-    expect(() => parseBrowserRuntimeReleaseLock(lock)).toThrow(
-      "assets.darwin-arm64.url",
-    );
+    expect(() => parseBrowserRuntimeReleaseLock(lock)).toThrow("assets.darwin-arm64.url");
   });
 
   test("keeps the committed Browser and Agent runtime locks compatible", () => {
-    const projectRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "..",
-    );
+    const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const browserLockPath = resolveBrowserRuntimeReleaseLockPath(projectRoot);
     expect(fs.existsSync(browserLockPath)).toBe(true);
     const browserLock = readBrowserRuntimeReleaseLock(browserLockPath);
@@ -96,10 +89,15 @@ describe("parseBrowserRuntimeReleaseLock", () => {
     const browserVersions = Object.values(browserLock.assets);
     expect(browserVersions).not.toHaveLength(0);
     for (const asset of browserVersions) {
-      expect(isBrowserRuntimeCompatibleWithCodex({
-        codexCompatibilityVersion: browserLock.codexCompatibilityVersion,
-        runtimeVersions: asset.runtimeVersions,
-      }, agentLock.codexCompatibilityVersion)).toBe(true);
+      expect(
+        isBrowserRuntimeCompatibleWithCodex(
+          {
+            codexCompatibilityVersion: browserLock.codexCompatibilityVersion,
+            runtimeVersions: asset.runtimeVersions,
+          },
+          agentLock.codexCompatibilityVersion,
+        ),
+      ).toBe(true);
     }
   });
 });

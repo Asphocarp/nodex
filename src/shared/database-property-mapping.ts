@@ -22,13 +22,8 @@ interface SelectOption {
 const normalizedOptionName = (value: string): string =>
   value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
 
-const readOptions = (
-  definition: DatabasePropertyMappingDefinition,
-): readonly SelectOption[] => {
-  const config = parseDatabasePropertyConfig(
-    definition.valueType,
-    definition.config,
-  );
+const readOptions = (definition: DatabasePropertyMappingDefinition): readonly SelectOption[] => {
+  const config = parseDatabasePropertyConfig(definition.valueType, definition.config);
   if (!Array.isArray(config.options)) return [];
   return config.options.flatMap((candidate) => {
     if (
@@ -72,21 +67,12 @@ export const mapCompatibleDatabasePropertyValue = (input: {
   try {
     if (input.target.valueType === "select") {
       if (typeof input.value !== "string") return { compatible: false };
-      const mapped = mapOptionId(
-        input.value,
-        readOptions(input.source),
-        readOptions(input.target),
-      );
-      return mapped === null
-        ? { compatible: false }
-        : { compatible: true, value: mapped };
+      const mapped = mapOptionId(input.value, readOptions(input.source), readOptions(input.target));
+      return mapped === null ? { compatible: false } : { compatible: true, value: mapped };
     }
 
     if (input.target.valueType === "multi_select") {
-      if (
-        !Array.isArray(input.value) ||
-        !input.value.every((entry) => typeof entry === "string")
-      ) {
+      if (!Array.isArray(input.value) || !input.value.every((entry) => typeof entry === "string")) {
         return { compatible: false };
       }
       const sourceOptions = readOptions(input.source);
@@ -99,9 +85,7 @@ export const mapCompatibleDatabasePropertyValue = (input: {
       }
       return {
         compatible: true,
-        value: [...new Set(mapped as string[])].sort((left, right) =>
-          left.localeCompare(right),
-        ),
+        value: [...new Set(mapped as string[])].sort((left, right) => left.localeCompare(right)),
       };
     }
 

@@ -1,12 +1,14 @@
 # Workbench Shell
 
 ## Intent
+
 The Workbench presents each Project as a folder in the left sidebar. Expanded Projects show durable Project-owned Sessions, but a Project can have zero Sessions until the first ordinary New Chat action ensures its Core-owned default draft. Each Window Session renders an owner-scoped Scene through one shared composition: a Project Scene places the Project's current default Database View at the root of a fixed full-width surface stack, a Session Scene keeps Conversation as its primary plane, and the singleton Pages Scene presents all trusted Library content as ordinary tabs without a protected primary. A Project Agent Dock can observe and send to one real Session without changing the selected Scene. Core-backed domain data remains shared; Scene surfaces, Dock presentation, and panel arrangement do not synchronize across windows.
 
 Detailed Auto-review preset, config, and approval-lifecycle rules are specified in [Auto-review Behavior](./auto-review-behavior.md).
 Thread Summary content and row actions are specified in [Thread Summary Panel Behavior](./thread-summary-panel-behavior.md). Scheduled and Settings route behavior is specified in [Scheduled Route Behavior](./scheduled-route-behavior.md) and [Settings Route Behavior](./settings-route-behavior.md).
 
 ## Layout
+
 - Left sidebar: Projects render as folders with separate navigation and disclosure controls. The visible Project label opens its Project Scene without changing disclosure; the leading marker becomes a chevron on row hover/focus and only folds or expands Session children.
 - Project children: each expanded Project lists ordered Sessions. A new Project starts with zero Sessions and still opens its Database immediately. Its first ordinary New Chat action immediately ensures one durable default-draft Session and lists it; repeated actions select the same Session until first Thread link or Archive releases the slot.
 - Sidebar footer: a compact Settings button remains available without workspace switching controls.
@@ -22,6 +24,7 @@ Thread Summary content and row actions are specified in [Thread Summary Panel Be
 - A Session right panel has a left-edge resize handle in regular mode. Full-width mode collapses the thread viewport to zero width, removes the resize handle and inner left border, hides the fixed header center surface, and exposes `Restore panel width` from the tab header. Project and Pages surface stacks have neither resize nor restore-width controls because full width is their structural layout.
 
 ## Scene And Surface Semantics
+
 - Primary surfaces are fixed for Project and Session owners. A Project Scene's `db_view` primary resolves the Project's current default Database View, occurs exactly once at the start of its full-width right stack, and cannot be closed, moved, split, or reordered behind another tab. A Session Scene's `conversation` primary resolves that exact Session outside its panel trees. Pages has no primary; its Library-authorized surfaces all live in the panel trees and may close, move, split, and reorder.
 - `db_view`: renders one durable View through shared effective-presentation and data authority. A canonical Status Board retains the established Board Column/Card presenter; List uses the dense task-row presenter; capability-specific Board configurations use the advanced fallback. A Scene can have one panel surface per explicit View target; selecting an already-open target focuses that surface, while switching Board/List preserves the View identity, Filter, selection, and Page context. The Project Scene primary uses the semantic `project-default` target so a default-View change does not rewrite presentation identity. The toolbar's adjacent `Canvas` destination opens or focuses that Project's deterministic primary `canvas_stage` in the same panel group; it does not alter Database config or personal presentation preferences.
 - `canvas_stage`: renders the generic scene-native Canvas surface for `{ accessContext, canvasBlockId }`. The public Canvas Block ID is the target; the surface never persists `documentId`, scene state, or Page host coordinates. Opening the same Canvas again focuses the existing target where the owner Scene and access context match. The live Canvas target updates the surface title, resolves host-Page grants, and provides explicit missing/deleted/error states with normal close behavior. Within one renderer, inline Page Canvas and Canvas Stage share one Document session/provider/outbox only when their Core-authored `libraryId + accessContext + documentId` identity matches, while retaining independent Excalidraw bindings, camera, undo/tool state, asset resolver, and presence participant.
@@ -46,6 +49,7 @@ Thread Summary content and row actions are specified in [Thread Summary Panel Be
 - Dock target and visibility are persisted Scene presentation but are excluded from Back/Forward history. If exact hydration proves that a bound Session was archived, deleted, or moved to another Project, sending is disabled and the Dock returns safely to its retained new-chat draft. A bounded summary window that does not contain the binding is never sufficient evidence.
 
 ## Storage Ownership
+
 - SQLite owns shared Project Session domain data:
   - `project_sessions`: nullable Project id, `no_thread_fallback_title`, order, and pin/archive/unread state.
   - `project_session_threads`: optional Session-to-Thread attachments; canonical Thread metadata lives in `codex_threads`.
@@ -61,6 +65,7 @@ Thread Summary content and row actions are specified in [Thread Summary Panel Be
 - Old stage-rail/window layout snapshots are best-effort migration inputs only; after decode, owner-scoped Scene state is authoritative for presentation and Core never owns it.
 
 ## Navigation
+
 - Scene switching synchronously unmounts the previous owner route and mounts the selected owner's Scene composition: a Session primary plus its panel groups, a Project's root-bearing full-width surface stack plus bottom panel and Agent Dock, or the primary-free Pages full-width stack. Exactly one owner route and one route header exist. Project selection never selects a first Session, and sidebar disclosure never changes location.
 - Scene switching reuses exact cached Project/Session detail and authoritative Module state without calling the full Project Session list solely because the owner changed. Returning to an owner or panel surface creates a fresh React view and restores only explicitly owned presentation such as Composer drafts, transcript state, and registered scroll snapshots; ephemeral component-local state resets.
 - App-window Back/Forward controls are available as titlebar buttons, command palette commands, `Cmd/Ctrl+[` and `Cmd/Ctrl+]`, desktop mouse Back/Forward buttons, and the macOS application menu; all routes enter the same shell-owned navigation executor. The command ids are `navigateBack` and `navigateForward`, labels are `Back` and `Forward`, and the disabled state follows the shell-local back/forward stacks.
@@ -78,6 +83,7 @@ Thread Summary content and row actions are specified in [Thread Summary Panel Be
 - Only the selected Scene may register shell side effects such as global header actions, summary panels, composer overlay targets, panel measurement refs, or visible Browser webview ids.
 
 ## Keyboard Model
+
 - Existing global command palette, settings, and editor shortcuts remain in force. Undo/redo is local to the focused editable surface; the shell owns no Project-wide history stack.
 - The previous stage-order shortcuts (`View -> Card -> Thread -> Diff`) are retired as primary shell semantics.
 - Project/Session/surface keyboard shortcuts follow the hierarchy: Project disclosure control, Project navigation control, Session row, owner primary, and right/bottom panel groups.
@@ -87,6 +93,7 @@ Thread Summary content and row actions are specified in [Thread Summary Panel Be
 - `Cmd/Ctrl+W` closes the active closable tab in the focused right or bottom panel tab group through the owning Session or Scene tab adapter, with the same close semantics as tab chrome. It works from NFM editor content in that leaf, ignores input fields and dialogs, no-ops for non-closable tabs, and must not close the app window. After close, keyboard/menu routing stays within the same split leaf and reveals the most recently active remaining tab, with right-neighbor then left-neighbor fallback only when MRU cannot answer. Close-button and middle-click single-tab closes use the same MRU routing. On macOS, Close Window uses `Cmd+Shift+W`.
 
 ## UI Contract
+
 - Surfaces should use the generated theme layers and token classes before adding local CSS.
 - Left titlebar navigation uses one grouped toolbar rail. Back renders lucide `ArrowLeft` with `icon-xs`; Forward reuses the same icon with `icon-xs -scale-x-100`. Each button has matching `aria-label`, `title`, tooltip text, command palette title, and disabled styling. On macOS the collapsed sidebar titlebar reserves `208px` total and renders the compact `New chat` edit/new-chat glyph after Forward.
 - Tabs are dense, use hover-revealed close actions, support pointer reorder through the shared tab strip, and scroll horizontally when the user wheels over an overflowing tab row. Tabs share equal responsive widths regardless of title length, growing together from 90px up to 160px before the row overflows. Direct close-button clicks and middle-click closes enter a rapid-close mode that temporarily locks the whole row to the target tab's current width until the pointer leaves the tab row, so repeated closes stay under one pointer position. Rapid close affects only tab-row measurement and pointer stability; the revealed tab after any single-tab close is still chosen by same-leaf most-recently-active routing. Each tab item exposes a hover tooltip with its full title; cross-project Card Stage tooltips include both the card title and the content project.
@@ -116,6 +123,7 @@ Thread Summary content and row actions are specified in [Thread Summary Panel Be
 - Do not reintroduce the stage rail, a hard-coded Project Home, or fake host Sessions as compatibility layers. Database, Page Stage, Canvas Stage, Conversation, Review, Files, Browser, and Terminal remain reusable bodies behind the closed owner-scoped Scene surface union.
 
 ## Storybook And Testing
+
 - Storybook coverage lives in `src/renderer/components/workbench/workbench-session-shell.stories.tsx` for the Project root Database stack, initial Welcome Page, mixed Session surfaces, empty right/bottom action grids, attached Conversation, collapsed/full-width Session panels, and live owner state preservation. Focused Pages picker and empty-Scene states live in `pages-tab-picker.stories.tsx` and `empty-pages-scene.stories.tsx`. Focused Agent Dock target-picker states live in `project-agent-dock-target-selector.stories.tsx`, pending-worktree progress/failure lives in `project-agent-dock.stories.tsx`, and controlled visible/hidden/attention composer states live with the right-panel composer overlay stories. Fixtures install their Electron API at story setup and must not use a changing React `key` to simulate state transitions. Focused sidebar Project-sort, insertion-indicator, pinned-Project, and empty Pinned drop-target states live in `src/renderer/components/workbench/left-sidebar.stories.tsx`. Focused preview tab states live in `src/renderer/components/workbench/app-shell-tabs.stories.tsx`; focused Side chat panel state stories live in `src/renderer/components/workbench/workbench-side-chat.stories.tsx`.
 - Focused right-panel composer overlay stories live in `src/renderer/features/local-conversation/view/right-panel-composer-overlay.stories.tsx` and cover full-width Review, multiline prompt overflow, compact Browser, bottom-panel offset, running-thread Stop, and reduced-motion states.
 - Unit tests should cover deterministic layout v6-to-v7 Resource-to-Pages migration, strict Scene owner/primary and surface config validation, Pages empty-tab behavior, clone identity reminting, Core v98-to-v99 starter cleanup/preservation, zero-Session Project creation, Session ordering, Session-Thread startup, and absence of attach/detach toolbar controls.

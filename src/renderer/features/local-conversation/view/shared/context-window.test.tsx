@@ -19,7 +19,9 @@ describe("ContextWindowTooltipContent", () => {
     expect(view.getByText("Context window:").textContent).toBe("Context window:");
     expect(view.getByText("44% used (56% left)").textContent).toBe("44% used (56% left)");
     expect(view.getByText("113k / 258k tokens used").textContent).toBe("113k / 258k tokens used");
-    expect(view.getByText("Nodex automatically compacts its context").textContent).toBe("Nodex automatically compacts its context");
+    expect(view.getByText("Nodex automatically compacts its context").textContent).toBe(
+      "Nodex automatically compacts its context",
+    );
   });
 
   test("matches the Codex full branch without the auto-compaction line", () => {

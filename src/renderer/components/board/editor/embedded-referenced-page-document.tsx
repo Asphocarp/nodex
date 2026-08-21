@@ -33,24 +33,15 @@ export function EmbeddedReferencedPageDocument({
   isActive,
   hostRuntime,
 }: EmbeddedReferencedPageDocumentProps) {
-  const contentAccessContext = hostRuntime?.contentAccessContext
-    ?? libraryContentAccess;
-  const executionProjectId = projectIdFromContentAccessContext(
-    contentAccessContext,
-  );
+  const contentAccessContext = hostRuntime?.contentAccessContext ?? libraryContentAccess;
+  const executionProjectId = projectIdFromContentAccessContext(contentAccessContext);
   const { projects } = useProjects();
-  const targetProject = resolveReferencedProjectContext(
-    executionProjectId ?? "",
-    projects,
-  );
-  const targetLibraryId = projects.find(
-    (project) => project.id === executionProjectId,
-  )?.libraryId ?? projects[0]?.libraryId;
+  const targetProject = resolveReferencedProjectContext(executionProjectId ?? "", projects);
+  const targetLibraryId =
+    projects.find((project) => project.id === executionProjectId)?.libraryId ??
+    projects[0]?.libraryId;
   return (
-    <OwnedBlockDocumentBoundary
-      accessContext={contentAccessContext}
-      ownerBlockId={card.id}
-    >
+    <OwnedBlockDocumentBoundary accessContext={contentAccessContext} ownerBlockId={card.id}>
       {(model, controls) => {
         if (model.status === "loading") {
           return (
@@ -61,10 +52,7 @@ export function EmbeddedReferencedPageDocument({
         }
         if (model.status === "error") {
           return (
-            <div
-              role="alert"
-              className="py-2 text-sm text-token-error-foreground"
-            >
+            <div role="alert" className="py-2 text-sm text-token-error-foreground">
               {model.error.message}
             </div>
           );
@@ -72,9 +60,9 @@ export function EmbeddedReferencedPageDocument({
         return (
           <BlockDocumentSurface
             descriptor={model.descriptor}
-            pageTitleIdentity={targetLibraryId
-              ? { libraryId: targetLibraryId, pageId: card.id }
-              : undefined}
+            pageTitleIdentity={
+              targetLibraryId ? { libraryId: targetLibraryId, pageId: card.id } : undefined
+            }
             isActive={isActive}
             onReload={controls.reload}
             localAwarenessState={{
@@ -126,7 +114,7 @@ export function EmbeddedReferencedPageDocument({
                   onOpenPage={hostRuntime?.openPage}
                   onOpenCanvas={hostRuntime?.openCanvas}
                   isActivePanelTab={isActive}
-          placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
+                  placeholder={PAGE_DESCRIPTION_PLACEHOLDER}
                   className="min-w-0"
                 />
               </div>
