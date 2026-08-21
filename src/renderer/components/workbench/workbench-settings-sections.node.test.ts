@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { SETTINGS_SECTION_GROUP_ORDER, SETTINGS_SECTIONS } from "./workbench-settings-sections";
 
 describe("settings section catalog", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";

@@ -1,5 +1,5 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "vite-plus/test";
 import {
   CANVAS_SCENE_OUTBOX_DATABASE_NAME,
   IndexedDbCanvasSceneOutbox,

@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   LEGACY_SMART_PREFIX_PARSING_STORAGE_KEY,
   LEGACY_STRIP_SMART_PREFIX_STORAGE_KEY,

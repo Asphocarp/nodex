@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 import { TERMINAL_RENDERER_BUFFER_LIMIT, TerminalSessionStore } from "./terminal-session-store";
 import type {
   TerminalAttachedEvent,

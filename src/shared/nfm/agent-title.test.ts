@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
 import { parseInlineMarkdownTitle, serializeInlineMarkdownTitle } from "./agent-title";
 

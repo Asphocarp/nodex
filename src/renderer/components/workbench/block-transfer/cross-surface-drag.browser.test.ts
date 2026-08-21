@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   encodeBlockTransferDragPayload,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,

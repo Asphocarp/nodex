@@ -1,5 +1,5 @@
 import { render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { BrowserSidebarThemeSynchronizer } from "./browser-sidebar-theme-synchronizer";
 
 let resolvedTheme: "light" | "dark" = "light";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { AdditionalDocumentCommandResult } from "../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../shared/additional-document-command-transport";
 import {

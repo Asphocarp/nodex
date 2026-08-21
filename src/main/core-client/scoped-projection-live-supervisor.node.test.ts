@@ -1,4 +1,4 @@
-import { describe, expect, test, vi, type Mock } from "vitest";
+import { describe, expect, test, vi, type Mock } from "vite-plus/test";
 
 import type { ProjectionScope } from "../../shared/projection-stream";
 import type {

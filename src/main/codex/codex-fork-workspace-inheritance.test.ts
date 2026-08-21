@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolveCodexForkWorkspaceInheritance } from "./codex-fork-workspace-inheritance";
 
 describe("Codex fork workspace inheritance", () => {

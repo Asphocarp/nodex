@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   DEFAULT_NFM_AUTOLINK_SETTINGS,
   NFM_AUTOLINK_SETTINGS_STORAGE_KEY,

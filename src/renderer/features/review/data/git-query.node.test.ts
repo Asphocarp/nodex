@@ -1,5 +1,5 @@
 import { QueryClient, QueryObserver } from "@tanstack/query-core";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import type {
   GitWorkerMessageForView,
   GitWorkerMethod,

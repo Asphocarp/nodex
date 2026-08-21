@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { buildMcpAppSandboxSourceUrl } from "../../shared/mcp-app/mcp-app-sandbox-contract";
 import { createMcpAppSandboxProtocolHandler } from "./mcp-app-sandbox-protocol";
 

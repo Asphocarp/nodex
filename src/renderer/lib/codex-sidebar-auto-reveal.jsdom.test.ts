@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION,
   CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION,

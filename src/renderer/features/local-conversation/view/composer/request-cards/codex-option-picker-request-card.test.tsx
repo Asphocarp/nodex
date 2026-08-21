@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexCanonicalOptionPickerResponse, CodexOptionPickerRequest } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";
 import { CodexOptionPickerRequestCard } from "./codex-option-picker-request-card";

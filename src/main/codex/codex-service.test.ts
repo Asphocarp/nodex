@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test, vi } from "vitest";
+import { afterAll, describe, expect, test, vi } from "vite-plus/test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

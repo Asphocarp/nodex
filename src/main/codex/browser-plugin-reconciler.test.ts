@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { writeBrowserRuntimeFixture } from "./browser-runtime-test-fixture";
 import { resolveBrowserRuntimeBundle } from "./browser-runtime-bundle";
 import { BrowserPluginReconciler } from "./browser-plugin-reconciler";

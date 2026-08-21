@@ -1,5 +1,5 @@
 import { act, fireEvent, screen } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { DEFAULT_BROWSER_USE_POLICY } from "../../../shared/browser-use-policy";
 import { render, settleAsyncRender } from "../../test/dom";
 import { BrowserSettingsPage } from "./browser-settings-pages";

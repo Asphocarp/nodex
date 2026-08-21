@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CommandPaletteThread } from "./command-palette";
 import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
 

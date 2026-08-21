@@ -2,7 +2,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { FormattingToolbarExtension } from "@blocknote/core/extensions";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import "../../../globals.css";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";

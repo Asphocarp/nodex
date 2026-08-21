@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "./owned-block-document";
 import type { CanvasSceneBinding } from "./canvas-scene-binding";
 import type { CanvasBinaryFileResolver } from "./canvas-assets";

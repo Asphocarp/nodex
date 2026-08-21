@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { LocalConversationStreamState } from "./local-conversation-stream-state";
 
 function checkpoint(revision: number, ownerEpoch = 1, marker = "a") {

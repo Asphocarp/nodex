@@ -1,5 +1,5 @@
 import { act, type ComponentProps, type Ref } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { renderWithMaitai } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";

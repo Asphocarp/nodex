@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { ReferenceSurfaceActivationBudget } from "./reference-surface-state";
 
 describe("ReferenceSurfaceActivationBudget", () => {

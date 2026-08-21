@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { buildPageDetailStoryResult } from "@/components/board/page-stage/page-stage-story-page-detail";
 import { buildPageStageStoryPage } from "@/components/board/page-stage/page-stage-dev-story-data";

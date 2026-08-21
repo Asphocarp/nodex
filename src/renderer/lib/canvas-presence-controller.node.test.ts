@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { SocketId } from "@excalidraw/excalidraw/types";
 import {
   CANVAS_PRESENCE_HEARTBEAT_MS,

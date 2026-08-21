@@ -1,5 +1,5 @@
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach } from "vite-plus/test";
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 

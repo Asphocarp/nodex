@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   getNodexHomeMarkGlyphScene,
   NODEX_HOME_MARK_HELLO_BOUNDARIES,

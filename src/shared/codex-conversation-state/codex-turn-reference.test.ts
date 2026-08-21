@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolveCodexTurnReference, type CodexTurnReference } from "./codex-turn-reference";
 
 function turn(

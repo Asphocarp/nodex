@@ -1,5 +1,5 @@
 import { fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { act } from "react";
 import { render } from "../../test/dom";
 import { RelationPropertyEditor } from "../database/relation-property-editor";

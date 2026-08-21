@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
 

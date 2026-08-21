@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { computeNativeDropIndex, computeNativeDropIndexFromSurface } from "./native-drop-index";
 
 describe("native drop index", () => {

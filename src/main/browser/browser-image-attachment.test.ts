@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { MAX_MANAGED_IMAGE_BYTES } from "../../shared/managed-assets";
 import { fetchBrowserImage } from "./browser-image-attachment";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { getDefaultToggleListSettings } from "../../../lib/toggle-list/settings";
 import type { BoardSummary, DatabasePageSummary } from "../../../lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents/portable-rich-text";

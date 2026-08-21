@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { MaitaiProvider, createMaitaiStore, useScopedAtom, useSetScopedAtom } from "@/lib/maitai";
 import { WorkbenchSessionScopePath } from "@/lib/workbench-ui-scopes";
 import { canonicalizeReviewPath, resolveReviewPathCandidate } from "./review-path";

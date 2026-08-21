@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolveSubagentAvatarIndex, SUBAGENT_AVATAR_ASSETS } from "./subagent-avatar";
 
 describe("subagent avatar mapping", () => {

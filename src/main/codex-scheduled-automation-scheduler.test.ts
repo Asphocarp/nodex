@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexScheduledAutomation } from "../shared/types";
 import {
   CODEX_SCHEDULED_AUTOMATION_SCHEDULER_INTERVAL_MS,

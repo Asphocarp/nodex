@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
 import type { CodexCanonicalSetupCodexStepResponse, CodexSetupCodexStepRequest } from "@/lib/types";

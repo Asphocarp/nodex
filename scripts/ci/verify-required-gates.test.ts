@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { classifyChangedPaths } from "./classify-change";
 import { requiredGateNames, verifyRequiredGates } from "./verify-required-gates";

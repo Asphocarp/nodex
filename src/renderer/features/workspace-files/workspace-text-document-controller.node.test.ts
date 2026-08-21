@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import {
   WORKSPACE_AUTOSAVE_DELAY_MS,
   WORKSPACE_EDIT_STABILIZATION_MS,

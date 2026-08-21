@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite-plus";
 import { assertElectronTestRuntime } from "./config/electron-test-runtime";
 import { selectTieredTestFiles } from "./config/vitest-test-tier";
 

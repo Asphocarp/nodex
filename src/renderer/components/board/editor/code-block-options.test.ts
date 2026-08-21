@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { editorCodeBlockOptions } from "./code-block-options";
 
 const shikiParserSymbol = Symbol.for("blocknote.shikiParser");

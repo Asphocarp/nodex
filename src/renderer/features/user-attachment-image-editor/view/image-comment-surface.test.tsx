@@ -1,6 +1,6 @@
 import { act, useState } from "react";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { render } from "../../../test/dom";
 import type { ImageComment } from "../model/types";
 import { ImageCommentSurface } from "./image-comment-surface";

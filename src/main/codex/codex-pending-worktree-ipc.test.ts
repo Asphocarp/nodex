@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import type { IpcApi } from "../../shared/ipc-api";
 import type {
   CodexPendingWorktreeEntry,

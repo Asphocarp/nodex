@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { render, settleAsyncRender } from "../../../test/dom";

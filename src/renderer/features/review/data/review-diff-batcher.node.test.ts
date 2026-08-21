@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { buildReviewFileSafety } from "../../../../shared/review-file-safety";
 import type { ReviewDiffRequest, ReviewDiffResult } from "@/lib/types";
 import {

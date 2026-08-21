@@ -3,7 +3,7 @@ import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { BlockNoteViewRaw, useCreateBlockNote } from "@blocknote/react";
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import * as Y from "yjs";
 
 import { createPageDocumentGenesis } from "../../../../shared/block-documents/block-document-codec";

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { CodexCanonicalServerRequest } from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { DesktopNotificationActionInvocation } from "../../shared/types";
 import {

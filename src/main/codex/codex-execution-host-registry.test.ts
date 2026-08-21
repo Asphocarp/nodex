@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { CodexExecutionHostRegistry } from "./codex-execution-host-registry";
 import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-operation";
 

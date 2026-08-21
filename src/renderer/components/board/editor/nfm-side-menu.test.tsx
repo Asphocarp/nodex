@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { useMemo, useState, type ReactNode } from "react";
 import { render } from "@/test/dom";

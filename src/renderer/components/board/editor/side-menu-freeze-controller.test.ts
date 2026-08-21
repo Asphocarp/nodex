@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { createSideMenuFreezeController, deleteSideMenuBlock } from "./side-menu-freeze-controller";
 
 describe("createSideMenuFreezeController", () => {

@@ -1,6 +1,6 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import { TextSelection } from "@tiptap/pm/state";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import "../../../globals.css";
 import { writeTaskShorthandPagePromotionEnabled } from "../../../lib/page-promotion-preference";
 import { nfmTaskShorthandPreviewExtension } from "./nfm-task-shorthand-preview-extension";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   COMPOSER_DICTATION_WAVEFORM_BUFFER_DURATION_SECONDS,
   COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR,

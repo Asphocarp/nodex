@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import type { DiagnosticsSettings } from "../../shared/types";
 import { captureMainException, initializeMainSentry, resetMainSentryForTests } from "./sentry-main";
 

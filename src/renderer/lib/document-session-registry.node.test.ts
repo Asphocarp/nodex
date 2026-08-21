@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents";

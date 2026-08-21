@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { endProjectionBlockDrag, startProjectionBlockDrag } from "./projection-drag-handle";
 
 describe("projection drag handle helpers", () => {

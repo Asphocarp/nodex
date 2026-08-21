@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { McpAppScopeSnapshot } from "../../../shared/mcp-app/mcp-app-scope";
 import { McpAppHostDispatcher } from "./mcp-app-host-dispatcher";
 

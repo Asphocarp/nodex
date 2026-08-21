@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { BoardIcon, CanvasIcon, PageIcon } from "@/components/shared/icons";
 import { getPanelNewTabAction } from "./workbench-panel-actions";
 

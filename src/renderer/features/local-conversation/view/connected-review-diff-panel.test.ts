@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexConversationSnapshot } from "@/lib/types";
 import { connectedReviewDiffPanelTestHelpers } from "./connected-review-diff-panel";
 import {

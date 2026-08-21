@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import type { DiagnosticsSettings } from "./types";
 import { initializeRendererSentry, resetRendererSentryForTests } from "./sentry-renderer";
 

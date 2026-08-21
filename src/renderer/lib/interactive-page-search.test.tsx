@@ -1,6 +1,6 @@
 import { act, fireEvent } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import type { PageSearchResult, PageSearchSnapshot } from "../../shared/types";
 import { render, textContent } from "../test/dom";
 import { invoke, searchPages } from "./api";

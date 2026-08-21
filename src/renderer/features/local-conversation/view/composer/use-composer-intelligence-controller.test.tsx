@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { CodexServiceTierSettingsProvider } from "@/lib/use-codex-service-tier-settings";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import type { ComposerIntelligenceSelection } from "./composer-intelligence-selection";

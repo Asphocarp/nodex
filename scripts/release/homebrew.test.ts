@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 import { generateHomebrewCask } from "./homebrew";
 
 test("generateHomebrewCask binds immutable version tags to canonical DMGs", () => {

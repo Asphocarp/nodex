@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { withCoreScenario } from "../../../scripts/scenarios/harness/core-scenario-harness";
 import {

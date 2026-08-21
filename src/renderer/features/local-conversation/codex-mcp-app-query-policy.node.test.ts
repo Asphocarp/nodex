@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { mcpAppsQueryOptions, mcpServerStatusesQueryOptions } from "../../lib/query-options";
 import { queryKeys } from "../../lib/query-keys";
 import { shouldEnableCodexMcpAppsQuery } from "./codex-mcp-app-query-policy";

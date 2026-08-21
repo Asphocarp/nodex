@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { parseNfm } from "../nfm/parser";
 import { blockNoteToNfm, nfmToBlockNote, nfmToBlockNoteWithIds } from "./nfm-blocknote-adapter";
 

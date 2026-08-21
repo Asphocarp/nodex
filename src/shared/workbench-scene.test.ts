@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { WorkbenchSceneSnapshotSchema } from "./schemas/workbench-scene";
 import { flattenWorkbenchPanelTabIds } from "./workbench-panel-layout";
 import {

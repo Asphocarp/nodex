@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { parseDataSourcePropertyId } from "../../shared/database-identities";
 import type { PageDetail } from "../../shared/page-detail";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";

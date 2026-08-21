@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { Config } from "@nodex/codex-app-server-protocol/v2/Config";
 import { expandCodexDynamicCreateConfigProfile } from "./codex-dynamic-create-config";
 

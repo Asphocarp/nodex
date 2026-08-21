@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 import type { PageSearchResult, Project } from "./types";
 import { __testing } from "./interactive-page-search";

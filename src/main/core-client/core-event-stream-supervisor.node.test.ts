@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 import type { CoreEventEnvelope, CoreEventReplayRequired, CoreStreamCheckpoint } from "./types";
 import { superviseCoreEventStream } from "./core-event-stream-supervisor";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";

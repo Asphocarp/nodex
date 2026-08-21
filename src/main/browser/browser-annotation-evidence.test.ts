@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { BrowserAnnotationAnchor } from "../../shared/browser-annotation";
 import { computeBrowserAnnotationEvidenceCrop } from "./browser-annotation-evidence";
 

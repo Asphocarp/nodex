@@ -1,5 +1,5 @@
 import { parsePatchFiles } from "@pierre/diffs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   REVIEW_SEARCH_MATCH_LIMIT,
   buildReviewSearchFiles,

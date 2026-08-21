@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { AppUpdateSettings } from "../shared/types";
 import type { MacAppUpdater, MacAppUpdaterCheckKind, MacAppUpdaterEvent } from "./mac-app-updater";
 import { AppUpdateService, reduceAppUpdateStatus } from "./app-update-service";

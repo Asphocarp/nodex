@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { act } from "@testing-library/react";
 import { useEffect, useRef, useState } from "react";
 import { renderWithMaitai, settleAsyncRender } from "@/test/dom";

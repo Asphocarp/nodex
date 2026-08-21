@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { buildResizeSubmissionIntent } from "../model/image-edit-submission";
 
 const mocks = vi.hoisted(() => ({

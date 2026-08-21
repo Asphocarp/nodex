@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { NfmBlock } from "./types";
 import { serializeClipboardText } from "./clipboard-text-serializer";
 import { parseNfm } from "./parser";

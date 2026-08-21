@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { toDesktopNotificationPlainText } from "./desktop-notification-text";
 
 describe("desktop notification plain text", () => {

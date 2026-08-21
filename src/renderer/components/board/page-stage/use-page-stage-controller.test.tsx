@@ -1,6 +1,6 @@
 import { act } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import type { DatabasePage, PageInput } from "@/lib/types";
 import { projectPageDetailToStageModel, type PageStagePageModel } from "@/lib/page-stage-page";

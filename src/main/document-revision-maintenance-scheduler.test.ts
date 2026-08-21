@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { startDocumentRevisionMaintenanceScheduler } from "./document-revision-maintenance-scheduler";
 
 const emptyResult = {

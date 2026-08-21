@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import "../../globals.css";
 
 import {

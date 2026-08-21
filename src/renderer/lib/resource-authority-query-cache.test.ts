@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import { AuthorityFreshnessIndex } from "./authority-freshness-index";

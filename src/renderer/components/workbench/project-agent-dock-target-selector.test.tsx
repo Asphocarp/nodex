@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { render } from "../../test/dom";
 import type { ProjectAgentDockModel } from "@/lib/project-agent-dock-model";
 import { ProjectAgentDockTargetSelector } from "./project-agent-dock-target-selector";

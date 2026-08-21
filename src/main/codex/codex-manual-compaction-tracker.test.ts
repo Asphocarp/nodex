@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { CodexManualCompactionTracker } from "./codex-manual-compaction-tracker";
 
 describe("CodexManualCompactionTracker", () => {

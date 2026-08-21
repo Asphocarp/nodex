@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { formatRulesV2AsJsonLogic, parseRulesV2FromJsonLogic } from "./rules-v2-jsonlogic";
 import type { ToggleListRulesV2 } from "./types";
 

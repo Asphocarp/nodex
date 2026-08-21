@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, vi, test } from "vitest";
+import { beforeEach, describe, expect, vi, test } from "vite-plus/test";
 import { fireEvent } from "@testing-library/react";
 import { act, type ReactNode } from "react";
 import { render, settleAsyncRender } from "../../../test/dom";

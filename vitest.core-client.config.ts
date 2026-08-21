@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite-plus";
 import { rendererViteResolve } from "./config/renderer-vite-shared";
 import { selectTieredTestFiles } from "./config/vitest-test-tier";
 

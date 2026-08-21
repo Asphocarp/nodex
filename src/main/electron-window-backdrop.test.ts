@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_ELECTRON_OPAQUE_DARK_BACKGROUND_COLOR,
   CODEX_ELECTRON_OPAQUE_LIGHT_BACKGROUND_COLOR,

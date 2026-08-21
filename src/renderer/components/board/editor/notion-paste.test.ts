@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { NfmBlock, NfmInlineContent } from "../../../lib/nfm";
 import { formatDateMentionPlainText } from "@/lib/nfm/date-mention";
 import {

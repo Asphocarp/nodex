@@ -1,6 +1,6 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { FileIcon } from "@/components/shared/icons";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
 import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";

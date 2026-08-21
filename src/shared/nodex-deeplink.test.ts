@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import vectors from "../../tests/fixtures/nodex-deeplinks.json";
 import {
   buildPageDeepLink,

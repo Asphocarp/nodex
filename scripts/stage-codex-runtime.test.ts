@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { BundledAgentRuntimeMetadata } from "../src/shared/codex-runtime-metadata";
 import { writeBrowserRuntimeFixture } from "../src/main/codex/browser-runtime-test-fixture";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { writeBrowserRuntimeFixture } from "../src/main/codex/browser-runtime-test-fixture";
 import { BROWSER_RUNTIME_MANIFEST_FILENAME } from "../src/shared/browser-runtime-metadata";
 import { archiveBrowserRuntime } from "./archive-browser-runtime";

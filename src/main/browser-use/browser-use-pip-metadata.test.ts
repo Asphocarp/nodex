@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { parseRemoteHostedPipNotification } from "./browser-use-pip-metadata";
 
 function browserNotification(overrides: Record<string, unknown> = {}): unknown {

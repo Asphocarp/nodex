@@ -1,6 +1,6 @@
 import { act } from "react";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { render, settleAsyncRender } from "../../../../test/dom";
 import { installWindowApi } from "../../../../test/browser-globals";
 import { TestQueryProvider } from "../../../../test/query";

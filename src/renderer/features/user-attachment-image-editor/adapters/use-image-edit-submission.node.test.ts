@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { buildRemoveSubmissionIntent } from "../model/image-edit-submission";
 import type { EditableImageDescriptor } from "../model/types";
 import { compileImageEditPromptInput } from "./use-image-edit-submission";

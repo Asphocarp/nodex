@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CALENDAR_SHIFT_WHEEL_SCOPE_ATTR,
   CALENDAR_SHIFT_WHEEL_SCOPE_VALUE,

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import type { DatabaseListMoveUndoRecipeV2 } from "../../../shared/database-module-v2";
 import type { BlockTransferUndoToken } from "../../../shared/block-transfer";

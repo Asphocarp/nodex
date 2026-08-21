@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { DatabaseViewFilterNode, DatabaseViewConfigV4 } from "../../shared/database-kernel";
 import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { getDefaultToggleListSettings } from "./settings";
 import type { ToggleListCard, ToggleListRulesV2, ToggleListSettings } from "./types";
 import { filterCards, rankCards } from "./rules";

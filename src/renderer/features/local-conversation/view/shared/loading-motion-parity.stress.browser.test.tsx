@@ -1,5 +1,5 @@
 import { render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
 import { createMaitaiStore, disposeMaitaiStore, MaitaiProvider } from "@/lib/maitai";

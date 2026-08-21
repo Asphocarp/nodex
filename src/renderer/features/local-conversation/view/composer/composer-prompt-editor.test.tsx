@@ -1,6 +1,6 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { createRef } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import {
   buildPromptDoc,
   classifyComposerPaste,

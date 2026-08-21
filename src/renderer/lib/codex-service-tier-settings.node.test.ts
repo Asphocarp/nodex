@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY,
   buildCodexServiceTierRequestOverride,

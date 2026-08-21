@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";

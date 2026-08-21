@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import type { CodexConversationItem, CodexConversationSnapshot } from "../../../lib/types";
 import {

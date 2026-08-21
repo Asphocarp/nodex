@@ -1,5 +1,5 @@
 import { act, render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   MaitaiProvider,
   ScopeProvider,

@@ -1,6 +1,6 @@
 import { act } from "react";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { installWindowApi } from "../../../test/browser-globals";
 import { renderWithMaitai, settleAsyncRender } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";

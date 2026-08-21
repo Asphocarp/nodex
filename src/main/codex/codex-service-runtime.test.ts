@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

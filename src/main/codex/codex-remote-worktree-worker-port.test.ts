@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { CodexWorktreeWorkerCreateInput } from "./codex-worktree-worker-port";
 import { CodexRemoteWorktreeWorkerPort } from "./codex-remote-worktree-worker-port";
 

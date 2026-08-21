@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ServerRequest } from "@nodex/codex-app-server-protocol";
 import type { HookRunSummary, ThreadItem, Turn } from "@nodex/codex-app-server-protocol/v2";
 import { projectCodexCanonicalTurnItemViews } from "../codex-canonical-item-projector";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { normalizeUserAttachmentImageEditorOptions } from "@/features/user-attachment-image-editor";
 import type { WorkbenchSessionRenderProjection } from "./workbench-session-presentation";

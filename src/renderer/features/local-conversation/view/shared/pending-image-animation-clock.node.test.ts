@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import { createGeneratedImageAnimationClock } from "../../../user-attachment-image-editor/view/generated-image-animation-clock";
 

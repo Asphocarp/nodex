@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { browserPluginNodeModuleDirs, readCuaRuntimeVersion } from "./vendor-browser-runtime";
 
 test("declares the vendored Browser plugin dependency directory", () => {

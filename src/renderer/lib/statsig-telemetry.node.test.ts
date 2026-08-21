@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { appCloseFlushTestHelpers } from "./app-close-flush";
 import type { TelemetrySettings } from "./types";
 import {

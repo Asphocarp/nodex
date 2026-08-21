@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { getAssetSource } from "./assets";
 import {
   MAX_MANAGED_PREVIEW_BYTES,

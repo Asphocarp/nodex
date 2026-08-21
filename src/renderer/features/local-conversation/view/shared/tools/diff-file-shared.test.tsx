@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { AnimatedDiffStats, DiffStats } from "./diff-file-shared";
 import { render, textContent } from "../../../../../test/dom";
 

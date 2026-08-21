@@ -1,5 +1,5 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import { invalidateExactQuery, queryFamilyProjectionCursor } from "./query-invalidation";
 import { queryKeys } from "./query-keys";

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { render, settleAsyncRender } from "../../test/dom";
 import { BrowserUseCursorPortal, readCursorPresentationSize } from "./browser-use-cursor-portal";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";

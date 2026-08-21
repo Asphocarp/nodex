@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { parseDatabaseId } from "../../shared/database-identities";
 import type { DatabasePageKeyRuntimeDependencies } from "./database-page-key-runtime";

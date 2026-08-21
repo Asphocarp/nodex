@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vite-plus/test";
 import type { CodexWorktreeWorkerCreateInput } from "../codex/codex-worktree-worker-port";
 import { CodexWorktreeWorkerHost } from "./worktree-worker-host";
 

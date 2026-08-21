@@ -1,4 +1,4 @@
-import { describe, expect, vi, test } from "vitest";
+import { describe, expect, vi, test } from "vite-plus/test";
 import type { ComponentProps } from "react";
 import { render, textContent } from "../../../test/dom";
 

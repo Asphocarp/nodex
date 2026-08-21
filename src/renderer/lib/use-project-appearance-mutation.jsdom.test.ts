@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 import { queryKeys } from "./query-keys";
 import type { Project, ProjectWindow } from "./types";

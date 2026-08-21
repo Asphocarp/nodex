@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { fireEvent } from "@testing-library/react";
 import { act, type ComponentProps } from "react";
 import {

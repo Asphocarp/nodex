@@ -1,6 +1,6 @@
 import { act } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { ThreadComposerShellBackgroundAgentRowModel } from "../../thread-stage-types";
 import type { CodexThreadSummary } from "../../../../../shared/types";
 import {

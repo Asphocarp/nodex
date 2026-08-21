@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 import { parseOpenInterpreterReleaseLock } from "./agent-runtime-release-lock";
 
 const HASH = "a".repeat(64);

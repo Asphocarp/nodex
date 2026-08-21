@@ -1,4 +1,4 @@
-import { describe, expect, vi, test } from "vitest";
+import { describe, expect, vi, test } from "vite-plus/test";
 import { createElement, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
 import { act } from "@testing-library/react";
 import type {

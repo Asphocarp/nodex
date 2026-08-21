@@ -1,6 +1,6 @@
 import { createRef } from "react";
 import { render, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { IntelligenceSelectorTrigger } from "./intelligence-selector-trigger";
 import "../../../../globals.css";
 

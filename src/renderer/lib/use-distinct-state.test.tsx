@@ -1,5 +1,5 @@
 import { act } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { render, settleAsyncRender } from "@/test/dom";
 import { useDistinctState, type SetDistinctState } from "./use-distinct-state";

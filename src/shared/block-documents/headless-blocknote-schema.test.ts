@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYDoc, yDocToBlocks } from "@blocknote/core/yjs";
 import {

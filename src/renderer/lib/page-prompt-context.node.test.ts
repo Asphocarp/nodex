@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents";
 import { createPageDocumentGenesis } from "../../shared/block-documents/block-document-codec";
 import type { BlockDocumentSurfaceRuntime } from "./block-document-surface-runtime";

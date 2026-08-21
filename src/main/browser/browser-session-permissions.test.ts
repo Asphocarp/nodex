@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { shouldGrantBrowserPermission } from "./browser-session-permissions";
 
 describe("Browser Profile permission policy", () => {

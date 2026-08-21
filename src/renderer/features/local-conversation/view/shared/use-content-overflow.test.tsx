@@ -1,6 +1,6 @@
 import { act, render } from "@testing-library/react";
 import { useRef } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { useContentOverflow } from "./use-content-overflow";
 
 function OverflowHarness({

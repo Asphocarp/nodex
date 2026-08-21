@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { RequestComposerQuestion } from "./request-card-questionnaire-state";
 import {
   canMoveUserInputFocusToOptionsFromOtherField,

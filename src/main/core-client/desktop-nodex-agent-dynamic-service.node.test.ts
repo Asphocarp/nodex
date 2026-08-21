@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import {
   NODEX_APP_TOOL_NAMESPACE,
   NODEX_APP_TOOLSET_REVISION,

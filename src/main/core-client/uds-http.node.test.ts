@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { CORE_TRANSPORT_BUDGETS } from "@nodex/core-protocol";
 
 import type { CoreEventEnvelope, CoreEventReplayRequired } from "./types";

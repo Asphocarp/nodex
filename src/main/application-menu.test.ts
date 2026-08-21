@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { MenuItemConstructorOptions } from "electron";
 import type { WorkbenchCommandInvocation } from "../shared/workbench-commands";
 import { createCommandKeymapState } from "../shared/command-keybindings";

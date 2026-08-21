@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { CodexConnectionState } from "../../shared/types";
 import type { CodexAppServerClientPort, CodexServerRequest } from "./codex-app-server-client";
 import { CodexAppServerClientRouter } from "./codex-app-server-client-router";

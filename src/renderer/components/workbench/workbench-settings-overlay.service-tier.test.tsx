@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { render, settleAsyncRender } from "@/test/dom";

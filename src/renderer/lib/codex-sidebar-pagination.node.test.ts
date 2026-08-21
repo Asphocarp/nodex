@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_SIDEBAR_PAGE_INCREMENT,
   CODEX_SIDEBAR_PROJECT_GROUP_MAX_GROUPS,

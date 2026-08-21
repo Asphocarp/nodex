@@ -1,5 +1,5 @@
 import { fireEvent } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
 import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
 

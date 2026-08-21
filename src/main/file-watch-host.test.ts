@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import path from "node:path";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { NodeFileWatchHost, type NativeFileWatchFactory } from "./file-watch-host";
 
 class FakeNativeWatcher extends EventEmitter {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolveTopLevelDraggedBlocks, type DraggableEditorBlock } from "./dragged-block-roots";
 
 describe("dragged Block roots", () => {

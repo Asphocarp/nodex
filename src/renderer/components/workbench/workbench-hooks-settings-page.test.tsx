@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { fireEvent } from "@testing-library/react";
 import type { HookMetadata } from "@nodex/codex-app-server-protocol/v2/HookMetadata";
 import type { HooksListEntry } from "@nodex/codex-app-server-protocol/v2/HooksListEntry";

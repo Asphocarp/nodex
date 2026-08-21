@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { createElement, useEffect, useRef, type ComponentProps } from "react";
 import { act, fireEvent, type RenderResult, waitFor } from "@testing-library/react";
 import { renderWithMaitai as render, textContent } from "../../test/dom";

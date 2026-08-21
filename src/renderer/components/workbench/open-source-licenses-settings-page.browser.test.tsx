@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { createMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import { installWindowApi } from "@/test/browser-globals";
 import "../../globals.css";

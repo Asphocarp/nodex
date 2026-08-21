@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { Project } from "./types";
 import type { PageCreateTarget } from "./page-create-target-registry";
 import { resolveProjectDefaultPageCreateCapability } from "./use-project-page-create-target";

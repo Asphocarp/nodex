@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";

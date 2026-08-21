@@ -1,5 +1,5 @@
 import { act } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { render } from "@/test/dom";
 import { ComposerContextRailSlot } from "../composer-context-rail";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { plainTextToPortableRichText, primaryCanvasBlockId } from "../../shared/block-documents";
 import type { BlockPropertyMutationRequestV2 } from "../../shared/block-property-mutations-v2";

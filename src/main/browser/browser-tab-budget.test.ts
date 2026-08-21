@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS,
   selectBrowserTabsToSuspend,

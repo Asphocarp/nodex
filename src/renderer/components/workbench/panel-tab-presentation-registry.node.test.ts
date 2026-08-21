@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { PanelTabPresentationRegistry } from "./panel-tab-presentation-registry";
 
 function createRegistry() {

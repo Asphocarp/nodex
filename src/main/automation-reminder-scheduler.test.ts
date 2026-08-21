@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import { startAutomationReminderScheduler } from "./automation-reminder-scheduler";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";

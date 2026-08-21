@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { NODEX_AGENT_V5_TOOL_CONTRACTS } from "./v5-contracts";
 import {
   NODEX_APP_TOOLSET_REVISION,

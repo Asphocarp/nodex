@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_THREAD_ACCORDION_TRANSITION,
   CODEX_THREAD_DIVIDER_ENTER_ANIMATE,

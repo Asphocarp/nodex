@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   createCommandKeymapState,
   PREVIOUS_PANEL_TAB_COMMAND_ID,

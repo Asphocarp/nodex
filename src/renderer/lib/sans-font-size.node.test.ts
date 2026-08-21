@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   DEFAULT_SANS_FONT_SIZE,
   MAX_SANS_FONT_SIZE,

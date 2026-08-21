@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import { MCP_APP_REQUIRED_GUEST_PORT_NAMES } from "../../shared/mcp-app/mcp-app-sandbox-contract";

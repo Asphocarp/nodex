@@ -1,8 +1,8 @@
 import { Profiler, type ProfilerOnRenderCallback, type ReactElement } from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, test } from "vitest";
-import { cdp, userEvent } from "vitest/browser";
+import { describe, expect, test } from "vite-plus/test";
+import { cdp, userEvent } from "vite-plus/test/browser";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { createMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import type { CodexConversationItem } from "@/lib/types";

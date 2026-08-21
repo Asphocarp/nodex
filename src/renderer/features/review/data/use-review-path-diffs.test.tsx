@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { buildReviewFileSafety } from "../../../../shared/review-file-safety";
 import { render } from "../../../test/dom";
 import { createTestQueryClient } from "../../../test/query";

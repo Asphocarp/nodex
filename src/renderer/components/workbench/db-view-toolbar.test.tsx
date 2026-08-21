@@ -1,5 +1,5 @@
 import { CanvasIcon, BoardIcon, DatabaseIcon } from "@/components/shared/icons";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { createRef } from "react";
 import { fireEvent } from "@testing-library/react";
 

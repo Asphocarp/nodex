@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { BlockReferenceRuntimeProvider } from "@/components/block-documents/block-reference-runtime-context";
 import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
 import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";

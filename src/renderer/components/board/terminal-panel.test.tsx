@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { beforeEach, describe, expect, vi, test } from "vitest";
+import { beforeEach, describe, expect, vi, test } from "vite-plus/test";
 import { render } from "../../test/dom";
 
 let useTerminalCalls: unknown[] = [];

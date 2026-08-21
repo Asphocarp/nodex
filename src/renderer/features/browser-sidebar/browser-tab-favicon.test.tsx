@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import { render } from "../../test/dom";
 import { installMotionPreferenceForTest } from "../../test/browser-globals";

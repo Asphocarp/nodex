@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolvePageCreateDialogLayout } from "./page-create-dialog-layout";
 
 describe("Page create dialog layout", () => {

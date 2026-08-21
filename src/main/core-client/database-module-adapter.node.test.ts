@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import { committedLocalCommit } from "../../shared/testing/local-commit";

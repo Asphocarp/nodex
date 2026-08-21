@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { APP_TEST_SUITES, STATIC_GROUPS } from "./ci-gate-plan";
 import { buildChangeClassificationDocument, classifyChangedPaths } from "./classify-change";

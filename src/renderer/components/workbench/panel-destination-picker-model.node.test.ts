@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
 import type { DatabaseContainerDescriptorV2 } from "../../../shared/database-module-v2";
 import {

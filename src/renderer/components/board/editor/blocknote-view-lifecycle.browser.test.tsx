@@ -4,7 +4,7 @@ import { BlockNoteViewRaw } from "@blocknote/react";
 import { TextSelection } from "@tiptap/pm/state";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { act, fireEvent, render } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import "../../../globals.css";
 import { NodexDropdownContent, NodexDropdownItem } from "@/components/ui/dropdown";
 import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "@/components/ui/popover";

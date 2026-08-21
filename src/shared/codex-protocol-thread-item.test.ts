@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2/ThreadItem";
 import {
   isCodexProtocolThreadItem,

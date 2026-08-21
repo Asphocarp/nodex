@@ -1,6 +1,6 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
 import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";

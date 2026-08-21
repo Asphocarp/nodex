@@ -1,4 +1,4 @@
-import { describe, expect, vi, test } from "vitest";
+import { describe, expect, vi, test } from "vite-plus/test";
 import type { DesktopNotificationActionPayload } from "../shared/types";
 
 vi.mock("electron", () => ({

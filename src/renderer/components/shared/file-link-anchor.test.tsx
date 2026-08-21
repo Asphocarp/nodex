@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import { renderWithMaitai as render, settleAsyncRender } from "../../test/dom";
 import { FileLinkAnchor } from "./file-link-anchor";

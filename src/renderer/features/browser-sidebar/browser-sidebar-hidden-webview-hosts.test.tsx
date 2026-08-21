@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, vi, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, vi, test } from "vite-plus/test";
 import type {
   BrowserSidebarTabSnapshot,
   BrowserUsePresentationRequest,

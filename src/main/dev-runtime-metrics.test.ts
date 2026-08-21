@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { subscribeToBackendLogs } from "./logging/logger";
 import { isDevRuntimeMetricsEnabled, logDevRuntimeMetric } from "./dev-runtime-metrics";
 import { NODEX_DEVELOPMENT_FEATURES_ENV } from "../shared/development-features";

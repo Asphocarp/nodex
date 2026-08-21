@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { createDatabaseViewMutationHistory } from "./database-view-mutation-history";
 import { commitDatabaseViewBlockDrop } from "./database-view-block-drop-command";
 import type { LocalBlockDragSession } from "./block-transfer/cross-surface-drag";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { normalizeTerminalControlText, parseTerminalAnsiSegments } from "./terminal-ansi-text";
 
 describe("terminal ANSI text", () => {

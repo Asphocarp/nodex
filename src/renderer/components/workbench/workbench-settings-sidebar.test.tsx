@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "@/test/dom";
 import type { SettingsSectionId } from "./workbench-settings-sections";

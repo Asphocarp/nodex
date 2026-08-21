@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { readGitRepositoryIdentity } from "./git-repository-identity-service";
 
 const execFileAsync = promisify(execFile);

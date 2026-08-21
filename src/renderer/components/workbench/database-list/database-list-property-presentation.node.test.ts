@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import type { DataSourcePropertyRecordV2 } from "../../../../shared/database-module-v2";
 import {

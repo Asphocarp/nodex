@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolvePanelTabCloseReplacement } from "./panel-tab-close-routing";
 
 const tabs = [{ id: "one" }, { id: "two" }, { id: "three" }, { id: "four" }];

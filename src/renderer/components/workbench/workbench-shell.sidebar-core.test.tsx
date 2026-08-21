@@ -1,5 +1,5 @@
 import "./workbench-testkit/workbench-shell-harness";
-import { describe, test, expect } from "vitest";
+import { describe, test, expect } from "vite-plus/test";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { getBoardProjectStore } from "@/lib/board-store";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { extractPlainText, parseNfm } from "./nfm";
 import {
   INITIAL_PROJECT_WELCOME_TITLE,

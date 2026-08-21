@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { parseDatabaseId, parseDatabaseViewId } from "../../shared/database-identities";
 import { areLibraryResourceTargetsEqual, resolveLibraryPathRoot } from "./library-resource-routing";
 

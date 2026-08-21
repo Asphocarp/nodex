@@ -1,7 +1,7 @@
 import { createRef } from "react";
 import { render } from "@testing-library/react";
 import { MotionConfig } from "motion/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   IntelligenceSelectorTrigger,
   INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX,

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { WorkbenchTabProjection } from "../../shared/types";
 import type { ProjectSessionPreviewTab } from "./workbench-panel-preview";
 import {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { createMcpAppHostHandlerPort, createMcpAppPortCall } from "./mcp-app-port-rpc";
 
 describe("MCP App port RPC", () => {

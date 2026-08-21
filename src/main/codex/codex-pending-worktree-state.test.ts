@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_PENDING_WORKTREE_CONTINUE_WITHOUT_SETUP_OUTPUT,
   CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT,

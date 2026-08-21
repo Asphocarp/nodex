@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { setNodexHomeMarkLayerOwner } from "./nodex-home-mark-layer-ownership";
 
 describe("Nodex home mark layer ownership", () => {

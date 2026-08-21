@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { useState } from "react";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";

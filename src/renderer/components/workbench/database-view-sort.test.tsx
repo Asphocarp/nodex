@@ -1,6 +1,6 @@
 import { fireEvent } from "@testing-library/react";
 import { act, useState } from "react";
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 
 import type { EffectiveDatabaseViewPresentation } from "../../../shared/database-kernel";
 import { render } from "../../test/dom";
