@@ -4,7 +4,7 @@ import type { ResolvedCodexRuntime } from "./codex/codex-runtime";
 import type { CodexApplicationClient } from "./codex-runtime/CodexApplicationClient";
 import type { ComposerCatalogPromiseAdapter } from "./codex-application/ComposerCatalogPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "./codex-application/AgentProviderRuntimePromiseAdapter";
-import type { ComputerUseRuntimePromiseAdapter } from "./host-runtime/ComputerUseRuntime";
+import type { DesktopToolRuntimePromiseAdapter } from "./host-runtime/DesktopToolRuntime";
 import type { CodexPreferences } from "./codex-application/CodexPreferences";
 import type { CodexAttachments } from "./codex-application/CodexAttachments";
 import type { ServerRequestResponsesPromiseAdapter } from "./codex-application/ServerRequestResponsesPromiseAdapter";
@@ -19,7 +19,7 @@ export interface MainServiceCompositionInput {
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
   readonly composerCatalog: ComposerCatalogPromiseAdapter;
-  readonly computerUseRuntime: ComputerUseRuntimePromiseAdapter;
+  readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   readonly preferences: Pick<CodexPreferences["Service"], "current">;
   readonly attachments: CodexAttachments["Service"]["legacy"];
   readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
@@ -40,7 +40,7 @@ export function createMainServiceComposition(
     terminalRuntime: input.terminalRuntime,
     runtimeStateHome: input.runtimeStateHome,
     composerCatalog: input.composerCatalog,
-    computerUseRuntime: input.computerUseRuntime,
+    desktopTools: input.desktopTools,
     preferences: input.preferences,
     attachments: input.attachments,
     serverRequestResponses: input.serverRequestResponses,

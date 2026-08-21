@@ -75,8 +75,12 @@ import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
   ComputerUseRuntime,
   live as computerUseRuntimeLive,
-  makeComputerUseRuntimePromiseAdapter,
 } from "../host-runtime/ComputerUseRuntime";
+import {
+  DesktopToolRuntime,
+  live as desktopToolRuntimeLive,
+  makeDesktopToolRuntimePromiseAdapter,
+} from "../host-runtime/DesktopToolRuntime";
 import {
   activateMainServiceComposition,
   createMainServiceComposition,
@@ -257,8 +261,17 @@ export const live: Layer.Layer<
           }),
           runtimeScope,
         );
-        const computerUseRuntime = makeComputerUseRuntimePromiseAdapter(
-          Context.get(computerUseContext, ComputerUseRuntime),
+        const computerUse = Context.get(computerUseContext, ComputerUseRuntime);
+        const desktopToolContext = yield* Layer.buildWithScope(
+          desktopToolRuntimeLive({
+            browserRuntime: codexRuntime.browserRuntime,
+            client: codexBridge,
+            runtimeStateHome,
+          }).pipe(Layer.provide(Layer.succeed(ComputerUseRuntime, computerUse))),
+          runtimeScope,
+        );
+        const desktopTools = makeDesktopToolRuntimePromiseAdapter(
+          Context.get(desktopToolContext, DesktopToolRuntime),
           callbacks,
         );
         const providerCredentialsContext = yield* Layer.buildWithScope(
@@ -395,7 +408,7 @@ export const live: Layer.Layer<
             const composition = createMainServiceComposition({
               agentProviderRuntime,
               composerCatalog,
-              computerUseRuntime,
+              desktopTools,
               preferences,
               attachments: attachments.legacy,
               serverRequestResponses: makeServerRequestResponsesPromiseAdapter(

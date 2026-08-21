@@ -1548,17 +1548,39 @@ function createService(options?: {
       activatePlugin: async () => undefined,
       listSkills: async () => [],
     },
-    computerUseRuntime: {
+    desktopTools: {
+      browserRuntime: TEST_CODEX_RUNTIME.browserRuntime,
       current: () => ({
-        message: "Computer Use is unavailable in this fixture",
-        reason: "runtime-unavailable",
-        status: "unavailable",
+        browserPluginReady: false,
+        computerUsePluginReady: false,
+        plugins: null,
+        computerUse: {
+          message: "Computer Use is unavailable in this fixture",
+          reason: "runtime-unavailable",
+          status: "unavailable",
+        },
       }),
       ensureReady: async () => ({
+        browserPluginReady: false,
+        computerUsePluginReady: false,
+        plugins: {
+          message: "Browser plugin reconciliation is disabled in this fixture",
+          reason: "runtime-unavailable",
+          status: "unavailable",
+        },
+        computerUse: {
+          message: "Computer Use is unavailable in this fixture",
+          reason: "runtime-unavailable",
+          status: "unavailable",
+        },
+      }),
+      ensureComputerUse: async () => ({
         message: "Computer Use is unavailable in this fixture",
         reason: "runtime-unavailable",
         status: "unavailable",
       }),
+      threadConfig: async () => null,
+      setAvailableBackendsResolver: () => undefined,
     },
     preferences: { current: () => "friendly" },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
@@ -1572,13 +1594,6 @@ function createService(options?: {
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome:
       options?.runtimeStateHome ?? path.join(DEFAULT_TEST_LOCAL_STORE_ROOT, "agent"),
-    browserPluginReconciler: {
-      ensureInstalled: async () => ({
-        message: "Browser plugin reconciliation is disabled in this fixture",
-        reason: "runtime-unavailable",
-        status: "unavailable",
-      }),
-    },
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,

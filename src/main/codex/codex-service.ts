@@ -505,10 +505,8 @@ import {
   type CodexThreadStreamReplica,
 } from "../../shared/codex-owner-follower-replication";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
-import { BrowserUseThreadConfigBuilder } from "./browser-use-thread-config";
-import { BrowserPluginReconciler } from "./browser-plugin-reconciler";
 import type { ComputerUseRuntimeResult } from "./computer-use-runtime";
-import type { ComputerUseRuntimePromiseAdapter } from "../host-runtime/ComputerUseRuntime";
+import type { DesktopToolRuntimePromiseAdapter } from "../host-runtime/DesktopToolRuntime";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type { BrowserRuntimeAvailability } from "./browser-runtime-bundle";
 import type {
@@ -1415,8 +1413,7 @@ type CodexServiceOptions = {
   composerCatalog: ComposerCatalogPromiseAdapter;
   preferences: Pick<CodexPreferences["Service"], "current">;
   client: CodexApplicationClient;
-  browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
-  computerUseRuntime: ComputerUseRuntimePromiseAdapter;
+  desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
   serverRequestResponses: ServerRequestResponsesPromiseAdapter;
   runtime: ResolvedCodexRuntime;
@@ -2628,11 +2625,7 @@ export class CodexService extends EventEmitter {
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly runtimeVersion: string | null;
-  private readonly browserRuntime: BrowserRuntimeAvailability;
-  private readonly browserPluginReconciler: Pick<BrowserPluginReconciler, "ensureInstalled">;
-  private browserPluginReady = false;
-  private computerUsePluginReady = false;
-  private readonly computerUseRuntime: ComputerUseRuntimePromiseAdapter;
+  private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly inactiveRendererOwnerRetentionMs: number;
   private readonly inactiveRendererOwnerMaxRetained: number;
   private readonly inactiveRendererOwnerRetryMs: number;
@@ -2652,7 +2645,6 @@ export class CodexService extends EventEmitter {
   private readonly threadCodexConfigBuilder:
     | ((cwd: string | null) => Promise<NonNullable<ThreadStartParams["config"]> | null>)
     | null;
-  private browserUseAvailableBackends: () => readonly BrowserRuntimeBackend[] = () => [];
   private browserUseTurnLifecycle: CodexBrowserUseTurnLifecyclePort | null = null;
   private browserUseRoutePromoter: CodexBrowserUseRoutePromoterPort | null = null;
   private readonly projectlessHomeDirectory: () => string;
@@ -2862,7 +2854,7 @@ export class CodexService extends EventEmitter {
     this.preferences = options.preferences;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
-    this.browserRuntime = runtime.browserRuntime;
+    this.desktopTools = options.desktopTools;
     this.terminalRuntime =
       options.terminalRuntime ??
       ({
@@ -2874,7 +2866,6 @@ export class CodexService extends EventEmitter {
     this.remoteWorktreeWorkerBundlePath = path.resolve(
       options.remoteWorktreeWorkerBundlePath ?? path.join(__dirname, "remote-worktree-worker.cjs"),
     );
-    this.computerUseRuntime = options.computerUseRuntime;
     this.attachments = options.attachments;
     this.serverRequestResponses = options.serverRequestResponses;
     this.inactiveRendererOwnerRetentionMs = Math.max(
@@ -2900,16 +2891,8 @@ export class CodexService extends EventEmitter {
     };
     this.projectAwareDeveloperInstructionsResolver =
       options?.projectAwareDeveloperInstructionsResolver ?? null;
-    const browserUseThreadConfigBuilder = new BrowserUseThreadConfigBuilder({
-      availableBackends: () => (this.browserPluginReady ? this.browserUseAvailableBackends() : []),
-      browserRuntime: runtime.browserRuntime,
-      computerUsePluginReady: () => this.computerUsePluginReady,
-      computerUseRuntime: this.computerUseRuntime.current,
-      runtimeStateHome: this.runtimeStateHome,
-    });
     this.threadCodexConfigBuilder =
-      options?.threadCodexConfigBuilder ??
-      (async () => await browserUseThreadConfigBuilder.build());
+      options?.threadCodexConfigBuilder ?? (() => this.desktopTools.threadConfig());
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     const localManagedRoot =
@@ -3016,16 +2999,6 @@ export class CodexService extends EventEmitter {
         this.workspaceThreadProjectionById.get(threadId)?.executionHostId ??
         CODEX_APP_LOCAL_HOST_ID,
     );
-    this.browserPluginReconciler =
-      options?.browserPluginReconciler ??
-      new BrowserPluginReconciler({
-        availableBackends: () => this.browserUseAvailableBackends(),
-        browserRuntime: this.browserRuntime,
-        client: this.client,
-        computerUseAvailable: () => this.computerUseRuntime.current()?.status === "available",
-        runtimeStateHome: this.runtimeStateHome,
-      });
-
     this.agentImportCoordinator = new AgentImportCoordinator({
       runtimeStateHome: this.runtimeStateHome,
       detectClaude: async () => {
@@ -4566,15 +4539,15 @@ export class CodexService extends EventEmitter {
   }
 
   getBrowserRuntimeAvailability(): BrowserRuntimeAvailability {
-    return this.browserRuntime;
+    return this.desktopTools.browserRuntime;
   }
 
   getComputerUseRuntimeResult(): ComputerUseRuntimeResult | null {
-    return this.computerUseRuntime.current();
+    return this.desktopTools.current().computerUse;
   }
 
   async ensureComputerUseRuntimeReady(): Promise<ComputerUseRuntimeResult> {
-    return await this.computerUseRuntime.ensureReady();
+    return await this.desktopTools.ensureComputerUse();
   }
 
   async readConfigRequirements(): Promise<ConfigRequirementsReadResponse> {
@@ -4586,7 +4559,7 @@ export class CodexService extends EventEmitter {
   }
 
   setBrowserUseBackendAvailabilityResolver(resolver: () => readonly BrowserRuntimeBackend[]): void {
-    this.browserUseAvailableBackends = resolver;
+    this.desktopTools.setAvailableBackendsResolver(resolver);
   }
 
   setBrowserUseTurnLifecycle(lifecycle: CodexBrowserUseTurnLifecyclePort | null): void {
@@ -8002,21 +7975,20 @@ export class CodexService extends EventEmitter {
   }
 
   private async ensureClientReady(): Promise<void> {
-    const computerUseRuntime = await this.computerUseRuntime.ensureReady();
     await this.client.start();
-    const pluginResult = await this.browserPluginReconciler.ensureInstalled();
-    this.browserPluginReady = pluginResult.status === "ready" && pluginResult.enabled;
-    this.computerUsePluginReady =
-      pluginResult.status === "ready" &&
-      pluginResult.computerUse.status === "ready" &&
-      computerUseRuntime.status === "available";
-    if (pluginResult.status === "unavailable" && pluginResult.reason === "reconciliation-failed") {
+    const readiness = await this.desktopTools.ensureReady();
+    const pluginResult = readiness.plugins;
+    const computerUseRuntime = readiness.computerUse;
+    if (
+      pluginResult?.status === "unavailable" &&
+      pluginResult.reason === "reconciliation-failed"
+    ) {
       this.logger.warn("Browser plugin is unavailable after runtime verification", {
         message: pluginResult.message,
       });
     }
     if (
-      computerUseRuntime.status === "unavailable" &&
+      computerUseRuntime?.status === "unavailable" &&
       computerUseRuntime.reason !== "architecture-unsupported" &&
       computerUseRuntime.reason !== "runtime-unavailable"
     ) {
@@ -8026,7 +7998,7 @@ export class CodexService extends EventEmitter {
       });
     }
     if (
-      pluginResult.status === "ready" &&
+      pluginResult?.status === "ready" &&
       pluginResult.computerUse.status === "unavailable" &&
       pluginResult.computerUse.reason === "reconciliation-failed"
     ) {
