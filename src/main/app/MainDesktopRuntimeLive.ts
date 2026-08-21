@@ -41,9 +41,7 @@ import {
   ConversationCommands,
   live as conversationCommandsLive,
 } from "../codex-application/ConversationCommands";
-import {
-  ConversationRuntimeMap,
-} from "../codex-application/ConversationRuntimeMap";
+import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import {
   ApprovalCoordinator,
   CodexGlobalServerRequestRuntime,
@@ -175,14 +173,8 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const conversationRuntimes = Context.get(
-          requestHandlingContext,
-          ConversationRuntimeMap,
-        );
-        const serverRequests = Context.get(
-          requestHandlingContext,
-          CodexServerRequestRuntime,
-        );
+        const conversationRuntimes = Context.get(requestHandlingContext, ConversationRuntimeMap);
+        const serverRequests = Context.get(requestHandlingContext, CodexServerRequestRuntime);
         const approvalCoordinator = Context.get(requestHandlingContext, ApprovalCoordinator);
         const codexDependencies = Layer.mergeAll(
           CodexSessionTransport.nodeLive,
@@ -237,14 +229,8 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const conversationCommands = Context.get(
-          conversationCommandsContext,
-          ConversationCommands,
-        );
-        const preferencesContext = yield* Layer.buildWithScope(
-          codexPreferencesLive,
-          runtimeScope,
-        );
+        const conversationCommands = Context.get(conversationCommandsContext, ConversationCommands);
+        const preferencesContext = yield* Layer.buildWithScope(codexPreferencesLive, runtimeScope);
         const preferences = Context.get(preferencesContext, CodexPreferences);
         const attachmentsContext = yield* Layer.buildWithScope(
           codexAttachmentsLive(getThreadGoalAttachmentsRoot(runtimeStateHome)),
@@ -254,8 +240,7 @@ export const live: Layer.Layer<
         const computerUseContext = yield* Layer.buildWithScope(
           computerUseRuntimeLive({
             browserRuntime: codexRuntime.browserRuntime,
-            peerAuthorizationMode:
-              codexRuntime.source === "bundled" ? "packaged" : "development",
+            peerAuthorizationMode: codexRuntime.source === "bundled" ? "packaged" : "development",
             runtimeConfig: () => ({ locale }),
             runtimeStateHome,
           }),
@@ -265,9 +250,15 @@ export const live: Layer.Layer<
         const desktopToolContext = yield* Layer.buildWithScope(
           desktopToolRuntimeLive({
             browserRuntime: codexRuntime.browserRuntime,
-            client: codexBridge,
             runtimeStateHome,
-          }).pipe(Layer.provide(Layer.succeed(ComputerUseRuntime, computerUse))),
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ComputerUseRuntime, computerUse),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const desktopTools = makeDesktopToolRuntimePromiseAdapter(

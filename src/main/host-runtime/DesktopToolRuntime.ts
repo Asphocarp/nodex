@@ -6,12 +6,15 @@ import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/Thre
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import {
-  BrowserPluginReconciler,
+  BrowserPluginReconcileError,
+  makeBrowserPluginReconciler,
+  type BrowserPluginReconciler,
   type BrowserPluginReconcileResult,
 } from "../codex/browser-plugin-reconciler";
 import type { BrowserRuntimeAvailability } from "../codex/browser-runtime-bundle";
 import { BrowserUseThreadConfigBuilder } from "../codex/browser-use-thread-config";
 import type { ComputerUseRuntimeResult } from "../codex/computer-use-runtime";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { ComputerUseRuntime } from "./ComputerUseRuntime";
 
 export class DesktopToolRuntimeError extends Schema.TaggedError<DesktopToolRuntimeError>()(
@@ -30,7 +33,6 @@ export class DesktopToolRuntime extends Context.Service<
   DesktopToolRuntime,
   {
     readonly browserRuntime: BrowserRuntimeAvailability;
-    readonly current: () => DesktopToolRuntimeSnapshot;
     readonly ensureComputerUse: Effect.Effect<ComputerUseRuntimeResult, DesktopToolRuntimeError>;
     readonly ensureReady: Effect.Effect<DesktopToolRuntimeSnapshot, DesktopToolRuntimeError>;
     readonly threadConfig: Effect.Effect<
@@ -43,14 +45,8 @@ export class DesktopToolRuntime extends Context.Service<
   }
 >()("nodex/main/host-runtime/DesktopToolRuntime") {}
 
-interface PluginReconcilerPort {
-  readonly ensureInstalled: () => Promise<BrowserPluginReconcileResult>;
-  readonly getResult: () => BrowserPluginReconcileResult | null;
-}
-
 interface DesktopToolRuntimeOptions {
   readonly browserRuntime: BrowserRuntimeAvailability;
-  readonly client: { readonly request: (method: string, params?: unknown) => Promise<unknown> };
   readonly runtimeStateHome: string;
 }
 
@@ -59,18 +55,17 @@ interface DesktopToolRuntimeLayerOptions {
   readonly computerUse: ComputerUseRuntime["Service"];
   readonly plugins: (
     availableBackends: () => readonly BrowserRuntimeBackend[],
-  ) => PluginReconcilerPort;
+  ) => Effect.Effect<BrowserPluginReconciler>;
   readonly runtimeStateHome: string;
 }
 
 const make = (options: DesktopToolRuntimeLayerOptions) =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     let availableBackends: () => readonly BrowserRuntimeBackend[] = () => [];
-    const plugins = options.plugins(() => availableBackends());
-    let lastPluginResult = plugins.getResult();
-    const snapshot = (): DesktopToolRuntimeSnapshot => {
+    const plugins = yield* options.plugins(() => availableBackends());
+    const snapshot = Effect.gen(function* () {
       const computerUse = options.computerUse.current();
-      const pluginResult = lastPluginResult ?? plugins.getResult();
+      const pluginResult = yield* plugins.result;
       return {
         browserPluginReady: pluginResult?.status === "ready" && pluginResult.enabled,
         computerUsePluginReady:
@@ -79,46 +74,41 @@ const make = (options: DesktopToolRuntimeLayerOptions) =>
           computerUse?.status === "available",
         computerUse,
         plugins: pluginResult,
-      };
-    };
+      } satisfies DesktopToolRuntimeSnapshot;
+    });
     const ensureComputerUse = options.computerUse.ensureReady.pipe(
       Effect.mapError(
         (cause) => new DesktopToolRuntimeError({ operation: "computer-use-ready", cause }),
       ),
     );
     const ensureReady = ensureComputerUse.pipe(
-      Effect.flatMap(() =>
-        Effect.tryPromise({
-          try: () => plugins.ensureInstalled(),
-          catch: (cause) => new DesktopToolRuntimeError({ operation: "reconcile-plugins", cause }),
-        }),
+      Effect.andThen(plugins.ensureInstalled),
+      Effect.mapError(
+        (cause) => new DesktopToolRuntimeError({ operation: "reconcile-plugins", cause }),
       ),
-      Effect.tap((result) =>
-        Effect.sync(() => {
-          lastPluginResult = result;
-        }),
-      ),
-      Effect.map(snapshot),
+      Effect.andThen(snapshot),
     );
-    const builder = new BrowserUseThreadConfigBuilder({
-      availableBackends: () => (snapshot().browserPluginReady ? availableBackends() : []),
-      browserRuntime: options.browserRuntime,
-      computerUsePluginReady: () => snapshot().computerUsePluginReady,
-      computerUseRuntime: () => options.computerUse.current(),
-      runtimeStateHome: options.runtimeStateHome,
-    });
     return DesktopToolRuntime.of({
       browserRuntime: options.browserRuntime,
-      current: snapshot,
       ensureComputerUse,
       ensureReady,
-      threadConfig: Effect.try({
-        try: () => {
-          const result = builder.buildResult();
-          return result.status === "available" ? result.config : null;
-        },
-        catch: (cause) => new DesktopToolRuntimeError({ operation: "thread-config", cause }),
-      }),
+      threadConfig: snapshot.pipe(
+        Effect.flatMap((current) =>
+          Effect.try({
+            try: () => {
+              const result = new BrowserUseThreadConfigBuilder({
+                availableBackends: () => (current.browserPluginReady ? availableBackends() : []),
+                browserRuntime: options.browserRuntime,
+                computerUsePluginReady: () => current.computerUsePluginReady,
+                computerUseRuntime: () => current.computerUse,
+                runtimeStateHome: options.runtimeStateHome,
+              }).buildResult();
+              return result.status === "available" ? result.config : null;
+            },
+            catch: (cause) => new DesktopToolRuntimeError({ operation: "thread-config", cause }),
+          }),
+        ),
+      ),
       setAvailableBackendsResolver: (resolver) => {
         availableBackends = resolver;
       },
@@ -130,19 +120,31 @@ const fromPorts = (options: DesktopToolRuntimeLayerOptions): Layer.Layer<Desktop
 
 export const live = (
   options: DesktopToolRuntimeOptions,
-): Layer.Layer<DesktopToolRuntime, never, ComputerUseRuntime> =>
+): Layer.Layer<DesktopToolRuntime, never, CodexGateway | ComputerUseRuntime> =>
   Layer.effect(
     DesktopToolRuntime,
     Effect.gen(function* () {
       const computerUse = yield* ComputerUseRuntime;
+      const gateway = yield* CodexGateway;
       return yield* make({
         browserRuntime: options.browserRuntime,
         computerUse,
         plugins: (availableBackends) =>
-          new BrowserPluginReconciler({
+          makeBrowserPluginReconciler({
             availableBackends,
             browserRuntime: options.browserRuntime,
-            client: options.client,
+            client: {
+              request: (method, params) =>
+                gateway.requestLocal(method, params).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new BrowserPluginReconcileError({
+                        operation: `request.${method}`,
+                        cause,
+                      }),
+                  ),
+                ),
+            },
             computerUseAvailable: () => computerUse.current()?.status === "available",
             runtimeStateHome: options.runtimeStateHome,
           }),
@@ -153,13 +155,10 @@ export const live = (
 
 export interface DesktopToolRuntimePromiseAdapter {
   readonly browserRuntime: BrowserRuntimeAvailability;
-  readonly current: () => DesktopToolRuntimeSnapshot;
   readonly ensureComputerUse: () => Promise<ComputerUseRuntimeResult>;
   readonly ensureReady: () => Promise<DesktopToolRuntimeSnapshot>;
   readonly threadConfig: () => Promise<NonNullable<ThreadStartParams["config"]> | null>;
-  readonly setAvailableBackendsResolver: (
-    resolver: () => readonly BrowserRuntimeBackend[],
-  ) => void;
+  readonly setAvailableBackendsResolver: (resolver: () => readonly BrowserRuntimeBackend[]) => void;
 }
 
 export const makeDesktopToolRuntimePromiseAdapter = (
@@ -167,7 +166,6 @@ export const makeDesktopToolRuntimePromiseAdapter = (
   callbacks: ScopedCallbackRuntime["Service"],
 ): DesktopToolRuntimePromiseAdapter => ({
   browserRuntime: runtime.browserRuntime,
-  current: runtime.current,
   ensureComputerUse: () => callbacks.runPromise(runtime.ensureComputerUse),
   ensureReady: () => callbacks.runPromise(runtime.ensureReady),
   threadConfig: () => callbacks.runPromise(runtime.threadConfig),

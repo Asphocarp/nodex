@@ -1550,16 +1550,6 @@ function createService(options?: {
     },
     desktopTools: {
       browserRuntime: TEST_CODEX_RUNTIME.browserRuntime,
-      current: () => ({
-        browserPluginReady: false,
-        computerUsePluginReady: false,
-        plugins: null,
-        computerUse: {
-          message: "Computer Use is unavailable in this fixture",
-          reason: "runtime-unavailable",
-          status: "unavailable",
-        },
-      }),
       ensureReady: async () => ({
         browserPluginReady: false,
         computerUsePluginReady: false,
@@ -7223,7 +7213,6 @@ describe("codex-service session-backed transcript recovery", () => {
       await service.shutdown();
     }
   });
-
 });
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {

@@ -31,8 +31,6 @@ type MaterializeDesktopToolMarketplaceOptions = {
   runtimeStateHome: string;
 };
 
-const inFlightByTarget = new Map<string, Promise<MaterializedDesktopToolMarketplace>>();
-
 function parseRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be a JSON object`);
@@ -218,26 +216,15 @@ export async function materializeBundledDesktopToolMarketplace(
     options.includeComputerUse &&
     options.bundle.manifest.capabilities.computerUse.status === "available";
   const key = materializationKey(options.bundle, includeComputerUse);
-  const activeOperation = inFlightByTarget.get(targetPath);
-  if (activeOperation) return await activeOperation;
-
-  const operation = (async () => {
-    if (await isCurrentMaterialization(targetPath, key, includeComputerUse)) {
-      return {
-        browserPluginRoot: path.join(targetPath, "plugins", "browser"),
-        computerUsePluginRoot: includeComputerUse
-          ? path.join(targetPath, "plugins", "computer-use")
-          : null,
-        materializationKey: key,
-        rootPath: targetPath,
-      };
-    }
-    return await materializeFresh(options, targetPath, key);
-  })().finally(() => {
-    if (inFlightByTarget.get(targetPath) === operation) {
-      inFlightByTarget.delete(targetPath);
-    }
-  });
-  inFlightByTarget.set(targetPath, operation);
-  return await operation;
+  if (await isCurrentMaterialization(targetPath, key, includeComputerUse)) {
+    return {
+      browserPluginRoot: path.join(targetPath, "plugins", "browser"),
+      computerUsePluginRoot: includeComputerUse
+        ? path.join(targetPath, "plugins", "computer-use")
+        : null,
+      materializationKey: key,
+      rootPath: targetPath,
+    };
+  }
+  return await materializeFresh(options, targetPath, key);
 }

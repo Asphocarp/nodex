@@ -3100,7 +3100,6 @@ export class CodexService extends EventEmitter {
       this.logger.error("Received Codex protocol error", { message });
       this.emitEvent({ type: "error", message });
     });
-
   }
 
   private emitEvent(event: CodexEvent): void {
@@ -4540,10 +4539,6 @@ export class CodexService extends EventEmitter {
 
   getBrowserRuntimeAvailability(): BrowserRuntimeAvailability {
     return this.desktopTools.browserRuntime;
-  }
-
-  getComputerUseRuntimeResult(): ComputerUseRuntimeResult | null {
-    return this.desktopTools.current().computerUse;
   }
 
   async ensureComputerUseRuntimeReady(): Promise<ComputerUseRuntimeResult> {
@@ -7979,10 +7974,7 @@ export class CodexService extends EventEmitter {
     const readiness = await this.desktopTools.ensureReady();
     const pluginResult = readiness.plugins;
     const computerUseRuntime = readiness.computerUse;
-    if (
-      pluginResult?.status === "unavailable" &&
-      pluginResult.reason === "reconciliation-failed"
-    ) {
+    if (pluginResult?.status === "unavailable" && pluginResult.reason === "reconciliation-failed") {
       this.logger.warn("Browser plugin is unavailable after runtime verification", {
         message: pluginResult.message,
       });

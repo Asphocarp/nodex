@@ -13,7 +13,10 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { BrowserUsePeerAuthorizationMode } from "../src/shared/browser-use-host-capability";
 import { ScopedCallbackRuntime } from "../src/main/app/ScopedCallbackRuntime";
-import { BrowserPluginReconciler } from "../src/main/codex/browser-plugin-reconciler";
+import {
+  browserPluginRequestPortFromPromise,
+  makeBrowserPluginReconciler,
+} from "../src/main/codex/browser-plugin-reconciler";
 import { BrowserUseThreadConfigBuilder } from "../src/main/codex/browser-use-thread-config";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
 import { BrowserUseNativePipeServer } from "../src/main/browser-use/browser-use-native-pipe-server";
@@ -307,12 +310,15 @@ async function probeBrowserRuntimePromise(
           requestTimeout: 150_000,
         },
         async (client) => {
-          const reconciliation = await new BrowserPluginReconciler({
-            browserRuntime: runtime.browserRuntime,
-            client,
-            computerUseAvailable: () => computerUseRuntimeResult.status === "available",
-            runtimeStateHome: stateHome,
-          }).ensureInstalled();
+          const reconciler = await callbacks.runPromise(
+            makeBrowserPluginReconciler({
+              browserRuntime: runtime.browserRuntime,
+              client: browserPluginRequestPortFromPromise(client),
+              computerUseAvailable: () => computerUseRuntimeResult.status === "available",
+              runtimeStateHome: stateHome,
+            }),
+          );
+          const reconciliation = await callbacks.runPromise(reconciler.ensureInstalled);
           if (reconciliation.status !== "ready") throw new Error(reconciliation.message);
 
           const browserConfig = await new BrowserUseThreadConfigBuilder({

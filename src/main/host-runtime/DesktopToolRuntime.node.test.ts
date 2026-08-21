@@ -29,24 +29,25 @@ it.effect("owns desktop plugin readiness and derives one coherent snapshot", () 
           current: () => computerUse,
           ensureReady: Effect.succeed(computerUse),
         }),
-        plugins: (availableBackends) => ({
-          ensureInstalled: () => {
-            requestedBackends = availableBackends();
-            pluginResult = {
-              computerUse: {
-                message: "Computer Use runtime capability is unavailable",
-                reason: "capability-unavailable",
-                status: "unavailable",
-              },
-              enabled: true,
-              installedVersion: "1.0.0-test",
-              marketplaceRoot: "/tmp/openai-bundled",
-              status: "ready",
-            };
-            return Promise.resolve(pluginResult);
-          },
-          getResult: () => pluginResult,
-        }),
+        plugins: (availableBackends) =>
+          Effect.succeed({
+            ensureInstalled: Effect.sync(() => {
+              requestedBackends = availableBackends();
+              pluginResult = {
+                computerUse: {
+                  message: "Computer Use runtime capability is unavailable",
+                  reason: "capability-unavailable",
+                  status: "unavailable",
+                },
+                enabled: true,
+                installedVersion: "1.0.0-test",
+                marketplaceRoot: "/tmp/openai-bundled",
+                status: "ready",
+              };
+              return pluginResult;
+            }),
+            result: Effect.sync(() => pluginResult),
+          }),
         runtimeStateHome: "/tmp/nodex-desktop-tools-test",
       }),
       scope,
