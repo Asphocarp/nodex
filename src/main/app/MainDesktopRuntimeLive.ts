@@ -94,6 +94,7 @@ import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
+import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
@@ -892,6 +893,22 @@ export const live: Layer.Layer<
           }),
           journalPath: resolveInitialProjectJournalPath(config.nodexHome),
         });
+        yield* Layer.buildWithScope(
+          CoreDocumentIpc.live({
+            database: databaseModule,
+            documents: documentSync,
+            library: libraryModule,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const applicationWindowContext = yield* Layer.buildWithScope(
           applicationWindowRuntimeLive({
             appUpdates,
