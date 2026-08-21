@@ -108,6 +108,7 @@ import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
 import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
 import * as DatabaseProjectionIpc from "../ipc/handlers/DatabaseProjectionIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
+import * as GitApplicationIpc from "../ipc/handlers/GitApplicationIpc";
 import * as NativeShellIpc from "../ipc/handlers/NativeShellIpc";
 import * as ManagedMediaIpc from "../ipc/handlers/ManagedMediaIpc";
 import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
@@ -1118,6 +1119,19 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
+          GitApplicationIpc.live({ codex: codexService }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(HostWorkerRuntime, hostWorkers),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
           PageSearchIpc.live({ library: libraryModule }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1430,7 +1444,6 @@ export const live: Layer.Layer<
           try: () =>
             registerIpcHandlers({
               codexService,
-              gitWorkerHost: hostWorkers.git,
               projectWorkspace,
               rendererClientRouter: rendererClients.router,
               resolveWindowSessionId: applicationWindows.resolveSessionId,

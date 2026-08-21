@@ -45,27 +45,6 @@ import { getLogger } from "./logging/logger";
 import type { IpcApi } from "../shared/ipc-api";
 import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
-import type { GitWorkerHost } from "./git-worker-host";
-import { readGitRepositoryIdentity } from "./git-repository-identity-service";
-import {
-  cancelGitAction,
-  commitGitChanges,
-  generateGitCommitMessage,
-  generateGitPullRequestMessage,
-  pushGitChanges,
-  type GitActionWorkerPort,
-} from "./git-action-service";
-import {
-  createGhPr,
-  createGhPrComment,
-  mergeGhPr,
-  readGhCliStatus,
-  readGhPrChecks,
-  readGhPrComments,
-  readGhPrDiff,
-  readGhPrStatus,
-  updateGhPr,
-} from "./github-pr-service";
 import type {
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
@@ -156,7 +135,6 @@ async function showDirectoryPicker(
 
 interface RegisterIpcHandlersOptions {
   codexService: CodexService;
-  gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
   rendererClientRouter?: RendererClientRouter;
   projectWorkspace?: DesktopProjectWorkspacePort;
@@ -197,52 +175,8 @@ function assertValidWorktreeEnvironmentSaveInput(
   throw new Error("Invalid local environment revision");
 }
 
-function createGitActionWorkerPort(
-  host: Pick<GitWorkerHost, "requestFromMain"> | undefined,
-): GitActionWorkerPort {
-  const requireHost = (): Pick<GitWorkerHost, "requestFromMain"> => {
-    if (host) return host;
-    throw new Error("Git worker is unavailable.");
-  };
-
-  return {
-    readStatus: async (cwd, signal) =>
-      await requireHost().requestFromMain({
-        method: "action-status",
-        params: { cwd },
-        signal,
-      }),
-    readReviewPatch: async (input, signal) => {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const result = await requireHost().requestFromMain({
-          method: "review-patch",
-          params: input,
-          signal,
-        });
-        if (!("type" in result) || result.type !== "stale-snapshot") {
-          return result as import("../shared/types").GitReviewPatchResult;
-        }
-      }
-      throw new Error("Git repository changed while preparing the message.");
-    },
-    commit: async (input, signal) =>
-      await requireHost().requestFromMain({
-        method: "commit",
-        params: { ...input, nextStep: "commit" },
-        signal,
-      }),
-    refreshRepository: async (cwd) => {
-      await requireHost().requestFromMain({
-        method: "refresh-repository",
-        params: { cwd },
-      });
-    },
-  };
-}
-
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const { codexService } = options;
-  const gitActionWorker = createGitActionWorkerPort(options.gitWorkerHost);
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace ?? createUnconfiguredIpcAuthority("Project Workspace authority");
   const requireAssignedWindowSessionId = (senderId: number): string => {
@@ -255,30 +189,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
       .clientId ?? null;
-
-  const createGitCommitMessageGenerator =
-    (hostId: string | undefined) =>
-    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
-      if (signal?.aborted) return null;
-      const message = await codexService.generateCommitMessage({
-        hostId,
-        prompt,
-        cwd,
-      });
-      return signal?.aborted ? null : message;
-    };
-
-  const createGitPullRequestMessageGenerator =
-    (hostId: string | undefined) =>
-    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
-      if (signal?.aborted) return null;
-      const message = await codexService.generatePullRequestMessage({
-        hostId,
-        prompt,
-        cwd,
-      });
-      return signal?.aborted ? null : message;
-    };
 
   registerHandle("diagnostics:renderer-log", (_, input) => {
     if (process.env.NODEX_ASSISTANT_STREAMING_DEBUG !== "1") {
@@ -300,82 +210,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
         persistedEvent,
       ]);
     },
-  });
-
-  registerHandle("git:repository:identity", (_, cwd: string) => {
-    return readGitRepositoryIdentity(cwd);
-  });
-
-  registerHandle("git:action:commit-message:generate", (_, input) => {
-    return generateGitCommitMessage(input, {
-      gitWorker: gitActionWorker,
-      generateCommitMessage: createGitCommitMessageGenerator(input.hostId),
-    });
-  });
-
-  registerHandle("git:action:pull-request-message:generate", (_, input) => {
-    return generateGitPullRequestMessage(input, {
-      gitWorker: gitActionWorker,
-      generatePullRequestMessage: createGitPullRequestMessageGenerator(input.hostId),
-    });
-  });
-
-  registerHandle("git:action:commit", async (_, input) => {
-    return await commitGitChanges(input, {
-      gitWorker: gitActionWorker,
-      generateCommitMessage: createGitCommitMessageGenerator(input.hostId),
-    });
-  });
-
-  registerHandle("git:action:push", async (_, input) => {
-    const result = await pushGitChanges(input);
-    await options.gitWorkerHost
-      ?.requestFromMain({
-        method: "refresh-repository",
-        params: { cwd: input.cwd },
-      })
-      .catch(() => undefined);
-    return result;
-  });
-
-  registerHandle("git:action:cancel", (_, input) => {
-    return cancelGitAction(input);
-  });
-
-  registerHandle("gh-cli-status", (_, input) => {
-    return readGhCliStatus(input);
-  });
-
-  registerHandle("gh-pr-status", (_, input) => {
-    return readGhPrStatus(input);
-  });
-
-  registerHandle("gh-pr-checks", (_, input) => {
-    return readGhPrChecks(input);
-  });
-
-  registerHandle("gh-pr-comments", (_, input) => {
-    return readGhPrComments(input);
-  });
-
-  registerHandle("gh-pr-diff", (_, input) => {
-    return readGhPrDiff(input);
-  });
-
-  registerHandle("gh-pr-comment", (_, input) => {
-    return createGhPrComment(input);
-  });
-
-  registerHandle("gh-pr-merge", (_, input) => {
-    return mergeGhPr(input);
-  });
-
-  registerHandle("gh-pr-update", (_, input) => {
-    return updateGhPr(input);
-  });
-
-  registerHandle("gh-pr-create", (_, input) => {
-    return createGhPr(input);
   });
 
   // Codex
