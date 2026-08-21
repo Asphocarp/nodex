@@ -40,7 +40,7 @@ import {
 
 export interface ApplicationWindowRuntimeOptions {
   readonly appUpdates: {
-    readonly currentStatus: () => AppUpdateStatus;
+    readonly currentStatus: Effect.Effect<AppUpdateStatus>;
   };
   readonly browserSidebar: BrowserSidebarService;
   readonly codex: CodexService;
@@ -267,8 +267,15 @@ export const live = (
             webContentsId,
           });
           syncMacWindowTitle(options.platform, window);
-          safeSendToWindow(window, "app:update-status", [options.appUpdates.currentStatus()]);
-          callbacks.fork(PubSub.publish(rendererLoaded, webContentsId).pipe(Effect.asVoid));
+          callbacks.fork(
+            options.appUpdates.currentStatus.pipe(
+              Effect.tap((status) =>
+                Effect.sync(() => safeSendToWindow(window, "app:update-status", [status])),
+              ),
+              Effect.andThen(PubSub.publish(rendererLoaded, webContentsId)),
+              Effect.asVoid,
+            ),
+          );
         });
         window.webContents.on("render-process-gone", (_event, details) => {
           logger.error("Renderer process gone", {

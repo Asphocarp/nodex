@@ -414,6 +414,16 @@ pass, while Main Scope closure interrupts every schedule and returns admitted
 leases. Native notification objects and their Electron listeners remain inside
 the platform capability and close with the application Scope.
 
+`AppUpdateRuntime` is the single owner of application-update state and the
+native updater adapter. Status, settings, readiness, and automatic-check
+admission live in one immutable `Ref`; initialization is one cached Effect and
+channel/check/install mutations share one semaphore. Native updater callbacks
+enter the scoped callback runtime, publish the next status projection, and are
+discarded after Scope closure. IPC and window-load delivery read Effect
+snapshots rather than borrowing synchronous state from a Promise service. The
+native updater's Promise interface exists only at this adapter seam and its
+disposal is the Module finalizer.
+
 The launcher selects a single Core candidate while holding the Profile lifetime lock, then proves authority with an authenticated handshake. Existing descriptors and PIDs are hints, not process identity. Core compatibility is evaluated across transport, event, Module contracts, artifact policy, and exact Store identity.
 
 Electron keeps one logical authority supervisor for its lifetime. A disconnected transport may recover by selecting another compatible Core generation for the same Store epoch; epoch or authority drift fails closed. Long-lived stream supervisors reconnect from their retained logical cursors or resource identities.

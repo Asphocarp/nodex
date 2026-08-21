@@ -27,8 +27,8 @@ it.effect("registers and releases app update ingress with the Main Scope", () =>
     });
     const appUpdates = AppUpdateRuntime.of({
       check: Effect.die("unused"),
-      currentSettings: () => ({ automaticChecksEnabled: true, channel: "stable" }),
-      currentStatus: () => ({}) as never,
+      currentSettings: Effect.succeed({ automaticChecksEnabled: true, channel: "stable" }),
+      currentStatus: Effect.succeed({} as never),
       install: Effect.die("unused"),
       markApplicationReady: Effect.void,
       startAutomaticChecks: Effect.void,

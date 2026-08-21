@@ -34,9 +34,7 @@ export const live: Layer.Layer<never, never, AppUpdateRuntime | ElectronIpc | Ma
         });
 
       yield* ipc.handle("settings:app-updates:get", (event) =>
-        trusted(event, "App update settings").pipe(
-          Effect.andThen(Effect.sync(appUpdates.currentSettings)),
-        ),
+        trusted(event, "App update settings").pipe(Effect.andThen(appUpdates.currentSettings)),
       );
       yield* ipc.handle("settings:app-updates:update", (event, input: unknown) =>
         trusted(event, "App update settings").pipe(
@@ -51,9 +49,7 @@ export const live: Layer.Layer<never, never, AppUpdateRuntime | ElectronIpc | Ma
         ),
       );
       yield* ipc.handle("app:update:status", (event) =>
-        trusted(event, "App update status").pipe(
-          Effect.andThen(Effect.sync(appUpdates.currentStatus)),
-        ),
+        trusted(event, "App update status").pipe(Effect.andThen(appUpdates.currentStatus)),
       );
       yield* ipc.handle("app:update:check", (event) =>
         trusted(event, "App update checks").pipe(Effect.andThen(appUpdates.check)),
