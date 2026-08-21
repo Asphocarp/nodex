@@ -70,6 +70,7 @@ import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
+import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
@@ -257,10 +258,8 @@ export const live: Layer.Layer<
           browserSidebarRuntimeLive(userDataPath),
           runtimeScope,
         );
-        const browserSidebarService = Context.get(
-          browserSidebarContext,
-          BrowserSidebarRuntime,
-        ).browser;
+        const browserSidebar = Context.get(browserSidebarContext, BrowserSidebarRuntime);
+        const browserSidebarService = browserSidebar.browser;
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
             browserSidebarService,
@@ -624,6 +623,21 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(ElectronWindowHost, windowHost),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          BrowserSidebarIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(ElectronWindowHost, windowHost),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
               ),
             ),

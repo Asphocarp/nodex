@@ -154,16 +154,6 @@ import type {
   NativeContextMenuOptions,
 } from "../shared/native-context-menu";
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
-import {
-  BrowserHistoryDeleteInputSchema,
-  BrowserHistoryListInputSchema,
-} from "../shared/browser-profile";
-import { BrowserAnnotationEvidenceCaptureInputSchema } from "../shared/browser-annotation";
-import { computeBrowserAnnotationEvidenceCrop } from "./browser/browser-annotation-evidence";
-import {
-  filterBrowserStateForViewScope,
-  filterBrowserUseStateForViewScope,
-} from "./browser/browser-event-routing";
 import { deleteProjectSessionWithBrowserCleanupUsing } from "./project-session-browser-ownership";
 import {
   createProjectLifecycleService,
@@ -212,20 +202,6 @@ import type {
   CodexThreadStartForSessionInput,
   CodexTurnStartOptions,
 } from "../shared/types";
-import type {
-  BrowserBrowsingDataKind,
-  BrowserSidebarBrowserUseStateSnapshot,
-  BrowserSidebarCommand,
-  BrowserSidebarWebviewDestroyed,
-  BrowserSidebarWebviewHostCreated,
-} from "../shared/browser-sidebar";
-import {
-  BrowserBrowsingDataKindSchema,
-  BrowserSidebarLocalServerThumbnailRequestSchema,
-  parseBrowserSidebarCommand,
-  parseBrowserSidebarWebviewDestroyed,
-  parseBrowserSidebarWebviewHostCreated,
-} from "../shared/browser/browser-schemas";
 import {
   COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
   type CommandKeymapState,
@@ -497,46 +473,6 @@ function showNativeContextMenu(
   });
 }
 
-let browserSidebarEventBridgeRegistered = false;
-let resolveBrowserSidebarViewScope: (webContentsId: number) => string | null = () => null;
-
-function sendBrowserEventToViewScope(
-  channel: keyof IpcEvents,
-  browserViewScopeId: string,
-  payload: unknown,
-): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (resolveBrowserSidebarViewScope(window.webContents.id) !== browserViewScopeId) {
-      continue;
-    }
-    safeSendToWebContents(window.webContents, channel, [payload]);
-  }
-}
-
-function sendFilteredBrowserStateToWindows(
-  snapshot: Parameters<typeof filterBrowserStateForViewScope>[0],
-): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    const browserViewScopeId = resolveBrowserSidebarViewScope(window.webContents.id);
-    if (!browserViewScopeId) continue;
-    safeSendToWebContents(window.webContents, "browser-sidebar-state", [
-      filterBrowserStateForViewScope(snapshot, browserViewScopeId),
-    ]);
-  }
-}
-
-function sendFilteredBrowserUseStateToWindows(
-  snapshot: BrowserSidebarBrowserUseStateSnapshot,
-): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    const browserViewScopeId = resolveBrowserSidebarViewScope(window.webContents.id);
-    if (!browserViewScopeId) continue;
-    safeSendToWebContents(window.webContents, "browser-sidebar-browser-use-state", [
-      filterBrowserUseStateForViewScope(snapshot, browserViewScopeId),
-    ]);
-  }
-}
-
 const omitProjectScope = <Request extends { readonly projectId: string }>(
   request: Request,
 ): Omit<Request, "projectId"> => {
@@ -544,87 +480,6 @@ const omitProjectScope = <Request extends { readonly projectId: string }>(
   void projectId;
   return unscoped;
 };
-
-function ensureBrowserSidebarEventBridge(): void {
-  if (browserSidebarEventBridgeRegistered) return;
-  browserSidebarEventBridgeRegistered = true;
-  browserSidebarService.on("state", (snapshot) => sendFilteredBrowserStateToWindows(snapshot));
-  browserSidebarService.on("localServers", (snapshot) =>
-    broadcastIpcEvent("browser-sidebar-local-servers", snapshot),
-  );
-  browserSidebarService.on("browserUseState", (snapshot) => {
-    sendFilteredBrowserUseStateToWindows(snapshot);
-  });
-  browserSidebarService.on("browserUseViewport", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-browser-use-viewport",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("browserUseCaptureSurface", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-browser-use-capture-surface",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("browserUseCursor", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-browser-use-cursor-state",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("pageReleased", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-browser-use-page-released",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("pageClosed", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-browser-use-page-closed",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("browserUsePresentationRequest", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-browser-use-presentation-request",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("openNewTab", (event) =>
-    sendBrowserEventToViewScope("browser-sidebar-open-new-tab", event.browserViewScopeId, event),
-  );
-  browserSidebarService.on("contextMenuAction", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-context-menu-action",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("imageDragState", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-image-drag-state",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("webviewAttached", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-webview-attached",
-      event.browserViewScopeId,
-      event,
-    ),
-  );
-  browserSidebarService.on("destroyWebview", (event) =>
-    sendBrowserEventToViewScope("browser-sidebar-destroy-webview", event.browserViewScopeId, event),
-  );
-}
 
 function broadcastCommandKeymapState(state: CommandKeymapState): void {
   safeBroadcastToWindows(BrowserWindow.getAllWindows(), COMMAND_KEYBINDINGS_CHANGED_CHANNEL, [
@@ -956,27 +811,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
     return windowSessionId;
   };
-  const validateBrowserCommandScope = (senderId: number, command: BrowserSidebarCommand): void => {
-    if ("browserViewScopeId" in command) {
-      requireBrowserViewScope(senderId, command.browserViewScopeId);
-      return;
-    }
-    if ("tab" in command && "browserViewScopeId" in command.tab) {
-      requireBrowserViewScope(senderId, command.tab.browserViewScopeId);
-      return;
-    }
-    if ("cursor" in command && "browserViewScopeId" in command.cursor) {
-      requireBrowserViewScope(senderId, command.cursor.browserViewScopeId);
-      return;
-    }
-    if ("event" in command && "browserViewScopeId" in command.event) {
-      requireBrowserViewScope(senderId, command.event.browserViewScopeId);
-      return;
-    }
-    if ("result" in command && "browserViewScopeId" in command.result) {
-      requireBrowserViewScope(senderId, command.result.browserViewScopeId);
-    }
-  };
   const projectLifecycleService = createProjectLifecycleService({
     projectWorkspace,
     browserRuntime: browserSidebarService,
@@ -1001,9 +835,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     createUnconfiguredIpcAuthority<NonNullable<RegisterIpcHandlersOptions["databaseModule"]>>(
       "Database authority",
     );
-  resolveBrowserSidebarViewScope = (webContentsId) =>
-    options.resolveWindowSessionId?.(webContentsId) ?? null;
-  ensureBrowserSidebarEventBridge();
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
       .clientId ?? null;
@@ -2593,118 +2424,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     },
   );
 
-  // Browser sidebar
-  registerHandle("browser-sidebar-command", async (event, rawCommand: BrowserSidebarCommand) => {
-    requireTrustedAppRendererSender(event, "Browser control");
-    const command = parseBrowserSidebarCommand(rawCommand);
-    validateBrowserCommandScope(event.sender.id, command);
-    return browserSidebarService.handleCommand(command, {
-      browserViewScopeId: requireAssignedWindowSessionId(event.sender.id),
-      ownerWebContentsId: event.sender.id,
-    });
-  });
-
-  registerHandle("browser-sidebar-runtime-snapshot", async (event) => {
-    requireTrustedAppRendererSender(event, "Browser runtime state");
-    const browserViewScopeId = requireAssignedWindowSessionId(event.sender.id);
-    return {
-      state: filterBrowserStateForViewScope(
-        browserSidebarService.getStateSnapshot(),
-        browserViewScopeId,
-      ),
-      browserUseState: filterBrowserUseStateForViewScope(
-        browserSidebarService.getBrowserUseStateSnapshot(),
-        browserViewScopeId,
-      ),
-      presentationRequests:
-        browserSidebarService.listPendingBrowserUsePresentationRequests(browserViewScopeId),
-    };
-  });
-
-  registerHandle("browser-browsing-data-clear", async (event, rawKind: BrowserBrowsingDataKind) => {
-    requireTrustedAppRendererSender(event, "Browser data clearing");
-    const kind = BrowserBrowsingDataKindSchema.parse(rawKind);
-    return browserSidebarService.clearBrowsingData(kind);
-  });
-  registerHandle(
-    "browser-sidebar-webview-host-created",
-    async (ipcEvent, rawEvent: BrowserSidebarWebviewHostCreated) => {
-      requireTrustedAppRendererSender(ipcEvent, "Browser webview registration");
-      const event = parseBrowserSidebarWebviewHostCreated(rawEvent);
-      requireBrowserViewScope(ipcEvent.sender.id, event.browserViewScopeId);
-      return browserSidebarService.handleWebviewHostCreated(event, ipcEvent.sender.id);
-    },
-  );
-  registerHandle(
-    "browser-sidebar-webview-destroyed",
-    async (ipcEvent, rawEvent: BrowserSidebarWebviewDestroyed) => {
-      requireTrustedAppRendererSender(ipcEvent, "Browser webview teardown");
-      const event = parseBrowserSidebarWebviewDestroyed(rawEvent);
-      requireBrowserViewScope(ipcEvent.sender.id, event.browserViewScopeId);
-      return browserSidebarService.handleWebviewDestroyed(event);
-    },
-  );
-  registerHandle("browser-history-list", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser history");
-    const input = rawInput === undefined ? {} : BrowserHistoryListInputSchema.parse(rawInput);
-    return await browserSidebarService.listHistory(input);
-  });
-  registerHandle("browser-history-delete", async (event, historyId) => {
-    requireTrustedAppRendererSender(event, "Browser history removal");
-    const { id } = BrowserHistoryDeleteInputSchema.parse({ id: historyId });
-    await browserSidebarService.deleteHistoryEntry(id);
-    return { ok: true as const };
-  });
-  registerHandle("browser-annotation-capture-evidence", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Browser annotation evidence");
-    const input = BrowserAnnotationEvidenceCaptureInputSchema.parse(rawInput);
-    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    const contents = browserSidebarService.getWebContentsForTab(input);
-    const snapshot = browserSidebarService.getTabSnapshot(input);
-    if (!contents || !snapshot || contents.isDestroyed()) {
-      throw new Error("Browser annotation page is unavailable");
-    }
-    const image = await contents.capturePage();
-    const imageSize = image.getSize();
-    const crop = computeBrowserAnnotationEvidenceCrop({
-      anchors: input.anchors,
-      imageSize,
-      viewport: snapshot.viewport,
-    });
-    if (!crop) {
-      throw new Error("Browser annotation evidence is outside the page");
-    }
-    let evidenceImage = image.crop(crop);
-    const croppedSize = evidenceImage.getSize();
-    const longestSide = Math.max(croppedSize.width, croppedSize.height);
-    if (longestSide > 2_048) {
-      const ratio = 2_048 / longestSide;
-      evidenceImage = evidenceImage.resize({
-        width: Math.max(1, Math.round(croppedSize.width * ratio)),
-        height: Math.max(1, Math.round(croppedSize.height * ratio)),
-        quality: "best",
-      });
-    }
-    const saved = saveUploadedImage({
-      name: `browser-annotation-${Date.now()}.png`,
-      mimeType: "image/png",
-      bytes: evidenceImage.toPNG(),
-    });
-    const finalSize = evidenceImage.getSize();
-    return {
-      attachmentId: saved.fileName,
-      source: saved.source,
-      mimeType: "image/png" as const,
-      width: finalSize.width,
-      height: finalSize.height,
-    };
-  });
-  registerHandle("browser-local-server-thumbnail", async (event, rawInput) => {
-    requireTrustedAppRendererSender(event, "Local server preview");
-    const input = BrowserSidebarLocalServerThumbnailRequestSchema.parse(rawInput);
-    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    return await browserSidebarService.captureLocalServerThumbnail(input);
-  });
   // Codex
   registerHandle(
     "codex:threads:list",
