@@ -140,6 +140,58 @@ it.effect("relaunches only after an authority-drift shutdown has released the ru
   }),
 );
 
+it.effect("routes Electron activation through the scoped Main runtime", () =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const started = yield* Deferred.make<void>();
+    const activate = yield* Ref.make<Effect.Effect<void> | null>(null);
+    const electron = Layer.succeed(
+      ElectronApp,
+      ElectronApp.of({
+        appPath: Effect.succeed("/tmp/nodex-test-app"),
+        downloadsPath: Effect.succeed("/tmp/nodex-test-downloads"),
+        isInApplicationsFolder: Effect.succeed(true),
+        locale: Effect.succeed("en-US"),
+        userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
+        whenReady: Effect.void,
+        quit: Effect.sync(() => events.push("quit")),
+        relaunch: Effect.void,
+        exit: () => Effect.void,
+        onActivate: (handler) => Ref.set(activate, handler),
+        onBeforeQuit: () => Effect.void,
+        onOpenUrl: () => Effect.void,
+        onSecondInstance: () => Effect.void,
+        onWindowAllClosed: () => Effect.void,
+      }),
+    );
+    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(foundation, foundationScope);
+    const shutdown = Context.get(context, MainShutdown);
+    const runtimeLayer = fromHooks({
+      activate: Effect.sync(() => events.push("activate")),
+      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+      handleBootstrapEvent: () => Effect.void,
+      release: Effect.sync(() => events.push("release")),
+    });
+    const fiber = yield* program({
+      initialEvents: [],
+      runtimeLayer,
+      runStartupGate: Effect.succeed("continue" as const),
+    }).pipe(Effect.provide(context), Effect.forkScoped);
+    yield* Deferred.await(started);
+
+    const handler = yield* Ref.get(activate);
+    if (handler) yield* handler;
+    assert.deepEqual(events, ["activate"]);
+
+    yield* shutdown.request({ _tag: "UserQuit" });
+    yield* Fiber.join(fiber);
+    assert.deepEqual(events, ["activate", "release", "quit"]);
+    yield* Scope.close(foundationScope, Exit.void);
+  }),
+);
+
 it.effect("defers a system-owned quit without closing the Main runtime", () =>
   Effect.gen(function* () {
     const events: string[] = [];

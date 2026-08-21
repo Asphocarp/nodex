@@ -1004,6 +1004,9 @@ export const live: Layer.Layer<
     );
 
     return MainRuntime.of({
+      activate: requireController("activate").pipe(
+        Effect.andThen((runtime) => Effect.sync(() => runtime.activate())),
+      ),
       start,
       prepareQuit: requireController("prepare-quit").pipe(
         Effect.flatMap((runtime) =>

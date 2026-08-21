@@ -1656,7 +1656,6 @@ async function initializeDesktopApp(
       sendReminderOpenEvent(payload);
     },
   });
-  registerDesktopActivationHandler();
   setAppInitializationStep({ phase: "done" });
   logger.info("Desktop app initialization finished", {
     authorityAndServicesMs: Math.round(performance.now() - initializationStartedAt),
@@ -1751,16 +1750,6 @@ function publishCoreModuleEventToNotifiers(
   }
 }
 
-let desktopActivationHandlerRegistered = false;
-
-function registerDesktopActivationHandler(): void {
-  if (desktopActivationHandlerRegistered) return;
-  desktopActivationHandlerRegistered = true;
-  app.on("activate", () => {
-    focusLastWindow();
-  });
-}
-
 export interface MainRuntimeStartupContext {
   appUpdateRuntime: {
     readonly check: () => Promise<unknown>;
@@ -1806,6 +1795,7 @@ export interface MainRuntimeStartupContext {
 }
 
 export interface MainRuntimeController {
+  activate(): void;
   handleOpenUrl(url: string): boolean;
   handleSecondInstance(argv: string[]): boolean;
   prepareQuit(): Promise<void>;
@@ -2083,6 +2073,7 @@ export async function runMainAppStartup(
   await appInitializationPromise;
 
   return {
+    activate: focusLastWindow,
     handleOpenUrl: handleIncomingDeepLink,
     handleSecondInstance: handleSecondInstanceArgv,
     prepareQuit: prepareMainRuntimeQuit,

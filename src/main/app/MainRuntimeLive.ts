@@ -12,6 +12,7 @@ export class MainRuntimeError extends Schema.TaggedError<MainRuntimeError>()("Ma
 export class MainRuntime extends Context.Service<
   MainRuntime,
   {
+    readonly activate: Effect.Effect<void, MainRuntimeError>;
     readonly start: Effect.Effect<void, MainRuntimeError>;
     readonly prepareQuit: Effect.Effect<"continue" | "defer", MainRuntimeError>;
     readonly handleBootstrapEvent: (
@@ -21,6 +22,7 @@ export class MainRuntime extends Context.Service<
 >()("nodex/main/app/MainRuntime") {}
 
 export interface MainRuntimeHooks {
+  readonly activate?: Effect.Effect<void, MainRuntimeError>;
   readonly start: Effect.Effect<void, MainRuntimeError>;
   readonly prepareQuit?: Effect.Effect<"continue" | "defer", MainRuntimeError>;
   readonly handleBootstrapEvent: (
@@ -36,6 +38,7 @@ export const fromHooks = (hooks: MainRuntimeHooks): Layer.Layer<MainRuntime> =>
     Effect.gen(function* () {
       if (hooks.release) yield* Effect.addFinalizer(() => hooks.release ?? Effect.void);
       return MainRuntime.of({
+        activate: hooks.activate ?? Effect.void,
         start: hooks.start,
         prepareQuit: hooks.prepareQuit ?? Effect.succeed("continue"),
         handleBootstrapEvent: hooks.handleBootstrapEvent,

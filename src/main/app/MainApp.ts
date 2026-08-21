@@ -48,6 +48,9 @@ export const program = <R>(options: MainAppOptions<R>) =>
     const shutdown = yield* MainShutdown;
     let quitAllowed = false;
     let activeRuntime: MainRuntime["Service"] | null = null;
+    yield* electron.onActivate(
+      Effect.suspend(() => activeRuntime?.activate ?? Effect.void).pipe(Effect.orDie),
+    );
     yield* electron.onBeforeQuit(() => ({
       preventDefault: !quitAllowed,
       task: quitAllowed
