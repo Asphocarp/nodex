@@ -119,7 +119,7 @@ import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as StoreAdministrationIpc from "../ipc/handlers/StoreAdministrationIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
-import { registerIpcHandlers } from "../ipc-handlers";
+import { codexIpcLive } from "../ipc-handlers";
 import {
   ComputerUseRuntime,
   live as computerUseRuntimeLive,
@@ -1453,32 +1453,34 @@ export const live: Layer.Layer<
             ),
           ),
         );
-        yield* Effect.try({
-          try: () =>
-            registerIpcHandlers({
-              codexService,
-              projectWorkspace,
-              rendererClientRouter: rendererClients.router,
-              resolveWindowSessionId: applicationWindows.resolveSessionId,
-              terminalRuntime: {
-                listLiveSessionsForOwners: (input) =>
-                  callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),
-                discardExitedSessionsForOwners: (input) =>
-                  callbacks.runPromise(terminals.discardExitedSessionsForOwners(input)),
-                runAction: (input) =>
-                  callbacks.runPromise(
-                    terminals.runAction(
-                      {
-                        webContentsId: input.webContentsId,
-                        windowSessionId: input.windowSessionId,
-                      },
-                      input.request,
-                    ),
+        yield* Layer.buildWithScope(
+          codexIpcLive({
+            codexService,
+            projectWorkspace,
+            rendererClientRouter: rendererClients.router,
+            terminalRuntime: {
+              runAction: (input) =>
+                callbacks.runPromise(
+                  terminals.runAction(
+                    {
+                      webContentsId: input.webContentsId,
+                      windowSessionId: input.windowSessionId,
+                    },
+                    input.request,
                   ),
-              },
-            }),
-          catch: (cause) => runtimeError("register-legacy-ipc", cause),
-        });
+                ),
+            },
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         applicationWindows.openStartup(getWindowRestoreSettings().policy);
         yield* Fiber.join(initializationFiber);
 
