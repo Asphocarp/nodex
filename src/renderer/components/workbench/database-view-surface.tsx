@@ -78,9 +78,13 @@ import {
   endLocalBlockDragSession,
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
+  resolveCrossSurfaceTransferMode,
   resolveLocalBlockDragDropSession,
+  resolveLocalBlockDragOverSession,
   shouldHandleNativeCrossSurfaceDrag,
+  summarizeBlockPagePromotionPreview,
 } from "./block-transfer/cross-surface-drag";
+import { readTaskShorthandPagePromotionEnabled } from "@/lib/page-promotion-preference";
 import { toast } from "@/components/ui/toast";
 import { computeNativeDropIndexFromSurface } from "../board/native-drop-index";
 import { DropIndicator } from "../board/drop-indicator";
@@ -887,6 +891,7 @@ function BoardDatabaseViewSurface({
       shouldHandleNativeCrossSurfaceDrag(event.dataTransfer) &&
       hasDragType(event.dataTransfer, NODEX_BLOCK_TRANSFER_DRAG_MIME);
     if (!internal && !blocks) return;
+    const blockSession = blocks ? resolveLocalBlockDragOverSession(event.dataTransfer) : null;
     const exactSlot = databaseViewSupportsSortedSlotInference(mutationModel);
     const internalPageIds = internal ? [...draggingPageIdsRef.current] : [];
     if (!exactSlot && internal) {
@@ -917,7 +922,7 @@ function BoardDatabaseViewSurface({
           },
         })
       : [];
-    const label = values
+    const propertyLabel = values
       .flatMap(({ propertyId, value }) => {
         const property = model.query.properties.find(
           (candidate) => candidate.lifecycle === "active" && candidate.propertyId === propertyId,
@@ -941,6 +946,15 @@ function BoardDatabaseViewSurface({
         return [`${property.name}: ${formatted}`];
       })
       .join(" · ");
+    const promotionLabel = blockSession
+      ? summarizeBlockPagePromotionPreview({
+          mode: resolveCrossSurfaceTransferMode(event),
+          rootCount: blockSession.payload.rootBlockIds.length,
+          hints: blockSession.taskShorthandPreviewHints ?? [],
+          literal: !readTaskShorthandPagePromotionEnabled() || event.shiftKey,
+        })
+      : "";
+    const label = [promotionLabel, propertyLabel].filter(Boolean).join(" · ");
     setDropIndicator((current) =>
       current?.scopeKey === scopeKey &&
       current.index === index &&

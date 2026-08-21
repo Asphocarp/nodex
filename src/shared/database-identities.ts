@@ -7,6 +7,8 @@ const CUSTOM_ID_BYTE_LENGTH = 6;
 const BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const CUSTOM_PROPERTY_ID_PATTERN = /^p_[A-Za-z0-9_-]{8}$/u;
 const CUSTOM_OPTION_ID_PATTERN = /^o_[A-Za-z0-9_-]{8}$/u;
+const LEADING_UNICODE_WHITESPACE = /^\p{White_Space}+/u;
+const TRAILING_UNICODE_WHITESPACE = /\p{White_Space}+$/u;
 
 declare const databaseIdentityBrand: unique symbol;
 
@@ -224,7 +226,10 @@ export const canonicalizeTagName = (
   if (maxLength !== undefined && (!Number.isSafeInteger(maxLength) || maxLength < 1)) {
     throw new TypeError("Tag name maxLength must be a positive safe integer");
   }
-  const canonical = value.normalize("NFC").trim();
+  const canonical = value
+    .replace(LEADING_UNICODE_WHITESPACE, "")
+    .replace(TRAILING_UNICODE_WHITESPACE, "")
+    .normalize("NFC");
   if (!canonical) {
     throw new TypeError("Tag name must not be empty");
   }

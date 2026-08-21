@@ -260,6 +260,46 @@ describe("Core Block Transfer Adapter", () => {
     });
   });
 
+  test("fails closed when Core returns an unsupported shorthand grammar version", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    client.enqueueApply({
+      ...committedApply(),
+      outcome: {
+        affected_resource_ids: ["page:promoted"],
+        page_copy: null,
+        block_transfer: {
+          ...coreResult(),
+          result_root_block_ids: ["page:promoted"],
+          transformation_evidence: [
+            {
+              sourceBlockId: "block:root",
+              resultPageId: "page:promoted",
+              kind: "promote",
+              sourceBlockType: "paragraph",
+              semanticTitleHash: "b".repeat(64),
+              consumedPropertyKeys: [],
+              bodyRootBlockIds: [],
+              sourceToResultBlockIds: { "block:root": "page:promoted" },
+              promotion: {
+                kind: "preserved",
+                grammar_version: 2,
+                reason: "malformed_shorthand",
+              },
+            },
+          ],
+        },
+      },
+    } as unknown as LibraryApplyResult);
+
+    await expect(adapter.commit(intent)).resolves.toMatchObject({
+      ok: false,
+      error: {
+        message: "Core returned unsupported task shorthand grammar v2",
+      },
+    });
+  });
+
   test("preserves a raw List occurrence and exact projection for Core", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });

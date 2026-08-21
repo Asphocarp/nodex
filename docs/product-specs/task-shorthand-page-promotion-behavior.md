@@ -14,15 +14,19 @@ Version 1 recognizes a compact prefix token at the first character of a rich tit
 ```
 
 - Priority is `0`, `1`, `2`, or `3`.
-- Estimate is optional and case-insensitive: `XS`, `S`, `M`, `L`, or `XL`.
+- Estimate is optional and ASCII case-insensitive: `XS`, `S`, `M`, `L`, or `XL`.
 - Tags are optional, comma-separated names inside one parenthesized group.
-- Tags are trimmed, NFC-normalized, de-duplicated in first-seen order, limited to 32 names, and use the Database option-name bound.
+- Tags are trimmed with the Unicode `White_Space` property, NFC-normalized,
+  de-duplicated in first-seen order, limited to 32 names, reject Unicode control
+  characters, and use the Database option-name bound.
 - The prefix is limited to 1024 UTF-8 bytes.
-- Parsing may cross adjacent styled text spans, but never crosses a Link, mention, line break, or other rich-text atom.
+- The required separator uses the Unicode `White_Space` property.
+- Parsing may cross adjacent styled text spans, but never strips across a Link, mention, line break, or other rich-text atom. A token that would become a candidate only by flattening across such a boundary is preserved as a rich-text boundary rejection; a complete token and separator before the boundary may still apply to the following rich title.
 - Leading whitespace, P4, empty tag segments, missing titles, and every colon form remain literal.
 - A compact prefix is not a shorthand candidate until the complete prefix is
-  followed by whitespace. Ordinary titles such as `3abc`, `3d`, and `3XLabc`
-  are `no_match`, not malformed shorthand.
+  followed by whitespace. Candidate recognition precedes validation, so
+  ordinary titles such as `3abc`, `4abc`, `3XLabc`, and malformed-looking runs
+  without a separator are `no_match`, not rejected shorthand.
 
 Examples:
 
@@ -30,6 +34,8 @@ Examples:
 1XL(ui, unclear) Fix import  →  Fix import · P1 · XL · ui · unclear
 1 Investigate               →  Investigate · P1
 1XL(ui): Fix import          →  literal title
+4abc                        →  literal title, no shorthand evidence
+4 Later                     →  preserved invalid shorthand candidate
 ```
 
 ## Commit authority
@@ -60,6 +66,7 @@ Hovering the prefix or placing the caret within it reveals only the parsed resul
 The window-local drag session may carry a compact preview hint, but serialized native drag data continues to contain stable IDs and type hints only.
 
 Database View drag feedback describes Move/Copy, Page count, and the predicted shorthand summary across Board and List layouts.
+Drag feedback uses only the window-local active session and MIME type because native drag payload data is protected before `drop`; presentation feedback must never gate whether the destination accepts the drop.
 Alt/Option selects Copy.
 Shift forces `literal` for that drop and composes with Alt/Option.
 After commit, applied or preserved outcomes are aggregated into one quiet notification; ordinary literal drops stay silent.

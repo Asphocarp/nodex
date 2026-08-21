@@ -6,7 +6,7 @@ import {
   readTaskShorthandPagePromotionEnabled,
   TASK_SHORTHAND_PAGE_PROMOTION_CHANGE_EVENT,
 } from "../../../lib/page-promotion-preference";
-import { previewTaskShorthand } from "../../../lib/task-shorthand-preview";
+import { previewTaskShorthandTextRun } from "../../../lib/task-shorthand-preview";
 import { NFM_EDITOR_FLOATING_SURFACE_CHROME_CLASS } from "./nfm-editor-floating-surface";
 
 interface TaskShorthandDecorationState {
@@ -18,18 +18,32 @@ export const taskShorthandPreviewPluginKey = new PluginKey<TaskShorthandDecorati
 );
 
 const blockDecoration = (node: ProsemirrorNode, position: number): Decoration | null => {
-  if (!node.isTextblock || node.textContent.length === 0) return null;
-  const preview = previewTaskShorthand(node.textContent);
-  if (!preview) return null;
-  let firstAuthorityBoundary: number | null = null;
-  node.forEach((child, offset) => {
-    if (firstAuthorityBoundary !== null) return;
-    const crossesRichAuthority =
-      !child.isText || child.marks.some((mark) => mark.type.name === "link");
-    if (crossesRichAuthority) firstAuthorityBoundary = offset;
+  if (!node.isTextblock) return null;
+  let leadingText = "";
+  let crossedAuthorityBoundary = false;
+  let supportedRichTitle = true;
+  let hasFollowingRichTitle = false;
+  node.forEach((child) => {
+    const link = child.marks.some((mark) => mark.type.name === "link");
+    if (!crossedAuthorityBoundary && child.isText && !link) {
+      leadingText += child.text ?? "";
+      return;
+    }
+    crossedAuthorityBoundary = true;
+    if (child.isText) {
+      hasFollowingRichTitle ||= /[^\p{White_Space}]/u.test(child.text ?? "");
+      return;
+    }
+    if (child.type.name === "hardBreak") return;
+    if (SUPPORTED_RICH_TITLE_NODE_TYPES.has(child.type.name)) {
+      hasFollowingRichTitle = true;
+      return;
+    }
+    supportedRichTitle = false;
   });
-  if (firstAuthorityBoundary !== null && preview.consumedCharacters > firstAuthorityBoundary)
-    return null;
+  if (!supportedRichTitle || leadingText.length === 0) return null;
+  const preview = previewTaskShorthandTextRun(leadingText, hasFollowingRichTitle);
+  if (!preview) return null;
   const from = position + 1;
   return Decoration.inline(
     from,
@@ -42,6 +56,8 @@ const blockDecoration = (node: ProsemirrorNode, position: number): Decoration | 
     { preview: preview.compactLabel },
   );
 };
+
+const SUPPORTED_RICH_TITLE_NODE_TYPES = new Set(["threadMention", "pageMention", "dateMention"]);
 
 const buildDecorations = (document: ProsemirrorNode): DecorationSet => {
   if (!readTaskShorthandPagePromotionEnabled()) return DecorationSet.empty;

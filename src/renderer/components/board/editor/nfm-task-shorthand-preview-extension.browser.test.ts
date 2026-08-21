@@ -99,4 +99,24 @@ describe("task shorthand authoring feedback in Chromium", () => {
     expect(host.textContent).toContain("1XL Fix import");
     expect(host.querySelector("[data-task-shorthand-preview]")).toBeNull();
   });
+
+  test("previews a prefix completed before a rich-link title", () => {
+    writeTaskShorthandPagePromotionEnabled(true);
+    const { host } = mountEditor([
+      {
+        id: "rich-title",
+        type: "paragraph",
+        content: [
+          { type: "text", text: "1XL ", styles: {} },
+          {
+            type: "link",
+            href: "https://nodex.dev",
+            content: [{ type: "text", text: "Fix import", styles: {} }],
+          },
+        ],
+      },
+    ]);
+    expect(host.textContent).toContain("1XL Fix import");
+    expect(host.querySelector("[data-task-shorthand-preview]")?.textContent).toBe("1XL ");
+  });
 });

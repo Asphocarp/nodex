@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { createEvent, fireEvent, waitFor, within } from "@testing-library/react";
 import { act, useRef, useState } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import {
@@ -25,6 +25,10 @@ import {
   createPageTitleProjectionStore,
   makePageTitleResourceKey,
 } from "@/lib/page-title-projection-store";
+import {
+  beginLocalBlockDragSession,
+  endLocalBlockDragSession,
+} from "./block-transfer/cross-surface-drag";
 
 const optionRuntime = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
@@ -682,6 +686,50 @@ describe("DatabaseViewSurface", () => {
       nextCursor: null,
       projectionRevision: 1,
     }));
+  });
+
+  test("accepts Block promotion during protected dragover payload access", async () => {
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: "none",
+      dropEffect: "none",
+      get types() {
+        return [...data.keys()];
+      },
+      getData: () => {
+        throw new Error("drag payload is protected outside drop");
+      },
+      setData: (type: string, value: string) => data.set(type, value),
+      setDragImage: () => undefined,
+    } as unknown as DataTransfer;
+    const session = beginLocalBlockDragSession(
+      {
+        sourceSurfaceId: "editor:source",
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        source: { kind: "document", documentId: "document:source" },
+        rootBlockIds: ["block:source"],
+        displayHints: ["paragraph"],
+      },
+      dataTransfer,
+    );
+    const screen = render(
+      <DatabaseViewSurface model={boardModel()} searchQuery="" onOpenPage={() => undefined} />,
+    );
+    const column = screen.container.querySelector<HTMLElement>('[data-board-column-root="true"]');
+    if (!column) throw new Error("Board column fixture is incomplete");
+    const dragOver = createEvent.dragOver(column, { dataTransfer, clientY: 1 });
+
+    try {
+      await act(async () => {
+        fireEvent(column, dragOver);
+        await Promise.resolve();
+      });
+      expect(dragOver.defaultPrevented).toBe(true);
+      expect(dataTransfer.dropEffect).toBe("move");
+    } finally {
+      endLocalBlockDragSession({ sessionId: session.sessionId });
+    }
   });
 
   test("uses the canonical Card contract for a non-Status grouping", async () => {
