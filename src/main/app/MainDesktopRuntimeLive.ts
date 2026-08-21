@@ -96,6 +96,7 @@ import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIp
 import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
 import * as ApplicationSyncIpc from "../ipc/handlers/ApplicationSyncIpc";
 import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
+import * as AutomationIpc from "../ipc/handlers/AutomationIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
 import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
@@ -1045,6 +1046,31 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
+          AutomationIpc.live({
+            automation: automationModule,
+            codex: codexService,
+            rendererClients: rendererClients.router,
+            onHeartbeatAutomationsEnabledChanged: (input) => {
+              applicationSchedulers.setHeartbeatAutomationsEnabled(input.enabled);
+            },
+            onHeartbeatAutomationThreadStateChanged: (input, rendererClientId) => {
+              applicationSchedulers.setHeartbeatThreadRendererState({
+                ...input,
+                rendererClientId,
+              });
+            },
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
           PageSearchIpc.live({ library: libraryModule }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1356,7 +1382,6 @@ export const live: Layer.Layer<
         yield* Effect.try({
           try: () =>
             registerIpcHandlers({
-              automationModule,
               codexService,
               gitWorkerHost: hostWorkers.git,
               storeAdministration,
@@ -1370,16 +1395,6 @@ export const live: Layer.Layer<
               },
               projectWorkspace,
               rendererClientRouter: rendererClients.router,
-              onHeartbeatAutomationsEnabledChanged: (input) => {
-                applicationSchedulers.setHeartbeatAutomationsEnabled(input.enabled);
-              },
-              onHeartbeatAutomationThreadStateChanged: (input, rendererClientId) => {
-                if (!rendererClientId) return;
-                applicationSchedulers.setHeartbeatThreadRendererState({
-                  ...input,
-                  rendererClientId,
-                });
-              },
               resolveWindowSessionId: applicationWindows.resolveSessionId,
               terminalRuntime: {
                 listLiveSessionsForOwners: (input) =>

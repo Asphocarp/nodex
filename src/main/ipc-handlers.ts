@@ -42,12 +42,7 @@ import {
   parseCodexProjectlessThreadCwdInput,
 } from "./codex/codex-projectless-workspace";
 import type {
-  PageOccurrenceActionInput,
-  PageOccurrenceCompleteInput,
-  PageOccurrenceUpdateInput,
   CodexBackgroundProcessRunActionInput,
-  CodexHeartbeatAutomationThreadStateChangedInput,
-  CodexHeartbeatAutomationsEnabledChangedInput,
   CodexApprovalResponse,
   CodexCollaborationModeKind,
   CodexProtocolRequestId,
@@ -71,7 +66,7 @@ import { isWorkspaceFileUserError } from "./workspace-files-service";
 import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
-import type { IpcApi, IpcEvents } from "../shared/ipc-api";
+import type { IpcApi } from "../shared/ipc-api";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -79,7 +74,6 @@ import type {
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
 import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
-import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { GitWorkerHost } from "./git-worker-host";
 import { readGitRepositoryIdentity } from "./git-repository-identity-service";
@@ -119,7 +113,6 @@ import {
   logDevRuntimeMetric,
   recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
-import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
 import { registerStoreAdministrationIpcHandlers } from "./store-administration-ipc-handlers";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
@@ -178,13 +171,6 @@ function requireTrustedAppRendererSender(
     capabilityName,
     process.env.ELECTRON_RENDERER_URL ?? null,
   );
-}
-
-function broadcastIpcEvent<Channel extends keyof IpcEvents>(
-  channel: Channel,
-  payload: IpcEvents[Channel],
-): void {
-  safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, [payload]);
 }
 
 async function showDirectoryPicker(
@@ -287,14 +273,6 @@ interface RegisterIpcHandlersOptions {
   gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
   rendererClientRouter?: RendererClientRouter;
-  onHeartbeatAutomationsEnabledChanged?: (
-    input: CodexHeartbeatAutomationsEnabledChangedInput,
-  ) => void;
-  onHeartbeatAutomationThreadStateChanged?: (
-    input: CodexHeartbeatAutomationThreadStateChangedInput,
-    rendererClientId: string | null,
-  ) => void;
-  automationModule?: DesktopAutomationModulePort;
   storeAdministration?: DesktopStoreAdministrationPort;
   onStoreRestored?: () => void;
   projectWorkspace?: DesktopProjectWorkspacePort;
@@ -325,34 +303,6 @@ const createUnconfiguredIpcAuthority = <Port extends object>(name: string): Port
     },
   ) as Port;
 
-function assertValidOccurrenceIpcInput(input: PageOccurrenceActionInput): void {
-  if (
-    typeof input?.operationId !== "string" ||
-    input.operationId.length === 0 ||
-    input.operationId.length > 512 ||
-    input.operationId !== input.operationId.trim()
-  ) {
-    throw new Error("Missing or invalid occurrence operationId");
-  }
-  if (typeof input.pageId !== "string" || input.pageId.length === 0) {
-    throw new Error("Missing or invalid occurrence pageId");
-  }
-  if (
-    !(input.occurrenceStart instanceof Date) ||
-    !Number.isFinite(input.occurrenceStart.getTime())
-  ) {
-    throw new Error("Missing or invalid occurrenceStart");
-  }
-  if (
-    input.source !== "calendar" &&
-    input.source !== "page-detail" &&
-    input.source !== "notification" &&
-    input.source !== "api"
-  ) {
-    throw new Error("Missing or invalid occurrence source");
-  }
-}
-
 function assertValidWorktreeEnvironmentSaveInput(
   input: UpdateWorktreeEnvironmentConfigInput,
 ): void {
@@ -361,38 +311,6 @@ function assertValidWorktreeEnvironmentSaveInput(
     return;
 
   throw new Error("Invalid local environment revision");
-}
-
-function assertValidOccurrenceCompleteIpcInput(input: PageOccurrenceCompleteInput): void {
-  assertValidOccurrenceIpcInput(input);
-  if (
-    typeof input.createdPageId !== "string" ||
-    input.createdPageId.length === 0 ||
-    input.createdPageId !== input.createdPageId.trim()
-  ) {
-    throw new Error("Missing or invalid occurrence createdPageId");
-  }
-}
-
-function assertValidOccurrenceUpdateIpcInput(input: PageOccurrenceUpdateInput): void {
-  assertValidOccurrenceIpcInput(input);
-  if (input.scope !== "this" && input.scope !== "this-and-future" && input.scope !== "all") {
-    throw new Error("Missing or invalid occurrence scope");
-  }
-  if (input.scope === "all" && "createdPageId" in input) {
-    throw new Error("Occurrence scope all must not include createdPageId");
-  }
-  if (
-    input.scope !== "all" &&
-    (typeof input.createdPageId !== "string" ||
-      input.createdPageId.length === 0 ||
-      input.createdPageId !== input.createdPageId.trim())
-  ) {
-    throw new Error("Missing or invalid occurrence createdPageId");
-  }
-  if (typeof input.updates !== "object" || input.updates === null || Array.isArray(input.updates)) {
-    throw new Error("Missing or invalid occurrence updates");
-  }
 }
 
 function createGitActionWorkerPort(
@@ -446,9 +364,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     createUnconfiguredIpcAuthority<DesktopStoreAdministrationPort>(
       "Store Administration authority",
     );
-  const automationModule =
-    options.automationModule ??
-    createUnconfiguredIpcAuthority<DesktopAutomationModulePort>("Automation authority");
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace ?? createUnconfiguredIpcAuthority("Project Workspace authority");
   const requireAssignedWindowSessionId = (senderId: number): string => {
@@ -507,48 +422,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
       ]);
     },
   });
-
-  registerHandle(
-    "calendar:occurrences",
-    (
-      _,
-      projectId: string,
-      windowStart: Date,
-      windowEnd: Date,
-      searchQuery?: string,
-      after?: string | null,
-    ) =>
-      automationModule
-        .listPageOccurrences(projectId, windowStart, windowEnd, searchQuery, after)
-        .then((window) => ({
-          occurrences: [...window.items],
-          nextCursor: window.nextCursor,
-        })),
-  );
-
-  registerHandle(
-    "page:occurrence:complete",
-    async (_, projectId: string, input, sessionId?: string) => {
-      assertValidOccurrenceCompleteIpcInput(input);
-      return await automationModule.completePageOccurrence(projectId, input, sessionId);
-    },
-  );
-
-  registerHandle(
-    "page:occurrence:skip",
-    async (_, projectId: string, input, sessionId?: string) => {
-      assertValidOccurrenceIpcInput(input);
-      return await automationModule.skipPageOccurrence(projectId, input, sessionId);
-    },
-  );
-
-  registerHandle(
-    "page:occurrence:update",
-    async (_, projectId: string, input, sessionId?: string) => {
-      assertValidOccurrenceUpdateIpcInput(input);
-      return await automationModule.updatePageOccurrence(projectId, input, sessionId);
-    },
-  );
 
   registerStoreAdministrationIpcHandlers({
     registerHandle,
@@ -838,40 +711,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   registerHandle("codex:thread:summary:get", (_, threadId: string) =>
     codexService.resolveThreadSummary(threadId),
   );
-
-  const broadcastScheduledAutomationChanged = (
-    automationId: string,
-    targetThreadId: string | null,
-    reason: "upsert" | "delete",
-  ) => {
-    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [
-      {
-        automationId,
-        targetThreadId,
-        reason,
-      },
-    ]);
-  };
-
-  registerCodexScheduledAutomationIpcHandlers({
-    registerHandle,
-    automationModule,
-    prepareCreateInput: (input) => codexService.prepareScheduledAutomationInput(input),
-    prepareUpdateInput: (input, current) =>
-      codexService.prepareScheduledAutomationInput(input, current),
-    runScheduledAutomationNow: (input, rendererClientId) =>
-      codexService.runScheduledAutomationNow(input, rendererClientId),
-    resolveAutomationArchiveMessages: (threadId) =>
-      codexService.resolveAutomationArchiveMessages(threadId),
-    unarchiveThread: (threadId) => codexService.unarchiveThread(threadId),
-    broadcastScheduledAutomationChanged,
-    broadcastAutomationRunsUpdated: (event) => {
-      broadcastIpcEvent("codex:automation-runs:updated", event);
-    },
-    onHeartbeatAutomationsEnabledChanged: options.onHeartbeatAutomationsEnabledChanged,
-    resolveRendererClientId: (event) => resolveRendererClientId(event as IpcMainInvokeEvent),
-    onHeartbeatAutomationThreadStateChanged: options.onHeartbeatAutomationThreadStateChanged,
-  });
 
   registerHandle("codex:composer-appshot:target", () => composerAppshotService.readTarget());
   registerHandle("codex:composer-appshot:capture", (_, input) => {
