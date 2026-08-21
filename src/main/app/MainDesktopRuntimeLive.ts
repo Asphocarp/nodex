@@ -767,7 +767,6 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           ApplicationLifecycleIpc.live({
             acknowledgeWindowClose: windows.acknowledgeClose,
-            awaitInitialization: module.awaitMainInitialization,
             requestMicrophonePermission: module.requestHostMicrophonePermission,
           }).pipe(
             Layer.provide(
@@ -877,16 +876,6 @@ export const live: Layer.Layer<
         const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
-        const deepLinkContext = yield* Layer.buildWithScope(
-          deepLinkRuntimeLive({
-            focusWindow: module.focusLastWindow,
-            library: libraryModule,
-            projectWorkspace,
-            windows,
-          }),
-          runtimeScope,
-        );
-        const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
         const applicationWindowContext = yield* Layer.buildWithScope(
           applicationWindowRuntimeLive({
             appUpdates,
@@ -897,28 +886,40 @@ export const live: Layer.Layer<
               ? `${config.resourcesPath}/icon.png`
               : `${config.projectRootPath}/resources/icon.png`,
             mcpAppSandbox,
-            onRendererLoaded: () => {
-              callbacks.fork(
-                Effect.all([deepLinks.flush, appUpdates.startAutomaticChecks], {
-                  concurrency: 2,
-                }).pipe(Effect.asVoid),
-              );
-            },
             preloadPath: `${__dirname}/../preload/index.js`,
             rendererClients: rendererClients.router,
             rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
             windows,
-          }),
+          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
           runtimeScope,
         );
         const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
+        const deepLinkContext = yield* Layer.buildWithScope(
+          deepLinkRuntimeLive({
+            focusWindow: applicationWindows.focusLast,
+            library: libraryModule,
+            projectWorkspace,
+            windows,
+          }),
+          runtimeScope,
+        );
+        const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
+        yield* applicationWindows.rendererLoaded.pipe(
+          Stream.runForEach(() =>
+            Effect.all([deepLinks.flush, appUpdates.startAutomaticChecks], {
+              concurrency: 2,
+            }).pipe(Effect.asVoid),
+          ),
+          Effect.forkIn(runtimeScope),
+          Effect.asVoid,
+        );
         const applicationMenuContext = yield* Layer.buildWithScope(
           applicationMenuRuntimeLive({
             checkForUpdates: appUpdates.check,
             environmentPath: config.environmentPath ?? undefined,
             initialCommandKeymap: getCommandKeymapState(),
             isPackaged: config.isPackaged,
-            requestNewWindow: module.requestNewWindowFromActiveWindow,
+            requestNewWindow: applicationWindows.requestNew,
             resourcesPath: config.resourcesPath,
             showMessage: desktop.showMessage,
             windows,
@@ -1102,7 +1103,6 @@ export const live: Layer.Layer<
                   observeCheckpoint: projectionDelivery.observeCheckpoint,
                   resetStream: projectionDelivery.resetStream,
                 },
-                windowRuntime: windows,
                 startupEvents: [],
                 storeAdministration,
                 startCoreEvents,
@@ -1127,10 +1127,6 @@ export const live: Layer.Layer<
           }),
         );
         if (startup._tag === "Failure") {
-          yield* Effect.tryPromise({
-            try: () => module.shutdownFailedMainAppStartup(),
-            catch: (cause) => runtimeError("startup-rollback", cause),
-          }).pipe(Effect.orDie);
           return yield* startup.failure;
         }
         yield* Layer.buildWithScope(

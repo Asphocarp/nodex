@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -12,6 +13,7 @@ import type { WindowRuntimeService } from "../window-runtime/WindowRuntime";
 export class ApplicationInitializationRuntime extends Context.Service<
   ApplicationInitializationRuntime,
   {
+    readonly awaitDone: Effect.Effect<void>;
     readonly current: Effect.Effect<AppInitializationStep>;
     readonly markDone: Effect.Effect<void>;
     readonly observeAuthorityExit: (event: CoreAuthorityProcessExit) => Effect.Effect<void>;
@@ -31,6 +33,7 @@ export const live = (
     ApplicationInitializationRuntime,
     Effect.gen(function* () {
       const state = yield* SubscriptionRef.make<AppInitializationStep>({ phase: "opening" });
+      const done = yield* Deferred.make<void>();
       const logger = getLogger({ component: "application-initialization-runtime" });
       let changedAt = performance.now();
       const setStep = (step: AppInitializationStep): Effect.Effect<void> =>
@@ -67,8 +70,12 @@ export const live = (
         );
 
       return ApplicationInitializationRuntime.of({
+        awaitDone: Deferred.await(done),
         current: SubscriptionRef.get(state),
-        markDone: setStep({ phase: "done" }),
+        markDone: setStep({ phase: "done" }).pipe(
+          Effect.andThen(Deferred.succeed(done, undefined)),
+          Effect.asVoid,
+        ),
         observeAuthorityExit: (event) =>
           Effect.sync(() => {
             logger.error("Native Core authority process exited", {

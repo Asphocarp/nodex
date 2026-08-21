@@ -25,6 +25,7 @@ it.effect("owns all application lifecycle handlers with the Main Scope", () =>
     } as unknown as ElectronIpc["Service"]);
     const windows = { has: () => true } as unknown as WindowRuntime["Service"];
     const initialization = ApplicationInitializationRuntime.of({
+      awaitDone: Effect.void,
       current: Effect.succeed({ phase: "done" }),
       reportRenderer: () => Effect.void,
     } as unknown as ApplicationInitializationRuntime["Service"]);
@@ -32,7 +33,6 @@ it.effect("owns all application lifecycle handlers with the Main Scope", () =>
     yield* Layer.buildWithScope(
       live({
         acknowledgeWindowClose: () => undefined,
-        awaitInitialization: async () => undefined,
         requestMicrophonePermission: async () => undefined,
       }).pipe(
         Layer.provide(

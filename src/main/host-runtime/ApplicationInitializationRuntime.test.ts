@@ -32,6 +32,7 @@ it.effect("projects Core migration progress and never regresses after completion
       total: 5,
     });
     yield* runtime.markDone;
+    yield* runtime.awaitDone;
     yield* runtime.observeCoreStartup({ kind: "migration_started", fromVersion: 2, toVersion: 3 });
     assert.deepStrictEqual(yield* runtime.current, { phase: "done" });
     assert.strictEqual(broadcasts.length, 3);

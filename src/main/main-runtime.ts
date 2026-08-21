@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, systemPreferences } from "electron";
+import { app, nativeImage, systemPreferences } from "electron";
 import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
 import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
@@ -8,26 +8,12 @@ import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
 import { getNodexHome, getWindowRestoreSettings } from "./local-store/config";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
-import type { AcquiredWindowSession } from "./window-session-state";
-import {
-  captureWindowSessionBounds,
-  type WindowRuntimeService,
-} from "./window-runtime/WindowRuntime";
-import type {
-  WindowSessionNewWindowRequest,
-  WindowSessionRecord,
-  WindowSessionSaveLayoutInput,
-} from "../shared/window-session";
 import { getLogger } from "./logging/logger";
-import { closeWindowsBeforeRuntimeShutdown } from "./runtime-quit-coordinator";
-import { REQUEST_NEW_WINDOW_HOST_CHANNEL } from "../shared/window-navigation";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
 import {
   collectSecondInstancesForStartupReplay,
   requestsExplicitNewWindow,
 } from "./main-runtime-startup-events";
-import { captureMainException } from "./observability/sentry-main";
-import { safeSendToWindow } from "./ipc-safe-send";
 import type { RendererClientRouter } from "./codex/renderer-client-router";
 import type { ApplicationWindowRuntime } from "./window-runtime/ApplicationWindowRuntime";
 import {
@@ -56,106 +42,7 @@ const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
-let browserSidebarService: BrowserSidebarService;
-let codexService: CodexService;
-let deepLinkRuntime: MainRuntimeStartupContext["deepLinks"];
-let applicationWindowRuntime: ApplicationWindowRuntime["Service"];
-
-let rendererHostReadyForWindows = false;
-let windowRuntime: WindowRuntimeService | null = null;
-let appInitializationPromise: Promise<void> = Promise.resolve();
 const logger = getLogger({ subsystem: "app" });
-
-function getLastFocusedWindow(): BrowserWindow | null {
-  return windowRuntime?.getLastFocused() ?? null;
-}
-
-export function focusLastWindow(): void {
-  const existingWindow = getLastFocusedWindow();
-  if (existingWindow) {
-    if (existingWindow.isMinimized()) existingWindow.restore();
-    existingWindow.show();
-    existingWindow.focus();
-    return;
-  }
-
-  openNewWindow();
-}
-
-function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
-  const windows = windowRuntime;
-  if (!rendererHostReadyForWindows || !windows) return null;
-  let acquired: AcquiredWindowSession | null = null;
-
-  try {
-    acquired = windows.acquireSessionForNewWindow(sourceWebContentsId);
-    const window = createWindow({
-      session: acquired.session,
-    });
-    window.show();
-    window.focus();
-    return window;
-  } catch (error) {
-    if (acquired?.kind === "reopened") {
-      try {
-        windows.rollbackReopenSession(acquired.previousRecord);
-      } catch (rollbackError) {
-        logger.error("Could not roll back failed Window Session acquisition", {
-          error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-          windowSessionId: acquired.session.id,
-        });
-        captureMainException(rollbackError, {
-          tags: {
-            phase: "window-session-acquisition-rollback",
-          },
-        });
-      }
-    }
-    logger.error("Could not open a new window", {
-      error: error instanceof Error ? error.message : String(error),
-      windowSessionId: acquired?.session.id,
-    });
-    captureMainException(error, {
-      tags: {
-        phase: "window-session-acquisition",
-      },
-    });
-    return null;
-  }
-}
-
-export function requestNewWindowFromActiveWindow(): void {
-  if (windowRuntime?.hasClosedSessionAvailable()) {
-    openNewWindow();
-    return;
-  }
-  const sourceWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
-  if (!sourceWindow || sourceWindow.isDestroyed()) {
-    openNewWindow();
-    return;
-  }
-  const sourceWebContentsId = sourceWindow.webContents.id;
-  if (
-    windowRuntime?.isRendererInitialized(sourceWebContentsId) &&
-    safeSendToWindow(sourceWindow, REQUEST_NEW_WINDOW_HOST_CHANNEL)
-  ) {
-    return;
-  }
-  openNewWindow(sourceWebContentsId);
-}
-
-function openClonedWindow(
-  sourceWebContentsId: number,
-  override: WindowSessionNewWindowRequest,
-): BrowserWindow | null {
-  const windows = windowRuntime;
-  if (!rendererHostReadyForWindows || !windows) return null;
-  const session = windows.cloneSessionForWindow(sourceWebContentsId, override);
-  const window = createWindow({ session });
-  window.show();
-  window.focus();
-  return window;
-}
 
 export async function requestHostMicrophonePermission(): Promise<void> {
   if (process.platform !== "darwin") {
@@ -176,19 +63,6 @@ export async function requestHostMicrophonePermission(): Promise<void> {
   }
 }
 
-export function awaitMainInitialization(): Promise<void> {
-  return appInitializationPromise;
-}
-
-function sendReminderOpenEvent(payload: {
-  projectId: string;
-  pageId: string;
-  occurrenceStart: string;
-}): void {
-  const targetWindow = getLastFocusedWindow();
-  safeSendToWindow(targetWindow, "reminder:open", [payload]);
-}
-
 function registerDeepLinkProtocol(): void {
   if (process.defaultApp && process.argv[1]) {
     app.setAsDefaultProtocolClient("nodex", process.execPath, [resolve(process.argv[1])]);
@@ -198,16 +72,15 @@ function registerDeepLinkProtocol(): void {
   app.setAsDefaultProtocolClient("nodex");
 }
 
-function createWindow(options: { session: WindowSessionRecord }): BrowserWindow {
-  return applicationWindowRuntime.create(options.session);
-}
-
 async function initializeDesktopApp(
   authority: DesktopDataAuthorityRuntime,
   initialProjectBootstrap: InitialProjectBootstrapService,
   startCoreEvents: MainRuntimeStartupContext["startCoreEvents"],
   applicationSchedulers: ApplicationSchedulerRuntime["Service"],
+  applicationWindows: ApplicationWindowRuntime["Service"],
+  codexService: CodexService,
   coreApplicationProjection: MainRuntimeStartupContext["coreApplicationProjection"],
+  deepLinks: MainRuntimeStartupContext["deepLinks"],
   projectionDelivery: MainRuntimeStartupContext["projectionDelivery"],
   markApplicationReady: MainRuntimeStartupContext["markApplicationReady"],
   markInitializationDone: MainRuntimeStartupContext["markInitializationDone"],
@@ -263,21 +136,14 @@ async function initializeDesktopApp(
   });
   await initialProjectBootstrap.ensureInitialProject({
     onProvisioned: async (presentation) => {
-      const windows = windowRuntime;
-      if (!windows) {
-        throw new Error("Window runtime is unavailable during initial Project bootstrap");
-      }
-      windows.seedInitialProjectPresentation(presentation);
+      applicationWindows.seedInitialProjectPresentation(presentation);
     },
   });
-  await deepLinkRuntime.markReady();
+  await deepLinks.markReady();
   await codexService.synchronizeAutomationRuntime();
   codexService.requestManagedWorktreeRetentionSweep();
   applicationSchedulers.activate({
-    openReminder: (payload) => {
-      focusLastWindow();
-      sendReminderOpenEvent(payload);
-    },
+    openReminder: applicationWindows.sendReminderOpen,
   });
   await markInitializationDone();
   logger.info("Desktop app initialization finished", {
@@ -324,7 +190,6 @@ export interface MainRuntimeStartupContext {
     readonly resetStream: (reason: "event_gap" | "reconnect" | "store_epoch_changed") => void;
   };
   rendererClientRouter: RendererClientRouter;
-  windowRuntime: WindowRuntimeService;
   startupEvents?: BootstrapRuntimeEvent[];
   storeAdministration: DesktopStoreAdministrationPort;
   startCoreEvents: (input: {
@@ -362,19 +227,20 @@ export interface MainRuntimeController {
   shutdown(): Promise<void>;
 }
 
-let runtimeShutdownStarted = false;
-let runtimeShutdownPromise: Promise<void> | null = null;
-async function handleSecondInstanceArgv(argv: string[]): Promise<boolean> {
-  const handledDeepLink = Boolean(await deepLinkRuntime.extractFromArgv(argv));
+async function handleSecondInstanceArgv(
+  argv: string[],
+  context: Pick<MainRuntimeStartupContext, "applicationWindows" | "deepLinks">,
+): Promise<boolean> {
+  const handledDeepLink = Boolean(await context.deepLinks.extractFromArgv(argv));
   if (handledDeepLink) {
     return true;
   }
 
   if (requestsExplicitNewWindow(argv)) {
-    requestNewWindowFromActiveWindow();
+    context.applicationWindows.requestNew();
     return true;
   }
-  focusLastWindow();
+  context.applicationWindows.focusLast();
   return true;
 }
 
@@ -387,45 +253,11 @@ function collectStartupDeepLinks(context: MainRuntimeStartupContext): Promise<st
   });
 }
 
-function beginMainRuntimeShutdown(): void {
-  if (runtimeShutdownStarted) return;
-  runtimeShutdownStarted = true;
-  rendererHostReadyForWindows = false;
-  windowRuntime?.beginApplicationQuit();
-  logger.info("Nodex before-quit");
-  windowRuntime = null;
-}
-
-function shutdownMainRuntime(): Promise<void> {
-  beginMainRuntimeShutdown();
-  if (runtimeShutdownPromise) {
-    return runtimeShutdownPromise;
-  }
-
-  runtimeShutdownPromise = Promise.resolve();
-  return runtimeShutdownPromise;
-}
-
-async function prepareMainRuntimeQuit(): Promise<void> {
-  if (runtimeShutdownStarted) return;
-  windowRuntime?.beginApplicationQuit();
-  rendererHostReadyForWindows = false;
-  await closeWindowsBeforeRuntimeShutdown(BrowserWindow.getAllWindows());
-}
-
-/** Release any Main resources acquired before startup reached its controller handoff. */
-export function shutdownFailedMainAppStartup(): Promise<void> {
-  return shutdownMainRuntime();
-}
-
 export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
-  browserSidebarService = context.browserSidebarService;
-  codexService = context.codexService;
-  deepLinkRuntime = context.deepLinks;
-  applicationWindowRuntime = context.applicationWindows;
-  windowRuntime = context.windowRuntime;
+  const browserSidebarService = context.browserSidebarService;
+  const codexService = context.codexService;
   const startupSecondInstancesWithoutDeepLinks = await collectStartupDeepLinks(context);
 
   logger.info("Nodex main process starting", {
@@ -487,17 +319,19 @@ export async function runMainAppStartup(
     }),
     journalPath: resolveInitialProjectJournalPath(getNodexHome()),
   });
-  appInitializationPromise = initializeDesktopApp(
+  const initializationPromise = initializeDesktopApp(
     dataAuthorityRuntime,
     initialProjectBootstrap,
     context.startCoreEvents,
     context.applicationSchedulers,
+    context.applicationWindows,
+    codexService,
     context.coreApplicationProjection,
+    context.deepLinks,
     context.projectionDelivery,
     context.markApplicationReady,
     context.markInitializationDone,
   );
-  rendererHostReadyForWindows = true;
   await codexService.reconcileCodexExecutionHosts().catch((error) => {
     logger.warn("Some configured SSH execution hosts are unavailable", {
       error: error instanceof Error ? error.message : String(error),
@@ -536,45 +370,12 @@ export async function runMainAppStartup(
       });
     },
     onCreateWindow: (sourceWebContentsId, request) => {
-      if (request.activeProjectSessionId === undefined) {
-        openNewWindow(sourceWebContentsId);
-        return;
-      }
-      openClonedWindow(sourceWebContentsId, request);
+      context.applicationWindows.openForRequest(sourceWebContentsId, request);
     },
-    onBootstrapWindowSession: (webContentsId) => {
-      const windows = windowRuntime;
-      if (!windows) {
-        throw new Error("Window runtime is unavailable");
-      }
-      const session = windows.bootstrap(webContentsId);
-      const window = windows.get(webContentsId);
-      if (window) {
-        applicationWindowRuntime.syncTitle(window);
-      }
-      return { session };
-    },
-    onSaveWindowSessionLayout: (webContentsId, input: WindowSessionSaveLayoutInput) => {
-      const windows = windowRuntime;
-      if (!windows) {
-        throw new Error("Window runtime is unavailable");
-      }
-      const window = windows.get(webContentsId);
-      const session = windows.saveLayout(
-        webContentsId,
-        input,
-        window && !window.isDestroyed() ? captureWindowSessionBounds(window) : undefined,
-      );
-      if (window) {
-        applicationWindowRuntime.syncTitle(window);
-      }
-      return { session };
-    },
-    onUpdateWindowSessionBounds: (webContentsId, bounds) => {
-      windowRuntime?.updateBounds(webContentsId, bounds);
-    },
-    resolveWindowSessionId: (webContentsId) =>
-      windowRuntime?.resolveSessionId(webContentsId) ?? null,
+    onBootstrapWindowSession: context.applicationWindows.bootstrap,
+    onSaveWindowSessionLayout: context.applicationWindows.saveLayout,
+    onUpdateWindowSessionBounds: context.applicationWindows.updateBounds,
+    resolveWindowSessionId: context.applicationWindows.resolveSessionId,
     onCommandKeybindingsChanged: (state) => {
       context.applicationMenus.refresh(state);
     },
@@ -582,22 +383,30 @@ export async function runMainAppStartup(
   });
 
   const restorePolicy = getWindowRestoreSettings().policy;
-  const startupSessions = context.windowRuntime.selectStartupSessions(restorePolicy);
-  for (const session of startupSessions) {
-    createWindow({ session });
-  }
+  context.applicationWindows.openStartup(restorePolicy);
 
   for (const argv of startupSecondInstancesWithoutDeepLinks) {
-    await handleSecondInstanceArgv(argv);
+    await handleSecondInstanceArgv(argv, context);
   }
 
-  await appInitializationPromise;
+  await initializationPromise;
+
+  let shuttingDown = false;
+  const beginShutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    context.applicationWindows.beginApplicationQuit();
+    logger.info("Nodex before-quit");
+  };
 
   return {
-    activate: focusLastWindow,
+    activate: context.applicationWindows.focusLast,
     handleOpenUrl: context.deepLinks.handle,
-    handleSecondInstance: handleSecondInstanceArgv,
-    prepareQuit: prepareMainRuntimeQuit,
-    shutdown: shutdownMainRuntime,
+    handleSecondInstance: (argv) => handleSecondInstanceArgv(argv, context),
+    prepareQuit: async () => {
+      if (shuttingDown) return;
+      await context.applicationWindows.prepareQuit();
+    },
+    shutdown: async () => beginShutdown(),
   };
 }

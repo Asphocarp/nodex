@@ -12,7 +12,6 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface ApplicationLifecycleIpcPort {
   readonly acknowledgeWindowClose: (webContentsId: number) => void;
-  readonly awaitInitialization: () => Promise<void>;
   readonly requestMicrophonePermission: () => Promise<void>;
 }
 
@@ -66,13 +65,7 @@ export const live = (
               }),
             ),
           ),
-          Effect.andThen(
-            Effect.tryPromise({
-              try: port.awaitInitialization,
-              catch: (cause) =>
-                new ApplicationLifecycleIpcError({ operation: "await-initialization", cause }),
-            }),
-          ),
+          Effect.andThen(initialization.awaitDone),
         ),
       );
       yield* ipc.on("app:renderer-initialization-finished", (event, input: unknown) =>
