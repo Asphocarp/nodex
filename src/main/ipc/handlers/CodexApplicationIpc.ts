@@ -2,6 +2,8 @@ import { isAbsolute } from "node:path";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { IpcMainInvokeEvent } from "electron";
 import type { McpResourceReadParams } from "@nodex/codex-app-server-protocol/v2/McpResourceReadParams";
 import type { McpServerToolCallParams } from "@nodex/codex-app-server-protocol/v2/McpServerToolCallParams";
@@ -18,6 +20,7 @@ import type {
 } from "../../../shared/agent-runtime";
 import type { IpcEvents } from "../../../shared/ipc-api";
 import type { CodexHooksListInput, CodexHooksStateUpdateInput } from "../../../shared/codex-hooks";
+import { DEFAULT_CODEX_HOST_ID } from "../../../shared/codex-host";
 import { CodexAccount, type CodexAccountLoginInput } from "../../codex-application/CodexAccount";
 import { AgentProviderRuntime } from "../../codex-application/AgentProviderRuntime";
 import { CodexConnection } from "../../codex-application/CodexConnection";
@@ -136,6 +139,40 @@ export const live: Layer.Layer<
       validate("authorize-renderer", () =>
         requireTrustedAppRendererSender(event, capabilityName, config.rendererUrl),
       );
+
+    yield* SubscriptionRef.changes(account.snapshot).pipe(
+      Stream.runForEach((snapshot) =>
+        windows.all.pipe(
+          Effect.tap((all) =>
+            Effect.sync(() => {
+              const rateLimits = snapshot.rateLimits ?? null;
+              safeBroadcastToWindows(all, "codex:event" satisfies keyof IpcEvents, [
+                { type: "rateLimits", rateLimits },
+              ]);
+              safeBroadcastToWindows(all, "codex:host-message" satisfies keyof IpcEvents, [
+                {
+                  type: "sharedObjectUpdated",
+                  hostId: DEFAULT_CODEX_HOST_ID,
+                  object: { objectType: "rateLimits", objectId: "rateLimits", value: rateLimits },
+                },
+              ]);
+              safeBroadcastToWindows(all, "codex:event" satisfies keyof IpcEvents, [
+                { type: "account", account: snapshot },
+              ]);
+              safeBroadcastToWindows(all, "codex:host-message" satisfies keyof IpcEvents, [
+                {
+                  type: "sharedObjectUpdated",
+                  hostId: DEFAULT_CODEX_HOST_ID,
+                  object: { objectType: "account", objectId: "account", value: snapshot },
+                },
+              ]);
+            }),
+          ),
+          Effect.asVoid,
+        ),
+      ),
+      Effect.forkScoped,
+    );
 
     yield* ipc.handle("codex:account:read", () => account.refresh);
     yield* ipc.handle(

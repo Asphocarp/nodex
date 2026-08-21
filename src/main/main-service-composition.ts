@@ -3,7 +3,6 @@ import { CodexService, type CodexTerminalRuntimePort } from "./codex/codex-servi
 import type { ResolvedCodexRuntime } from "./codex/codex-runtime";
 import type { ProviderCredentialStore } from "./codex/provider-credential-store";
 import type { CodexApplicationClient } from "./codex-runtime/CodexApplicationClient";
-import type { CodexAccountPromiseAdapter } from "./codex-application/CodexAccountPromiseAdapter";
 import type { ComposerCatalogPromiseAdapter } from "./codex-application/ComposerCatalogPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "./codex-application/AgentProviderRuntimePromiseAdapter";
 
@@ -17,7 +16,6 @@ export interface MainServiceCompositionInput {
   readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
-  readonly codexAccount?: CodexAccountPromiseAdapter;
   readonly composerCatalog?: ComposerCatalogPromiseAdapter;
   readonly codexClient: CodexApplicationClient;
   readonly codexRuntime: ResolvedCodexRuntime;
@@ -37,7 +35,6 @@ export function createMainServiceComposition(
     agentProviderRuntime: input.agentProviderRuntime,
     terminalRuntime: input.terminalRuntime,
     runtimeStateHome: input.runtimeStateHome,
-    ...(input.codexAccount === undefined ? {} : { accountRuntime: input.codexAccount }),
     ...(input.composerCatalog === undefined ? {} : { composerCatalog: input.composerCatalog }),
     client: input.codexClient,
     runtime: input.codexRuntime,

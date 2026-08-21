@@ -28,8 +28,6 @@ import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { FsGetMetadataResponse } from "@nodex/codex-app-server-protocol/v2/FsGetMetadataResponse";
-import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
-import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
@@ -82,7 +80,6 @@ import type {
   CommandPaletteThreadSearchInput,
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
-  CodexAccountSnapshot,
   CodexAgentMode,
   CodexAutomationRunsUpdatedEvent,
   CodexApprovalRequest,
@@ -134,8 +131,6 @@ import type {
   CodexProjectlessWorkspace,
   CodexQueuedFollowUp,
   CodexReviewDiffCommentAttachment,
-  CodexRateLimitsSnapshot,
-  CodexRateLimitResetCreditsSummary,
   CodexReasoningEffort,
   CodexRendererConversationResumeResult,
   CodexSidebarRefreshPolicy,
@@ -215,14 +210,6 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
-import {
-  emptyAccountRateLimitState,
-  emptyAccountSnapshot,
-  parseAccountIdentity,
-  parseRateLimitResetCreditsSummary,
-  parseRateLimitsSnapshot,
-} from "../codex-application/CodexAccountState";
-import type { CodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { parseModelOption } from "../codex-application/ComposerCatalogState";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
@@ -1435,7 +1422,6 @@ type CodexManagedWorktreeSettingsPort = {
 };
 
 type CodexServiceOptions = {
-  accountRuntime?: CodexAccountPromiseAdapter;
   agentProviderRuntime?: AgentProviderRuntimePromiseAdapter;
   composerCatalog?: ComposerCatalogPromiseAdapter;
   client: CodexApplicationClient;
@@ -1448,7 +1434,6 @@ type CodexServiceOptions = {
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
   providerCredentialStore?: ProviderCredentialStore;
-  rateLimitsPollIntervalMs?: number;
   inactiveRendererOwnerRetentionMs?: number;
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
@@ -1574,7 +1559,6 @@ interface CodexAutomationArchiveMessages {
 const RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES = 8;
 const RENDERER_OWNER_NOTIFICATION_DRAIN_TIMEOUT_MS =
   CODEX_FRAME_TEXT_DELTA_FALLBACK_INTERVAL_MS * RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES;
-const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
 const INACTIVE_RENDERER_OWNER_RETENTION_MS = 60 * 60 * 1000;
 const INACTIVE_RENDERER_OWNER_MAX_RETAINED = 4;
 const INACTIVE_RENDERER_OWNER_RETRY_MS = 15_000;
@@ -2657,10 +2641,8 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexApplicationClient;
-  private readonly accountRuntime: CodexAccountPromiseAdapter | null;
   private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter | null;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter | null;
-  private releaseAccountRuntimeSubscription: (() => void) | null = null;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly runtimeVersion: string | null;
@@ -2673,7 +2655,6 @@ export class CodexService extends EventEmitter {
     "dispose" | "ensureReady" | "getResult"
   >;
   private readonly providerCredentialStore: ProviderCredentialStore | null;
-  private readonly rateLimitsPollIntervalMs: number;
   private readonly inactiveRendererOwnerRetentionMs: number;
   private readonly inactiveRendererOwnerMaxRetained: number;
   private readonly inactiveRendererOwnerRetryMs: number;
@@ -2863,11 +2844,7 @@ export class CodexService extends EventEmitter {
   });
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly manualCompactionTracker = new CodexManualCompactionTracker();
-  private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
-  private accountReadInFlight: Promise<CodexAccountSnapshot> | null = null;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
-  private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
-  private rateLimitsPollInFlight = false;
   private threadSettingsUpdateSupport: "unknown" | "supported" | "unsupported" = "unknown";
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
   private sidebarSyncGeneration = 0;
@@ -2913,7 +2890,6 @@ export class CodexService extends EventEmitter {
   constructor(options: CodexServiceOptions) {
     super();
 
-    this.accountRuntime = options.accountRuntime ?? null;
     this.agentProviderRuntime = options.agentProviderRuntime ?? null;
     this.composerCatalog = options.composerCatalog ?? null;
     const runtime = options.runtime;
@@ -2942,8 +2918,6 @@ export class CodexService extends EventEmitter {
       this.agentProviderRuntime === null
         ? (options.providerCredentialStore ?? createElectronProviderCredentialStore())
         : null;
-    this.rateLimitsPollIntervalMs =
-      options.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
       options?.inactiveRendererOwnerRetentionMs ?? INACTIVE_RENDERER_OWNER_RETENTION_MS,
@@ -3176,14 +3150,8 @@ export class CodexService extends EventEmitter {
         this.clearPendingServerRequestsAfterDisconnect();
       }
       this.emitEvent({ type: "connection", connection });
-      this.syncRateLimitsPolling();
       if (connection.status === "connected" && connection.retries > 0 && !wasConnected) {
         this.markConversationsNeedResumeAfterReconnect();
-        void this.readAccountSnapshot().catch((error: unknown) => {
-          this.logger.warn("Could not refresh account state after app-server reconnect", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
         void this.syncSidebarThreadsDetailed({
           policy: "stale",
           reason: "app-server-reconnect",
@@ -3209,13 +3177,6 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "error", message });
     });
 
-    if (this.accountRuntime !== null) {
-      this.releaseAccountRuntimeSubscription = this.accountRuntime.subscribe((snapshot) => {
-        this.accountSnapshot = snapshot;
-        this.emitEvent({ type: "rateLimits", rateLimits: snapshot.rateLimits ?? null });
-        this.emitEvent({ type: "account", account: snapshot });
-      });
-    }
   }
 
   private emitEvent(event: CodexEvent): void {
@@ -7737,90 +7698,6 @@ export class CodexService extends EventEmitter {
     return (await this.readPermissionState(projectId)).mode;
   }
 
-  private shouldPollRateLimits(): boolean {
-    if (this.accountRuntime !== null) return false;
-    if (this.rateLimitsPollIntervalMs <= 0) return false;
-    if (this.lastConnectionStatus !== "connected") return false;
-    if (this.accountSnapshot.account?.type !== "chatgpt") return false;
-    return true;
-  }
-
-  private syncRateLimitsPolling(): void {
-    if (!this.shouldPollRateLimits()) {
-      this.stopRateLimitsPolling();
-      return;
-    }
-
-    if (this.rateLimitsPollHandle !== null) {
-      return;
-    }
-
-    this.rateLimitsPollHandle = setInterval(() => {
-      void this.pollRateLimits();
-    }, this.rateLimitsPollIntervalMs);
-  }
-
-  private stopRateLimitsPolling(): void {
-    if (this.rateLimitsPollHandle === null) return;
-    clearInterval(this.rateLimitsPollHandle);
-    this.rateLimitsPollHandle = null;
-  }
-
-  private async pollRateLimits(): Promise<void> {
-    if (!this.shouldPollRateLimits()) {
-      this.stopRateLimitsPolling();
-      return;
-    }
-
-    if (this.rateLimitsPollInFlight) return;
-    this.rateLimitsPollInFlight = true;
-
-    try {
-      await this.refreshRateLimitsSnapshot();
-    } catch (error) {
-      this.logger.debug("Could not refresh Codex rate limits snapshot", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      this.rateLimitsPollInFlight = false;
-      if (!this.shouldPollRateLimits()) {
-        this.stopRateLimitsPolling();
-      }
-    }
-  }
-
-  private async refreshRateLimitsSnapshot(): Promise<CodexRateLimitsSnapshot | null> {
-    const rateLimitState = await this.readAccountRateLimitState();
-    this.accountSnapshot = {
-      ...this.accountSnapshot,
-      ...rateLimitState,
-    };
-    this.syncRateLimitsPolling();
-    this.emitEvent({ type: "rateLimits", rateLimits: rateLimitState.rateLimits });
-    this.emitEvent({ type: "account", account: this.accountSnapshot });
-    return rateLimitState.rateLimits;
-  }
-
-  private async readAccountRateLimitState(): Promise<{
-    rateLimits: CodexRateLimitsSnapshot | null;
-    rateLimitResetCredits: CodexRateLimitResetCreditsSummary | null;
-  }> {
-    const rateLimitResult = await this.client
-      .request<"account/rateLimits/read", GetAccountRateLimitsResponse>("account/rateLimits/read")
-      .catch(() => ({
-        rateLimits: null,
-        rateLimitsByLimitId: null,
-        rateLimitResetCredits: null,
-      }));
-
-    return {
-      rateLimits: parseRateLimitsSnapshot(rateLimitResult.rateLimits ?? null),
-      rateLimitResetCredits: parseRateLimitResetCreditsSummary(
-        rateLimitResult.rateLimitResetCredits ?? null,
-      ),
-    };
-  }
-
   async shutdown(): Promise<void> {
     this.logger.info("Shutting down Codex service", {
       pendingApprovals: this.pendingApprovals.size,
@@ -7831,8 +7708,6 @@ export class CodexService extends EventEmitter {
       pendingDynamicToolCalls: this.pendingDynamicToolCalls.size,
     });
     this.frameTextDeltaQueue.dispose();
-    this.releaseAccountRuntimeSubscription?.();
-    this.releaseAccountRuntimeSubscription = null;
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.outputDeltaQueue.dispose();
     this.userInputAutoResolutionController.dispose();
@@ -7883,7 +7758,6 @@ export class CodexService extends EventEmitter {
     this.deferredThreadStartThreadIds.clear();
     this.readyDeferredThreadStartThreadIds.clear();
     this.threadStartNotificationDeferralDepth = 0;
-    this.stopRateLimitsPolling();
     if (this.sidebarNotificationSyncTimer !== null) {
       clearTimeout(this.sidebarNotificationSyncTimer);
       this.sidebarNotificationSyncTimer = null;
@@ -8204,50 +8078,6 @@ export class CodexService extends EventEmitter {
         message: pluginResult.computerUse.message,
       });
     }
-  }
-
-  private async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
-    if (this.accountRuntime !== null) return await this.accountRuntime.refresh();
-    if (this.accountReadInFlight) return await this.accountReadInFlight;
-
-    const operation = this.loadAccountSnapshot().finally(() => {
-      if (this.accountReadInFlight === operation) this.accountReadInFlight = null;
-    });
-    this.accountReadInFlight = operation;
-    return await operation;
-  }
-
-  private async loadAccountSnapshot(): Promise<CodexAccountSnapshot> {
-    await this.ensureClientReady();
-
-    const accountResult = await this.client.request<"account/read", GetAccountResponse>(
-      "account/read",
-      {
-        refreshToken: false,
-      },
-    );
-
-    const account = parseAccountIdentity(accountResult.account ?? null);
-    const rateLimitState =
-      account?.type === "chatgpt"
-        ? await this.readAccountRateLimitState()
-        : emptyAccountRateLimitState();
-    this.accountSnapshot = {
-      account,
-      requiresOpenAiAuth: Boolean(accountResult.requiresOpenaiAuth),
-      pendingLogin: this.accountSnapshot.pendingLogin ?? null,
-      ...rateLimitState,
-    };
-    this.syncRateLimitsPolling();
-
-    this.logger.info("Read Codex account snapshot", {
-      accountType: this.accountSnapshot.account?.type ?? null,
-      requiresOpenAiAuth: this.accountSnapshot.requiresOpenAiAuth,
-      hasRateLimits: Boolean(this.accountSnapshot.rateLimits),
-      availableRateLimitResets: this.accountSnapshot.rateLimitResetCredits?.availableCount ?? null,
-    });
-    this.emitEvent({ type: "account", account: this.accountSnapshot });
-    return this.accountSnapshot;
   }
 
   async listProjectThreads(
@@ -26914,43 +26744,6 @@ export class CodexService extends EventEmitter {
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       this.resolvePendingServerRequest(threadId, requestId, {
         suppressConversationSync: ownerRouted,
-      });
-      return;
-    }
-
-    if (method === "account/rateLimits/updated") {
-      if (this.accountRuntime !== null) return;
-      const payload =
-        typeof params === "object" && params !== null ? (params as Record<string, unknown>) : null;
-
-      const parsed = parseRateLimitsSnapshot(payload?.rateLimits ?? null);
-      this.accountSnapshot = {
-        ...this.accountSnapshot,
-        rateLimits: parsed,
-      };
-      this.syncRateLimitsPolling();
-      this.emitEvent({ type: "rateLimits", rateLimits: parsed });
-      this.emitEvent({ type: "account", account: this.accountSnapshot });
-      return;
-    }
-
-    if (method === "account/updated") {
-      if (this.accountRuntime !== null) return;
-      await this.readAccountSnapshot().catch(() => {
-        // keep previous state
-      });
-      return;
-    }
-
-    if (method === "account/login/completed") {
-      if (this.accountRuntime !== null) return;
-      this.accountSnapshot = {
-        ...this.accountSnapshot,
-        pendingLogin: null,
-      };
-      this.emitEvent({ type: "account", account: this.accountSnapshot });
-      await this.readAccountSnapshot().catch(() => {
-        // keep previous state
       });
       return;
     }

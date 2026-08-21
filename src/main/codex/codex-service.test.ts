@@ -1457,7 +1457,6 @@ function createUserInputAutoResolutionTestClock() {
 
 function createService(options?: {
   runtimeStateHome?: string;
-  rateLimitsPollIntervalMs?: number;
   inactiveRendererOwnerRetentionMs?: number;
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
@@ -1507,7 +1506,6 @@ function createService(options?: {
         status: "unavailable",
       }),
     },
-    rateLimitsPollIntervalMs: options?.rateLimitsPollIntervalMs,
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,

@@ -28,7 +28,6 @@ import {
   live as agentProviderRuntimeLive,
 } from "../codex-application/AgentProviderRuntime";
 import { makeAgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
-import { makeCodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { ChatGptDesktop, live as chatGptDesktopLive } from "../codex-application/ChatGptDesktop";
@@ -206,7 +205,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const codexAccountService = Context.get(codexAccountContext, CodexAccount);
-        const codexAccount = makeCodexAccountPromiseAdapter(codexAccountService, callbacks);
         const composerCatalogContext = yield* Layer.buildWithScope(
           composerCatalogLive.pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
           runtimeScope,
@@ -307,7 +305,6 @@ export const live: Layer.Layer<
             const composition = createMainServiceComposition({
               locale: () => locale,
               agentProviderRuntime,
-              codexAccount,
               composerCatalog,
               codexClient: codexBridge,
               codexRuntime,
