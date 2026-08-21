@@ -1178,7 +1178,7 @@ function RequestComposerViewInstance({
             {question.question}
           </div>
         ) : null}
-        <AnimatePresence initial={false} mode="wait">
+        <AnimatePresence initial={false} mode={reducedMotion ? "sync" : "wait"}>
           <motion.div
             key={currentQuestionKey}
             data-request-question-key={currentQuestionKey}
