@@ -10,7 +10,6 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { ServerRequestMethod } from "@nodex/effect-codex-app-server/rpc";
 import {
   CodexAppServerInputStreamEndedError,
   type CodexAppServerError,
@@ -20,12 +19,16 @@ export interface ConversationServerRequest {
   readonly hostId: string;
   readonly generation: number;
   readonly requestId: string | number;
-  readonly method: ServerRequestMethod;
+  readonly method: string;
   readonly params: unknown;
 }
 
+export interface ConversationServerRequestOccurrence extends ConversationServerRequest {
+  readonly token: number;
+}
+
 export type ConversationRuntimeEvent =
-  | { readonly kind: "server-request"; readonly value: ConversationServerRequest }
+  | { readonly kind: "server-request"; readonly value: ConversationServerRequestOccurrence }
   | { readonly kind: "notification"; readonly method: string; readonly params: unknown };
 
 export interface ConversationRuntimeEventEnvelope {
@@ -48,6 +51,7 @@ export type ConversationRuntimeState =
 interface PendingRequest {
   readonly generation: number;
   readonly requestId: string | number;
+  readonly token: number;
   readonly response: Deferred.Deferred<unknown, CodexAppServerError>;
 }
 
@@ -71,14 +75,8 @@ export class ConversationRuntime extends Context.Service<
       requestId: string | number,
       error: CodexAppServerError,
     ) => Effect.Effect<boolean>;
-    readonly respondCurrent: (
-      requestId: string | number,
-      response: unknown,
-    ) => Effect.Effect<boolean>;
-    readonly rejectCurrent: (
-      requestId: string | number,
-      error: CodexAppServerError,
-    ) => Effect.Effect<boolean>;
+    readonly respondToken: (token: number, response: unknown) => Effect.Effect<boolean>;
+    readonly rejectToken: (token: number, error: CodexAppServerError) => Effect.Effect<boolean>;
   }
 >()("nodex/main/codex-application/ConversationRuntime") {}
 
@@ -106,6 +104,7 @@ const runtimeLayer = (
       });
       const events = yield* PubSub.unbounded<ConversationRuntimeEventEnvelope>();
       const pending = yield* Ref.make<readonly PendingRequest[]>([]);
+      const nextRequestToken = yield* Ref.make(1);
       const publishLock = yield* Semaphore.make(1);
 
       const syncPendingCount = Ref.get(pending).pipe(
@@ -191,14 +190,16 @@ const runtimeLayer = (
         request: (request) =>
           Effect.gen(function* () {
             const response = yield* Deferred.make<unknown, CodexAppServerError>();
+            const token = yield* Ref.getAndUpdate(nextRequestToken, (current) => current + 1);
             const entry: PendingRequest = {
               generation: request.generation,
               requestId: request.requestId,
+              token,
               response,
             };
             yield* Ref.update(pending, (current) => [...current, entry]);
             yield* syncPendingCount;
-            yield* publish({ kind: "server-request", value: request });
+            yield* publish({ kind: "server-request", value: { ...request, token } });
             return yield* Deferred.await(response).pipe(
               Effect.ensuring(
                 Ref.update(pending, (current) =>
@@ -217,14 +218,14 @@ const runtimeLayer = (
             (pending) => pending.generation === generation && pending.requestId === id,
             ({ response }) => Deferred.fail(response, error),
           ),
-        respondCurrent: (id, response) =>
+        respondToken: (token, response) =>
           complete(
-            (pending) => pending.requestId === id,
+            (pending) => pending.token === token,
             ({ response: deferred }) => Deferred.succeed(deferred, response),
           ),
-        rejectCurrent: (id, error) =>
+        rejectToken: (token, error) =>
           complete(
-            (pending) => pending.requestId === id,
+            (pending) => pending.token === token,
             ({ response }) => Deferred.fail(response, error),
           ),
       });

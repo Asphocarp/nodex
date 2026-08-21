@@ -269,6 +269,8 @@ import {
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
+import type { ServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
+import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import {
   buildPermissionModeConfigEdits,
   buildThreadPermissionOverrides,
@@ -458,6 +460,7 @@ import {
 } from "../local-store/config";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
+  CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
   CodexRpcError,
   type CodexServerRequest,
   type CodexServerNotification,
@@ -1415,6 +1418,7 @@ type CodexServiceOptions = {
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntime: ComputerUseRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
+  serverRequestResponses: ServerRequestResponsesPromiseAdapter;
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
   inactiveRendererOwnerRetentionMs?: number;
@@ -2653,6 +2657,7 @@ export class CodexService extends EventEmitter {
   private browserUseRoutePromoter: CodexBrowserUseRoutePromoterPort | null = null;
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
+  private readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts = new CodexExecutionHostRegistry();
   private readonly localExecutionHostFileTransfer: CodexLocalExecutionHostFileTransfer;
@@ -2871,6 +2876,7 @@ export class CodexService extends EventEmitter {
     );
     this.computerUseRuntime = options.computerUseRuntime;
     this.attachments = options.attachments;
+    this.serverRequestResponses = options.serverRequestResponses;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
       options?.inactiveRendererOwnerRetentionMs ?? INACTIVE_RENDERER_OWNER_RETENTION_MS,
@@ -20817,6 +20823,36 @@ export class CodexService extends EventEmitter {
     this.syncAcceptedConversationDocumentSilently(threadId);
   }
 
+  private buildServerRequestCompletion(
+    threadId: string,
+    requestId: RequestId,
+    occurrenceToken: number | undefined,
+  ) {
+    if (occurrenceToken === undefined) {
+      throw new Error("Codex application request is missing its Effect occurrence token");
+    }
+    const observeFailure = (operation: "respond" | "reject", failure: unknown): void => {
+      this.logger.warn("Codex server request completion failed", {
+        operation,
+        threadId,
+        requestId,
+        error: failure instanceof Error ? failure.message : String(failure),
+      });
+    };
+    return {
+      resolve: (response: unknown): void => {
+        void this.serverRequestResponses
+          .respond(threadId, requestId, occurrenceToken, response)
+          .catch((failure: unknown) => observeFailure("respond", failure));
+      },
+      reject: (reason?: unknown): void => {
+        void this.serverRequestResponses
+          .reject(threadId, requestId, occurrenceToken, reason)
+          .catch((failure: unknown) => observeFailure("reject", failure));
+      },
+    };
+  }
+
   async respondToApproval(
     requestId: RequestId,
     response: CodexApprovalResponse,
@@ -24373,7 +24409,11 @@ export class CodexService extends EventEmitter {
 
   private async handleDynamicToolCallRequest(
     request: Extract<CodexServerRequest, { method: "item/tool/call" }>,
-  ): Promise<DynamicToolCallResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE> {
+  ): Promise<
+    | DynamicToolCallResponse
+    | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
+    | typeof CodexApplicationRequestPending
+  > {
     const threadId = request.params.threadId;
     const lifecycle = this.reduceIncomingServerRequest(threadId, request);
     if (lifecycle.disposition === "responded") {
@@ -24413,51 +24453,50 @@ export class CodexService extends EventEmitter {
       return await this.handleDynamicToolCall(request.params, {}, nodexAuthority);
     }
 
-    return await new Promise<DynamicToolCallResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE>(
-      (resolve, reject) => {
-        const pending: PendingDynamicToolCall = {
-          request,
-          nodexAuthority,
-          disposition: isStoredSpecialRequest ? "stored" : "dispatched",
-          resolve,
-          reject,
-        };
-        this.pendingDynamicToolCalls.set(request.id, pending);
+    const pending: PendingDynamicToolCall = {
+      request,
+      nodexAuthority,
+      disposition: isStoredSpecialRequest ? "stored" : "dispatched",
+      ...this.buildServerRequestCompletion(
+        threadId,
+        request.id,
+        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+      ),
+    };
+    this.pendingDynamicToolCalls.set(request.id, pending);
 
-        const dynamicArgs = asRecord(request.params.arguments);
-        const shouldNotifyUserInput =
-          isStoredSpecialRequest &&
-          (request.params.tool === "request_option_picker" ||
-            request.params.tool === "request_onboarding_input" ||
-            (request.params.tool === "setup_codex_step" && dynamicArgs?.step !== "complete"));
-        if (shouldNotifyUserInput) {
-          this.emitUserInputRequiredNotification({
-            threadId,
-            requestId: request.id,
-            turnId: request.params.turnId,
-            questionCount: 0,
-          });
-        }
+    const dynamicArgs = asRecord(request.params.arguments);
+    const shouldNotifyUserInput =
+      isStoredSpecialRequest &&
+      (request.params.tool === "request_option_picker" ||
+        request.params.tool === "request_onboarding_input" ||
+        (request.params.tool === "setup_codex_step" && dynamicArgs?.step !== "complete"));
+    if (shouldNotifyUserInput) {
+      this.emitUserInputRequiredNotification({
+        threadId,
+        requestId: request.id,
+        turnId: request.params.turnId,
+        questionCount: 0,
+      });
+    }
 
-        const ownerRouted = this.forwardServerRequestToRendererOwner({
-          id: request.id,
-          method: "item/tool/call",
-          params: request.params,
-        });
-        if (ownerRouted) {
-          this.syncInactiveRendererOwnerCleanup(threadId);
-          return;
-        }
+    const ownerRouted = this.forwardServerRequestToRendererOwner({
+      id: request.id,
+      method: "item/tool/call",
+      params: request.params,
+    });
+    if (ownerRouted) {
+      this.syncInactiveRendererOwnerCleanup(threadId);
+      return CodexApplicationRequestPending;
+    }
 
-        if (isStoredSpecialRequest) {
-          this.syncAcceptedConversationRequests(threadId, { syncCapabilityFlags: true });
-          return;
-        }
+    if (isStoredSpecialRequest) {
+      this.syncAcceptedConversationRequests(threadId, { syncCapabilityFlags: true });
+      return CodexApplicationRequestPending;
+    }
 
-        this.pendingDynamicToolCalls.takeFirst(request.id, (candidate) => candidate === pending);
-        void this.handleDynamicToolCall(request.params, {}, nodexAuthority).then(resolve, reject);
-      },
-    );
+    this.pendingDynamicToolCalls.takeFirst(request.id, (candidate) => candidate === pending);
+    return await this.handleDynamicToolCall(request.params, {}, nodexAuthority);
   }
 
   async respondToDynamicToolCall(
@@ -24886,6 +24925,7 @@ export class CodexService extends EventEmitter {
     | CommandExecutionRequestApprovalResponse
     | FileChangeRequestApprovalResponse
     | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
+    | typeof CodexApplicationRequestPending
   > {
     const protocolRequestId = request.id;
     const requestId = protocolRequestId;
@@ -24975,35 +25015,32 @@ export class CodexService extends EventEmitter {
       cwd: payload.cwd ?? null,
       reason: payload.reason ?? null,
     });
-    return await new Promise<
-      | CommandExecutionRequestApprovalResponse
-      | FileChangeRequestApprovalResponse
-      | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
-    >((resolve, reject) => {
-      this.pendingApprovals.set(requestId, {
-        request: payload,
-        resolve,
-        reject,
-      });
-
-      const ownerRouted = this.forwardServerRequestToRendererOwner(request);
-
-      if (ownerRouted) {
-        this.syncInactiveRendererOwnerCleanup(threadId);
-      } else {
-        this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle, [turnId]);
-      }
-      this.emitEvent({ type: "approvalRequested", request: payload });
-      this.emitThreadNotificationEvent({
-        type: "approval-requested",
-        hostId: DEFAULT_CODEX_HOST_ID,
-        conversation: this.buildNotificationConversationFacts(threadId),
+    this.pendingApprovals.set(requestId, {
+      request: payload,
+      ...this.buildServerRequestCompletion(
+        threadId,
         requestId,
-        turnId,
-        approvalKind: kind === "command" ? "commandExecution" : "fileChange",
-        reason: payload.reason ?? null,
-      });
+        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+      ),
     });
+    const ownerRouted = this.forwardServerRequestToRendererOwner(request);
+
+    if (ownerRouted) {
+      this.syncInactiveRendererOwnerCleanup(threadId);
+    } else {
+      this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle, [turnId]);
+    }
+    this.emitEvent({ type: "approvalRequested", request: payload });
+    this.emitThreadNotificationEvent({
+      type: "approval-requested",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversation: this.buildNotificationConversationFacts(threadId),
+      requestId,
+      turnId,
+      approvalKind: kind === "command" ? "commandExecution" : "fileChange",
+      reason: payload.reason ?? null,
+    });
+    return CodexApplicationRequestPending;
   }
 
   private attachCommandExecutionApprovalRequest(
@@ -25138,7 +25175,11 @@ export class CodexService extends EventEmitter {
 
   private async handlePermissionsRequestApproval(
     request: Extract<CodexServerRequest, { method: "item/permissions/requestApproval" }>,
-  ): Promise<PermissionsRequestApprovalResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE> {
+  ): Promise<
+    | PermissionsRequestApprovalResponse
+    | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
+    | typeof CodexApplicationRequestPending
+  > {
     const protocolRequestId = request.id;
     const params = request.params;
     const requestId = protocolRequestId;
@@ -25179,41 +25220,45 @@ export class CodexService extends EventEmitter {
       cwd: payload.cwd,
       reason: payload.reason,
     });
-    return await new Promise<
-      PermissionsRequestApprovalResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
-    >((resolve, reject) => {
-      this.pendingPermissionRequests.set(requestId, {
-        request: payload,
-        resolve,
-        reject,
-      });
-      this.applyStandalonePendingRequestProjection(request);
-
-      const ownerRouted = this.forwardServerRequestToRendererOwner({
-        id: protocolRequestId,
-        method: "item/permissions/requestApproval",
-        params,
-      });
-      if (ownerRouted) {
-        this.syncInactiveRendererOwnerCleanup(threadId);
-      } else {
-        this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
-      }
-      this.emitThreadNotificationEvent({
-        type: "approval-requested",
-        hostId: DEFAULT_CODEX_HOST_ID,
-        conversation: this.buildNotificationConversationFacts(threadId),
+    this.pendingPermissionRequests.set(requestId, {
+      request: payload,
+      ...this.buildServerRequestCompletion(
+        threadId,
         requestId,
-        turnId,
-        approvalKind: "permissionRequest",
-        reason: payload.reason ?? null,
-      });
+        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+      ),
     });
+    this.applyStandalonePendingRequestProjection(request);
+
+    const ownerRouted = this.forwardServerRequestToRendererOwner({
+      id: protocolRequestId,
+      method: "item/permissions/requestApproval",
+      params,
+    });
+    if (ownerRouted) {
+      this.syncInactiveRendererOwnerCleanup(threadId);
+    } else {
+      this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
+    }
+    this.emitThreadNotificationEvent({
+      type: "approval-requested",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversation: this.buildNotificationConversationFacts(threadId),
+      requestId,
+      turnId,
+      approvalKind: "permissionRequest",
+      reason: payload.reason ?? null,
+    });
+    return CodexApplicationRequestPending;
   }
 
   private async handleRequestUserInput(
     request: Extract<CodexServerRequest, { method: "item/tool/requestUserInput" }>,
-  ): Promise<ToolRequestUserInputResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE> {
+  ): Promise<
+    | ToolRequestUserInputResponse
+    | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
+    | typeof CodexApplicationRequestPending
+  > {
     const protocolRequestId = request.id;
     const params = request.params;
     const requestId = protocolRequestId;
@@ -25264,41 +25309,45 @@ export class CodexService extends EventEmitter {
       questionCount: questions.length,
       questionIds: questions.map((question) => question.id),
     });
-    return await new Promise<
-      { answers: Record<string, { answers: string[] }> } | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
-    >((resolve, reject) => {
-      this.pendingUserInputs.set(requestId, {
-        request: payload,
-        resolve,
-        reject,
-      });
-      if (!params.isBlocking) {
-        this.userInputAutoResolutionController.observeRequest(threadId, requestId);
-      }
-      this.applyStandalonePendingRequestProjection(request);
-      const ownerRouted = this.forwardServerRequestToRendererOwner({
-        id: protocolRequestId,
-        method: "item/tool/requestUserInput",
-        params,
-      });
-      if (ownerRouted) {
-        this.syncInactiveRendererOwnerCleanup(threadId);
-      } else {
-        this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
-      }
-      this.emitEvent({ type: "userInputRequested", request: payload });
-      this.emitUserInputRequiredNotification({
+    this.pendingUserInputs.set(requestId, {
+      request: payload,
+      ...this.buildServerRequestCompletion(
         threadId,
         requestId,
-        turnId,
-        questionCount: questions.length,
-      });
+        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+      ),
     });
+    if (!params.isBlocking) {
+      this.userInputAutoResolutionController.observeRequest(threadId, requestId);
+    }
+    this.applyStandalonePendingRequestProjection(request);
+    const ownerRouted = this.forwardServerRequestToRendererOwner({
+      id: protocolRequestId,
+      method: "item/tool/requestUserInput",
+      params,
+    });
+    if (ownerRouted) {
+      this.syncInactiveRendererOwnerCleanup(threadId);
+    } else {
+      this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
+    }
+    this.emitEvent({ type: "userInputRequested", request: payload });
+    this.emitUserInputRequiredNotification({
+      threadId,
+      requestId,
+      turnId,
+      questionCount: questions.length,
+    });
+    return CodexApplicationRequestPending;
   }
 
   private async handleMcpServerElicitationRequest(
     request: Extract<CodexServerRequest, { method: "mcpServer/elicitation/request" }>,
-  ): Promise<McpServerElicitationRequestResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE> {
+  ): Promise<
+    | McpServerElicitationRequestResponse
+    | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
+    | typeof CodexApplicationRequestPending
+  > {
     const protocolRequestId = request.id;
     const params = request.params;
     const requestId = protocolRequestId;
@@ -25353,25 +25402,25 @@ export class CodexService extends EventEmitter {
       mode: params.mode,
       serverName: params.serverName,
     });
-    return await new Promise<
-      McpServerElicitationRequestResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE
-    >((resolve, reject) => {
-      this.pendingMcpElicitations.set(requestId, {
-        request: payload,
-        resolve,
-        reject,
-      });
-      const ownerRouted = this.forwardServerRequestToRendererOwner({
-        id: protocolRequestId,
-        method: "mcpServer/elicitation/request",
-        params,
-      });
-      if (ownerRouted) {
-        this.syncInactiveRendererOwnerCleanup(threadId);
-      } else {
-        this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
-      }
+    this.pendingMcpElicitations.set(requestId, {
+      request: payload,
+      ...this.buildServerRequestCompletion(
+        threadId,
+        requestId,
+        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+      ),
     });
+    const ownerRouted = this.forwardServerRequestToRendererOwner({
+      id: protocolRequestId,
+      method: "mcpServer/elicitation/request",
+      params,
+    });
+    if (ownerRouted) {
+      this.syncInactiveRendererOwnerCleanup(threadId);
+    } else {
+      this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
+    }
+    return CodexApplicationRequestPending;
   }
 
   private applyFrameTextDeltas(

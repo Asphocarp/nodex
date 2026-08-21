@@ -45,9 +45,11 @@ import {
   ConversationRuntimeMap,
 } from "../codex-application/ConversationRuntimeMap";
 import {
+  ApprovalCoordinator,
   CodexGlobalServerRequestRuntime,
   applicationRequestDispatcherLive,
 } from "../codex-application/ApprovalCoordinator";
+import { makeServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
 import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
 import {
   CodexPreferences,
@@ -159,7 +161,7 @@ export const live: Layer.Layer<
         const runtimeStateHome = `${config.nodexHome}/agent`;
         const codexBridge = new CodexGatewayBridge(callbacks);
         const applicationServerRequests = CodexGlobalServerRequestRuntime.of(
-          codexBridge.serverRequests(),
+          codexBridge.applicationServerRequests(),
         );
         const requestHandlingContext = yield* Layer.buildWithScope(
           requestHandlingLive.pipe(
@@ -177,6 +179,7 @@ export const live: Layer.Layer<
           requestHandlingContext,
           CodexServerRequestRuntime,
         );
+        const approvalCoordinator = Context.get(requestHandlingContext, ApprovalCoordinator);
         const codexDependencies = Layer.mergeAll(
           CodexSessionTransport.nodeLive,
           Layer.succeed(CodexServerRequestRuntime, serverRequests),
@@ -395,6 +398,10 @@ export const live: Layer.Layer<
               computerUseRuntime,
               preferences,
               attachments: attachments.legacy,
+              serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
+                approvalCoordinator,
+                callbacks,
+              ),
               codexClient: codexBridge,
               codexRuntime,
               runtimeStateHome,

@@ -105,6 +105,7 @@ import type {
 } from "../codex-runtime/CodexApplicationClient";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
+  CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
   CodexRpcError,
 } from "../codex-runtime/CodexApplicationClient";
 import { USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS } from "./codex-user-input-auto-resolution";
@@ -136,6 +137,7 @@ import type {
   DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
 import { dbNotifier } from "../local-store/notifier";
+import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 
 interface TestableCodexService {
   on: {
@@ -1505,6 +1507,35 @@ function createService(options?: {
     attachmentsRoot: configuredAttachmentsRoot,
   });
   void pastedTextAttachments.cleanupPendingRemovals().catch(() => undefined);
+  type PendingTestResponse = {
+    readonly resolve: (value: unknown) => void;
+    readonly reject: (reason?: unknown) => void;
+  };
+  type QueuedTestCompletion =
+    | { readonly kind: "success"; readonly value: unknown }
+    | { readonly kind: "failure"; readonly reason: unknown };
+  let nextResponseToken = 1;
+  const responseKey = (threadId: string, occurrenceToken: number) =>
+    `${threadId}\0${occurrenceToken}`;
+  const responseWaiters = new Map<string, PendingTestResponse[]>();
+  const queuedCompletions = new Map<string, QueuedTestCompletion[]>();
+  const completeResponse = (
+    threadId: string,
+    occurrenceToken: number,
+    completion: QueuedTestCompletion,
+  ): boolean => {
+    const key = responseKey(threadId, occurrenceToken);
+    const waiters = responseWaiters.get(key);
+    const waiter = waiters?.shift();
+    if (waiters?.length === 0) responseWaiters.delete(key);
+    if (!waiter) {
+      queuedCompletions.set(key, [...(queuedCompletions.get(key) ?? []), completion]);
+      return true;
+    }
+    if (completion.kind === "success") waiter.resolve(completion.value);
+    else waiter.reject(completion.reason);
+    return true;
+  };
   const service = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1531,6 +1562,12 @@ function createService(options?: {
     },
     preferences: { current: () => "friendly" },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
+    serverRequestResponses: {
+      respond: async (threadId, _requestId, occurrenceToken, response) =>
+        completeResponse(threadId, occurrenceToken, { kind: "success", value: response }),
+      reject: async (threadId, _requestId, occurrenceToken, reason) =>
+        completeResponse(threadId, occurrenceToken, { kind: "failure", reason }),
+    },
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome:
@@ -1800,6 +1837,9 @@ function createService(options?: {
   };
   const handleServerRequest = internals.handleServerRequest.bind(service);
   internals.handleServerRequest = async (request) => {
+    const occurrenceToken = nextResponseToken;
+    nextResponseToken += 1;
+    Object.assign(request, { [CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN]: occurrenceToken });
     const params =
       typeof request.params === "object" && request.params !== null
         ? (request.params as { threadId?: unknown })
@@ -1859,7 +1899,24 @@ function createService(options?: {
       }
       syncCanonicalFixture(params.threadId);
     }
-    return await handleServerRequest(request);
+    const result = await handleServerRequest(request);
+    if (result !== CodexApplicationRequestPending) return result;
+    const threadId = params?.threadId;
+    if (typeof threadId !== "string") {
+      throw new Error("Pending Codex test request is missing its correlation identity");
+    }
+    return await new Promise<unknown>((resolve, reject) => {
+      const key = responseKey(threadId, occurrenceToken);
+      const completions = queuedCompletions.get(key);
+      const completion = completions?.shift();
+      if (completions?.length === 0) queuedCompletions.delete(key);
+      if (completion) {
+        if (completion.kind === "success") resolve(completion.value);
+        else reject(completion.reason);
+        return;
+      }
+      responseWaiters.set(key, [...(responseWaiters.get(key) ?? []), { resolve, reject }]);
+    });
   };
   const upsertPlanImplementationRequest = internals.upsertPlanImplementationRequest.bind(service);
   internals.upsertPlanImplementationRequest = (threadId, turnId, planContent, itemCreatedAt) => {

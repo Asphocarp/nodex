@@ -15,6 +15,7 @@ import {
 } from "../codex-runtime/CodexServerRequestRuntime";
 import {
   ApprovalCoordinator,
+  CodexApplicationRequestPending,
   CodexGlobalServerRequestRuntime,
   applicationRequestDispatcherLive,
   live as approvalLive,
@@ -103,6 +104,37 @@ it.effect("rejects pending requests when a thread runtime is invalidated", () =>
   }),
 );
 
+it.effect("routes private app-server methods through the same thread runtime", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(applicationLayer, scope);
+    const serverRequests = Context.get(context, CodexServerRequestRuntime);
+    const approvals = Context.get(context, ApprovalCoordinator);
+    assert.isFunction(serverRequests.handleUnknown);
+    if (serverRequests.handleUnknown === undefined) return;
+    const response = yield* serverRequests
+      .handleUnknown(
+        "local",
+        2,
+        "private-a",
+        "item/tool/requestOptionPicker",
+        { threadId: "thread-private", turnId: "turn-private" },
+      )
+      .pipe(Effect.forkScoped);
+    const runtime = yield* Context.get(context, ConversationRuntimeMap).runtime("thread-private");
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if ((yield* SubscriptionRef.get(runtime.state)).pendingRequests === 1) break;
+      yield* Effect.yieldNow;
+    }
+
+    assert.isTrue(
+      yield* approvals.respond("thread-private", 2, "private-a", { selected: "choice-a" }),
+    );
+    assert.deepEqual(yield* Fiber.join(response), { selected: "choice-a" });
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("preserves duplicate JSON-RPC ids and completes them in arrival order", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
@@ -127,9 +159,9 @@ it.effect("preserves duplicate JSON-RPC ids and completes them in arrival order"
     }
     assert.strictEqual((yield* SubscriptionRef.get(runtime.state)).pendingRequests, 2);
 
-    assert.isTrue(yield* approvals.respondCurrent("thread-a", 7, { order: "first" }));
-    assert.isTrue(yield* approvals.respondCurrent("thread-a", 7, { order: "second" }));
-    assert.isFalse(yield* approvals.respondCurrent("thread-a", 7, { order: "third" }));
+    assert.isTrue(yield* approvals.respond("thread-a", 3, 7, { order: "first" }));
+    assert.isTrue(yield* approvals.respond("thread-a", 3, 7, { order: "second" }));
+    assert.isFalse(yield* approvals.respond("thread-a", 3, 7, { order: "third" }));
     assert.deepEqual(yield* Fiber.join(first), { order: "first" });
     assert.deepEqual(yield* Fiber.join(second), { order: "second" });
     yield* Scope.close(scope, Exit.void);
@@ -221,5 +253,74 @@ it.effect("buffers application ingress and dispatches waiting threads concurrent
     assert.deepEqual(yield* Fiber.join(ready), { answers: {} });
     yield* Scope.close(scope, Exit.void);
     yield* Fiber.await(blocked);
+  }),
+);
+
+it.effect("leaves pending application requests open and resolves exact occurrences", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const runtimeContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(runtimeContext, ConversationRuntimeMap);
+    const tokens: number[] = [];
+    const application = CodexGlobalServerRequestRuntime.of({
+      handle: (_hostId, _generation, _requestId, _method, _params, occurrenceToken) =>
+        Effect.sync(() => {
+          if (occurrenceToken === undefined) throw new Error("Missing occurrence token");
+          tokens.push(occurrenceToken);
+          return CodexApplicationRequestPending;
+        }),
+    });
+    const approvalsContext = yield* Layer.buildWithScope(
+      approvalLive.pipe(
+        Layer.provide(
+          Layer.merge(
+            Layer.succeed(ConversationRuntimeMap, conversations),
+            Layer.succeed(CodexGlobalServerRequestRuntime, application),
+          ),
+        ),
+      ),
+      scope,
+    );
+    const approvals = Context.get(approvalsContext, ApprovalCoordinator);
+    const requestContext = yield* Layer.buildWithScope(
+      serverRequestLayer.pipe(Layer.provide(Layer.succeed(ApprovalCoordinator, approvals))),
+      scope,
+    );
+    yield* Layer.buildWithScope(
+      applicationRequestDispatcherLive.pipe(
+        Layer.provide(
+          Layer.merge(
+            Layer.succeed(ConversationRuntimeMap, conversations),
+            Layer.succeed(CodexGlobalServerRequestRuntime, application),
+          ),
+        ),
+      ),
+      scope,
+    );
+    const requests = Context.get(requestContext, CodexServerRequestRuntime);
+    const invoke = () =>
+      requests.handle("local", 8, 19, "item/tool/requestUserInput", {
+        isBlocking: true,
+        itemId: "item-a",
+        questions: [],
+        threadId: "thread-a",
+        turnId: "turn-a",
+      });
+    const first = yield* invoke().pipe(Effect.forkScoped);
+    for (let attempt = 0; attempt < 100 && tokens.length < 1; attempt += 1) {
+      yield* Effect.yieldNow;
+    }
+    assert.strictEqual(tokens.length, 1);
+    const second = yield* invoke().pipe(Effect.forkScoped);
+    for (let attempt = 0; attempt < 100 && tokens.length < 2; attempt += 1) {
+      yield* Effect.yieldNow;
+    }
+    assert.strictEqual(tokens.length, 2);
+
+    assert.isTrue(yield* approvals.respondToken("thread-a", tokens[1]!, { order: "second" }));
+    assert.isTrue(yield* approvals.respondToken("thread-a", tokens[0]!, { order: "first" }));
+    assert.deepEqual(yield* Fiber.join(first), { order: "first" });
+    assert.deepEqual(yield* Fiber.join(second), { order: "second" });
+    yield* Scope.close(scope, Exit.void);
   }),
 );

@@ -1,6 +1,14 @@
 import type { EventEmitter } from "node:events";
+import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
 import type { ClientRequest, ServerNotification } from "@nodex/codex-app-server-protocol";
-import type { CodexServerRequest } from "../codex/codex-app-server-message-parser";
+import type { CodexServerRequest as ParsedCodexServerRequest } from "../codex/codex-app-server-message-parser";
+
+export const CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN = Symbol(
+  "codex-server-request-occurrence-token",
+);
+export type CodexServerRequest = ParsedCodexServerRequest & {
+  readonly [CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN]?: number;
+};
 
 /** Temporary outer adapter contract while the remaining Codex application state is cut over. */
 export interface CodexApplicationClient extends EventEmitter {
@@ -44,9 +52,8 @@ export type ClientRequestParams<TMethod extends ClientRequestMethod> = Extract<
 >["params"];
 
 export type CodexServerNotification = ServerNotification;
-export type { CodexServerRequest };
-
-export const CODEX_SERVER_REQUEST_NO_RESPONSE = Symbol("codex-server-request-no-response");
+/** @deprecated Use the Effect protocol sentinel directly in new application Modules. */
+export const CODEX_SERVER_REQUEST_NO_RESPONSE = CodexAppServerNoResponse;
 
 // oxlint-disable-next-line effecttsgo/extends-native-error -- Promise adapter callers require Error identity; this type never enters an Effect failure channel.
 export class CodexRpcError extends Error {

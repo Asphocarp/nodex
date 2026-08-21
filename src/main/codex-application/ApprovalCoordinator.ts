@@ -3,7 +3,6 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
-import type { ServerRequestMethod } from "@nodex/effect-codex-app-server/rpc";
 import {
   CodexAppServerRequestError,
   type CodexAppServerError,
@@ -14,6 +13,10 @@ import {
 } from "../codex-runtime/CodexServerRequestRuntime";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
+export const CodexApplicationRequestPending = Symbol.for(
+  "nodex/main/codex-application/CodexApplicationRequestPending",
+);
+
 export class CodexGlobalServerRequestRuntime extends Context.Service<
   CodexGlobalServerRequestRuntime,
   {
@@ -21,8 +24,9 @@ export class CodexGlobalServerRequestRuntime extends Context.Service<
       hostId: string,
       generation: number,
       requestId: string | number,
-      method: ServerRequestMethod,
+      method: string,
       params: unknown,
+      occurrenceToken?: number,
     ) => Effect.Effect<unknown, CodexAppServerError>;
   }
 >()("nodex/main/codex-application/CodexGlobalServerRequestRuntime") {}
@@ -31,6 +35,7 @@ export class ApprovalCoordinator extends Context.Service<
   ApprovalCoordinator,
   {
     readonly handle: CodexGlobalServerRequestRuntime["Service"]["handle"];
+    readonly handleUnknown: CodexGlobalServerRequestRuntime["Service"]["handle"];
     readonly respond: (
       threadId: string,
       generation: number,
@@ -43,14 +48,14 @@ export class ApprovalCoordinator extends Context.Service<
       requestId: string | number,
       error: CodexAppServerError,
     ) => Effect.Effect<boolean>;
-    readonly respondCurrent: (
+    readonly respondToken: (
       threadId: string,
-      requestId: string | number,
+      token: number,
       response: unknown,
     ) => Effect.Effect<boolean>;
-    readonly rejectCurrent: (
+    readonly rejectToken: (
       threadId: string,
-      requestId: string | number,
+      token: number,
       error: CodexAppServerError,
     ) => Effect.Effect<boolean>;
   }
@@ -63,7 +68,7 @@ const asRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined
 
 /** Method metadata is the only place where a server request is mapped to thread ownership. */
 export const serverRequestThreadId = (
-  method: ServerRequestMethod,
+  method: string,
   params: unknown,
 ): string | undefined => {
   const record = asRecord(params);
@@ -80,9 +85,13 @@ export const serverRequestThreadId = (
     case "execCommandApproval":
       return typeof record.conversationId === "string" ? record.conversationId : undefined;
     case "mcpServer/elicitation/request":
+      return typeof record.threadId === "string" ? record.threadId : undefined;
     case "account/chatgptAuthTokens/refresh":
     case "attestation/generate":
       return undefined;
+    default:
+      if (typeof record.threadId === "string") return record.threadId;
+      return typeof record.conversationId === "string" ? record.conversationId : undefined;
   }
 };
 
@@ -121,6 +130,7 @@ export const live: Layer.Layer<
     };
     return ApprovalCoordinator.of({
       handle,
+      handleUnknown: handle,
       respond: (threadId, generation, requestId, response) =>
         conversations
           .runtime(threadId)
@@ -129,14 +139,14 @@ export const live: Layer.Layer<
         conversations
           .runtime(threadId)
           .pipe(Effect.flatMap((runtime) => runtime.reject(generation, requestId, error))),
-      respondCurrent: (threadId, requestId, response) =>
+      respondToken: (threadId, token, response) =>
         conversations
           .runtime(threadId)
-          .pipe(Effect.flatMap((runtime) => runtime.respondCurrent(requestId, response))),
-      rejectCurrent: (threadId, requestId, error) =>
+          .pipe(Effect.flatMap((runtime) => runtime.respondToken(token, response))),
+      rejectToken: (threadId, token, error) =>
         conversations
           .runtime(threadId)
-          .pipe(Effect.flatMap((runtime) => runtime.rejectCurrent(requestId, error))),
+          .pipe(Effect.flatMap((runtime) => runtime.rejectToken(token, error))),
     });
   }),
 );
@@ -148,7 +158,12 @@ export const serverRequestLayer: Layer.Layer<
 > = Layer.effect(
   CodexServerRequestRuntime,
   ApprovalCoordinator.use((coordinator) =>
-    Effect.succeed(CodexServerRequestRuntime.of({ handle: coordinator.handle })),
+    Effect.succeed(
+      CodexServerRequestRuntime.of({
+        handle: coordinator.handle,
+        handleUnknown: coordinator.handleUnknown,
+      }),
+    ),
   ),
 );
 
@@ -177,13 +192,16 @@ export const applicationRequestDispatcherLive: Layer.Layer<
                   request.requestId,
                   request.method,
                   request.params,
+                  request.token,
                 )
                 .pipe(
                   Effect.matchEffect({
                     onFailure: (error) =>
                       runtime.reject(request.generation, request.requestId, error),
                     onSuccess: (response) =>
-                      runtime.respond(request.generation, request.requestId, response),
+                      response === CodexApplicationRequestPending
+                        ? Effect.void
+                        : runtime.respond(request.generation, request.requestId, response),
                   }),
                   Effect.asVoid,
                 ),

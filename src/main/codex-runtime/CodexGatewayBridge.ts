@@ -15,6 +15,7 @@ import type { CodexConnectionState } from "../../shared/types";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
+  CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
   CodexRpcError,
   type CodexApplicationClient,
   type CodexAppServerClientOptions,
@@ -27,7 +28,6 @@ import { CodexEndpointMap } from "./CodexEndpointMap";
 import type { CodexEndpointConnection, CodexEndpointEvent } from "./CodexEventHub";
 import { CodexGateway } from "./CodexGateway";
 import { codexRuntimeError, CodexRuntimeError } from "./CodexRuntimeError";
-import { CodexServerRequestRuntime } from "./CodexServerRequestRuntime";
 
 const directThreadId = (params: unknown): string | null => {
   if (typeof params !== "object" || params === null || Array.isArray(params)) return null;
@@ -118,38 +118,20 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
     this.#observeConnection(event.value);
   }
 
-  serverRequests(): CodexServerRequestRuntime["Service"] {
-    const handle = (
+  applicationServerRequests(): {
+    readonly handle: (
+      hostId: string,
+      generation: number,
       requestId: string | number,
       method: string,
       params: unknown,
-    ): Effect.Effect<unknown, CodexAppServerRequestError> => {
-      const parsed = parseCodexAppServerMessage({ id: requestId, method, params });
-      if (!parsed.success || parsed.data.kind !== "request") {
-        return Effect.fail(
-          CodexAppServerRequestError.invalidParams(parsed.success ? undefined : parsed.error),
-        );
-      }
-      const request = parsed.data.request;
-      const handler = this.#serverRequestHandler;
-      if (handler === null) {
-        return Effect.fail(CodexAppServerRequestError.methodNotFound(method));
-      }
-      return Effect.tryPromise({
-        try: () => handler(request),
-        catch: (error) => requestHandlerError(error, method),
-      }).pipe(
-        Effect.map((result) =>
-          result === CODEX_SERVER_REQUEST_NO_RESPONSE ? CodexAppServerNoResponse : result,
-        ),
-      );
+      occurrenceToken?: number,
+    ) => Effect.Effect<unknown, CodexAppServerRequestError>;
+  } {
+    return {
+      handle: (_hostId, _generation, requestId, method, params, occurrenceToken) =>
+        this.#handleServerRequest(requestId, method, params, occurrenceToken),
     };
-    return CodexServerRequestRuntime.of({
-      handle: (_hostId, _generation, requestId, method, params) =>
-        handle(requestId, method, params),
-      handleUnknown: (_hostId, _generation, requestId, method, params) =>
-        handle(requestId, method, params),
-    });
   }
 
   resolveThreadHost(threadId: string): Effect.Effect<string, CodexRuntimeError> {
@@ -162,6 +144,38 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
 
   setServerRequestHandler(handler: (request: CodexServerRequest) => Promise<unknown>): void {
     this.#serverRequestHandler = handler;
+  }
+
+  #handleServerRequest(
+    requestId: string | number,
+    method: string,
+    params: unknown,
+    occurrenceToken?: number,
+  ): Effect.Effect<unknown, CodexAppServerRequestError> {
+    const parsed = parseCodexAppServerMessage({ id: requestId, method, params });
+    if (!parsed.success || parsed.data.kind !== "request") {
+      return Effect.fail(
+        CodexAppServerRequestError.invalidParams(parsed.success ? undefined : parsed.error),
+      );
+    }
+    const request =
+      occurrenceToken === undefined
+        ? parsed.data.request
+        : Object.assign(parsed.data.request, {
+            [CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN]: occurrenceToken,
+          });
+    const handler = this.#serverRequestHandler;
+    if (handler === null) {
+      return Effect.fail(CodexAppServerRequestError.methodNotFound(method));
+    }
+    return Effect.tryPromise({
+      try: () => handler(request),
+      catch: (error) => requestHandlerError(error, method),
+    }).pipe(
+      Effect.map((result) =>
+        result === CODEX_SERVER_REQUEST_NO_RESPONSE ? CodexAppServerNoResponse : result,
+      ),
+    );
   }
 
   getState(): CodexConnectionState {
