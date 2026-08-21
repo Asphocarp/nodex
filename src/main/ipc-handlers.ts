@@ -7,25 +7,8 @@ import {
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
 } from "electron";
-import { writeImageToClipboard } from "./clipboard-image-writer";
-import { writeStructuralClipboard } from "./clipboard-structural-writer";
-import { readClipboardPastePayload } from "./clipboard-paste-inspector";
-import {
-  COMPOSER_IMAGE_FILE_EXTENSIONS,
-  prepareComposerPickedFiles,
-} from "./composer-picked-files";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
 import type { CodexService } from "./codex/codex-service";
-import {
-  materializeCanvasImage,
-  materializeLocalResource,
-  readManagedAssetImage,
-  readManagedAssetPreview,
-  resolveAssetPath,
-  saveUploadedImage,
-  saveUploadedResource,
-} from "./local-store/assets";
-import { parseAssetSource } from "../shared/assets";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   parseCodexUserInputAutoResolutionActivityInput,
@@ -394,95 +377,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   registerHandle("gh-pr-create", (_, input) => {
     return createGhPr(input);
   });
-
-  // Assets
-  registerHandle("asset:resolve-path", (event, source: string) => {
-    requireTrustedAppRendererSender(event, "Managed asset path access");
-    if (typeof source !== "string") return null;
-
-    const parsed = parseAssetSource(source);
-    if (!parsed) return null;
-
-    try {
-      return resolveAssetPath(parsed.fileName);
-    } catch {
-      return null;
-    }
-  });
-  registerHandle("asset:image:save", (event, input) => {
-    requireTrustedAppRendererSender(event, "Managed image writes");
-    return saveUploadedImage(input);
-  });
-  registerHandle("asset:canvas-image:materialize", (event, input) => {
-    requireTrustedAppRendererSender(event, "Managed Canvas image writes");
-    return materializeCanvasImage(input);
-  });
-  registerHandle("asset:image:read", (event, source) => {
-    requireTrustedAppRendererSender(event, "Managed image reads");
-    return readManagedAssetImage(source);
-  });
-  registerHandle("asset:resource:save", (event, input) => {
-    requireTrustedAppRendererSender(event, "Managed resource writes");
-    return saveUploadedResource(input);
-  });
-  registerHandle("asset:resource:materialize", (event, localPath) => {
-    requireTrustedAppRendererSender(event, "Managed resource imports");
-    if (typeof localPath !== "string") {
-      throw new Error("Local resource path is required");
-    }
-    return materializeLocalResource(localPath);
-  });
-  registerHandle("asset:preview:read", (event, input) => {
-    requireTrustedAppRendererSender(event, "Managed asset previews");
-    return readManagedAssetPreview(input);
-  });
-
-  registerHandle("clipboard:write-image", async (event, input: { source?: string }) => {
-    requireTrustedAppRendererSender(event, "Clipboard image writes");
-    if (typeof input?.source !== "string") {
-      return { ok: false, message: "Could not copy image." } as const;
-    }
-
-    return writeImageToClipboard(input.source);
-  });
-
-  registerHandle("clipboard:write-structural", (event, input) => {
-    requireTrustedAppRendererSender(event, "Structural clipboard writes");
-    return writeStructuralClipboard(input);
-  });
-
-  registerHandle("clipboard:read-paste", (event) => {
-    requireTrustedAppRendererSender(event, "Clipboard paste reads");
-    return readClipboardPastePayload();
-  });
-
-  registerHandle(
-    "composer:pick-files",
-    async (_, input?: { imagesOnly?: boolean; title?: string }) => {
-      const imagesOnly = input?.imagesOnly === true;
-      const result = await dialog.showOpenDialog({
-        title:
-          typeof input?.title === "string"
-            ? input.title
-            : imagesOnly
-              ? "Select photos"
-              : "Select files",
-        properties: ["openFile", "multiSelections"],
-        ...(imagesOnly
-          ? {
-              filters: [
-                {
-                  name: "Images",
-                  extensions: [...COMPOSER_IMAGE_FILE_EXTENSIONS],
-                },
-              ],
-            }
-          : {}),
-      });
-      if (result.canceled || result.filePaths.length === 0) return [];
-      return prepareComposerPickedFiles(result.filePaths);
-    },
-  );
 
   // Codex
   registerHandle(

@@ -109,6 +109,7 @@ import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
 import * as DatabaseProjectionIpc from "../ipc/handlers/DatabaseProjectionIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as NativeShellIpc from "../ipc/handlers/NativeShellIpc";
+import * as ManagedMediaIpc from "../ipc/handlers/ManagedMediaIpc";
 import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
 import * as ProjectWorkspaceIpc from "../ipc/handlers/ProjectWorkspaceIpc";
@@ -1092,6 +1093,19 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           NativeShellIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronDesktop, desktop),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          ManagedMediaIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronDesktop, desktop),
