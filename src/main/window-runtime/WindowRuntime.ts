@@ -16,12 +16,41 @@ import {
   type ReopenedWindowSession,
   type WindowSessionCloseDisposition,
 } from "../window-session-state";
+import { safeSendToWindow } from "../ipc-safe-send";
+import { getLogger } from "../logging/logger";
+
+const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1_500;
+const logger = getLogger({ component: "window-runtime" });
+
+interface ManagedWindowClose {
+  allowImmediate: boolean;
+  closeHandler: (event: Electron.Event) => void;
+  closedHandler: () => void;
+  disposition: WindowSessionCloseDisposition;
+  finalBounds: WindowSessionBounds | undefined;
+  finish: () => void;
+  timeout: ReturnType<typeof setTimeout> | null;
+  window: BrowserWindow;
+}
+
+export function captureWindowSessionBounds(window: BrowserWindow): WindowSessionBounds {
+  const bounds = window.getBounds();
+  return {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    mode: window.isFullScreen() ? "fullscreen" : window.isMaximized() ? "maximized" : "normal",
+  };
+}
 
 export interface WindowRuntimeService {
+  readonly acknowledgeClose: (webContentsId: number) => void;
   readonly acquireSessionForNewWindow: (sourceWebContentsId?: number) => AcquiredWindowSession;
   readonly all: () => readonly BrowserWindow[];
   readonly attach: (window: BrowserWindow, sessionId: string) => WindowSessionRecord;
   readonly bootstrap: (webContentsId: number) => WindowSessionRecord;
+  readonly beginApplicationQuit: () => void;
   readonly cloneSessionForWindow: (
     sourceWebContentsId: number,
     override?: WindowSessionNewWindowRequest,
@@ -66,12 +95,24 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
     Effect.acquireRelease(
       Effect.sync(() => {
         const windows = new Map<number, BrowserWindow>();
+        const managedCloses = new Map<number, ManagedWindowClose>();
         let lastFocusedWebContentsId: number | null = null;
+        let applicationQuitRequested = false;
+
+        const cleanupClose = (webContentsId: number): void => {
+          const managed = managedCloses.get(webContentsId);
+          if (!managed) return;
+          managedCloses.delete(webContentsId);
+          if (managed.timeout) clearTimeout(managed.timeout);
+          managed.window.removeListener("close", managed.closeHandler);
+          managed.window.removeListener("closed", managed.closedHandler);
+        };
 
         const release: WindowRuntimeService["release"] = (webContentsId, input) => {
           try {
             return sessions.detachWindow(webContentsId, input);
           } finally {
+            cleanupClose(webContentsId);
             windows.delete(webContentsId);
             if (lastFocusedWebContentsId === webContentsId) {
               lastFocusedWebContentsId = null;
@@ -79,7 +120,59 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
           }
         };
 
+        const installCloseLifecycle = (window: BrowserWindow): void => {
+          const webContentsId = window.webContents.id;
+          const managed = {} as ManagedWindowClose;
+          managed.allowImmediate = false;
+          managed.disposition = "unexpected";
+          managed.finalBounds = undefined;
+          managed.timeout = null;
+          managed.window = window;
+          managed.finish = () => {
+            if (managed.timeout) {
+              clearTimeout(managed.timeout);
+              managed.timeout = null;
+            }
+            if (window.isDestroyed()) return;
+            managed.allowImmediate = true;
+            managed.finalBounds = captureWindowSessionBounds(window);
+            managed.disposition = applicationQuitRequested ? "app-quit" : "user-close";
+            window.close();
+          };
+          managed.closeHandler = (event) => {
+            if (managed.allowImmediate) {
+              managed.allowImmediate = false;
+              return;
+            }
+            event.preventDefault();
+            if (managed.timeout) return;
+            managed.timeout = setTimeout(managed.finish, WINDOW_CLOSE_FLUSH_TIMEOUT_MS);
+            if (!safeSendToWindow(window, "app:flush-before-close", [webContentsId])) {
+              managed.finish();
+            }
+          };
+          managed.closedHandler = () => {
+            try {
+              release(webContentsId, {
+                disposition: managed.disposition,
+                bounds: managed.finalBounds,
+              });
+            } catch (error) {
+              logger.error("Could not finalize Window Session close", {
+                error: error instanceof Error ? error.message : String(error),
+                webContentsId,
+              });
+              cleanupClose(webContentsId);
+              windows.delete(webContentsId);
+            }
+          };
+          managedCloses.set(webContentsId, managed);
+          window.on("close", managed.closeHandler);
+          window.on("closed", managed.closedHandler);
+        };
+
         return WindowRuntime.of({
+          acknowledgeClose: (webContentsId) => managedCloses.get(webContentsId)?.finish(),
           acquireSessionForNewWindow: (sourceWebContentsId) =>
             sessions.acquireSessionForNewWindow(sourceWebContentsId),
           all: () => [...windows.values()],
@@ -88,9 +181,13 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
             const session = sessions.attachWindow(webContentsId, sessionId);
             windows.set(webContentsId, window);
             lastFocusedWebContentsId = webContentsId;
+            installCloseLifecycle(window);
             return session;
           },
           bootstrap: (webContentsId) => sessions.bootstrap(webContentsId),
+          beginApplicationQuit: () => {
+            applicationQuitRequested = true;
+          },
           cloneSessionForWindow: (sourceWebContentsId, override) =>
             sessions.cloneSessionForWindow(sourceWebContentsId, override),
           count: () => windows.size,

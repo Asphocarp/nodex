@@ -35,14 +35,12 @@ import {
   parseSessionDeepLink,
   parseViewDeepLink,
 } from "../shared/nodex-deeplink";
+import { isWindowSessionBoundsVisible, type AcquiredWindowSession } from "./window-session-state";
 import {
-  isWindowSessionBoundsVisible,
-  type AcquiredWindowSession,
-  type WindowSessionCloseDisposition,
-} from "./window-session-state";
-import type { WindowRuntimeService } from "./window-runtime/WindowRuntime";
+  captureWindowSessionBounds,
+  type WindowRuntimeService,
+} from "./window-runtime/WindowRuntime";
 import type {
-  WindowSessionBounds,
   WindowSessionNewWindowRequest,
   WindowSessionRecord,
   WindowSessionSaveLayoutInput,
@@ -158,11 +156,7 @@ let pendingViewDeepLinkViewId: string | null = null;
 let pendingViewDeepLinkTarget: { projectId: string; viewId: string } | null = null;
 let pendingSessionDeepLinkSessionId: string | null = null;
 let pendingSessionDeepLinkTarget: { projectId: string | null; sessionId: string } | null = null;
-const pendingCloseResolvers = new Map<number, () => void>();
-const allowImmediateWindowClose = new Set<number>();
-const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;
 let windowRuntime: WindowRuntimeService | null = null;
-let appQuitRequested = false;
 let appInitializationStep: AppInitializationStep = { phase: "opening" };
 let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
@@ -314,17 +308,6 @@ function openClonedWindow(
   window.show();
   window.focus();
   return window;
-}
-
-function captureWindowSessionBounds(window: BrowserWindow): WindowSessionBounds {
-  const bounds = window.getBounds();
-  return {
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-    mode: window.isFullScreen() ? "fullscreen" : window.isMaximized() ? "maximized" : "normal",
-  };
 }
 
 function syncMacWindowTitle(window: BrowserWindow): void {
@@ -650,10 +633,6 @@ export function reportRendererInitialization(
     outcome: report.outcome,
     webContentsId,
   });
-}
-
-export function acknowledgeWindowClose(webContentsId: number): void {
-  pendingCloseResolvers.get(webContentsId)?.();
 }
 
 function sendReminderOpenEvent(payload: {
@@ -1114,47 +1093,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     window.setFullScreen(true);
   }
 
-  let closeDisposition: WindowSessionCloseDisposition = "unexpected";
-  let finalCloseBounds: WindowSessionBounds | undefined;
-
-  const closeHandler = (event: Electron.Event) => {
-    if (allowImmediateWindowClose.has(webContentsId)) {
-      allowImmediateWindowClose.delete(webContentsId);
-      return;
-    }
-
-    if (pendingCloseResolvers.has(webContentsId)) {
-      event.preventDefault();
-      return;
-    }
-
-    event.preventDefault();
-
-    const finishClose = () => {
-      pendingCloseResolvers.delete(webContentsId);
-      if (window.isDestroyed()) {
-        allowImmediateWindowClose.delete(webContentsId);
-        return;
-      }
-      allowImmediateWindowClose.add(webContentsId);
-      finalCloseBounds = captureWindowSessionBounds(window);
-      closeDisposition = appQuitRequested ? "app-quit" : "user-close";
-      window.close();
-    };
-
-    const timeout = setTimeout(finishClose, WINDOW_CLOSE_FLUSH_TIMEOUT_MS);
-    pendingCloseResolvers.set(webContentsId, () => {
-      clearTimeout(timeout);
-      finishClose();
-    });
-
-    if (!safeSendToWindow(window, "app:flush-before-close", [webContentsId])) {
-      clearTimeout(timeout);
-      finishClose();
-    }
-  };
-
-  window.on("close", closeHandler);
   window.on("focus", () => {
     windows.markFocused(webContentsId);
     applyElectronWindowBackdrop(window);
@@ -1212,30 +1150,9 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     browserSidebarService.releaseRendererOwner(webContentsId);
     desktopNotificationManager?.dismissByOriginWebContentsId(webContentsId);
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
-    try {
-      windows.release(webContentsId, {
-        disposition: closeDisposition,
-        bounds: finalCloseBounds,
-      });
-    } catch (error) {
-      logger.error("Could not finalize Window Session close", {
-        error: error instanceof Error ? error.message : String(error),
-        webContentsId,
-      });
-      captureMainException(error, {
-        tags: {
-          phase: "window-session-close",
-        },
-        extra: {
-          webContentsId,
-        },
-      });
-    }
     rendererClientRegistration?.dispose();
     rendererClientRegistration = null;
     nativeTheme.off("updated", refreshWindowBackdropForTheme);
-    pendingCloseResolvers.delete(webContentsId);
-    allowImmediateWindowClose.delete(webContentsId);
     electronWindowOpaqueSurfaceModes.delete(window.id);
     rendererInitializationReports.delete(webContentsId);
   });
@@ -1524,7 +1441,7 @@ function beginMainRuntimeShutdown(): void {
   if (runtimeShutdownStarted) return;
   runtimeShutdownStarted = true;
   rendererHostReadyForWindows = false;
-  appQuitRequested = true;
+  windowRuntime?.beginApplicationQuit();
   appUpdateRuntime = null;
   desktopNotificationManager = null;
   rendererClientRouter = null;
@@ -1544,7 +1461,7 @@ function shutdownMainRuntime(): Promise<void> {
 
 async function prepareMainRuntimeQuit(): Promise<void> {
   if (runtimeShutdownStarted) return;
-  appQuitRequested = true;
+  windowRuntime?.beginApplicationQuit();
   rendererHostReadyForWindows = false;
   await closeWindowsBeforeRuntimeShutdown(BrowserWindow.getAllWindows());
 }

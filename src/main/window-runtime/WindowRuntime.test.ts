@@ -8,20 +8,41 @@ import type { BrowserWindow } from "electron";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import { WindowSessionState } from "../window-session-state";
 import { fromState, WindowRuntime } from "./WindowRuntime";
 
 const fakeWindow = (webContentsId: number) => {
   let destroyed = false;
+  const events = new EventEmitter();
+  const sentChannels: string[] = [];
   return {
     window: {
       destroy: () => {
         destroyed = true;
+        events.emit("closed");
       },
+      close: () => {
+        let prevented = false;
+        events.emit("close", { preventDefault: () => (prevented = true) });
+        if (prevented) return;
+        destroyed = true;
+        events.emit("closed");
+      },
+      getBounds: () => ({ x: 0, y: 0, width: 1_400, height: 900 }),
+      isFullScreen: () => false,
+      isMaximized: () => false,
       isDestroyed: () => destroyed,
-      webContents: { id: webContentsId },
+      on: events.on.bind(events),
+      removeListener: events.removeListener.bind(events),
+      webContents: {
+        id: webContentsId,
+        isDestroyed: () => false,
+        send: (channel: string) => sentChannels.push(channel),
+      },
     } as unknown as BrowserWindow,
     isDestroyed: () => destroyed,
+    sentChannels,
   };
 };
 
@@ -53,5 +74,29 @@ it.effect("owns window registration, focus, session assignment, and final releas
     assert.isTrue(second.isDestroyed());
     assert.strictEqual(runtime.count(), 0);
     assert.isNull(runtime.resolveSessionId(22));
+  }),
+);
+
+it.effect("owns the bounded renderer flush handshake before a user close", () =>
+  Effect.gen(function* () {
+    const userDataPath = mkdtempSync(join(tmpdir(), "window-close-runtime-"));
+    const sessions = new WindowSessionState(userDataPath);
+    const windowSession = sessions.createFreshSession();
+    const subject = fakeWindow(33);
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(fromState(sessions), scope);
+    const runtime = Context.get(context, WindowRuntime);
+    runtime.attach(subject.window, windowSession.id);
+
+    subject.window.close();
+    assert.isTrue(runtime.has(33));
+    assert.deepStrictEqual(subject.sentChannels, ["app:flush-before-close"]);
+
+    runtime.acknowledgeClose(33);
+    assert.isTrue(subject.isDestroyed());
+    assert.isFalse(runtime.has(33));
+    assert.isNull(runtime.resolveSessionId(33));
+
+    yield* Scope.close(scope, Exit.void);
   }),
 );

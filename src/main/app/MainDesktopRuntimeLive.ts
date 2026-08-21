@@ -738,7 +738,7 @@ export const live: Layer.Layer<
         });
         yield* Layer.buildWithScope(
           ApplicationLifecycleIpc.live({
-            acknowledgeWindowClose: module.acknowledgeWindowClose,
+            acknowledgeWindowClose: windows.acknowledgeClose,
             awaitInitialization: module.awaitMainInitialization,
             currentInitializationStep: module.currentMainInitializationStep,
             reportRendererInitialization: module.reportRendererInitialization,
