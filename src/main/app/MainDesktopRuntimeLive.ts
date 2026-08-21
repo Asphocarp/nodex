@@ -112,6 +112,7 @@ import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
 import * as ProjectWorkspaceIpc from "../ipc/handlers/ProjectWorkspaceIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
+import * as StoreAdministrationIpc from "../ipc/handlers/StoreAdministrationIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
 import { registerIpcHandlers } from "../ipc-handlers";
@@ -1071,6 +1072,24 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
+          StoreAdministrationIpc.live({
+            administration: storeAdministration,
+            onStoreRestored: Effect.sleep("250 millis").pipe(
+              Effect.andThen(electron.relaunch),
+              Effect.andThen(electron.exit(0)),
+            ),
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
           PageSearchIpc.live({ library: libraryModule }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1384,15 +1403,6 @@ export const live: Layer.Layer<
             registerIpcHandlers({
               codexService,
               gitWorkerHost: hostWorkers.git,
-              storeAdministration,
-              onStoreRestored: () => {
-                callbacks.fork(
-                  Effect.sleep("250 millis").pipe(
-                    Effect.andThen(electron.relaunch),
-                    Effect.andThen(electron.exit(0)),
-                  ),
-                );
-              },
               projectWorkspace,
               rendererClientRouter: rendererClients.router,
               resolveWindowSessionId: applicationWindows.resolveSessionId,

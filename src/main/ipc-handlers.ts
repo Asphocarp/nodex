@@ -74,7 +74,6 @@ import type {
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
 import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
-import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { GitWorkerHost } from "./git-worker-host";
 import { readGitRepositoryIdentity } from "./git-repository-identity-service";
 import {
@@ -113,7 +112,6 @@ import {
   logDevRuntimeMetric,
   recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
-import { registerStoreAdministrationIpcHandlers } from "./store-administration-ipc-handlers";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -273,8 +271,6 @@ interface RegisterIpcHandlersOptions {
   gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
   rendererClientRouter?: RendererClientRouter;
-  storeAdministration?: DesktopStoreAdministrationPort;
-  onStoreRestored?: () => void;
   projectWorkspace?: DesktopProjectWorkspacePort;
   terminalRuntime?: {
     readonly listLiveSessionsForOwners: (input: {
@@ -359,11 +355,6 @@ function createGitActionWorkerPort(
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const { codexService } = options;
   const gitActionWorker = createGitActionWorkerPort(options.gitWorkerHost);
-  const storeAdministration =
-    options.storeAdministration ??
-    createUnconfiguredIpcAuthority<DesktopStoreAdministrationPort>(
-      "Store Administration authority",
-    );
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace ?? createUnconfiguredIpcAuthority("Project Workspace authority");
   const requireAssignedWindowSessionId = (senderId: number): string => {
@@ -421,12 +412,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
         persistedEvent,
       ]);
     },
-  });
-
-  registerStoreAdministrationIpcHandlers({
-    registerHandle,
-    administration: storeAdministration,
-    onStoreRestored: options.onStoreRestored,
   });
 
   registerHandle(
