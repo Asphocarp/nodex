@@ -148,6 +148,12 @@ contribute focus observations; closing a window or Main releases its listeners,
 target handles, helper process, and polling timers through that runtime's Scope.
 Renderer IPC borrows the runtime and never owns a second cache or scheduler.
 
+The MCP App sandbox coordinator owns its protocol cache together with Electron session policy,
+guest hosts, pending attachments, and protocol handlers. Skybridge fetches are shared only within
+that coordinator lifetime; releasing the Main Scope aborts in-flight fetches and clears cached
+responses before the custom protocol is detached. Protocol modules must not retain a cache across
+coordinator instances.
+
 Project lifecycle mutation and admission of Project-owned host work share one Main-scoped,
 Project-keyed coordination runtime. Codex turns, Terminal sessions, and background runtime
 actions revalidate the durable Project lifecycle inside the same exclusive boundary used by

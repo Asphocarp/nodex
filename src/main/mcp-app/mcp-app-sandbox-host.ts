@@ -22,9 +22,8 @@ import {
   type McpAppSandboxHostInitMessage,
 } from "../../shared/mcp-app/mcp-app-sandbox-contract";
 import {
-  createMcpAppSandboxProtocolHandler,
-  getMcpAppSandboxCacheState,
-  prewarmMcpAppSandbox,
+  McpAppSandboxProtocolCache,
+  type McpAppSandboxCacheState,
 } from "./mcp-app-sandbox-protocol";
 import {
   decideMcpAppWebviewAttachment,
@@ -194,6 +193,7 @@ export class McpAppSandboxCoordinator {
   readonly #hostsByGuestId = new Map<number, McpAppSandboxHost>();
   readonly #options: McpAppSandboxHostOptions;
   readonly #pendingBySession = new Map<Session, PendingMcpAppAttachment[]>();
+  readonly #protocolCache: McpAppSandboxProtocolCache;
   #installed = false;
 
   readonly #onGuestMessage = (event: IpcMainEvent, rawMessage: unknown): void => {
@@ -202,6 +202,7 @@ export class McpAppSandboxCoordinator {
 
   constructor(options: McpAppSandboxHostOptions) {
     this.#options = options;
+    this.#protocolCache = new McpAppSandboxProtocolCache(options.fetch ?? net.fetch);
   }
 
   install(): void {
@@ -261,6 +262,7 @@ export class McpAppSandboxCoordinator {
       sandboxSession.protocol.unhandle(MCP_APP_SANDBOX_SCHEME);
     }
     this.#configuredSessions.clear();
+    this.#protocolCache.dispose();
   }
 
   configureSession(partition: string): Session {
@@ -291,15 +293,21 @@ export class McpAppSandboxCoordinator {
         ),
       });
     });
-    const protocolHandler = createMcpAppSandboxProtocolHandler({
-      fetch: this.#options.fetch ?? net.fetch,
-    });
+    const protocolHandler = this.#protocolCache.createHandler();
     sandboxSession.protocol.handle(MCP_APP_SANDBOX_SCHEME, protocolHandler);
     return sandboxSession;
   }
 
   isConfiguredSession(sandboxSession: Session): boolean {
     return this.#configuredSessions.has(sandboxSession);
+  }
+
+  getProtocolCacheState(sourceUrl: string): McpAppSandboxCacheState {
+    return this.#protocolCache.getState(sourceUrl);
+  }
+
+  prewarmProtocol(locale: string): Promise<void> {
+    return this.#protocolCache.prewarm(locale);
   }
 
   registerPendingAttachment(state: OwnedMcpAppAttachment): void {
@@ -422,7 +430,7 @@ export class McpAppSandboxHost {
     const partition = rawParams.partition ?? "";
     const sandboxSession = this.#coordinator.configureSession(partition);
     const sourceUrl = decision.source.sourceUrl;
-    const cacheState = getMcpAppSandboxCacheState(sourceUrl);
+    const cacheState = this.#coordinator.getProtocolCacheState(sourceUrl);
     this.#coordinator.registerPendingAttachment({
       initId: decision.initId,
       origin: decision.source.origin,
@@ -434,10 +442,7 @@ export class McpAppSandboxHost {
       source: decision.source,
       sourceUrl,
     });
-    void prewarmMcpAppSandbox({
-      fetch: this.#options.fetch ?? net.fetch,
-      locale: decision.source.locale,
-    }).catch((error: unknown) => {
+    void this.#coordinator.prewarmProtocol(decision.source.locale).catch((error: unknown) => {
       this.#options.logger.warn("MCP App sandbox prewarm failed", {
         error,
         partition,
