@@ -79,22 +79,37 @@ describe("collaborative NFM undo in Chromium", () => {
       if (draggedBlockPosition === null) {
         throw new Error("Expected the dragged Block in ProseMirror");
       }
-      localEditor.prosemirrorView.dispatch(
-        localEditor.prosemirrorState.tr.setSelection(
-          NodeSelection.create(
-            localEditor.prosemirrorState.doc,
-            draggedBlockPosition,
+      const selectedBlockPosition = draggedBlockPosition;
+      await act(async () => {
+        localEditor.prosemirrorView.dispatch(
+          localEditor.prosemirrorState.tr.setSelection(
+            NodeSelection.create(
+              localEditor.prosemirrorState.doc,
+              selectedBlockPosition,
+            ),
           ),
-        ),
-      );
+        );
+        await settleEditor();
+      });
 
-      remoteEditor.removeBlocks([draggedBlockId]);
-      const remoteUpdate = Y.encodeStateAsUpdate(
-        remoteDocument,
-        remoteBaseVector,
-      );
+      let remoteUpdate: Uint8Array | undefined;
+      await act(async () => {
+        remoteEditor.removeBlocks([draggedBlockId]);
+        remoteUpdate = Y.encodeStateAsUpdate(
+          remoteDocument,
+          remoteBaseVector,
+        );
+        await settleEditor();
+      });
+      if (!remoteUpdate) {
+        throw new Error("Expected the remote structural update");
+      }
+      const appliedRemoteUpdate = remoteUpdate;
 
-      Y.applyUpdate(localDocument, remoteUpdate);
+      await act(async () => {
+        Y.applyUpdate(localDocument, appliedRemoteUpdate);
+        await settleEditor();
+      });
       expect(localEditor.getBlock(draggedBlockId)).toBeUndefined();
       expect(localEditor.prosemirrorState.selection).not.toBeInstanceOf(
         NodeSelection,
@@ -104,7 +119,10 @@ describe("collaborative NFM undo in Chromium", () => {
       if (!survivingBlock) {
         throw new Error("Expected a surviving Block after the remote deletion");
       }
-      localEditor.updateBlock(survivingBlock, { content: "Still editable" });
+      await act(async () => {
+        localEditor.updateBlock(survivingBlock, { content: "Still editable" });
+        await settleEditor();
+      });
       expect(localEditor.getBlock(survivingBlock.id)?.content).not.toEqual(
         survivingBlock.content,
       );
