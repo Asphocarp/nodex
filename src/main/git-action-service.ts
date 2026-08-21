@@ -35,8 +35,6 @@ const PULL_REQUEST_MESSAGE_FILE_PATH_LIMIT = 100;
 const COMMIT_MESSAGE_TESTING_NOTE =
   "Testing note: If you mention tests, include unit tests or UI testing frameworks only. Skip lint/tsc since CI runs those.";
 const COMMIT_MESSAGE_UNTRACKED_NOTE = "Untracked changes are not included.";
-const activeGitActionOperations = new Map<string, AbortController>();
-
 interface CommitMessageDiffSummary {
   filesChanged: number;
   linesAdded: number;
@@ -71,10 +69,56 @@ export interface GitPullRequestMessageGenerationResponse {
 
 export interface CommitGitChangesOptions {
   gitWorker: GitActionWorkerPort;
+  operations: GitActionOperationRegistry;
   generateCommitMessage?: (input: GitCommitMessageGenerationRequest) => Promise<string | null>;
   generatePullRequestMessage?: (
     input: GitPullRequestMessageGenerationRequest,
   ) => Promise<GitPullRequestMessageGenerationResponse | null>;
+}
+
+export class GitActionOperationRegistry {
+  private readonly active = new Set<AbortController>();
+  private readonly activeById = new Map<string, AbortController>();
+  private closed = false;
+
+  async run<T>(
+    operationId: string | undefined,
+    action: (signal: AbortSignal | undefined) => Promise<T>,
+  ): Promise<T> {
+    const normalizedOperationId = operationId?.trim();
+    if (this.closed) throw new Error("Git action runtime is closed");
+
+    if (normalizedOperationId) this.activeById.get(normalizedOperationId)?.abort();
+    const controller = new AbortController();
+    this.active.add(controller);
+    if (normalizedOperationId) this.activeById.set(normalizedOperationId, controller);
+    try {
+      return await action(controller.signal);
+    } finally {
+      this.active.delete(controller);
+      if (normalizedOperationId && this.activeById.get(normalizedOperationId) === controller) {
+        this.activeById.delete(normalizedOperationId);
+      }
+    }
+  }
+
+  cancel(input: GitActionCancelInput): GitActionCancelResult {
+    const operationId = input.operationId.trim();
+    if (!operationId) return { canceled: false };
+
+    const controller = this.activeById.get(operationId);
+    if (!controller) return { canceled: false };
+    controller.abort();
+    return { canceled: true };
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const controller of this.active) controller.abort();
+    this.active.clear();
+    this.activeById.clear();
+  }
 }
 
 export interface GitActionWorkerPort {
@@ -155,43 +199,6 @@ function runGitCommand(
       },
     );
   });
-}
-
-function createGitActionOperation(operationId: string | undefined): {
-  signal: AbortSignal | undefined;
-  cleanup: () => void;
-} {
-  const normalizedOperationId = operationId?.trim();
-  if (!normalizedOperationId) {
-    return {
-      signal: undefined,
-      cleanup: () => undefined,
-    };
-  }
-
-  activeGitActionOperations.get(normalizedOperationId)?.abort();
-  const controller = new AbortController();
-  activeGitActionOperations.set(normalizedOperationId, controller);
-
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      if (activeGitActionOperations.get(normalizedOperationId) !== controller) return;
-      activeGitActionOperations.delete(normalizedOperationId);
-    },
-  };
-}
-
-async function runGitActionOperation<T>(
-  operationId: string | undefined,
-  action: (signal: AbortSignal | undefined) => Promise<T>,
-): Promise<T> {
-  const operation = createGitActionOperation(operationId);
-  try {
-    return await action(operation.signal);
-  } finally {
-    operation.cleanup();
-  }
 }
 
 function isAbortError(error: unknown): boolean {
@@ -696,7 +703,7 @@ export function commitGitChanges(
   options: CommitGitChangesOptions,
 ): Promise<GitActionMutationResult> {
   const requestedMessage = input.message.trim();
-  return runGitActionOperation(input.operationId, async (signal) => {
+  return options.operations.run(input.operationId, async (signal) => {
     let cwd = input.cwd.trim();
     let branch: string | null = null;
 
@@ -775,7 +782,7 @@ export function generateGitCommitMessage(
   options: CommitGitChangesOptions,
 ): Promise<GitCommitMessageGenerateResult> {
   const draftMessage = input.draftMessage?.trim() ?? "";
-  return runGitActionOperation(input.operationId, async (signal) => {
+  return options.operations.run(input.operationId, async (signal) => {
     let cwd = input.cwd.trim();
 
     try {
@@ -839,7 +846,7 @@ export function generateGitPullRequestMessage(
 ): Promise<GitPullRequestMessageGenerateResult> {
   const title = input.title?.trim() ?? "";
   const body = input.body?.trim() ?? "";
-  return runGitActionOperation(input.operationId, async (signal) => {
+  return options.operations.run(input.operationId, async (signal) => {
     let cwd = input.cwd.trim();
 
     try {
@@ -900,8 +907,11 @@ export function generateGitPullRequestMessage(
   });
 }
 
-export function pushGitChanges(input: GitPushInput): Promise<GitActionMutationResult> {
-  return runGitActionOperation(input.operationId, async (signal) => {
+export function pushGitChanges(
+  input: GitPushInput,
+  operations: GitActionOperationRegistry,
+): Promise<GitActionMutationResult> {
+  return operations.run(input.operationId, async (signal) => {
     let cwd = input.cwd.trim();
     let branch: string | null = null;
 
@@ -935,13 +945,9 @@ export function pushGitChanges(input: GitPushInput): Promise<GitActionMutationRe
   });
 }
 
-export function cancelGitAction(input: GitActionCancelInput): GitActionCancelResult {
-  const operationId = input.operationId.trim();
-  if (!operationId) return { canceled: false };
-
-  const controller = activeGitActionOperations.get(operationId);
-  if (!controller) return { canceled: false };
-
-  controller.abort();
-  return { canceled: true };
+export function cancelGitAction(
+  input: GitActionCancelInput,
+  operations: GitActionOperationRegistry,
+): GitActionCancelResult {
+  return operations.cancel(input);
 }

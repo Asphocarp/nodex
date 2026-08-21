@@ -8,6 +8,7 @@ import {
   commitGitChanges,
   generateGitCommitMessage,
   generateGitPullRequestMessage,
+  GitActionOperationRegistry,
   pushGitChanges,
   type CommitGitChangesOptions,
   type GitActionWorkerPort,
@@ -69,10 +70,13 @@ function createGitActionWorkerPort(): GitActionWorkerPort {
 }
 
 function createGitActionOptions(
-  overrides: Omit<CommitGitChangesOptions, "gitWorker"> = {},
+  overrides: Omit<CommitGitChangesOptions, "gitWorker" | "operations"> & {
+    operations?: GitActionOperationRegistry;
+  } = {},
 ): CommitGitChangesOptions {
   return {
     gitWorker: createGitActionWorkerPort(),
+    operations: new GitActionOperationRegistry(),
     ...overrides,
   };
 }
@@ -337,6 +341,7 @@ describe("git-action-service", () => {
     };
 
     const operationId = "cancel-commit";
+    const operations = new GitActionOperationRegistry();
     const pendingCommit = commitGitChanges(
       {
         cwd: repo,
@@ -344,13 +349,13 @@ describe("git-action-service", () => {
         includeUnstaged: true,
         operationId,
       },
-      { gitWorker: cancelableGitWorker },
+      { gitWorker: cancelableGitWorker, operations },
     );
 
     try {
       await commitStarted;
 
-      const cancelResult = cancelGitAction({ operationId });
+      const cancelResult = cancelGitAction({ operationId }, operations);
       const result = await pendingCommit;
 
       expect(cancelResult.canceled).toBe(true);
@@ -358,7 +363,7 @@ describe("git-action-service", () => {
       expect(result.errorMessage).toBe("Git action was canceled.");
       await expect(runCommand("git", ["rev-parse", "--verify", "HEAD"], repo)).rejects.toThrow();
     } finally {
-      cancelGitAction({ operationId });
+      cancelGitAction({ operationId }, operations);
       await pendingCommit;
     }
   });
@@ -383,7 +388,7 @@ describe("git-action-service", () => {
     expect(before.canPush).toBe(true);
     expect(before.pushNeedsUpstream).toBe(true);
 
-    const result = await pushGitChanges({ cwd: repo });
+    const result = await pushGitChanges({ cwd: repo }, new GitActionOperationRegistry());
 
     expect(result.status).toBe("success");
     const after = await readActionStatus(repo);

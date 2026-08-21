@@ -159,6 +159,12 @@ runtime owns the notifier instance and its renderer projection listeners; Core p
 temporary legacy consumers borrow the same injected capability. Importing a local-store module
 must never create a second process event bus.
 
+Git application actions are admitted through one scoped IPC runtime. Its operation registry
+owns cancellation identity for commit, push, and generated commit/pull-request messages; replacing
+an operation aborts the prior operation with the same identity, and releasing the ingress Scope
+aborts every remaining operation. Action services receive that registry explicitly and must not
+retain process-global cancellation state.
+
 Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0047](adr/0047-effect-control-plane-and-runtime-boundaries.md) defines the current frontier while the whole-Main kernel ADR is completed.
 
 Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).

@@ -11,6 +11,7 @@ import {
   commitGitChanges,
   generateGitCommitMessage,
   generateGitPullRequestMessage,
+  GitActionOperationRegistry,
   pushGitChanges,
   type GitActionWorkerPort,
 } from "../../git-action-service";
@@ -54,6 +55,10 @@ export const live = (
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
       const workers = yield* HostWorkerRuntime;
+      const operations = yield* Effect.acquireRelease(
+        Effect.sync(() => new GitActionOperationRegistry()),
+        (registry) => Effect.sync(() => registry.close()),
+      );
       const gitWorker: GitActionWorkerPort = {
         readStatus: (cwd, signal) =>
           workers.git.requestFromMain({ method: "action-status", params: { cwd }, signal }),
@@ -125,29 +130,32 @@ export const live = (
       yield* invoke("git:action:commit-message:generate", (input) =>
         generateGitCommitMessage(input, {
           gitWorker,
+          operations,
           generateCommitMessage: generateCommitMessage(input.hostId),
         }),
       );
       yield* invoke("git:action:pull-request-message:generate", (input) =>
         generateGitPullRequestMessage(input, {
           gitWorker,
+          operations,
           generatePullRequestMessage: generatePullRequestMessage(input.hostId),
         }),
       );
       yield* invoke("git:action:commit", (input) =>
         commitGitChanges(input, {
           gitWorker,
+          operations,
           generateCommitMessage: generateCommitMessage(input.hostId),
         }),
       );
       yield* invoke("git:action:push", async (input) => {
-        const result = await pushGitChanges(input);
+        const result = await pushGitChanges(input, operations);
         await workers.git
           .requestFromMain({ method: "refresh-repository", params: { cwd: input.cwd } })
           .catch(() => undefined);
         return result;
       });
-      yield* invoke("git:action:cancel", cancelGitAction);
+      yield* invoke("git:action:cancel", (input) => cancelGitAction(input, operations));
       yield* invoke("gh-cli-status", readGhCliStatus);
       yield* invoke("gh-pr-status", readGhPrStatus);
       yield* invoke("gh-pr-checks", readGhPrChecks);
