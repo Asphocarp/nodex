@@ -1,7 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { BrowserWindow } from "electron";
+import { nativeTheme, screen, type BrowserWindow } from "electron";
 import type { InitialProjectPresentation } from "../../shared/initial-project-welcome";
 import type {
   WindowRestorePolicy,
@@ -18,12 +18,17 @@ import {
 } from "../window-session-state";
 import { safeSendToWindow } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
+import {
+  resolveElectronWindowBackdrop,
+  shouldUseOpaqueElectronWindowSurface,
+} from "../electron-window-backdrop";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1_500;
 const logger = getLogger({ component: "window-runtime" });
 
 interface ManagedWindowClose {
   allowImmediate: boolean;
+  blurHandler: () => void;
   closeHandler: (event: Electron.Event) => void;
   closedHandler: () => void;
   disposition: WindowSessionCloseDisposition;
@@ -44,6 +49,73 @@ export function captureWindowSessionBounds(window: BrowserWindow): WindowSession
     width: bounds.width,
     height: bounds.height,
     mode: window.isFullScreen() ? "fullscreen" : window.isMaximized() ? "maximized" : "normal",
+  };
+}
+
+function applyElectronWindowBackdrop(
+  window: BrowserWindow,
+  opaqueSurfaceModes: Map<number, boolean>,
+  force = false,
+): void {
+  if (process.platform !== "darwin" && process.platform !== "win32") return;
+  if (window.isDestroyed()) return;
+  const bounds = window.getBounds();
+  const opaqueWindowSurfaceEnabled = shouldUseOpaqueElectronWindowSurface({
+    bounds,
+    isFocused: window.isFocused(),
+    platform: process.platform,
+    scaleFactor: screen.getDisplayMatching(bounds).scaleFactor,
+  });
+  if (!force && opaqueSurfaceModes.get(window.id) === opaqueWindowSurfaceEnabled) return;
+  const backdrop = resolveElectronWindowBackdrop({
+    opaqueWindowSurfaceEnabled,
+    platform: process.platform,
+    prefersDarkColors: nativeTheme.shouldUseDarkColors,
+  });
+  try {
+    window.setBackgroundColor(backdrop.backgroundColor);
+    if (process.platform === "darwin") {
+      window.setVibrancy(backdrop.vibrancy as Parameters<BrowserWindow["setVibrancy"]>[0]);
+    }
+    if (process.platform === "win32") {
+      window.setBackgroundMaterial(
+        backdrop.backgroundMaterial as Parameters<BrowserWindow["setBackgroundMaterial"]>[0],
+      );
+    }
+    opaqueSurfaceModes.set(window.id, opaqueWindowSurfaceEnabled);
+    safeSendToWindow(window, "electron-window-opaque-surface-changed", [
+      { opaqueWindowSurfaceEnabled },
+    ]);
+  } catch (error) {
+    logger.warn("Failed to apply Electron window backdrop", {
+      error: error instanceof Error ? error.message : String(error),
+      windowId: window.id,
+    });
+  }
+}
+
+interface WindowAppearancePort {
+  readonly apply: (window: BrowserWindow, force?: boolean) => void;
+  readonly forget: (window: BrowserWindow) => void;
+  readonly subscribeToTheme: (listener: () => void) => () => void;
+}
+
+const noWindowAppearance: WindowAppearancePort = {
+  apply: () => undefined,
+  forget: () => undefined,
+  subscribeToTheme: () => () => undefined,
+};
+
+function createElectronWindowAppearance(): WindowAppearancePort {
+  const opaqueSurfaceModes = new Map<number, boolean>();
+  return {
+    apply: (window, force) =>
+      applyElectronWindowBackdrop(window, opaqueSurfaceModes, force ?? false),
+    forget: (window) => opaqueSurfaceModes.delete(window.id),
+    subscribeToTheme: (listener) => {
+      nativeTheme.on("updated", listener);
+      return () => nativeTheme.off("updated", listener);
+    },
   };
 }
 
@@ -94,7 +166,10 @@ export class WindowRuntime extends Context.Service<WindowRuntime, WindowRuntimeS
   "nodex/main/window-runtime/WindowRuntime",
 ) {}
 
-export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRuntime> =>
+export const fromState = (
+  sessions: WindowSessionState,
+  appearance: WindowAppearancePort = noWindowAppearance,
+): Layer.Layer<WindowRuntime> =>
   Layer.effect(
     WindowRuntime,
     Effect.acquireRelease(
@@ -112,6 +187,7 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
           if (managed.timeout) clearTimeout(managed.timeout);
           managed.window.removeListener("close", managed.closeHandler);
           managed.window.removeListener("closed", managed.closedHandler);
+          managed.window.removeListener("blur", managed.blurHandler);
           managed.window.removeListener("focus", managed.focusHandler);
           managed.window.removeListener("move", managed.moveHandler);
           managed.window.removeListener("resize", managed.resizeHandler);
@@ -123,6 +199,8 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
           } finally {
             cleanupClose(webContentsId);
             initializedRenderers.delete(webContentsId);
+            const releasedWindow = windows.get(webContentsId);
+            if (releasedWindow) appearance.forget(releasedWindow);
             windows.delete(webContentsId);
             if (lastFocusedWebContentsId === webContentsId) {
               lastFocusedWebContentsId = null;
@@ -179,22 +257,30 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
           managed.focusHandler = () => {
             lastFocusedWebContentsId = webContentsId;
             sessions.markFocused(webContentsId);
+            appearance.apply(window);
+            safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
+          };
+          managed.blurHandler = () => {
+            appearance.apply(window);
+            safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: false }]);
           };
           const updateBounds = (): void => {
             if (window.isDestroyed()) return;
             sessions.updateBounds(webContentsId, captureWindowSessionBounds(window));
+            appearance.apply(window);
           };
           managed.moveHandler = updateBounds;
           managed.resizeHandler = updateBounds;
           managedCloses.set(webContentsId, managed);
           window.on("close", managed.closeHandler);
           window.on("closed", managed.closedHandler);
+          window.on("blur", managed.blurHandler);
           window.on("focus", managed.focusHandler);
           window.on("move", managed.moveHandler);
           window.on("resize", managed.resizeHandler);
         };
 
-        return WindowRuntime.of({
+        const runtime = WindowRuntime.of({
           acknowledgeClose: (webContentsId) => managedCloses.get(webContentsId)?.finish(),
           acquireSessionForNewWindow: (sourceWebContentsId) =>
             sessions.acquireSessionForNewWindow(sourceWebContentsId),
@@ -205,6 +291,7 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
             windows.set(webContentsId, window);
             lastFocusedWebContentsId = webContentsId;
             installCloseLifecycle(window);
+            appearance.apply(window, true);
             return session;
           },
           bootstrap: (webContentsId) => sessions.bootstrap(webContentsId),
@@ -246,22 +333,36 @@ export const fromState = (sessions: WindowSessionState): Layer.Layer<WindowRunti
           selectStartupSessions: (policy) => sessions.selectStartupSessions(policy),
           updateBounds: (webContentsId, bounds) => sessions.updateBounds(webContentsId, bounds),
         });
-      }),
-      (runtime) =>
-        Effect.sync(() => {
-          for (const window of runtime.all()) {
-            const webContentsId = window.webContents.id;
-            if (!window.isDestroyed()) window.destroy();
-            if (!runtime.has(webContentsId)) continue;
-            try {
-              runtime.release(webContentsId, { disposition: "unexpected" });
-            } catch {
-              // Scope release must still forget every remaining native window.
-            }
+        const refreshWindowBackdrops = (): void => {
+          for (const window of windows.values()) {
+            appearance.apply(window, true);
           }
-        }),
-    ),
+        };
+        const releaseThemeSubscription = appearance.subscribeToTheme(refreshWindowBackdrops);
+        return {
+          runtime,
+          dispose: () => {
+            releaseThemeSubscription();
+            for (const window of runtime.all()) {
+              const webContentsId = window.webContents.id;
+              if (!window.isDestroyed()) window.destroy();
+              if (!runtime.has(webContentsId)) continue;
+              try {
+                runtime.release(webContentsId, { disposition: "unexpected" });
+              } catch {
+                // Scope release must still forget every remaining native window.
+              }
+            }
+          },
+        };
+      }),
+      ({ dispose }) => Effect.sync(dispose),
+    ).pipe(Effect.map(({ runtime }) => runtime)),
   );
 
 export const live = (userDataPath: string): Layer.Layer<WindowRuntime> =>
-  Layer.unwrap(Effect.sync(() => fromState(new WindowSessionState(userDataPath))));
+  Layer.unwrap(
+    Effect.sync(() =>
+      fromState(new WindowSessionState(userDataPath), createElectronWindowAppearance()),
+    ),
+  );

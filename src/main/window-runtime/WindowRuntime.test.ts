@@ -18,6 +18,7 @@ const fakeWindow = (webContentsId: number) => {
   const sentChannels: string[] = [];
   return {
     window: {
+      id: webContentsId,
       destroy: () => {
         destroyed = true;
         events.emit("closed");
@@ -31,10 +32,13 @@ const fakeWindow = (webContentsId: number) => {
       },
       getBounds: () => ({ x: 0, y: 0, width: 1_400, height: 900 }),
       isFullScreen: () => false,
+      isFocused: () => false,
       isMaximized: () => false,
       isDestroyed: () => destroyed,
       on: events.on.bind(events),
       removeListener: events.removeListener.bind(events),
+      setBackgroundColor: () => undefined,
+      setVibrancy: () => undefined,
       webContents: {
         id: webContentsId,
         isDestroyed: () => false,

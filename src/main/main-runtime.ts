@@ -95,10 +95,6 @@ import {
   type RendererClientRegistration,
 } from "./codex/renderer-client-router";
 import {
-  resolveElectronWindowBackdrop,
-  shouldUseOpaqueElectronWindowSurface,
-} from "./electron-window-backdrop";
-import {
   buildNodexSetupMenuItems,
   buildWindowFileMenu,
   buildWorkbenchViewMenu,
@@ -166,57 +162,6 @@ let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 const logger = getLogger({ subsystem: "app" });
 let desktopNotificationManager: DesktopNotificationManager | null = null;
-
-const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
-
-function shouldManageElectronWindowBackdrop(): boolean {
-  return process.platform === "darwin" || process.platform === "win32";
-}
-
-function applyElectronWindowBackdrop(window: BrowserWindow, force = false): void {
-  if (!shouldManageElectronWindowBackdrop()) return;
-  if (window.isDestroyed()) return;
-
-  const bounds = window.getBounds();
-  const display = screen.getDisplayMatching(bounds);
-  const opaqueWindowSurfaceEnabled = shouldUseOpaqueElectronWindowSurface({
-    bounds,
-    isFocused: window.isFocused(),
-    platform: process.platform,
-    scaleFactor: display.scaleFactor,
-  });
-
-  if (!force && electronWindowOpaqueSurfaceModes.get(window.id) === opaqueWindowSurfaceEnabled) {
-    return;
-  }
-
-  const backdrop = resolveElectronWindowBackdrop({
-    opaqueWindowSurfaceEnabled,
-    platform: process.platform,
-    prefersDarkColors: nativeTheme.shouldUseDarkColors,
-  });
-
-  try {
-    window.setBackgroundColor(backdrop.backgroundColor);
-    if (process.platform === "darwin") {
-      window.setVibrancy(backdrop.vibrancy as Parameters<BrowserWindow["setVibrancy"]>[0]);
-    }
-    if (process.platform === "win32") {
-      window.setBackgroundMaterial(
-        backdrop.backgroundMaterial as Parameters<BrowserWindow["setBackgroundMaterial"]>[0],
-      );
-    }
-    electronWindowOpaqueSurfaceModes.set(window.id, opaqueWindowSurfaceEnabled);
-    safeSendToWindow(window, "electron-window-opaque-surface-changed", [
-      { opaqueWindowSurfaceEnabled },
-    ]);
-  } catch (error) {
-    logger.warn("Failed to apply Electron window backdrop", {
-      error: error instanceof Error ? error.message : String(error),
-      windowId: window.id,
-    });
-  }
-}
 
 function getLastFocusedWindow(): BrowserWindow | null {
   return windowRuntime?.getLastFocused() ?? null;
@@ -1078,12 +1023,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     );
   }
   syncMacWindowTitle(window);
-  applyElectronWindowBackdrop(window, true);
-
-  const refreshWindowBackdropForTheme = () => {
-    applyElectronWindowBackdrop(window, true);
-  };
-  nativeTheme.on("updated", refreshWindowBackdropForTheme);
 
   if (savedBounds?.mode === "maximized") {
     window.maximize();
@@ -1092,21 +1031,9 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
   }
 
   window.on("focus", () => {
-    applyElectronWindowBackdrop(window);
-    safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, true);
   });
-  window.on("resize", () => {
-    if (window.isDestroyed()) return;
-    applyElectronWindowBackdrop(window);
-  });
-  window.on("move", () => {
-    if (window.isDestroyed()) return;
-    applyElectronWindowBackdrop(window);
-  });
   window.on("blur", () => {
-    applyElectronWindowBackdrop(window);
-    safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: false }]);
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
   });
   window.webContents.on("did-finish-load", () => {
@@ -1115,7 +1042,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
       webContentsId,
     });
     syncMacWindowTitle(window);
-    applyElectronWindowBackdrop(window, true);
     const appUpdateStatus = appUpdateRuntime?.currentStatus();
     if (appUpdateStatus) {
       safeSendToWindow(window, "app:update-status", [appUpdateStatus]);
@@ -1147,8 +1073,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
     rendererClientRegistration?.dispose();
     rendererClientRegistration = null;
-    nativeTheme.off("updated", refreshWindowBackdropForTheme);
-    electronWindowOpaqueSurfaceModes.delete(window.id);
   });
 
   try {
