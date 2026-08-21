@@ -32,11 +32,11 @@ export interface ProjectLifecycleServiceDependencies {
   readonly listLiveTerminalSessions: (input: {
     conversationIds: ReadonlySet<string>;
     projectSessionIds: ReadonlySet<string>;
-  }) => readonly TerminalSessionSnapshot[];
+  }) => readonly TerminalSessionSnapshot[] | Promise<readonly TerminalSessionSnapshot[]>;
   readonly discardExitedTerminalSessions: (input: {
     conversationIds: ReadonlySet<string>;
     projectSessionIds: ReadonlySet<string>;
-  }) => readonly string[];
+  }) => readonly string[] | Promise<readonly string[]>;
 }
 
 export interface ProjectLifecycleService {
@@ -153,16 +153,15 @@ async function readArchiveBlockers(
   ownership: ProjectOwnershipSnapshot,
 ): Promise<ProjectArchiveBlocker[]> {
   const codexBlockers = dependencies.listCodexBlockers(ownership.threadIds);
-  const terminalBlockers = dependencies
-    .listLiveTerminalSessions({
-      conversationIds: ownership.threadIdSet,
-      projectSessionIds: ownership.sessionIds,
-    })
-    .map<ProjectArchiveBlocker>((session) => ({
-      kind: "terminal",
-      terminalSessionId: session.sessionId,
-      projectSessionId: session.projectSessionId,
-    }));
+  const terminalSessions = await dependencies.listLiveTerminalSessions({
+    conversationIds: ownership.threadIdSet,
+    projectSessionIds: ownership.sessionIds,
+  });
+  const terminalBlockers = terminalSessions.map<ProjectArchiveBlocker>((session) => ({
+    kind: "terminal",
+    terminalSessionId: session.sessionId,
+    projectSessionId: session.projectSessionId,
+  }));
   const backgroundProcessGroups = await Promise.all(
     ownership.threadIds.map(async (threadId) => {
       const rows = await dependencies.listBackgroundProcessRows(threadId);
