@@ -45,6 +45,7 @@ it.effect("owns application protocol handlers with the Main Scope", () =>
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],
+                composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
                 environmentPath: null,
                 initialProjectsDirectory: null,

@@ -177,6 +177,7 @@ it.effect("registers application channels directly against their owning modules"
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],
+                composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
                 environmentPath: null,
                 initialProjectsDirectory: null,

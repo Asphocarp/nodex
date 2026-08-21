@@ -16,7 +16,6 @@ import {
   parseCodexUserInputAutoResolutionActivityInput,
   parseCodexUserInputAutoResolutionTarget,
 } from "../shared/codex-user-input-auto-resolution";
-import { composerAppshotService } from "./composer-appshot-service";
 import {
   createCodexProjectlessWorkspace,
   parseCodexProjectlessThreadCwdInput,
@@ -282,20 +281,6 @@ export const codexIpcLive = (
       registerHandle("codex:thread:summary:get", (_, threadId: string) =>
         codexService.resolveThreadSummary(threadId),
       );
-
-      registerHandle("codex:composer-appshot:target", () => composerAppshotService.readTarget());
-      registerHandle("codex:composer-appshot:capture", (_, input) => {
-        if (
-          typeof input !== "object" ||
-          input === null ||
-          typeof input.targetId !== "string" ||
-          !input.targetId.trim() ||
-          input.targetId.length > 512
-        ) {
-          throw new Error("Invalid Appshot capture target");
-        }
-        return composerAppshotService.capture(input.targetId.trim());
-      });
 
       const parseAgentImportSourceKind = (value: unknown): AgentImportSourceKind => {
         if (value === "claude-code" || value === "codex" || value === "open-interpreter") {

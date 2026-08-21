@@ -46,7 +46,7 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
       scope,
     );
 
-    assert.strictEqual(channels.size, 79);
+    assert.strictEqual(channels.size, 77);
     assert.isTrue(channels.has("codex:threads:list"));
     assert.isTrue(channels.has("codex:turn:start"));
     assert.isFalse(channels.has("codex:permission:custom-description:get"));

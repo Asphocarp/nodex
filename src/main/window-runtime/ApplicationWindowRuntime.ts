@@ -22,8 +22,8 @@ import type {
   RendererClientRegistration,
   RendererClientRouter,
 } from "../codex/renderer-client-router";
-import { composerAppshotService } from "../composer-appshot-service";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import type { DesktopNotificationManager } from "../desktop-notification-manager";
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
 import { getLogger } from "../logging/logger";
@@ -69,10 +69,11 @@ const syncMacWindowTitle = (window: BrowserWindow): void => {
 
 export const live = (
   options: ApplicationWindowRuntimeOptions,
-): Layer.Layer<ApplicationWindowRuntime, never, ScopedCallbackRuntime> =>
+): Layer.Layer<ApplicationWindowRuntime, never, ComposerAppshotRuntime | ScopedCallbackRuntime> =>
   Layer.effect(
     ApplicationWindowRuntime,
     Effect.gen(function* () {
+      const appshots = yield* ComposerAppshotRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
       const rendererLoaded = yield* PubSub.unbounded<number>();
       yield* Effect.addFinalizer(() => PubSub.shutdown(rendererLoaded));
@@ -114,7 +115,7 @@ export const live = (
             backgroundThrottling: false,
           },
         });
-        composerAppshotService.observeWindow(window);
+        appshots.observeWindow(window);
         const mcpAppSandboxHost = options.mcpAppSandbox.createHost(window.webContents);
         mcpAppSandboxHost.installForOwner();
         const pendingBrowserAttachments = new Map<number, BrowserAuthorizedAttachment>();

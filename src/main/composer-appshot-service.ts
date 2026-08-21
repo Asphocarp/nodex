@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  app,
   desktopCapturer,
   screen,
   type BrowserWindow,
@@ -54,7 +53,9 @@ export interface ComposerAppshotServiceDependencies {
   readonly platform: NodeJS.Platform;
   readonly processIdentifier: number;
   readonly helperAvailable: () => boolean;
-  readonly readFrontmostWindow: () => Promise<ComposerAppshotHelperTarget | null>;
+  readonly readFrontmostWindow: (
+    signal?: AbortSignal,
+  ) => Promise<ComposerAppshotHelperTarget | null>;
   readonly listWindowSources: (thumbnailSize: {
     readonly width: number;
     readonly height: number;
@@ -65,6 +66,14 @@ export interface ComposerAppshotServiceDependencies {
   readonly scheduleTimeout: (callback: () => void, delayMs: number) => NodeJS.Timeout;
   readonly clearInterval: (timer: NodeJS.Timeout) => void;
   readonly clearTimeout: (timer: NodeJS.Timeout) => void;
+}
+
+export interface ComposerAppshotLiveConfig {
+  readonly configuredHelperPath: string | null;
+  readonly isPackaged: boolean;
+  readonly platform: string;
+  readonly projectRootPath: string;
+  readonly resourcesPath: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -173,17 +182,24 @@ function createAppshotImageName(appName: string): string {
   return `${sanitizeAppshotFileNamePart(appName)} Appshot ${timestamp}.png`;
 }
 
-function resolveComposerAppshotHelperExecutable(): string {
-  const configured = process.env.NODEX_COMPOSER_APPSHOT_HELPER?.trim();
-  if (configured) return resolve(configured);
-  if (app.isPackaged) {
-    return resolve(process.resourcesPath, "bin", "nodex-appshot-helper");
+function resolveComposerAppshotHelperExecutable(config: ComposerAppshotLiveConfig): string {
+  if (config.configuredHelperPath) return resolve(config.configuredHelperPath);
+  if (config.isPackaged) {
+    return resolve(config.resourcesPath, "bin", "nodex-appshot-helper");
   }
-  return resolve(app.getAppPath(), ".generated", "dev-runtime", "bin", "nodex-appshot-helper");
+  return resolve(
+    config.projectRootPath,
+    ".generated",
+    "dev-runtime",
+    "bin",
+    "nodex-appshot-helper",
+  );
 }
 
-function runComposerAppshotHelper(): Promise<ComposerAppshotHelperTarget | null> {
-  const executable = resolveComposerAppshotHelperExecutable();
+function runComposerAppshotHelper(
+  executable: string,
+  signal?: AbortSignal,
+): Promise<ComposerAppshotHelperTarget | null> {
   return new Promise((resolvePromise, reject) => {
     execFile(
       executable,
@@ -191,6 +207,7 @@ function runComposerAppshotHelper(): Promise<ComposerAppshotHelperTarget | null>
       {
         encoding: "utf8",
         maxBuffer: MAX_HELPER_OUTPUT_BYTES,
+        signal,
         timeout: 5_000,
       },
       (error, stdout, stderr) => {
@@ -212,13 +229,15 @@ function runComposerAppshotHelper(): Promise<ComposerAppshotHelperTarget | null>
   });
 }
 
-function defaultDependencies(): ComposerAppshotServiceDependencies {
+export function makeComposerAppshotLiveDependencies(
+  config: ComposerAppshotLiveConfig,
+): ComposerAppshotServiceDependencies {
+  const helperExecutable = resolveComposerAppshotHelperExecutable(config);
   return {
-    platform: process.platform,
+    platform: config.platform as NodeJS.Platform,
     processIdentifier: process.pid,
-    helperAvailable: () =>
-      process.platform === "darwin" && existsSync(resolveComposerAppshotHelperExecutable()),
-    readFrontmostWindow: runComposerAppshotHelper,
+    helperAvailable: () => config.platform === "darwin" && existsSync(helperExecutable),
+    readFrontmostWindow: (signal) => runComposerAppshotHelper(helperExecutable, signal),
     listWindowSources: (thumbnailSize) =>
       desktopCapturer.getSources({
         types: ["window"],
@@ -238,16 +257,20 @@ export class ComposerAppshotService {
   readonly #dependencies: ComposerAppshotServiceDependencies;
   readonly #focusedWindowIds = new Set<number>();
   readonly #targets = new Map<string, StoredComposerAppshotTarget>();
+  readonly #observerReleases = new Set<() => void>();
   #latestTarget: StoredComposerAppshotTarget | null = null;
   #refreshPromise: Promise<StoredComposerAppshotTarget | null> | null = null;
+  #refreshController: AbortController | null = null;
   #trackingInterval: NodeJS.Timeout | null = null;
   #trackingStartTimer: NodeJS.Timeout | null = null;
+  #disposed = false;
 
-  constructor(dependencies: ComposerAppshotServiceDependencies = defaultDependencies()) {
+  constructor(dependencies: ComposerAppshotServiceDependencies) {
     this.#dependencies = dependencies;
   }
 
   observeWindow(window: BrowserWindow): () => void {
+    if (this.#disposed) return () => undefined;
     const windowId = window.webContents.id;
     const handleFocus = () => {
       this.#focusedWindowIds.add(windowId);
@@ -258,7 +281,7 @@ export class ComposerAppshotService {
       if (this.#focusedWindowIds.size === 0) this.#startTracking();
     };
     const handleClosed = () => {
-      this.#focusedWindowIds.delete(windowId);
+      release();
       if (this.#focusedWindowIds.size === 0) this.#startTracking();
     };
     window.on("focus", handleFocus);
@@ -266,15 +289,34 @@ export class ComposerAppshotService {
     window.on("closed", handleClosed);
     if (window.isFocused()) handleFocus();
     else handleBlur();
-    return () => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
       window.off("focus", handleFocus);
       window.off("blur", handleBlur);
       window.off("closed", handleClosed);
       this.#focusedWindowIds.delete(windowId);
+      this.#observerReleases.delete(release);
     };
+    this.#observerReleases.add(release);
+    return release;
+  }
+
+  dispose(): void {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    this.#stopTracking();
+    this.#refreshController?.abort();
+    this.#refreshController = null;
+    for (const release of [...this.#observerReleases]) release();
+    this.#focusedWindowIds.clear();
+    this.#targets.clear();
+    this.#latestTarget = null;
   }
 
   async readTarget(): Promise<CodexComposerAppshotTargetResult> {
+    if (this.#disposed) return { available: false, target: null };
     if (!this.#isAvailable()) return { available: false, target: null };
     const target = await this.#refreshTarget();
     if (!target) return { available: true, target: null };
@@ -287,6 +329,7 @@ export class ComposerAppshotService {
   }
 
   async capture(targetId: string): Promise<CodexComposerAppshotContext> {
+    if (this.#disposed) throw new Error("Appshots are unavailable while Nodex is closing");
     if (!this.#isAvailable()) {
       throw new Error("Appshots are unavailable on this device");
     }
@@ -333,7 +376,7 @@ export class ComposerAppshotService {
   }
 
   #startTracking(): void {
-    if (!this.#isAvailable()) return;
+    if (this.#disposed || !this.#isAvailable()) return;
     if (this.#trackingInterval || this.#trackingStartTimer) return;
     this.#trackingStartTimer = this.#dependencies.scheduleTimeout(() => {
       this.#trackingStartTimer = null;
@@ -363,17 +406,21 @@ export class ComposerAppshotService {
 
   async #refreshTarget(): Promise<StoredComposerAppshotTarget | null> {
     if (this.#refreshPromise) return this.#refreshPromise;
-    const refresh = this.#readAndStoreTarget();
+    const controller = new AbortController();
+    const refresh = this.#readAndStoreTarget(controller.signal);
+    this.#refreshController = controller;
     this.#refreshPromise = refresh;
     try {
       return await refresh;
     } finally {
       if (this.#refreshPromise === refresh) this.#refreshPromise = null;
+      if (this.#refreshController === controller) this.#refreshController = null;
     }
   }
 
-  async #readAndStoreTarget(): Promise<StoredComposerAppshotTarget | null> {
-    const candidate = await this.#dependencies.readFrontmostWindow();
+  async #readAndStoreTarget(signal?: AbortSignal): Promise<StoredComposerAppshotTarget | null> {
+    const candidate = await this.#dependencies.readFrontmostWindow(signal);
+    if (this.#disposed) return null;
     if (!candidate || candidate.processIdentifier === this.#dependencies.processIdentifier) {
       return this.#latestTarget;
     }
@@ -414,7 +461,7 @@ export class ComposerAppshotService {
         source?.appIcon && !source.appIcon.isEmpty()
           ? source.appIcon.resize({ width: 32, height: 32 }).toDataURL()
           : null;
-      if (!iconSmallDataUrl) return stored;
+      if (!iconSmallDataUrl || this.#disposed) return stored;
       const hydrated = { ...stored, iconSmallDataUrl };
       this.#targets.set(stored.id, hydrated);
       if (this.#latestTarget?.id === stored.id) this.#latestTarget = hydrated;
@@ -435,5 +482,3 @@ export class ComposerAppshotService {
     };
   }
 }
-
-export const composerAppshotService = new ComposerAppshotService();

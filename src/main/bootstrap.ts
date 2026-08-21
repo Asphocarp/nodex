@@ -205,6 +205,7 @@ function launchMainApplication(): void {
     appVersion: app.getVersion(),
     arch: process.arch,
     argv: [...process.argv],
+    composerAppshotHelperPath: process.env.NODEX_COMPOSER_APPSHOT_HELPER?.trim() || null,
     documentsPath: app.getPath("documents"),
     environmentPath: process.env.PATH ?? null,
     initialProjectsDirectory: process.env.NODEX_INITIAL_PROJECTS_DIR ?? null,

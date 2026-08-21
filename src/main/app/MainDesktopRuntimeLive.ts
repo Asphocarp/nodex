@@ -120,6 +120,7 @@ import * as ExecutionHostIpc from "../ipc/handlers/ExecutionHostIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
+import * as ComposerAppshotIpc from "../ipc/handlers/ComposerAppshotIpc";
 import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
 import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
 import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
@@ -180,6 +181,10 @@ import {
   RendererClientRuntime,
   live as rendererClientRuntimeLive,
 } from "../host-runtime/RendererClientRuntime";
+import {
+  ComposerAppshotRuntime,
+  live as composerAppshotRuntimeLive,
+} from "../host-runtime/ComposerAppshotRuntime";
 import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
 import { live as codexRendererProjectionRuntimeLive } from "../host-runtime/CodexRendererProjectionRuntime";
@@ -1251,6 +1256,24 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
+        const composerAppshotContext = yield* Layer.buildWithScope(
+          composerAppshotRuntimeLive.pipe(Layer.provide(Layer.succeed(MainConfig, config))),
+          runtimeScope,
+        );
+        const composerAppshots = Context.get(composerAppshotContext, ComposerAppshotRuntime);
+        yield* Layer.buildWithScope(
+          ComposerAppshotIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const applicationWindowContext = yield* Layer.buildWithScope(
           applicationWindowRuntimeLive({
             appUpdates,
@@ -1265,7 +1288,14 @@ export const live: Layer.Layer<
             rendererClients: rendererClients.router,
             rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
             windows,
-          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);

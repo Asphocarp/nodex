@@ -46,6 +46,7 @@ it.effect("registers and releases Computer Use settings channels with the Main S
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],
+                composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
                 environmentPath: null,
                 initialProjectsDirectory: null,
