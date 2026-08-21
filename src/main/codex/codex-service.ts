@@ -3505,7 +3505,7 @@ export class CodexService extends EventEmitter {
     const events = this.dedupeBufferedResumeEvents(threadId, buffered);
     for (const event of events) {
       if (event.type === "request") {
-        void this.handleServerRequest(event.request).then(event.resolve, event.reject);
+        this.handleBufferedResumeRequest(event);
         continue;
       }
       try {
@@ -3532,39 +3532,46 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  private bufferResumeServerRequestIfNeeded(request: CodexServerRequest): Promise<unknown> | null {
+  private bufferResumeServerRequestIfNeeded(request: CodexServerRequest): boolean {
     const threadId = this.resolveServerRequestThreadId(request);
-    if (!threadId) return null;
+    if (!threadId) return false;
 
     const buffer = this.resumeNotificationBuffersByThreadId.get(threadId);
-    if (!buffer) return null;
+    if (!buffer) return false;
 
-    return new Promise((resolve, reject) => {
-      buffer.push({
-        type: "request",
-        request,
-        resolve,
-        reject,
-      });
+    buffer.push({
+      type: "request",
+      request,
+      ...this.buildServerRequestCompletion(
+        threadId,
+        request.id,
+        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+      ),
     });
+    return true;
   }
 
   private bufferThreadStartServerRequestIfNeeded(
     request: CodexServerRequest,
-  ): Promise<unknown> | null {
+    existingEvent?: BufferedResumeRequest,
+  ): boolean {
     const threadId = this.resolveServerRequestThreadId(request);
-    if (!threadId) return null;
+    if (!threadId) return false;
 
     const buffer = this.threadStartNotificationBuffersByThreadId.get(threadId);
-    if (!buffer) return null;
-    return new Promise((resolve, reject) => {
-      buffer.push({
+    if (!buffer) return false;
+    buffer.push(
+      existingEvent ?? {
         type: "request",
         request,
-        resolve,
-        reject,
-      });
-    });
+        ...this.buildServerRequestCompletion(
+          threadId,
+          request.id,
+          request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+        ),
+      },
+    );
+    return true;
   }
 
   private async replayBufferedResumeNotifications(threadId: string): Promise<void> {
@@ -3617,8 +3624,10 @@ export class CodexService extends EventEmitter {
   }
 
   private handleBufferedResumeRequest(event: BufferedResumeRequest): void {
-    const deferred = this.bufferThreadStartServerRequestIfNeeded(event.request);
-    void (deferred ?? this.handleServerRequestNow(event.request)).then(event.resolve, event.reject);
+    if (this.bufferThreadStartServerRequestIfNeeded(event.request, event)) return;
+    void this.handleServerRequestNow(event.request).then((response) => {
+      if (response !== CodexApplicationRequestPending) event.resolve(response);
+    }, event.reject);
   }
 
   private rejectBufferedResumeRequests(reason: unknown): void {
@@ -24703,13 +24712,9 @@ export class CodexService extends EventEmitter {
       return this.handleServerRequestNow(request);
     }
 
-    const buffered = this.bufferResumeServerRequestIfNeeded(request);
-    if (buffered) {
-      return buffered;
-    }
-    const deferred = this.bufferThreadStartServerRequestIfNeeded(request);
-    if (deferred) {
-      return deferred;
+    if (this.bufferResumeServerRequestIfNeeded(request)) return CodexApplicationRequestPending;
+    if (this.bufferThreadStartServerRequestIfNeeded(request)) {
+      return CodexApplicationRequestPending;
     }
 
     return this.handleServerRequestNow(request);
@@ -24822,7 +24827,7 @@ export class CodexService extends EventEmitter {
         method: "item/tool/requestOptionPicker" | "item/tool/requestSetupCodexContextPicker";
       }
     >,
-  ): Promise<unknown> {
+  ): Promise<unknown | typeof CodexApplicationRequestPending> {
     const threadId = request.params.threadId;
     if (typeof threadId !== "string" || threadId.length === 0) {
       return CODEX_SERVER_REQUEST_NO_RESPONSE;
@@ -24832,23 +24837,29 @@ export class CodexService extends EventEmitter {
       return CODEX_SERVER_REQUEST_NO_RESPONSE;
     }
 
-    return await new Promise<unknown>((resolve, reject) => {
-      this.pendingPrivateServerRequests.set(request.id, { request, resolve, reject });
-      const ownerRouted = this.forwardServerRequestToRendererOwner(request);
-      if (ownerRouted) {
-        this.syncInactiveRendererOwnerCleanup(threadId);
-      } else {
-        this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
-      }
-      if (request.method === "item/tool/requestOptionPicker") {
-        this.emitUserInputRequiredNotification({
-          threadId,
-          requestId: request.id,
-          turnId: request.params.turnId,
-          questionCount: 0,
-        });
-      }
+    this.pendingPrivateServerRequests.set(request.id, {
+      request,
+      ...this.buildServerRequestCompletion(
+        threadId,
+        request.id,
+        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+      ),
     });
+    const ownerRouted = this.forwardServerRequestToRendererOwner(request);
+    if (ownerRouted) {
+      this.syncInactiveRendererOwnerCleanup(threadId);
+    } else {
+      this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
+    }
+    if (request.method === "item/tool/requestOptionPicker") {
+      this.emitUserInputRequiredNotification({
+        threadId,
+        requestId: request.id,
+        turnId: request.params.turnId,
+        questionCount: 0,
+      });
+    }
+    return CodexApplicationRequestPending;
   }
 
   private async handleInboxItemsCreateRequest(params: unknown): Promise<{
