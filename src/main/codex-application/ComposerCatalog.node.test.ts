@@ -105,6 +105,20 @@ it.effect("projects models, plugins, and skills through one composer interface",
           nextCursor: cursor === null ? "next-page" : null,
         });
       }
+      if (method === "collaborationMode/list") {
+        return Effect.succeed({
+          data: [
+            {
+              name: "Default",
+              mode: "default",
+              model: "model-a",
+              reasoning_effort: "medium",
+            },
+            { name: "Plan", mode: "plan", model: "model-a", reasoningEffort: null },
+            { name: "Ignored", mode: "research", model: "model-a" },
+          ],
+        });
+      }
       if (method === "hooks/list") return Effect.succeed({ data: [] });
       if (method === "config/batchWrite") {
         hookWrites.push(params);
@@ -144,6 +158,15 @@ it.effect("projects models, plugins, and skills through one composer interface",
     assert.strictEqual(experimentalRequests.length, 2);
     assert.strictEqual((experimentalRequests[0] as { readonly limit?: number }).limit, 100);
     assert.isFalse(Object.hasOwn(experimentalRequests[0] as object, "threadId"));
+    assert.deepEqual(yield* catalog.listCollaborationModes, [
+      {
+        name: "Default",
+        mode: "default",
+        model: "model-a",
+        reasoningEffort: "medium",
+      },
+      { name: "Plan", mode: "plan", model: "model-a", reasoningEffort: null },
+    ]);
     const plugins = yield* catalog.listPlugins([" /repo ", "/repo"]);
     assert.strictEqual(plugins[0]?.id, "browser@openai-bundled");
     const skills = yield* catalog.listSkills(["/repo"]);

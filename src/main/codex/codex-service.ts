@@ -12,7 +12,6 @@ import type {
   RequestId,
   ThreadMemoryMode,
 } from "@nodex/codex-app-server-protocol";
-import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
 import type { AppInfo } from "@nodex/codex-app-server-protocol/v2/AppInfo";
 import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2/ConfigBatchWriteParams";
 import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
@@ -108,7 +107,6 @@ import type {
   CodexConversationTurnPagination,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
-  CodexCollaborationModePreset,
   CodexConnectionState,
   CodexEvent,
   CodexHeartbeatAutomationCollaborationMode,
@@ -2647,52 +2645,6 @@ function isUnsupportedThreadSettingsUpdateError(error: unknown): boolean {
   );
 }
 
-function parseCollaborationModePreset(value: unknown): CodexCollaborationModePreset | null {
-  const candidate = asRecord(value);
-  if (!candidate) return null;
-
-  const mode = parseCollaborationModeKind(
-    candidate.mode ?? candidate.mode_kind ?? candidate.modeKind ?? candidate.kind,
-  );
-  if (!mode) return null;
-
-  const name =
-    typeof candidate.name === "string" && candidate.name.trim().length > 0
-      ? candidate.name.trim()
-      : mode === "plan"
-        ? "Plan"
-        : "Default";
-
-  const model =
-    candidate.model === null
-      ? null
-      : typeof candidate.model === "string" && candidate.model.trim().length > 0
-        ? candidate.model
-        : null;
-
-  const rawReasoningEffort = Object.prototype.hasOwnProperty.call(candidate, "reasoningEffort")
-    ? candidate.reasoningEffort
-    : Object.prototype.hasOwnProperty.call(candidate, "reasoning_effort")
-      ? candidate.reasoning_effort
-      : undefined;
-  let reasoningEffort: CodexReasoningEffort | null | undefined;
-  if (rawReasoningEffort === null) {
-    reasoningEffort = null;
-  } else if (rawReasoningEffort === undefined) {
-    reasoningEffort = undefined;
-  } else {
-    reasoningEffort = parseReasoningEffort(rawReasoningEffort);
-    if (!reasoningEffort) reasoningEffort = undefined;
-  }
-
-  return {
-    name,
-    mode,
-    model,
-    reasoningEffort,
-  };
-}
-
 const unconfiguredAuthority = <Port extends object>(name: string): Port =>
   new Proxy(
     {},
@@ -2792,10 +2744,6 @@ export class CodexService extends EventEmitter {
 
   private readonly permissionStateByScope = new Map<string | null, CodexPermissionState>();
   private readonly verifiedPermissionModeByProject = new Map<string, CodexPermissionMode>();
-  private readonly collaborationModePresets = new Map<
-    CodexCollaborationModeKind,
-    CodexCollaborationModePreset
-  >();
   private readonly pendingApprovals = new PendingServerRequestRegistry<PendingApproval>();
   private readonly pendingUserInputs = new PendingServerRequestRegistry<PendingUserInput>();
   private readonly pendingMcpElicitations =
@@ -5838,19 +5786,14 @@ export class CodexService extends EventEmitter {
   }): CodexCollaborationModeState {
     const fallback = input.fallback ?? this.buildDefaultCollaborationModeState();
     const mode = input.collaborationMode ?? fallback.mode;
-    const preset = this.collaborationModePresets.get(mode);
     const model =
       normalizeThreadSettingsModel(input.model) ??
-      normalizeThreadSettingsModel(preset?.model) ??
       normalizeThreadSettingsModel(fallback.settings.model) ??
       "";
-    const presetReasoningEffort = preset?.reasoningEffort;
     const reasoningEffort =
       input.reasoningEffort !== undefined
         ? input.reasoningEffort
-        : presetReasoningEffort !== undefined
-          ? presetReasoningEffort
-          : fallback.settings.reasoning_effort;
+        : fallback.settings.reasoning_effort;
 
     return {
       mode,
@@ -11029,7 +10972,7 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    const collaborationMode = this.resolveHeartbeatCollaborationMode(
+    const collaborationMode = await this.resolveHeartbeatCollaborationMode(
       context.heartbeat?.collaborationMode ?? null,
     );
     if (!collaborationMode) {
@@ -11188,12 +11131,12 @@ export class CodexService extends EventEmitter {
     return Math.max(...candidates) + intervalMs;
   }
 
-  private resolveHeartbeatCollaborationMode(
+  private async resolveHeartbeatCollaborationMode(
     mode: CodexHeartbeatAutomationCollaborationMode | null,
-  ): CodexAppServerCollaborationMode | null {
+  ): Promise<CodexAppServerCollaborationMode | null> {
     if (!mode) return null;
     if (typeof mode === "string") {
-      return this.buildCollaborationModePayload({ collaborationMode: mode });
+      return await this.buildCollaborationModePayload({ collaborationMode: mode });
     }
 
     return {
@@ -12793,27 +12736,6 @@ export class CodexService extends EventEmitter {
     return await this.readAuthStatusForChatGptServices(input);
   }
 
-  async listCollaborationModes(): Promise<CodexCollaborationModePreset[]> {
-    await this.ensureClientReady();
-
-    const result = await this.client.request<
-      "collaborationMode/list",
-      CollaborationModeListResponse
-    >("collaborationMode/list", {});
-    const presets = result.data
-      .map(parseCollaborationModePreset)
-      .filter((preset): preset is CodexCollaborationModePreset => preset !== null)
-      .filter((preset) => preset.mode === "default" || preset.mode === "plan");
-
-    this.collaborationModePresets.clear();
-    for (const preset of presets) {
-      if (this.collaborationModePresets.has(preset.mode)) continue;
-      this.collaborationModePresets.set(preset.mode, preset);
-    }
-
-    return presets;
-  }
-
   private buildCollaborationModePayload(input: {
     collaborationMode?: CodexCollaborationModeKind;
     model?: string;
@@ -12822,17 +12744,13 @@ export class CodexService extends EventEmitter {
     const selectedMode = input.collaborationMode;
     if (!selectedMode) return null;
 
-    const preset = this.collaborationModePresets.get(selectedMode);
-    const modelCandidate = input.model ?? preset?.model ?? null;
+    const modelCandidate = input.model ?? null;
     const model =
       typeof modelCandidate === "string" && modelCandidate.trim().length > 0
         ? modelCandidate.trim()
         : null;
     if (!model) return null;
-    const reasoningEffort =
-      input.reasoningEffort !== undefined
-        ? input.reasoningEffort
-        : (preset?.reasoningEffort ?? null);
+    const reasoningEffort = input.reasoningEffort ?? null;
 
     return {
       mode: selectedMode,
@@ -12844,11 +12762,11 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private buildThreadSettingsUpdateParams(
+  private async buildThreadSettingsUpdateParams(
     threadId: string,
     patch: CodexConversationThreadSettingsPatch,
     nextSettings: CodexConversationThreadSettings,
-  ): ThreadSettingsUpdateParams {
+  ): Promise<ThreadSettingsUpdateParams> {
     const params: ThreadSettingsUpdateParams = { threadId };
     const executionProfile = patch.executionProfile;
     if (executionProfile || hasOwnValue(patch, "model")) {
@@ -12871,7 +12789,7 @@ export class CodexService extends EventEmitter {
     ) {
       const selectedMode =
         patch.collaborationMode ?? nextSettings.collaborationMode?.mode ?? "default";
-      params.collaborationMode = this.buildCollaborationModePayload({
+      params.collaborationMode = await this.buildCollaborationModePayload({
         collaborationMode: selectedMode,
         model: normalizeThreadSettingsModel(nextSettings.model) ?? undefined,
         reasoningEffort: nextSettings.reasoningEffort,
@@ -16578,7 +16496,7 @@ export class CodexService extends EventEmitter {
       input.request.permissionMode,
       projectContext.workspaceRoots,
     );
-    const collaborationMode = this.buildCollaborationModePayload({
+    const collaborationMode = await this.buildCollaborationModePayload({
       ...(input.effectiveCollaborationMode
         ? { collaborationMode: input.effectiveCollaborationMode }
         : input.effectiveModel
@@ -17139,7 +17057,7 @@ export class CodexService extends EventEmitter {
         });
       }
 
-      const collaborationMode = this.buildCollaborationModePayload({
+      const collaborationMode = await this.buildCollaborationModePayload({
         collaborationMode: effectiveCollaborationMode,
         model: effectiveModel ?? undefined,
         reasoningEffort: effectiveReasoningEffort,
@@ -20116,7 +20034,7 @@ export class CodexService extends EventEmitter {
         }
 
         if (this.threadSettingsUpdateSupport !== "unsupported") {
-          const params = this.buildThreadSettingsUpdateParams(
+          const params = await this.buildThreadSettingsUpdateParams(
             threadId,
             validatedPatch,
             nextSettings,
@@ -20560,7 +20478,7 @@ export class CodexService extends EventEmitter {
       workspaceRoots,
     });
     this.applyThreadPermissionState(threadId, permissionState);
-    const collaborationMode = this.buildCollaborationModePayload({
+    const collaborationMode = await this.buildCollaborationModePayload({
       collaborationMode: effectiveCollaborationMode,
       model: effectiveModel ?? undefined,
       reasoningEffort: effectiveReasoningEffort,

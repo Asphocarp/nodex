@@ -134,6 +134,7 @@ export const live: Layer.Layer<
     );
 
     yield* ipc.handle("codex:model:list", () => composer.listModels);
+    yield* ipc.handle("codex:collaboration-mode:list", () => composer.listCollaborationModes);
     yield* ipc.handle("codex:experimental-features:list", (event) =>
       trusted(event, "Experimental feature access").pipe(
         Effect.andThen(composer.listExperimentalFeatures),

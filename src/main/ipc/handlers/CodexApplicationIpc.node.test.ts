@@ -55,6 +55,7 @@ it.effect("registers application channels directly against their owning modules"
         },
       ]),
       listExperimentalFeatures: Effect.succeed([]),
+      listCollaborationModes: Effect.succeed([]),
       listPlugins: () => Effect.succeed([]),
       activatePlugin: () => Effect.void,
       listSkills: () => Effect.succeed([]),
@@ -132,6 +133,7 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("codex:dictation:transcribe"));
     assert.isTrue(handlers.has("codex:conversation-image-asset:resolve"));
     assert.isTrue(handlers.has("codex:experimental-features:list"));
+    assert.isTrue(handlers.has("codex:collaboration-mode:list"));
     assert.isTrue(handlers.has("codex:composer-plugins:list"));
     assert.isTrue(handlers.has("codex:mcp-server-statuses:list"));
     assert.isTrue(handlers.has("codex:hooks:list"));

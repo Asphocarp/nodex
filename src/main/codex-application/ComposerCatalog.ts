@@ -19,6 +19,7 @@ import type {
   CodexComposerPlugin,
   CodexComposerPluginActivateInput,
   CodexComposerSkill,
+  CodexCollaborationModePreset,
   CodexModelOption,
 } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
@@ -33,7 +34,7 @@ import {
   buildComposerSkillInventory,
   hydrateComposerSkillInventoryIcons,
 } from "../codex/composer-skill-inventory";
-import { parseModelOption } from "./ComposerCatalogState";
+import { parseCollaborationModePreset, parseModelOption } from "./ComposerCatalogState";
 
 export class ComposerCatalogInputError extends Schema.TaggedError<ComposerCatalogInputError>()(
   "ComposerCatalogInputError",
@@ -56,6 +57,10 @@ export class ComposerCatalog extends Context.Service<
     readonly listModels: Effect.Effect<readonly CodexModelOption[], CodexRuntimeError>;
     readonly listExperimentalFeatures: Effect.Effect<
       readonly ExperimentalFeature[],
+      CodexRuntimeError
+    >;
+    readonly listCollaborationModes: Effect.Effect<
+      readonly CodexCollaborationModePreset[],
       CodexRuntimeError
     >;
     readonly listPlugins: (
@@ -180,6 +185,13 @@ export const live: Layer.Layer<ComposerCatalog, never, CodexGateway> = Layer.eff
           cursor = nextCursor;
         } while (true);
         return features;
+      }),
+      listCollaborationModes: Effect.gen(function* () {
+        yield* awaitReady;
+        const response = yield* gateway.requestLocal("collaborationMode/list", {});
+        return response.data
+          .map(parseCollaborationModePreset)
+          .filter((preset): preset is CodexCollaborationModePreset => preset !== null);
       }),
       listPlugins,
       activatePlugin,

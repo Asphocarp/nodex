@@ -20,7 +20,6 @@ import type {
   CodexHostMessage,
   CodexItemView,
   CodexMcpServerElicitationResponse,
-  CodexCollaborationModePreset,
   CodexConversationThreadSettings,
   CodexPermissionMode,
   CodexPermissionState,
@@ -292,7 +291,6 @@ interface TestableCodexService {
   ) => Promise<CodexThreadStartForSessionResult>;
   setThreadName: (threadId: string, name: string) => Promise<boolean>;
   setGeneratedThreadName: (threadId: string, name: string) => Promise<boolean>;
-  listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
@@ -8811,64 +8809,6 @@ describe("codex-service startTurn", () => {
 });
 
 describe("codex-service collaboration modes", () => {
-  test("parses collaborationMode/list response and filters unsupported modes", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-
-    client.start = async () => undefined;
-    client.request = async (method: string) => {
-      if (method !== "collaborationMode/list") return {};
-      return {
-        data: [
-          {
-            name: "Default",
-            mode: "default",
-            model: "gpt-5.3-codex",
-            reasoning_effort: "high",
-          },
-          {
-            name: "Plan",
-            mode: "plan",
-            model: "gpt-5.3-codex",
-            reasoningEffort: null,
-          },
-          {
-            name: "Ignored",
-            mode: "research",
-            model: "gpt-5.3-codex",
-            reasoning_effort: "low",
-          },
-        ],
-      };
-    };
-
-    try {
-      const presets = await service.listCollaborationModes();
-      expect(presets.length).toBe(2);
-      expect(JSON.stringify(presets)).toBe(
-        JSON.stringify([
-          {
-            name: "Default",
-            mode: "default",
-            model: "gpt-5.3-codex",
-            reasoningEffort: "high",
-          },
-          {
-            name: "Plan",
-            mode: "plan",
-            model: "gpt-5.3-codex",
-            reasoningEffort: null,
-          },
-        ]),
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("keeps the enabled host personality in manager state", async () => {
     const service = createService();
     try {

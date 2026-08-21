@@ -1,14 +1,52 @@
 import type {
+  CodexCollaborationModeKind,
+  CodexCollaborationModePreset,
   CodexModelOption,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
 } from "../../shared/types";
 
-const parseReasoningEffort = (value: unknown): CodexReasoningEffort | null => {
+export const parseReasoningEffort = (value: unknown): CodexReasoningEffort | null => {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   if (!normalized || normalized.length > 64) return null;
   return /[\u0000-\u001f\u007f-\u009f]/u.test(normalized) ? null : normalized;
+};
+
+const parseCollaborationModeKind = (value: unknown): CodexCollaborationModeKind | null =>
+  value === "default" || value === "plan" ? value : null;
+
+export const parseCollaborationModePreset = (
+  value: unknown,
+): CodexCollaborationModePreset | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Record<string, unknown>;
+  const mode = parseCollaborationModeKind(
+    candidate.mode ?? candidate.mode_kind ?? candidate.modeKind ?? candidate.kind,
+  );
+  if (mode === null) return null;
+  const rawReasoningEffort = Object.hasOwn(candidate, "reasoningEffort")
+    ? candidate.reasoningEffort
+    : candidate.reasoning_effort;
+  return {
+    name:
+      typeof candidate.name === "string" && candidate.name.trim().length > 0
+        ? candidate.name.trim()
+        : mode === "plan"
+          ? "Plan"
+          : "Default",
+    mode,
+    model:
+      typeof candidate.model === "string" && candidate.model.trim().length > 0
+        ? candidate.model.trim()
+        : null,
+    reasoningEffort:
+      rawReasoningEffort === null
+        ? null
+        : rawReasoningEffort === undefined
+          ? undefined
+          : (parseReasoningEffort(rawReasoningEffort) ?? undefined),
+  };
 };
 
 const parseReasoningEffortOption = (value: unknown): CodexReasoningEffortOption | null => {

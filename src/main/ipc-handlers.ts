@@ -3307,8 +3307,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     });
   });
 
-  registerHandle("codex:collaboration-mode:list", () => codexService.listCollaborationModes());
-
   registerHandle("codex:projectless-thread-cwd", (_, rawInput) => {
     const input = parseCodexProjectlessThreadCwdInput(rawInput);
     return createCodexProjectlessWorkspace({
