@@ -163,24 +163,6 @@ async function resolveCanonicalEnvironmentTarget(input: {
   return { canonicalEnvironmentRoot, canonicalTargetPath };
 }
 
-const environmentSaveQueues = new Map<string, Promise<void>>();
-
-async function runEnvironmentSaveQueued<T>(key: string, operation: () => Promise<T>): Promise<T> {
-  const previous = environmentSaveQueues.get(key) ?? Promise.resolve();
-  const result = previous.catch(() => undefined).then(operation);
-  const tail = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  environmentSaveQueues.set(key, tail);
-
-  try {
-    return await result;
-  } finally {
-    if (environmentSaveQueues.get(key) === tail) environmentSaveQueues.delete(key);
-  }
-}
-
 function countOwnValues(value: Record<string, string>): number {
   return Object.keys(value).length;
 }
@@ -660,69 +642,109 @@ export async function readWorktreeEnvironmentSettingsSnapshot(input: {
   };
 }
 
-export async function saveWorktreeEnvironmentConfigFile(
-  input: UpdateWorktreeEnvironmentConfigInput & {
-    workspacePath: string;
-  },
-): Promise<WorktreeEnvironmentSaveResult> {
-  const { resolvedWorkspacePath, environmentRoot, resolvedPath } = resolveEnvironmentPath({
-    workspacePath: input.workspacePath,
-    environmentPath: input.configPath,
-  });
+type WorktreeEnvironmentConfigFileSaveInput = UpdateWorktreeEnvironmentConfigInput & {
+  readonly workspacePath: string;
+};
 
-  assertExpectedRevision(input.expectedRevision);
-  const raw = serializeWorktreeEnvironmentDefinition(input.environment);
-  const initialTarget = await resolveCanonicalEnvironmentTarget({
-    resolvedWorkspacePath,
-    environmentRoot,
-    resolvedPath,
-    createRoot: true,
-  });
+/** Owns same-target write serialization for one application Scope. */
+export class WorktreeEnvironmentFileStore {
+  readonly #active = new Set<Promise<unknown>>();
+  readonly #saveQueues = new Map<string, Promise<void>>();
+  #closed = false;
 
-  return runEnvironmentSaveQueued(initialTarget.canonicalTargetPath, async () => {
-    const { canonicalTargetPath } = await resolveCanonicalEnvironmentTarget({
+  save(input: WorktreeEnvironmentConfigFileSaveInput): Promise<WorktreeEnvironmentSaveResult> {
+    if (this.#closed) return Promise.reject(new Error("Worktree environment store is closed"));
+    const operation = this.#save(input);
+    this.#active.add(operation);
+    return operation.finally(() => this.#active.delete(operation));
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    await Promise.allSettled([...this.#active]);
+    this.#saveQueues.clear();
+  }
+
+  async #runQueued<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    if (this.#closed) throw new Error("Worktree environment store is closed");
+    const previous = this.#saveQueues.get(key) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(operation);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#saveQueues.set(key, tail);
+
+    try {
+      return await result;
+    } finally {
+      if (this.#saveQueues.get(key) === tail) this.#saveQueues.delete(key);
+    }
+  }
+
+  async #save(
+    input: WorktreeEnvironmentConfigFileSaveInput,
+  ): Promise<WorktreeEnvironmentSaveResult> {
+    const { resolvedWorkspacePath, environmentRoot, resolvedPath } = resolveEnvironmentPath({
+      workspacePath: input.workspacePath,
+      environmentPath: input.configPath,
+    });
+
+    assertExpectedRevision(input.expectedRevision);
+    const raw = serializeWorktreeEnvironmentDefinition(input.environment);
+    const initialTarget = await resolveCanonicalEnvironmentTarget({
       resolvedWorkspacePath,
       environmentRoot,
       resolvedPath,
-      createRoot: false,
+      createRoot: true,
     });
 
-    if (input.expectedRevision === null) {
-      try {
-        await writeFile(canonicalTargetPath, raw, { encoding: "utf8", flag: "wx" });
-        return { type: "success" };
-      } catch (error) {
-        if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
-        const currentStat = await lstat(canonicalTargetPath);
-        if (!currentStat.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-          return { type: "conflict" };
+    return this.#runQueued(initialTarget.canonicalTargetPath, async () => {
+      const { canonicalTargetPath } = await resolveCanonicalEnvironmentTarget({
+        resolvedWorkspacePath,
+        environmentRoot,
+        resolvedPath,
+        createRoot: false,
+      });
+
+      if (input.expectedRevision === null) {
+        try {
+          await writeFile(canonicalTargetPath, raw, { encoding: "utf8", flag: "wx" });
+          return { type: "success" };
+        } catch (error) {
+          if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
+          const currentStat = await lstat(canonicalTargetPath);
+          if (!currentStat.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+            return { type: "conflict" };
+          }
+          const currentRaw = await readFile(canonicalTargetPath, "utf8");
+          if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+            return { type: "conflict" };
+          }
+          return currentRaw === raw ? { type: "success" } : { type: "conflict" };
         }
-        const currentRaw = await readFile(canonicalTargetPath, "utf8");
-        if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-          return { type: "conflict" };
-        }
-        return currentRaw === raw ? { type: "success" } : { type: "conflict" };
       }
-    }
 
-    const currentStat = await stat(canonicalTargetPath).catch((error: unknown) => {
-      if (isNodeErrorWithCode(error, "ENOENT")) return null;
-      throw error;
+      const currentStat = await stat(canonicalTargetPath).catch((error: unknown) => {
+        if (isNodeErrorWithCode(error, "ENOENT")) return null;
+        throw error;
+      });
+      if (!currentStat?.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+        return { type: "conflict" };
+      }
+
+      const currentRaw = await readFile(canonicalTargetPath, "utf8");
+      if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+        return { type: "conflict" };
+      }
+      if (currentRaw === raw) return { type: "success" };
+      if (createEnvironmentRevision(currentRaw) !== input.expectedRevision) {
+        return { type: "conflict" };
+      }
+
+      await writeFile(canonicalTargetPath, raw, "utf8");
+      return { type: "success" };
     });
-    if (!currentStat?.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-      return { type: "conflict" };
-    }
-
-    const currentRaw = await readFile(canonicalTargetPath, "utf8");
-    if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-      return { type: "conflict" };
-    }
-    if (currentRaw === raw) return { type: "success" };
-    if (createEnvironmentRevision(currentRaw) !== input.expectedRevision) {
-      return { type: "conflict" };
-    }
-
-    await writeFile(canonicalTargetPath, raw, "utf8");
-    return { type: "success" };
-  });
+  }
 }

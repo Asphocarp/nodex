@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, test } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 import type { WorktreeEnvironmentDefinition } from "../../shared/types";
 import { WORKTREE_ENVIRONMENT_MAX_BYTES } from "./worktree-environment-codec";
 import {
@@ -10,8 +10,22 @@ import {
   listWorktreeEnvironmentOptions,
   readWorktreeEnvironmentDefinition,
   readWorktreeEnvironmentSettingsSnapshot,
-  saveWorktreeEnvironmentConfigFile,
+  WorktreeEnvironmentFileStore,
 } from "./worktree-environment-service";
+
+let environmentFiles: WorktreeEnvironmentFileStore;
+
+beforeEach(() => {
+  environmentFiles = new WorktreeEnvironmentFileStore();
+});
+
+afterEach(async () => {
+  await environmentFiles.close();
+});
+
+const saveWorktreeEnvironmentConfigFile = (
+  input: Parameters<WorktreeEnvironmentFileStore["save"]>[0],
+) => environmentFiles.save(input);
 
 function createWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nodex-worktree-env-"));

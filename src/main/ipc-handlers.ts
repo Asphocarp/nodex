@@ -27,7 +27,6 @@ import type {
   CodexCollaborationModeKind,
   CodexProtocolRequestId,
   TerminalRunActionRequest,
-  UpdateWorktreeEnvironmentConfigInput,
 } from "../shared/types";
 import type {
   AgentImportApplyInput,
@@ -109,16 +108,6 @@ export class CodexIpcError extends Schema.TaggedError<CodexIpcError>()("CodexIpc
   operation: Schema.String,
   cause: Schema.Defect(),
 }) {}
-
-function assertValidWorktreeEnvironmentSaveInput(
-  input: UpdateWorktreeEnvironmentConfigInput,
-): void {
-  const revision = input?.expectedRevision;
-  if (revision === null || (typeof revision === "string" && /^sha256:[a-f0-9]{64}$/.test(revision)))
-    return;
-
-  throw new Error("Invalid local environment revision");
-}
 
 export const codexIpcLive = (
   options: CodexIpcOptions,
@@ -385,31 +374,6 @@ export const codexIpcLive = (
       registerHandle("worktrees:thread:restore", (_, threadId: string) =>
         codexService.restoreThreadManagedWorktree(threadId),
       );
-
-      registerHandle("worktrees:environments:list", (_, projectId: string) =>
-        codexService.listWorktreeEnvironments(projectId),
-      );
-
-      registerHandle("worktrees:environments:configs:list", (_, projectId: string) =>
-        codexService.listWorktreeEnvironmentConfigs(projectId),
-      );
-
-      registerHandle(
-        "worktrees:environments:configs:list-for-workspace",
-        (_, hostId: string, workspaceRoot: string) =>
-          codexService.listWorktreeEnvironmentConfigsForWorkspace(hostId, workspaceRoot),
-      );
-
-      registerHandle(
-        "worktrees:environments:config:read",
-        (_, projectId: string, configPath?: string | null) =>
-          codexService.readWorktreeEnvironmentConfig(projectId, configPath),
-      );
-
-      registerHandle("worktrees:environments:config:save", (_, input) => {
-        assertValidWorktreeEnvironmentSaveInput(input);
-        return codexService.saveWorktreeEnvironmentConfig(input);
-      });
 
       registerHandle("worktrees:delete", (_, hostId: string, worktreePath: string) =>
         codexService.deleteManagedWorktree(hostId, worktreePath),

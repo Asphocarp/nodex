@@ -135,6 +135,7 @@ import * as ProjectWorkspaceIpc from "../ipc/handlers/ProjectWorkspaceIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as StoreAdministrationIpc from "../ipc/handlers/StoreAdministrationIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
+import * as WorktreeEnvironmentIpc from "../ipc/handlers/WorktreeEnvironmentIpc";
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
 import { codexIpcLive } from "../ipc-handlers";
 import {
@@ -158,6 +159,10 @@ import {
   HostWorkerRuntime,
   live as hostWorkerRuntimeLive,
 } from "../host-runtime/HostWorkerRuntime";
+import {
+  WorktreeEnvironmentRuntime,
+  live as worktreeEnvironmentRuntimeLive,
+} from "../host-runtime/WorktreeEnvironmentRuntime";
 import {
   live as projectRuntimeLifecycleLive,
   ProjectRuntimeLifecycleRuntime,
@@ -908,6 +913,16 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const coreModules = Context.get(coreModulesContext, CoreModules);
+        const worktreeEnvironmentContext = yield* Layer.buildWithScope(
+          worktreeEnvironmentRuntimeLive.pipe(
+            Layer.provide(Layer.succeed(CoreModules, coreModules)),
+          ),
+          runtimeScope,
+        );
+        const worktreeEnvironments = Context.get(
+          worktreeEnvironmentContext,
+          WorktreeEnvironmentRuntime,
+        );
         const dataAuthority = yield* makeDesktopDataAuthority(callbacks).pipe(
           Effect.provideService(CoreAuthority, authority),
           Effect.provideService(CoreSessionAccess, access),
@@ -1601,6 +1616,19 @@ export const live: Layer.Layer<
               }),
             ),
           ),
+        );
+        yield* Layer.buildWithScope(
+          WorktreeEnvironmentIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+                Layer.succeed(WorktreeEnvironmentRuntime, worktreeEnvironments),
+              ),
+            ),
+          ),
+          runtimeScope,
         );
         yield* Layer.buildWithScope(
           codexIpcLive({

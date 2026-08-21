@@ -196,12 +196,7 @@ import type {
   ProjectSessionSummaryWindow,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
-  UpdateWorktreeEnvironmentConfigInput,
   UpdateManagedWorktreeSettingsInput,
-  WorktreeEnvironmentConfigRecord,
-  WorktreeEnvironmentOption,
-  WorktreeEnvironmentSaveResult,
-  WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
@@ -533,13 +528,7 @@ import {
   CODEX_THREAD_TITLE_TIMEOUT_MS,
   parseGeneratedThreadTitleResponse,
 } from "./thread-title-generator";
-import {
-  listWorktreeEnvironmentOptions,
-  readWorktreeEnvironmentDefinition,
-  listWorktreeEnvironmentConfigs as listWorktreeEnvironmentConfigRecords,
-  readWorktreeEnvironmentSettingsSnapshot as readWorktreeEnvironmentSettingsRecord,
-  saveWorktreeEnvironmentConfigFile,
-} from "./worktree-environment-service";
+import { readWorktreeEnvironmentDefinition } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import {
@@ -9328,76 +9317,6 @@ export class CodexService extends EventEmitter {
       await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
     }
     return summary;
-  }
-
-  async listWorktreeEnvironments(projectId: string): Promise<WorktreeEnvironmentOption[]> {
-    const project = await this.projectWorkspace.getProject(projectId);
-    const workspacePath = project?.primaryWorkspaceRoot?.trim();
-    if (!workspacePath) return [];
-    try {
-      return await listWorktreeEnvironmentOptions(workspacePath);
-    } catch {
-      return [];
-    }
-  }
-
-  async listWorktreeEnvironmentConfigs(
-    projectId: string,
-  ): Promise<WorktreeEnvironmentConfigRecord[]> {
-    const project = await this.projectWorkspace.getProject(projectId);
-    const workspacePath = project?.primaryWorkspaceRoot?.trim();
-    if (!workspacePath) return [];
-
-    try {
-      return await listWorktreeEnvironmentConfigRecords(workspacePath);
-    } catch {
-      return [];
-    }
-  }
-
-  async listWorktreeEnvironmentConfigsForWorkspace(
-    hostId: string,
-    workspaceRoot: string,
-  ): Promise<WorktreeEnvironmentConfigRecord[]> {
-    this.assertLocalPendingWorktreeHost(hostId);
-    const normalizedWorkspaceRoot = workspaceRoot.trim();
-    if (!normalizedWorkspaceRoot) {
-      throw new Error("Workspace root is required for local environments.");
-    }
-    return await listWorktreeEnvironmentConfigRecords(normalizedWorkspaceRoot);
-  }
-
-  async readWorktreeEnvironmentConfig(
-    projectId: string,
-    configPath?: string | null,
-  ): Promise<WorktreeEnvironmentSettingsSnapshot> {
-    const project = await this.projectWorkspace.getProject(projectId);
-    const workspacePath = project?.primaryWorkspaceRoot?.trim();
-    if (!project || !workspacePath) {
-      throw new Error("Project source folder is required for local environments.");
-    }
-
-    return readWorktreeEnvironmentSettingsRecord({
-      projectId,
-      projectName: project.name,
-      workspacePath,
-      configPath,
-    });
-  }
-
-  async saveWorktreeEnvironmentConfig(
-    input: UpdateWorktreeEnvironmentConfigInput,
-  ): Promise<WorktreeEnvironmentSaveResult> {
-    const project = await this.projectWorkspace.getProject(input.projectId);
-    const workspacePath = project?.primaryWorkspaceRoot?.trim();
-    if (!project || !workspacePath) {
-      throw new Error("Project source folder is required for local environments.");
-    }
-
-    return saveWorktreeEnvironmentConfigFile({
-      ...input,
-      workspacePath,
-    });
   }
 
   async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {

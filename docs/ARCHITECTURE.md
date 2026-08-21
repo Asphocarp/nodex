@@ -171,6 +171,12 @@ an operation aborts the prior operation with the same identity, and releasing th
 aborts every remaining operation. Action services receive that registry explicitly and must not
 retain process-global cancellation state.
 
+Local Environment settings are a filesystem-backed host Module, not Codex conversation state.
+Its scoped runtime resolves Project workspace authority through Core, owns same-target write
+serialization, and exposes the five renderer operations through a dedicated trusted IPC adapter.
+Scope release stops admission and waits for already-admitted atomic writes; neither the filesystem
+service nor `CodexService` may own a process-global write queue.
+
 Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0047](adr/0047-effect-control-plane-and-runtime-boundaries.md) defines the current frontier while the whole-Main kernel ADR is completed.
 
 Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).
