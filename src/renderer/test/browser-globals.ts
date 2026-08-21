@@ -1,3 +1,5 @@
+import { MotionGlobalConfig } from "motion";
+
 export function installAsyncRequestAnimationFrame(frameDelayMs = 0): void {
   Object.defineProperty(globalThis, "requestAnimationFrame", {
     configurable: true,
@@ -121,18 +123,24 @@ function createMediaQueryList(query: string, reducedMotion: boolean): MediaQuery
 }
 
 /** Installs a deterministic media-query adapter and returns an exact restore function. */
-export function installMotionPreferenceForTest(reducedMotion: boolean): () => void {
+export function installMotionPreferenceForTest(
+  reducedMotion: boolean,
+  options: { readonly skipAnimations?: boolean } = {},
+): () => void {
   const originalMatchMedia = window.matchMedia;
+  const originalSkipAnimations = MotionGlobalConfig.skipAnimations;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,
     value: (query: string) => createMediaQueryList(query, reducedMotion),
   });
+  MotionGlobalConfig.skipAnimations = options.skipAnimations ?? reducedMotion;
   return () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       writable: true,
       value: originalMatchMedia,
     });
+    MotionGlobalConfig.skipAnimations = originalSkipAnimations;
   };
 }

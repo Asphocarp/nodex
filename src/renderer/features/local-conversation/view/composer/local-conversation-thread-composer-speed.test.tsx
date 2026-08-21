@@ -1026,23 +1026,27 @@ describe("ThreadComposer speed menu", () => {
       src: "data:image/png;base64,c2VsZWN0ZWQ=",
     };
 
-    const result = await requestImageEditComposerSubmit(
-      IMAGE_EDIT_COMPOSER_CHANNEL_ID,
-      {
-        intent: {
-          analytics: { hasGeneralInstruction: true, selectedImageCount: 1 },
-          attachmentIds: [image.id],
-          attachments: [{ attachmentId: image.id, image, role: "selected" }],
-          entrypoint: "canvas_button",
-          focusComposerAfterSubmit: true,
-          isImageEditFollowUp: true,
-          mode: "select",
-          promptRaw: "Make the sky warmer",
-          queuePolicy: "queue-while-active",
+    let result: Awaited<ReturnType<typeof requestImageEditComposerSubmit>> | undefined;
+    await act(async () => {
+      result = await requestImageEditComposerSubmit(
+        IMAGE_EDIT_COMPOSER_CHANNEL_ID,
+        {
+          intent: {
+            analytics: { hasGeneralInstruction: true, selectedImageCount: 1 },
+            attachmentIds: [image.id],
+            attachments: [{ attachmentId: image.id, image, role: "selected" }],
+            entrypoint: "canvas_button",
+            focusComposerAfterSubmit: true,
+            isImageEditFollowUp: true,
+            mode: "select",
+            promptRaw: "Make the sky warmer",
+            queuePolicy: "queue-while-active",
+          },
+          source: "canvas",
         },
-        source: "canvas",
-      },
-    );
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     expect(result).toEqual({ status: "queued" });
     expect(queued).toHaveLength(1);
@@ -1204,6 +1208,7 @@ describe("ThreadComposer speed menu", () => {
     expect(await view.findByRole("button", { name: "diagram.png" })).toBeDefined();
 
     await keyDownComposer(view, { key: "Enter" });
+    await settleAsyncRender();
     await waitFor(() => expect(queued).toHaveLength(1));
     expect(queued).toEqual([{
       text: "Follow up",
@@ -3034,6 +3039,7 @@ describe("ThreadComposer speed menu", () => {
     await keyDownComposer(view, { key: "Enter" });
 
     expect(selectedModes[0]).toBe("plan");
+    view.unmount();
 
     const offView = await renderComposer({
       selectedCollaborationMode: "plan",
@@ -3054,8 +3060,10 @@ describe("ThreadComposer speed menu", () => {
     });
 
     await keyDownComposer(offView, { key: "Enter" });
+    await settleAsyncRender();
 
     expect(selectedModes[1]).toBe("default");
+    offView.unmount();
   });
 
   test("slash Goal command activates goal mode chip and placeholder", async () => {

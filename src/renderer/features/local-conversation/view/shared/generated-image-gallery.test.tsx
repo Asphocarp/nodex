@@ -10,6 +10,7 @@ import {
   registerUserAttachmentImagePreviewOpener,
   type OpenUserAttachmentImagePreviewOptions,
 } from "@/features/user-attachment-image-editor";
+import { installMotionPreferenceForTest } from "@/test/browser-globals";
 
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 const originalVisibilityState = Object.getOwnPropertyDescriptor(
@@ -79,6 +80,7 @@ afterEach(() => {
 
 describe("GeneratedImageGallery pending scheduling", () => {
   test("subscribes only visible intersecting cells and pauses with the document", async () => {
+    const restoreMotionPreference = installMotionPreferenceForTest(false);
     ControlledIntersectionObserver.instances = [];
     Object.defineProperty(globalThis, "IntersectionObserver", {
       configurable: true,
@@ -150,6 +152,7 @@ describe("GeneratedImageGallery pending scheduling", () => {
       view.unmount();
       measurement.mockRestore();
       getContext.mockRestore();
+      restoreMotionPreference();
     }
   });
 

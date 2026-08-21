@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
-import { act } from "react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 
 import type { OwnedDocumentDescriptor } from "../../../shared/block-documents/contracts";
 import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents/page-document";
@@ -375,8 +374,9 @@ describe("canonical Page history panel", () => {
         onClose={() => undefined}
       />,
     );
+    const activityButton = await view.findByRole("button", { name: "Activity" });
     await act(async () => {
-      fireEvent.click(await view.findByRole("button", { name: "Activity" }));
+      fireEvent.click(activityButton);
       await Promise.resolve();
     });
     await waitFor(() => {

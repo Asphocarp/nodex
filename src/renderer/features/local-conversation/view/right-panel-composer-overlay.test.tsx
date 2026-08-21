@@ -171,8 +171,8 @@ describe("RightPanelComposerOverlay", () => {
       return button;
     });
     expect(target.style.getPropertyValue("--right-panel-composer-overlay-reserve")).toBe("0px");
-    hideButton.focus();
     await act(async () => {
+      hideButton.focus();
       fireEvent.click(hideButton, { detail: 0 });
     });
 
@@ -374,7 +374,9 @@ describe("RightPanelComposerOverlay", () => {
       return element;
     });
     const elsewhere = view.getByRole("button", { name: "Elsewhere" });
-    elsewhere.focus();
+    await act(async () => {
+      elsewhere.focus();
+    });
 
     view.rerender(renderOverlay(secondTarget));
 
@@ -464,7 +466,9 @@ describe("RightPanelComposerOverlay", () => {
       if (!element) throw new Error("Expected composer editor");
       return element;
     });
-    editor.focus();
+    await act(async () => {
+      editor.focus();
+    });
 
     view.rerender(renderOverlay(true));
     await waitFor(() => {

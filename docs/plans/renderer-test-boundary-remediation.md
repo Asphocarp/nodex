@@ -11,22 +11,23 @@ The observable result is a renderer suite that preserves or strengthens behavior
 ## Progress
 
 - [x] (2026-08-21 05:17Z) Confirm the branch is directly based on the latest `origin/main`, read repository architecture and testing rules, and retrieve current Vitest 4.1 documentation.
-- [ ] Record three targeted baseline samples for all 37 audited items and identify each file's slow cases on the current PR tree.
-- [ ] Remediate `workbench-shell.layout-panel-actions.test.tsx`.
-- [ ] Remediate `workbench-shell.pages-shell-navigation.test.tsx`.
-- [ ] Remediate `workbench-shell.automations-conversation.test.tsx`.
-- [ ] Remediate `workbench-shell.panel-commands.test.tsx`.
-- [ ] Remediate `workbench-shell.sidebar-projects.test.tsx`.
-- [ ] Remediate `workbench-shell.sidebar-core.test.tsx`.
-- [ ] Remediate `workbench-shell.routes-threads.test.tsx`.
-- [ ] Remediate `workbench-shell.project-agent-dock.test.tsx`.
-- [ ] Remediate `workbench-shell.owner-panel-commands.test.tsx`.
+- [x] (2026-08-21 05:56Z) Record three stable-tree targeted samples for all 37 audited items and identify each file's slow cases on the current PR tree.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.layout-panel-actions.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.pages-shell-navigation.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.automations-conversation.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.panel-commands.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.sidebar-projects.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.sidebar-core.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.routes-threads.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.project-agent-dock.test.tsx`.
+- [x] (2026-08-21 05:56Z) Remediate `workbench-shell.owner-panel-commands.test.tsx`.
 - [x] (2026-08-21 04:29Z) Isolate the heavy child-editor seams in `data-source-page-property-context-menu.test.tsx`, `date-property-editor.test.tsx`, and `date-mention-chip.test.tsx`, and add focused real-calendar tests.
-- [ ] Remediate the remaining actionable P1/P2 files: `review-diff-panel`, `connected-thread-stage`, `thread-floating-summary-panel`, `nfm-text-action-menu`, `local-conversation-thread-body`, `local-conversation-turn-entry`, `local-conversation-footer`, `page-create-dialog`, `project-edit-dialog`, `local-conversation-request-cards`, `left-sidebar-projects-section`, `database-view-page-context-menu`, `workspace-files-panel`, `local-environments-settings-page`, `local-conversation-composer-shell`, `nfm-side-menu`, and `library-resource-actions`.
-- [ ] Remediate the two exceptional single tests in `codex-pending-request-card.test.tsx` and `workbench-settings-overlay.licenses.test.tsx`.
-- [ ] Re-measure and explicitly accept the efficient P3 suites without speculative refactors: `local-conversation-thread-composer-speed`, `database-view-surface`, `local-conversation-store`, `app-shell-tabs`, `browser-sidebar-panel`, and `local-conversation-block-leaves`.
-- [ ] Update the row-by-row audit ledger with the owning Module, retained DOM contract, before/after median, and exact replacement coverage for all 37 items.
-- [ ] Run targeted tests, changed-file lint, typecheck, three final targeted timing samples, a local full renderer suite, PR CI, and an explicit GitHub full matrix.
+- [x] (2026-08-21 05:56Z) Remediate the remaining actionable P1/P2 files: `review-diff-panel`, `connected-thread-stage`, `thread-floating-summary-panel`, `nfm-text-action-menu`, `local-conversation-thread-body`, `local-conversation-turn-entry`, `local-conversation-footer`, `page-create-dialog`, `project-edit-dialog`, `local-conversation-request-cards`, `left-sidebar-projects-section`, `database-view-page-context-menu`, `workspace-files-panel`, `local-environments-settings-page`, `local-conversation-composer-shell`, `nfm-side-menu`, and `library-resource-actions`.
+- [x] (2026-08-21 05:56Z) Remediate the two exceptional single tests in `codex-pending-request-card.test.tsx` and `workbench-settings-overlay.licenses.test.tsx`.
+- [x] (2026-08-21 05:56Z) Re-measure and explicitly accept the efficient P3 suites without speculative refactors: `local-conversation-thread-composer-speed`, `database-view-surface`, `local-conversation-store`, `app-shell-tabs`, `browser-sidebar-panel`, and `local-conversation-block-leaves`.
+- [x] (2026-08-21 05:56Z) Update the row-by-row audit ledger with the owning Module, retained DOM contract, before/after median, and exact replacement coverage for all 37 items.
+- [x] (2026-08-21 06:40Z) Run targeted tests, final lint/typecheck, three stable-tree JSON timing samples, and the local full renderer suite (318 files, 2,484 tests, warning-clean).
+- [ ] Run PR CI and an explicit GitHub full matrix.
 - [ ] Rebase onto `origin/main` if it advances, resolve every review thread, and leave PR #72 non-draft, clean, and confidently mergeable.
 
 ## Surprises & Discoveries
@@ -37,6 +38,12 @@ The observable result is a renderer suite that preserves or strengthens behavior
   Evidence: GitHub run 32446291531 exceeded seven minutes before cancellation, while the shared pool completed.
 - Observation: GitHub-hosted runner CPU time varies materially even for the same source tree.
   Evidence: complete renderer samples on the existing PR tree ranged from 226.46s to 315.31s; therefore acceptance uses three-sample medians and reports the range.
+- Observation: The cross-file cost owner was Motion timeline settlement, not thirty-seven unrelated timers.
+  Evidence: making Motion timelines instant without changing the default accessibility preference cut the final 37-item median aggregate to 61.88s while explicit full-motion and reduced-motion lifecycle tests continued to opt in.
+- Observation: Reduced-motion testing exposed a production focus race that full-motion exit timing had hidden.
+  Evidence: request-card next-question focus failed until reduced-motion `AnimatePresence` used synchronous mounting; the explicit outgoing wait-mode contract still passes with motion enabled.
+- Observation: Three-sample validation found that Page Create's portalled-picker test only synthesized click and did not exercise real pointer ordering.
+  Evidence: after using pointer down/up/click, the complete file passed ten consecutive runs (140/140) and all three restarted final 37-file samples passed 943/943.
 
 ## Decision Log
 
@@ -49,16 +56,19 @@ The observable result is a renderer suite that preserves or strengthens behavior
 - Decision: Keep jsdom for focus, selection, portal, Browser/WebView lifecycle, React effects, and one representative wiring flow per owner/entry category; move pure decisions and matrices to Node.
   Rationale: This follows the runtime that owns the behavior and avoids shallow test-only abstractions.
   Date/Author: 2026-08-21 / Codex on behalf of Jun.
+- Decision: Renderer behavior tests default to instant Motion timelines without impersonating a user's reduced-motion preference; full-motion and reduced-motion contracts opt in through one restorable adapter.
+  Rationale: Settled product behavior should not pay for unrelated exit trees, while accessibility and animation lifecycle coverage remain explicit and deterministic.
+  Date/Author: 2026-08-21 / Codex on behalf of Jun.
 
 ## Outcomes & Retrospective
 
-Work is in progress. The existing PR has already reduced shared Motion cost and isolated three calendar/editor seams, but the remaining Workbench matrices, 17 actionable P1/P2 files, two exceptional single tests, and six P3 evidence reviews remain to be completed.
+All 35 slow files and two exceptional single tests now have a row-by-row disposition in the local audit ledger. Pure settings, request-context, copy-payload, and interrupted-resume rules moved behind production Modules; heavy calendar/editor children and settled Motion use deterministic seams; four presentation-only assertions were removed; and six efficient P3 suites were explicitly accepted after measurement. The final three JSON samples each passed 37 files and 943 tests, with a 61.88s median aggregate and a 33.14s Workbench-nine median. The local full renderer suite passed 318 files and 2,484 tests without act, Motion, missing-key, or undefined-query warnings. GitHub PR/full-matrix validation remains before the plan is complete.
 
 ## Context and Orientation
 
 The renderer test runner is configured by `vitest.renderer.config.ts` and runs ordinary TSX tests in jsdom with four fork workers. Pure renderer helpers use `vitest.node.config.ts` and filenames ending in `.node.test.ts` or `.node.test.tsx`. The shared Workbench test fixture is `src/renderer/components/workbench/workbench-testkit/workbench-shell-harness.tsx`; it mounts the real `WorkbenchShell` behind mocked transport and feature adapters. A seam is the place where callers cross a Module Interface. An adapter is a production or test implementation at that seam. A deep Module hides many state transitions behind a small Interface so callers and tests do not reconstruct those transitions through the UI.
 
-The audit identified 35 files whose test execution was at least two seconds and two additional individual tests over one second. The audit's timings came from PR #71. PR #72 already changed the default Workbench fixture to reduced motion and created typed calendar adapters, so the first action in this plan is a new current-tree baseline rather than reusing stale numbers.
+The audit identified 35 files whose test execution was at least two seconds and two additional individual tests over one second. The audit's timings came from PR #71. The initial PR #72 tree changed the default Workbench fixture to reduced motion and created typed calendar adapters, so the first action in this plan was a new current-tree baseline rather than reusing stale numbers; the final tree no longer impersonates the accessibility preference and instead settles Motion timelines directly.
 
 The architecture constraint is that the renderer Window Session aggregate owns live owner-scoped Scenes, panel trees, navigation, and geometry. Pure transitions for those concepts belong under `src/renderer/lib` or the narrow owning feature, while React components remain presentation and effect adapters. Conversation projection and draft logic belongs under `src/renderer/features/local-conversation`; component tests should not create a second ownership model.
 

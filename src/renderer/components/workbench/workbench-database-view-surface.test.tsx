@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
@@ -220,7 +220,10 @@ describe("WorkbenchDatabaseViewSurface", () => {
       readonly deletePage: (input: { readonly pageId: string }) => Promise<void>;
     };
 
-    await pageActionPort.deletePage({ pageId: "page-from-database" });
+    await act(async () => {
+      await pageActionPort.deletePage({ pageId: "page-from-database" });
+      await Promise.resolve();
+    });
 
     expect(api.commitPageLifecycleIntent).toHaveBeenCalledWith(expect.objectContaining({
       kind: "delete",

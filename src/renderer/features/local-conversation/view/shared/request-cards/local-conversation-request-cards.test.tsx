@@ -137,29 +137,34 @@ describe("local-conversation request cards", () => {
   });
 
   test("focuses the next question after its reduced-motion panel mounts", async () => {
+    const restoreMotionPreference = installMotionPreferenceForTest(true);
     const {
       REQUEST_INPUT_COMPOSER_POLICY,
       RequestComposerView,
     } = await import("./local-conversation-request-cards");
-    const view = render(
-      <NodexTooltipProvider>
-        <RequestComposerView
-          request={multiQuestionRequest}
-          policy={REQUEST_INPUT_COMPOSER_POLICY}
-          onSubmit={async () => { }}
-          onEscapeDismiss={async () => { }}
-          submitErrorMessage="Could not submit input request"
-          dismissErrorMessage="Could not dismiss input request"
-        />
-      </NodexTooltipProvider>,
-    );
+    try {
+      const view = render(
+        <NodexTooltipProvider>
+          <RequestComposerView
+            request={multiQuestionRequest}
+            policy={REQUEST_INPUT_COMPOSER_POLICY}
+            onSubmit={async () => { }}
+            onEscapeDismiss={async () => { }}
+            submitErrorMessage="Could not submit input request"
+            dismissErrorMessage="Could not dismiss input request"
+          />
+        </NodexTooltipProvider>,
+      );
 
-    fireEvent.click(view.getByRole("radio", { name: "3" }));
+      fireEvent.click(view.getByRole("radio", { name: "3" }));
 
-    await waitFor(() => {
-      const input = view.getByPlaceholderText("Type your answer");
-      expect(document.activeElement).toBe(input);
-    }, { timeout: 2_000 });
+      await waitFor(() => {
+        const input = view.getByPlaceholderText("Type your answer");
+        expect(document.activeElement).toBe(input);
+      }, { timeout: 2_000 });
+    } finally {
+      restoreMotionPreference();
+    }
   });
 
   test("focuses the new option panel instead of the outgoing option panel", async () => {

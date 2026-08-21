@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
+import { cleanup } from "@testing-library/react";
 import { render, settleAsyncRender } from "../../test/dom";
 import {
   BrowserUseCursorPortal,
@@ -13,6 +14,7 @@ const identity = {
 } as const;
 
 afterEach(() => {
+  cleanup();
   browserSidebarRendererWebviewManager.disposeAll();
   document.body.innerHTML = "";
 });

@@ -1,4 +1,5 @@
 import { cleanup } from "@testing-library/react";
+import { MotionGlobalConfig } from "motion";
 import { afterEach } from "vitest";
 import { installMotionPreferenceForTest } from "./browser-globals";
 
@@ -13,9 +14,10 @@ const nativeCSS = globalThis.CSS ?? {
   },
 };
 
-// Renderer behavior tests assert settled product state. Motion-specific tests
-// explicitly opt back into full motion at their own contract boundary.
-installMotionPreferenceForTest(true);
+// Renderer behavior tests assert settled product state without impersonating a
+// user's accessibility preference. Motion contracts opt into live timelines;
+// reduced-motion contracts set that preference explicitly.
+installMotionPreferenceForTest(false, { skipAnimations: true });
 if (typeof globalThis.PointerEvent !== "function") {
   Object.defineProperty(globalThis, "PointerEvent", {
     configurable: true,
@@ -126,6 +128,7 @@ const browserWindow = window;
 const browserDocument = document;
 const browserCustomEvent = browserWindow.CustomEvent;
 const browserMatchMedia = browserWindow.matchMedia;
+const browserSkipAnimations = MotionGlobalConfig.skipAnimations;
 const browserWindowApiDescriptor = Object.getOwnPropertyDescriptor(browserWindow, "api");
 function createDefaultRendererApi(): NonNullable<Window["api"]> {
   let persistedAtomRevision = 0;
@@ -291,6 +294,7 @@ function restoreBrowserGlobals() {
     writable: true,
     value: browserMatchMedia,
   });
+  MotionGlobalConfig.skipAnimations = browserSkipAnimations;
   Object.defineProperty(globalThis, "KeyboardEvent", {
     configurable: true,
     writable: true,

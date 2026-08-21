@@ -1,6 +1,7 @@
 import { describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
+import { installWindowApi } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";
 import type {
   BackupRecord,
@@ -81,6 +82,24 @@ function buildTelemetrySettings(overrides: Partial<TelemetrySettings> = {}): Tel
 }
 
 async function renderOverlay(path = buildSettingsPath("backups")) {
+  const rendererApi = window.api;
+  if (!rendererApi) throw new Error("Expected the renderer test API");
+  installWindowApi({
+    ...rendererApi,
+    invoke: async (channel: string, ...args: unknown[]) => {
+      if (channel === "settings:window-restore:get") {
+        return { policy: "all" };
+      }
+      if (channel === "settings:thread-notifications:get") {
+        return {
+          turnMode: "unfocused",
+          permissionsEnabled: true,
+          questionsEnabled: true,
+        };
+      }
+      return rendererApi.invoke(channel, ...args);
+    },
+  });
   const { SettingsRouteShell } = await import("./workbench-settings-route-shell");
   return render(
     <AppProviders>

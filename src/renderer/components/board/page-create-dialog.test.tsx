@@ -538,8 +538,17 @@ describe("PageCreateDialog", () => {
     fireEvent.click(view.getByRole("button", { name: "Status" }));
     const buildOption = await view.findByRole("option", { name: "Build" });
     await act(async () => {
+      fireEvent.pointerDown(buildOption, {
+        button: 0,
+        pointerId: 1,
+        pointerType: "mouse",
+      });
+      fireEvent.pointerUp(buildOption, {
+        button: 0,
+        pointerId: 1,
+        pointerType: "mouse",
+      });
       fireEvent.click(buildOption);
-      await Promise.resolve();
     });
 
     expect(view.getByRole("dialog")).toBeTruthy();
