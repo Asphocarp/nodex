@@ -40,7 +40,6 @@ import {
   getCommandKeymapState,
   getHistorySettings,
   getNodexHome,
-  getThreadNotificationSettings,
   getWindowRestoreSettings,
 } from "./local-store/config";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
@@ -49,7 +48,6 @@ import {
   type CodexScheduledAutomationScheduler,
 } from "./codex-scheduled-automation-scheduler";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
-import { CodexThreadNotificationCoordinator } from "./codex/codex-thread-notification-coordinator";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
   parsePageDeepLink,
@@ -218,7 +216,6 @@ let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = nul
 let appPermissionHandlersRegistered = false;
 let browserPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
-let codexThreadNotificationCoordinator: CodexThreadNotificationCoordinator | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
@@ -2074,8 +2071,6 @@ function beginMainRuntimeShutdown(): void {
   runtimeReminderTick = null;
   scheduledAutomationScheduler?.dispose();
   scheduledAutomationScheduler = null;
-  codexThreadNotificationCoordinator?.dispose();
-  codexThreadNotificationCoordinator = null;
   windowRuntime = null;
 }
 
@@ -2268,48 +2263,6 @@ export async function runMainAppStartup(
     });
   });
   const notificationRendererRouter = context.rendererClientRouter;
-  codexThreadNotificationCoordinator = new CodexThreadNotificationCoordinator({
-    source: codexService,
-    getSettings: getThreadNotificationSettings,
-    isAppForegrounded: () => codexService.hasForegroundRendererClient(),
-    isConversationPresentedInForeground: (conversationId) =>
-      codexService.isRendererConversationPresentedInForeground(conversationId),
-    resolveTargetClientId: (conversationId) => {
-      const presenting = codexService.resolveRendererPresentedSurfaceClient(conversationId);
-      if (presenting) return presenting;
-      const fallbackWindow = getLastFocusedWindow();
-      if (!fallbackWindow) return null;
-      return notificationRendererRouter.getClientIdForWebContentsId(fallbackWindow.webContents.id);
-    },
-    showNotification: (notification, targetClientId, onAction) => {
-      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(targetClientId);
-      if (webContentsId === null) return;
-      const targetWindow = windowRuntime?.get(webContentsId);
-      if (!targetWindow || targetWindow.isDestroyed()) return;
-      desktopNotificationManager?.showNotification(
-        notification,
-        targetWindow.webContents,
-        onAction,
-      );
-    },
-    dismissNotification: (selector) => {
-      desktopNotificationManager?.dismiss(selector);
-    },
-    dispatchAction: (targetClientId, action) =>
-      notificationRendererRouter.sendToClient(targetClientId, "desktop-notification:action", [
-        action,
-      ]),
-    focusTargetClient: (targetClientId) => {
-      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(targetClientId);
-      if (webContentsId === null) return;
-      const targetWindow = windowRuntime?.get(webContentsId);
-      if (!targetWindow || targetWindow.isDestroyed()) return;
-      if (targetWindow.isMinimized()) targetWindow.restore();
-      targetWindow.show();
-      targetWindow.focus();
-    },
-    logger,
-  });
   codexService.setNodexAgentAuthorizationBroker(
     new NodexAgentAuthorizationBroker({
       rendererClientRouter: notificationRendererRouter,

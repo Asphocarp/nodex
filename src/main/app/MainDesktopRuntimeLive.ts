@@ -119,6 +119,9 @@ import {
   RendererClientRuntime,
   live as rendererClientRuntimeLive,
 } from "../host-runtime/RendererClientRuntime";
+import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
+import { getThreadNotificationSettings } from "../local-store/config";
+import { getLogger } from "../logging/logger";
 import {
   activateMainServiceComposition,
   createMainServiceComposition,
@@ -148,6 +151,8 @@ const runtimeError = (operation: string, cause: unknown) =>
 
 const deliveryError = (operation: string, cause: unknown) =>
   coreRuntimeError({ operation, reason: "delivery", retryable: false, cause });
+
+const notificationLogger = getLogger({ component: "codex-thread-notification-runtime" });
 
 /** Production Main runtime owner while feature Layers replace the remaining application Modules. */
 export const live: Layer.Layer<
@@ -873,6 +878,59 @@ export const live: Layer.Layer<
           }).pipe(Effect.orDie);
           return yield* startup.failure;
         }
+        yield* Layer.buildWithScope(
+          codexThreadNotificationRuntimeLive({
+            source: activation.composition.codexService,
+            getSettings: getThreadNotificationSettings,
+            isAppForegrounded: () =>
+              activation.composition.codexService.hasForegroundRendererClient(),
+            isConversationPresentedInForeground: (conversationId) =>
+              activation.composition.codexService.isRendererConversationPresentedInForeground(
+                conversationId,
+              ),
+            resolveTargetClientId: (conversationId) => {
+              const presenting =
+                activation.composition.codexService.resolveRendererPresentedSurfaceClient(
+                  conversationId,
+                );
+              if (presenting) return presenting;
+              const fallbackWindow = windows.getLastFocused();
+              if (!fallbackWindow) return null;
+              return rendererClients.router.getClientIdForWebContentsId(
+                fallbackWindow.webContents.id,
+              );
+            },
+            showNotification: (notification, targetClientId, onAction) => {
+              const webContentsId =
+                rendererClients.router.getWebContentsIdForClientId(targetClientId);
+              if (webContentsId === null) return;
+              const targetWindow = windows.get(webContentsId);
+              if (!targetWindow || targetWindow.isDestroyed()) return;
+              desktopNotifications.manager.showNotification(
+                notification,
+                targetWindow.webContents,
+                onAction,
+              );
+            },
+            dismissNotification: (selector) => desktopNotifications.manager.dismiss(selector),
+            dispatchAction: (targetClientId, action) =>
+              rendererClients.router.sendToClient(targetClientId, "desktop-notification:action", [
+                action,
+              ]),
+            focusTargetClient: (targetClientId) => {
+              const webContentsId =
+                rendererClients.router.getWebContentsIdForClientId(targetClientId);
+              if (webContentsId === null) return;
+              const targetWindow = windows.get(webContentsId);
+              if (!targetWindow || targetWindow.isDestroyed()) return;
+              if (targetWindow.isMinimized()) targetWindow.restore();
+              targetWindow.show();
+              targetWindow.focus();
+            },
+            logger: notificationLogger,
+          }),
+          runtimeScope,
+        );
         controller = startup.success;
         yield* Scope.addFinalizer(
           runtimeScope,
