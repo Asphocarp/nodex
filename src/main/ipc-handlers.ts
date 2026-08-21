@@ -11,7 +11,6 @@ import {
   type MenuItemConstructorOptions,
   type OpenDialogOptions,
 } from "electron";
-import { performance } from "node:perf_hooks";
 import { homedir } from "node:os";
 import { isAbsolute, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
@@ -54,12 +53,10 @@ import type {
   CodexApprovalResponse,
   CodexCollaborationModeKind,
   CodexProtocolRequestId,
-  DatabasePage,
   TerminalRunActionRequest,
   TerminalSessionSnapshot,
   UpdateWorktreeEnvironmentConfigInput,
 } from "../shared/types";
-import type { ProjectionCursor } from "../shared/projection-stream";
 import type {
   AgentImportApplyInput,
   AgentImportScanInput,
@@ -93,7 +90,6 @@ import { ProjectLifecycleInputSchema } from "../shared/schemas/projects";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import { createProjectWithDefaultSource } from "./default-project-source";
 import { resolveNodexProjectsDirectory } from "./nodex-projects-directory";
-import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { CoreResult } from "../shared/core-result";
 import { coreResultFrom } from "./core-result-ipc";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
@@ -144,10 +140,6 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const ipcPayloadLogger = getLogger({
-  subsystem: "ipc",
-  component: "board-read-model",
-});
 const rendererDiagnosticsLogger = getLogger({
   subsystem: "renderer",
   component: "diagnostics",
@@ -349,16 +341,6 @@ interface RegisterIpcHandlersOptions {
     input: CodexHeartbeatAutomationThreadStateChangedInput,
     rendererClientId: string | null,
   ) => void;
-  databaseModule?: Pick<
-    DesktopDatabaseModuleBridge,
-    | "getDatabaseViewWindow"
-    | "getDatabaseListWindow"
-    | "getDatabaseViewGroups"
-    | "getLibraryDatabaseViewWindow"
-    | "getLibraryDatabaseListWindow"
-    | "getLibraryDatabaseViewGroups"
-    | "getDatabaseRowPage"
-  >;
   automationModule?: DesktopAutomationModulePort;
   storeAdministration?: DesktopStoreAdministrationPort;
   onStoreRestored?: () => void;
@@ -540,11 +522,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     discardExitedTerminalSessions: (input) =>
       options.terminalRuntime?.discardExitedSessionsForOwners(input) ?? Promise.resolve([]),
   });
-  const databaseModule =
-    options.databaseModule ??
-    createUnconfiguredIpcAuthority<NonNullable<RegisterIpcHandlersOptions["databaseModule"]>>(
-      "Database authority",
-    );
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
       .clientId ?? null;
@@ -789,87 +766,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   registerHandle(
     "project-session-threads:detach",
     async (_, sessionId: string) => await projectWorkspace.detachProjectSessionThread(sessionId),
-  );
-
-  registerCoreResultHandle("database:view-window:get", async (_, projectId, input) => {
-    const startedAt = performance.now();
-    const window = await databaseModule.getDatabaseViewWindow(projectId, input);
-    ipcPayloadLogger.info("Database View window payload served", {
-      channel: "database:view-window:get",
-      projectId,
-      rowCount: window.rows.length,
-      hasContinuation: window.nextCursor !== null,
-      approxPayloadBytes: approximateJsonPayloadBytes(window),
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-    return window;
-  });
-
-  registerCoreResultHandle("database:list-window:get", async (_, projectId, input) => {
-    const startedAt = performance.now();
-    const window = await databaseModule.getDatabaseListWindow(projectId, input);
-    ipcPayloadLogger.info("Database List window payload served", {
-      channel: "database:list-window:get",
-      projectId,
-      rowCount: window.rows.length,
-      hasContinuation: window.nextCursor !== null,
-      approxPayloadBytes: approximateJsonPayloadBytes(window),
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-    return window;
-  });
-
-  registerCoreResultHandle(
-    "database:view-groups:get",
-    async (_, projectId, input) => await databaseModule.getDatabaseViewGroups(projectId, input),
-  );
-
-  registerCoreResultHandle("library-database:view-window:get", async (_, input) => {
-    const startedAt = performance.now();
-    const window = await databaseModule.getLibraryDatabaseViewWindow(input);
-    ipcPayloadLogger.info("Library Database View window payload served", {
-      channel: "library-database:view-window:get",
-      rowCount: window.rows.length,
-      hasContinuation: window.nextCursor !== null,
-      approxPayloadBytes: approximateJsonPayloadBytes(window),
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-    return window;
-  });
-
-  registerCoreResultHandle("library-database:list-window:get", async (_, input) => {
-    const startedAt = performance.now();
-    const window = await databaseModule.getLibraryDatabaseListWindow(input);
-    ipcPayloadLogger.info("Library Database List window payload served", {
-      channel: "library-database:list-window:get",
-      rowCount: window.rows.length,
-      hasContinuation: window.nextCursor !== null,
-      approxPayloadBytes: approximateJsonPayloadBytes(window),
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-    return window;
-  });
-
-  registerCoreResultHandle(
-    "library-database:view-groups:get",
-    async (_, input) => await databaseModule.getLibraryDatabaseViewGroups(input),
-  );
-
-  registerHandle(
-    "database-row:get",
-    (
-      _,
-      projectId: string,
-      pageId: string,
-      status?: string,
-      minimumCommitCursor?: ProjectionCursor,
-    ) =>
-      databaseModule.getDatabaseRowPage(
-        projectId,
-        pageId,
-        status as DatabasePage["status"] | undefined,
-        minimumCommitCursor,
-      ),
   );
 
   registerHandle(

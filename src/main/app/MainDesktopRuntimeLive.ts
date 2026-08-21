@@ -105,6 +105,7 @@ import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc"
 import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
 import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
 import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
+import * as DatabaseProjectionIpc from "../ipc/handlers/DatabaseProjectionIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
@@ -1008,6 +1009,18 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
+          DatabaseProjectionIpc.live({ database: databaseModule }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
           PageSearchIpc.live({ library: libraryModule }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1333,7 +1346,6 @@ export const live: Layer.Layer<
                 );
               },
               projectWorkspace,
-              databaseModule,
               rendererClientRouter: rendererClients.router,
               onHeartbeatAutomationsEnabledChanged: (input) => {
                 applicationSchedulers.setHeartbeatAutomationsEnabled(input.enabled);
