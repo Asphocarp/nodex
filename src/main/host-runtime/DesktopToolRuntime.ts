@@ -243,18 +243,12 @@ export const live = (
   );
 
 export interface DesktopToolRuntimePromiseAdapter {
-  readonly browserRuntime: BrowserRuntimeAvailability;
-  readonly clearBrowserUseBindings: () => Promise<void>;
-  readonly ensureComputerUse: () => Promise<ComputerUseRuntimeResult>;
   readonly ensureReady: () => Promise<DesktopToolRuntimeSnapshot>;
-  readonly installBrowserUseBindings: (bindings: BrowserUseRuntimeBindings) => Promise<void>;
   readonly promoteBrowserUseRoute: (
     input: Parameters<BrowserUseRoutePromoterPort["promote"]>[0],
   ) => Promise<void>;
   readonly releaseBrowserUseSession: (sessionId: string) => Promise<void>;
-  readonly readConfigRequirements: () => Promise<ConfigRequirementsReadResponse>;
   readonly threadConfig: () => Promise<NonNullable<ThreadStartParams["config"]> | null>;
-  readonly setAvailableBackendsResolver: (resolver: () => readonly BrowserRuntimeBackend[]) => void;
   readonly turnEnded: (
     input: Parameters<BrowserUseTurnLifecyclePort["turnEnded"]>[0],
   ) => Promise<void>;
@@ -267,18 +261,11 @@ export const makeDesktopToolRuntimePromiseAdapter = (
   runtime: DesktopToolRuntime["Service"],
   callbacks: ScopedCallbackRuntime["Service"],
 ): DesktopToolRuntimePromiseAdapter => ({
-  browserRuntime: runtime.browserRuntime,
-  clearBrowserUseBindings: () => callbacks.runPromise(runtime.clearBrowserUseBindings),
-  ensureComputerUse: () => callbacks.runPromise(runtime.ensureComputerUse),
   ensureReady: () => callbacks.runPromise(runtime.ensureReady),
-  installBrowserUseBindings: (bindings) =>
-    callbacks.runPromise(runtime.installBrowserUseBindings(bindings)),
   promoteBrowserUseRoute: (input) => callbacks.runPromise(runtime.promoteBrowserUseRoute(input)),
   releaseBrowserUseSession: (sessionId) =>
     callbacks.runPromise(runtime.releaseBrowserUseSession(sessionId)),
-  readConfigRequirements: () => callbacks.runPromise(runtime.readConfigRequirements),
   threadConfig: () => callbacks.runPromise(runtime.threadConfig),
-  setAvailableBackendsResolver: runtime.setAvailableBackendsResolver,
   turnEnded: (input) => callbacks.runPromise(runtime.turnEnded(input)),
   turnStarted: (input) => callbacks.runPromise(runtime.turnStarted(input)),
 });

@@ -1549,8 +1549,6 @@ function createService(options?: {
       listSkills: async () => [],
     },
     desktopTools: {
-      browserRuntime: TEST_CODEX_RUNTIME.browserRuntime,
-      clearBrowserUseBindings: async () => undefined,
       ensureReady: async () => ({
         browserPluginReady: false,
         computerUsePluginReady: false,
@@ -1565,17 +1563,9 @@ function createService(options?: {
           status: "unavailable",
         },
       }),
-      ensureComputerUse: async () => ({
-        message: "Computer Use is unavailable in this fixture",
-        reason: "runtime-unavailable",
-        status: "unavailable",
-      }),
-      installBrowserUseBindings: async () => undefined,
       promoteBrowserUseRoute: async () => undefined,
-      readConfigRequirements: async () => ({ requirements: null }),
       releaseBrowserUseSession: async () => undefined,
       threadConfig: async () => null,
-      setAvailableBackendsResolver: () => undefined,
       turnEnded: async () => undefined,
       turnStarted: async () => undefined,
     },
