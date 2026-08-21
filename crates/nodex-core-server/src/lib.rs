@@ -48,7 +48,9 @@ use nodex_core::infrastructure::module_receipts::read_module_receipt;
 use nodex_core::infrastructure::sqlite::{
     StoreError, StoreErrorCode, transaction_duration_metrics, with_immediate_transaction,
 };
-use nodex_core::infrastructure::store::SqliteStoreKernel;
+use nodex_core::infrastructure::store::{
+    SqliteStoreKernel, persist_clean_shutdown_validation_receipt,
+};
 use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::workspace::ProjectWorkspaceModule;
@@ -3413,6 +3415,24 @@ pub async fn run_with_selection(
     match &result {
         Ok(()) => tracing::info!(subsystem = "lifecycle", "Core server stopped"),
         Err(_) => tracing::error!(subsystem = "lifecycle", "Core server stopped with an error"),
+    }
+    if result.is_ok() {
+        match state.store.clean_shutdown_validation_receipt() {
+            Ok(receipt) => {
+                if let Err(error) = persist_clean_shutdown_validation_receipt(&home, &receipt) {
+                    tracing::warn!(
+                        error = %error,
+                        "Core could not publish clean Store validation evidence; next startup will fully validate"
+                    );
+                } else {
+                    tracing::info!("Core published clean Store validation evidence");
+                }
+            }
+            Err(error) => tracing::warn!(
+                error = %error,
+                "Core could not read clean Store validation evidence; next startup will fully validate"
+            ),
+        }
     }
     // Keep the runtime ownership fence held until the Store has released its
     // independent writer lock. A replacement Core may start as soon as

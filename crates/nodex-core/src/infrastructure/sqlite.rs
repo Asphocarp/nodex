@@ -457,6 +457,7 @@ pub fn transaction_duration_metrics() -> DurationMetricSnapshot {
 }
 
 pub fn validate_store(connection: &Connection) -> Result<(), StoreError> {
+    let integrity_started_at = Instant::now();
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
         return Err(StoreError::new(
@@ -465,6 +466,11 @@ pub fn validate_store(connection: &Connection) -> Result<(), StoreError> {
             false,
         ));
     }
+    tracing::info!(
+        durationMs = duration_millis(integrity_started_at.elapsed()),
+        "SQLite integrity validation completed"
+    );
+    let foreign_key_started_at = Instant::now();
     let foreign_key_violations = connection
         .prepare(
             "SELECT \"table\", rowid, parent, fkid \
@@ -501,7 +507,15 @@ pub fn validate_store(connection: &Connection) -> Result<(), StoreError> {
             false,
         ));
     }
+    tracing::info!(
+        durationMs = duration_millis(foreign_key_started_at.elapsed()),
+        "SQLite foreign-key validation completed"
+    );
     Ok(())
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

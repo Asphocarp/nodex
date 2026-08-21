@@ -120,8 +120,26 @@ interrupted first open remains an empty, retryable database. A current Store
 must match the catalog's exact current fingerprint. A supported predecessor
 must match its catalog fingerprint, complete revision-independent semantics,
 and reconstructible Yrs Documents before migration is reported or a backup is
-published. Every path applies the complete current validation set before a
-Store becomes ready.
+published.
+
+Deep Store validation checks SQLite integrity and foreign keys, exact schema
+and Core metadata, durable semantic invariants, and LocalCommit coverage and
+parentage. It is required before fresh Stores, migrations, restores and other
+replacement recovery, and whenever opening cannot prove that the immediately
+previous Core generation closed cleanly. A clean Core shutdown publishes one
+private, atomic validation receipt after graceful drain. The next generation
+consumes that receipt before opening SQLite and may take the trusted path only
+when its current schema revision, Store epoch, and LocalCommit head exactly
+match, after rechecking schema and Core metadata. Receipt consumption is
+single-use: crash, interrupted startup, missing/invalid/stale receipt, or any
+changed Store identity forces deep validation. An unsafe receipt filesystem
+entry is rejected as an invalid Profile rather than trusted. Failure to publish
+a receipt is safe; it only makes the following startup validate deeply.
+
+Startup logs record durations for SQLite integrity, foreign-key, semantic and
+canonical timestamp validation, LocalCommit validation, planner maintenance,
+and runtime startup so large-Profile opening cost is attributable without
+logging content.
 
 A migration follows one durable pattern:
 

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Instant;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use nodex_core_contracts::database::DatabaseViewFilter;
@@ -17,17 +18,29 @@ const CORE_SCHEMA_OWNER: &str = "rust_core";
 
 /// Validates the complete current Store contract through one deep interface.
 pub(crate) fn validate_current_store(connection: &Connection) -> Result<(), StoreError> {
+    let started_at = Instant::now();
     validate_store(connection)?;
     validate_schema_identity(connection, CURRENT_STORE_REVISION)?;
     validate_core_metadata(connection)?;
-    validate_store_semantics(connection)
+    validate_store_semantics(connection)?;
+    tracing::info!(
+        durationMs = duration_millis(started_at.elapsed()),
+        "Deep current Store validation completed"
+    );
+    Ok(())
 }
 
 /// Validates revision-independent semantic authority shared by the current
 /// Store and an exact migration source.
 pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), StoreError> {
+    let started_at = Instant::now();
     validate_codex_thread_timestamp_invariants(connection)?;
+    let canonical_timestamp_started_at = Instant::now();
     validate_canonical_text_timestamp_invariants(connection)?;
+    tracing::info!(
+        durationMs = duration_millis(canonical_timestamp_started_at.elapsed()),
+        "Canonical Store timestamp validation completed"
+    );
     validate_thread_execution_hosts(connection)?;
     validate_default_draft_sessions(connection)?;
     validate_thread_recency(connection)?;
@@ -39,7 +52,12 @@ pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), St
     validate_document_block_tombstones(connection)?;
     validate_document_page_references(connection)?;
     validate_block_transfer_undo(connection)?;
-    validate_document_materialization_derivation(connection)
+    validate_document_materialization_derivation(connection)?;
+    tracing::info!(
+        durationMs = duration_millis(started_at.elapsed()),
+        "Semantic Store validation completed"
+    );
+    Ok(())
 }
 
 pub(crate) fn validate_core_metadata(connection: &Connection) -> Result<(), StoreError> {
@@ -593,6 +611,10 @@ fn expect_zero(count: i64, label: &str) -> Result<(), StoreError> {
         return Ok(());
     }
     Err(corrupt(format!("Current Store contains {count} {label}")))
+}
+
+fn duration_millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn corrupt(message: impl Into<String>) -> StoreError {
