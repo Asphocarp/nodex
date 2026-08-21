@@ -50,6 +50,11 @@ import {
   live as codexPreferencesLive,
 } from "../codex-application/CodexPreferences";
 import {
+  CodexAttachments,
+  live as codexAttachmentsLive,
+} from "../codex-application/CodexAttachments";
+import { getThreadGoalAttachmentsRoot } from "../thread-goal-attachments";
+import {
   CodexToolRuntime,
   live as codexToolRuntimeLive,
 } from "../codex-application/CodexToolRuntime";
@@ -219,6 +224,11 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const preferences = Context.get(preferencesContext, CodexPreferences);
+        const attachmentsContext = yield* Layer.buildWithScope(
+          codexAttachmentsLive(getThreadGoalAttachmentsRoot(runtimeStateHome)),
+          runtimeScope,
+        );
+        const attachments = Context.get(attachmentsContext, CodexAttachments);
         const computerUseContext = yield* Layer.buildWithScope(
           computerUseRuntimeLive({
             browserRuntime: codexRuntime.browserRuntime,
@@ -348,6 +358,7 @@ export const live: Layer.Layer<
                 Layer.succeed(ComposerCatalog, composerCatalogService),
                 Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(CodexPreferences, preferences),
+                Layer.succeed(CodexAttachments, attachments),
                 Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
                 Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
               ),
@@ -368,6 +379,7 @@ export const live: Layer.Layer<
               composerCatalog,
               computerUseRuntime,
               preferences,
+              attachments: attachments.legacy,
               codexClient: codexBridge,
               codexRuntime,
               runtimeStateHome,

@@ -118,7 +118,10 @@ import type {
 } from "./codex-worktree-worker-port";
 import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-operation";
 import type { CodexThreadHandoffJournalEntry } from "./codex-thread-handoff-journal";
-import type { PastedTextAttachmentManager } from "../thread-goal-attachments";
+import {
+  PastedTextAttachmentManager,
+  ThreadGoalAttachmentDirectoryManager,
+} from "../thread-goal-attachments";
 import type { NodexAgentAuthorityPort } from "../nodex-agent-authority-port";
 import {
   CODEX_THREAD_TITLE_CONFIG,
@@ -1490,6 +1493,18 @@ function createService(options?: {
     autoDeleteEnabled: true,
     autoDeleteLimit: 15,
   };
+  const configuredAttachmentsRoot =
+    options?.resolveThreadGoalAttachmentsRoot?.() ?? DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT;
+  if (typeof configuredAttachmentsRoot !== "string") {
+    throw new Error("The Codex service fixture requires a synchronous attachment root");
+  }
+  const pastedTextAttachments = new PastedTextAttachmentManager({
+    attachmentsRoot: configuredAttachmentsRoot,
+  });
+  const goalAttachments = new ThreadGoalAttachmentDirectoryManager({
+    attachmentsRoot: configuredAttachmentsRoot,
+  });
+  void pastedTextAttachments.cleanupPendingRemovals().catch(() => undefined);
   const service = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1515,6 +1530,7 @@ function createService(options?: {
       }),
     },
     preferences: { current: () => "friendly" },
+    attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome:
@@ -1550,9 +1566,6 @@ function createService(options?: {
     threadCodexConfigBuilder: options?.threadCodexConfigBuilder,
     projectlessHomeDirectory:
       options?.projectlessHomeDirectory ?? (() => DEFAULT_TEST_LOCAL_STORE_ROOT),
-    resolveThreadGoalAttachmentsRoot:
-      options?.resolveThreadGoalAttachmentsRoot ??
-      (() => DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT),
     loadWorktreeSetupBaseEnvironment: options?.loadWorktreeSetupBaseEnvironment,
     browserTransferStateReader:
       options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
@@ -10721,6 +10734,7 @@ describe("codex-service pending goal draft lifecycle", () => {
 
   interface PendingGoalServiceInternals {
     getPastedTextAttachmentManager: () => Promise<PastedTextAttachmentManager>;
+    getThreadGoalDirectoryManager: () => Promise<ThreadGoalAttachmentDirectoryManager>;
     startDynamicCreatedConversation: (
       input: PendingGoalLaunchInput,
       options?: { readonly persistClientThreadIdentity?: boolean },
@@ -10934,14 +10948,8 @@ describe("codex-service pending goal draft lifecycle", () => {
     const internals = pendingGoalInternals(service);
     const manager = await internals.getPastedTextAttachmentManager();
     const source = await manager.createRawSource({ text: "retry after app-server readiness" });
-    const goalService = service as unknown as {
-      materializeThreadGoalDraft: (draft: {
-        readonly objective: string;
-        readonly pastedTextAttachments: readonly ManagedGoalSource[];
-        readonly imageAttachments: readonly [];
-      }) => Promise<{ readonly objective: string; readonly attachmentDirectory: string | null }>;
-    };
-    const materialized = await goalService.materializeThreadGoalDraft({
+    const goalManager = await internals.getThreadGoalDirectoryManager();
+    const materialized = await goalManager.materializeDraft({
       objective: "Retry the eager-local goal",
       pastedTextAttachments: [source],
       imageAttachments: [],
@@ -12520,7 +12528,7 @@ describe("codex-service approval fallback", () => {
       resolveThreadGoalAttachmentsRoot: () => attachmentRoot,
     });
     const serviceInternals = service as unknown as {
-      createPastedTextAttachment: CodexService["createPastedTextAttachment"];
+      getPastedTextAttachmentManager: () => Promise<PastedTextAttachmentManager>;
       preparePromptForTurn: (
         prompt: string,
         promptInput: CodexPromptInput,
@@ -12532,7 +12540,9 @@ describe("codex-service approval fallback", () => {
     const pastedText = "  leading\ntrailing  \n";
 
     try {
-      const attachment = await serviceInternals.createPastedTextAttachment({ text: pastedText });
+      const attachment = await (
+        await serviceInternals.getPastedTextAttachmentManager()
+      ).createRawSource({ text: pastedText });
       const prepared = await serviceInternals.preparePromptForTurn("Prompt", {
         text: "Prompt",
         textAttachments: [attachment],

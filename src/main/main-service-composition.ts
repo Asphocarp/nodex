@@ -6,6 +6,7 @@ import type { ComposerCatalogPromiseAdapter } from "./codex-application/Composer
 import type { AgentProviderRuntimePromiseAdapter } from "./codex-application/AgentProviderRuntimePromiseAdapter";
 import type { ComputerUseRuntimePromiseAdapter } from "./host-runtime/ComputerUseRuntime";
 import type { CodexPreferences } from "./codex-application/CodexPreferences";
+import type { CodexAttachments } from "./codex-application/CodexAttachments";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
@@ -19,6 +20,7 @@ export interface MainServiceCompositionInput {
   readonly composerCatalog: ComposerCatalogPromiseAdapter;
   readonly computerUseRuntime: ComputerUseRuntimePromiseAdapter;
   readonly preferences: Pick<CodexPreferences["Service"], "current">;
+  readonly attachments: CodexAttachments["Service"]["legacy"];
   readonly codexClient: CodexApplicationClient;
   readonly codexRuntime: ResolvedCodexRuntime;
 }
@@ -38,6 +40,7 @@ export function createMainServiceComposition(
     composerCatalog: input.composerCatalog,
     computerUseRuntime: input.computerUseRuntime,
     preferences: input.preferences,
+    attachments: input.attachments,
     client: input.codexClient,
     runtime: input.codexRuntime,
   });

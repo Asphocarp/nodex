@@ -17,6 +17,11 @@ import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { CodexPreferences } from "../../codex-application/CodexPreferences";
+import { CodexAttachments } from "../../codex-application/CodexAttachments";
+import {
+  PastedTextAttachmentManager,
+  ThreadGoalAttachmentDirectoryManager,
+} from "../../thread-goal-attachments";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { live } from "./CodexApplicationIpc";
@@ -132,7 +137,23 @@ it.effect("registers application channels directly against their owning modules"
       setPersonality: (next) =>
         Effect.sync(() => {
           personality = next;
+      }),
+    });
+    const attachments = CodexAttachments.of({
+      legacy: {
+        pastedText: new PastedTextAttachmentManager({ attachmentsRoot: "/tmp/nodex-ipc-test" }),
+        goals: new ThreadGoalAttachmentDirectoryManager({
+          attachmentsRoot: "/tmp/nodex-ipc-test",
         }),
+      },
+      createPastedText: () => Effect.die("unused"),
+      readPastedText: () => Effect.die("unused"),
+      removePastedText: () => Effect.die("unused"),
+      materializePastedText: () => Effect.die("unused"),
+      cleanupGoalSources: () => Effect.die("unused"),
+      materializeGoal: () => Effect.die("unused"),
+      cleanupMaterializedGoal: () => Effect.void,
+      readEditableObjective: () => Effect.die("unused"),
     });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
@@ -172,6 +193,7 @@ it.effect("registers application channels directly against their owning modules"
             Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
             Layer.succeed(ConversationCommands, conversations),
             Layer.succeed(CodexPreferences, preferences),
+            Layer.succeed(CodexAttachments, attachments),
             Layer.succeed(CodexToolRuntime, tools),
           ),
         ),
@@ -186,6 +208,10 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("codex:connection:status"));
     assert.isTrue(handlers.has("codex:personality:get"));
     assert.isTrue(handlers.has("codex:personality:set"));
+    assert.isTrue(handlers.has("codex:thread:goal:materialize-draft"));
+    assert.isTrue(handlers.has("codex:pasted-text:create"));
+    assert.isTrue(handlers.has("codex:pasted-text:read"));
+    assert.isTrue(handlers.has("codex:pasted-text:remove"));
     assert.isTrue(handlers.has("codex:thread:memory-mode:set"));
     assert.isTrue(handlers.has("codex:feedback:upload"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:list"));

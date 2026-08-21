@@ -109,7 +109,6 @@ import type {
   CodexHostMessage,
   CodexItemView,
   CodexLiveFileAttachment,
-  CodexPastedTextAttachment,
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationRequest,
   CodexMcpServerElicitationResponse,
@@ -149,7 +148,6 @@ import type {
   CodexThreadActionResult,
   CodexThreadDetail,
   CodexThreadGoalDraftInput,
-  CodexThreadGoalMaterializedDraft,
   CodexThreadGoalSetActionInput,
   CodexThreadRuntimeStatus,
   CodexThreadStatusType,
@@ -267,11 +265,10 @@ import {
   ProjectSessionForkInputSchema,
 } from "../../shared/schemas/project-sessions";
 import {
-  getThreadGoalAttachmentsRoot,
   PastedTextAttachmentManager,
-  readThreadGoalEditableObjective,
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
+import type { CodexAttachments } from "../codex-application/CodexAttachments";
 import {
   buildPermissionModeConfigEdits,
   buildThreadPermissionOverrides,
@@ -1417,6 +1414,7 @@ type CodexServiceOptions = {
   client: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntime: ComputerUseRuntimePromiseAdapter;
+  attachments: CodexAttachments["Service"]["legacy"];
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
   inactiveRendererOwnerRetentionMs?: number;
@@ -1437,7 +1435,6 @@ type CodexServiceOptions = {
     cwd: string | null,
   ) => Promise<NonNullable<ThreadStartParams["config"]> | null>;
   projectlessHomeDirectory?: () => string;
-  resolveThreadGoalAttachmentsRoot?: () => Promise<string> | string;
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   worktreeWorkerPort?: CodexWorktreeWorkerPort;
   remoteWorktreeWorkerBundlePath?: string;
@@ -2655,15 +2652,7 @@ export class CodexService extends EventEmitter {
   private browserUseTurnLifecycle: CodexBrowserUseTurnLifecyclePort | null = null;
   private browserUseRoutePromoter: CodexBrowserUseRoutePromoterPort | null = null;
   private readonly projectlessHomeDirectory: () => string;
-  private readonly resolveThreadGoalAttachmentsRoot: () => Promise<string>;
-  private readonly pastedTextAttachmentManagersByRoot = new Map<
-    string,
-    PastedTextAttachmentManager
-  >();
-  private readonly threadGoalDirectoryManagersByRoot = new Map<
-    string,
-    ThreadGoalAttachmentDirectoryManager
-  >();
+  private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts = new CodexExecutionHostRegistry();
   private readonly localExecutionHostFileTransfer: CodexLocalExecutionHostFileTransfer;
@@ -2881,6 +2870,7 @@ export class CodexService extends EventEmitter {
       options.remoteWorktreeWorkerBundlePath ?? path.join(__dirname, "remote-worktree-worker.cjs"),
     );
     this.computerUseRuntime = options.computerUseRuntime;
+    this.attachments = options.attachments;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
       options?.inactiveRendererOwnerRetentionMs ?? INACTIVE_RENDERER_OWNER_RETENTION_MS,
@@ -2915,12 +2905,6 @@ export class CodexService extends EventEmitter {
       options?.threadCodexConfigBuilder ??
       (async () => await browserUseThreadConfigBuilder.build());
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
-    this.resolveThreadGoalAttachmentsRoot = async () => {
-      const configuredRoot = options?.resolveThreadGoalAttachmentsRoot?.();
-      if (configuredRoot !== undefined) return await configuredRoot;
-      return getThreadGoalAttachmentsRoot(this.runtimeStateHome);
-    };
-    void this.getPastedTextAttachmentManager().catch(() => undefined);
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     const localManagedRoot =
       this.managedWorktreeSettingsPort.read().worktreeRoot ??
@@ -16957,9 +16941,9 @@ export class CodexService extends EventEmitter {
         error,
       });
       if (progressThreadId === null && input.threadGoalMaterializedDraft?.attachmentDirectory) {
-        await this.cleanupThreadGoalMaterializedDraft(
-          input.threadGoalMaterializedDraft.attachmentDirectory,
-        ).catch(() => undefined);
+        await this.attachments.goals
+          .removeDirectory(input.threadGoalMaterializedDraft.attachmentDirectory)
+          .catch(() => undefined);
       }
       if (requestedRunInTarget !== "newWorktree") {
         this.emitThreadStartProgress({
@@ -19827,43 +19811,6 @@ export class CodexService extends EventEmitter {
       },
     );
     return response.goal ?? null;
-  }
-
-  async materializeThreadGoalDraft(
-    draft: CodexThreadGoalDraftInput,
-  ): Promise<CodexThreadGoalMaterializedDraft> {
-    return await (await this.getThreadGoalDirectoryManager()).materializeDraft(draft);
-  }
-
-  async createPastedTextAttachment(input: {
-    readonly text: string;
-    readonly hostId?: string;
-  }): Promise<CodexPastedTextAttachment> {
-    return await (await this.getPastedTextAttachmentManager()).createRawSource(input);
-  }
-
-  async readPastedTextAttachment(input: {
-    readonly file: CodexLiveFileAttachment;
-  }): Promise<string> {
-    return await (await this.getPastedTextAttachmentManager()).readRawSource(input.file);
-  }
-
-  async removePastedTextAttachment(input: {
-    readonly file: CodexLiveFileAttachment;
-  }): Promise<void> {
-    await (await this.getPastedTextAttachmentManager()).remove(input.file.path);
-  }
-
-  async cleanupThreadGoalMaterializedDraft(attachmentDirectory: string | null): Promise<void> {
-    if (attachmentDirectory === null) return;
-    await (await this.getThreadGoalDirectoryManager()).removeDirectory(attachmentDirectory);
-  }
-
-  async readThreadGoalEditableObjective(objective: string): Promise<string> {
-    return await readThreadGoalEditableObjective({
-      attachmentsRoot: await this.resolveThreadGoalAttachmentsRoot(),
-      objective,
-    });
   }
 
   async setThreadGoal(input: CodexThreadGoalSetActionInput): Promise<ThreadGoal | null> {
@@ -22817,22 +22764,11 @@ export class CodexService extends EventEmitter {
   }
 
   private async getPastedTextAttachmentManager(): Promise<PastedTextAttachmentManager> {
-    const attachmentsRoot = path.resolve(await this.resolveThreadGoalAttachmentsRoot());
-    const existing = this.pastedTextAttachmentManagersByRoot.get(attachmentsRoot);
-    if (existing) return existing;
-    const manager = new PastedTextAttachmentManager({ attachmentsRoot });
-    this.pastedTextAttachmentManagersByRoot.set(attachmentsRoot, manager);
-    void manager.cleanupPendingRemovals().catch(() => undefined);
-    return manager;
+    return this.attachments.pastedText;
   }
 
   private async getThreadGoalDirectoryManager(): Promise<ThreadGoalAttachmentDirectoryManager> {
-    const attachmentsRoot = path.resolve(await this.resolveThreadGoalAttachmentsRoot());
-    const existing = this.threadGoalDirectoryManagersByRoot.get(attachmentsRoot);
-    if (existing) return existing;
-    const manager = new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot });
-    this.threadGoalDirectoryManagersByRoot.set(attachmentsRoot, manager);
-    return manager;
+    return this.attachments.goals;
   }
 
   private async cleanupPendingGoalSources(entry: CodexPendingWorktreeEntry): Promise<void> {

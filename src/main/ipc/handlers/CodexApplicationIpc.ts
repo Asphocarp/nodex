@@ -14,7 +14,13 @@ import type {
   CodexConversationImageAssetResolveInput,
   CodexPersonality,
   CodexRateLimitResetInput,
+  CodexThreadGoalDraftInput,
 } from "../../../shared/types";
+import type {
+  CreatePastedTextAttachmentInput,
+  ReadPastedTextAttachmentInput,
+  RemovePastedTextAttachmentInput,
+} from "../../../shared/pasted-text-attachments";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
@@ -34,6 +40,7 @@ import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { CodexPreferences } from "../../codex-application/CodexPreferences";
+import { CodexAttachments } from "../../codex-application/CodexAttachments";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
@@ -150,6 +157,7 @@ export const live: Layer.Layer<
   | ComposerExternalSuggestions
   | ConversationCommands
   | CodexPreferences
+  | CodexAttachments
   | CodexToolRuntime
 > = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -164,6 +172,7 @@ export const live: Layer.Layer<
     const externalSuggestions = yield* ComposerExternalSuggestions;
     const conversations = yield* ConversationCommands;
     const preferences = yield* CodexPreferences;
+    const attachments = yield* CodexAttachments;
     const tools = yield* CodexToolRuntime;
     const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
       validate("authorize-renderer", () =>
@@ -222,6 +231,31 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle("codex:personality:set", (_event, personality: CodexPersonality) =>
       preferences.setPersonality(personality),
+    );
+    yield* ipc.handle(
+      "codex:thread:goal:materialize-draft",
+      (_event, draft: CodexThreadGoalDraftInput) => attachments.materializeGoal(draft),
+    );
+    yield* ipc.handle(
+      "codex:thread:goal:materialized-cleanup",
+      (_event, attachmentDirectory: string | null) =>
+        attachments.cleanupMaterializedGoal(attachmentDirectory),
+    );
+    yield* ipc.handle(
+      "codex:thread:goal:editable-objective:read",
+      (_event, objective: string) => attachments.readEditableObjective(objective),
+    );
+    yield* ipc.handle(
+      "codex:pasted-text:create",
+      (_event, input: CreatePastedTextAttachmentInput) => attachments.createPastedText(input),
+    );
+    yield* ipc.handle("codex:pasted-text:read", (_event, input: ReadPastedTextAttachmentInput) =>
+      attachments.readPastedText(input.file),
+    );
+    yield* ipc.handle(
+      "codex:pasted-text:remove",
+      (_event, input: RemovePastedTextAttachmentInput) =>
+        attachments.removePastedText(input.file),
     );
     yield* ipc.handle(
       "codex:thread:memory-mode:set",

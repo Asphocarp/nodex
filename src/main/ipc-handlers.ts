@@ -3574,30 +3574,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.clearThreadGoal(threadId),
   );
 
-  registerHandle("codex:thread:goal:materialize-draft", (_, draft) =>
-    codexService.materializeThreadGoalDraft(draft),
-  );
-
-  registerHandle("codex:thread:goal:materialized-cleanup", (_, attachmentDirectory) =>
-    codexService.cleanupThreadGoalMaterializedDraft(attachmentDirectory),
-  );
-
-  registerHandle("codex:thread:goal:editable-objective:read", (_, objective) =>
-    codexService.readThreadGoalEditableObjective(objective),
-  );
-
-  registerHandle("codex:pasted-text:create", (_, input) =>
-    codexService.createPastedTextAttachment(input),
-  );
-
-  registerHandle("codex:pasted-text:read", (_, input) =>
-    codexService.readPastedTextAttachment(input),
-  );
-
-  registerHandle("codex:pasted-text:remove", (_, input) =>
-    codexService.removePastedTextAttachment(input),
-  );
-
   registerHandle("codex:turn:steer", (_, input) => codexService.steerTurn(input));
 
   registerHandle("codex:turn:interrupt", (_, threadId: string, turnId?: string) =>
