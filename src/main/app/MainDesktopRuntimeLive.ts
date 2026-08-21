@@ -24,6 +24,8 @@ import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import { makeCodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
+import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
+import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import { CodexEndpointMap } from "../codex-runtime/CodexEndpointMap";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
@@ -162,6 +164,14 @@ export const live: Layer.Layer<
           Context.get(codexAccountContext, CodexAccount),
           callbacks,
         );
+        const composerCatalogContext = yield* Layer.buildWithScope(
+          composerCatalogLive.pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          runtimeScope,
+        );
+        const composerCatalog = makeComposerCatalogPromiseAdapter(
+          Context.get(composerCatalogContext, ComposerCatalog),
+          callbacks,
+        );
         codexBridge.attach(codexGateway, codexEndpoints);
         yield* codexBridge.events.pipe(
           Stream.runForEach((event) => Effect.sync(() => codexBridge.observe(event))),
@@ -173,6 +183,7 @@ export const live: Layer.Layer<
             const composition = createMainServiceComposition({
               locale: () => locale,
               codexAccount,
+              composerCatalog,
               codexClient: codexBridge,
               codexRuntime,
               providerCredentialStore,

@@ -63,6 +63,7 @@ it.effect("owns account, login, rate-limit, and notification state behind one in
       scope,
     );
     const account = Context.get(context, CodexAccount);
+    yield* Effect.yieldNow;
 
     const first = yield* account.refresh;
     assert.deepEqual(first.account, {

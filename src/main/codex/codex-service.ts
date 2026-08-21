@@ -165,7 +165,6 @@ import type {
   CodexRateLimitResetInput,
   CodexRateLimitResetResult,
   CodexReasoningEffort,
-  CodexReasoningEffortOption,
   CodexRendererConversationResumeResult,
   CodexSidebarRefreshPolicy,
   CodexSidebarRefreshReason,
@@ -262,6 +261,8 @@ import {
   parseRateLimitsSnapshot,
 } from "../codex-application/CodexAccountState";
 import type { CodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
+import { parseModelOption } from "../codex-application/ComposerCatalogState";
+import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import { CodexComposerExternalSuggestionService } from "./composer-external-suggestion-service";
 import {
   getCodexThreadOwnerNotificationThreadId,
@@ -1490,6 +1491,7 @@ type CodexManagedWorktreeSettingsPort = {
 
 type CodexServiceOptions = {
   accountRuntime?: CodexAccountPromiseAdapter;
+  composerCatalog?: ComposerCatalogPromiseAdapter;
   client?: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntimeCoordinator?: Pick<
@@ -2796,20 +2798,6 @@ function isUnsupportedThreadSettingsUpdateError(error: unknown): boolean {
   );
 }
 
-function parseReasoningEffortOption(value: unknown): CodexReasoningEffortOption | null {
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as Record<string, unknown>;
-  const reasoningEffort = parseReasoningEffort(
-    candidate.reasoningEffort ?? candidate.reasoning_effort,
-  );
-  if (!reasoningEffort) return null;
-
-  return {
-    reasoningEffort,
-    description: typeof candidate.description === "string" ? candidate.description : "",
-  };
-}
-
 function parseCollaborationModePreset(value: unknown): CodexCollaborationModePreset | null {
   const candidate = asRecord(value);
   if (!candidate) return null;
@@ -2856,41 +2844,6 @@ function parseCollaborationModePreset(value: unknown): CodexCollaborationModePre
   };
 }
 
-function parseModelOption(value: unknown): CodexModelOption | null {
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.id !== "string" || typeof candidate.model !== "string") return null;
-
-  const rawSupportedReasoningEfforts =
-    candidate.supportedReasoningEfforts ?? candidate.supported_reasoning_efforts;
-  const supportedReasoningEfforts = Array.isArray(rawSupportedReasoningEfforts)
-    ? rawSupportedReasoningEfforts
-        .map(parseReasoningEffortOption)
-        .filter((option): option is CodexReasoningEffortOption => option !== null)
-    : [];
-
-  const defaultReasoningEffort =
-    parseReasoningEffort(candidate.defaultReasoningEffort ?? candidate.default_reasoning_effort) ??
-    supportedReasoningEfforts[0]?.reasoningEffort;
-  if (!defaultReasoningEffort) return null;
-
-  return {
-    id: candidate.id,
-    model: candidate.model,
-    displayName:
-      typeof candidate.displayName === "string"
-        ? candidate.displayName
-        : typeof candidate.display_name === "string"
-          ? candidate.display_name
-          : candidate.id,
-    description: typeof candidate.description === "string" ? candidate.description : "",
-    hidden: Boolean(candidate.hidden),
-    supportedReasoningEfforts,
-    defaultReasoningEffort,
-    isDefault: Boolean(candidate.isDefault ?? candidate.is_default),
-  };
-}
-
 const unconfiguredAuthority = <Port extends object>(name: string): Port =>
   new Proxy(
     {},
@@ -2905,6 +2858,7 @@ export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexApplicationClient;
   private readonly accountRuntime: CodexAccountPromiseAdapter | null;
+  private readonly composerCatalog: ComposerCatalogPromiseAdapter | null;
   private releaseAccountRuntimeSubscription: (() => void) | null = null;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
@@ -3189,6 +3143,7 @@ export class CodexService extends EventEmitter {
     super();
 
     this.accountRuntime = options?.accountRuntime ?? null;
+    this.composerCatalog = options?.composerCatalog ?? null;
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.browserRuntime = runtime.browserRuntime;
@@ -11142,6 +11097,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listModels(): Promise<CodexModelOption[]> {
+    if (this.composerCatalog !== null) return await this.composerCatalog.listModels();
     await this.ensureClientReady();
 
     const result = await this.client.request<"model/list", ModelListResponse>("model/list", {});
@@ -11152,6 +11108,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listComposerPlugins(cwds: readonly string[]): Promise<CodexComposerPlugin[]> {
+    if (this.composerCatalog !== null) return await this.composerCatalog.listPlugins(cwds);
     await this.ensureClientReady();
 
     const normalizedCwds = Array.from(new Set(cwds.map((cwd) => cwd.trim()).filter(Boolean)));
@@ -11172,6 +11129,7 @@ export class CodexService extends EventEmitter {
   }
 
   async activateComposerPlugin(input: CodexComposerPluginActivateInput): Promise<void> {
+    if (this.composerCatalog !== null) return await this.composerCatalog.activatePlugin(input);
     await this.ensureClientReady();
 
     const id = input.id.trim();
@@ -11207,6 +11165,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listComposerSkills(cwds: readonly string[]): Promise<CodexComposerSkill[]> {
+    if (this.composerCatalog !== null) return await this.composerCatalog.listSkills(cwds);
     await this.ensureClientReady();
 
     const normalizedCwds = Array.from(new Set(cwds.map((cwd) => cwd.trim()).filter(Boolean)));
