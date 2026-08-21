@@ -20,6 +20,10 @@ import { CoreModules, live as coreModulesLive } from "../core-runtime/CoreModule
 import { coreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { live as coreTransportLive } from "../core-runtime/CoreTransport";
 import { makeDesktopDataAuthority } from "../core-runtime/DesktopCoreAdapter";
+import {
+  createDesktopAutomationModuleBridge,
+  createDesktopStoreAdministrationBridge,
+} from "../core-client";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
@@ -120,7 +124,15 @@ import {
   live as rendererClientRuntimeLive,
 } from "../host-runtime/RendererClientRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
-import { getThreadNotificationSettings } from "../local-store/config";
+import {
+  ApplicationSchedulerRuntime,
+  live as applicationSchedulerRuntimeLive,
+} from "../host-runtime/ApplicationSchedulerRuntime";
+import {
+  getBackupSettings,
+  getHistorySettings,
+  getThreadNotificationSettings,
+} from "../local-store/config";
 import { getLogger } from "../logging/logger";
 import {
   activateMainServiceComposition,
@@ -760,6 +772,42 @@ export const live: Layer.Layer<
           Effect.provideService(CoreAuthority, authority),
           Effect.provideService(CoreSessionAccess, access),
         );
+        const legacyDataAuthority = Promise.resolve(dataAuthority);
+        const automationModule = createDesktopAutomationModuleBridge({
+          authority: legacyDataAuthority,
+        });
+        const storeAdministration = createDesktopStoreAdministrationBridge({
+          authority: legacyDataAuthority,
+        });
+        const applicationSchedulerContext = yield* Layer.buildWithScope(
+          applicationSchedulerRuntimeLive({
+            automation: automationModule,
+            storeAdministration,
+            readBackupSettings: getBackupSettings,
+            readBlockRetentionCount: () => getHistorySettings().retentionCount,
+            runScheduledAutomation: (automation, context) =>
+              activation.composition.codexService.runScheduledAutomation(automation, context),
+            notifyAutomationRunsUpdated: () => {
+              activation.composition.codexService.notifyAutomationRunsUpdated({
+                automationId: null,
+                threadId: null,
+                reason: "settle",
+              });
+            },
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(ElectronDesktop, desktop),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const applicationSchedulers = Context.get(
+          applicationSchedulerContext,
+          ApplicationSchedulerRuntime,
+        );
 
         const terminalDependencies = Layer.mergeAll(
           Layer.succeed(ElectronIpc, ipc),
@@ -842,7 +890,9 @@ export const live: Layer.Layer<
                   markApplicationReady: () => callbacks.runPromise(appUpdates.markApplicationReady),
                   startAutomaticChecks: () => callbacks.runPromise(appUpdates.startAutomaticChecks),
                 },
-                dataAuthority: Promise.resolve(dataAuthority),
+                applicationSchedulers,
+                automationModule,
+                dataAuthority: legacyDataAuthority,
                 desktopNotificationManager: desktopNotifications.manager,
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
@@ -850,6 +900,7 @@ export const live: Layer.Layer<
                 windowRuntime: windows,
                 manageElectronLifecycle: false,
                 startupEvents: [],
+                storeAdministration,
                 startCoreEvents,
                 terminalRuntime: {
                   listLiveSessionsForOwners: (input) =>

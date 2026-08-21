@@ -148,6 +148,11 @@ a commit-fenced WAL reader snapshot rather than reconstructing every current
 Document for every candidate. Evidence loading never owns the serialized writer,
 and collection releases that writer between bounded candidate slices.
 
+The Main application scope owns the automatic backup and maintenance lanes.
+Changing backup interval or retention replaces only the backup lane; it must not
+stop maintenance. Core authority recovery wakes deferred lanes, and process
+scope close removes their timers and power-resume listener together.
+
 Read [Backup, Restore, and Maintenance](reliability/backup-restore-and-maintenance.md).
 
 ## Desktop process lifecycle
@@ -224,6 +229,8 @@ Core owns definitions, schedules, occurrences, leases, run/inbox state, and
 receipts. Host executors and notification delivery revalidate authority after
 every async claim. Recovery defers work; it never starts an agent or notification
 from a lease tied to the previous authority generation.
+The Main application scope owns reminder and scheduled-agent timers, native
+reminder notifications, and the system-resume listener as one runtime.
 
 Read [Scheduled Route Behavior](product-specs/scheduled-route-behavior.md),
 [Calendar and Reminders Behavior](product-specs/calendar-and-reminders-behavior.md),

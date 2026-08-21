@@ -1,13 +1,11 @@
 import {
   Menu,
-  Notification,
   app,
   BrowserWindow,
   dialog,
   ipcMain,
   nativeImage,
   nativeTheme,
-  powerMonitor,
   screen,
   session as electronSession,
   shell,
@@ -30,23 +28,15 @@ import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../share
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import { dbNotifier } from "./local-store/notifier";
-import { startAutomationReminderScheduler } from "./automation-reminder-scheduler";
-import type { ReminderNotificationPayload } from "./reminder-notification";
 import { getMainServiceComposition } from "./main-service-composition";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
 import { McpAppSandboxHost } from "./mcp-app/mcp-app-sandbox-host";
 import {
-  getBackupSettings,
   getCommandKeymapState,
-  getHistorySettings,
   getNodexHome,
   getWindowRestoreSettings,
 } from "./local-store/config";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
-import {
-  startCodexScheduledAutomationScheduler,
-  type CodexScheduledAutomationScheduler,
-} from "./codex-scheduled-automation-scheduler";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
@@ -131,12 +121,10 @@ import { runAgentSkillSetup } from "./agent-skill-setup";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   createCoreProjectWorkspaceAdapter,
-  createDesktopAutomationModuleBridge,
   createDesktopDatabaseModuleBridge,
   createDesktopLibraryModuleBridge,
   createDesktopDocumentSyncBridge,
   createDesktopProjectWorkspaceBridge,
-  createDesktopStoreAdministrationBridge,
   mapCoreAutomationEvent,
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,
@@ -173,14 +161,7 @@ import {
 import { configureNodexAgentV3DynamicService } from "./codex/nodex-agent-dynamic-tool-runtime";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
-import {
-  startStoreAdministrationBackupScheduler,
-  type StoreAdministrationBackupScheduler,
-} from "./store-administration-backup-scheduler";
-import {
-  startStoreAdministrationMaintenanceScheduler,
-  type StoreAdministrationMaintenanceScheduler,
-} from "./store-administration-maintenance-scheduler";
+import type { ApplicationSchedulerRuntime } from "./host-runtime/ApplicationSchedulerRuntime";
 import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
 import { resolveInitialProjectProjectsDirectory } from "./initial-project/initial-project-filesystem";
 import { resolveInitialProjectJournalPath } from "./initial-project/initial-project-journal-store";
@@ -193,8 +174,6 @@ const appDockIcon = nativeImage.createFromPath(appIconPath);
 const { browserSidebarService, codexService } = getMainServiceComposition();
 
 let rendererHostReadyForWindows = false;
-let stopReminderScheduler: (() => void) | null = null;
-let runtimeReminderTick: (() => Promise<void>) | null = null;
 let databaseReady = false;
 let pendingPageDeepLinkPageId: string | null = null;
 let pendingPageDeepLinkTarget: { projectId: string; pageId: string } | null = null;
@@ -212,85 +191,20 @@ let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
 let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
-let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let appPermissionHandlersRegistered = false;
 let browserPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
-let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopDocumentSync: DesktopDocumentSyncPort | null = null;
-let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let localCommitCoordinator: LocalCommitCoordinator | null = null;
 let scopedProjectionLiveSupervisor: ScopedProjectionLiveSupervisor | null = null;
 let recipientDeliveryRouter: RecipientDeliveryRouter | null = null;
 let localCommitAudienceBroker: LocalCommitAudienceBroker | null = null;
 let coreAuthorityStatus: CoreAuthorityStatus = { kind: "ready" };
 let releaseCoreAuthorityStatus: (() => void) | null = null;
-let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
-let storeAdministrationMaintenanceScheduler: StoreAdministrationMaintenanceScheduler | null = null;
-let reminderResumeHandlerRegistered = false;
 const logger = getLogger({ subsystem: "app" });
 let desktopNotificationManager: DesktopNotificationManager | null = null;
-
-const isCoreAuthorityReady = (): boolean => coreAuthorityStatus.kind === "ready";
-
-function showReminderNotification(payload: ReminderNotificationPayload): void {
-  if (!Notification.isSupported()) return;
-
-  const notification = new Notification({
-    title: payload.title,
-    body: payload.body,
-    actions: [
-      { type: "button", text: "Snooze 10m" },
-      { type: "button", text: "Snooze 1h" },
-    ],
-  });
-  notification.on("click", () => {
-    focusLastWindow();
-    sendReminderOpenEvent({
-      projectId: payload.projectId,
-      pageId: payload.pageId,
-      occurrenceStart: payload.occurrenceStart,
-    });
-  });
-  notification.on("action", (_, index) => {
-    const automation = desktopAutomationModule;
-    if (!automation) return;
-    const minutes = index === 0 ? 10 : 60;
-    void automation
-      .snoozeReminder(payload.projectId, payload.pageId, payload.occurrenceStart, minutes)
-      .catch((error) => {
-        logger.warn("Failed to snooze reminder", {
-          projectId: payload.projectId,
-          pageId: payload.pageId,
-          error,
-        });
-      });
-  });
-  notification.show();
-}
-
-function startRuntimeReminderDelivery(): void {
-  if (stopReminderScheduler || runtimeShutdownStarted) return;
-  const automation = desktopAutomationModule;
-  if (!automation) {
-    logger.warn("Reminder scheduler deferred: Automation module unavailable");
-    return;
-  }
-  const scheduler = startAutomationReminderScheduler({
-    automation,
-    isAuthorityAvailable: isCoreAuthorityReady,
-    onReminder: showReminderNotification,
-  });
-  runtimeReminderTick = scheduler.runNow;
-  stopReminderScheduler = scheduler.dispose;
-  if (reminderResumeHandlerRegistered) return;
-  reminderResumeHandlerRegistered = true;
-  powerMonitor.on("resume", () => {
-    void runtimeReminderTick?.();
-  });
-}
 
 const electronWindowOpaqueSurfaceModes = new Map<number, boolean>();
 
@@ -788,8 +702,6 @@ function publishCoreAuthorityStatus(state: CoreAuthorityState): void {
     });
   } else if (previous.kind !== "ready") {
     logger.info("Native Core authority recovered");
-    void runtimeReminderTick?.();
-    void scheduledAutomationScheduler?.tick();
   }
   broadcastToWindows(CORE_AUTHORITY_STATUS_CHANNEL, next);
 }
@@ -1640,6 +1552,7 @@ async function initializeDesktopApp(
   authority: Promise<DesktopDataAuthorityRuntime>,
   initialProjectBootstrap: InitialProjectBootstrapService,
   startCoreEvents: MainRuntimeStartupContext["startCoreEvents"],
+  applicationSchedulers: ApplicationSchedulerRuntime["Service"],
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
@@ -1784,12 +1697,14 @@ async function initializeDesktopApp(
   await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
   await resolvePendingViewDeepLink();
-  configureRuntimeBackupScheduler(getBackupSettings());
-  startRuntimeStoreMaintenanceScheduler();
-  startRuntimeReminderDelivery();
   await codexService.synchronizeAutomationRuntime();
   codexService.requestManagedWorktreeRetentionSweep();
-  startRuntimeScheduledAutomationScheduler();
+  applicationSchedulers.activate({
+    openReminder: (payload) => {
+      focusLastWindow();
+      sendReminderOpenEvent(payload);
+    },
+  });
   registerDesktopActivationHandler();
   setAppInitializationStep({ phase: "done" });
   logger.info("Desktop app initialization finished", {
@@ -1885,37 +1800,6 @@ function publishCoreModuleEventToNotifiers(
   }
 }
 
-function configureRuntimeBackupScheduler(settings: {
-  readonly autoEnabled: boolean;
-  readonly intervalHours: number;
-  readonly retentionCount: number;
-}): void {
-  storeAdministrationBackupScheduler?.dispose();
-  storeAdministrationBackupScheduler = null;
-  storeAdministrationMaintenanceScheduler?.dispose();
-  storeAdministrationMaintenanceScheduler = null;
-  const administration = desktopStoreAdministration;
-  if (!administration) return;
-  storeAdministrationBackupScheduler = startStoreAdministrationBackupScheduler({
-    administration,
-    enabled: settings.autoEnabled,
-    isAuthorityAvailable: isCoreAuthorityReady,
-    intervalHours: settings.intervalHours,
-    retentionCount: settings.retentionCount,
-  });
-}
-
-function startRuntimeStoreMaintenanceScheduler(): void {
-  if (!desktopStoreAdministration || storeAdministrationMaintenanceScheduler) {
-    return;
-  }
-  storeAdministrationMaintenanceScheduler = startStoreAdministrationMaintenanceScheduler({
-    administration: desktopStoreAdministration,
-    isAuthorityAvailable: isCoreAuthorityReady,
-    readBlockRetentionCount: () => getHistorySettings().retentionCount,
-  });
-}
-
 let desktopActivationHandlerRegistered = false;
 
 function registerDesktopActivationHandler(): void {
@@ -1926,39 +1810,6 @@ function registerDesktopActivationHandler(): void {
   });
 }
 
-function startRuntimeScheduledAutomationScheduler(): void {
-  if (runtimeShutdownStarted) return;
-  if (scheduledAutomationScheduler) return;
-  const automationModule = desktopAutomationModule;
-  if (!automationModule) {
-    logger.warn("Scheduled automation scheduler deferred: module unavailable");
-    return;
-  }
-
-  scheduledAutomationScheduler = startCodexScheduledAutomationScheduler({
-    isAuthorityAvailable: isCoreAuthorityReady,
-    claimDueAutomations: async (limit) =>
-      await automationModule.claimDueDefinitions(limit, 15 * 60_000),
-    completeClaim: async (leaseId) => {
-      await automationModule.completeLease(leaseId);
-    },
-    failClaim: async (leaseId, retryDelayMs, reasonCode) => {
-      await automationModule.failLease(leaseId, retryDelayMs, reasonCode);
-    },
-    settleInterruptedRuns: async () => await automationModule.settleInterruptedRuns(),
-    runAutomation: async (automation, context) => {
-      await codexService.runScheduledAutomation(automation, context);
-    },
-    onAutomationRunsUpdated: () => {
-      codexService.notifyAutomationRunsUpdated({
-        automationId: null,
-        threadId: null,
-        reason: "settle",
-      });
-    },
-  });
-}
-
 export interface MainRuntimeStartupContext {
   appUpdateRuntime: {
     readonly check: () => Promise<unknown>;
@@ -1966,6 +1817,8 @@ export interface MainRuntimeStartupContext {
     readonly markApplicationReady: () => Promise<void>;
     readonly startAutomaticChecks: () => Promise<void>;
   };
+  applicationSchedulers: ApplicationSchedulerRuntime["Service"];
+  automationModule: DesktopAutomationModulePort;
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
   desktopNotificationManager: DesktopNotificationManager;
   gitWorkerHost: GitWorkerHostPort;
@@ -1975,6 +1828,7 @@ export interface MainRuntimeStartupContext {
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
+  storeAdministration: DesktopStoreAdministrationPort;
   startCoreEvents: (input: {
     readonly initialAfter: number;
     readonly onEvent: (event: CoreEventEnvelope) => Promise<void>;
@@ -2062,15 +1916,6 @@ function beginMainRuntimeShutdown(): void {
   localCommitAudienceBroker?.dispose();
   localCommitAudienceBroker = null;
   recipientDeliveryRouter = null;
-  storeAdministrationBackupScheduler?.dispose();
-  storeAdministrationBackupScheduler = null;
-  if (stopReminderScheduler) {
-    stopReminderScheduler();
-    stopReminderScheduler = null;
-  }
-  runtimeReminderTick = null;
-  scheduledAutomationScheduler?.dispose();
-  scheduledAutomationScheduler = null;
   windowRuntime = null;
 }
 
@@ -2133,14 +1978,6 @@ function registerRuntimeLifecycleHandlers(requestShutdown?: () => Promise<void>)
 
   app.on("window-all-closed", () => {
     logger.info("All windows closed");
-    storeAdministrationBackupScheduler?.dispose();
-    storeAdministrationBackupScheduler = null;
-    if (stopReminderScheduler) {
-      stopReminderScheduler();
-      stopReminderScheduler = null;
-    }
-    runtimeReminderTick = null;
-
     if (process.platform !== "darwin") {
       app.quit();
     }
@@ -2198,15 +2035,9 @@ export async function runMainAppStartup(
     authority: dataAuthority,
   });
   codexService.setNodexAgentResourceAuthorityPort(nodexAgentResourceAuthority);
-  const automationModule = createDesktopAutomationModuleBridge({
-    authority: dataAuthority,
-  });
-  desktopAutomationModule = automationModule;
+  const automationModule = context.automationModule;
   codexService.setAutomationModule(automationModule);
-  const storeAdministration = createDesktopStoreAdministrationBridge({
-    authority: dataAuthority,
-  });
-  desktopStoreAdministration = storeAdministration;
+  const storeAdministration = context.storeAdministration;
   const onStoreRestored = (): void => {
     const restart = setTimeout(() => {
       app.relaunch();
@@ -2252,6 +2083,7 @@ export async function runMainAppStartup(
     dataAuthority,
     initialProjectBootstrap,
     context.startCoreEvents,
+    context.applicationSchedulers,
   );
   rendererHostReadyForWindows = true;
   configureApplicationMenus();
@@ -2279,7 +2111,7 @@ export async function runMainAppStartup(
     automationModule,
     gitWorkerHost: context.gitWorkerHost,
     storeAdministration,
-    onBackupSettingsChanged: configureRuntimeBackupScheduler,
+    onBackupSettingsChanged: context.applicationSchedulers.configureBackup,
     onStoreRestored,
     documentSync,
     projectWorkspace,
@@ -2287,11 +2119,11 @@ export async function runMainAppStartup(
     databaseModule,
     rendererClientRouter: notificationRendererRouter,
     onHeartbeatAutomationsEnabledChanged: (input) => {
-      scheduledAutomationScheduler?.setHeartbeatAutomationsEnabled(input.enabled);
+      context.applicationSchedulers.setHeartbeatAutomationsEnabled(input.enabled);
     },
     onHeartbeatAutomationThreadStateChanged: (input, rendererClientId) => {
       if (!rendererClientId) return;
-      scheduledAutomationScheduler?.setHeartbeatThreadRendererState({
+      context.applicationSchedulers.setHeartbeatThreadRendererState({
         ...input,
         rendererClientId,
       });
