@@ -1,12 +1,10 @@
-import { app, nativeImage, systemPreferences } from "electron";
-import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
 import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
-import { getNodexHome, getWindowRestoreSettings } from "./local-store/config";
+import { getWindowRestoreSettings } from "./local-store/config";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import { getLogger } from "./logging/logger";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
@@ -34,43 +32,7 @@ import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-node
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
 import type { ApplicationSchedulerRuntime } from "./host-runtime/ApplicationSchedulerRuntime";
 import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
-import { resolveInitialProjectProjectsDirectory } from "./initial-project/initial-project-filesystem";
-import { resolveInitialProjectJournalPath } from "./initial-project/initial-project-journal-store";
-// macOS uses the packaged bundle icon from the app resources.
-// We only keep a PNG around for development Dock icon parity and non-macOS window icons.
-const appIconPath = app.isPackaged
-  ? join(process.resourcesPath, "icon.png")
-  : join(__dirname, "../../resources/icon.png");
-const appDockIcon = nativeImage.createFromPath(appIconPath);
 const logger = getLogger({ subsystem: "app" });
-
-export async function requestHostMicrophonePermission(): Promise<void> {
-  if (process.platform !== "darwin") {
-    return;
-  }
-
-  const currentStatus = systemPreferences.getMediaAccessStatus("microphone");
-  if (currentStatus === "granted") {
-    return;
-  }
-
-  try {
-    await systemPreferences.askForMediaAccess("microphone");
-  } catch (error) {
-    logger.warn("Could not request macOS microphone permission", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-function registerDeepLinkProtocol(): void {
-  if (process.defaultApp && process.argv[1]) {
-    app.setAsDefaultProtocolClient("nodex", process.execPath, [resolve(process.argv[1])]);
-    return;
-  }
-
-  app.setAsDefaultProtocolClient("nodex");
-}
 
 async function initializeDesktopApp(
   authority: DesktopDataAuthorityRuntime,
@@ -176,10 +138,12 @@ export interface MainRuntimeStartupContext {
   };
   documentSync: DesktopDocumentSyncPort;
   gitWorkerHost: GitWorkerHostPort;
+  initialProjectBootstrap: InitialProjectBootstrapService;
   initialArgv: string[];
   libraryModule: DesktopLibraryModuleBridge;
   markApplicationReady: () => Promise<void>;
   markInitializationDone: () => Promise<void>;
+  onStoreRestored: () => void;
   projectWorkspace: DesktopProjectWorkspacePort;
   projectionDelivery: {
     readonly deliverTail: (envelope: CoreEventEnvelope) => Promise<void>;
@@ -257,20 +221,6 @@ export async function runMainAppStartup(
   const codexService = context.codexService;
   const startupSecondInstancesWithoutDeepLinks = await collectStartupDeepLinks(context);
 
-  logger.info("Nodex main process starting", {
-    packaged: app.isPackaged,
-    platform: process.platform,
-    pid: process.pid,
-    nodexHome: getNodexHome(),
-  });
-  if (process.platform === "win32") {
-    app.setAppUserModelId("app.jyu.nodex");
-  }
-  registerDeepLinkProtocol();
-  // Packaged macOS builds use the bundle icon; dev still needs an explicit Dock icon override.
-  if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
-    app.dock?.setIcon(appDockIcon);
-  }
   const dataAuthorityRuntime = context.dataAuthority;
   const dataAuthority = Promise.resolve(dataAuthorityRuntime);
   codexService.setNodexAgentAuthorityPort(
@@ -285,13 +235,6 @@ export async function runMainAppStartup(
   const automationModule = context.automationModule;
   codexService.setAutomationModule(automationModule);
   const storeAdministration = context.storeAdministration;
-  const onStoreRestored = (): void => {
-    const restart = setTimeout(() => {
-      app.relaunch();
-      app.exit(0);
-    }, 250);
-    restart.unref?.();
-  };
   const documentSync = context.documentSync;
   const libraryModule = context.libraryModule;
   const databaseModule = context.databaseModule;
@@ -308,14 +251,7 @@ export async function runMainAppStartup(
       documentSync,
     }),
   );
-  const initialProjectBootstrap = new InitialProjectBootstrapService({
-    projectWorkspace,
-    projectsDirectory: resolveInitialProjectProjectsDirectory({
-      configuredDirectory: process.env.NODEX_INITIAL_PROJECTS_DIR,
-      documentsDirectory: app.getPath("documents"),
-    }),
-    journalPath: resolveInitialProjectJournalPath(getNodexHome()),
-  });
+  const initialProjectBootstrap = context.initialProjectBootstrap;
   const initializationPromise = initializeDesktopApp(
     dataAuthorityRuntime,
     initialProjectBootstrap,
@@ -349,7 +285,7 @@ export async function runMainAppStartup(
     codexService,
     gitWorkerHost: context.gitWorkerHost,
     storeAdministration,
-    onStoreRestored,
+    onStoreRestored: context.onStoreRestored,
     documentSync,
     projectWorkspace,
     libraryModule,

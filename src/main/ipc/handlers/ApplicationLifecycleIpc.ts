@@ -4,16 +4,12 @@ import * as Schema from "effect/Schema";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 import { MainConfig } from "../../app/MainConfig";
+import { ApplicationHostRuntime } from "../../host-runtime/ApplicationHostRuntime";
 import { ApplicationInitializationRuntime } from "../../host-runtime/ApplicationInitializationRuntime";
 import { safeSendToWebContents } from "../../ipc-safe-send";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
-
-export interface ApplicationLifecycleIpcPort {
-  readonly acknowledgeWindowClose: (webContentsId: number) => void;
-  readonly requestMicrophonePermission: () => Promise<void>;
-}
 
 export class ApplicationLifecycleIpcError extends Schema.TaggedError<ApplicationLifecycleIpcError>()(
   "ApplicationLifecycleIpcError",
@@ -31,86 +27,82 @@ const RendererInitializationReport = z
   })
   .strict();
 
-export const live = (
-  port: ApplicationLifecycleIpcPort,
-): Layer.Layer<
+export const live: Layer.Layer<
   never,
   never,
-  ApplicationInitializationRuntime | ElectronIpc | MainConfig | WindowRuntime
-> =>
-  Layer.effectDiscard(
-    Effect.gen(function* () {
-      const config = yield* MainConfig;
-      const initialization = yield* ApplicationInitializationRuntime;
-      const ipc = yield* ElectronIpc;
-      const windows = yield* WindowRuntime;
-      const authorize = (event: IpcMainEvent | IpcMainInvokeEvent, capabilityName: string) =>
-        Effect.try({
-          try: () => {
-            requireTrustedAppRendererSender(event, capabilityName, config.rendererUrl);
-            if (!windows.has(event.sender.id)) {
-              throw new Error(`${capabilityName} requires an active Nodex window`);
-            }
-          },
-          catch: (cause) =>
-            new ApplicationLifecycleIpcError({ operation: "authorize-renderer", cause }),
-        });
+  | ApplicationHostRuntime
+  | ApplicationInitializationRuntime
+  | ElectronIpc
+  | MainConfig
+  | WindowRuntime
+> = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const config = yield* MainConfig;
+    const host = yield* ApplicationHostRuntime;
+    const initialization = yield* ApplicationInitializationRuntime;
+    const ipc = yield* ElectronIpc;
+    const windows = yield* WindowRuntime;
+    const authorize = (event: IpcMainEvent | IpcMainInvokeEvent, capabilityName: string) =>
+      Effect.try({
+        try: () => {
+          requireTrustedAppRendererSender(event, capabilityName, config.rendererUrl);
+          if (!windows.has(event.sender.id)) {
+            throw new Error(`${capabilityName} requires an active Nodex window`);
+          }
+        },
+        catch: (cause) =>
+          new ApplicationLifecycleIpcError({ operation: "authorize-renderer", cause }),
+      });
 
-      yield* ipc.handle("app:await-initialization", (event) =>
-        authorize(event, "Application initialization").pipe(
-          Effect.andThen(
-            initialization.current.pipe(
-              Effect.map((step) => {
-                safeSendToWebContents(event.sender, "app:init-step", [step]);
+    yield* ipc.handle("app:await-initialization", (event) =>
+      authorize(event, "Application initialization").pipe(
+        Effect.andThen(
+          initialization.current.pipe(
+            Effect.map((step) => {
+              safeSendToWebContents(event.sender, "app:init-step", [step]);
+            }),
+          ),
+        ),
+        Effect.andThen(initialization.awaitDone),
+      ),
+    );
+    yield* ipc.on("app:renderer-initialization-finished", (event, input: unknown) =>
+      authorize(event, "Renderer initialization report").pipe(
+        Effect.andThen(
+          Effect.try({
+            try: () => RendererInitializationReport.parse(input),
+            catch: (cause) =>
+              new ApplicationLifecycleIpcError({
+                operation: "parse-renderer-initialization",
+                cause,
               }),
-            ),
-          ),
-          Effect.andThen(initialization.awaitDone),
+          }),
         ),
-      );
-      yield* ipc.on("app:renderer-initialization-finished", (event, input: unknown) =>
-        authorize(event, "Renderer initialization report").pipe(
-          Effect.andThen(
-            Effect.try({
-              try: () => RendererInitializationReport.parse(input),
-              catch: (cause) =>
-                new ApplicationLifecycleIpcError({
-                  operation: "parse-renderer-initialization",
-                  cause,
-                }),
-            }),
-          ),
-          Effect.flatMap((report) => initialization.reportRenderer(event.sender.id, report)),
-          Effect.catch(() => Effect.void),
+        Effect.flatMap((report) => initialization.reportRenderer(event.sender.id, report)),
+        Effect.catch(() => Effect.void),
+      ),
+    );
+    yield* ipc.handle("app:flush-before-close:done", (event, claimedWebContentsId: unknown) =>
+      authorize(event, "Window close flush").pipe(
+        Effect.andThen(
+          Effect.try({
+            try: () => {
+              if (claimedWebContentsId !== event.sender.id) {
+                throw new Error("Window close flush sender does not own the claimed window");
+              }
+              windows.acknowledgeClose(event.sender.id);
+            },
+            catch: (cause) =>
+              new ApplicationLifecycleIpcError({ operation: "acknowledge-window-close", cause }),
+          }),
         ),
-      );
-      yield* ipc.handle("app:flush-before-close:done", (event, claimedWebContentsId: unknown) =>
-        authorize(event, "Window close flush").pipe(
-          Effect.andThen(
-            Effect.try({
-              try: () => {
-                if (claimedWebContentsId !== event.sender.id) {
-                  throw new Error("Window close flush sender does not own the claimed window");
-                }
-                port.acknowledgeWindowClose(event.sender.id);
-              },
-              catch: (cause) =>
-                new ApplicationLifecycleIpcError({ operation: "acknowledge-window-close", cause }),
-            }),
-          ),
-        ),
-      );
-      yield* ipc.on("electron-request-microphone-permission", (event) =>
-        authorize(event, "Microphone permission").pipe(
-          Effect.andThen(
-            Effect.tryPromise({
-              try: port.requestMicrophonePermission,
-              catch: (cause) =>
-                new ApplicationLifecycleIpcError({ operation: "microphone-permission", cause }),
-            }),
-          ),
-          Effect.catch(() => Effect.void),
-        ),
-      );
-    }),
-  );
+      ),
+    );
+    yield* ipc.on("electron-request-microphone-permission", (event) =>
+      authorize(event, "Microphone permission").pipe(
+        Effect.andThen(host.requestMicrophonePermission),
+        Effect.catch(() => Effect.void),
+      ),
+    );
+  }),
+);

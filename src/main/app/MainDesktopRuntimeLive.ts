@@ -162,6 +162,13 @@ import {
   live as applicationMenuRuntimeLive,
 } from "../host-runtime/ApplicationMenuRuntime";
 import {
+  ApplicationHostRuntime,
+  live as applicationHostRuntimeLive,
+} from "../host-runtime/ApplicationHostRuntime";
+import { InitialProjectBootstrapService } from "../initial-project-bootstrap-service";
+import { resolveInitialProjectProjectsDirectory } from "../initial-project/initial-project-filesystem";
+import { resolveInitialProjectJournalPath } from "../initial-project/initial-project-journal-store";
+import {
   getBackupSettings,
   getCommandKeymapState,
   getHistorySettings,
@@ -762,17 +769,16 @@ export const live: Layer.Layer<
           ),
           Effect.forkIn(runtimeScope),
         );
-        const module = yield* Effect.tryPromise({
-          try: () => import("../main-runtime"),
-          catch: (cause) => runtimeError("load-runtime", cause),
-        });
+        const applicationHostContext = yield* Layer.buildWithScope(
+          applicationHostRuntimeLive().pipe(Layer.provide(Layer.succeed(MainConfig, config))),
+          runtimeScope,
+        );
+        const applicationHost = Context.get(applicationHostContext, ApplicationHostRuntime);
         yield* Layer.buildWithScope(
-          ApplicationLifecycleIpc.live({
-            acknowledgeWindowClose: windows.acknowledgeClose,
-            requestMicrophonePermission: module.requestHostMicrophonePermission,
-          }).pipe(
+          ApplicationLifecycleIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(ApplicationHostRuntime, applicationHost),
                 Layer.succeed(ApplicationInitializationRuntime, initialization),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
@@ -877,6 +883,14 @@ export const live: Layer.Layer<
         });
         const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
+        });
+        const initialProjectBootstrap = new InitialProjectBootstrapService({
+          projectWorkspace,
+          projectsDirectory: resolveInitialProjectProjectsDirectory({
+            configuredDirectory: config.initialProjectsDirectory ?? undefined,
+            documentsDirectory: config.documentsPath,
+          }),
+          journalPath: resolveInitialProjectJournalPath(config.nodexHome),
         });
         const applicationWindowContext = yield* Layer.buildWithScope(
           applicationWindowRuntimeLive({
@@ -1099,6 +1113,10 @@ export const live: Layer.Layer<
           );
         };
 
+        const module = yield* Effect.tryPromise({
+          try: () => import("../main-runtime"),
+          catch: (cause) => runtimeError("load-runtime", cause),
+        });
         const startup = yield* Effect.result(
           Effect.tryPromise({
             try: () =>
@@ -1119,11 +1137,20 @@ export const live: Layer.Layer<
                 },
                 documentSync,
                 gitWorkerHost: hostWorkers.git,
+                initialProjectBootstrap,
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
                 libraryModule,
                 markApplicationReady: () => callbacks.runPromise(appUpdates.markApplicationReady),
                 markInitializationDone: () => callbacks.runPromise(initialization.markDone),
+                onStoreRestored: () => {
+                  callbacks.fork(
+                    Effect.sleep("250 millis").pipe(
+                      Effect.andThen(electron.relaunch),
+                      Effect.andThen(electron.exit(0)),
+                    ),
+                  );
+                },
                 projectWorkspace,
                 projectionDelivery: {
                   deliverTail: (envelope) =>
