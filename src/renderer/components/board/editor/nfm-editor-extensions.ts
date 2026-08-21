@@ -8,9 +8,12 @@ import {
 import type { BlockNoteEditor } from "@blocknote/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "prosemirror-view";
-import { handleNotionPasteFromClipboard, type ClipboardEditorBlock } from "./notion-paste";
-import type { TypedOwnerBlockLike } from "@/lib/typed-owner-blocks";
+import {
+  extractNotionNfmBlocksFromClipboardData,
+  handleNotionPasteFromClipboard,
+} from "./notion-paste";
 import { splitGfmTableRow } from "@/lib/nfm/table";
+import { nfmToBlockNote } from "@/lib/nfm";
 import { getNfmSearchState, nfmSearchExtension } from "./search-extension";
 import { selectCurrentBlockContent } from "./select-block-shortcut";
 import { selectedImageBlockDecorationsExtension } from "./selected-image-block-decorations";
@@ -30,6 +33,19 @@ import { createEmptyThreadSectionBlock } from "./thread-section";
 import { canvasCreatePendingExtension } from "./canvas-create-pending-extension";
 import { mentionChipKeyboardNavigationExtension } from "./mention-chip-keyboard-navigation";
 import { nfmTaskShorthandPreviewExtension } from "./nfm-task-shorthand-preview-extension";
+import {
+  attachNodexStructuralClipboardWriteClaim,
+  hasUntrustedTypedOwnerHtml,
+  inspectNodexClipboardHtml,
+  sanitizeUntrustedTypedOwnerHtml,
+  type NodexClipboardEnvelopeV1,
+} from "../../../../shared/clipboard-paste";
+import type {
+  NfmStructuralClipboardPresentation,
+  NfmStructuralReplacementBlockLike,
+} from "./nfm-structural-editing-extension";
+import { getNfmBlockSelectionIds } from "./nfm-block-selection";
+import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
 
 const toggleInputRule = createExtension({
   key: "toggle-input-rule",
@@ -107,17 +123,13 @@ const selectBlockShortcut = createExtension({
   },
 });
 
-function writeStructuredSelectionToClipboard(
+function createStructuredSelectionClipboardPayload(
   view: EditorView,
-  clipboardEvent: ClipboardEvent,
   editor: BlockNoteEditor,
-): boolean {
-  if (!clipboardEvent.clipboardData) return false;
-  if (view.state.selection.empty) return false;
-
-  let payload: ReturnType<typeof createStructuredPlainTextPayload>;
+): ReturnType<typeof createStructuredPlainTextPayload> | null {
+  if (view.state.selection.empty) return null;
   try {
-    payload = rewriteCopiedSelectionAssetSourcesSync(
+    return rewriteCopiedSelectionAssetSourcesSync(
       createCopiedSelectionPayloadFromSelection(
         editor as unknown as SelectionEditorLike,
         selectedFragmentToHTML(view, editor),
@@ -125,8 +137,15 @@ function writeStructuredSelectionToClipboard(
     );
   } catch (error) {
     console.error("Failed structured plain-text serialization", error);
-    return false;
+    return null;
   }
+}
+
+function writeStructuredSelectionToClipboard(
+  clipboardEvent: ClipboardEvent,
+  payload: ReturnType<typeof createStructuredPlainTextPayload>,
+): boolean {
+  if (!clipboardEvent.clipboardData) return false;
 
   let wroteClipboardData = false;
   try {
@@ -157,6 +176,46 @@ function writeStructuredSelectionToClipboard(
   return true;
 }
 
+function writeStructuralSelectionClaimToClipboard(
+  clipboardEvent: ClipboardEvent,
+  payload: ReturnType<typeof createStructuredPlainTextPayload>,
+  writeClaim: string,
+): void {
+  const clipboardData = clipboardEvent.clipboardData;
+  if (clipboardData) {
+    try {
+      clipboardData.setData(
+        "blocknote/html",
+        sanitizeUntrustedTypedOwnerHtml(payload.clipboardHTML),
+      );
+      clipboardData.setData(
+        "text/html",
+        attachNodexStructuralClipboardWriteClaim(payload.externalHTML, writeClaim),
+      );
+      clipboardData.setData("text/plain", payload.structuredText);
+    } catch (error) {
+      console.warn("Failed to claim the clipboard while structural content was prepared", error);
+    }
+  }
+  clipboardEvent.preventDefault();
+}
+
+function hasTypedOwnerClipboardSelection(view: EditorView, editor: BlockNoteEditor): boolean {
+  const blockSelection = getNfmBlockSelectionIds(view.state.selection)
+    .map((blockId) => editor.getBlock(blockId))
+    .filter((block) => block !== undefined);
+  const publicSelection = editor.getSelection()?.blocks ?? [];
+  return hasTypedOwnerBlock(blockSelection.length ? blockSelection : publicSelection);
+}
+
+function blockUnavailableTypedOwnerClipboard(
+  clipboardEvent: ClipboardEvent,
+  onUnavailable: (() => void) | undefined,
+): void {
+  clipboardEvent.preventDefault();
+  onUnavailable?.();
+}
+
 const structuredPlainTextCopyExt = createExtension(
   ({ editor, options }: ExtensionOptions<NfmEditorExtensionOptions>) => ({
     key: "structured-plain-text-copy",
@@ -166,17 +225,70 @@ const structuredPlainTextCopyExt = createExtension(
         props: {
           handleDOMEvents: {
             copy(view, event) {
-              return writeStructuredSelectionToClipboard(view, event as ClipboardEvent, editor);
+              const clipboardEvent = event as ClipboardEvent;
+              const hasTypedOwnerSelection = hasTypedOwnerClipboardSelection(view, editor);
+              const payload = createStructuredSelectionClipboardPayload(view, editor);
+              if (!payload) {
+                if (!hasTypedOwnerSelection) return false;
+                blockUnavailableTypedOwnerClipboard(
+                  clipboardEvent,
+                  options.onTypedBlocksUnavailable,
+                );
+                return true;
+              }
+              const writeClaim = options.onCopyTypedBlocks?.(editor, {
+                html: payload.externalHTML,
+                text: payload.structuredText,
+              });
+              if (writeClaim) {
+                writeStructuralSelectionClaimToClipboard(clipboardEvent, payload, writeClaim);
+                return true;
+              }
+              if (
+                hasTypedOwnerSelection ||
+                hasUntrustedTypedOwnerHtml(payload.clipboardHTML) ||
+                hasUntrustedTypedOwnerHtml(payload.externalHTML)
+              ) {
+                blockUnavailableTypedOwnerClipboard(
+                  clipboardEvent,
+                  options.onTypedBlocksUnavailable,
+                );
+                return true;
+              }
+              return writeStructuredSelectionToClipboard(clipboardEvent, payload);
             },
             cut(view, event) {
               const clipboardEvent = event as ClipboardEvent;
-              if (!writeStructuredSelectionToClipboard(view, clipboardEvent, editor)) {
-                return false;
-              }
-
-              if (options.onCutTypedBlocks?.(editor)) {
+              const hasTypedOwnerSelection = hasTypedOwnerClipboardSelection(view, editor);
+              const payload = createStructuredSelectionClipboardPayload(view, editor);
+              if (!payload) {
+                if (!hasTypedOwnerSelection) return false;
+                blockUnavailableTypedOwnerClipboard(
+                  clipboardEvent,
+                  options.onTypedBlocksUnavailable,
+                );
                 return true;
               }
+              const writeClaim = options.onCutTypedBlocks?.(editor, {
+                html: payload.externalHTML,
+                text: payload.structuredText,
+              });
+              if (writeClaim) {
+                writeStructuralSelectionClaimToClipboard(clipboardEvent, payload, writeClaim);
+                return true;
+              }
+              if (
+                hasTypedOwnerSelection ||
+                hasUntrustedTypedOwnerHtml(payload.clipboardHTML) ||
+                hasUntrustedTypedOwnerHtml(payload.externalHTML)
+              ) {
+                blockUnavailableTypedOwnerClipboard(
+                  clipboardEvent,
+                  options.onTypedBlocksUnavailable,
+                );
+                return true;
+              }
+              if (!writeStructuredSelectionToClipboard(clipboardEvent, payload)) return false;
 
               if (view.editable) {
                 view.dispatch(view.state.tr.deleteSelection());
@@ -340,7 +452,15 @@ export type NfmPasteHandler = (context: {
 }) => boolean | undefined;
 
 export interface NfmEditorExtensionOptions {
-  readonly onCutTypedBlocks?: (editor: BlockNoteEditor) => boolean;
+  readonly onTypedBlocksUnavailable?: () => void;
+  readonly onCopyTypedBlocks?: (
+    editor: BlockNoteEditor,
+    presentation: NfmStructuralClipboardPresentation,
+  ) => string | null;
+  readonly onCutTypedBlocks?: (
+    editor: BlockNoteEditor,
+    presentation: NfmStructuralClipboardPresentation,
+  ) => string | null;
 }
 
 export function createNfmEditorExtensions(options: NfmEditorExtensionOptions = {}) {
@@ -362,36 +482,90 @@ export function createNfmEditorExtensions(options: NfmEditorExtensionOptions = {
 }
 
 export interface NfmPasteHandlerOptions {
-  readonly onBeforeReplaceBlocks?: (blocks: readonly ClipboardEditorBlock[]) => boolean;
-  readonly onBeforeInsertBlocks?: (blocks: readonly TypedOwnerBlockLike[]) => boolean;
+  readonly onPendingStructuralPaste?: (writeClaim: string | null) => boolean;
+  readonly onStructuralPaste?: (
+    envelope: NonNullable<ReturnType<typeof inspectNodexClipboardHtml>["envelope"]>,
+  ) => boolean;
+  readonly onStructuralBlockPaste?: (
+    blocks: readonly NfmStructuralReplacementBlockLike[],
+  ) => boolean;
+  readonly shouldHandleStructuralBlockPaste?: () => boolean;
+  readonly readNativeStructuralEnvelope?: () => NodexClipboardEnvelopeV1 | undefined;
 }
+
+const readPortableClipboardBlocks = (
+  editor: BlockNoteEditor,
+  clipboardData: DataTransfer | null,
+): readonly NfmStructuralReplacementBlockLike[] | null => {
+  if (!clipboardData) return null;
+  const notionBlocks = extractNotionNfmBlocksFromClipboardData(clipboardData);
+  if (notionBlocks?.length) {
+    return nfmToBlockNote(notionBlocks) as readonly NfmStructuralReplacementBlockLike[];
+  }
+  const types = Array.from(clipboardData.types);
+  if (types.includes("blocknote/html")) {
+    return editor.tryParseHTMLToBlocks(
+      sanitizeUntrustedTypedOwnerHtml(clipboardData.getData("blocknote/html")),
+    ) as readonly NfmStructuralReplacementBlockLike[];
+  }
+  if (types.includes("text/markdown")) {
+    return editor.tryParseMarkdownToBlocks(
+      clipboardData.getData("text/markdown"),
+    ) as readonly NfmStructuralReplacementBlockLike[];
+  }
+  if (types.includes("text/html")) {
+    return editor.tryParseHTMLToBlocks(
+      sanitizeUntrustedTypedOwnerHtml(clipboardData.getData("text/html")),
+    ) as readonly NfmStructuralReplacementBlockLike[];
+  }
+  if (!types.includes("text/plain")) return null;
+  return editor.tryParseMarkdownToBlocks(
+    clipboardData.getData("text/plain"),
+  ) as readonly NfmStructuralReplacementBlockLike[];
+};
 
 export function createNfmPasteHandler(options: NfmPasteHandlerOptions = {}): NfmPasteHandler {
   return ({ event, editor, defaultPasteHandler }) => {
-    const handled = handleNotionPasteFromClipboard(
-      editor as Parameters<typeof handleNotionPasteFromClipboard>[0],
-      event.clipboardData,
-      options,
-    );
-    if (handled) return true;
-    const selectedBlocks = editor.getSelection()?.blocks ?? [];
-    if (options.onBeforeReplaceBlocks?.(selectedBlocks)) return true;
-
-    const blocknoteHtml = event.clipboardData?.getData("blocknote/html") ?? "";
-    if (
-      blocknoteHtml.length > 0 &&
-      options.onBeforeInsertBlocks &&
-      typeof editor.tryParseHTMLToBlocks === "function"
-    ) {
-      try {
-        const pastedBlocks = editor.tryParseHTMLToBlocks(blocknoteHtml);
-        if (options.onBeforeInsertBlocks(pastedBlocks)) return true;
-      } catch {
-        // Let BlockNote's default parser report malformed clipboard content.
+    const clipboardData = event.clipboardData;
+    const htmlInspection = inspectNodexClipboardHtml(clipboardData?.getData("text/html") ?? "");
+    if (options.onPendingStructuralPaste?.(htmlInspection.writeClaim)) {
+      event.preventDefault();
+      return true;
+    }
+    const structuralEnvelope =
+      htmlInspection.envelope ??
+      (htmlInspection.hasStructuralFallback ? options.readNativeStructuralEnvelope?.() : undefined);
+    if (structuralEnvelope && options.onStructuralPaste?.(structuralEnvelope)) {
+      event.preventDefault();
+      return true;
+    }
+    if (options.shouldHandleStructuralBlockPaste?.()) {
+      const portableBlocks = readPortableClipboardBlocks(editor, clipboardData);
+      if (portableBlocks?.length && options.onStructuralBlockPaste?.(portableBlocks)) {
+        event.preventDefault();
+        return true;
       }
     }
+    const handled = handleNotionPasteFromClipboard(
+      editor as Parameters<typeof handleNotionPasteFromClipboard>[0],
+      clipboardData,
+    );
+    if (handled) return true;
 
-    if (clipboardTextLooksLikeGfmTable(event.clipboardData?.getData("text/plain") ?? "")) {
+    const types = Array.from(clipboardData?.types ?? []);
+    const internalHtml = types.includes("blocknote/html")
+      ? (clipboardData?.getData("blocknote/html") ?? "")
+      : "";
+    const externalHtml = types.includes("text/html")
+      ? (clipboardData?.getData("text/html") ?? "")
+      : "";
+    const unsafeHtml = internalHtml || externalHtml;
+    if (hasUntrustedTypedOwnerHtml(unsafeHtml)) {
+      editor.pasteHTML(sanitizeUntrustedTypedOwnerHtml(unsafeHtml), internalHtml.length > 0);
+      return true;
+    }
+
+    if (clipboardTextLooksLikeGfmTable(clipboardData?.getData("text/plain") ?? "")) {
       return defaultPasteHandler({
         prioritizeMarkdownOverHTML: true,
         plainTextAsMarkdown: true,

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -31,7 +31,7 @@ const DURABLE_APP_STATE_KEYS: [&str; 4] = [
     "viewBackgroundColor",
 ];
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub(crate) struct CanvasElement {
     pub(crate) id: String,
     pub(crate) version: i64,
@@ -41,7 +41,7 @@ pub(crate) struct CanvasElement {
     pub(crate) value: Value,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub(crate) struct CanvasFile {
     pub(crate) id: String,
     pub(crate) mime_type: String,
@@ -51,7 +51,7 @@ pub(crate) struct CanvasFile {
     pub(crate) value: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
 pub(crate) struct CanvasPageReference {
     pub(crate) source_element_id: String,
     pub(crate) target_block_id: String,
@@ -128,7 +128,7 @@ struct CanvasSemanticIntentFingerprint<'a> {
     mutation: &'a Value,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub(crate) struct CanvasScene {
     pub(crate) elements: Vec<CanvasElement>,
     pub(crate) app_state: Map<String, Value>,

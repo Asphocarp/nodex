@@ -385,6 +385,44 @@ describe("Core Document sync adapter", () => {
     });
   });
 
+  test("repairs a rejected generic typed-owner mutation from canonical state", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    const request = {
+      documentId: "document:owner-guard",
+      clientSessionId: "renderer:owner-guard",
+    } as const;
+    const close = adapter.subscribe(request, () => undefined);
+    vi.spyOn(client, "documentApplyUpdate").mockRejectedValueOnce(
+      new CoreModuleResponseError({
+        code: "protected_owner_deletion",
+        message: "Typed owner Page cannot contain child Blocks",
+        retryable: false,
+        recovery: { kind: "none" },
+      }),
+    );
+
+    await expect(
+      adapter.applyUpdate({
+        ...request,
+        storeEpoch: "epoch:test",
+        generation: 1,
+        updateId: "update:owner-guard",
+        baseHeadSeq: 4,
+        touchedBlockIds: ["page:nested"],
+        update: new Uint8Array([1]),
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "protected_owner_mutation",
+        retryable: false,
+        resetRequired: true,
+      },
+    });
+    close();
+  });
+
   test("waits for the replacement physical stream before syncing after interruption", async () => {
     const client = new ControllableDocumentStreamClient();
     const adapter = createCoreDocumentSyncAdapter(client, { retryDelayMs: 0 });

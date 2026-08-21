@@ -299,4 +299,36 @@ describe("createElectronDocumentSyncAdapter", () => {
       expect(result.error.retryable).toBe(true);
     }
   });
+
+  test("preserves protected-owner mutation recovery across Electron IPC", async () => {
+    const bridge = new FakeBridge();
+    bridge.applyResult = {
+      ok: false,
+      error: {
+        code: "protected_owner_mutation",
+        message: "Typed owner Page cannot contain child Blocks",
+        retryable: false,
+        resetRequired: true,
+      },
+    };
+    const adapter = createElectronDocumentSyncAdapter(
+      bridge as unknown as ElectronRendererBridge,
+      "project-1",
+    );
+    adapter.subscribe({ documentId: "doc-1", clientSessionId: "session-1" }, () => undefined);
+    bridge.subscription.resolve({ ok: true, value: { subscribed: true } });
+
+    await expect(
+      adapter.applyUpdate({
+        documentId: "doc-1",
+        storeEpoch: "epoch-1",
+        generation: 1,
+        updateId: "update-owner-guard",
+        clientSessionId: "session-1",
+        baseHeadSeq: 0,
+        touchedBlockIds: ["page-1"],
+        update: new Uint8Array([1]),
+      }),
+    ).resolves.toEqual(bridge.applyResult);
+  });
 });

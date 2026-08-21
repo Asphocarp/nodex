@@ -517,6 +517,16 @@ describe("Document HTTP contract", () => {
     expect(decodedRecoveryError.code).toBe("block_relocated");
     expect(decodedRecoveryError.relocationId).toBe("relocation-1");
     expect(decodedRecoveryError.recoveryArtifactId).toBe("artifact-1");
+
+    const ownerRepairError = {
+      code: "protected_owner_mutation",
+      message: "typed owner deletion requires lifecycle authority",
+      retryable: false,
+      resetRequired: true,
+    } as const;
+    expect(decodeDocumentHttpError(encodeDocumentHttpError(ownerRepairError))).toEqual(
+      ownerRepairError,
+    );
   });
 
   test("rejects duplicate touched identities at the HTTP boundary", () => {

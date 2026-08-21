@@ -1,4 +1,10 @@
 import { describe, expect, test, vi } from "vite-plus/test";
+
+import {
+  attachNodexClipboardEnvelope,
+  attachNodexStructuralClipboardWriteClaim,
+  inspectNodexClipboardHtml,
+} from "../../../../shared/clipboard-paste";
 import {
   createNfmEditorExtensions,
   createNfmPasteHandler,
@@ -9,6 +15,7 @@ import {
 import { createEmptyThreadSectionBlock } from "./thread-section";
 
 describe("nfm editor extensions", () => {
+  const writeClaim = "0199134e-cbb0-7000-8000-000000000006";
   test("replaces the built-in divider shortcut with the thread-section shortcut", () => {
     const extensions = createNfmEditorExtensions();
 
@@ -30,54 +37,177 @@ describe("nfm editor extensions", () => {
     );
   });
 
-  test("guards generic paste replacement of a typed owner", () => {
+  test("claims a verified structural sidecar before generic paste parsing", () => {
     const defaultPasteHandler = vi.fn(() => true);
-    const handler = createNfmPasteHandler({
-      onBeforeReplaceBlocks: (blocks) => blocks.some((block) => block.type === "page"),
-    });
-    const editor = {
-      getSelection: () => ({ blocks: [{ id: "page-1", type: "page" }] }),
-      getTextCursorPosition: () => ({ block: { id: "page-1", type: "page" } }),
+    const onStructuralPaste = vi.fn(() => true);
+    const preventDefault = vi.fn();
+    const envelope = {
+      version: 1 as const,
+      profileId: "profile:test",
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      bundleId: "bundle:test",
+      capability: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+      actionHint: "copy" as const,
     };
+    const html = attachNodexClipboardEnvelope("<p>Portable fallback</p>", envelope);
+    const handler = createNfmPasteHandler({ onStructuralPaste });
 
     const handled = handler({
       event: {
+        preventDefault,
         clipboardData: {
-          types: [],
-          getData: () => "plain text",
+          types: ["text/html", "text/plain"],
+          getData: (type: string) => (type === "text/html" ? html : "Portable fallback"),
         },
       } as unknown as ClipboardEvent,
-      editor: editor as never,
+      editor: {} as never,
       defaultPasteHandler,
     });
 
     expect(handled).toBe(true);
+    expect(onStructuralPaste).toHaveBeenCalledWith(envelope);
+    expect(preventDefault).toHaveBeenCalledOnce();
     expect(defaultPasteHandler).not.toHaveBeenCalled();
   });
 
-  test("guards generic paste insertion of a typed owner", () => {
+  test("queues a paste while its matching structural capture is still pending", () => {
+    const onPendingStructuralPaste = vi.fn(() => true);
     const defaultPasteHandler = vi.fn(() => true);
-    const handler = createNfmPasteHandler({
-      onBeforeInsertBlocks: (blocks) => blocks.some((block) => block.type === "page"),
-    });
-    const editor = {
-      getSelection: () => undefined,
-      getTextCursorPosition: () => ({ block: { id: "paragraph-1", type: "paragraph" } }),
-      tryParseHTMLToBlocks: () => [{ id: "page-1", type: "page" }],
+    const preventDefault = vi.fn();
+    const html = attachNodexStructuralClipboardWriteClaim("<p>Fallback</p>", writeClaim);
+    const handler = createNfmPasteHandler({ onPendingStructuralPaste });
+
+    expect(
+      handler({
+        event: {
+          preventDefault,
+          clipboardData: {
+            types: ["text/html", "text/plain"],
+            getData: (type: string) => (type === "text/html" ? html : "Fallback"),
+          },
+        } as unknown as ClipboardEvent,
+        editor: {} as never,
+        defaultPasteHandler,
+      }),
+    ).toBe(true);
+    expect(onPendingStructuralPaste).toHaveBeenCalledWith(writeClaim);
+    expect(defaultPasteHandler).not.toHaveBeenCalled();
+    expect(preventDefault).toHaveBeenCalledOnce();
+  });
+
+  test("recovers a native capability when Chromium retains only the fallback marker", () => {
+    const defaultPasteHandler = vi.fn(() => true);
+    const onStructuralPaste = vi.fn(() => true);
+    const preventDefault = vi.fn();
+    const envelope = {
+      version: 1 as const,
+      profileId: "profile:test",
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      bundleId: "bundle:test",
+      capability: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+      actionHint: "copy" as const,
     };
-
-    const handled = handler({
-      event: {
-        clipboardData: {
-          types: ["blocknote/html"],
-          getData: () => "<div data-content-type=page />",
-        },
-      } as unknown as ClipboardEvent,
-      editor: editor as never,
-      defaultPasteHandler,
+    const eventHtml = inspectNodexClipboardHtml(
+      attachNodexClipboardEnvelope("<p>Portable fallback</p>", envelope),
+    ).fallbackHtml;
+    const handler = createNfmPasteHandler({
+      onStructuralPaste,
+      readNativeStructuralEnvelope: () => envelope,
     });
 
-    expect(handled).toBe(true);
+    expect(
+      handler({
+        event: {
+          preventDefault,
+          clipboardData: {
+            types: ["text/html", "text/plain"],
+            getData: (type: string) => (type === "text/html" ? eventHtml : "Portable fallback"),
+          },
+        } as unknown as ClipboardEvent,
+        editor: {} as never,
+        defaultPasteHandler,
+      }),
+    ).toBe(true);
+    expect(onStructuralPaste).toHaveBeenCalledWith(envelope);
+    expect(defaultPasteHandler).not.toHaveBeenCalled();
+  });
+
+  test("removes owner semantics before untrusted HTML reaches BlockNote", () => {
+    const defaultPasteHandler = vi.fn(() => true);
+    const pasteHTML = vi.fn((html: string) => html);
+    const handler = createNfmPasteHandler();
+
+    expect(
+      handler({
+        event: {
+          clipboardData: {
+            types: ["text/html", "text/plain"],
+            getData: (type: string) =>
+              type === "text/html"
+                ? '<div data-content-type="page">Untrusted Page</div>'
+                : "Untrusted Page",
+          },
+        } as unknown as ClipboardEvent,
+        editor: { pasteHTML } as never,
+        defaultPasteHandler,
+      }),
+    ).toBe(true);
+    expect(pasteHTML).toHaveBeenCalledOnce();
+    expect(pasteHTML.mock.calls[0]?.[0]).not.toContain('data-content-type="page"');
+    expect(defaultPasteHandler).not.toHaveBeenCalled();
+  });
+
+  test("leaves ordinary clipboard content on BlockNote's generic path", () => {
+    const defaultPasteHandler = vi.fn(() => true);
+    const handler = createNfmPasteHandler({ onStructuralPaste: () => true });
+
+    expect(
+      handler({
+        event: {
+          clipboardData: {
+            types: ["text/plain"],
+            getData: (type: string) => (type === "text/plain" ? "ordinary" : ""),
+          },
+        } as unknown as ClipboardEvent,
+        editor: {} as never,
+        defaultPasteHandler,
+      }),
+    ).toBe(true);
+    expect(defaultPasteHandler).toHaveBeenCalledOnce();
+  });
+
+  test("materializes ordinary clipboard blocks before replacing a typed-owner selection", () => {
+    const defaultPasteHandler = vi.fn(() => true);
+    const onStructuralBlockPaste = vi.fn(() => true);
+    const preventDefault = vi.fn();
+    const parsed = [{ id: "parsed", type: "paragraph", props: {}, content: [] }];
+    const handler = createNfmPasteHandler({
+      shouldHandleStructuralBlockPaste: () => true,
+      onStructuralBlockPaste,
+    });
+
+    expect(
+      handler({
+        event: {
+          preventDefault,
+          clipboardData: {
+            types: ["text/html", "text/plain"],
+            getData: (type: string) =>
+              type === "text/html" ? "<p>replacement</p>" : "replacement",
+          },
+        } as unknown as ClipboardEvent,
+        editor: {
+          tryParseHTMLToBlocks: () => parsed,
+        } as never,
+        defaultPasteHandler,
+      }),
+    ).toBe(true);
+    expect(onStructuralBlockPaste).toHaveBeenCalledWith(parsed);
+    expect(preventDefault).toHaveBeenCalledOnce();
     expect(defaultPasteHandler).not.toHaveBeenCalled();
   });
 });

@@ -105,6 +105,10 @@ import type {
 import { GitWorkerClient } from "./git-worker-client";
 import { admitLocalCommitApply } from "./local-commit-ingress";
 import type { PageSearchInput, PageSearchSnapshot } from "../../shared/types";
+import type {
+  StructuralClipboardWriteInput,
+  StructuralClipboardWriteResult,
+} from "../../shared/clipboard-paste";
 
 let gitWorkerClient: GitWorkerClient | null = null;
 
@@ -126,6 +130,12 @@ export async function invoke(channel: string, ...args: unknown[]): Promise<unkno
 export async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   const transport = resolveInvokeTransport();
   return transport.invoke(channel, ...args);
+}
+
+export function writeStructuralClipboard(
+  input: StructuralClipboardWriteInput,
+): Promise<StructuralClipboardWriteResult> {
+  return invoke("clipboard:write-structural", input);
 }
 
 export async function searchPages(

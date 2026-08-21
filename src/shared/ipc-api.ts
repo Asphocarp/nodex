@@ -484,6 +484,10 @@ import type {
   ThreadGoal,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
+import type {
+  StructuralClipboardWriteInput,
+  StructuralClipboardWriteResult,
+} from "./clipboard-paste";
 
 export type ClipboardWriteImageResult = { ok: true } | { ok: false; message: string };
 
@@ -1127,6 +1131,10 @@ export interface IpcApi {
   "clipboard:write-image": {
     args: [input: { source: string }];
     result: ClipboardWriteImageResult;
+  };
+  "clipboard:write-structural": {
+    args: [input: StructuralClipboardWriteInput];
+    result: StructuralClipboardWriteResult;
   };
   "clipboard:read-paste": {
     args: [];

@@ -25,6 +25,7 @@ import {
   type PageLifecyclePreflightSnapshotV2,
 } from "../../src/shared/page-lifecycle-v2-runtime";
 import { createUuidV7 } from "../../src/shared/uuid-v7";
+import { attachNodexStructuralClipboardWriteClaim } from "../../src/shared/clipboard-paste";
 import {
   ElectronScenarioHarness,
   stopNodexElectronApplication as stopApplication,
@@ -255,6 +256,83 @@ async function seedConvergenceDocument(
     throw new Error("Seed source Page document must contain a transferable block");
   }
   return { ...source, blockIds };
+}
+
+async function createConvergenceSubpage(
+  page: Page,
+  project: ConvergenceProject,
+  parent: ConvergencePage,
+  title: string,
+  beforeBlockId: string,
+): Promise<ConvergencePage> {
+  const descriptor = requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(page, "block-document:owned:prepare", project.projectId, parent.pageId),
+    `Prepare ${title} parent`,
+  );
+  const pageId = createUuidV7();
+  const documentId = createUuidV7();
+  requireIpcValue<Record<string, unknown>>(
+    await invokeIpc(
+      page,
+      "library-module:apply",
+      { kind: "project", projectId: project.projectId },
+      {
+        operationId: createUuidV7(),
+        storeEpoch: project.storeEpoch,
+        operation: {
+          kind: "create_page",
+          pageId,
+          documentId,
+          title,
+          parent: {
+            kind: "page",
+            pageId: parent.pageId,
+            expectedDocumentGeneration: descriptor.generation,
+            expectedDocumentHeadSeq: descriptor.headSeq,
+            insertion: {
+              kind: "before",
+              anchorBlockId: beforeBlockId,
+            },
+          },
+        },
+      },
+    ),
+    `Create ${title}`,
+  );
+  return { pageId, documentId };
+}
+
+async function selectEditorBlockRange({
+  page,
+  editor,
+  firstBlock,
+  lastBlock,
+}: {
+  page: Page;
+  editor: Locator;
+  firstBlock: Locator;
+  lastBlock: Locator;
+}): Promise<void> {
+  const firstContent = firstBlock.locator(":scope > .bn-block-content .bn-inline-content");
+  const lastContent = lastBlock.locator(":scope > .bn-block-content .bn-inline-content");
+  const [firstBox, lastBox] = await Promise.all([
+    firstContent.boundingBox(),
+    lastContent.boundingBox(),
+  ]);
+  if (!firstBox || !lastBox) throw new Error("Editor selection endpoints have no layout boxes");
+
+  await page.mouse.move(firstBox.x + 2, firstBox.y + firstBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(lastBox.x + lastBox.width - 2, lastBox.y + lastBox.height / 2, {
+    steps: 20,
+  });
+  await page.mouse.up();
+  await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+/`);
+  const menu = page.getByRole("dialog", { name: "Block actions" });
+  await menu.waitFor();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(editor).toBeVisible();
 }
 
 async function dispatchEditorAncestorScroll({
@@ -1214,6 +1292,640 @@ async function sampleLargeContentScenario(input: {
 
 test.describe("parallel functional Electron smoke", () => {
   test.describe.configure({ mode: process.env.CI ? "parallel" : "default" });
+
+  test("preserves a structural clipboard capability through native paste", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "structural-clipboard-paste" });
+    const digest = "a".repeat(64);
+    try {
+      const page = await harness.launch();
+      const savedClipboard = await harness.application.evaluate(({ clipboard }) => ({
+        html: clipboard.readHTML(),
+        text: clipboard.readText(),
+      }));
+      try {
+        const writeClaim = createUuidV7();
+        await harness.application.evaluate(({ clipboard }, pending) => clipboard.write(pending), {
+          html: attachNodexStructuralClipboardWriteClaim("<p>Portable fallback</p>", writeClaim),
+          text: "Portable fallback",
+        });
+        expect(
+          await invokeIpc(page, "clipboard:write-structural", {
+            envelope: {
+              version: 1,
+              profileId: "profile:e2e",
+              libraryId: "library:e2e",
+              storeEpoch: "epoch:e2e",
+              bundleId: "bundle:e2e",
+              capability: digest,
+              manifestHash: digest,
+              actionHint: "copy",
+            },
+            writeClaim,
+            html: "<p>Portable fallback</p>",
+            text: "Portable fallback",
+          }),
+        ).toEqual({ ok: true });
+
+        await page.evaluate(() => {
+          const target = document.createElement("div");
+          target.contentEditable = "true";
+          target.dataset.structuralClipboardTarget = "true";
+          target.addEventListener("paste", (event) => {
+            const clipboardEvent = event as ClipboardEvent;
+            (
+              window as unknown as {
+                __structuralClipboardPaste?: { html: string; text: string };
+              }
+            ).__structuralClipboardPaste = {
+              html: clipboardEvent.clipboardData?.getData("text/html") ?? "",
+              text: clipboardEvent.clipboardData?.getData("text/plain") ?? "",
+            };
+            event.preventDefault();
+          });
+          document.body.append(target);
+          target.focus();
+        });
+        await page.keyboard.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+
+        await expect
+          .poll(
+            async () =>
+              await page.evaluate(
+                () =>
+                  (
+                    window as unknown as {
+                      __structuralClipboardPaste?: { html: string; text: string };
+                    }
+                  ).__structuralClipboardPaste ?? null,
+              ),
+          )
+          .toMatchObject({ text: "Portable fallback" });
+        const pasted = await page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                __structuralClipboardPaste?: { html: string; text: string };
+              }
+            ).__structuralClipboardPaste,
+        );
+        expect(pasted?.html).toContain('name="nodex-clipboard-envelope-v1"');
+        expect(pasted?.html).toContain("Portable fallback");
+      } finally {
+        await harness.application.evaluate(({ clipboard }, saved) => {
+          clipboard.write({ html: saved.html, text: saved.text });
+        }, savedClipboard);
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("deletes, copies, pastes, and restores a mixed subpage selection", async () => {
+    test.setTimeout(180_000);
+    const harness = await ElectronScenarioHarness.create({ label: "structural-subpage-edit" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Structural subpage edit", workspace);
+      const source = await createConvergenceBoardPage(
+        page,
+        project,
+        "Structural source",
+        "Source body",
+      );
+      const target = await createConvergenceBoardPage(
+        page,
+        project,
+        "Structural target",
+        "Target body",
+      );
+      const seeded = await seedConvergenceDocument(page, project, source, "before\nafter");
+      const subpage = await createConvergenceSubpage(
+        page,
+        project,
+        source,
+        "abc",
+        seeded.blockIds[1],
+      );
+      await seedConvergenceDocument(page, project, subpage, "abc owned body\nabc owned tail");
+      const targetSeeded = await seedConvergenceDocument(
+        page,
+        project,
+        target,
+        "target before\ntarget after",
+      );
+      const nestedTarget = await createConvergenceSubpage(
+        page,
+        project,
+        target,
+        "Nested target",
+        targetSeeded.blockIds[1],
+      );
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.getByRole("button", { name: "Open Structural subpage edit", exact: true }).click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await expect(board).toBeVisible({ timeout: 15_000 });
+      await board
+        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Structural source" }).waitFor();
+
+      const sourcePanel = page.getByRole("tabpanel", { name: /Structural source$/ });
+      const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      const before = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[0]}"]`);
+      const owner = sourceEditor.locator(`.bn-block[data-id="${subpage.pageId}"]`);
+      const after = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[1]}"]`);
+      await expect(owner).toBeVisible({ timeout: 15_000 });
+
+      const afterInline = after.locator(":scope > .bn-block-content .bn-inline-content");
+      const afterInlineBox = await afterInline.boundingBox();
+      if (!afterInlineBox) throw new Error("The paragraph after the subpage has no layout box");
+      await afterInline.click({ position: { x: 1, y: afterInlineBox.height / 2 } });
+      await page.keyboard.press("Backspace");
+      await expect(owner).toBeVisible();
+      await expect
+        .poll(async () => ({
+          focusedBlockId: await sourceEditor.evaluate(() => {
+            const selection = window.getSelection();
+            const node = selection?.focusNode;
+            const element = node instanceof Element ? node : node?.parentElement;
+            return element?.closest<HTMLElement>(".bn-block[data-id]")?.dataset.id ?? null;
+          }),
+          before: seeded.blockIds[0],
+          owner: subpage.pageId,
+          after: seeded.blockIds[1],
+        }))
+        .toEqual({
+          focusedBlockId: seeded.blockIds[0],
+          before: seeded.blockIds[0],
+          owner: subpage.pageId,
+          after: seeded.blockIds[1],
+        });
+      await expect(
+        page.getByText("Nodex blocked an incomplete structural change.", { exact: false }),
+      ).toHaveCount(0);
+
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: before,
+        lastBlock: after,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+C`);
+      await afterInline.click();
+      await page.keyboard.press("End");
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+V`);
+      const samePageClone = sourceEditor
+        .locator(".bn-block[data-id]")
+        .filter({ hasText: "abc (1)" });
+      await expect(samePageClone).toHaveCount(1, { timeout: 15_000 });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect(samePageClone).toHaveCount(0, { timeout: 15_000 });
+
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: before,
+        lastBlock: after,
+      });
+      await page.keyboard.press("Backspace");
+      await expect(owner).toHaveCount(0, { timeout: 15_000 });
+      await expect
+        .poll(
+          async () =>
+            await sourceEditor.evaluate((editor) => editor.contains(document.activeElement)),
+        )
+        .toBe(true);
+
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect(owner).toBeVisible({ timeout: 15_000 });
+      await expect(before).toBeVisible();
+      await expect(after).toBeVisible();
+
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: before,
+        lastBlock: after,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+C`);
+      await expect
+        .poll(
+          async () =>
+            await harness.application.evaluate(({ clipboard }) =>
+              clipboard.readHTML().includes('name="nodex-clipboard-envelope-v1"'),
+            ),
+        )
+        .toBe(true);
+
+      await board
+        .locator(`[data-board-uuid-v7="${target.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Structural target" }).waitFor();
+      const targetPanel = page.getByRole("tabpanel", { name: /Structural target$/ });
+      const targetEditor = targetPanel
+        .locator('.nfm-editor .ProseMirror[contenteditable="true"]')
+        .first();
+      await expect(targetEditor).toBeVisible({ timeout: 15_000 });
+      const nestedTargetOwner = targetEditor.locator(`.bn-block[data-id="${nestedTarget.pageId}"]`);
+      await expect(nestedTargetOwner).toBeVisible({ timeout: 15_000 });
+      await nestedTargetOwner.getByRole("button", { name: "Expand Nested target" }).click();
+      const nestedTargetEditor = nestedTargetOwner
+        .locator('[data-page-outliner-body] .nfm-editor .ProseMirror[contenteditable="true"]')
+        .first();
+      await expect(nestedTargetEditor).toBeVisible({ timeout: 15_000 });
+      await nestedTargetEditor.click();
+      await page.keyboard.press("End");
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+V`);
+      const clonedOwner = nestedTargetEditor
+        .locator(".bn-block[data-id]")
+        .filter({ hasText: "abc (1)" });
+      await expect(clonedOwner).toHaveCount(1, { timeout: 15_000 });
+      const expandClonedOwner = clonedOwner.getByRole("button", { name: "Expand abc (1)" });
+      await expect(expandClonedOwner).toBeVisible();
+      await expandClonedOwner.click();
+      await expect(clonedOwner.getByText("abc owned body", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect
+        .poll(
+          async () =>
+            await nestedTargetEditor.evaluate((editor) => editor.contains(document.activeElement)),
+        )
+        .toBe(true);
+
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect(clonedOwner).toHaveCount(0, { timeout: 15_000 });
+      await expect(page.getByRole("alert").filter({ hasText: "Something went wrong" })).toHaveCount(
+        0,
+      );
+      expect(pageErrors.filter((message) => message.includes("Block doesn't have id"))).toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("pastes a mixed subpage selection after both Page Stage tabs remount", async () => {
+    test.setTimeout(180_000);
+    const harness = await ElectronScenarioHarness.create({ label: "structural-retained-paste" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Retained structural paste", workspace);
+      const parent = await createConvergenceBoardPage(
+        page,
+        project,
+        "Retained parent",
+        "Parent body",
+      );
+      const parentSeeded = await seedConvergenceDocument(
+        page,
+        project,
+        parent,
+        "source before\nsource after\nsource tail",
+      );
+      const copiedSubpage = await createConvergenceSubpage(
+        page,
+        project,
+        parent,
+        "Retained child A",
+        parentSeeded.blockIds[1],
+      );
+      const targetSubpage = await createConvergenceSubpage(
+        page,
+        project,
+        parent,
+        "Retained child B",
+        parentSeeded.blockIds[2],
+      );
+      await seedConvergenceDocument(
+        page,
+        project,
+        copiedSubpage,
+        "retained owned body\nretained owned tail",
+      );
+      const targetSeeded = await seedConvergenceDocument(
+        page,
+        project,
+        targetSubpage,
+        "target before\ntarget after",
+      );
+
+      await page
+        .getByRole("button", { name: "Open Retained structural paste", exact: true })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await board
+        .locator(`[data-board-uuid-v7="${parent.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Retained parent" }).waitFor();
+
+      const parentPanel = page.getByRole("tabpanel", { name: /Retained parent$/ });
+      const parentEditor = parentPanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      const copiedOwner = parentEditor.locator(`.bn-block[data-id="${copiedSubpage.pageId}"]`);
+      const targetOwner = parentEditor.locator(`.bn-block[data-id="${targetSubpage.pageId}"]`);
+      await expect(copiedOwner).toBeVisible({ timeout: 15_000 });
+      await targetOwner.hover();
+      await targetOwner.getByRole("button", { name: "Open Retained child B" }).click();
+      await page.getByRole("tab", { name: "Retained child B" }).waitFor();
+      await expect(
+        page
+          .getByRole("tabpanel", { name: /Retained child B$/ })
+          .locator('.nfm-editor .ProseMirror[contenteditable="true"]'),
+      ).toBeVisible({ timeout: 15_000 });
+
+      await page.getByRole("tab", { name: "Retained parent" }).click();
+      await expect(parentEditor).toBeVisible({ timeout: 15_000 });
+      const before = parentEditor.locator(`.bn-block[data-id="${parentSeeded.blockIds[0]}"]`);
+      const after = parentEditor.locator(`.bn-block[data-id="${parentSeeded.blockIds[1]}"]`);
+      await selectEditorBlockRange({
+        page,
+        editor: parentEditor,
+        firstBlock: before,
+        lastBlock: after,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+C`);
+      await page.getByRole("tab", { name: "Retained child B" }).click();
+      const targetPanel = page.getByRole("tabpanel", { name: /Retained child B$/ });
+      const targetEditor = targetPanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      await expect(targetEditor).toBeVisible({ timeout: 15_000 });
+      await targetEditor.locator(`.bn-block[data-id="${targetSeeded.blockIds[0]}"]`).click();
+      await page.keyboard.press("End");
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+V`);
+
+      const clonedOwner = targetEditor.locator(".bn-block[data-id]").filter({
+        hasText: "Retained child A (1)",
+      });
+      await expect(clonedOwner).toHaveCount(1, { timeout: 15_000 });
+      await clonedOwner.getByRole("button", { name: "Expand Retained child A (1)" }).click();
+      await expect(clonedOwner.getByText("retained owned body", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect
+        .poll(
+          async () =>
+            await harness.application.evaluate(({ clipboard }) => ({
+              html: clipboard.readHTML(),
+              text: clipboard.readText(),
+            })),
+        )
+        .toMatchObject({
+          html: expect.stringContaining('name="nodex-clipboard-envelope-v1"'),
+          text: expect.stringContaining(copiedSubpage.pageId),
+        });
+      await expect(
+        page.getByText("This structural content is still preparing.", { exact: false }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByText("Structural editing is initializing.", { exact: false }),
+      ).toHaveCount(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("keeps consecutive subpage cuts available for nested paste", async () => {
+    test.setTimeout(180_000);
+    const harness = await ElectronScenarioHarness.create({ label: "structural-consecutive-cut" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Structural consecutive cut", workspace);
+      const source = await createConvergenceBoardPage(
+        page,
+        project,
+        "Consecutive cut source",
+        "Source body",
+      );
+      const target = await createConvergenceBoardPage(
+        page,
+        project,
+        "Consecutive cut target",
+        "Target body",
+      );
+      const seeded = await seedConvergenceDocument(
+        page,
+        project,
+        source,
+        "before one\nafter one\nbefore two\nafter two",
+      );
+      const firstSubpage = await createConvergenceSubpage(
+        page,
+        project,
+        source,
+        "Cut one",
+        seeded.blockIds[1],
+      );
+      const secondSubpage = await createConvergenceSubpage(
+        page,
+        project,
+        source,
+        "Cut two",
+        seeded.blockIds[3],
+      );
+      await seedConvergenceDocument(page, project, firstSubpage, "first owned body\nfirst tail");
+      await seedConvergenceDocument(page, project, secondSubpage, "second owned body\nsecond tail");
+      const targetSeeded = await seedConvergenceDocument(
+        page,
+        project,
+        target,
+        "target before\ntarget after",
+      );
+      const nestedTarget = await createConvergenceSubpage(
+        page,
+        project,
+        target,
+        "Nested cut target",
+        targetSeeded.blockIds[1],
+      );
+
+      await page
+        .getByRole("button", { name: "Open Structural consecutive cut", exact: true })
+        .click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await board
+        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Consecutive cut source" }).waitFor();
+
+      const sourcePanel = page.getByRole("tabpanel", { name: /Consecutive cut source$/ });
+      const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      const firstOwner = sourceEditor.locator(`.bn-block[data-id="${firstSubpage.pageId}"]`);
+      const secondOwner = sourceEditor.locator(`.bn-block[data-id="${secondSubpage.pageId}"]`);
+      const beforeFirst = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[0]}"]`);
+      const afterFirst = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[1]}"]`);
+      const beforeSecond = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[2]}"]`);
+      const afterSecond = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[3]}"]`);
+      await expect(firstOwner).toBeVisible({ timeout: 15_000 });
+      await expect(secondOwner).toBeVisible();
+
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: beforeFirst,
+        lastBlock: afterFirst,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+X`);
+      await expect(firstOwner).toHaveCount(0, { timeout: 15_000 });
+
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: beforeSecond,
+        lastBlock: afterSecond,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+X`);
+      await expect(secondOwner).toHaveCount(0, { timeout: 15_000 });
+      await expect(
+        page.getByText("Nodex blocked an incomplete structural change.", { exact: false }),
+      ).toHaveCount(0);
+
+      await board
+        .locator(`[data-board-uuid-v7="${target.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Consecutive cut target" }).waitFor();
+      const targetPanel = page.getByRole("tabpanel", { name: /Consecutive cut target$/ });
+      const targetEditor = targetPanel
+        .locator('.nfm-editor .ProseMirror[contenteditable="true"]')
+        .first();
+      const nestedTargetOwner = targetEditor.locator(`.bn-block[data-id="${nestedTarget.pageId}"]`);
+      await nestedTargetOwner.getByRole("button", { name: "Expand Nested cut target" }).click();
+      const nestedTargetEditor = nestedTargetOwner.locator(
+        '[data-page-outliner-body] .nfm-editor .ProseMirror[contenteditable="true"]',
+      );
+      await expect(nestedTargetEditor).toBeVisible({ timeout: 15_000 });
+      await nestedTargetEditor.click();
+      await page.keyboard.press("End");
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+V`);
+
+      const expandMovedOwner = nestedTargetEditor.getByRole("button", { name: "Expand Cut two" });
+      await expect(expandMovedOwner).toBeVisible({ timeout: 15_000 });
+      await expandMovedOwner.click();
+      await expect(nestedTargetEditor.getByText("second owned body", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(
+        page.getByText("This structural content is still preparing.", { exact: false }),
+      ).toHaveCount(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("moves a cut subpage across Pages and restores it from target history", async () => {
+    test.setTimeout(150_000);
+    const harness = await ElectronScenarioHarness.create({ label: "structural-subpage-cut" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Structural subpage cut", workspace);
+      const source = await createConvergenceBoardPage(page, project, "Cut source", "Source body");
+      const target = await createConvergenceBoardPage(page, project, "Cut target", "Target body");
+      const seeded = await seedConvergenceDocument(page, project, source, "before\nafter");
+      const subpage = await createConvergenceSubpage(
+        page,
+        project,
+        source,
+        "abc",
+        seeded.blockIds[1],
+      );
+
+      await page.getByRole("button", { name: "Open Structural subpage cut", exact: true }).click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await expect(board).toBeVisible({ timeout: 15_000 });
+      await board
+        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Cut source" }).waitFor();
+
+      const sourcePanel = page.getByRole("tabpanel", { name: /Cut source$/ });
+      const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      const before = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[0]}"]`);
+      const owner = sourceEditor.locator(`.bn-block[data-id="${subpage.pageId}"]`);
+      const after = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[1]}"]`);
+      await expect(owner).toBeVisible({ timeout: 15_000 });
+      const clipboardBefore = await harness.application.evaluate(({ clipboard }) =>
+        clipboard.readHTML(),
+      );
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: before,
+        lastBlock: after,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+X`);
+      await expect(owner).toHaveCount(0, { timeout: 15_000 });
+      await expect
+        .poll(
+          async () =>
+            await harness.application.evaluate(({ clipboard }, previous) => {
+              const html = clipboard.readHTML();
+              return html !== previous && html.includes('name="nodex-clipboard-envelope-v1"');
+            }, clipboardBefore),
+        )
+        .toBe(true);
+
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect(owner).toBeVisible({ timeout: 15_000 });
+      const firstCutClipboard = await harness.application.evaluate(({ clipboard }) =>
+        clipboard.readHTML(),
+      );
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: before,
+        lastBlock: after,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+X`);
+      await expect(owner).toHaveCount(0, { timeout: 15_000 });
+      await expect
+        .poll(
+          async () =>
+            await harness.application.evaluate(({ clipboard }, previous) => {
+              const html = clipboard.readHTML();
+              return html !== previous && html.includes('name="nodex-clipboard-envelope-v1"');
+            }, firstCutClipboard),
+        )
+        .toBe(true);
+
+      await board
+        .locator(`[data-board-uuid-v7="${target.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Cut target" }).waitFor();
+      const targetPanel = page.getByRole("tabpanel", { name: /Cut target$/ });
+      const targetEditor = targetPanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      await expect(targetEditor).toBeVisible({ timeout: 15_000 });
+      await targetEditor.click();
+      await page.keyboard.press("End");
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+V`);
+      const pastedOwner = targetEditor.locator(".bn-block[data-id]").filter({ hasText: /abc/ });
+      await expect(pastedOwner).toHaveCount(1, { timeout: 15_000 });
+      await expect(pastedOwner).toHaveAttribute("data-id", subpage.pageId);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      const movedOwner = targetEditor.locator(`.bn-block[data-id="${subpage.pageId}"]`);
+
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect(movedOwner).toHaveCount(0, { timeout: 15_000 });
+      await page.getByRole("tab", { name: "Cut source" }).click();
+      await expect(owner).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await harness.close();
+    }
+  });
 
   test("provisions and persists the initial source-backed Project across a full Electron restart", async () => {
     test.setTimeout(120_000);

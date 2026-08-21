@@ -103,6 +103,7 @@ export class EditorSurfaceLease {
   private editor: RetainedBlockNoteEditor | null = null;
   private editorKey: string | null = null;
   private selectionBookmark: CollaborativeSelectionBookmark | null = null;
+  private readonly retainedResources = new Map<string, { readonly dispose: () => void }>();
   private shouldRestoreEditorFocus = false;
   private nextViewGeneration = 0;
   private activeViewGeneration = 0;
@@ -186,6 +187,22 @@ export class EditorSurfaceLease {
     return editor;
   }
 
+  /** Retains surface-local controllers across React view remounts. */
+  getOrCreateRetainedResource<Resource extends { dispose(): void }>(
+    key: string,
+    create: () => Resource,
+  ): Resource {
+    if (this.disposed) {
+      throw new Error("Cannot create a resource for a disposed editor surface lease");
+    }
+    const existing = this.retainedResources.get(key);
+    if (existing) return existing as Resource;
+
+    const resource = create();
+    this.retainedResources.set(key, resource);
+    return resource;
+  }
+
   captureSelection<
     BSchema extends BlockSchema,
     ISchema extends InlineContentSchema,
@@ -224,6 +241,9 @@ export class EditorSurfaceLease {
     this.editorKey = null;
     this.selectionBookmark = null;
     this.shouldRestoreEditorFocus = false;
+    const retainedResources = [...this.retainedResources.values()];
+    this.retainedResources.clear();
+    for (const resource of retainedResources) resource.dispose();
     editor?._tiptapEditor.destroy();
 
     this.disposePromise = this.connectBarrier

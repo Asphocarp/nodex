@@ -52,6 +52,7 @@ pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), St
     validate_document_block_tombstones(connection)?;
     validate_document_page_references(connection)?;
     validate_block_transfer_undo(connection)?;
+    validate_structural_edit_evidence(connection)?;
     validate_document_materialization_derivation(connection)?;
     tracing::info!(
         durationMs = duration_millis(started_at.elapsed()),
@@ -526,6 +527,87 @@ fn validate_block_transfer_undo(connection: &Connection) -> Result<(), StoreErro
         |row| row.get(0),
     )?;
     expect_zero(invalid, "invalid Block transfer Undo recipes")
+}
+
+fn validate_structural_edit_evidence(connection: &Connection) -> Result<(), StoreError> {
+    let installed = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' \
+             AND name = 'structural_clipboard_bundles'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !installed {
+        return Ok(());
+    }
+
+    let invalid_authority: i64 = connection.query_row(
+        "SELECT \
+           (SELECT count(*) FROM structural_clipboard_bundles bundle \
+            LEFT JOIN block_mutations mutation \
+              ON mutation.mutation_id = bundle.capture_operation_id \
+            LEFT JOIN projects project ON project.id = mutation.project_id \
+            WHERE mutation.mutation_id IS NULL \
+               OR mutation.mutation_kind <> 'structural_edit' \
+               OR mutation.store_epoch <> bundle.store_epoch \
+               OR project.library_id <> bundle.library_id) + \
+           (SELECT count(*) FROM structural_history_recipes recipe \
+            LEFT JOIN block_mutations mutation \
+              ON mutation.mutation_id = recipe.recipe_operation_id \
+            LEFT JOIN projects project ON project.id = mutation.project_id \
+            WHERE mutation.mutation_id IS NULL \
+               OR mutation.mutation_kind <> 'structural_edit' \
+               OR mutation.store_epoch <> recipe.store_epoch \
+               OR project.library_id <> recipe.library_id) + \
+           (SELECT count(*) FROM structural_cut_claims claim \
+            JOIN structural_clipboard_bundles bundle USING(bundle_id) \
+            LEFT JOIN documents document ON document.id = claim.source_document_id \
+            WHERE document.id IS NULL OR document.library_id <> bundle.library_id)",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(
+        invalid_authority,
+        "invalid structural edit authority records",
+    )?;
+
+    let invalid_roots: i64 = connection.query_row(
+        "SELECT count(*) FROM structural_cut_claims claim \
+         JOIN structural_clipboard_bundles bundle USING(bundle_id) \
+         JOIN json_each(claim.source_root_ids_json) root \
+         LEFT JOIN blocks block ON block.id = root.value \
+         WHERE root.type <> 'text' OR length(root.value) NOT BETWEEN 1 AND 512 \
+            OR block.id IS NULL OR block.library_id <> bundle.library_id",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(invalid_roots, "invalid structural cut roots")?;
+
+    let invalid_members: i64 = connection.query_row(
+        "SELECT count(*) FROM structural_retention_members member \
+         WHERE (member.authority_kind = 'clipboard_bundle' AND NOT EXISTS ( \
+                  SELECT 1 FROM structural_clipboard_bundles bundle \
+                  WHERE bundle.bundle_id = member.authority_id \
+                    AND bundle.library_id = member.library_id)) \
+            OR (member.authority_kind = 'history_recipe' AND NOT EXISTS ( \
+                  SELECT 1 FROM structural_history_recipes recipe \
+                  WHERE recipe.recipe_operation_id = member.authority_id \
+                    AND recipe.library_id = member.library_id)) \
+            OR (member.member_kind = 'block' AND NOT EXISTS ( \
+                  SELECT 1 FROM blocks block WHERE block.id = member.member_id \
+                    AND block.library_id = member.library_id)) \
+            OR (member.member_kind = 'document' AND NOT EXISTS ( \
+                  SELECT 1 FROM documents document WHERE document.id = member.member_id \
+                    AND document.library_id = member.library_id)) \
+            OR (member.member_kind = 'database' AND NOT EXISTS ( \
+                  SELECT 1 FROM blocks block WHERE block.id = member.member_id \
+                    AND block.library_id = member.library_id AND block.type = 'database'))",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(invalid_members, "invalid structural retention members")
 }
 
 fn validate_document_materialization_derivation(connection: &Connection) -> Result<(), StoreError> {

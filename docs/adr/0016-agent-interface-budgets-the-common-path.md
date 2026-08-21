@@ -1,6 +1,6 @@
 # ADR 0016: Agent interface budgets the common path
 
-- Status: Accepted
+- Status: Accepted (amended 2026-08-21)
 - Date: 2026-07-16
 - Owners: Nodex maintainers
 - Extends: ADR 0015
@@ -102,7 +102,7 @@ Each `create_cards.cards[]` item accepts `title`, optional `markdown`, and optio
 
 Nested Markdown is the implicit content format throughout the common path. `create_cards.cards[].markdown`, `fetch`'s default content, and `update_card` body strings do not carry `format: "markdown"`. `format` remains only where the caller deliberately selects a non-default representation such as `summary` or `blocks`.
 
-`update_card` retains semantic groups for `title`, `body`, `safety`, and result projection. Nested Markdown body variants use short local discriminators such as `insert`, `patch`, and `replace`; the surrounding `body` already states that they edit the Card body. Exact `oldMarkdown` text is the semantic guard, whole replacement uses a body ETag, and stable anchors identify insertion positions.
+`update_card` retains semantic groups for `title`, `body`, and result projection. Nested Markdown body variants use short local discriminators such as `insert`, `patch`, and `replace`; the surrounding `body` already states that they edit the Card body. Exact `oldMarkdown` text is the semantic guard, whole replacement uses a body ETag, and stable anchors identify insertion positions. A generic Document update can never delete an owning Page, Canvas, or Database shell or place a child beneath any document-bearing owner shell; those intents require typed ownership operations with complete authority and causal heads.
 
 Canonical serialization always uses tabs for Block nesting. Parsing never guesses that leading spaces were intended as nesting and never rejects them merely because they occur at line start; they retain the format's ordinary authored-content semantics. The namespace hint teaches callers how to express structure without claiming to infer their intent. A future first-class dynamic resource can replace the opt-in guide only when the pinned Codex app-server supports it without adding another always-visible tool.
 
@@ -117,7 +117,7 @@ Semantic groups remain nested:
 - `title` keeps its replacement ETag beside the title value.
 - `body` contains one atomic body-edit intent.
 - `prepareFor` plans operation-scoped validators.
-- `safety` is an explicit destructive acknowledgment.
+- owner lifecycle uses separate typed operations bound to complete authority and causal heads.
 - `return` is an opt-in projection, not a diagnostic dump.
 
 Simple set-valued projections use a bounded unique string list such as `return: ["markdown", "etags"]`. For three selectors its generated schema is 152 bytes versus 205 for the equivalent optional-boolean object; for two selectors it is 141 versus 175. Duplicate selectors reject at validation, and Zod retains a typed enum result.

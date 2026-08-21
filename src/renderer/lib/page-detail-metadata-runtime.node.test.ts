@@ -220,6 +220,7 @@ const metadataSuccess = (
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     operationId: request.operationId,
+    profileId: "profile-1",
     storeEpoch: request.storeEpoch,
     libraryId: "library-1",
     operationKind: request.operation.kind,
@@ -227,6 +228,7 @@ const metadataSuccess = (
     didMutate: true,
     createdTarget: null,
     canvasMutation: null,
+    structuralEdit: null,
     affectedParentKeys: [],
     affectedPageIds: ["page-1"],
     affectedDatabaseIds: [databaseId],

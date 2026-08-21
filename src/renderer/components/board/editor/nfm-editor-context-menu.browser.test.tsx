@@ -150,6 +150,62 @@ describe("nfm editor context menu", () => {
     }
   });
 
+  test("preserves a structural envelope through context-menu synthetic paste", async () => {
+    const originalApi = window.api;
+    const target = document.createElement("div");
+    document.body.append(target);
+    let pastedHtml = "";
+    target.addEventListener("paste", (event) => {
+      pastedHtml = (event as ClipboardEvent).clipboardData?.getData("text/html") ?? "";
+      event.preventDefault();
+    });
+    const structuralEnvelope = {
+      version: 1 as const,
+      profileId: "profile",
+      libraryId: "library",
+      storeEpoch: "epoch",
+      bundleId: "bundle",
+      capability: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+      actionHint: "copy" as const,
+    };
+
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: {
+        readPasteClipboard: async () => ({
+          html: '<div data-content-type="page">Subpage</div>',
+          text: "Subpage",
+          structuralEnvelope,
+        }),
+      },
+    });
+
+    try {
+      const handled = await runNfmEditorContextCommand(
+        {
+          prosemirrorView: {
+            dom: target,
+            focus: () => undefined,
+          },
+        },
+        "paste",
+        () => false,
+      );
+
+      expect(handled).toBe(true);
+      expect(pastedHtml).toContain('name="nodex-clipboard-envelope-v1"');
+      expect(pastedHtml).toContain('data-nodex-structural-fallback="1"');
+      expect(pastedHtml).not.toContain('data-content-type="page"');
+    } finally {
+      target.remove();
+      Object.defineProperty(window, "api", {
+        configurable: true,
+        value: originalApi,
+      });
+    }
+  });
+
   test("allows the caller to block direct fallback paste before reading the clipboard", async () => {
     const calls: string[] = [];
     const editor = {

@@ -16,7 +16,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 28;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 32;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -538,6 +538,135 @@ pub struct LibraryBlockTransferUndoResult {
     pub restored_source_root_ids: Vec<String>,
     pub removed_page_ids: Vec<String>,
     pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryStructuralSelection {
+    pub source_document_id: String,
+    pub root_block_ids: Vec<String>,
+    pub source_head: LibraryDocumentHead,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryStructuralTarget {
+    pub target_document_id: String,
+    pub parent_block_id: Option<String>,
+    pub before_block_id: Option<String>,
+    pub target_head: LibraryDocumentHead,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryStructuralClipboardToken {
+    pub bundle_id: String,
+    pub capability: String,
+    pub manifest_hash: String,
+    pub store_epoch: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryStructuralHistoryToken {
+    pub recipe_operation_id: String,
+    pub recipe_hash: String,
+    pub store_epoch: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryStructuralDeleteReason {
+    Delete,
+    Cut {
+        bundle: LibraryStructuralClipboardToken,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryStructuralDeleteDirection {
+    Backward,
+    Forward,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryStructuralReplacementBlock {
+    pub block_type: String,
+    pub props: std::collections::BTreeMap<String, serde_json::Value>,
+    pub content: Option<serde_json::Value>,
+    #[schema(no_recursion)]
+    pub children: Vec<LibraryStructuralReplacementBlock>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryStructuralReplacement {
+    Clipboard {
+        bundle: LibraryStructuralClipboardToken,
+    },
+    Blocks {
+        blocks: Vec<LibraryStructuralReplacementBlock>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryStructuralEditCommand {
+    CaptureClipboard {
+        selection: LibraryStructuralSelection,
+    },
+    DeleteSelection {
+        selection: LibraryStructuralSelection,
+        reason: LibraryStructuralDeleteReason,
+        direction: LibraryStructuralDeleteDirection,
+    },
+    PasteClipboard {
+        bundle: LibraryStructuralClipboardToken,
+        target: LibraryStructuralTarget,
+    },
+    DuplicateSelection {
+        selection: LibraryStructuralSelection,
+        target: LibraryStructuralTarget,
+    },
+    MoveSelection {
+        selection: LibraryStructuralSelection,
+        target: LibraryStructuralTarget,
+    },
+    ReplaceSelection {
+        selection: LibraryStructuralSelection,
+        replacement: LibraryStructuralReplacement,
+    },
+    ReleaseHistory {
+        tokens: Vec<LibraryStructuralHistoryToken>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryEditorResumeEdge {
+    Start,
+    End,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryEditorResumeTarget {
+    pub block_id: String,
+    pub edge: LibraryEditorResumeEdge,
+    pub fallback_before_block_id: Option<String>,
+    pub fallback_after_block_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryStructuralEditResult {
+    pub operation_kind: String,
+    pub source_root_block_ids: Vec<String>,
+    pub result_root_block_ids: Vec<String>,
+    pub copied_block_ids: std::collections::BTreeMap<String, String>,
+    pub copied_document_ids: std::collections::BTreeMap<String, String>,
+    pub document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+    pub affected_page_ids: Vec<String>,
+    pub affected_database_ids: Vec<String>,
+    pub clipboard: Option<LibraryStructuralClipboardToken>,
+    pub history: Option<LibraryStructuralHistoryToken>,
+    pub superseded_history_recipe_operation_ids: Vec<String>,
+    pub resume: Option<LibraryEditorResumeTarget>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -2275,6 +2404,12 @@ pub enum LibraryIntent {
         authorization: Box<AgentPreparedExecution>,
         request: Box<LibraryAgentMovePagesRequest>,
     },
+    ApplyStructuralEdit {
+        command: Box<LibraryStructuralEditCommand>,
+    },
+    ReverseStructuralEdit {
+        token: LibraryStructuralHistoryToken,
+    },
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,
     },
@@ -2364,6 +2499,7 @@ pub struct LibraryCommitValue {
     pub canvas_mutation: Option<LibraryCanvasMutationResult>,
     pub block_transfer: Option<LibraryBlockTransferResult>,
     pub block_transfer_undo: Option<LibraryBlockTransferUndoResult>,
+    pub structural_edit: Option<LibraryStructuralEditResult>,
     pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
     pub agent_page_copy: Option<LibraryAgentPageCopyResult>,

@@ -7,9 +7,17 @@ import {
   CLIPBOARD_INSPECTION_MAX_ITEMS,
   CLIPBOARD_INSPECTION_MAX_LINES,
   CLIPBOARD_INSPECTION_MAX_PATH_LENGTH,
+  inspectClipboardPasteItems,
   inspectClipboardPasteItemsFromStrings,
+  readClipboardPastePayload,
   truncateClipboardUtf8,
 } from "./clipboard-paste-inspector";
+import {
+  attachNodexClipboardEnvelope,
+  attachNodexStructuralClipboardWriteClaim,
+} from "../shared/clipboard-paste";
+
+const writeClaim = "0199134e-cbb0-7000-8000-000000000005";
 
 describe("clipboard paste inspector", () => {
   test("collects unique pasted file and folder paths from text payloads", () => {
@@ -68,5 +76,56 @@ describe("clipboard paste inspector", () => {
     expect(truncated).toBe("A");
     expect(Buffer.byteLength(truncated, "utf8")).toBeLessThanOrEqual(3);
     expect(truncated).not.toContain("�");
+  });
+
+  test("returns a verified structural candidate separately from marker-free fallback HTML", () => {
+    const structuralEnvelope = {
+      version: 1,
+      profileId: "profile-1",
+      libraryId: "library-1",
+      storeEpoch: "epoch-1",
+      bundleId: "bundle-1",
+      capability: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+      actionHint: "copy",
+    } as const;
+    const html = attachNodexClipboardEnvelope("<p>Fallback</p>", structuralEnvelope);
+
+    const payload = readClipboardPastePayload({
+      availableFormats: () => ["text/html", "text/plain"],
+      read: () => "",
+      readHTML: () => html,
+      readText: () => "Fallback",
+    });
+
+    expect(payload.structuralEnvelope).toEqual(structuralEnvelope);
+    expect(payload.html).toContain("<p>Fallback</p>");
+    expect(payload.html).not.toContain("nodex-clipboard-envelope-v1");
+    expect(payload.text).toBe("Fallback");
+
+    const inspection = inspectClipboardPasteItems({
+      availableFormats: () => ["text/html", "text/plain"],
+      read: () => "",
+      readHTML: () => html,
+      readText: () => "Fallback",
+    });
+    expect(inspection.structuralEnvelope).toEqual(structuralEnvelope);
+  });
+
+  test("exposes a pending structural write claim without promoting it to authority", () => {
+    const html = attachNodexStructuralClipboardWriteClaim("<p>Fallback</p>", writeClaim);
+    const target = {
+      availableFormats: () => ["text/html"],
+      read: () => "",
+      readHTML: () => html,
+      readText: () => "Fallback",
+    };
+
+    expect(inspectClipboardPasteItems(target)).toMatchObject({
+      structuralWriteClaim: writeClaim,
+    });
+    const payload = readClipboardPastePayload(target);
+    expect(payload.structuralWriteClaim).toBe(writeClaim);
+    expect(payload.structuralEnvelope).toBeUndefined();
   });
 });

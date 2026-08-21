@@ -7,8 +7,7 @@ Accepted
 ## Context
 
 A Page may appear inside another Page as inline prose, a live block preview, a normal hyperlink, or an owned child.
-Historically these presentations shared Card-era names and partially shared storage shapes, so an inline mention could be mistaken for a Block and a reference could appear to imply containment.
-That ambiguity made insertion commands, paste behavior, authorization, and derived references disagree about identity and ownership.
+These presentations require distinct storage shapes so insertion commands, paste behavior, authorization, and derived references agree about identity and ownership.
 
 ## Decision
 
@@ -50,7 +49,6 @@ It extends ADR 0006 by admitting Page Mention atoms in portable rich titles and 
 - Renaming a target updates rendered labels without rewriting source Documents.
 - Internal Page links open through the injected content navigator and never through the system browser.
 - Reference projection can aggregate all non-owning Page occurrences without treating ownership as a reference.
-- Historical Card-shaped reference syntax may be decoded into canonical Page identity, but live editors store and emit only canonical Page-reference fields.
 
 ## Rejected alternatives
 

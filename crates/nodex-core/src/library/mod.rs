@@ -778,6 +778,7 @@ impl LibraryModule {
                 canvas_mutation: None,
                 block_transfer: None,
                 block_transfer_undo: None,
+                structural_edit: None,
                 page_lifecycle: None,
                 block_property_mutation: None,
                 agent_page_copy: None,
@@ -8152,3 +8153,4 @@ mod page_lifecycle;
 mod page_lifecycle_mutation;
 mod page_property_mutation;
 mod page_write_semantic;
+mod structural_edit;

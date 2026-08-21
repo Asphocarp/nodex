@@ -50,6 +50,7 @@ const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncCommandError["code"]>([
   "invalid_document_update",
   "invalid_awareness_update",
   "document_update_missing_dependencies",
+  "protected_owner_mutation",
   "update_id_collision",
   "block_relocated",
   "recovery_required",

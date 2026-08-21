@@ -17,6 +17,25 @@
       },
       "type": "paragraph",
     },
+    "crossedBlocks": [
+      {
+        "children": [],
+        "content": [
+          {
+            "styles": {},
+            "text": "A",
+            "type": "text",
+          },
+        ],
+        "id": "child-a",
+        "props": {
+          "backgroundColor": "default",
+          "textAlignment": "left",
+          "textColor": "default",
+        },
+        "type": "paragraph",
+      },
+    ],
     "currentParent": {
       "children": [
         {

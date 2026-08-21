@@ -17,6 +17,7 @@ import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
+import { writeStructuralClipboard } from "./clipboard-structural-writer";
 import { inspectClipboardPasteItems, readClipboardPastePayload } from "./clipboard-paste-inspector";
 import {
   COMPOSER_IMAGE_FILE_EXTENSIONS,
@@ -2837,6 +2838,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
 
     return writeImageToClipboard(input.source);
+  });
+
+  registerHandle("clipboard:write-structural", (event, input) => {
+    requireTrustedAppRendererSender(event, "Structural clipboard writes");
+    return writeStructuralClipboard(input);
   });
 
   registerHandle("clipboard:read-paste", (event) => {

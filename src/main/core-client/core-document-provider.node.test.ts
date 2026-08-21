@@ -217,7 +217,6 @@ describe("Rust Core renderer Document adapter", () => {
         document_id: DOCUMENT_ID,
         generation: 1,
         expected_head_seq: 2,
-        allow_deleting_owned_blocks: false,
         commands: [
           {
             kind: "patch_body" as const,
@@ -328,7 +327,6 @@ describe("Rust Core renderer Document adapter", () => {
         document_id: DOCUMENT_ID,
         generation: 1,
         expected_head_seq: 3,
-        allow_deleting_owned_blocks: false,
         commands: [
           {
             kind: "insert_body" as const,
@@ -398,7 +396,6 @@ describe("Rust Core renderer Document adapter", () => {
         document_id: DOCUMENT_ID,
         generation: 1,
         expected_head_seq: 4,
-        allow_deleting_owned_blocks: false,
         commands: [
           {
             kind: "insert_block" as const,
@@ -479,7 +476,6 @@ describe("Rust Core renderer Document adapter", () => {
         document_id: DOCUMENT_ID,
         generation: 1,
         expected_head_seq: 5,
-        allow_deleting_owned_blocks: false,
         commands: [
           {
             kind: "update_block" as const,

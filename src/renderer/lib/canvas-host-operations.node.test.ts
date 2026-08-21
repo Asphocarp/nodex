@@ -119,6 +119,7 @@ const receiptFor = (
   localCommit: noOpLocalCommit(request.storeEpoch),
   value: {
     operationId: request.operationId,
+    profileId: "profile-1",
     storeEpoch: request.storeEpoch,
     libraryId: "library-1",
     operationKind: request.operation.kind,
@@ -126,6 +127,7 @@ const receiptFor = (
     didMutate: true,
     createdTarget: null,
     canvasMutation: null,
+    structuralEdit: null,
     affectedParentKeys: [],
     affectedPageIds: [],
     affectedDatabaseIds: [],
@@ -406,6 +408,7 @@ describe("Canvas host operations", () => {
           localCommit: noOpLocalCommit(request.storeEpoch),
           value: {
             operationId: request.operationId,
+            profileId: "profile-1",
             storeEpoch: request.storeEpoch,
             libraryId: "library-1",
             operationKind: "delete_canvas",
@@ -413,6 +416,7 @@ describe("Canvas host operations", () => {
             didMutate: true,
             createdTarget: null,
             canvasMutation: null,
+            structuralEdit: null,
             affectedParentKeys: ["page:page-1"],
             affectedPageIds: ["page-1"],
             affectedDatabaseIds: [],

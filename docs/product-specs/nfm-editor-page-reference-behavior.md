@@ -1,7 +1,7 @@
 # NFM Editor Page Connection Behavior
 
 Status: Active
-Last updated: 2026-08-17
+Last updated: 2026-08-21
 
 ## Purpose
 
@@ -97,6 +97,12 @@ Creating or moving a Subpage is a typed Core lifecycle operation fenced against 
 The renderer never creates an owning `page` shell as generic ProseMirror content.
 A reference-mounted Page uses its own host runtime as parent authority, not the outer Stage route.
 `/Subpage…` atomically replaces the chosen empty paragraph with the Core-created owning shell; cancellation and head conflicts leave no incomplete Page Block.
+
+An owning Subpage participates in the shared [structural editing contract](nfm-editor-structural-editing-behavior.md). Backspace, Delete, block selection, Copy, Cut, Paste, Duplicate, Move to, drag/drop, Undo, and Redo may operate on a mixture of ordinary Blocks and Page, Canvas, or Database owners through one fenced Core transaction.
+A keyboard deletion keeps a stable surviving cursor visible after the commit; a focus target chosen elsewhere while the command is pending always wins.
+Owner shells remain childless: Tab indentation and generic insert/move commands cannot place an ordinary Block beneath them.
+Core-authorized structural results arrive as remote Yjs changes and are admitted by that boundary.
+Removing a non-owning `pageRef`, Page Mention, or Page Link remains an ordinary Document edit and never deletes its target Page.
 
 ## Derived references
 

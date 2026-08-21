@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn current_schema_artifact_matches_catalog() {
-        assert_eq!(CURRENT_STORE_REVISION, 131);
+        assert_eq!(CURRENT_STORE_REVISION, 132);
         let mut artifact = Connection::open_in_memory().expect("artifact Store");
         install_current_schema(&mut artifact).expect("current schema artifact");
         let artifact_inventory = read_schema_inventory(&artifact).expect("artifact inventory");
@@ -184,5 +184,19 @@ mod tests {
             schema_inventory_fingerprint(&artifact_inventory),
             nodex_store_format::CURRENT_STORE_SCHEMA_FINGERPRINT,
         );
+        for table in [
+            "structural_clipboard_bundles",
+            "structural_clipboard_leases",
+            "structural_cut_claims",
+            "structural_history_recipes",
+            "structural_retention_members",
+        ] {
+            assert!(
+                artifact_inventory
+                    .keys()
+                    .any(|key| key.object_type == "table" && key.name == table),
+                "missing {table}"
+            );
+        }
     }
 }

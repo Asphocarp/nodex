@@ -1320,13 +1320,9 @@
           "document_id",
           "generation",
           "expected_head_seq",
-          "allow_deleting_owned_blocks",
           "commands"
         ],
         "properties": {
-          "allow_deleting_owned_blocks": {
-            "type": "boolean"
-          },
           "commands": {
             "type": "array",
             "items": {
@@ -2070,6 +2066,16 @@
                         "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
                       }
                     ]
+                  },
+                  "structural_edit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryStructuralEditResult"
+                      }
+                    ]
                   }
                 }
               },
@@ -2282,6 +2288,16 @@
                       },
                       {
                         "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
+                      }
+                    ]
+                  },
+                  "structural_edit": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryStructuralEditResult"
                       }
                     ]
                   }
@@ -14595,6 +14611,40 @@
           }
         }
       },
+      "LibraryEditorResumeEdge": {
+        "type": "string",
+        "enum": [
+          "start",
+          "end"
+        ]
+      },
+      "LibraryEditorResumeTarget": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "edge"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "edge": {
+            "$ref": "#/components/schemas/LibraryEditorResumeEdge"
+          },
+          "fallback_after_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fallback_before_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "LibraryEvent": {
         "type": "object",
         "required": [
@@ -18931,6 +18981,470 @@
           "document_block"
         ]
       },
+      "LibraryStructuralClipboardToken": {
+        "type": "object",
+        "required": [
+          "bundle_id",
+          "capability",
+          "manifest_hash",
+          "store_epoch"
+        ],
+        "properties": {
+          "bundle_id": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "manifest_hash": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryStructuralDeleteDirection": {
+        "type": "string",
+        "enum": [
+          "backward",
+          "forward"
+        ]
+      },
+      "LibraryStructuralDeleteReason": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "bundle",
+              "kind"
+            ],
+            "properties": {
+              "bundle": {
+                "$ref": "#/components/schemas/LibraryStructuralClipboardToken"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "cut"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryStructuralEditCommand": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "selection",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "capture_clipboard"
+                ]
+              },
+              "selection": {
+                "$ref": "#/components/schemas/LibraryStructuralSelection"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "selection",
+              "reason",
+              "direction",
+              "kind"
+            ],
+            "properties": {
+              "direction": {
+                "$ref": "#/components/schemas/LibraryStructuralDeleteDirection"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete_selection"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/LibraryStructuralDeleteReason"
+              },
+              "selection": {
+                "$ref": "#/components/schemas/LibraryStructuralSelection"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "bundle",
+              "target",
+              "kind"
+            ],
+            "properties": {
+              "bundle": {
+                "$ref": "#/components/schemas/LibraryStructuralClipboardToken"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "paste_clipboard"
+                ]
+              },
+              "target": {
+                "$ref": "#/components/schemas/LibraryStructuralTarget"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "selection",
+              "target",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "duplicate_selection"
+                ]
+              },
+              "selection": {
+                "$ref": "#/components/schemas/LibraryStructuralSelection"
+              },
+              "target": {
+                "$ref": "#/components/schemas/LibraryStructuralTarget"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "selection",
+              "target",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_selection"
+                ]
+              },
+              "selection": {
+                "$ref": "#/components/schemas/LibraryStructuralSelection"
+              },
+              "target": {
+                "$ref": "#/components/schemas/LibraryStructuralTarget"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "selection",
+              "replacement",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "replace_selection"
+                ]
+              },
+              "replacement": {
+                "$ref": "#/components/schemas/LibraryStructuralReplacement"
+              },
+              "selection": {
+                "$ref": "#/components/schemas/LibraryStructuralSelection"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tokens",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "release_history"
+                ]
+              },
+              "tokens": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryStructuralHistoryToken"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "LibraryStructuralEditResult": {
+        "type": "object",
+        "required": [
+          "operation_kind",
+          "source_root_block_ids",
+          "result_root_block_ids",
+          "copied_block_ids",
+          "copied_document_ids",
+          "document_commits",
+          "affected_page_ids",
+          "affected_database_ids",
+          "superseded_history_recipe_operation_ids"
+        ],
+        "properties": {
+          "affected_database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affected_page_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "clipboard": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryStructuralClipboardToken"
+              }
+            ]
+          },
+          "copied_block_ids": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "copied_document_ids": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "document_commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentCommit"
+            }
+          },
+          "history": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryStructuralHistoryToken"
+              }
+            ]
+          },
+          "operation_kind": {
+            "type": "string"
+          },
+          "result_root_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resume": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryEditorResumeTarget"
+              }
+            ]
+          },
+          "source_root_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "superseded_history_recipe_operation_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LibraryStructuralHistoryToken": {
+        "type": "object",
+        "required": [
+          "recipe_operation_id",
+          "recipe_hash",
+          "store_epoch"
+        ],
+        "properties": {
+          "recipe_hash": {
+            "type": "string"
+          },
+          "recipe_operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryStructuralReplacement": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "bundle",
+              "kind"
+            ],
+            "properties": {
+              "bundle": {
+                "$ref": "#/components/schemas/LibraryStructuralClipboardToken"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "clipboard"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "blocks",
+              "kind"
+            ],
+            "properties": {
+              "blocks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryStructuralReplacementBlock"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "blocks"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryStructuralReplacementBlock": {
+        "type": "object",
+        "required": [
+          "block_type",
+          "props",
+          "children"
+        ],
+        "properties": {
+          "block_type": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryStructuralReplacementBlock"
+            }
+          },
+          "content": {},
+          "props": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LibraryStructuralSelection": {
+        "type": "object",
+        "required": [
+          "source_document_id",
+          "root_block_ids",
+          "source_head"
+        ],
+        "properties": {
+          "root_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_document_id": {
+            "type": "string"
+          },
+          "source_head": {
+            "$ref": "#/components/schemas/DocumentHeadRevision"
+          }
+        }
+      },
+      "LibraryStructuralTarget": {
+        "type": "object",
+        "required": [
+          "target_document_id",
+          "target_head"
+        ],
+        "properties": {
+          "before_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_block_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_document_id": {
+            "type": "string"
+          },
+          "target_head": {
+            "$ref": "#/components/schemas/DocumentHeadRevision"
+          }
+        }
+      },
       "LibraryTaskShorthandPreservedReason": {
         "type": "string",
         "enum": [
@@ -20875,6 +21389,42 @@
                   },
                   "request": {
                     "$ref": "#/components/schemas/LibraryAgentMovePagesRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "command",
+                  "kind"
+                ],
+                "properties": {
+                  "command": {
+                    "$ref": "#/components/schemas/LibraryStructuralEditCommand"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_structural_edit"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "token",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reverse_structural_edit"
+                    ]
+                  },
+                  "token": {
+                    "$ref": "#/components/schemas/LibraryStructuralHistoryToken"
                   }
                 }
               },
@@ -29254,6 +29804,16 @@
                                 "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
                               }
                             ]
+                          },
+                          "structural_edit": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryStructuralEditResult"
+                              }
+                            ]
                           }
                         }
                       },
@@ -29466,6 +30026,16 @@
                               },
                               {
                                 "$ref": "#/components/schemas/LibraryPageLifecycleMutationReceipt"
+                              }
+                            ]
+                          },
+                          "structural_edit": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryStructuralEditResult"
                               }
                             ]
                           }

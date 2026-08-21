@@ -110,9 +110,9 @@ unless a separately listed app command owns an accelerator.
 | Shortcut         | Action                         | Scope                                                                                                          |
 | ---------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `←` / `→`        | Resize focused panel separator | Legacy stage border handlers; project-session outer panes and split-group sashes are pointer-driven            |
-| `⌘/Ctrl+Z`       | Undo local edit                | Only the focused collaborative title/body surface; remote edits and another window's transactions are excluded |
-| `⌘/Ctrl+Shift+Z` | Redo local edit                | Only the focused collaborative title/body surface                                                              |
-| `Ctrl+Y`         | Redo local edit                | Windows convention inside a focused collaborative editor                                                       |
+| `⌘/Ctrl+Z`       | Undo local edit                | The focused surface's chronological local text and structural edits; remote and other-window edits are excluded |
+| `⌘/Ctrl+Shift+Z` | Redo local edit                | The focused surface's chronological local text and structural edits                                             |
+| `Ctrl+Y`         | Redo local edit                | Windows convention inside a focused collaborative editor                                                        |
 
 ## Threads Composer
 
@@ -207,5 +207,5 @@ unless a separately listed app command owns an accelerator.
 The editable command registry and accelerator helpers live in `src/shared/command-keybindings.ts`. Renderer query/mutation state uses `codex-command-keymap-state`, `set-codex-command-keybinding`, and `reset-codex-command-keybindings`; main-process persistence writes user overrides to `~/.nodex/config.toml`.
 
 Workbench navigation keyboard and mouse shortcuts are classified by `src/renderer/lib/keyboard-action-runtime.ts` and `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell's shared panel-action dispatcher in `src/renderer/components/workbench/workbench-shell.tsx`. Contextual surfaces register capabilities through `src/renderer/lib/contextual-keyboard-actions.ts`; the Workbench owns gesture arbitration and sequence state while the active Board owns Page state and execution. That dispatcher consumes `workbench-panel-capabilities.ts`, as do the bottom-panel toolbar, command palette, browser-runtime keyboard fallback, and typed desktop application-menu request. Electron owns its application-menu accelerator while the browser runtime owns the renderer key listener, preventing one keypress from toggling twice. Owner-scoped panel tab cycling and close-tab remain owned by `WorkbenchShell` because they depend on the active Project, Session, or Pages Scene, focused panel leaf, and the owning Session projection or durable Scene surface registry. Retired stage/sliding-window shortcuts are deliberately left unhandled so the mounted editor or application surface can claim them.
-Collaborative title/body undo is owned by the mounted Block Document surface and its local Yjs transaction origins. Editor shortcuts are in `src/renderer/components/board/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`; there is no Workbench- or Project-wide undo shortcut owner.
+Collaborative title/body undo is owned by the mounted Block Document surface. Its chronological lane combines local Yjs StackItems with opaque Core structural inverse tokens; remote changes never create local entries, and there is no Workbench- or Project-wide undo shortcut owner.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

@@ -1,47 +1,26 @@
 import { describe, expect, test } from "vite-plus/test";
+
 import {
-  OWNER_OPERATION_MATRIX,
-  OWNER_OPERATIONS,
-  hasTypedOwnerBlock,
   hasNestedTypedOwnerBlock,
+  hasTypedOwnerBlock,
   hasTypedOwnerType,
   isTypedOwnerBlockType,
-  ownerOperationRoute,
-  resolveOwnerSelectionOperation,
-  typedOwnerBlocks,
+  resolveTypedOwnerDocumentChanges,
+  type TypedOwnerBlockLike,
 } from "./typed-owner-blocks";
 
 describe("typed owner block boundary", () => {
-  test("recognizes owners but not non-owning page references", () => {
+  test("classifies owners without treating references as ownership", () => {
     expect(isTypedOwnerBlockType("page")).toBe(true);
     expect(isTypedOwnerBlockType("database")).toBe(true);
     expect(isTypedOwnerBlockType("canvas")).toBe(true);
     expect(isTypedOwnerBlockType("pageRef")).toBe(false);
-    expect(isTypedOwnerBlockType(undefined)).toBe(false);
-  });
-
-  test("filters typed owners without changing the caller's block objects", () => {
-    const blocks = [
-      { id: "text", type: "paragraph" },
-      { id: "page", type: "page" },
-      { id: "reference", type: "pageRef" },
-    ] as const;
-
-    expect(hasTypedOwnerBlock(blocks)).toBe(true);
-    expect(typedOwnerBlocks(blocks)).toEqual([{ id: "page", type: "page" }]);
-    expect(blocks).toHaveLength(3);
-  });
-
-  test("recognizes typed owners from captured target types", () => {
     expect(hasTypedOwnerType(["paragraph", "page"])).toBe(true);
-    expect(hasTypedOwnerType(["paragraph", null, undefined])).toBe(false);
+    expect(hasTypedOwnerType(["paragraph", null])).toBe(false);
   });
 
-  test("walks descendants without treating a typed root as a second owner", () => {
-    const nestedPage = {
-      id: "nested-page",
-      type: "page",
-    } as const;
+  test("finds typed owners anywhere in a selected root forest", () => {
+    const nestedPage = { id: "nested-page", type: "page" } as const;
     const ordinaryParent = {
       id: "ordinary-parent",
       type: "paragraph",
@@ -56,55 +35,90 @@ describe("typed owner block boundary", () => {
     expect(hasTypedOwnerBlock([ordinaryParent])).toBe(true);
     expect(hasNestedTypedOwnerBlock([ordinaryParent])).toBe(true);
     expect(hasNestedTypedOwnerBlock([pageWithNestedPage])).toBe(false);
-    expect(typedOwnerBlocks([pageWithNestedPage])).toEqual([pageWithNestedPage]);
   });
 
-  test("exhaustively assigns one route to every owner-operation cell", () => {
-    for (const [kind, row] of Object.entries(OWNER_OPERATION_MATRIX)) {
-      expect(Object.keys(row).sort()).toEqual([...OWNER_OPERATIONS].sort());
-      expect(Object.values(row).every((route) => route.length > 0)).toBe(true);
-      expect(kind.length).toBeGreaterThan(0);
-    }
-    expect(ownerOperationRoute("paragraph", "delete")).toBe("generic_document");
-    expect(ownerOperationRoute("page", "delete")).toBe("page_lifecycle");
-    expect(ownerOperationRoute("page", "move")).toBe("block_transfer");
-    expect(ownerOperationRoute("canvas", "duplicate")).toBe("canvas_lifecycle");
-    expect(ownerOperationRoute("database", "archive")).toBe("database_lifecycle");
-    expect(ownerOperationRoute("pageRef", "unlink")).toBe("reference_unlink");
+  test("allows remote structural commits and ordinary local edits", () => {
+    expect(
+      resolveTypedOwnerDocumentChanges([
+        {
+          type: "delete",
+          block: { id: "page", type: "page" },
+          source: { type: "yjs-remote" },
+        },
+      ]),
+    ).toEqual({ kind: "allow" });
+    expect(
+      resolveTypedOwnerDocumentChanges([
+        {
+          type: "update",
+          block: { id: "text", type: "paragraph" },
+          prevBlock: { id: "text", type: "paragraph" },
+          source: { type: "local" },
+        },
+      ]),
+    ).toEqual({ kind: "allow" });
+    expect(
+      resolveTypedOwnerDocumentChanges([
+        {
+          type: "delete",
+          block: { id: "reference", type: "pageRef" },
+          source: { type: "local" },
+        },
+      ]),
+    ).toEqual({ kind: "allow" });
   });
 
-  test("routes only one exact owner and rejects mixed or nested destructive selections", () => {
-    expect(resolveOwnerSelectionOperation([{ id: "page", type: "page" }], "delete")).toEqual({
-      kind: "typed",
-      block: { id: "page", type: "page" },
-      route: "page_lifecycle",
-    });
+  test("rejects every local generic mutation that touches owner authority", () => {
+    const page: TypedOwnerBlockLike = { id: "page", type: "page" };
+    const ordinary: TypedOwnerBlockLike = { id: "text", type: "paragraph" };
+    const forbidden = { kind: "forbidden", reason: "generic_typed_owner_mutation" };
+
     expect(
-      resolveOwnerSelectionOperation([{ id: "reference", type: "pageRef" }], "delete"),
-    ).toEqual({ kind: "generic" });
+      resolveTypedOwnerDocumentChanges([
+        { type: "delete", block: page, source: { type: "local" } },
+      ]),
+    ).toEqual(forbidden);
     expect(
-      resolveOwnerSelectionOperation([{ id: "database", type: "database" }], "delete"),
-    ).toEqual({ kind: "forbidden", reason: "unsupported" });
+      resolveTypedOwnerDocumentChanges([
+        { type: "delete", block: page, source: { type: "local" } },
+        { type: "delete", block: ordinary, source: { type: "local" } },
+      ]),
+    ).toEqual(forbidden);
     expect(
-      resolveOwnerSelectionOperation(
-        [
-          { id: "page", type: "page" },
-          { id: "text", type: "paragraph" },
-        ],
-        "delete",
-      ),
-    ).toEqual({ kind: "forbidden", reason: "mixed_selection" });
+      resolveTypedOwnerDocumentChanges([
+        {
+          type: "move",
+          block: ordinary,
+          prevBlock: ordinary,
+          crossedBlocks: [{ id: "database", type: "database" }],
+          source: { type: "drop" },
+        },
+      ]),
+    ).toEqual(forbidden);
     expect(
-      resolveOwnerSelectionOperation(
-        [
-          {
-            id: "parent",
-            type: "paragraph",
-            children: [{ id: "page", type: "page" }],
-          },
-        ],
-        "delete",
-      ),
-    ).toEqual({ kind: "forbidden", reason: "nested_owner" });
+      resolveTypedOwnerDocumentChanges([
+        {
+          type: "insert",
+          block: { id: "canvas", type: "canvas" },
+          source: { type: "paste" },
+        },
+      ]),
+    ).toEqual(forbidden);
+  });
+
+  test("allows removing an ordinary Block from an already-invalid owner child position", () => {
+    const owner: TypedOwnerBlockLike = { id: "page", type: "page" };
+    const child: TypedOwnerBlockLike = { id: "child", type: "paragraph" };
+    expect(
+      resolveTypedOwnerDocumentChanges([
+        {
+          type: "move",
+          block: child,
+          prevBlock: child,
+          prevParent: owner,
+          source: { type: "local" },
+        },
+      ]),
+    ).toEqual({ kind: "allow" });
   });
 });

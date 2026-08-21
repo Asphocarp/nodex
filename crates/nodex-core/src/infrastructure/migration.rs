@@ -76,11 +76,46 @@ struct MigrationContext {
     completed_at_unix_ms: i64,
 }
 
-const MIGRATION_STEPS: &[MigrationStep] = &[MigrationStep {
-    from_revision: BASELINE_STORE_REVISION,
-    to_revision: CURRENT_STORE_REVISION,
-    apply: migrate_v130_to_v131,
-}];
+const MIGRATION_STEPS: &[MigrationStep] = &[
+    MigrationStep {
+        from_revision: BASELINE_STORE_REVISION,
+        to_revision: 131,
+        apply: migrate_v130_to_v131,
+    },
+    MigrationStep {
+        from_revision: 131,
+        to_revision: 132,
+        apply: migrate_v131_to_v132,
+    },
+];
+
+fn resolve_migration_path(
+    from_revision: i64,
+    target_revision: i64,
+    steps: &[MigrationStep],
+) -> Option<Vec<MigrationStep>> {
+    if from_revision >= target_revision {
+        return None;
+    }
+
+    let mut cursor = from_revision;
+    let mut path = Vec::new();
+    while cursor < target_revision {
+        let step = steps
+            .iter()
+            .copied()
+            .find(|step| step.from_revision == cursor)?;
+        if step.to_revision <= cursor || step.to_revision > target_revision {
+            return None;
+        }
+        path.push(step);
+        cursor = step.to_revision;
+        if path.len() > steps.len() {
+            return None;
+        }
+    }
+    (cursor == target_revision).then_some(path)
+}
 
 pub fn prepare_profile_store(
     connection: &mut Connection,
@@ -150,10 +185,7 @@ pub(crate) fn prepare_profile_store_with_validation(
             validation: StoreValidationDisposition::Deep,
         });
     }
-    let Some(step) = MIGRATION_STEPS
-        .iter()
-        .copied()
-        .find(|step| step.from_revision == version)
+    let Some(steps) = resolve_migration_path(version, CURRENT_STORE_REVISION, MIGRATION_STEPS)
     else {
         return Err(StoreError::new(
             StoreErrorCode::UnsupportedSchema,
@@ -164,67 +196,95 @@ pub(crate) fn prepare_profile_store_with_validation(
         ));
     };
 
-    migrate_baseline_store(connection, profile_home, observer, step)
+    migrate_store(connection, profile_home, observer, version, &steps)
 }
 
+#[cfg(test)]
 fn migrate_baseline_store(
     connection: &mut Connection,
     profile_home: &Path,
     observer: &mut dyn FnMut(StorePreparationEvent),
     step: MigrationStep,
 ) -> Result<StorePreparation, StoreError> {
-    validate_baseline_source(connection)?;
-    observer(StorePreparationEvent::MigrationStarted {
-        from_version: step.from_revision,
-        to_version: step.to_revision,
-    });
-    let backup_path = create_migration_backup(
+    migrate_store(
         connection,
         profile_home,
+        observer,
         step.from_revision,
-        step.to_revision,
-    )?;
-    let source = published_format(step.from_revision)?;
-    let target = published_format(step.to_revision)?;
+        &[step],
+    )
+}
+
+fn migrate_store(
+    connection: &mut Connection,
+    profile_home: &Path,
+    observer: &mut dyn FnMut(StorePreparationEvent),
+    source_revision: i64,
+    steps: &[MigrationStep],
+) -> Result<StorePreparation, StoreError> {
+    let target_revision = steps
+        .last()
+        .map(|step| step.to_revision)
+        .ok_or_else(|| internal("Store migration path is empty"))?;
+    validate_migration_source(connection, source_revision)?;
+    for step in steps {
+        observer(StorePreparationEvent::MigrationStarted {
+            from_version: step.from_revision,
+            to_version: step.to_revision,
+        });
+    }
+    let backup_path =
+        create_migration_backup(connection, profile_home, source_revision, target_revision)?;
     let backup_name = backup_path
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| invalid_profile("Core migration backup name is not valid UTF-8"))?
         .to_owned();
-    let context = MigrationContext {
-        source_revision: step.from_revision,
-        target_revision: step.to_revision,
-        backup_name,
-        source_schema_fingerprint: source.schema_fingerprint,
-        target_schema_fingerprint: target.schema_fingerprint,
-        completed_at_unix_ms: i64::try_from(unix_time_millis()?)
-            .map_err(|_| internal("Migration time exceeds SQLite integer range"))?,
-    };
+    let completed_at_unix_ms = i64::try_from(unix_time_millis()?)
+        .map_err(|_| internal("Migration time exceeds SQLite integer range"))?;
 
     with_schema_rebuild_transaction(connection, |transaction| {
-        (step.apply)(transaction, &context)?;
+        for step in steps {
+            let source = published_format(step.from_revision)?;
+            let target = published_format(step.to_revision)?;
+            let context = MigrationContext {
+                source_revision: step.from_revision,
+                target_revision: step.to_revision,
+                backup_name: backup_name.clone(),
+                source_schema_fingerprint: source.schema_fingerprint,
+                target_schema_fingerprint: target.schema_fingerprint,
+                completed_at_unix_ms,
+            };
+            (step.apply)(transaction, &context)?;
+            validate_schema_identity(transaction, step.to_revision)?;
+        }
         validate_current_store(transaction)
     })?;
     let mut reported_step = 0;
-    report_bounded_progress(
-        &mut |completed, total| {
-            observer(StorePreparationEvent::MigrationProgress { completed, total });
-        },
-        1,
-        1,
-        &mut reported_step,
-    );
+    for completed in 1..=steps.len() {
+        report_bounded_progress(
+            &mut |completed, total| {
+                observer(StorePreparationEvent::MigrationProgress { completed, total });
+            },
+            u64::try_from(completed).map_err(|_| internal("Migration path is too large"))?,
+            u64::try_from(steps.len()).map_err(|_| internal("Migration path is too large"))?,
+            &mut reported_step,
+        );
+    }
     Ok(StorePreparation {
-        schema_version: step.to_revision,
+        schema_version: target_revision,
         created_fresh: false,
-        migrated_from_version: Some(step.from_revision),
+        migrated_from_version: Some(source_revision),
         validation: StoreValidationDisposition::Deep,
     })
 }
 
-fn validate_baseline_source(connection: &Connection) -> Result<(), StoreError> {
+fn validate_migration_source(
+    connection: &Connection,
+    source_revision: i64,
+) -> Result<(), StoreError> {
     validate_store(connection)?;
-    validate_schema_identity(connection, BASELINE_STORE_REVISION)?;
+    validate_schema_identity(connection, source_revision)?;
     let metadata = connection.query_row(
         "SELECT schema_owner, projection_event_v2_floor, \
                 (SELECT COALESCE(MAX(seq), 0) FROM change_log) \
@@ -243,7 +303,9 @@ fn validate_baseline_source(connection: &Connection) -> Result<(), StoreError> {
             .1
             .is_some_and(|floor| (1..=metadata.2 + 1).contains(&floor))
     {
-        return Err(corrupt("v130 Store has invalid Core metadata"));
+        return Err(corrupt(format!(
+            "v{source_revision} Store has invalid Core metadata"
+        )));
     }
     validate_store_semantics(connection)?;
     validate_restore_documents(connection)?;
@@ -304,7 +366,164 @@ fn migrate_v130_to_v131(
             context.completed_at_unix_ms,
         ],
     )?;
-    connection.pragma_update(None, "user_version", CURRENT_STORE_REVISION)?;
+    connection.pragma_update(None, "user_version", context.target_revision)?;
+    Ok(())
+}
+
+fn migrate_v131_to_v132(
+    connection: &Connection,
+    context: &MigrationContext,
+) -> Result<(), StoreError> {
+    connection.execute_batch(
+        "CREATE TABLE structural_clipboard_bundles ( \
+           bundle_id TEXT PRIMARY KEY, \
+           capture_operation_id TEXT NOT NULL UNIQUE \
+             REFERENCES block_mutations(mutation_id) ON DELETE CASCADE, \
+           library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE, \
+           store_epoch TEXT NOT NULL, \
+           capability_hash TEXT NOT NULL, \
+           manifest_hash TEXT NOT NULL, \
+           snapshot_json TEXT NOT NULL, \
+           created_at TEXT NOT NULL, \
+           CHECK (length(bundle_id) BETWEEN 1 AND 512), \
+           CHECK (length(store_epoch) BETWEEN 1 AND 512), \
+           CHECK (length(capability_hash) = 64 AND capability_hash NOT GLOB '*[^0-9a-f]*'), \
+           CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'), \
+           CHECK (length(snapshot_json) BETWEEN 2 AND 67108864 \
+             AND json_valid(snapshot_json) AND json_type(snapshot_json) = 'object'), \
+           CHECK (length(created_at) > 0) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE TABLE structural_clipboard_leases ( \
+           bundle_id TEXT PRIMARY KEY \
+             REFERENCES structural_clipboard_bundles(bundle_id) ON DELETE CASCADE, \
+           revision INTEGER NOT NULL CHECK (revision >= 1), \
+           state TEXT NOT NULL CHECK (state IN ('active', 'released')), \
+           released_at TEXT, \
+           updated_at TEXT NOT NULL, \
+           CHECK ((state = 'active' AND released_at IS NULL) \
+             OR (state = 'released' AND length(released_at) > 0)), \
+           CHECK (length(updated_at) > 0) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE TABLE structural_cut_claims ( \
+           bundle_id TEXT PRIMARY KEY \
+             REFERENCES structural_clipboard_bundles(bundle_id) ON DELETE CASCADE, \
+           source_document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT, \
+           source_root_ids_json TEXT NOT NULL, \
+           delete_recipe_operation_id TEXT NOT NULL UNIQUE \
+             REFERENCES structural_history_recipes(recipe_operation_id) ON DELETE RESTRICT, \
+           revision INTEGER NOT NULL CHECK (revision >= 1), \
+           state TEXT NOT NULL CHECK (state IN ('available', 'consumed', 'revoked')), \
+           consumed_by_operation_id TEXT \
+             REFERENCES block_mutations(mutation_id) ON DELETE RESTRICT, \
+           created_at TEXT NOT NULL, \
+           updated_at TEXT NOT NULL, \
+           CHECK (json_valid(source_root_ids_json) \
+             AND json_type(source_root_ids_json) = 'array' \
+             AND json_array_length(source_root_ids_json) BETWEEN 1 AND 10000), \
+           CHECK ((state = 'consumed' AND consumed_by_operation_id IS NOT NULL) \
+             OR (state <> 'consumed' AND consumed_by_operation_id IS NULL)), \
+           CHECK (length(created_at) > 0), \
+           CHECK (length(updated_at) > 0) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE TABLE structural_history_recipes ( \
+           recipe_operation_id TEXT PRIMARY KEY \
+             REFERENCES block_mutations(mutation_id) ON DELETE CASCADE, \
+           library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE, \
+           project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, \
+           store_epoch TEXT NOT NULL, \
+           recipe_hash TEXT NOT NULL, \
+           recipe_json TEXT NOT NULL, \
+           state TEXT NOT NULL CHECK (state IN ('available', 'consumed', 'superseded')), \
+           consumed_at TEXT, \
+           superseded_by_recipe_operation_id TEXT \
+             REFERENCES structural_history_recipes(recipe_operation_id) ON DELETE RESTRICT, \
+           created_at TEXT NOT NULL, \
+           CHECK (length(recipe_operation_id) BETWEEN 1 AND 512), \
+           CHECK (length(store_epoch) BETWEEN 1 AND 512), \
+           CHECK (length(recipe_hash) = 64 AND recipe_hash NOT GLOB '*[^0-9a-f]*'), \
+           CHECK (length(recipe_json) BETWEEN 2 AND 67108864 \
+             AND json_valid(recipe_json) AND json_type(recipe_json) = 'object'), \
+           CHECK ((state = 'available' AND consumed_at IS NULL \
+                    AND superseded_by_recipe_operation_id IS NULL) \
+             OR (state = 'consumed' AND length(consumed_at) > 0 \
+                    AND superseded_by_recipe_operation_id IS NULL) \
+             OR (state = 'superseded' AND length(consumed_at) > 0 \
+                    AND superseded_by_recipe_operation_id IS NOT NULL)), \
+           CHECK (length(created_at) > 0) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE TABLE structural_retention_members ( \
+           authority_kind TEXT NOT NULL \
+             CHECK (authority_kind IN ('clipboard_bundle', 'history_recipe')), \
+           authority_id TEXT NOT NULL, \
+           library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE, \
+           member_kind TEXT NOT NULL \
+             CHECK (member_kind IN ('block', 'document', 'database', 'asset')), \
+           member_id TEXT NOT NULL, \
+           PRIMARY KEY (authority_kind, authority_id, member_kind, member_id), \
+           CHECK (length(authority_id) BETWEEN 1 AND 512), \
+           CHECK (length(member_id) BETWEEN 1 AND 1024) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE INDEX idx_structural_retention_members_identity \
+           ON structural_retention_members(library_id, member_kind, member_id); \
+         CREATE INDEX idx_structural_history_recipes_state \
+           ON structural_history_recipes(library_id, state, created_at); \
+         CREATE TRIGGER structural_clipboard_bundles_are_immutable \
+         BEFORE UPDATE ON structural_clipboard_bundles \
+         BEGIN \
+           SELECT RAISE(ABORT, 'Structural clipboard bundles are immutable'); \
+         END; \
+         CREATE TRIGGER structural_clipboard_leases_transition_once \
+         BEFORE UPDATE ON structural_clipboard_leases \
+         WHEN NOT (OLD.state = 'active' AND NEW.state = 'released' \
+           AND NEW.revision = OLD.revision + 1 AND NEW.released_at IS NOT NULL \
+           AND OLD.bundle_id = NEW.bundle_id) \
+         BEGIN \
+           SELECT RAISE(ABORT, 'Structural clipboard lease transition is invalid'); \
+         END; \
+         CREATE TRIGGER structural_cut_claims_transition_once \
+         BEFORE UPDATE ON structural_cut_claims \
+         WHEN NOT (OLD.state = 'available' AND NEW.state IN ('consumed', 'revoked') \
+           AND NEW.revision = OLD.revision + 1 AND OLD.bundle_id = NEW.bundle_id \
+           AND OLD.source_document_id = NEW.source_document_id \
+           AND OLD.source_root_ids_json = NEW.source_root_ids_json \
+           AND OLD.delete_recipe_operation_id = NEW.delete_recipe_operation_id \
+           AND OLD.created_at = NEW.created_at) \
+         BEGIN \
+           SELECT RAISE(ABORT, 'Structural cut claim transition is invalid'); \
+         END; \
+         CREATE TRIGGER structural_history_recipes_transition_once \
+         BEFORE UPDATE ON structural_history_recipes \
+         WHEN NOT (OLD.state = 'available' AND NEW.state IN ('consumed', 'superseded') \
+           AND NEW.consumed_at IS NOT NULL \
+           AND OLD.recipe_operation_id = NEW.recipe_operation_id \
+           AND OLD.library_id = NEW.library_id AND OLD.project_id = NEW.project_id \
+           AND OLD.store_epoch = NEW.store_epoch \
+           AND OLD.recipe_hash = NEW.recipe_hash AND OLD.recipe_json = NEW.recipe_json \
+           AND OLD.created_at = NEW.created_at) \
+         BEGIN \
+           SELECT RAISE(ABORT, 'Structural history recipe transition is invalid'); \
+         END; \
+         CREATE TRIGGER structural_retention_members_are_immutable \
+         BEFORE UPDATE ON structural_retention_members \
+         BEGIN \
+           SELECT RAISE(ABORT, 'Structural retention members are immutable'); \
+         END;",
+    )?;
+    connection.execute(
+        "INSERT INTO core_store_migration_history( \
+           source_revision, target_revision, source_schema_fingerprint, \
+           target_schema_fingerprint, backup_name, completed_at_unix_ms \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            context.source_revision,
+            context.target_revision,
+            context.source_schema_fingerprint,
+            context.target_schema_fingerprint,
+            context.backup_name,
+            context.completed_at_unix_ms,
+        ],
+    )?;
+    connection.pragma_update(None, "user_version", context.target_revision)?;
     Ok(())
 }
 
@@ -564,12 +783,123 @@ mod tests {
     use super::super::sqlite::open_writer;
     use super::*;
 
+    fn no_op_migration(
+        _connection: &Connection,
+        _context: &MigrationContext,
+    ) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    #[test]
+    fn migration_path_orders_every_revision_until_current() {
+        let steps = [
+            MigrationStep {
+                from_revision: 130,
+                to_revision: 131,
+                apply: no_op_migration,
+            },
+            MigrationStep {
+                from_revision: 131,
+                to_revision: 132,
+                apply: no_op_migration,
+            },
+        ];
+
+        let path = resolve_migration_path(130, 132, &steps).expect("contiguous migration path");
+
+        assert_eq!(
+            path.iter()
+                .map(|step| (step.from_revision, step.to_revision))
+                .collect::<Vec<_>>(),
+            vec![(130, 131), (131, 132)]
+        );
+        assert!(resolve_migration_path(129, 132, &steps).is_none());
+        assert!(resolve_migration_path(131, 133, &steps).is_none());
+    }
+
+    #[test]
+    fn migration_schema_converges_exactly_with_fresh_schema() {
+        let directory = tempdir().expect("Profile");
+        install_baseline_fixture(directory.path());
+        let mut migrated = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        with_schema_rebuild_transaction(&mut migrated, |transaction| {
+            for step in MIGRATION_STEPS {
+                let source = published_format(step.from_revision)?;
+                let target = published_format(step.to_revision)?;
+                (step.apply)(
+                    transaction,
+                    &MigrationContext {
+                        source_revision: step.from_revision,
+                        target_revision: step.to_revision,
+                        backup_name: "schema-convergence.db".to_owned(),
+                        source_schema_fingerprint: source.schema_fingerprint,
+                        target_schema_fingerprint: target.schema_fingerprint,
+                        completed_at_unix_ms: 1,
+                    },
+                )?;
+            }
+            Ok(())
+        })
+        .expect("apply migration DDL");
+
+        let mut fresh = Connection::open_in_memory().expect("fresh Store");
+        install_current_schema(&mut fresh).expect("install current schema");
+        let migrated_inventory =
+            super::super::schema::read_schema_inventory(&migrated).expect("migrated inventory");
+        let fresh_inventory =
+            super::super::schema::read_schema_inventory(&fresh).expect("fresh inventory");
+        let differences = fresh_inventory
+            .iter()
+            .filter_map(|(key, fresh_sql)| {
+                let migrated_sql = migrated_inventory.get(key);
+                (migrated_sql != Some(fresh_sql)).then(|| {
+                    format!(
+                        "{} {}\nfresh: {}\nmigrated: {}",
+                        key.object_type,
+                        key.name,
+                        fresh_sql,
+                        migrated_sql.map_or("<missing>", String::as_str)
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            differences.is_empty() && migrated_inventory.len() == fresh_inventory.len(),
+            "{}",
+            differences.join("\n\n")
+        );
+    }
+
     fn install_baseline_fixture(home: &Path) {
         fs::write(
             home.join("nodex.db"),
             include_bytes!("../../tests/fixtures/store-v130.db"),
         )
         .expect("frozen v130 Store");
+    }
+
+    fn install_v131_fixture(home: &Path) {
+        install_baseline_fixture(home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v130 writer");
+        with_schema_rebuild_transaction(&mut connection, |transaction| {
+            migrate_v130_to_v131(
+                transaction,
+                &MigrationContext {
+                    source_revision: 130,
+                    target_revision: 131,
+                    backup_name: "published-v131-fixture.db".to_owned(),
+                    source_schema_fingerprint: published_format(130)
+                        .expect("v130 format")
+                        .schema_fingerprint,
+                    target_schema_fingerprint: published_format(131)
+                        .expect("v131 format")
+                        .schema_fingerprint,
+                    completed_at_unix_ms: 1,
+                },
+            )?;
+            validate_schema_identity(transaction, 131)
+        })
+        .expect("published v131 fixture");
     }
 
     fn profile_secrets(connection: &Connection) -> (Vec<u8>, String) {
@@ -679,50 +1009,75 @@ mod tests {
                     from_version: 130,
                     to_version: 131,
                 },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 131,
+                    to_version: 132,
+                },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
-                    total: 1,
+                    total: 2,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 2,
+                    total: 2,
                 },
             ]
         );
         let history = connection
-            .query_row(
+            .prepare(
                 "SELECT source_revision, target_revision, source_schema_fingerprint, \
                         target_schema_fingerprint, backup_name, completed_at_unix_ms \
-                 FROM core_store_migration_history",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, i64>(5)?,
-                    ))
-                },
+                 FROM core_store_migration_history ORDER BY source_revision",
             )
-            .expect("migration history");
-        assert_eq!((history.0, history.1), (130, 131));
+            .expect("history query")
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })
+            .expect("migration history")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("migration history rows");
+        assert_eq!(history.len(), 2);
+        assert_eq!((history[0].0, history[0].1), (130, 131));
+        assert_eq!((history[1].0, history[1].1), (131, 132));
         assert_eq!(
-            history.2,
+            history[0].2,
             published_format(130)
                 .expect("v130 format")
                 .schema_fingerprint
         );
         assert_eq!(
-            history.3,
+            history[0].3,
             published_format(131)
                 .expect("v131 format")
                 .schema_fingerprint
         );
-        assert!(history.4.starts_with("v130-to-v131-"));
-        assert!(history.4.ends_with(".db"));
-        assert!(history.5 > 0);
+        assert_eq!(
+            history[1].2,
+            published_format(131)
+                .expect("v131 format")
+                .schema_fingerprint
+        );
+        assert_eq!(
+            history[1].3,
+            published_format(132)
+                .expect("v132 format")
+                .schema_fingerprint
+        );
+        assert_eq!(history[0].4, history[1].4);
+        assert!(history[0].4.starts_with("v130-to-v132-"));
+        assert!(history[0].4.ends_with(".db"));
+        assert!(history.iter().all(|row| row.5 > 0));
         let backup_path = directory
             .path()
             .join("backups/core-migrations")
-            .join(&history.4);
+            .join(&history[0].4);
         let backup_metadata = fs::symlink_metadata(&backup_path).expect("migration backup");
         assert!(backup_metadata.is_file());
         assert!(!backup_metadata.file_type().is_symlink());
@@ -731,9 +1086,9 @@ mod tests {
             connection
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("version"),
-            131
+            CURRENT_STORE_REVISION
         );
-        validate_schema_identity(&connection, 131).expect("converged schema");
+        validate_schema_identity(&connection, CURRENT_STORE_REVISION).expect("converged schema");
         drop(connection);
 
         let mut reopened = open_writer(&directory.path().join("nodex.db")).expect("reopen");
@@ -748,13 +1103,54 @@ mod tests {
                     |row| { row.get::<_, i64>(0) }
                 )
                 .expect("stable history"),
-            1
+            2
         );
         assert_eq!(
             fs::read_dir(directory.path().join("backups/core-migrations"))
                 .expect("backups")
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn published_v131_store_migrates_directly_to_current() {
+        let directory = tempdir().expect("Profile");
+        install_v131_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        let mut events = Vec::new();
+
+        let preparation =
+            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
+                events.push(event)
+            })
+            .expect("migrate v131");
+
+        assert_eq!(preparation.migrated_from_version, Some(131));
+        assert_eq!(preparation.schema_version, 132);
+        assert_eq!(
+            events,
+            vec![
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 131,
+                    to_version: 132,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 1,
+                    total: 1,
+                },
+            ]
+        );
+        validate_current_store(&connection).expect("current Store");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM core_store_migration_history",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("migration history"),
+            2
         );
     }
 
@@ -988,7 +1384,7 @@ mod tests {
         install_baseline_fixture(non_file.path());
         let backup_directory = non_file.path().join("backups/core-migrations");
         fs::create_dir_all(&backup_directory).expect("backup directory");
-        fs::create_dir(backup_directory.join(".v130-to-v131.pending.db"))
+        fs::create_dir(backup_directory.join(".v130-to-v132.pending.db"))
             .expect("non-file pending candidate");
         let mut connection = open_writer(&non_file.path().join("nodex.db")).expect("writer");
         let error = prepare_profile_store(&mut connection, non_file.path())
@@ -998,11 +1394,17 @@ mod tests {
 
     #[test]
     fn migration_registry_is_contiguous_and_forward_only() {
-        assert_eq!(MIGRATION_STEPS.len(), 1);
-        for step in MIGRATION_STEPS {
+        assert_eq!(MIGRATION_STEPS.len(), 2);
+        for (index, step) in MIGRATION_STEPS.iter().enumerate() {
             assert!(step.from_revision < step.to_revision);
+            if let Some(next) = MIGRATION_STEPS.get(index + 1) {
+                assert_eq!(step.to_revision, next.from_revision);
+            }
         }
         assert_eq!(MIGRATION_STEPS[0].from_revision, BASELINE_STORE_REVISION);
-        assert_eq!(MIGRATION_STEPS[0].to_revision, CURRENT_STORE_REVISION);
+        assert_eq!(
+            MIGRATION_STEPS.last().expect("migration tail").to_revision,
+            CURRENT_STORE_REVISION
+        );
     }
 }

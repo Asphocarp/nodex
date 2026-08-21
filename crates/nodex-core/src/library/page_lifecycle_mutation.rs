@@ -255,6 +255,24 @@ pub(super) fn delete_with_etag(
     if !constant_time_equal(expected_etag.as_bytes(), current_etag.as_bytes()) {
         return Err(conflict("Page shell ETag changed"));
     }
+    // The headless CLI has no mounted parent Y.Doc to fence. Its Page ETag
+    // already protects the exact owner and placement; resolve the current host
+    // head inside this writer transaction so nested deletion still uses the
+    // same typed lifecycle path as the desktop editor.
+    let parent_document_head = if page.parent_kind == "page" {
+        let parent_document_id = page
+            .containing_document_id
+            .as_deref()
+            .ok_or_else(|| corrupt("Nested Page has no containing Document"))?;
+        let parent = super::mutation::load_parent_document(connection, parent_document_id)?;
+        Some(LibraryDocumentHead {
+            document_id: parent_document_id.to_owned(),
+            generation: parent.authority.head.generation,
+            head_seq: parent.authority.head.head_seq,
+        })
+    } else {
+        None
+    };
     delete_page(
         connection,
         context,
@@ -265,7 +283,7 @@ pub(super) fn delete_with_etag(
         page_id,
         page.metadata_revision,
         page.parent_revision,
-        None,
+        parent_document_head.as_ref(),
     )
 }
 
@@ -688,6 +706,7 @@ fn create_page(
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
+                    structural_edit: None,
                     page_lifecycle: Some(receipt),
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -3363,6 +3382,7 @@ fn seal_page_lifecycle(
             canvas_mutation: None,
             block_transfer: None,
             block_transfer_undo: None,
+            structural_edit: None,
             page_lifecycle: Some(receipt),
             block_property_mutation: None,
             agent_page_copy: None,

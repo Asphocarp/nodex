@@ -389,6 +389,22 @@ task, or a durable Project grant. Only the durable choice writes
 `project_resource_grants`; cross-Library, deleted, stale, and unsupported
 structural targets remain ineligible for consent.
 
+### Structural edit
+
+A structural edit is one Core-owned mutation over an ordered root forest whose
+ownership closure contains at least one typed owner. It is the authority for
+mixed delete, clipboard capture/paste, duplicate, and move. The operation owns
+all host Document, owner lifecycle, parentage, owned Document, Canvas, Database,
+projection, retention, and inverse-recipe effects; a generic Document update
+cannot perform any subset of that work.
+
+A Structural Clipboard Bundle is an immutable same-Library snapshot addressed
+by a bounded capability. A cut claim is its separate single-use right to move
+the captured identities once. A Structural History Recipe is a durable,
+single-use forward inverse; reversing it creates a new recipe rather than
+rewinding storage. Clipboard and history authorities retain their closure only
+while their lease or recipe remains reachable.
+
 ### Reference Block
 
 A Reference Block has its own `blockId` and stable `targetBlockId`. It presents

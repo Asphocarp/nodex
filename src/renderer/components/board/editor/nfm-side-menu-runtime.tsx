@@ -16,9 +16,8 @@ export interface NfmSideMenuRuntimeSnapshot {
     readonly blockIds: readonly string[];
   }) => void;
   onBlockDragEnd: () => void;
-  onDuplicateCanvas: (canvasBlockId: string) => Promise<void> | void;
-  onDeleteCanvas: (canvasBlockId: string) => Promise<void> | void;
-  onDeletePage: (pageBlockId: string) => Promise<void> | void;
+  onDuplicateBlocks: (blockIds: readonly string[]) => boolean;
+  onDeleteBlocks: (blockIds: readonly string[]) => boolean;
 }
 
 export interface NfmSideMenuRuntimeValue {
@@ -35,9 +34,8 @@ const DEFAULT_SIDE_MENU_RUNTIME: NfmSideMenuRuntimeValue = {
     onConvertDividerToThreadSection: () => undefined,
     onBlockDragStart: () => undefined,
     onBlockDragEnd: () => undefined,
-    onDuplicateCanvas: () => undefined,
-    onDeleteCanvas: () => undefined,
-    onDeletePage: () => undefined,
+    onDuplicateBlocks: () => false,
+    onDeleteBlocks: () => false,
   }),
 };
 

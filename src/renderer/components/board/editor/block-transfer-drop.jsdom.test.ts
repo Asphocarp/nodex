@@ -335,11 +335,11 @@ describe("Board Card Block transfer drop", () => {
     }
   });
 
-  test("routes a same-Page Canvas drag through the typed Canvas operation", async () => {
+  test("routes a same-Page Canvas drag through one structural transfer", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const transfer = vi.fn();
-    const transferCanvas = vi.fn(async () => undefined);
+    const structuralTransfer = vi.fn(async () => undefined);
     const cleanup = setupBlockTransferDocumentDrop(
       container,
       { document: [{ id: "canvas-1" }, { id: "paragraph-1" }] },
@@ -353,7 +353,7 @@ describe("Board Card Block transfer drop", () => {
         ancestorPageIds: [],
         createOperationId: () => "operation-canvas",
         transfer,
-        transferCanvas,
+        structuralTransfer,
         reportError: vi.fn(),
       },
     );
@@ -390,16 +390,15 @@ describe("Board Card Block transfer drop", () => {
 
     try {
       container.dispatchEvent(drop);
-      await vi.waitFor(() => expect(transferCanvas).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(structuralTransfer).toHaveBeenCalledOnce());
       expect(drop.defaultPrevented).toBe(true);
       expect(transfer).not.toHaveBeenCalled();
-      expect(transferCanvas).toHaveBeenCalledWith({
-        canvasBlockId: "canvas-1",
-        sourceSurfaceId: "surface-page",
-        sourcePageId: "page-1",
-        targetPageId: "page-1",
+      expect(structuralTransfer).toHaveBeenCalledWith({
         mode: "move",
-        insertion: { kind: "append" },
+        rootBlockIds: ["canvas-1"],
+        sourceHead: expect.objectContaining({ documentId: "document-target" }),
+        targetHead: expect.objectContaining({ documentId: "document-target" }),
+        target: { parentBlockId: null, beforeBlockId: null },
       });
     } finally {
       cleanup();

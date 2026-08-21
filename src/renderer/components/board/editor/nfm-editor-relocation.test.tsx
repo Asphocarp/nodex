@@ -3,6 +3,7 @@ import { render } from "@/test/dom";
 import {
   prepareNfmEditorForMutation,
   prepareNfmEditorStructuralMutation,
+  runNfmEditorFocusPreservingMutation,
   type NfmEditorMutationRuntime,
 } from "./nfm-editor-relocation";
 
@@ -79,5 +80,40 @@ describe("NfmEditor mutation preparation", () => {
     } finally {
       container.remove();
     }
+  });
+
+  test("restores its initiating focus after mutation without stealing a later focus choice", async () => {
+    const view = render(
+      <>
+        <div data-testid="surface-editor">
+          <div contentEditable data-testid="editor-content" />
+        </div>
+        <input aria-label="Other surface" />
+      </>,
+    );
+    const container = view.getByTestId("surface-editor");
+    const content = view.getByTestId("editor-content");
+    const other = view.getByRole("textbox", {
+      name: "Other surface",
+    }) as HTMLInputElement;
+    const editor: NfmEditorMutationRuntime = {
+      isFocused: () => content.ownerDocument.activeElement === content,
+      isWithinEditor: (element) => container.contains(element),
+      blur: () => content.blur(),
+      focus: () => content.focus(),
+    };
+
+    content.focus();
+    await runNfmEditorFocusPreservingMutation(editor, container, async () => {
+      await prepareNfmEditorForMutation(editor, container);
+      expect(editor.isFocused?.()).toBe(false);
+    });
+    expect(content.ownerDocument.activeElement).toBe(content);
+
+    await runNfmEditorFocusPreservingMutation(editor, container, async () => {
+      await prepareNfmEditorForMutation(editor, container);
+      other.focus();
+    });
+    expect(content.ownerDocument.activeElement).toBe(other);
   });
 });

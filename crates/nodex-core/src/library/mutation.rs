@@ -75,6 +75,7 @@ pub(super) struct MutationEffects {
     pub(super) block_transfer: Option<LibraryBlockTransferResult>,
     pub(super) block_transfer_undo:
         Option<nodex_core_contracts::library::LibraryBlockTransferUndoResult>,
+    pub(super) structural_edit: Option<nodex_core_contracts::library::LibraryStructuralEditResult>,
     pub(super) page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
     pub(super) block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
     pub(super) agent_page_copy: Option<nodex_core_contracts::library::LibraryAgentPageCopyResult>,
@@ -615,6 +616,26 @@ pub(super) fn apply(
                     &request_hash,
                     token,
                 ),
+                LibraryIntent::ApplyStructuralEdit { command } => super::structural_edit::apply(
+                    transaction,
+                    &context,
+                    &library_id,
+                    &request.operation_id,
+                    &store_epoch,
+                    &request_hash,
+                    command,
+                    &assets_root,
+                ),
+                LibraryIntent::ReverseStructuralEdit { token } => super::structural_edit::reverse(
+                    transaction,
+                    &context,
+                    &library_id,
+                    &request.operation_id,
+                    &store_epoch,
+                    &request_hash,
+                    token,
+                    &assets_root,
+                ),
                 LibraryIntent::ExecutePreparedAgentPageCopy { .. } => Err(invalid(
                     "Prepared Agent Page copy is assembled by the Library Module",
                 )),
@@ -962,6 +983,7 @@ fn move_block(
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
+                    structural_edit: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -1182,6 +1204,7 @@ fn change_resource_lifecycle(
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
+                    structural_edit: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -1269,6 +1292,7 @@ fn grant_project_access(
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
+                    structural_edit: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -1380,6 +1404,7 @@ fn set_project_access(
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
+                    structural_edit: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -2009,13 +2034,52 @@ pub(super) fn persist_parent_relocation_source_with_local_commit(
     )
 }
 
+/// Persists a structural relocation source and, when the move empties the
+/// source Page, creates the editor-owned empty paragraph in the same Document
+/// commit. Typed owner detaches remain explicit while the placeholder uses
+/// normal placement genesis evidence.
+pub(super) fn persist_parent_relocation_source_with_placeholder(
+    connection: &Connection,
+    write: ParentDocumentWriteContext<'_>,
+    phase: &str,
+    parent: &ResolvedParentDocument,
+    operations: &[DocumentBlockOperation],
+    relocated_block_ids: &[String],
+    placeholder_block_ids: &[String],
+) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
+    let placement = if placeholder_block_ids.is_empty() {
+        ParentDocumentPlacement::Derived {
+            attachment_advances: &[],
+        }
+    } else {
+        ParentDocumentPlacement::Genesis(placeholder_block_ids)
+    };
+    persist_parent_operations_detailed(
+        connection,
+        write,
+        phase,
+        parent,
+        operations,
+        placement,
+        StructuralDetachPolicy::Explicit(relocated_block_ids),
+    )
+}
+
 /// Declares which aggregate owns placement revision changes while a typed
 /// resource shell is reconciled into a parent Document.
 #[derive(Clone, Copy)]
 pub(super) enum ParentDocumentPlacement<'a> {
-    Derived { attachment_advances: &'a [String] },
+    Derived {
+        attachment_advances: &'a [String],
+    },
     Genesis(&'a [String]),
     Preapplied(&'a [String]),
+    Restore {
+        preapplied: &'a [String],
+        tombstone_reactivations: &'a [String],
+        source_document_id: &'a str,
+        source_document_generation: i64,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -2061,14 +2125,33 @@ fn persist_parent_operations_detailed(
         StructuralDetachPolicy::Reject => Vec::new(),
         StructuralDetachPolicy::Explicit(block_ids) => block_ids.to_vec(),
     };
-    let (placement_genesis_block_ids, placement_preapplied_block_ids, placement_advance_block_ids) =
-        match placement {
-            ParentDocumentPlacement::Derived {
-                attachment_advances,
-            } => (&[][..], &[][..], attachment_advances),
-            ParentDocumentPlacement::Genesis(block_ids) => (block_ids, &[][..], &[][..]),
-            ParentDocumentPlacement::Preapplied(block_ids) => (&[][..], block_ids, &[][..]),
-        };
+    let (
+        placement_genesis_block_ids,
+        placement_preapplied_block_ids,
+        placement_advance_block_ids,
+        tombstone_reactivation,
+    ) = match placement {
+        ParentDocumentPlacement::Derived {
+            attachment_advances,
+        } => (&[][..], &[][..], attachment_advances, None),
+        ParentDocumentPlacement::Genesis(block_ids) => (block_ids, &[][..], &[][..], None),
+        ParentDocumentPlacement::Preapplied(block_ids) => (&[][..], block_ids, &[][..], None),
+        ParentDocumentPlacement::Restore {
+            preapplied,
+            tombstone_reactivations,
+            source_document_id,
+            source_document_generation,
+        } => (
+            &[][..],
+            preapplied,
+            &[][..],
+            Some((
+                tombstone_reactivations,
+                source_document_id,
+                source_document_generation,
+            )),
+        ),
+    };
     let exact_moved_block_ids = operations
         .iter()
         .filter_map(|operation| match operation {
@@ -2096,12 +2179,24 @@ fn persist_parent_operations_detailed(
             write_fence_block_ids: &prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
             document_write_fence_required: false,
-            placement: DocumentPlacementEvidence::STRUCTURAL
-                .with_structural_detaches(&structurally_detached_block_ids)
-                .with_genesis(placement_genesis_block_ids)
-                .with_preapplied(placement_preapplied_block_ids)
-                .with_advances(placement_advance_block_ids)
-                .with_exact_moves(&exact_moved_block_ids),
+            placement: {
+                let evidence = DocumentPlacementEvidence::STRUCTURAL
+                    .with_structural_detaches(&structurally_detached_block_ids)
+                    .with_genesis(placement_genesis_block_ids)
+                    .with_preapplied(placement_preapplied_block_ids)
+                    .with_advances(placement_advance_block_ids)
+                    .with_exact_moves(&exact_moved_block_ids);
+                tombstone_reactivation.map_or(
+                    evidence,
+                    |(block_ids, source_document_id, source_document_generation)| {
+                        evidence.with_tombstone_reactivation(
+                            block_ids,
+                            source_document_id,
+                            source_document_generation,
+                        )
+                    },
+                )
+            },
         },
         write.commit,
     )?;
@@ -2288,6 +2383,7 @@ fn create_database(
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
+                    structural_edit: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -2587,6 +2683,7 @@ fn create_page(
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
+                    structural_edit: None,
                     page_lifecycle: None,
                     block_property_mutation: None,
                     agent_page_copy: None,
@@ -3011,6 +3108,7 @@ fn assemble_mutation_result(
             canvas_mutation: effects.canvas_mutation,
             block_transfer: effects.block_transfer,
             block_transfer_undo: effects.block_transfer_undo,
+            structural_edit: effects.structural_edit,
             page_lifecycle: effects.page_lifecycle,
             block_property_mutation: effects.block_property_mutation,
             agent_page_copy: effects.agent_page_copy,
@@ -3511,8 +3609,9 @@ mod tests {
     use nodex_core_contracts::library::{
         LibraryAgentSiblingAnchor, LibraryCanvasDestination, LibraryDocumentHead,
         LibraryInheritedProjectAccessSource, LibraryNavigationParent, LibraryPageFileKind,
-        LibraryPageInsertion, LibraryPageLifecycleMutation, LibraryPagePrepareKind,
-        LibraryPageWriteDestination, LibraryRead, LibraryReadValue, LibrarySearchSnapshotScope,
+        LibraryPageInsertion, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
+        LibraryPagePrepareKind, LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
+        LibrarySearchSnapshotScope,
     };
     use nodex_core_contracts::{
         AdapterKind, CoreErrorCode, LibraryId, LocalProjectionScope, ModuleReadRequest,
@@ -5174,6 +5273,47 @@ mod tests {
                 Ok(())
             })
             .expect("move ownership evidence");
+
+        let nested_page_etag = kernel
+            .readers()
+            .read_default(|connection| {
+                crate::library::page_projection::mint_page_shell_etag(
+                    connection,
+                    "library-1",
+                    "project-1",
+                    "epoch-1",
+                    "page:nested",
+                )
+            })
+            .expect("nested Page shell ETag");
+        let nested_delete = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "native-cli:delete-nested-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::DeletePage {
+                        page_id: "page:nested".to_owned(),
+                        expected_etag: nested_page_etag,
+                    },
+                },
+            )
+            .expect("headless typed deletion resolves the nested host head");
+        assert_eq!(
+            nested_delete.committed.receipt.committed_revisions["documentHead:document:created"],
+            9
+        );
+        assert_eq!(
+            nested_delete
+                .committed
+                .value
+                .page_lifecycle
+                .as_ref()
+                .expect("nested Page lifecycle receipt")
+                .lifecycle,
+            LibraryPageLifecycleState::Deleted
+        );
     }
 
     #[test]

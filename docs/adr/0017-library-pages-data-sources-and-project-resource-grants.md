@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-16
 - Owners: Nodex maintainers
-- Supersedes in part: ADR 0001, ADR 0003, ADR 0005 (exclusive Card parent), and ADR 0010
+- Supersedes in part: ADR 0001, ADR 0003, ADR 0005, and ADR 0010
 - Superseded in part by: ADR 0020 (independent root allocation and compact
   Source-scoped schema identity)
 
@@ -25,11 +25,6 @@ give one Project a coherent home for several differently shaped collections.
 It also makes a View's location indistinguishable from the identity of the data
 it presents.
 
-Finally, `Card` and `Document` both sound like the user's durable content
-object. In the actual authority model, the persistent object is a
-document-bearing Block and Document is only its independently synchronized
-content owner. The product needs one Page-like noun for that object.
-
 ## Decision
 
 ### One local Profile owns one Library
@@ -48,21 +43,15 @@ from a Project. The schema still allows the relationship to be represented
 explicitly so backup validation and future profile management have an
 authoritative owner coordinate.
 
-### Page replaces Card as the persistent domain noun
+### Page is the persistent domain noun
 
 `Page` is a document-bearing Block. Page ID equals Block ID, and each Page owns
 exactly one Document containing its collaborative rich title and body. The
 Document is an internal persistence, synchronization, and history boundary; it
 is not a second user content object.
 
-The persisted Block type changes from `card` to `page`. Public product
-contracts, routes, events, commands, read models, and source names use Page.
-`Card` may remain only as a renderer presentation noun such as `KanbanCard`; it
-is not a compatibility alias for the domain object.
-
 References use the canonical editor node `pageRef` and NFM tag `page-ref`.
-Historical `cardRef` nodes are decode-only migration inputs. A
-mention owns its own Block identity and points at a Page without changing the
+A mention owns its own Block identity and points at a Page without changing the
 target's parent or granting access to it.
 
 ### Every Page has one exclusive parent

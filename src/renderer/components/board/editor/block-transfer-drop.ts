@@ -9,19 +9,15 @@ import type { DocumentHeadFence } from "../../../lib/block-document-surface-runt
 import {
   blockTransferDropLabel,
   claimLocalBlockDragDropTarget,
-  containsCanvasBlockDrag,
-  containsDatabaseBlockDrag,
+  containsTypedOwnerBlockDrag,
   type CrossSurfaceBlockTransferPayload,
   endLocalBlockDragSession,
-  isSingleCanvasBlockDrag,
   registerLocalBlockDragDropTarget,
   releaseLocalBlockDragDropTarget,
   resolveLocalBlockDragDropSession,
   resolveLocalBlockDragOverSession,
   resolveCrossSurfaceTransferMode,
 } from "../../workbench/block-transfer/cross-surface-drag";
-import type { LibraryPageInsertion } from "../../../../shared/library-module";
-import { resolveCanvasDropInsertion } from "@/lib/canvas-host-operations";
 import {
   buildBoardCardEditorTransferTargetData,
   isBoardCardDragData,
@@ -50,13 +46,15 @@ export interface BlockTransferDropBoundary {
   /** Settles and flushes the actual drag source mounted in this renderer. */
   readonly prepareSourceAndFence: (sourceSurfaceId: string) => Promise<DocumentHeadFence>;
   readonly transfer: (intent: PublicBlockTransferIntent) => Promise<BlockTransferCommandResult>;
-  readonly transferCanvas?: (intent: {
-    readonly canvasBlockId: string;
-    readonly sourceSurfaceId: string;
-    readonly sourcePageId: string;
-    readonly targetPageId: string;
+  readonly structuralTransfer?: (input: {
     readonly mode: "move" | "copy";
-    readonly insertion: LibraryPageInsertion;
+    readonly rootBlockIds: readonly string[];
+    readonly sourceHead: DocumentHeadFence;
+    readonly targetHead: DocumentHeadFence;
+    readonly target: {
+      readonly parentBlockId: string | null;
+      readonly beforeBlockId: string | null;
+    };
   }) => Promise<void>;
   readonly createOperationId: () => string;
   readonly reportError: (message: string) => void;
@@ -346,7 +344,7 @@ export const setupBlockTransferDocumentDrop = (
     }
     if (
       session.sourceSurfaceId === boundary.surfaceId &&
-      !containsCanvasBlockDrag(session.payload)
+      !containsTypedOwnerBlockDrag(session.payload)
     ) {
       return null;
     }
@@ -356,7 +354,6 @@ export const setupBlockTransferDocumentDrop = (
     if (payload.projectId !== boundary.projectId || payload.storeEpoch !== boundary.storeEpoch) {
       return false;
     }
-    if (containsDatabaseBlockDrag(payload)) return false;
     const forbidden = new Set(boundary.ancestorPageIds);
     if (boundary.hostPageId) forbidden.add(boundary.hostPageId);
     return payload.rootBlockIds.every((blockId) => !forbidden.has(blockId));
@@ -376,27 +373,11 @@ export const setupBlockTransferDocumentDrop = (
       (session.payload.source.kind === "document" &&
         session.payload.source.documentId === boundary.documentId)
     ) {
-      if (!containsCanvasBlockDrag(session.payload)) {
+      if (!containsTypedOwnerBlockDrag(session.payload)) {
         event.dataTransfer!.dropEffect = "none";
         clear();
         return;
       }
-    }
-    if (containsDatabaseBlockDrag(session.payload)) {
-      event.dataTransfer!.dropEffect = "none";
-      clear();
-      return;
-    }
-    if (
-      containsCanvasBlockDrag(session.payload) &&
-      (!isSingleCanvasBlockDrag(session.payload) ||
-        session.payload.source.kind !== "page" ||
-        !boundary.hostPageId ||
-        !boundary.transferCanvas)
-    ) {
-      event.dataTransfer!.dropEffect = "none";
-      clear();
-      return;
     }
     if (!canTransferPayload(session.payload)) {
       event.dataTransfer!.dropEffect = "none";
@@ -424,17 +405,13 @@ export const setupBlockTransferDocumentDrop = (
     if (!session || session.sessionId !== managedSession.sessionId) return;
     endLocalBlockDragSession({ sessionId: session.sessionId });
 
-    if (containsDatabaseBlockDrag(session.payload)) {
-      boundary.reportError("Database blocks can only move through a typed Database action.");
-      return;
-    }
     if (
       (session.payload.source.kind === "page" &&
         session.payload.source.pageId === boundary.hostPageId) ||
       (session.payload.source.kind === "document" &&
         session.payload.source.documentId === boundary.documentId)
     ) {
-      if (!containsCanvasBlockDrag(session.payload)) {
+      if (!containsTypedOwnerBlockDrag(session.payload)) {
         boundary.reportError("This Block is already in the same collaborative Document.");
         return;
       }
@@ -448,46 +425,33 @@ export const setupBlockTransferDocumentDrop = (
 
     const anchor = resolveAnchor(container, event.clientX, event.clientY);
     const target = resolveBlockTransferDocumentTarget(editor, anchor);
-    if (containsCanvasBlockDrag(session.payload)) {
-      if (
-        !isSingleCanvasBlockDrag(session.payload) ||
-        session.payload.source.kind !== "page" ||
-        !boundary.hostPageId ||
-        !boundary.transferCanvas
-      ) {
-        boundary.reportError("Move or copy one Canvas at a time.");
-        return;
-      }
-      if (session.payload.source.kind !== "page") {
-        boundary.reportError("Canvas transfer source must be a Page.");
-        return;
-      }
-      const sourcePageId = session.payload.source.pageId;
-      if (!sourcePageId) {
-        boundary.reportError("Canvas transfer source Page is missing.");
-        return;
-      }
-      const targetPageId = boundary.hostPageId;
-      if (!targetPageId) {
-        boundary.reportError("Canvas transfer target Page is missing.");
+    if (containsTypedOwnerBlockDrag(session.payload)) {
+      if (!boundary.structuralTransfer) {
+        boundary.reportError("Structural transfer is unavailable on this editor surface.");
         return;
       }
       const mode = resolveCrossSurfaceTransferMode(event);
-      const canvasBlockId = session.payload.rootBlockIds[0]!;
-      if (mode === "move" && target.beforeBlockId === canvasBlockId) return;
-      void prepareStructuralMutation(session.sourceSurfaceId)
-        .then(() =>
-          boundary.transferCanvas?.({
-            canvasBlockId,
-            sourceSurfaceId: session.sourceSurfaceId,
-            sourcePageId,
-            targetPageId,
+      if (mode === "move" && target.beforeBlockId === session.payload.rootBlockIds[0]) return;
+      const targetHeadPromise = boundary.prepareAndFence();
+      const sourceHeadPromise =
+        session.sourceSurfaceId === boundary.surfaceId
+          ? targetHeadPromise
+          : boundary.prepareSourceAndFence(session.sourceSurfaceId);
+      void Promise.all([targetHeadPromise, sourceHeadPromise])
+        .then(([targetHead, sourceHead]) =>
+          boundary.structuralTransfer?.({
             mode,
-            insertion: resolveCanvasDropInsertion(target),
+            rootBlockIds: session.payload.rootBlockIds,
+            sourceHead,
+            targetHead,
+            target: {
+              parentBlockId: target.parentBlockId ?? null,
+              beforeBlockId: target.beforeBlockId ?? null,
+            },
           }),
         )
         .then(() => undefined)
-        .catch((error: unknown) => reportFailure(error, "Canvas move failed"));
+        .catch((error: unknown) => reportFailure(error, "Structural transfer failed"));
       return;
     }
     void prepareStructuralMutation(session.sourceSurfaceId)

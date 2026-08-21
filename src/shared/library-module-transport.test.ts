@@ -17,6 +17,7 @@ const uuidV7 = (sequence: number): string => createUuidV7FromTimestamp(1_785_491
 
 const primaryCanvasId = primaryCanvasBlockId("project:default");
 const primaryDocumentId = primaryCanvasDocumentId("project:default");
+const structuralDigest = "a".repeat(64);
 const readResult = (value: unknown) => ({
   ok: true,
   value: {
@@ -796,6 +797,7 @@ describe("Library Module transport", () => {
         localCommit: committedLocalCommit("epoch-1", 4),
         value: {
           operationId: uuidV7(1),
+          profileId: "profile-1",
           storeEpoch: "epoch-1",
           libraryId: "library-1",
           operationKind: "rename_canvas",
@@ -811,6 +813,7 @@ describe("Library Module transport", () => {
             metadataRevision: 2,
             documentCommits: [],
           },
+          structuralEdit: null,
           affectedParentKeys: ["library"],
           affectedPageIds: [],
           affectedDatabaseIds: [],
@@ -826,6 +829,222 @@ describe("Library Module transport", () => {
         canvasMutation: {
           canvasId: primaryCanvasId,
           documentId: primaryDocumentId,
+        },
+      },
+    });
+  });
+
+  test("binds structural edit capabilities and parses reversible receipts", () => {
+    expect(
+      bindLibraryModuleApply({
+        operationId: uuidV7(2),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "delete_selection",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["block:one", "block:two"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 1,
+                expectedHeadSeq: 7,
+              },
+            },
+            reason: {
+              kind: "cut",
+              bundle: {
+                bundleId: "bundle:one",
+                capability: structuralDigest,
+                manifestHash: structuralDigest,
+                storeEpoch: "epoch-1",
+              },
+            },
+            direction: "backward",
+          },
+        },
+      }),
+    ).toMatchObject({
+      operation: {
+        command: {
+          selection: { rootBlockIds: ["block:one", "block:two"] },
+          reason: { kind: "cut", bundle: { bundleId: "bundle:one" } },
+        },
+      },
+    });
+
+    expect(
+      bindLibraryModuleApply({
+        operationId: uuidV7(3),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "move_selection",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["block:one", "page:one"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 1,
+                expectedHeadSeq: 7,
+              },
+            },
+            target: {
+              targetDocumentId: "document:target",
+              parentBlockId: null,
+              beforeBlockId: null,
+              targetHead: {
+                documentId: "document:target",
+                generation: 2,
+                expectedHeadSeq: 9,
+              },
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      operation: {
+        command: {
+          kind: "move_selection",
+          selection: { rootBlockIds: ["block:one", "page:one"] },
+          target: { targetDocumentId: "document:target" },
+        },
+      },
+    });
+
+    expect(
+      bindLibraryModuleApply({
+        operationId: uuidV7(4),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "replace_selection",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["page:one"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 1,
+                expectedHeadSeq: 7,
+              },
+            },
+            replacement: {
+              kind: "blocks",
+              blocks: [
+                {
+                  blockType: "paragraph",
+                  props: {},
+                  content: [{ type: "text", text: "replacement", styles: {} }],
+                  children: [],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      operation: {
+        command: {
+          kind: "replace_selection",
+          replacement: { kind: "blocks", blocks: [{ blockType: "paragraph" }] },
+        },
+      },
+    });
+
+    expect(
+      bindLibraryModuleApply({
+        operationId: uuidV7(5),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "release_history",
+            tokens: [
+              {
+                recipeOperationId: "recipe:one",
+                recipeHash: structuralDigest,
+                storeEpoch: "epoch-1",
+              },
+            ],
+          },
+        },
+      }),
+    ).toMatchObject({
+      operation: {
+        command: { kind: "release_history", tokens: [{ recipeOperationId: "recipe:one" }] },
+      },
+    });
+
+    expect(() =>
+      bindLibraryModuleApply({
+        operationId: uuidV7(6),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "reverse_structural_edit",
+          token: {
+            recipeOperationId: "recipe:one",
+            recipeHash: "not-a-digest",
+            storeEpoch: "epoch-1",
+          },
+        },
+      }),
+    ).toThrow("lowercase SHA-256 digest");
+
+    expect(
+      parseLibraryModuleApplyResult({
+        ok: true,
+        localCommit: committedLocalCommit("epoch-1", 5),
+        value: {
+          operationId: uuidV7(6),
+          profileId: "profile-1",
+          storeEpoch: "epoch-1",
+          libraryId: "library-1",
+          operationKind: "apply_structural_edit",
+          duplicate: false,
+          didMutate: true,
+          createdTarget: null,
+          canvasMutation: null,
+          structuralEdit: {
+            operationKind: "delete_selection",
+            sourceRootBlockIds: ["block:one"],
+            resultRootBlockIds: [],
+            copiedBlockIds: {},
+            copiedDocumentIds: {},
+            documentCommits: [],
+            affectedPageIds: ["page:one"],
+            affectedDatabaseIds: [],
+            clipboard: null,
+            history: {
+              recipeOperationId: "recipe:one",
+              recipeHash: structuralDigest,
+              storeEpoch: "epoch-1",
+            },
+            supersededHistoryRecipeOperationIds: [],
+            resume: {
+              blockId: "block:previous",
+              edge: "end",
+              fallbackBeforeBlockId: null,
+              fallbackAfterBlockId: "block:next",
+            },
+          },
+          affectedParentKeys: [],
+          affectedPageIds: ["page:one"],
+          affectedDatabaseIds: [],
+          affectedViewIds: [],
+          committedRevisions: {},
+          commitSeq: 5,
+          committedAt: "2026-08-21T00:00:00.000Z",
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        structuralEdit: {
+          history: { recipeOperationId: "recipe:one" },
+          resume: { blockId: "block:previous", edge: "end" },
         },
       },
     });

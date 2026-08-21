@@ -322,7 +322,7 @@ const ownedDocumentDescriptorSnapshot = (
     projectId: "project:one",
   },
 ) => ({
-  contract_version: 7 as const,
+  contract_version: 8 as const,
   store_epoch: "epoch:test",
   commit_head: 2,
   authorization: authorizedReadStampFixture({

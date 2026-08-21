@@ -22,7 +22,11 @@ import {
   EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL,
   type WorkbenchCommandInvocation,
 } from "../shared/workbench-commands";
-import { CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL } from "../shared/clipboard-paste";
+import {
+  CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL,
+  type StructuralClipboardWriteInput,
+  type StructuralClipboardWriteResult,
+} from "../shared/clipboard-paste";
 import type { ClipboardPasteInspectionResult, ClipboardPastePayload } from "../shared/types";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
 import {
@@ -170,6 +174,11 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.sendSync(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL) as ClipboardPasteInspectionResult,
   readPasteClipboard: () =>
     ipcRenderer.invoke("clipboard:read-paste") as Promise<ClipboardPastePayload>,
+  writeStructuralClipboard: (input: StructuralClipboardWriteInput) =>
+    ipcRenderer.invoke(
+      "clipboard:write-structural",
+      input,
+    ) as Promise<StructuralClipboardWriteResult>,
   getPathInfoForFile: (file: File) => {
     try {
       const absolutePath = webUtils.getPathForFile(file);

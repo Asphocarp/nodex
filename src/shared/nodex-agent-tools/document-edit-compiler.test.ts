@@ -201,30 +201,187 @@ describe("Nodex Agent Document edit compiler", () => {
     });
   });
 
-  test("requires explicit safety intent before deleting an owned Card shell", () => {
-    const current = materialization('<page uuid="nested-card" />\nKeep');
-    const compile = (allowDeletingOwnedBlocks: boolean | undefined) =>
+  test("requires a typed lifecycle operation to delete any owned resource shell", () => {
+    for (const owner of [
+      '<page uuid="nested-page" />',
+      '<database uuid="nested-database" />',
+      '<canvas uuid="nested-canvas" />',
+    ]) {
+      const current = materialization(`${owner}\nKeep`);
+      const compile = () =>
+        compileAgentDocumentEdit({
+          documentId: "document-1",
+          current,
+          edit: edit({
+            documentId: "document-1",
+            body: { kind: "nfm.replace", content: "Keep", ifMatch: ETAG },
+          }),
+          allocateBlockId: allocator("replace"),
+        });
+
+      expect(compile).toThrowError(
+        expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
+          code: "protected_owner_deletion",
+        }),
+      );
+    }
+  });
+
+  test("rejects stable inserts and moves beneath every editor-visible owner shell", () => {
+    for (const owner of [
+      '<page uuid="nested-page" />',
+      '<database uuid="nested-database" />',
+      '<canvas uuid="nested-canvas" />',
+    ]) {
+      const current = materialization(`${owner}\nKeep`);
+      const [ownerBlock, ordinaryBlock] = current.blockTree;
+      if (!ownerBlock || !ordinaryBlock) throw new Error("Owner fixture is incomplete");
+      for (const stableEdit of [
+        {
+          kind: "insert" as const,
+          at: { kind: "end" as const, parentBlockId: ownerBlock.id },
+          block: { localId: "child", type: "paragraph", content: [] },
+        },
+        {
+          kind: "move" as const,
+          blockId: ordinaryBlock.id,
+          at: { kind: "end" as const, parentBlockId: ownerBlock.id },
+        },
+      ]) {
+        const compile = () =>
+          compileAgentDocumentEdit({
+            documentId: "document-1",
+            current,
+            edit: edit({
+              documentId: "document-1",
+              body: { kind: "blocks", edits: [stableEdit] },
+            }),
+            allocateBlockId: allocator("created"),
+          });
+
+        expect(compile).toThrowError(
+          expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
+            code: "invalid_arguments",
+          }),
+        );
+      }
+    }
+  });
+
+  test("rejects stable creation, editing, reclassification, and movement of owner shells", () => {
+    const current = materialization('<page uuid="nested-page" />\nKeep');
+    const [ownerBlock, ordinaryBlock] = current.blockTree;
+    if (!ownerBlock || !ordinaryBlock) throw new Error("Owner fixture is incomplete");
+    for (const stableEdit of [
+      {
+        kind: "insert" as const,
+        at: { kind: "end" as const },
+        block: { localId: "owner", type: "canvas" },
+      },
+      {
+        kind: "update" as const,
+        blockId: ownerBlock.id,
+        ifMatch: ETAG,
+        patch: { props: { illegal: true } },
+      },
+      {
+        kind: "update" as const,
+        blockId: ordinaryBlock.id,
+        ifMatch: ETAG,
+        patch: { type: "database" },
+      },
+      {
+        kind: "move" as const,
+        blockId: ownerBlock.id,
+        at: { kind: "end" as const },
+      },
+    ]) {
+      const compile = () =>
+        compileAgentDocumentEdit({
+          documentId: "document-1",
+          current,
+          edit: edit({
+            documentId: "document-1",
+            body: { kind: "blocks", edits: [stableEdit] },
+          }),
+          allocateBlockId: allocator("created"),
+        });
+
+      expect(compile).toThrowError(
+        expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
+          code: "invalid_arguments",
+        }),
+      );
+    }
+  });
+
+  test("rejects whole-body owner reordering and moving an ancestor that carries an owner", () => {
+    const current = materialization('Parent\n\t<page uuid="nested-page" />\nKeep');
+    const [parent] = current.blockTree;
+    if (!parent) throw new Error("Nested owner fixture is incomplete");
+
+    expect(() =>
       compileAgentDocumentEdit({
         documentId: "document-1",
         current,
         edit: edit({
           documentId: "document-1",
-          body: { kind: "nfm.replace", content: "Keep", ifMatch: ETAG },
-          ...(allowDeletingOwnedBlocks === undefined
-            ? {}
-            : {
-                safety: { allowDeletingOwnedBlocks },
-              }),
+          body: {
+            kind: "blocks",
+            edits: [{ kind: "move", blockId: parent.id, at: { kind: "end" } }],
+          },
         }),
-        allocateBlockId: allocator("replace"),
-      });
-
-    expect(() => compile(undefined)).toThrowError(
+        allocateBlockId: allocator("move"),
+      }),
+    ).toThrowError(
       expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
-        code: "protected_owner_deletion",
+        code: "invalid_arguments",
       }),
     );
-    expect(compile(true).effects.deletedOwnerBlockIds).toEqual(["existing-1"]);
+
+    const rootOwners = materialization('<page uuid="nested-page" />\nKeep');
+    const rootOwner = rootOwners.blockTree[0];
+    if (!rootOwner) throw new Error("Root owner fixture is incomplete");
+    expect(() =>
+      compileAgentDocumentEdit({
+        documentId: "document-1",
+        current: rootOwners,
+        edit: edit({
+          documentId: "document-1",
+          body: {
+            kind: "nfm.replace",
+            content: `Keep\n<page uuid="${rootOwner.id}" />`,
+            ifMatch: ETAG,
+          },
+        }),
+        allocateBlockId: allocator("replace"),
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<AgentDocumentEditCompilerError>>({
+        code: "invalid_arguments",
+      }),
+    );
+  });
+
+  test("does not mistake insertion before an owner for owner movement", () => {
+    const current = materialization('<page uuid="nested-page" />\nKeep');
+    const owner = current.blockTree[0];
+    if (!owner) throw new Error("Owner fixture is incomplete");
+    const compiled = compileAgentDocumentEdit({
+      documentId: "document-1",
+      current,
+      edit: edit({
+        documentId: "document-1",
+        body: {
+          kind: "nfm.replace",
+          content: `New\n<page uuid="${owner.id}" />\nKeep`,
+          ifMatch: ETAG,
+        },
+      }),
+      allocateBlockId: allocator("replace"),
+    });
+
+    expect(compiled.effects.movedBlockIds).toEqual([]);
   });
 
   test("moves a stable Block without changing its identity", () => {

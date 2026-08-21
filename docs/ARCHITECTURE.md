@@ -216,7 +216,9 @@ A mounted surface first resolves an authorized descriptor and completes its cano
 
 Before a structural command consumes a mounted Document's shape, the surface flushes pending durable updates and supplies an exact head token. Core rechecks the token while planning and applying the mutation. Ownership, membership, host-shell changes, Document updates, projections, and the receipt then commit atomically. Response loss is recovered by exact receipt replay or canonical synchronization, not by reconstructing the transaction in Electron.
 
-Document identity, owner shells, relocation, history, and Canvas decisions are recorded in [CONTEXT.md](CONTEXT.md) and ADRs [0002](docs/adr/0002-document-bearing-blocks-yjs.md), [0004](docs/adr/0004-atomic-block-relocation.md), and [0005](docs/adr/0005-canvas-scene-native-sync-engine.md).
+Any editor selection containing an owning Page, Canvas, or Database is one Library structural edit; the complete selected forest and ownership closure stay outside generic Document mutation. Core owns delete, clipboard capture/paste, duplicate, move, retention, and forward-inverse recipes. Native clipboard data carries only a bounded capability to an immutable Core bundle. Each editor surface merges structural tokens with its own local Yjs history in user-action order and releases tokens when they leave reachable history. The user-visible contract is [NFM Editor Structural Editing Behavior](docs/product-specs/nfm-editor-structural-editing-behavior.md), and the ownership decision is [ADR 0048](docs/adr/0048-typed-owner-structural-editing.md).
+
+Document identity, owner shells, relocation, history, and Canvas decisions are recorded in [CONTEXT.md](CONTEXT.md) and ADRs [0002](docs/adr/0002-document-bearing-blocks-yjs.md), [0004](docs/adr/0004-atomic-block-relocation.md), [0005](docs/adr/0005-canvas-scene-native-sync-engine.md), and [0048](docs/adr/0048-typed-owner-structural-editing.md).
 
 ### Codex conversation ownership
 

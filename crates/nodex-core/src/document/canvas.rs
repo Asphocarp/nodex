@@ -1256,26 +1256,37 @@ pub(crate) fn clone_canvas_genesis(
     assets_root: &Path,
 ) -> Result<i64, StoreError> {
     let source = load_canvas_scene(connection, source_authority)?;
+    clone_canvas_scene_genesis(connection, source.scene, target_authority, assets_root)
+}
+
+/// Instantiates a Canvas from a captured scene rather than re-reading a live
+/// source Document. Structural clipboard snapshots therefore remain immutable
+/// even when their source Canvas changes before paste.
+pub(crate) fn clone_canvas_scene_genesis(
+    connection: &Connection,
+    scene: CanvasScene,
+    target_authority: &DocumentAuthorityRow,
+    assets_root: &Path,
+) -> Result<i64, StoreError> {
     let (_, created) = ensure_canvas_scene(connection, target_authority, assets_root)?;
     if !created {
         return Err(corrupt("Canvas clone target already has scene authority"));
     }
-    validate_page_references(connection, target_authority, &source.scene)?;
-    let changed_element_ids = source
-        .scene
+    validate_page_references(connection, target_authority, &scene)?;
+    let changed_element_ids = scene
         .elements
         .iter()
         .map(|element| element.id.clone())
         .collect::<Vec<_>>();
-    let added_file_ids = source.scene.files.keys().cloned().collect::<Vec<_>>();
+    let added_file_ids = scene.files.keys().cloned().collect::<Vec<_>>();
     let changed = !changed_element_ids.is_empty()
         || !added_file_ids.is_empty()
-        || !source.scene.app_state.is_empty();
+        || !scene.app_state.is_empty();
     if !changed {
         return Ok(0);
     }
     let applied = AppliedCanvasMutation {
-        scene: source.scene,
+        scene,
         changed_element_ids,
         applied_app_state_keys: Vec::new(),
         skipped_app_state_keys: Vec::new(),
