@@ -48,7 +48,7 @@ import {
   startCodexScheduledAutomationScheduler,
   type CodexScheduledAutomationScheduler,
 } from "./codex-scheduled-automation-scheduler";
-import { DesktopNotificationManager } from "./desktop-notification-manager";
+import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import { CodexThreadNotificationCoordinator } from "./codex/codex-thread-notification-coordinator";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
@@ -236,7 +236,7 @@ let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | nul
 let storeAdministrationMaintenanceScheduler: StoreAdministrationMaintenanceScheduler | null = null;
 let reminderResumeHandlerRegistered = false;
 const logger = getLogger({ subsystem: "app" });
-const desktopNotificationManager = new DesktopNotificationManager({ logger });
+let desktopNotificationManager: DesktopNotificationManager | null = null;
 
 const isCoreAuthorityReady = (): boolean => coreAuthorityStatus.kind === "ready";
 
@@ -1552,7 +1552,7 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
   });
   window.on("closed", () => {
     browserSidebarService.releaseRendererOwner(webContentsId);
-    desktopNotificationManager.dismissByOriginWebContentsId(webContentsId);
+    desktopNotificationManager?.dismissByOriginWebContentsId(webContentsId);
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
     try {
       windowSessionState?.detachWindow(webContentsId, {
@@ -1988,6 +1988,7 @@ export interface MainRuntimeStartupContext {
     readonly startAutomaticChecks: () => Promise<void>;
   };
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
+  desktopNotificationManager: DesktopNotificationManager;
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
   manageElectronLifecycle?: boolean;
@@ -2062,6 +2063,7 @@ function beginMainRuntimeShutdown(): void {
   rendererHostReadyForWindows = false;
   appQuitRequested = true;
   appUpdateRuntime = null;
+  desktopNotificationManager = null;
   logger.info("Nodex before-quit");
   scopedProjectionLiveSupervisor?.stop();
   scopedProjectionLiveSupervisor = null;
@@ -2089,7 +2091,6 @@ function beginMainRuntimeShutdown(): void {
   scheduledAutomationScheduler = null;
   codexThreadNotificationCoordinator?.dispose();
   codexThreadNotificationCoordinator = null;
-  desktopNotificationManager.dispose();
 }
 
 function shutdownMainRuntime(): Promise<void> {
@@ -2183,6 +2184,7 @@ export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
   appUpdateRuntime = context.appUpdateRuntime;
+  desktopNotificationManager = context.desktopNotificationManager;
   if (context.manageElectronLifecycle !== false) {
     registerRuntimeLifecycleHandlers(context.requestShutdown);
   }
@@ -2298,10 +2300,14 @@ export async function runMainAppStartup(
       if (webContentsId === null) return;
       const targetWindow = openWindows.get(webContentsId);
       if (!targetWindow || targetWindow.isDestroyed()) return;
-      desktopNotificationManager.showNotification(notification, targetWindow.webContents, onAction);
+      desktopNotificationManager?.showNotification(
+        notification,
+        targetWindow.webContents,
+        onAction,
+      );
     },
     dismissNotification: (selector) => {
-      desktopNotificationManager.dismiss(selector);
+      desktopNotificationManager?.dismiss(selector);
     },
     dispatchAction: (targetClientId, action) =>
       notificationRendererRouter.sendToClient(targetClientId, "desktop-notification:action", [

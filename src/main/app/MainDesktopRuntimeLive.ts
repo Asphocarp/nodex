@@ -112,6 +112,10 @@ import {
 import { AppUpdateRuntime, live as appUpdateRuntimeLive } from "../host-runtime/AppUpdateRuntime";
 import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
 import {
+  DesktopNotificationRuntime,
+  live as desktopNotificationRuntimeLive,
+} from "../host-runtime/DesktopNotificationRuntime";
+import {
   activateMainServiceComposition,
   createMainServiceComposition,
 } from "../main-service-composition";
@@ -299,6 +303,14 @@ export const live: Layer.Layer<
             ),
           ),
           runtimeScope,
+        );
+        const desktopNotificationContext = yield* Layer.buildWithScope(
+          desktopNotificationRuntimeLive.pipe(Layer.provide(Layer.succeed(MainConfig, config))),
+          runtimeScope,
+        );
+        const desktopNotifications = Context.get(
+          desktopNotificationContext,
+          DesktopNotificationRuntime,
         );
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
@@ -811,6 +823,7 @@ export const live: Layer.Layer<
                   startAutomaticChecks: () => callbacks.runPromise(appUpdates.startAutomaticChecks),
                 },
                 dataAuthority: Promise.resolve(dataAuthority),
+                desktopNotificationManager: desktopNotifications.manager,
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
                 manageElectronLifecycle: false,
