@@ -208,7 +208,6 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
-import { parseModelOption } from "../codex-application/ComposerCatalogState";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import {
@@ -1414,7 +1413,7 @@ type CodexManagedWorktreeSettingsPort = {
 
 type CodexServiceOptions = {
   agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
-  composerCatalog?: ComposerCatalogPromiseAdapter;
+  composerCatalog: ComposerCatalogPromiseAdapter;
   client: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntimeCoordinator?: Pick<
@@ -2632,7 +2631,7 @@ export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexApplicationClient;
   private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
-  private readonly composerCatalog: ComposerCatalogPromiseAdapter | null;
+  private readonly composerCatalog: ComposerCatalogPromiseAdapter;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly runtimeVersion: string | null;
@@ -2877,7 +2876,7 @@ export class CodexService extends EventEmitter {
     super();
 
     this.agentProviderRuntime = options.agentProviderRuntime;
-    this.composerCatalog = options.composerCatalog ?? null;
+    this.composerCatalog = options.composerCatalog;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.browserRuntime = runtime.browserRuntime;
@@ -10431,14 +10430,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listModels(): Promise<CodexModelOption[]> {
-    if (this.composerCatalog !== null) return await this.composerCatalog.listModels();
-    await this.ensureClientReady();
-
-    const result = await this.client.request<"model/list", ModelListResponse>("model/list", {});
-
-    return result.data
-      .map(parseModelOption)
-      .filter((option): option is CodexModelOption => option !== null);
+    return await this.composerCatalog.listModels();
   }
 
   private async listAgentProviderCatalog(options?: {

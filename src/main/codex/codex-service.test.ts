@@ -1498,6 +1498,12 @@ function createService(options?: {
       resolveExecutionProfile: async (requested) => requested,
       ensureRuntimeReady: async () => undefined,
     },
+    composerCatalog: {
+      listModels: async () => [],
+      listPlugins: async () => [],
+      activatePlugin: async () => undefined,
+      listSkills: async () => [],
+    },
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome:

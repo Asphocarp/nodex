@@ -15,7 +15,7 @@ export interface MainServiceCompositionInput {
   readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
-  readonly composerCatalog?: ComposerCatalogPromiseAdapter;
+  readonly composerCatalog: ComposerCatalogPromiseAdapter;
   readonly codexClient: CodexApplicationClient;
   readonly codexRuntime: ResolvedCodexRuntime;
 }
@@ -33,7 +33,7 @@ export function createMainServiceComposition(
     agentProviderRuntime: input.agentProviderRuntime,
     terminalRuntime: input.terminalRuntime,
     runtimeStateHome: input.runtimeStateHome,
-    ...(input.composerCatalog === undefined ? {} : { composerCatalog: input.composerCatalog }),
+    composerCatalog: input.composerCatalog,
     client: input.codexClient,
     runtime: input.codexRuntime,
   });
