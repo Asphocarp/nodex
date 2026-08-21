@@ -17,6 +17,7 @@ const fakeElectronLayer = (events: string[]) =>
   Layer.succeed(
     ElectronApp,
     ElectronApp.of({
+      locale: Effect.succeed("en-US"),
       whenReady: Effect.sync(() => events.push("ready")),
       quit: Effect.sync(() => events.push("quit")),
       relaunch: Effect.sync(() => events.push("relaunch")),

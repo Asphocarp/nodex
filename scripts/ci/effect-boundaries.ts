@@ -47,15 +47,18 @@ function isEffectFreePath(path: string): boolean {
 
 function isEffectAdapter(path: string): boolean {
   return (
-    path.startsWith("src/main/effect-adapters/") || path.startsWith("scripts/effect-adapters/")
+    path.startsWith("src/main/platform/") ||
+    path.startsWith("packages/effect-codex-app-server/") ||
+    path.startsWith("src/main/effect-adapters/") ||
+    path.startsWith("scripts/effect-adapters/")
   );
 }
 
 function isEffectRuntimeBoundary(path: string): boolean {
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return true;
   return (
+    path === "src/main/app/MainEntry.ts" ||
     path === "src/main/effect-control-plane/runtime.ts" ||
-    path === "src/main/main-program.ts" ||
     path === "scripts/effect-control-plane/runtime.ts"
   );
 }
@@ -107,7 +110,7 @@ export function analyzeEffectBoundaries({
       report(
         "unstable-outside-adapter",
         statement.start,
-        `${moduleName} is unstable and may only be imported by an app-owned effect-adapters module.`,
+        `${moduleName} is unstable and may only be imported by a dedicated platform or companion-package adapter.`,
       );
     }
   }
@@ -123,7 +126,7 @@ export function analyzeEffectBoundaries({
       report(
         "run-outside-boundary",
         node.start,
-        `${node.callee.object.name}.${node.callee.property.name} may only run in a compatibility runtime facade, MainProgram, or tests.`,
+        `${node.callee.object.name}.${node.callee.property.name} may only run at a designated runtime boundary or in tests.`,
       );
     },
   }).visit(program);

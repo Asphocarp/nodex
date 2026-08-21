@@ -2019,6 +2019,7 @@ function startRuntimeScheduledAutomationScheduler(): void {
 
 export interface MainRuntimeStartupContext {
   initialArgv: string[];
+  manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
 }
@@ -2026,6 +2027,7 @@ export interface MainRuntimeStartupContext {
 export interface MainRuntimeController {
   handleOpenUrl(url: string): boolean;
   handleSecondInstance(argv: string[]): boolean;
+  prepareQuit(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -2226,6 +2228,13 @@ function shutdownMainRuntime(): Promise<void> {
   return runtimeShutdownPromise;
 }
 
+async function prepareMainRuntimeQuit(): Promise<void> {
+  if (runtimeShutdownStarted) return;
+  appQuitRequested = true;
+  rendererHostReadyForWindows = false;
+  await closeWindowsBeforeRuntimeShutdown(BrowserWindow.getAllWindows());
+}
+
 /** Release any Main resources acquired before startup reached its controller handoff. */
 export function shutdownFailedMainAppStartup(): Promise<void> {
   return shutdownMainRuntime();
@@ -2301,7 +2310,9 @@ function registerRuntimeLifecycleHandlers(requestShutdown?: () => Promise<void>)
 export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
-  registerRuntimeLifecycleHandlers(context.requestShutdown);
+  if (context.manageElectronLifecycle !== false) {
+    registerRuntimeLifecycleHandlers(context.requestShutdown);
+  }
   disposeManagedAssetProtocol?.();
   disposeManagedAssetProtocol = registerManagedAssetProtocol(electronSession.defaultSession, {
     logError: (message, error) => logger.warn(message, { error }),
@@ -2894,6 +2905,7 @@ export async function runMainAppStartup(
   return {
     handleOpenUrl: handleIncomingDeepLink,
     handleSecondInstance: handleSecondInstanceArgv,
+    prepareQuit: prepareMainRuntimeQuit,
     shutdown: shutdownMainRuntime,
   };
 }

@@ -19,6 +19,7 @@ export interface ElectronBeforeQuitDecision {
 export class ElectronApp extends Context.Service<
   ElectronApp,
   {
+    readonly locale: Effect.Effect<string>;
     readonly whenReady: Effect.Effect<void, ElectronAppError>;
     readonly quit: Effect.Effect<void>;
     readonly relaunch: Effect.Effect<void>;
@@ -58,6 +59,7 @@ export const live: Layer.Layer<ElectronApp, never, ScopedCallbackRuntime> = Laye
     };
 
     return ElectronApp.of({
+      locale: Effect.sync(() => app.getLocale()),
       whenReady: Effect.tryPromise({
         try: () => app.whenReady(),
         catch: (cause) => new ElectronAppError({ operation: "when-ready", cause }),

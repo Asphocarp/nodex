@@ -24,7 +24,12 @@ export function createMainServiceComposition(
   const codexService = new CodexService({
     browserTransferRuntime: browserSidebarService,
     computerUseRuntimeConfig: () => ({ locale: input.locale() }),
-    terminalRuntime: terminalManager,
+    terminalRuntime: {
+      getSessionSnapshot: async (sessionId) => terminalManager.getSessionSnapshot(sessionId),
+      getThreadSnapshot: async (threadId) => terminalManager.getThreadSnapshot(threadId),
+      refreshSessionProcessMetrics: async (sessionIds) =>
+        await terminalManager.refreshSessionProcessMetrics(sessionIds),
+    },
   });
 
   return { browserSidebarService, codexService, terminalManager };

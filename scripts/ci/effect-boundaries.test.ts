@@ -35,9 +35,13 @@ describe("Effect architecture boundaries", () => {
     ]);
   });
 
-  test("accepts the app-owned adapter and compatibility runtime seams", () => {
-    expect(codes("src/main/effect-adapters/persistence.ts", "unstable-import.ts")).toEqual([]);
+  test("accepts dedicated adapters and the unique process entry", () => {
+    expect(codes("src/main/platform/node/persistence.ts", "unstable-import.ts")).toEqual([]);
+    expect(codes("packages/effect-codex-app-server/src/client.ts", "unstable-import.ts")).toEqual(
+      [],
+    );
+    expect(codes("src/main/app/MainEntry.ts", "run-promise.ts")).toEqual([]);
     expect(codes("src/main/effect-control-plane/runtime.ts", "run-promise.ts")).toEqual([]);
-    expect(codes("src/main/effect-control-plane/runtime.test.ts", "run-promise.ts")).toEqual([]);
+    expect(codes("src/main/app/MainEntry.test.ts", "run-promise.ts")).toEqual([]);
   });
 });
