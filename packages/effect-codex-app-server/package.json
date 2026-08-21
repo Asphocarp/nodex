@@ -1,0 +1,26 @@
+{
+  "name": "@nodex/effect-codex-app-server",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./schema": "./src/schema.ts",
+    "./rpc": "./src/rpc.ts",
+    "./protocol": "./src/protocol.ts",
+    "./errors": "./src/errors.ts"
+  },
+  "scripts": {
+    "test": "vp run -w test:effect-codex",
+    "typecheck": "vp run -w typecheck"
+  },
+  "dependencies": {
+    "@nodex/codex-app-server-protocol": "workspace:*",
+    "effect": "4.0.0-rc.111"
+  },
+  "devDependencies": {
+    "@effect/openapi-generator": "4.0.0-rc.111",
+    "@effect/platform-node": "4.0.0-rc.111",
+    "@effect/vitest": "4.0.0-rc.111",
+    "@types/node": "24.13.3"
+  }
+}
