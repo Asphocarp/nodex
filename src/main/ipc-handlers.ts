@@ -161,10 +161,6 @@ import {
   registerPageLifecyclePreflightIpcHandler,
 } from "./page-lifecycle-ipc";
 import { registerPageHistoryIpcHandler } from "./page-history-ipc";
-import {
-  registerCodexPendingWorktreeIpcHandlers,
-  type CodexPendingWorktreeIpcService,
-} from "./codex/codex-pending-worktree-ipc";
 import { registerStoreAdministrationIpcHandlers } from "./store-administration-ipc-handlers";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
@@ -644,22 +640,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
       });
       return signal?.aborted ? null : message;
     };
-
-  registerCodexPendingWorktreeIpcHandlers({
-    registerHandle,
-    service: codexService as unknown as CodexPendingWorktreeIpcService,
-  });
-  registerHandle(
-    "codex:pending-worktree:discard-fork-side-panel-transfer",
-    (_, pendingWorktreeId) => {
-      if (!pendingWorktreeId.trim()) throw new Error("Pending worktree id is required");
-      codexService.discardPendingForkSidePanelTransfer(pendingWorktreeId);
-    },
-  );
-  registerHandle("codex:fork-side-panel-transfer:consume", async (event, input) => {
-    requireBrowserViewScope(event.sender.id, input.targetBrowserViewScopeId);
-    return await codexService.consumeForkSidePanelTransfer(input);
-  });
 
   registerHandle("diagnostics:renderer-log", (_, input) => {
     if (process.env.NODEX_ASSISTANT_STREAMING_DEBUG !== "1") {

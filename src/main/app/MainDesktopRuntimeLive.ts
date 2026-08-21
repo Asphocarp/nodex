@@ -97,6 +97,7 @@ import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc"
 import * as ApplicationSyncIpc from "../ipc/handlers/ApplicationSyncIpc";
 import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
+import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
 import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
@@ -781,6 +782,18 @@ export const live: Layer.Layer<
             codex: codexService,
             rendererClients: rendererClients.router,
           }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          CodexPendingWorktreeIpc.live({ codex: codexService }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
