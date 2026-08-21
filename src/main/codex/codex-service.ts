@@ -526,13 +526,6 @@ import type {
   AgentImportSourceKind,
 } from "../../shared/agent-import";
 import { AgentImportCoordinator, type NativeSessionCandidate } from "./agent-import-coordinator";
-import {
-  discoverAgentProviderCatalog,
-  resolveAgentExecutionProfileFromCatalog,
-  type AgentProviderCatalogClient,
-} from "./agent-provider-catalog";
-import { createElectronProviderCredentialStore } from "./electron-provider-credential-store";
-import { ProviderCredentialStore } from "./provider-credential-store";
 import { CodexManualCompactionTracker } from "./codex-manual-compaction-tracker";
 import {
   cleanCodexAutoTitlePrompt,
@@ -1420,7 +1413,7 @@ type CodexManagedWorktreeSettingsPort = {
 };
 
 type CodexServiceOptions = {
-  agentProviderRuntime?: AgentProviderRuntimePromiseAdapter;
+  agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   composerCatalog?: ComposerCatalogPromiseAdapter;
   client: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
@@ -1431,7 +1424,6 @@ type CodexServiceOptions = {
   computerUseRuntimeConfig?: () => ComputerUseRuntimeConfigInput;
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
-  providerCredentialStore?: ProviderCredentialStore;
   inactiveRendererOwnerRetentionMs?: number;
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
@@ -2639,7 +2631,7 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexApplicationClient;
-  private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter | null;
+  private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter | null;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
@@ -2652,7 +2644,6 @@ export class CodexService extends EventEmitter {
     ComputerUseRuntimeCoordinator,
     "dispose" | "ensureReady" | "getResult"
   >;
-  private readonly providerCredentialStore: ProviderCredentialStore | null;
   private readonly inactiveRendererOwnerRetentionMs: number;
   private readonly inactiveRendererOwnerMaxRetained: number;
   private readonly inactiveRendererOwnerRetryMs: number;
@@ -2870,9 +2861,6 @@ export class CodexService extends EventEmitter {
   private sidebarNotificationSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private sidebarUseStateDbOnlyThreadList = true;
   private sidebarSnapshotRevision = 0;
-  private agentProviderCatalog: AgentProviderCatalog | null = null;
-  private runtimeRestartPending = false;
-  private runtimeRestartInFlight: Promise<void> | null = null;
   private readonly sidebarSnapshotCacheByIncludeArchived = new Map<
     boolean,
     {
@@ -2888,7 +2876,7 @@ export class CodexService extends EventEmitter {
   constructor(options: CodexServiceOptions) {
     super();
 
-    this.agentProviderRuntime = options.agentProviderRuntime ?? null;
+    this.agentProviderRuntime = options.agentProviderRuntime;
     this.composerCatalog = options.composerCatalog ?? null;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
@@ -2912,10 +2900,6 @@ export class CodexService extends EventEmitter {
         runtimeConfig: options.computerUseRuntimeConfig,
         runtimeStateHome: this.runtimeStateHome,
       });
-    this.providerCredentialStore =
-      this.agentProviderRuntime === null
-        ? (options.providerCredentialStore ?? createElectronProviderCredentialStore())
-        : null;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
       options?.inactiveRendererOwnerRetentionMs ?? INACTIVE_RENDERER_OWNER_RETENTION_MS,
@@ -10461,40 +10445,14 @@ export class CodexService extends EventEmitter {
     refresh?: boolean;
   }): Promise<AgentProviderCatalog> {
     await this.ensureClientReady();
-    if (this.agentProviderRuntime !== null) return await this.agentProviderRuntime.list(options);
-    if (this.agentProviderCatalog && options?.refresh !== true) {
-      return this.agentProviderCatalog;
-    }
-    if (this.providerCredentialStore === null) {
-      throw new Error("Agent provider credential runtime is unavailable");
-    }
-    const client: AgentProviderCatalogClient = {
-      request: async (method, params) => await this.client.request(method, params),
-    };
-    const catalog = await discoverAgentProviderCatalog({
-      client,
-      credentialStatusReader: this.providerCredentialStore,
-    });
-    this.agentProviderCatalog = catalog;
-    return catalog;
+    return await this.agentProviderRuntime.list(options);
   }
 
   private async resolveAgentExecutionProfile(
     requested: AgentExecutionProfile | null | undefined,
   ): Promise<AgentExecutionProfile | null> {
     if (!requested) return null;
-    if (this.agentProviderRuntime !== null) {
-      return await this.agentProviderRuntime.resolveExecutionProfile(requested);
-    }
-    const catalog = await this.listAgentProviderCatalog();
-    const client: AgentProviderCatalogClient = {
-      request: async (method, params) => await this.client.request(method, params),
-    };
-    return await resolveAgentExecutionProfileFromCatalog({
-      client,
-      catalog,
-      requested,
-    });
+    return await this.agentProviderRuntime.resolveExecutionProfile(requested);
   }
 
   private async validateAndPersistThreadExecutionProfile(
@@ -10611,57 +10569,8 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private hasActiveAgentRuntimeWork(): boolean {
-    for (const record of this.conversationRecords.values()) {
-      if (record.detail?.statusType === "active") return true;
-      if (record.detail?.turns.some((turn) => turn.status === "inProgress")) return true;
-    }
-    return false;
-  }
-
   private async ensureAgentRuntimeCredentialReloaded(): Promise<void> {
-    if (this.agentProviderRuntime !== null) {
-      await this.agentProviderRuntime.ensureRuntimeReady();
-      return;
-    }
-    if (!this.runtimeRestartPending) return;
-    if (this.hasActiveAgentRuntimeWork()) {
-      throw new Error("Agent credentials will be reloaded after the active turn finishes");
-    }
-    await this.restartAgentRuntimeNow();
-  }
-
-  private async restartAgentRuntimeAfterCredentialChange(): Promise<boolean> {
-    this.runtimeRestartPending = true;
-    if (this.hasActiveAgentRuntimeWork()) return true;
-    await this.restartAgentRuntimeNow();
-    return false;
-  }
-
-  private async restartAgentRuntimeNow(): Promise<void> {
-    if (this.runtimeRestartInFlight) return await this.runtimeRestartInFlight;
-    const restart = (async () => {
-      await this.client.stop();
-      await this.client.start();
-      this.agentProviderCatalog = null;
-      this.runtimeRestartPending = false;
-    })();
-    this.runtimeRestartInFlight = restart;
-    try {
-      await restart;
-    } finally {
-      this.runtimeRestartInFlight = null;
-    }
-  }
-
-  private restartPendingAgentRuntimeWhenIdle(): void {
-    if (this.agentProviderRuntime !== null) return;
-    if (!this.runtimeRestartPending || this.hasActiveAgentRuntimeWork()) return;
-    void this.restartAgentRuntimeNow().catch((error) => {
-      this.logger.error("Could not restart agent runtime after credential change", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    await this.agentProviderRuntime.ensureRuntimeReady();
   }
 
   async runScheduledAutomationNow(
@@ -26008,7 +25917,6 @@ export class CodexService extends EventEmitter {
     if (commandOnlyThreadId && this.isCommandOnlyAutomationThread(commandOnlyThreadId)) {
       if (method === "turn/completed") {
         await this.recordAutomationTurnCompleted(commandOnlyThreadId, params.turn);
-        this.restartPendingAgentRuntimeWhenIdle();
       }
       if (method === "serverRequest/resolved") {
         const requestId = params.requestId;
@@ -26143,7 +26051,6 @@ export class CodexService extends EventEmitter {
       if (!ownerRouted && effects.some((effect) => effect.type === "continueGoalIfIdle")) {
         void this.maybeContinueActiveThreadGoal(payload.threadId);
       }
-      this.restartPendingAgentRuntimeWhenIdle();
       return;
     }
 
@@ -26464,7 +26371,6 @@ export class CodexService extends EventEmitter {
         this.maybeDispatchQueuedFollowUp(threadId);
       }
       this.syncInactiveRendererOwnerCleanup(threadId);
-      if (method === "turn/completed") this.restartPendingAgentRuntimeWhenIdle();
       return;
     }
 

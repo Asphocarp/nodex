@@ -1493,6 +1493,11 @@ function createService(options?: {
     autoDeleteLimit: 15,
   };
   const service = new CodexService({
+    agentProviderRuntime: {
+      list: async () => ({ providers: [] }),
+      resolveExecutionProfile: async (requested) => requested,
+      ensureRuntimeReady: async () => undefined,
+    },
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome:

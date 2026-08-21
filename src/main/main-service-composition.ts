@@ -1,7 +1,6 @@
 import { BrowserSidebarService } from "./browser-sidebar-service";
 import { CodexService, type CodexTerminalRuntimePort } from "./codex/codex-service";
 import type { ResolvedCodexRuntime } from "./codex/codex-runtime";
-import type { ProviderCredentialStore } from "./codex/provider-credential-store";
 import type { CodexApplicationClient } from "./codex-runtime/CodexApplicationClient";
 import type { ComposerCatalogPromiseAdapter } from "./codex-application/ComposerCatalogPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "./codex-application/AgentProviderRuntimePromiseAdapter";
@@ -19,7 +18,6 @@ export interface MainServiceCompositionInput {
   readonly composerCatalog?: ComposerCatalogPromiseAdapter;
   readonly codexClient: CodexApplicationClient;
   readonly codexRuntime: ResolvedCodexRuntime;
-  readonly providerCredentialStore?: ProviderCredentialStore;
 }
 
 let activeComposition: MainServiceComposition | null = null;
@@ -38,9 +36,6 @@ export function createMainServiceComposition(
     ...(input.composerCatalog === undefined ? {} : { composerCatalog: input.composerCatalog }),
     client: input.codexClient,
     runtime: input.codexRuntime,
-    ...(input.providerCredentialStore === undefined
-      ? {}
-      : { providerCredentialStore: input.providerCredentialStore }),
   });
 
   return { browserSidebarService, codexService };

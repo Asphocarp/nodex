@@ -341,7 +341,6 @@ export const live: Layer.Layer<
               codexClient: codexBridge,
               codexRuntime,
               runtimeStateHome,
-              providerCredentialStore,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
                   callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
