@@ -58,7 +58,9 @@ pub use realtime::{
     AwarenessPublication, DocumentRealtimeEvent, DocumentSubscriptionAck,
     DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter,
 };
-pub(crate) use retention::run_block_retention_pass;
+pub(crate) use retention::{
+    plan_block_retention_pass, run_block_retention_pass, run_bounded_block_retention_slice,
+};
 pub(crate) use runtime::DocumentRuntimeCache;
 pub use yrs_engine::{
     AwarenessChange, CandidateCommit, DocumentAwareness, MAX_AWARENESS_UPDATE_BYTES,

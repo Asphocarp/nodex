@@ -399,13 +399,17 @@ export class NativeNodexAgentPageUpdateRuntime {
       );
       const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
       const client = this.runtime.clientForProject(request.projectId);
-      const snapshot = await client.documentRead(clientSessionId, {
-        kind: "prepare_agent_semantic_mutation",
-        operation_id: operationId,
-        store_epoch: request.authority.storeEpoch,
-        authorization,
-        mutation,
-      });
+      const snapshot = await client.documentRead(
+        clientSessionId,
+        {
+          kind: "prepare_agent_semantic_mutation",
+          operation_id: operationId,
+          store_epoch: request.authority.storeEpoch,
+          authorization,
+          mutation,
+        },
+        { class: "background" },
+      );
       if (snapshot.value.kind !== "agent_semantic_mutation_preparation") {
         throw new Error("Core returned the wrong Agent Page update preparation variant");
       }
@@ -523,7 +527,7 @@ export class NativeNodexAgentPageUpdateRuntime {
             },
             mutation: pending.mutation,
           },
-        });
+        }, { class: "background" });
       pending.committed = committed;
       return {
         ok: true,

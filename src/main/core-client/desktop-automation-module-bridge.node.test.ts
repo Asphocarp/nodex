@@ -220,6 +220,27 @@ describe("Desktop Automation Module bridge", () => {
     });
   });
 
+  test("classifies runtime synchronization reads without downgrading user reads", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopAutomationModuleBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+    });
+    const definitions = readSnapshot({
+      kind: "definitions",
+      window: collectionWindow([definition()]),
+    });
+    client.enqueueAutomationRead(definitions);
+    client.enqueueAutomationRead(definitions);
+
+    await bridge.listDefinitions();
+    await bridge.listDefinitions("background");
+
+    expect(client.automationReadOptions).toEqual([
+      undefined,
+      { class: "background" },
+    ]);
+  });
+
   test("maps Definition CRUD and preserves slug identities through Core", async () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
@@ -351,6 +372,7 @@ describe("Desktop Automation Module bridge", () => {
       kind: "dispatch_now",
       automation_id: "daily-report",
     });
+    expect(client.automationApplyOptions[0]).toBeUndefined();
 
     client.enqueueAutomationApply(committed({
       definitions: [definition({ definition_revision: 2, next_run_at_ms: 275 })],
@@ -370,6 +392,7 @@ describe("Desktop Automation Module bridge", () => {
       not_before_ms: 275,
       retry_within_ms: null,
     });
+    expect(client.automationApplyOptions[1]).toEqual({ class: "background" });
 
     client.enqueueAutomationApply(committed({
       definitions: [definition({ last_run_at_ms: 200, next_run_at_ms: 300 })],
@@ -398,6 +421,7 @@ describe("Desktop Automation Module bridge", () => {
       limit: 3,
       lease_duration_ms: 60_000,
     });
+    expect(client.automationApplyOptions[2]).toEqual({ class: "background" });
 
     client.enqueueAutomationApply(committed({
       runs: [run({ status: "IN_PROGRESS", run_revision: 1 })],
@@ -415,6 +439,7 @@ describe("Desktop Automation Module bridge", () => {
       thread_title: "Daily Report run",
       source_cwd: "/workspace",
     });
+    expect(client.automationApplyOptions[3]).toEqual({ class: "background" });
 
     client.enqueueAutomationRead(readSnapshot({ kind: "run", item: run() }));
     client.enqueueAutomationApply(committed({
@@ -432,6 +457,8 @@ describe("Desktop Automation Module bridge", () => {
       inbox_title: "Report ready",
       inbox_summary: "Review the report.",
     });
+    expect(client.automationReadOptions.at(-1)).toEqual({ class: "background" });
+    expect(client.automationApplyOptions[4]).toEqual({ class: "background" });
   });
 
   test("routes Calendar occurrences through the project client and preserves operation identities", async () => {
@@ -611,6 +638,12 @@ describe("Desktop Automation Module bridge", () => {
       30_000,
       "notification_failed",
     );
+
+    expect(client.automationApplyOptions.slice(-3)).toEqual([
+      { class: "background" },
+      { class: "background" },
+      { class: "background" },
+    ]);
 
     expect(client.automationApplies.map((apply) => apply.intent)).toEqual([
       {

@@ -61,6 +61,14 @@ outcomes. It never rewrites immutable receipts or mutation history and never
 removes pinned revisions. A risky migration or large maintenance operation
 should begin from a labeled manual backup.
 
+Online maintenance does not hold the serialized writer for a complete pass.
+Block collection first plans a bounded candidate set, then processes short
+candidate slices through separate writer commands. Each candidate still commits
+atomically; interruption may leave earlier candidates collected, and replaying
+the same receipt-backed operation safely converges before the final receipt is
+written. Request-class scheduling can run queued interactive work between those
+slices, while aging guarantees maintenance eventually receives another slice.
+
 ## Recovery evidence
 
 Backup/restore tests exercise interruption at each journal phase, invalid

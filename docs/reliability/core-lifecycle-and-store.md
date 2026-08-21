@@ -48,7 +48,18 @@ with the same connection/request identity and interrupts SQLite cooperatively;
 Core attributes SQLite's generic interrupt outcome back to the originating
 deadline or cancellation token. A response may return before an uncooperative
 blocking closure exits, but its execution permits remain held until the closure
-actually stops.
+actually stops. The serialized Store writer is a cooperative boundary: callers
+poll the same cancellation/deadline while queued, release their blocking worker
+promptly, and leave a cancelled queue tombstone that cannot execute domain
+side effects when dequeued.
+
+The writer schedules a bounded total queue by request class. Interactive work
+runs before unaged background and maintenance work; aging promotes one older
+lower-class command so sustained interaction cannot starve upkeep. Maintenance
+commands must therefore be short slices. Block collection plans a bounded pass,
+revalidates current authority for every slice, commits each candidate in its own
+transaction, and leaves the writer between slices. Increasing a request deadline
+is not a substitute for these cancellation and yielding contracts.
 
 Core reports `deadline_exceeded`, `cancelled`, and `overloaded` as semantic
 Module errors. Electron's HTTP timer is the semantic deadline plus a five-second
@@ -61,7 +72,10 @@ executor's maintenance lane.
 Core health reports active and queued requests, admission wait and execution
 duration, and cumulative deadline, cancellation, and overload counts. Store
 writer/reader/query metrics remain the next-level evidence for locating where
-admitted work spent its time.
+admitted work spent its time. Deadline logs also identify the bounded execution
+phase (`admission`, `module_cpu`, reader checkout/query, writer queue/execution,
+or response), admission wait, and request class without logging request bodies
+or resource identities.
 
 Repeated independently authenticated losses open a bounded local circuit. The
 renderer shows one app-wide unavailable state with explicit Retry and Restart
@@ -80,6 +94,9 @@ Automation producers keep their timer/configuration state but neither claim nor
 start new Core work. They recheck admission after every asynchronous claim or
 initialization step. A lease returned after authority changes is settled for a
 bounded retry without delivering a notification or starting an agent run.
+Scheduled claims, lease settlement, reminder delivery, interrupted-run recovery,
+and native agent Document work declare the background class at their semantic
+adapter boundary; user-initiated Automation editing remains interactive.
 
 ## Store formats and migrations
 

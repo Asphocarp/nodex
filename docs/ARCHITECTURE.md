@@ -124,6 +124,8 @@ Each public Module presents a versioned `read`/`apply` Interface in [`crates/nod
 
 Core Server also owns one request-execution boundary for synchronous Module work. It admits bounded `interactive`, `background`, and `maintenance` classes, preserves capacity for interactive requests, runs admitted work outside async transport workers, and carries one absolute deadline and cancellation token through reader checkout, writer queueing, and SQLite execution. Electron supplies request identity and intent but does not decide when Core work has actually stopped. A semantic deadline, caller cancellation, admission overload, and authority/transport loss are distinct typed outcomes.
 
+That class continues through the serialized Store writer rather than ending at request admission. The writer prefers interactive commands, ages bounded background/maintenance work for fairness, and treats cancellation/deadline as a queue tombstone before execution. Maintenance owns resumable orchestration and must yield through short writer commands; a transaction boundary hidden inside one long writer closure is not a scheduling boundary.
+
 Store formats and migration sequences are implementation/recovery contracts, not architecture prose. Their executable authority is under [`crates/nodex-core/src/infrastructure`](crates/nodex-core/src/infrastructure), [`crates/nodex-core/schema`](crates/nodex-core/schema), and the corresponding Core tests. Operational expectations belong in [Reliability](docs/RELIABILITY.md).
 
 ### Electron Main / Desktop Host

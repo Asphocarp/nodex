@@ -36,18 +36,34 @@ export interface OwnedBlockDocumentQueryDependencies {
 const defaultFetcher: OwnedDocumentDescriptorFetcher = (
   accessContext,
   ownerBlockId,
+  signal,
 ) =>
   prepareOwnedBlockDocumentForContentAccess(accessContext, ownerBlockId).then(
-    unwrapOwnedBlockDocumentPreparationResult,
+    (result) => {
+      if (signal?.aborted) throw signal.reason;
+      return unwrapOwnedBlockDocumentPreparationResult(result);
+    },
   );
+
+const retryOwnedDocumentRead = (failureCount: number, error: unknown): boolean =>
+  failureCount < 2
+  && error instanceof Error
+  && "retryable" in error
+  && error.retryable === true;
+
+const ownedDocumentRetryDelay = (attemptIndex: number): number =>
+  attemptIndex === 0 ? 250 : 750;
 
 const makeOwnedBlockDocumentQueryFn =
   (
     request: OwnedBlockDocumentRequest,
     fetcher: OwnedDocumentDescriptorFetcher,
   ) =>
-  async () => admitResourceAuthorityQuery(
-    await fetchOwnedBlockDocumentDescriptor(request, fetcher),
+  async ({ signal }: { readonly signal: AbortSignal }) => admitResourceAuthorityQuery(
+    await fetchOwnedBlockDocumentDescriptor(
+      request,
+      (accessContext, ownerBlockId) => fetcher(accessContext, ownerBlockId, signal),
+    ),
     resolveOwnedDocumentAuthority,
   );
 
@@ -56,8 +72,11 @@ const makeRegisteredOwnedBlockDocumentQueryFn =
     request: OwnedBlockDocumentRequest,
     fetcher: OwnedDocumentDescriptorFetcher,
   ) =>
-  async () => admitResourceAuthorityQuery(
-    await fetchRegisteredOwnedBlockDocumentDescriptor(request, fetcher),
+  async ({ signal }: { readonly signal: AbortSignal }) => admitResourceAuthorityQuery(
+    await fetchRegisteredOwnedBlockDocumentDescriptor(
+      request,
+      (accessContext, ownerBlockId) => fetcher(accessContext, ownerBlockId, signal),
+    ),
     resolveOwnedDocumentAuthority,
   );
 
@@ -72,6 +91,8 @@ export const ownedBlockDocumentQueryOptions = (
       request.ownerBlockId,
     ),
     queryFn: makeOwnedBlockDocumentQueryFn(request, fetcher),
+    retry: retryOwnedDocumentRead,
+    retryDelay: ownedDocumentRetryDelay,
     meta: ownedDocumentAuthorityMeta,
   });
 };
@@ -87,6 +108,8 @@ export const registeredOwnedBlockDocumentQueryOptions = (
       request.ownerBlockId,
     ),
     queryFn: makeRegisteredOwnedBlockDocumentQueryFn(request, fetcher),
+    retry: retryOwnedDocumentRead,
+    retryDelay: ownedDocumentRetryDelay,
     meta: ownedDocumentAuthorityMeta,
   });
 };
@@ -97,12 +120,20 @@ export const useOwnedBlockDocument = (
 ): OwnedBlockDocumentModel => {
   const query = useQuery(ownedBlockDocumentQueryOptions(request, dependencies));
   if (query.status === "pending") {
+    if (query.failureReason) {
+      return makeOwnedBlockDocumentModel(request, {
+        status: "error",
+        error: query.failureReason,
+        retrying: true,
+      });
+    }
     return makeOwnedBlockDocumentModel(request, { status: "pending" });
   }
   if (query.status === "error") {
     return makeOwnedBlockDocumentModel(request, {
       status: "error",
       error: query.error,
+      retrying: false,
     });
   }
   return makeOwnedBlockDocumentModel(request, {
@@ -119,6 +150,13 @@ export const useRegisteredOwnedBlockDocument = (
     registeredOwnedBlockDocumentQueryOptions(request, dependencies),
   );
   if (query.status === "pending") {
+    if (query.failureReason) {
+      return makeRegisteredOwnedBlockDocumentModel(request, {
+        status: "error",
+        error: query.failureReason,
+        retrying: true,
+      });
+    }
     return makeRegisteredOwnedBlockDocumentModel(request, {
       status: "pending",
     });
@@ -127,6 +165,7 @@ export const useRegisteredOwnedBlockDocument = (
     return makeRegisteredOwnedBlockDocumentModel(request, {
       status: "error",
       error: query.error,
+      retrying: false,
     });
   }
   return makeRegisteredOwnedBlockDocumentModel(request, {

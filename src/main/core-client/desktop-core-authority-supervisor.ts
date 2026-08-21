@@ -478,22 +478,32 @@ class SupervisedCoreClient implements DesktopCoreClient {
     return this.#executeApply((client) => client.databaseApply(input));
   }
 
-  workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot> {
-    return this.#execute((client) => client.workspaceRead(read));
+  workspaceRead(
+    read: ProjectWorkspaceRead,
+    options?: CoreRequestOptions,
+  ): Promise<ProjectWorkspaceReadSnapshot> {
+    return this.#execute((client) => client.workspaceRead(read, options));
   }
 
   workspaceApply(
     input: ProjectWorkspaceApplyInput,
+    options?: CoreRequestOptions,
   ): Promise<ProjectWorkspaceApplyResult> {
-    return this.#executeApply((client) => client.workspaceApply(input));
+    return this.#executeApply((client) => client.workspaceApply(input, options));
   }
 
-  automationRead(read: AutomationRead): Promise<AutomationReadSnapshot> {
-    return this.#execute((client) => client.automationRead(read));
+  automationRead(
+    read: AutomationRead,
+    options?: CoreRequestOptions,
+  ): Promise<AutomationReadSnapshot> {
+    return this.#execute((client) => client.automationRead(read, options));
   }
 
-  automationApply(input: AutomationApplyInput): Promise<AutomationApplyResult> {
-    return this.#executeApply((client) => client.automationApply(input));
+  automationApply(
+    input: AutomationApplyInput,
+    options?: CoreRequestOptions,
+  ): Promise<AutomationApplyResult> {
+    return this.#executeApply((client) => client.automationApply(input, options));
   }
 
   administrationRead(
@@ -511,12 +521,16 @@ class SupervisedCoreClient implements DesktopCoreClient {
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,
+    options?: CoreRequestOptions,
   ): Promise<OwnedDocumentReadSnapshot> {
-    return this.#execute((client) => client.documentRead(clientSessionId, read));
+    return this.#execute((client) => client.documentRead(clientSessionId, read, options));
   }
 
-  documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentApplyResult> {
-    return this.#executeApply((client) => client.documentApply(input));
+  documentApply(
+    input: OwnedDocumentApplyInput,
+    options?: CoreRequestOptions,
+  ): Promise<OwnedDocumentApplyResult> {
+    return this.#executeApply((client) => client.documentApply(input, options));
   }
 
   documentSync(input: DocumentSyncRequest): Promise<DocumentSyncResponse> {

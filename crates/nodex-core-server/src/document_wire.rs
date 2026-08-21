@@ -645,6 +645,7 @@ mod tests {
         let cancellation = QueryCancellation::new();
         let result = within_request_execution(
             RequestExecutionContext::new(
+                nodex_core::infrastructure::request_execution::RequestExecutionClass::Interactive,
                 cancellation.clone(),
                 Instant::now() + Duration::from_secs(2),
             ),

@@ -1354,6 +1354,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
           }],
         }),
       }),
+      { class: "background" },
     );
     expect(prepared.result).toMatchObject({
       ok: true,
@@ -1535,6 +1536,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
           }],
         }),
       }),
+      { class: "background" },
     );
     expect(prepared.result).toMatchObject({
       ok: true,
@@ -1578,10 +1580,13 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       },
     });
-    expect(documentApply).toHaveBeenCalledWith(expect.objectContaining({
-      intent: expect.objectContaining({
-        authorization: expect.objectContaining({ token: "stable-token" }),
+    expect(documentApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: expect.objectContaining({
+          authorization: expect.objectContaining({ token: "stable-token" }),
+        }),
       }),
-    }));
+      { class: "background" },
+    );
   });
 });

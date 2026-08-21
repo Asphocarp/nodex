@@ -103,6 +103,15 @@ or unknown foreign-key root before physical removal. The complete candidate
 rolls back if any constraint changes. Collected stable Block identities remain
 retired permanently and are never reused.
 
+Current reference evidence comes from the exact generation/head/schema-fenced
+Document and Canvas projections written with authority. A retention slice parses
+current projections, retained versions, immutable audit rows, relocation rows,
+recovery artifacts, and extension foreign-key schema once, then intersects that
+evidence with each candidate closure. Missing, stale, unregistered, or invalid
+projection evidence retains the candidate; collection never falls back to Yjs
+or Canvas reconstruction. The index is rebuilt after yielding the writer so an
+intervening interactive write is visible to the next slice.
+
 Canvas tombstone/file compaction runs only after the last committed surface
 closes and no pending/active copy remains. It pins a safety revision and rotates
 the collaboration generation; inability to prove the boundary simply defers

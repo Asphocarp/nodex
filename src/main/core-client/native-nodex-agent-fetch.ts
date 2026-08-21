@@ -159,6 +159,7 @@ export async function readNativeFetch(
         cursor: request.input.page?.cursor ?? null,
         limit: request.input.page?.limit ?? null,
       },
+      { class: "background" },
     );
     if (snapshotRead.value.kind !== "agent_semantic_snapshot") {
       throw new Error("Core returned the wrong Agent Document snapshot variant");

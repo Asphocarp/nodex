@@ -1,19 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
 
-use crate::domain::block_materialization::MaterializedBlockNode;
+use crate::domain::derived_records::BlockDocumentReference;
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
 };
+use crate::infrastructure::request_execution::check_request_interruption;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas_scene::{CANVAS_OWNER_TYPE, CANVAS_SCHEMA_KEY, CANVAS_SCHEMA_VERSION};
 use super::history::{prune_document_history, read_document_version_retention_evidence};
 use super::{
-    BlockDocumentSchema, decode_block_document, load_canvas_scene, materialize_decoded_document,
-    read_document_authority, reconstruct_yjs_engine, schema_metadata,
+    BlockDocumentSchema, CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION,
+    read_document_authority, schema_metadata,
 };
 
 const MAX_CANDIDATES_PER_LIBRARY: usize = 100;
@@ -70,6 +72,18 @@ pub(crate) struct BlockRetentionSummary {
     pub(crate) failed_candidates: usize,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct BlockRetentionCandidate {
+    pub(crate) library_id: String,
+    pub(crate) root_block_id: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BlockRetentionSliceResult {
+    pub(crate) summary: BlockRetentionSummary,
+    pub(crate) processed_candidates: usize,
+}
+
 #[derive(Debug, Clone)]
 struct BlockRow {
     id: String,
@@ -93,6 +107,527 @@ struct CandidateAnalysis {
     prunable_recovery_artifact_ids: Vec<String>,
 }
 
+#[derive(Debug)]
+enum CurrentDocumentEvidence {
+    Available {
+        document_id: String,
+        referenced_block_ids: BTreeSet<String>,
+        database_view_ids: BTreeSet<String>,
+    },
+    Unavailable {
+        document_id: String,
+    },
+}
+
+#[derive(Debug)]
+struct ImmutableRetentionEvidence {
+    library_id: String,
+    block_ids: BTreeSet<String>,
+    document_ids: BTreeSet<String>,
+    database_block_ids: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct RelocationRetentionEvidence {
+    library_id: String,
+    source_document_id: String,
+    target_document_id: Option<String>,
+    target_parent_block_id: Option<String>,
+    target_before_block_id: Option<String>,
+    member_block_id: Option<String>,
+}
+
+#[derive(Debug)]
+struct RecoveryRetentionEvidence {
+    id: String,
+    library_id: String,
+    document_id: String,
+    status: String,
+    touched_block_ids: BTreeSet<String>,
+    derived_touched_block_ids: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct UnknownInboundForeignKey {
+    table_name: String,
+    columns: Vec<ForeignKeyColumn>,
+}
+
+impl CurrentDocumentEvidence {
+    fn document_id(&self) -> &str {
+        match self {
+            Self::Available { document_id, .. } | Self::Unavailable { document_id } => document_id,
+        }
+    }
+}
+
+/// Pass-local, fail-closed evidence for physical Block collection.
+///
+/// Current projections and retained versions are decoded once. Candidate
+/// analysis only intersects identity sets, so its cost does not multiply Yjs
+/// reconstruction or history decoding by the number of tombstones.
+#[derive(Debug)]
+struct RetentionEvidenceIndex {
+    current_documents: Vec<CurrentDocumentEvidence>,
+    historical_versions: Vec<super::history::DocumentVersionRetentionEvidence>,
+    immutable_rows: Vec<ImmutableRetentionEvidence>,
+    relocations: Vec<RelocationRetentionEvidence>,
+    recovery_artifacts: Vec<RecoveryRetentionEvidence>,
+    unknown_inbound_foreign_keys: Vec<UnknownInboundForeignKey>,
+}
+
+impl RetentionEvidenceIndex {
+    fn load(connection: &Connection) -> Result<Self, StoreError> {
+        let document_ids = connection
+            .prepare("SELECT id FROM documents ORDER BY id")?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut current_documents = Vec::with_capacity(document_ids.len());
+        for (index, document_id) in document_ids.into_iter().enumerate() {
+            if index % 64 == 0 {
+                check_request_interruption()?;
+            }
+            current_documents.push(load_current_document_evidence(connection, document_id));
+        }
+        let historical_versions = read_document_version_retention_evidence(
+            connection,
+            MAX_RETAINED_DOCUMENT_VERSIONS_TO_INSPECT,
+        )?;
+        let immutable_rows = load_immutable_retention_evidence(connection)?;
+        let relocations = load_relocation_retention_evidence(connection)?;
+        let recovery_artifacts = load_recovery_retention_evidence(connection)?;
+        let unknown_inbound_foreign_keys = load_unknown_inbound_foreign_keys(connection)?;
+        Ok(Self {
+            current_documents,
+            historical_versions,
+            immutable_rows,
+            relocations,
+            recovery_artifacts,
+            unknown_inbound_foreign_keys,
+        })
+    }
+
+    fn has_current_authority_reference(
+        &self,
+        closure: &CandidateClosure,
+        database_view_ids: &BTreeSet<String>,
+    ) -> bool {
+        self.current_documents.iter().any(|evidence| {
+            if closure.document_ids.contains(evidence.document_id()) {
+                return false;
+            }
+            match evidence {
+                CurrentDocumentEvidence::Unavailable { .. } => true,
+                CurrentDocumentEvidence::Available {
+                    referenced_block_ids,
+                    database_view_ids: referenced_database_view_ids,
+                    ..
+                } => {
+                    sets_intersect(referenced_block_ids, &closure.block_ids)
+                        || sets_intersect(referenced_database_view_ids, database_view_ids)
+                }
+            }
+        })
+    }
+
+    fn has_historical_reference(
+        &self,
+        closure: &CandidateClosure,
+        database_view_ids: &BTreeSet<String>,
+    ) -> bool {
+        self.historical_versions.iter().any(|version| {
+            if closure.document_ids.contains(&version.document_id) {
+                // History owned by the candidate is pruned in its transaction.
+                // Any pinned/unprunable remainder is caught by the exact
+                // retained-version count before collection.
+                return false;
+            }
+            sets_intersect(&version.block_ids, &closure.block_ids)
+                || sets_intersect(&version.referenced_block_ids, &closure.block_ids)
+                || sets_intersect(&version.database_view_ids, database_view_ids)
+        })
+    }
+
+    fn has_cross_library_immutable_reference(&self, closure: &CandidateClosure) -> bool {
+        self.immutable_rows.iter().any(|row| {
+            if row.library_id == closure.library_id {
+                return false;
+            }
+            let external_databases = row
+                .database_block_ids
+                .difference(&closure.block_ids)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let authority_blocks = row
+                .block_ids
+                .difference(&external_databases)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            sets_intersect(&authority_blocks, &closure.block_ids)
+                || sets_intersect(&row.document_ids, &closure.document_ids)
+                || sets_intersect(&row.database_block_ids, &closure.block_ids)
+        })
+    }
+
+    fn has_relocation_reference(&self, closure: &CandidateClosure) -> bool {
+        self.relocations.iter().any(|row| {
+            row.library_id == closure.library_id
+                && (closure.document_ids.contains(&row.source_document_id)
+                    || row
+                        .target_document_id
+                        .as_ref()
+                        .is_some_and(|id| closure.document_ids.contains(id))
+                    || row
+                        .target_parent_block_id
+                        .as_ref()
+                        .is_some_and(|id| closure.block_ids.contains(id))
+                    || row
+                        .target_before_block_id
+                        .as_ref()
+                        .is_some_and(|id| closure.block_ids.contains(id))
+                    || row
+                        .member_block_id
+                        .as_ref()
+                        .is_some_and(|id| closure.block_ids.contains(id)))
+        })
+    }
+
+    fn read_prunable_recovery_artifacts(
+        &self,
+        closure: &CandidateClosure,
+        ignored_artifact_ids: &BTreeSet<String>,
+    ) -> Option<Vec<String>> {
+        let mut prunable = Vec::new();
+        for artifact in &self.recovery_artifacts {
+            if ignored_artifact_ids.contains(&artifact.id) {
+                continue;
+            }
+            let relevant = closure.document_ids.contains(&artifact.document_id)
+                || sets_intersect(&artifact.touched_block_ids, &closure.block_ids)
+                || sets_intersect(&artifact.derived_touched_block_ids, &closure.block_ids);
+            if !relevant {
+                continue;
+            }
+            if artifact.library_id != closure.library_id
+                || artifact.status == "pending"
+                || !matches!(artifact.status.as_str(), "resolved" | "discarded")
+                || !closure.document_ids.contains(&artifact.document_id)
+                || !artifact.touched_block_ids.is_subset(&closure.block_ids)
+                || !artifact
+                    .derived_touched_block_ids
+                    .is_subset(&closure.block_ids)
+            {
+                return None;
+            }
+            prunable.push(artifact.id.clone());
+        }
+        Some(prunable)
+    }
+
+    fn has_unknown_inbound_reference(
+        &self,
+        connection: &Connection,
+        closure: &CandidateClosure,
+    ) -> Result<bool, StoreError> {
+        for foreign_key in &self.unknown_inbound_foreign_keys {
+            if unknown_foreign_key_matches(
+                connection,
+                &foreign_key.table_name,
+                &foreign_key.columns,
+                closure,
+            )? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+fn load_current_document_evidence(
+    connection: &Connection,
+    document_id: String,
+) -> CurrentDocumentEvidence {
+    let unavailable = || CurrentDocumentEvidence::Unavailable {
+        document_id: document_id.clone(),
+    };
+    let Ok(Some(authority)) = read_document_authority(connection, &document_id) else {
+        return unavailable();
+    };
+    if authority.head.readiness != DocumentReadiness::Ready
+        || authority.head.authority != DocumentAuthority::YdocPrimary
+    {
+        return unavailable();
+    }
+    match authority.head.sync_engine {
+        DocumentSyncEngine::Yjs => {
+            let Some(schema) = BlockDocumentSchema::from_identity(
+                &authority.head.schema_key,
+                authority.head.schema_version,
+            ) else {
+                return unavailable();
+            };
+            if schema_metadata(schema).owner_type != authority.owner_type {
+                return unavailable();
+            }
+            let materialization = connection
+                .query_row(
+                    "SELECT references_json FROM document_materializations \
+                     WHERE document_id = ?1 AND generation = ?2 AND projected_seq = ?3 \
+                       AND schema_version = ?4 AND materialization_derivation_version = ?5",
+                    params![
+                        document_id,
+                        authority.head.generation,
+                        authority.head.head_seq,
+                        authority.head.schema_version,
+                        CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION,
+                    ],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional();
+            let Ok(Some(references_json)) = materialization else {
+                return unavailable();
+            };
+            let Ok(references) =
+                serde_json::from_str::<Vec<BlockDocumentReference>>(&references_json)
+            else {
+                return unavailable();
+            };
+            let mut referenced_block_ids = BTreeSet::new();
+            let mut database_view_ids = BTreeSet::new();
+            for reference in references {
+                if let Some(block_id) = reference.target_block_id() {
+                    referenced_block_ids.insert(block_id.to_owned());
+                }
+                if let Some(view_id) = reference.database_view_id() {
+                    database_view_ids.insert(view_id.to_owned());
+                }
+            }
+            CurrentDocumentEvidence::Available {
+                document_id,
+                referenced_block_ids,
+                database_view_ids,
+            }
+        }
+        DocumentSyncEngine::CanvasScene => {
+            if authority.owner_type != CANVAS_OWNER_TYPE
+                || authority.head.schema_key != CANVAS_SCHEMA_KEY
+                || authority.head.schema_version != CANVAS_SCHEMA_VERSION
+            {
+                return unavailable();
+            }
+            let exact_scene = connection.query_row(
+                "SELECT count(*) FROM canvas_scenes \
+                 WHERE document_id = ?1 AND generation = ?2 AND head_seq = ?3 \
+                   AND schema_version = ?4",
+                params![
+                    document_id,
+                    authority.head.generation,
+                    authority.head.head_seq,
+                    authority.head.schema_version,
+                ],
+                |row| row.get::<_, i64>(0),
+            );
+            if !matches!(exact_scene, Ok(1)) {
+                return unavailable();
+            }
+            let references = connection
+                .prepare(
+                    "SELECT target_block_id FROM canvas_page_references \
+                     WHERE document_id = ?1 AND document_generation = ?2 \
+                       AND projected_seq = ?3 ORDER BY source_element_id",
+                )
+                .and_then(|mut statement| {
+                    statement
+                        .query_map(
+                            params![
+                                document_id,
+                                authority.head.generation,
+                                authority.head.head_seq,
+                            ],
+                            |row| row.get::<_, String>(0),
+                        )?
+                        .collect::<rusqlite::Result<BTreeSet<_>>>()
+                });
+            let Ok(referenced_block_ids) = references else {
+                return unavailable();
+            };
+            CurrentDocumentEvidence::Available {
+                document_id,
+                referenced_block_ids,
+                database_view_ids: BTreeSet::new(),
+            }
+        }
+    }
+}
+
+fn load_immutable_retention_evidence(
+    connection: &Connection,
+) -> Result<Vec<ImmutableRetentionEvidence>, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT project.library_id, mutation.target_block_ids_json, \
+                    mutation.affected_document_ids_json, \
+                    mutation.affected_database_block_ids_json \
+             FROM block_mutations mutation \
+             JOIN projects project ON project.id = mutation.project_id \
+             UNION ALL \
+             SELECT project.library_id, change.block_ids_json, change.document_ids_json, \
+                    change.database_block_ids_json \
+             FROM change_log change \
+             JOIN projects project ON project.id = change.project_id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .enumerate()
+        .map(|(index, (library_id, blocks, documents, databases))| {
+            if index % 64 == 0 {
+                check_request_interruption()?;
+            }
+            Ok(ImmutableRetentionEvidence {
+                library_id,
+                block_ids: read_identity_set(&blocks)?,
+                document_ids: read_identity_set(&documents)?,
+                database_block_ids: read_identity_set(&databases)?,
+            })
+        })
+        .collect()
+}
+
+fn load_relocation_retention_evidence(
+    connection: &Connection,
+) -> Result<Vec<RelocationRetentionEvidence>, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT relocation.library_id, relocation.source_document_id, \
+                    relocation.target_document_id, relocation.target_parent_block_id, \
+                    relocation.target_before_block_id, member.block_id \
+             FROM block_relocations relocation \
+             LEFT JOIN block_relocation_members member ON member.relocation_id = relocation.id \
+             ORDER BY relocation.library_id, relocation.id, member.block_id",
+        )?
+        .query_map([], |row| {
+            Ok(RelocationRetentionEvidence {
+                library_id: row.get(0)?,
+                source_document_id: row.get(1)?,
+                target_document_id: row.get(2)?,
+                target_parent_block_id: row.get(3)?,
+                target_before_block_id: row.get(4)?,
+                member_block_id: row.get(5)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for index in (0..rows.len()).step_by(64) {
+        let _ = index;
+        check_request_interruption()?;
+    }
+    Ok(rows)
+}
+
+fn load_recovery_retention_evidence(
+    connection: &Connection,
+) -> Result<Vec<RecoveryRetentionEvidence>, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT artifact.id, project.library_id, artifact.document_id, artifact.status, \
+                    artifact.touched_block_ids_json, artifact.derived_touched_block_ids_json \
+             FROM document_recovery_artifacts artifact \
+             JOIN projects project ON project.id = artifact.project_id \
+             ORDER BY project.library_id, artifact.id",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .enumerate()
+        .map(
+            |(index, (id, library_id, document_id, status, touched, derived))| {
+                if index % 64 == 0 {
+                    check_request_interruption()?;
+                }
+                Ok(RecoveryRetentionEvidence {
+                    id,
+                    library_id,
+                    document_id,
+                    status,
+                    touched_block_ids: read_identity_set(&touched)?,
+                    derived_touched_block_ids: derived
+                        .as_deref()
+                        .map(read_identity_set)
+                        .transpose()?
+                        .unwrap_or_default(),
+                })
+            },
+        )
+        .collect()
+}
+
+fn load_unknown_inbound_foreign_keys(
+    connection: &Connection,
+) -> Result<Vec<UnknownInboundForeignKey>, StoreError> {
+    let table_names = connection
+        .prepare(
+            "SELECT name FROM sqlite_master \
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut result = Vec::new();
+    for (index, table_name) in table_names.into_iter().enumerate() {
+        if index % 32 == 0 {
+            check_request_interruption()?;
+        }
+        if KNOWN_INBOUND_AUTHORITY_TABLES.contains(&table_name.as_str()) {
+            continue;
+        }
+        let pragma = format!("PRAGMA foreign_key_list({})", quote_identifier(&table_name));
+        let foreign_keys = connection
+            .prepare(&pragma)?
+            .query_map([], |row| {
+                Ok(ForeignKeyColumn {
+                    id: row.get(0)?,
+                    referenced_table: row.get(2)?,
+                    from_column: row.get(3)?,
+                    to_column: row.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut groups = BTreeMap::<i64, Vec<ForeignKeyColumn>>::new();
+        for foreign_key in foreign_keys {
+            if matches!(
+                foreign_key.referenced_table.as_str(),
+                "blocks" | "documents" | "block_documents"
+            ) {
+                groups.entry(foreign_key.id).or_default().push(foreign_key);
+            }
+        }
+        result.extend(
+            groups
+                .into_values()
+                .map(|columns| UnknownInboundForeignKey {
+                    table_name: table_name.clone(),
+                    columns,
+                }),
+        );
+    }
+    Ok(result)
+}
+
 #[derive(Debug, Clone)]
 struct ForeignKeyColumn {
     id: i64,
@@ -112,6 +647,14 @@ pub(crate) fn run_block_retention_pass(
     connection: &mut Connection,
     retain_newest_deleted_blocks: usize,
 ) -> Result<BlockRetentionSummary, StoreError> {
+    let candidates = plan_block_retention_pass(connection, retain_newest_deleted_blocks)?;
+    run_block_retention_slice(connection, &candidates, retain_newest_deleted_blocks)
+}
+
+pub(crate) fn plan_block_retention_pass(
+    connection: &Connection,
+    retain_newest_deleted_blocks: usize,
+) -> Result<Vec<BlockRetentionCandidate>, StoreError> {
     let foreign_key_violations =
         connection.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
             row.get::<_, i64>(0)
@@ -125,54 +668,112 @@ pub(crate) fn run_block_retention_pass(
         .prepare("SELECT id FROM libraries ORDER BY id")?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut summary = BlockRetentionSummary::default();
-    let mut first_failure = None;
-    for library_id in library_ids {
+    let mut planned = Vec::new();
+    for (index, library_id) in library_ids.into_iter().enumerate() {
+        if index % 16 == 0 {
+            check_request_interruption()?;
+        }
         let candidates =
             read_candidate_roots(connection, &library_id, retain_newest_deleted_blocks)?;
-        summary.selected_candidates = summary
-            .selected_candidates
-            .checked_add(candidates.len())
-            .ok_or_else(|| corrupt("Block retention candidate count overflowed"))?;
-        let mut retained_roots = BTreeSet::new();
-        for root_block_id in candidates {
-            match maintain_candidate(
-                connection,
-                &library_id,
-                &root_block_id,
-                retain_newest_deleted_blocks,
-            ) {
-                Ok(CandidateOutcome::Collected(block_ids)) => {
-                    summary.collected_candidates += 1;
-                    summary.collected_blocks = summary
-                        .collected_blocks
-                        .checked_add(block_ids.len())
-                        .ok_or_else(|| corrupt("Collected Block count overflowed"))?;
-                    for block_id in block_ids {
-                        if retained_roots.remove(&block_id) {
-                            summary.retained_candidates -= 1;
-                            summary.covered_candidates += 1;
-                        }
-                    }
-                }
-                Ok(CandidateOutcome::Retained) => {
-                    summary.retained_candidates += 1;
-                    retained_roots.insert(root_block_id);
-                }
-                Ok(CandidateOutcome::Covered) => summary.covered_candidates += 1,
-                Err(error) => {
-                    summary.failed_candidates += 1;
-                    if first_failure.is_none() {
-                        first_failure = Some(error);
+        planned.extend(
+            candidates
+                .into_iter()
+                .map(|root_block_id| BlockRetentionCandidate {
+                    library_id: library_id.clone(),
+                    root_block_id,
+                }),
+        );
+    }
+    Ok(planned)
+}
+
+pub(crate) fn run_block_retention_slice(
+    connection: &mut Connection,
+    candidates: &[BlockRetentionCandidate],
+    retain_newest_deleted_blocks: usize,
+) -> Result<BlockRetentionSummary, StoreError> {
+    Ok(run_block_retention_slice_with_target(
+        connection,
+        candidates,
+        retain_newest_deleted_blocks,
+        None,
+    )?
+    .summary)
+}
+
+pub(crate) fn run_bounded_block_retention_slice(
+    connection: &mut Connection,
+    candidates: &[BlockRetentionCandidate],
+    retain_newest_deleted_blocks: usize,
+    target_duration: Duration,
+) -> Result<BlockRetentionSliceResult, StoreError> {
+    run_block_retention_slice_with_target(
+        connection,
+        candidates,
+        retain_newest_deleted_blocks,
+        Some(target_duration),
+    )
+}
+
+fn run_block_retention_slice_with_target(
+    connection: &mut Connection,
+    candidates: &[BlockRetentionCandidate],
+    retain_newest_deleted_blocks: usize,
+    target_duration: Option<Duration>,
+) -> Result<BlockRetentionSliceResult, StoreError> {
+    let started_at = Instant::now();
+    let evidence = RetentionEvidenceIndex::load(connection)?;
+    let mut summary = BlockRetentionSummary::default();
+    let mut first_failure = None;
+    let mut retained_roots = BTreeSet::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        if index % 8 == 0 {
+            check_request_interruption()?;
+        }
+        summary.selected_candidates += 1;
+        match maintain_candidate(
+            connection,
+            &evidence,
+            &candidate.library_id,
+            &candidate.root_block_id,
+            retain_newest_deleted_blocks,
+        ) {
+            Ok(CandidateOutcome::Collected(block_ids)) => {
+                summary.collected_candidates += 1;
+                summary.collected_blocks = summary
+                    .collected_blocks
+                    .checked_add(block_ids.len())
+                    .ok_or_else(|| corrupt("Collected Block count overflowed"))?;
+                for block_id in block_ids {
+                    if retained_roots.remove(&block_id) {
+                        summary.retained_candidates -= 1;
+                        summary.covered_candidates += 1;
                     }
                 }
             }
+            Ok(CandidateOutcome::Retained) => {
+                summary.retained_candidates += 1;
+                retained_roots.insert(candidate.root_block_id.clone());
+            }
+            Ok(CandidateOutcome::Covered) => summary.covered_candidates += 1,
+            Err(error) => {
+                summary.failed_candidates += 1;
+                if first_failure.is_none() {
+                    first_failure = Some(error);
+                }
+            }
+        }
+        if target_duration.is_some_and(|target| started_at.elapsed() >= target) {
+            break;
         }
     }
     if let Some(error) = first_failure {
         return Err(error);
     }
-    Ok(summary)
+    Ok(BlockRetentionSliceResult {
+        processed_candidates: summary.selected_candidates,
+        summary,
+    })
 }
 
 fn read_candidate_roots(
@@ -204,6 +805,7 @@ fn read_candidate_roots(
 
 fn maintain_candidate(
     connection: &mut Connection,
+    evidence: &RetentionEvidenceIndex,
     library_id: &str,
     root_block_id: &str,
     retain_newest_deleted_blocks: usize,
@@ -225,7 +827,7 @@ fn maintain_candidate(
     for document_id in &closure.document_ids {
         prune_document_history(&transaction, document_id, &now)?;
     }
-    let analysis = analyze_candidate(&transaction, &closure)?;
+    let analysis = analyze_candidate(&transaction, evidence, &closure, &BTreeSet::new())?;
     if !analysis.collectible {
         return Ok(CandidateOutcome::Retained);
     }
@@ -233,7 +835,17 @@ fn maintain_candidate(
     let Some(replanned) = build_candidate_closure(&transaction, library_id, root_block_id)? else {
         return Ok(CandidateOutcome::Retained);
     };
-    let post_prune = analyze_candidate(&transaction, &replanned)?;
+    let deleted_recovery_artifact_ids = analysis
+        .prunable_recovery_artifact_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let post_prune = analyze_candidate(
+        &transaction,
+        evidence,
+        &replanned,
+        &deleted_recovery_artifact_ids,
+    )?;
     if !post_prune.collectible || !post_prune.prunable_recovery_artifact_ids.is_empty() {
         return Ok(CandidateOutcome::Retained);
     }
@@ -395,17 +1007,20 @@ fn closure_intersects_newest_tombstones(
 
 fn analyze_candidate(
     connection: &Connection,
+    evidence: &RetentionEvidenceIndex,
     closure: &CandidateClosure,
+    ignored_recovery_artifact_ids: &BTreeSet<String>,
 ) -> Result<CandidateAnalysis, StoreError> {
     let block_ids_json = identities_json(&closure.block_ids)?;
     let document_ids_json = identities_json(&closure.document_ids)?;
     let database_view_ids = read_database_view_ids(connection, &block_ids_json)?;
     let database_view_ids_json = identities_json(&database_view_ids)?;
-    if has_unknown_inbound_reference(connection, closure)?
-        || has_current_authority_reference(connection, closure, &database_view_ids)?
-        || has_historical_reference(connection, closure, &database_view_ids)?
-        || has_cross_library_immutable_reference(connection, closure)?
-        || has_relocation_reference(connection, closure)?
+    if evidence.has_unknown_inbound_reference(connection, closure)?
+        || evidence.has_current_authority_reference(closure, &database_view_ids)
+        || has_current_projection_reference(connection, closure)?
+        || evidence.has_historical_reference(closure, &database_view_ids)
+        || evidence.has_cross_library_immutable_reference(closure)
+        || evidence.has_relocation_reference(closure)
         || has_relational_reference(
             connection,
             closure,
@@ -421,7 +1036,7 @@ fn analyze_candidate(
         });
     }
     let Some(prunable_recovery_artifact_ids) =
-        read_prunable_recovery_artifacts(connection, closure)?
+        evidence.read_prunable_recovery_artifacts(closure, ignored_recovery_artifact_ids)
     else {
         return Ok(CandidateAnalysis {
             collectible: false,
@@ -440,67 +1055,10 @@ fn analyze_candidate(
     })
 }
 
-fn has_current_authority_reference(
+fn has_current_projection_reference(
     connection: &Connection,
     closure: &CandidateClosure,
-    database_view_ids: &BTreeSet<String>,
 ) -> Result<bool, StoreError> {
-    let document_ids = connection
-        .prepare("SELECT id FROM documents ORDER BY id")?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for document_id in document_ids {
-        if closure.document_ids.contains(&document_id) {
-            continue;
-        }
-        let authority = read_document_authority(connection, &document_id)?
-            .ok_or_else(|| corrupt("Document authority has no registered owner"))?;
-        if authority.head.readiness != DocumentReadiness::Ready
-            || authority.head.authority != DocumentAuthority::YdocPrimary
-        {
-            return Ok(true);
-        }
-        match authority.head.sync_engine {
-            DocumentSyncEngine::Yjs => {
-                let Some(schema) = BlockDocumentSchema::from_identity(
-                    &authority.head.schema_key,
-                    authority.head.schema_version,
-                ) else {
-                    return Ok(true);
-                };
-                if schema_metadata(schema).owner_type != authority.owner_type {
-                    return Ok(true);
-                }
-                let engine = reconstruct_yjs_engine(connection, &authority.head)?;
-                let decoded = decode_block_document(engine.document(), schema)
-                    .map_err(|_| corrupt("Current Yjs authority cannot be decoded"))?;
-                let materialization = materialize_decoded_document(&decoded)
-                    .map_err(|_| corrupt("Current Yjs authority cannot be materialized"))?;
-                if materialized_blocks_intersect(&materialization.block_tree, &closure.block_ids)
-                    || materialization.references.iter().any(|reference| {
-                        reference
-                            .target_block_id()
-                            .is_some_and(|block_id| closure.block_ids.contains(block_id))
-                            || reference
-                                .database_view_id()
-                                .is_some_and(|view_id| database_view_ids.contains(view_id))
-                    })
-                {
-                    return Ok(true);
-                }
-            }
-            DocumentSyncEngine::CanvasScene => {
-                let scene = load_canvas_scene(connection, &authority)?.scene;
-                if scene
-                    .page_references
-                    .iter()
-                    .any(|reference| closure.block_ids.contains(&reference.target_block_id))
-                {
-                    return Ok(true);
-                }
-            }
-        }
-    }
     let block_ids_json = identities_json(&closure.block_ids)?;
     let external_index = connection.query_row(
         "SELECT count(*) FROM document_block_index \
@@ -520,145 +1078,6 @@ fn has_current_authority_reference(
         |row| row.get::<_, i64>(0),
     )?;
     Ok(external_canvas_reference != 0)
-}
-
-fn has_historical_reference(
-    connection: &Connection,
-    closure: &CandidateClosure,
-    database_view_ids: &BTreeSet<String>,
-) -> Result<bool, StoreError> {
-    let versions = read_document_version_retention_evidence(
-        connection,
-        MAX_RETAINED_DOCUMENT_VERSIONS_TO_INSPECT,
-    )?;
-    Ok(versions.iter().any(|version| {
-        (!closure.document_ids.contains(&version.document_id)
-            && sets_intersect(&version.block_ids, &closure.block_ids))
-            || sets_intersect(&version.referenced_block_ids, &closure.block_ids)
-            || sets_intersect(&version.database_view_ids, database_view_ids)
-    }))
-}
-
-fn has_cross_library_immutable_reference(
-    connection: &Connection,
-    closure: &CandidateClosure,
-) -> Result<bool, StoreError> {
-    let mutations = connection
-        .prepare(
-            "SELECT project.library_id, mutation.target_block_ids_json, \
-                    mutation.affected_document_ids_json, \
-                    mutation.affected_database_block_ids_json \
-             FROM block_mutations mutation \
-             JOIN projects project ON project.id = mutation.project_id \
-             ORDER BY mutation.mutation_id",
-        )?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (library_id, blocks_json, documents_json, databases_json) in mutations {
-        if immutable_row_relevant(&blocks_json, &documents_json, &databases_json, closure)?
-            && library_id != closure.library_id
-        {
-            return Ok(true);
-        }
-    }
-    let changes = connection
-        .prepare(
-            "SELECT project.library_id, change.block_ids_json, change.document_ids_json, \
-                    change.database_block_ids_json \
-             FROM change_log change \
-             JOIN projects project ON project.id = change.project_id \
-             ORDER BY change.seq",
-        )?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (library_id, blocks_json, documents_json, databases_json) in changes {
-        if immutable_row_relevant(&blocks_json, &documents_json, &databases_json, closure)?
-            && library_id != closure.library_id
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn immutable_row_relevant(
-    blocks_json: &str,
-    documents_json: &str,
-    databases_json: &str,
-    closure: &CandidateClosure,
-) -> Result<bool, StoreError> {
-    let blocks = read_identity_set(blocks_json)?;
-    let documents = read_identity_set(documents_json)?;
-    let databases = read_identity_set(databases_json)?;
-    let external_databases = databases
-        .difference(&closure.block_ids)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let authority_blocks = blocks
-        .difference(&external_databases)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    Ok(sets_intersect(&authority_blocks, &closure.block_ids)
-        || sets_intersect(&documents, &closure.document_ids)
-        || sets_intersect(&databases, &closure.block_ids))
-}
-
-fn has_relocation_reference(
-    connection: &Connection,
-    closure: &CandidateClosure,
-) -> Result<bool, StoreError> {
-    let rows = connection
-        .prepare(
-            "SELECT relocation.source_document_id, relocation.target_document_id, \
-                    relocation.target_parent_block_id, relocation.target_before_block_id, \
-                    member.block_id \
-             FROM block_relocations relocation \
-             LEFT JOIN block_relocation_members member ON member.relocation_id = relocation.id \
-             WHERE relocation.library_id = ?1",
-        )?
-        .query_map([&closure.library_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows.iter().any(|row| {
-        closure.document_ids.contains(&row.0)
-            || row
-                .1
-                .as_ref()
-                .is_some_and(|id| closure.document_ids.contains(id))
-            || row
-                .2
-                .as_ref()
-                .is_some_and(|id| closure.block_ids.contains(id))
-            || row
-                .3
-                .as_ref()
-                .is_some_and(|id| closure.block_ids.contains(id))
-            || row
-                .4
-                .as_ref()
-                .is_some_and(|id| closure.block_ids.contains(id))
-    }))
 }
 
 fn has_relational_reference(
@@ -768,58 +1187,6 @@ fn has_page_behavior_reference(
         |row| row.get::<_, i64>(0),
     )?;
     Ok(count != 0)
-}
-
-fn read_prunable_recovery_artifacts(
-    connection: &Connection,
-    closure: &CandidateClosure,
-) -> Result<Option<Vec<String>>, StoreError> {
-    let rows = connection
-        .prepare(
-            "SELECT artifact.id, project.library_id, artifact.document_id, artifact.status, \
-                    artifact.touched_block_ids_json, \
-                    artifact.derived_touched_block_ids_json \
-             FROM document_recovery_artifacts artifact \
-             JOIN projects project ON project.id = artifact.project_id \
-             ORDER BY project.library_id, artifact.id",
-        )?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, Option<String>>(5)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut prunable = Vec::new();
-    for (id, library_id, document_id, status, touched_json, derived_json) in rows {
-        let touched = read_identity_set(&touched_json)?;
-        let derived = derived_json
-            .as_deref()
-            .map(read_identity_set)
-            .transpose()?
-            .unwrap_or_default();
-        let relevant = closure.document_ids.contains(&document_id)
-            || sets_intersect(&touched, &closure.block_ids)
-            || sets_intersect(&derived, &closure.block_ids);
-        if !relevant {
-            continue;
-        }
-        if library_id != closure.library_id
-            || status == "pending"
-            || !matches!(status.as_str(), "resolved" | "discarded")
-            || !closure.document_ids.contains(&document_id)
-            || !touched.is_subset(&closure.block_ids)
-            || !derived.is_subset(&closure.block_ids)
-        {
-            return Ok(None);
-        }
-        prunable.push(id);
-    }
-    Ok(Some(prunable))
 }
 
 fn delete_exact_recovery_artifacts(
@@ -933,51 +1300,6 @@ fn read_database_view_ids(
         .map_err(StoreError::from)
 }
 
-fn has_unknown_inbound_reference(
-    connection: &Connection,
-    closure: &CandidateClosure,
-) -> Result<bool, StoreError> {
-    let table_names = connection
-        .prepare(
-            "SELECT name FROM sqlite_master \
-             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-        )?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for table_name in table_names {
-        if KNOWN_INBOUND_AUTHORITY_TABLES.contains(&table_name.as_str()) {
-            continue;
-        }
-        let pragma = format!("PRAGMA foreign_key_list({})", quote_identifier(&table_name));
-        let foreign_keys = connection
-            .prepare(&pragma)?
-            .query_map([], |row| {
-                Ok(ForeignKeyColumn {
-                    id: row.get(0)?,
-                    referenced_table: row.get(2)?,
-                    from_column: row.get(3)?,
-                    to_column: row.get(4)?,
-                })
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut groups = BTreeMap::<i64, Vec<ForeignKeyColumn>>::new();
-        for foreign_key in foreign_keys {
-            if matches!(
-                foreign_key.referenced_table.as_str(),
-                "blocks" | "documents" | "block_documents"
-            ) {
-                groups.entry(foreign_key.id).or_default().push(foreign_key);
-            }
-        }
-        for foreign_key in groups.values() {
-            if unknown_foreign_key_matches(connection, &table_name, foreign_key, closure)? {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
-}
-
 fn unknown_foreign_key_matches(
     connection: &Connection,
     table_name: &str,
@@ -1046,15 +1368,6 @@ fn decode_block_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BlockRow> {
     })
 }
 
-fn materialized_blocks_intersect(
-    blocks: &[MaterializedBlockNode],
-    candidates: &BTreeSet<String>,
-) -> bool {
-    blocks.iter().any(|block| {
-        candidates.contains(&block.id) || materialized_blocks_intersect(&block.children, candidates)
-    })
-}
-
 fn read_identity_set(serialized: &str) -> Result<BTreeSet<String>, StoreError> {
     let identities = serde_json::from_str::<Vec<Value>>(serialized)
         .map_err(|_| corrupt("Retention evidence contains invalid JSON"))?;
@@ -1109,6 +1422,10 @@ fn internal(message: impl Into<String>) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
     use tempfile::TempDir;
 
     use crate::database::page_key::{
@@ -1119,6 +1436,10 @@ mod tests {
         DocumentPlacementEvidence, PersistYjsGenesis, persist_yjs_genesis,
         prepare_page_yjs_genesis, read_document_authority,
     };
+    use crate::infrastructure::request_execution::{
+        RequestExecutionClass, RequestExecutionContext, within_request_execution,
+    };
+    use crate::infrastructure::sqlite::QueryCancellation;
     use crate::infrastructure::store::SqliteStoreKernel;
 
     use super::*;
@@ -1250,6 +1571,319 @@ mod tests {
                 })
                 .expect("owned Page closure");
         }
+
+        fn insert_active_page_documents(&self, count: usize) {
+            self.kernel
+                .writer()
+                .call(move |connection| {
+                    let now = "2026-01-01T00:00:00.000Z";
+                    for index in 0..count {
+                        let page_id = format!("page:retention-pressure:{index:04}");
+                        let document_id = format!("document:retention-pressure:{index:04}");
+                        connection.execute(
+                            "INSERT INTO blocks( \
+                               id, library_id, type, lifecycle, created_at, updated_at \
+                             ) VALUES (?1, ?2, 'page', 'active', ?3, ?3)",
+                            params![page_id, LIBRARY_ID, now],
+                        )?;
+                        connection.execute(
+                            "INSERT INTO documents( \
+                               id, library_id, schema_key, schema_version, created_at, updated_at \
+                             ) VALUES (?1, ?2, 'nodex.page', 2, ?3, ?3)",
+                            params![document_id, LIBRARY_ID, now],
+                        )?;
+                        connection.execute(
+                            "INSERT INTO block_documents( \
+                               block_id, document_id, library_id, created_at \
+                             ) VALUES (?1, ?2, ?3, ?4)",
+                            params![page_id, document_id, LIBRARY_ID, now],
+                        )?;
+                        connection.execute(
+                            "INSERT INTO pages( \
+                               block_id, library_id, document_id, parent_kind, parent_id, \
+                               created_at, updated_at \
+                             ) VALUES (?1, ?2, ?3, 'library', ?2, ?4, ?4)",
+                            params![page_id, LIBRARY_ID, document_id, now],
+                        )?;
+                        let authority = read_document_authority(connection, &document_id)?
+                            .expect("pending pressure Page authority");
+                        let root_block_id = format!("019c0000-0000-7000-8001-{index:012x}");
+                        let genesis = prepare_page_yjs_genesis(&document_id, "", &root_block_id)?;
+                        let update_id = format!("genesis:retention-pressure:{index:04}");
+                        let operation_id = format!("operation:retention-pressure:{index:04}");
+                        persist_yjs_genesis(
+                            connection,
+                            PersistYjsGenesis {
+                                authority: &authority,
+                                actor_project_id: PROJECT_ID,
+                                materialization: &genesis.materialization,
+                                update_id: &update_id,
+                                client_session_id: "client:retention-pressure",
+                                update: &genesis.update_v1,
+                                state_vector: &genesis.state_vector_v1,
+                                full_state: &genesis.engine.full_state_v1(),
+                                store_epoch: "epoch:test",
+                                operation_id: &operation_id,
+                                placement: DocumentPlacementEvidence::STRUCTURAL,
+                                emit_event: false,
+                            },
+                        )?;
+                    }
+                    Ok(())
+                })
+                .expect("active pressure Documents");
+        }
+    }
+
+    #[test]
+    fn retention_pressure_reads_five_hundred_current_projections_without_reconstruction() {
+        let fixture = Fixture::new();
+        fixture.insert_active_page_documents(500);
+        for index in 0..100 {
+            fixture.insert_deleted_block(&format!("block:pressure:{index:03}"));
+        }
+
+        fixture
+            .kernel
+            .writer()
+            .call(|connection| {
+                let reconstructions_before = super::super::runtime::thread_reconstruction_count();
+                let started_at = Instant::now();
+                let summary = run_block_retention_pass(connection, 0)?;
+                let reconstructions_after = super::super::runtime::thread_reconstruction_count();
+
+                assert_eq!(summary.selected_candidates, 100);
+                assert_eq!(summary.collected_candidates, 100);
+                assert_eq!(summary.collected_blocks, 100);
+                assert_eq!(summary.failed_candidates, 0);
+                assert_eq!(reconstructions_after, reconstructions_before);
+                assert!(
+                    started_at.elapsed() < std::time::Duration::from_secs(5),
+                    "projection-based retention exceeded its coarse deterministic bound",
+                );
+                Ok(())
+            })
+            .expect("pressure retention");
+    }
+
+    #[test]
+    fn production_scale_retention_keeps_interactive_writer_samples_responsive() {
+        let fixture = Fixture::new();
+        fixture.insert_active_page_documents(500);
+        for index in 0..100 {
+            fixture.insert_deleted_block(&format!("block:concurrent-pressure:{index:03}"));
+        }
+        let candidates = fixture
+            .kernel
+            .writer()
+            .call(|connection| plan_block_retention_pass(connection, 0))
+            .expect("retention plan");
+        assert_eq!(candidates.len(), 100);
+
+        let start = Arc::new(Barrier::new(5));
+        let writer = fixture.kernel.writer();
+        let maintenance = {
+            let writer = writer.clone();
+            let start = Arc::clone(&start);
+            thread::spawn(move || {
+                within_request_execution(
+                    RequestExecutionContext::new(
+                        RequestExecutionClass::Maintenance,
+                        QueryCancellation::new(),
+                        Instant::now() + Duration::from_secs(20),
+                    ),
+                    || {
+                        start.wait();
+                        let reconstructions_before =
+                            super::super::runtime::thread_reconstruction_count();
+                        let mut cursor = 0;
+                        let mut collected = 0;
+                        let mut slice_durations = Vec::new();
+                        while cursor < candidates.len() {
+                            let slice_end = cursor.saturating_add(8).min(candidates.len());
+                            let slice = candidates[cursor..slice_end].to_vec();
+                            let started_at = Instant::now();
+                            let result = writer.call(move |connection| {
+                                run_bounded_block_retention_slice(
+                                    connection,
+                                    &slice,
+                                    0,
+                                    Duration::from_millis(100),
+                                )
+                            })?;
+                            slice_durations.push(started_at.elapsed());
+                            cursor += result.processed_candidates;
+                            collected += result.summary.collected_candidates;
+                        }
+                        let reconstruction_delta =
+                            super::super::runtime::thread_reconstruction_count()
+                                - reconstructions_before;
+                        Ok::<_, StoreError>((reconstruction_delta, collected, slice_durations))
+                    },
+                )
+            })
+        };
+        let background = (0..3)
+            .map(|_| {
+                let writer = writer.clone();
+                let start = Arc::clone(&start);
+                thread::spawn(move || {
+                    within_request_execution(
+                        RequestExecutionContext::new(
+                            RequestExecutionClass::Background,
+                            QueryCancellation::new(),
+                            Instant::now() + Duration::from_secs(10),
+                        ),
+                        || {
+                            start.wait();
+                            for _ in 0..5 {
+                                writer.call(|connection| {
+                                    connection
+                                        .query_row("SELECT 1", [], |row| row.get::<_, i64>(0))?;
+                                    Ok(())
+                                })?;
+                            }
+                            Ok::<_, StoreError>(())
+                        },
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        start.wait();
+        let mut interactive_durations = Vec::new();
+        for _ in 0..20 {
+            let started_at = Instant::now();
+            within_request_execution(
+                RequestExecutionContext::new(
+                    RequestExecutionClass::Interactive,
+                    QueryCancellation::new(),
+                    Instant::now() + Duration::from_secs(1),
+                ),
+                || {
+                    writer.call(|connection| {
+                        connection.query_row("SELECT 1", [], |row| row.get::<_, i64>(0))?;
+                        Ok(())
+                    })
+                },
+            )
+            .expect("interactive writer sample");
+            interactive_durations.push(started_at.elapsed());
+        }
+        for handle in background {
+            handle
+                .join()
+                .expect("background join")
+                .expect("background writer samples");
+        }
+        let (reconstruction_delta, collected, mut slice_durations) = maintenance
+            .join()
+            .expect("maintenance join")
+            .expect("maintenance slices");
+
+        interactive_durations.sort_unstable();
+        slice_durations.sort_unstable();
+        let interactive_p95 = interactive_durations[18];
+        let interactive_max = *interactive_durations.last().expect("interactive samples");
+        let slice_p95 = slice_durations[(slice_durations.len() * 95).div_ceil(100) - 1];
+        let slice_max = *slice_durations.last().expect("maintenance slices");
+
+        eprintln!(
+            "retention concurrency: documents=500 candidates=100 reconstructions={reconstruction_delta} interactive_samples=20 interactive_p95_ms={} interactive_max_ms={} slice_p95_ms={} slice_max_ms={}",
+            interactive_p95.as_millis(),
+            interactive_max.as_millis(),
+            slice_p95.as_millis(),
+            slice_max.as_millis(),
+        );
+        assert_eq!(collected, 100);
+        assert_eq!(reconstruction_delta, 0);
+        assert!(interactive_p95 < Duration::from_millis(250));
+        assert!(interactive_max < Duration::from_secs(1));
+        assert!(slice_p95 < Duration::from_millis(250));
+        assert!(slice_max < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn bounded_slice_stops_between_candidates_after_its_time_target() {
+        let fixture = Fixture::new();
+        for index in 0..3 {
+            fixture.insert_deleted_block(&format!("block:bounded:{index}"));
+        }
+
+        fixture
+            .kernel
+            .writer()
+            .call(|connection| {
+                let candidates = plan_block_retention_pass(connection, 0)?;
+                let result =
+                    run_bounded_block_retention_slice(connection, &candidates, 0, Duration::ZERO)?;
+
+                assert_eq!(result.processed_candidates, 1);
+                assert_eq!(result.summary.selected_candidates, 1);
+                assert_eq!(result.summary.collected_candidates, 1);
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM blocks WHERE lifecycle = 'deleted'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    2,
+                );
+                Ok(())
+            })
+            .expect("bounded retention slice");
+    }
+
+    #[test]
+    fn current_projection_reference_retains_a_deleted_target_without_reconstruction() {
+        let fixture = Fixture::new();
+        fixture.insert_active_page_documents(1);
+        fixture.insert_deleted_block("block:projection-target");
+        fixture
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE document_materializations SET references_json = ?1 \
+                     WHERE document_id = 'document:retention-pressure:0000'",
+                    [r#"[{"kind":"block","sourceBlockId":"source:pressure","targetBlockId":"block:projection-target"}]"#],
+                )?;
+                let before = super::super::runtime::thread_reconstruction_count();
+                let summary = run_block_retention_pass(connection, 0)?;
+                let after = super::super::runtime::thread_reconstruction_count();
+
+                assert_eq!(summary.retained_candidates, 1);
+                assert_eq!(summary.collected_candidates, 0);
+                assert_eq!(after, before);
+                Ok(())
+            })
+            .expect("projection reference retention");
+    }
+
+    #[test]
+    fn stale_current_projection_fails_closed_without_reconstruction_fallback() {
+        let fixture = Fixture::new();
+        fixture.insert_active_page_documents(1);
+        fixture.insert_deleted_block("block:stale-projection-target");
+        fixture
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE document_materializations SET projected_seq = 0 \
+                     WHERE document_id = 'document:retention-pressure:0000'",
+                    [],
+                )?;
+                let before = super::super::runtime::thread_reconstruction_count();
+                let summary = run_block_retention_pass(connection, 0)?;
+                let after = super::super::runtime::thread_reconstruction_count();
+
+                assert_eq!(summary.retained_candidates, 1);
+                assert_eq!(summary.collected_candidates, 0);
+                assert_eq!(after, before);
+                Ok(())
+            })
+            .expect("stale projection retention");
     }
 
     #[test]

@@ -16,6 +16,7 @@ import {
   OwnedBlockDocumentBoundary,
   RegisteredOwnedBlockDocumentBoundary,
 } from "./owned-block-document-boundary";
+import { OwnedBlockDocumentBoundaryError } from "@/lib/owned-block-document";
 
 const descriptor = (): OwnedDocumentDescriptor => ({
   libraryId: "library-1",
@@ -95,5 +96,112 @@ describe("OwnedBlockDocumentBoundary", () => {
     await waitFor(() => {
       expect(view.getByTestId("authority").textContent).toBe("ready");
     });
+  });
+
+  test("shows a productized busy state and retries a retryable descriptor read", async () => {
+    let fetches = 0;
+    const view = render(
+      <TestQueryProvider>
+        <OwnedBlockDocumentBoundary
+          accessContext={{ kind: "project", projectId: "project-1" }}
+          ownerBlockId="card-1"
+          dependencies={{
+            fetchDescriptor: async () => {
+              fetches += 1;
+              if (fetches < 3) {
+                throw new OwnedBlockDocumentBoundaryError(
+                  "fetch_failed",
+                  "Core request deadline was exceeded",
+                  { retryable: true },
+                );
+              }
+              return descriptor();
+            },
+          }}
+        >
+          {(model) => (
+            <span data-testid="authority">
+              {model.status === "error" ? model.error.message : model.status}
+            </span>
+          )}
+        </OwnedBlockDocumentBoundary>
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByTestId("authority").textContent).toContain(
+        "Core is busy",
+      );
+    });
+    expect(view.getByTestId("authority").textContent).not.toContain(
+      "deadline exceeded",
+    );
+    await waitFor(() => {
+      expect(view.getByTestId("authority").textContent).toBe("ready");
+    }, { timeout: 2_000 });
+    expect(fetches).toBe(3);
+  });
+
+  test("does not retry a non-retryable descriptor failure", async () => {
+    let fetches = 0;
+    const view = render(
+      <TestQueryProvider>
+        <OwnedBlockDocumentBoundary
+          accessContext={{ kind: "project", projectId: "project-1" }}
+          ownerBlockId="card-1"
+          dependencies={{
+            fetchDescriptor: async () => {
+              fetches += 1;
+              throw new OwnedBlockDocumentBoundaryError(
+                "document_state_corrupt",
+                "Document state is corrupt",
+              );
+            },
+          }}
+        >
+          {(model) => (
+            <span data-testid="authority">
+              {model.status === "error" ? model.error.message : model.status}
+            </span>
+          )}
+        </OwnedBlockDocumentBoundary>
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => {
+      expect(view.getByTestId("authority").textContent).toBe(
+        "Document state is corrupt",
+      );
+    });
+    expect(fetches).toBe(1);
+  });
+
+  test("cancels the retry chain when the document surface unmounts", async () => {
+    let fetches = 0;
+    const view = render(
+      <TestQueryProvider>
+        <OwnedBlockDocumentBoundary
+          accessContext={{ kind: "project", projectId: "project-1" }}
+          ownerBlockId="card-1"
+          dependencies={{
+            fetchDescriptor: async () => {
+              fetches += 1;
+              throw new OwnedBlockDocumentBoundaryError(
+                "fetch_failed",
+                "Core request deadline was exceeded",
+                { retryable: true },
+              );
+            },
+          }}
+        >
+          {(model) => <span>{model.status}</span>}
+        </OwnedBlockDocumentBoundary>
+      </TestQueryProvider>,
+    );
+
+    await waitFor(() => expect(fetches).toBe(1));
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(fetches).toBe(1);
   });
 });

@@ -72,7 +72,10 @@ explicit cancellation, overload, and transport loss remain distinct failures;
 Electron waits a short liveness grace beyond the semantic deadline before it
 may report a transport timeout. Stale interactive searches actively cancel
 their Core request as non-error control flow, and Store maintenance is
-single-flight across all lanes. SQLite planner statistics are maintained when
+single-flight across all lanes. A cancelled writer waiter promptly releases its
+execution capacity and cannot execute later; class-aware writer scheduling
+prioritizes interaction with bounded aging, while maintenance yields between
+short slices. SQLite planner statistics are maintained when
 the Store opens and after writer use; FTS-backed searches keep the virtual
 table as their driving loop even before an existing Store has statistics.
 Health evidence includes active and queued requests, admission and execution
@@ -133,7 +136,9 @@ replay across that epoch.
 
 Maintenance has one canonical coordinator for integrity, compaction, retention,
 collection, and vacuum. It never rewrites immutable receipts/history or removes
-pinned revisions.
+pinned revisions. Block collection uses version-fenced current projections and
+pass-local evidence rather than reconstructing every current Document for every
+candidate, and releases the single writer between bounded candidate slices.
 
 Read [Backup, Restore, and Maintenance](reliability/backup-restore-and-maintenance.md).
 

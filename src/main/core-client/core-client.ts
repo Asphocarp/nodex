@@ -304,12 +304,14 @@ export class CoreClient implements CoreClientPort {
 
   async workspaceRead(
     read: ProjectWorkspaceRead,
+    options: CoreRequestOptions = {},
   ): Promise<ProjectWorkspaceReadSnapshot> {
     const response = await this.#transport.requestJson<ProjectWorkspaceReadResponse>(
       "POST",
       "/core/v1/modules/workspace/read",
       { contract_version: MODULE_CONTRACT_VERSIONS.projectWorkspace, read },
       this.#moduleHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -317,6 +319,7 @@ export class CoreClient implements CoreClientPort {
 
   async workspaceApply(
     input: ProjectWorkspaceApplyInput,
+    options: CoreRequestOptions = {},
   ): Promise<ProjectWorkspaceApplyResult> {
     const response = await this.#transport.requestJson<ProjectWorkspaceApplyResponse>(
       "POST",
@@ -328,17 +331,22 @@ export class CoreClient implements CoreClientPort {
         intent: input.intent,
       },
       this.#moduleHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
   }
 
-  async automationRead(read: AutomationRead): Promise<AutomationReadSnapshot> {
+  async automationRead(
+    read: AutomationRead,
+    options: CoreRequestOptions = {},
+  ): Promise<AutomationReadSnapshot> {
     const response = await this.#transport.requestJson<AutomationReadResponse>(
       "POST",
       "/core/v1/modules/automation/read",
       { contract_version: MODULE_CONTRACT_VERSIONS.automation, read },
       this.#moduleHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -346,6 +354,7 @@ export class CoreClient implements CoreClientPort {
 
   async automationApply(
     input: AutomationApplyInput,
+    options: CoreRequestOptions = {},
   ): Promise<AutomationApplyResult> {
     const response = await this.#transport.requestJson<AutomationApplyResponse>(
       "POST",
@@ -357,6 +366,7 @@ export class CoreClient implements CoreClientPort {
         intent: input.intent,
       },
       this.#moduleHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -400,12 +410,14 @@ export class CoreClient implements CoreClientPort {
   async documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,
+    options: CoreRequestOptions = {},
   ): Promise<OwnedDocumentReadSnapshot> {
     const response = await this.#transport.requestJson<OwnedDocumentReadResponse>(
       "POST",
       "/core/v1/modules/document/read",
       { contract_version: MODULE_CONTRACT_VERSIONS.ownedDocument, read },
       this.#documentHeaders(clientSessionId),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -413,6 +425,7 @@ export class CoreClient implements CoreClientPort {
 
   async documentApply(
     input: OwnedDocumentApplyInput,
+    options: CoreRequestOptions = {},
   ): Promise<OwnedDocumentApplyResult> {
     const response = await this.#transport.requestJson<OwnedDocumentApplyResponse>(
       "POST",
@@ -424,6 +437,7 @@ export class CoreClient implements CoreClientPort {
         intent: input.intent,
       },
       this.#documentHeaders(input.clientSessionId),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
