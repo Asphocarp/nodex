@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, expect, vi } from "vitest";
 import { initPrefersReducedMotion } from "motion";
+import { installMotionPreferenceForTest } from "@/test/browser-globals";
 import {
   Fragment,
   createElement,
@@ -2036,30 +2037,11 @@ export function appendMockNfmEditor(container: HTMLElement): { root: HTMLElement
 }
 
 function installMotionPreferenceMatchMediaForTest(reducedMotion: boolean) {
-  const originalMatchMedia = window.matchMedia;
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: (query: string) => ({
-      matches: reducedMotion && (
-        query === "(prefers-reduced-motion)"
-        || query === "(prefers-reduced-motion: reduce)"
-      ),
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
+  const restoreMatchMedia = installMotionPreferenceForTest(reducedMotion);
   initPrefersReducedMotion();
 
   return () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: originalMatchMedia,
-    });
+    restoreMatchMedia();
     initPrefersReducedMotion();
   };
 }

@@ -104,3 +104,35 @@ export function installWindowApi(api: unknown): void {
     value: api,
   });
 }
+
+function createMediaQueryList(query: string, reducedMotion: boolean): MediaQueryList {
+  const isReducedMotionQuery = query === "(prefers-reduced-motion)"
+    || query === "(prefers-reduced-motion: reduce)";
+  return {
+    matches: reducedMotion && isReducedMotionQuery,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => true,
+  };
+}
+
+/** Installs a deterministic media-query adapter and returns an exact restore function. */
+export function installMotionPreferenceForTest(reducedMotion: boolean): () => void {
+  const originalMatchMedia = window.matchMedia;
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => createMediaQueryList(query, reducedMotion),
+  });
+  return () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: originalMatchMedia,
+    });
+  };
+}

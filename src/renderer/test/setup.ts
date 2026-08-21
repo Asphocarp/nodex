@@ -1,5 +1,6 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { installMotionPreferenceForTest } from "./browser-globals";
 
 const nativeRequest = Request;
 const nativeResponse = Response;
@@ -12,26 +13,9 @@ const nativeCSS = globalThis.CSS ?? {
   },
 };
 
-function createMediaQueryList(query: string): MediaQueryList {
-  return {
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => true,
-  };
-}
-
-if (typeof window.matchMedia !== "function") {
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    writable: true,
-    value: createMediaQueryList,
-  });
-}
+// Renderer behavior tests assert settled product state. Motion-specific tests
+// explicitly opt back into full motion at their own contract boundary.
+installMotionPreferenceForTest(true);
 if (typeof globalThis.PointerEvent !== "function") {
   Object.defineProperty(globalThis, "PointerEvent", {
     configurable: true,
@@ -141,6 +125,7 @@ Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 const browserWindow = window;
 const browserDocument = document;
 const browserCustomEvent = browserWindow.CustomEvent;
+const browserMatchMedia = browserWindow.matchMedia;
 const browserWindowApiDescriptor = Object.getOwnPropertyDescriptor(browserWindow, "api");
 function createDefaultRendererApi(): NonNullable<Window["api"]> {
   let persistedAtomRevision = 0;
@@ -300,6 +285,11 @@ function restoreBrowserGlobals() {
     configurable: true,
     writable: true,
     value: browserCustomEvent,
+  });
+  Object.defineProperty(browserWindow, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: browserMatchMedia,
   });
   Object.defineProperty(globalThis, "KeyboardEvent", {
     configurable: true,

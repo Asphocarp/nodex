@@ -2,6 +2,7 @@ import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { render } from "../../test/dom";
+import { installMotionPreferenceForTest } from "../../test/browser-globals";
 import {
   BrowserTabFavicon,
   BrowserTabFaviconFrame,
@@ -67,38 +68,43 @@ describe("BrowserTabFavicon", () => {
   });
 
   test("retains the completed favicon until its clip transition finishes", () => {
-    const view = render(
-      <BrowserTabFavicon
-        faviconUrl="https://example.com/favicon.ico"
-        isLoading={false}
-        isWaitingForResponse={false}
-      />,
-    );
-    view.rerender(
-      <BrowserTabFavicon
-        faviconUrl="https://example.com/favicon.ico"
-        isLoading
-        isWaitingForResponse={false}
-      />,
-    );
-    view.rerender(
-      <BrowserTabFavicon
-        faviconUrl={undefined}
-        isLoading={false}
-        isWaitingForResponse={false}
-      />,
-    );
+    const restoreMatchMedia = installMotionPreferenceForTest(false);
+    try {
+      const view = render(
+        <BrowserTabFavicon
+          faviconUrl="https://example.com/favicon.ico"
+          isLoading={false}
+          isWaitingForResponse={false}
+        />,
+      );
+      view.rerender(
+        <BrowserTabFavicon
+          faviconUrl="https://example.com/favicon.ico"
+          isLoading
+          isWaitingForResponse={false}
+        />,
+      );
+      view.rerender(
+        <BrowserTabFavicon
+          faviconUrl={undefined}
+          isLoading={false}
+          isWaitingForResponse={false}
+        />,
+      );
 
-    expect(view.container.querySelector("img")?.getAttribute("src"))
-      .toBe("https://example.com/favicon.ico");
-    const clip = view.container.querySelector<HTMLElement>(
-      "[data-browser-tab-favicon-clip='true']",
-    );
-    if (!clip) throw new Error("Expected favicon clip frame");
+      expect(view.container.querySelector("img")?.getAttribute("src"))
+        .toBe("https://example.com/favicon.ico");
+      const clip = view.container.querySelector<HTMLElement>(
+        "[data-browser-tab-favicon-clip='true']",
+      );
+      if (!clip) throw new Error("Expected favicon clip frame");
 
-    fireEvent.transitionEnd(clip, { propertyName: "clip-path" });
+      fireEvent.transitionEnd(clip, { propertyName: "clip-path" });
 
-    expect(view.container.querySelector("img")).toBeNull();
+      expect(view.container.querySelector("img")).toBeNull();
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   test("disables every transition and loop under reduced motion", () => {
