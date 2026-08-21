@@ -536,10 +536,16 @@ describe("PageCreateDialog", () => {
     await view.findByRole("dialog");
 
     fireEvent.click(view.getByRole("button", { name: "Status" }));
-    fireEvent.click(await view.findByRole("option", { name: "Build" }));
+    const buildOption = await view.findByRole("option", { name: "Build" });
+    await act(async () => {
+      fireEvent.click(buildOption);
+      await Promise.resolve();
+    });
 
     expect(view.getByRole("dialog")).toBeTruthy();
-    expect(view.getByRole("button", { name: "Status" }).textContent).toContain("Build");
+    await waitFor(() => expect(
+      view.getByRole("button", { name: "Status" }).textContent,
+    ).toContain("Build"));
   });
 
   test("uses searchable semantic pickers for Priority and Estimate", async () => {
