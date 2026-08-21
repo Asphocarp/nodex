@@ -97,6 +97,7 @@ import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc"
 import * as ApplicationSyncIpc from "../ipc/handlers/ApplicationSyncIpc";
 import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
+import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
@@ -773,6 +774,21 @@ export const live: Layer.Layer<
             rendererClients: rendererClients.router,
             windows,
           }),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          CodexRendererIpc.live({
+            codex: codexService,
+            rendererClients: rendererClients.router,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         yield* Layer.buildWithScope(

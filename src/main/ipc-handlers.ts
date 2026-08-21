@@ -70,13 +70,6 @@ import type {
   RendererClientRouter,
   RendererClientWebContents,
 } from "./codex/renderer-client-router";
-import {
-  acknowledgeRendererFollowerSnapshotApplied,
-  ackRendererThreadOwnerNotification,
-  publishRendererThreadOwnerStreamState,
-  requestRendererThreadStreamResync,
-  runThreadFollowerActionThroughOwner,
-} from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
 import { parseExternalNavigationUrl } from "./external-navigation";
 import { isWorkspaceFileUserError } from "./workspace-files-service";
@@ -674,54 +667,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     }
     rendererDiagnosticsLogger.info(input.message, input.fields);
   });
-  registerHandle("codex:renderer-client:id", (event) => resolveRendererClientId(event));
-  registerHandle(
-    "codex:renderer-client:response",
-    (event, response) =>
-      options.rendererClientRouter?.handleResponse(
-        event.sender as RendererClientWebContents,
-        response,
-      ) ?? false,
-  );
-  registerHandle("codex:thread-owner:stream-state:publish", (event, input) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return publishRendererThreadOwnerStreamState(codexService, sourceClientId, input);
-  });
-  registerHandle("codex:thread-follower:snapshot-applied", (event, input) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return acknowledgeRendererFollowerSnapshotApplied(codexService, sourceClientId, input);
-  });
-  registerHandle("codex:thread:stream-resync:request", (event, input) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return requestRendererThreadStreamResync(codexService, sourceClientId, input);
-  });
-  registerHandle("codex:thread-owner:notification:ack", (event, input) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return ackRendererThreadOwnerNotification(codexService, sourceClientId, input);
-  });
-  registerHandle("codex:thread-owner:pending-requests:replay", (event, threadId) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return codexService.replayRendererOwnerPendingRequests(threadId, sourceClientId);
-  });
-  registerHandle("codex:thread-owner:app-server-request", async (event, input) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return await codexService.handleRendererOwnerAppServerRequest(sourceClientId, input);
-  });
-  registerHandle("codex:thread-follower:action", async (event, input) => {
-    const sourceClientId = resolveRendererClientId(event);
-    return await runThreadFollowerActionThroughOwner(
-      codexService,
-      options.rendererClientRouter,
-      sourceClientId,
-      input,
-    );
-  });
-  registerHandle(
-    "codex:dynamic-tool-call:respond",
-    (_, conversationId: string, requestId: CodexProtocolRequestId, context) =>
-      codexService.respondToDynamicToolCall(requestId, conversationId, context),
-  );
-
   registerBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, projectId, request) => listener(event, projectId, request));
