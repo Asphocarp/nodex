@@ -49,6 +49,16 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Frontend: React 19 + Tailwind + Radix + BlockNote/Prosemirror
 - Backend: detached Rust Core (`rusqlite` + Yrs) with a Hono desktop adapter
 
+### Effect 4 retrieval
+
+Before editing Effect code, read `docs/adr/0047-effect-control-plane-and-runtime-boundaries.md`
+and the nearest Nodex implementation, then read the installed version's
+`node_modules/effect/AGENTS.md`. Search `node_modules/effect/ai-docs/src` for usage guidance
+and the relevant package's `src` directory for API or implementation details. Nodex's
+architecture boundaries override upstream examples. Treat Context7, web documentation, and
+Effect `main` as secondary sources that must be verified against the installed version; clone
+that version's exact upstream tag only when its tests are needed to resolve deeper semantics.
+
 ## Code Style
 
 - **DRY**: Always keep code DRY. Extract shared hooks, helpers, and patterns instead of duplicating.
