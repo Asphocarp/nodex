@@ -46,6 +46,7 @@ it.effect("registers and releases the Git worker renderer ingress with the Main 
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],
+                environmentPath: null,
                 isPackaged: false,
                 nodexHome: "/tmp/nodex-test",
                 platform: "darwin",

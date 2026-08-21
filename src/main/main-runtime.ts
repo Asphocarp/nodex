@@ -1,12 +1,4 @@
-import {
-  Menu,
-  app,
-  BrowserWindow,
-  dialog,
-  nativeImage,
-  systemPreferences,
-  type MenuItemConstructorOptions,
-} from "electron";
+import { app, BrowserWindow, nativeImage, systemPreferences } from "electron";
 import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
 import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
@@ -14,11 +6,7 @@ import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
-import {
-  getCommandKeymapState,
-  getNodexHome,
-  getWindowRestoreSettings,
-} from "./local-store/config";
+import { getNodexHome, getWindowRestoreSettings } from "./local-store/config";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import type { AcquiredWindowSession } from "./window-session-state";
 import {
@@ -32,49 +20,16 @@ import type {
 } from "../shared/window-session";
 import { getLogger } from "./logging/logger";
 import { closeWindowsBeforeRuntimeShutdown } from "./runtime-quit-coordinator";
-import {
-  CLOSE_PANEL_TAB_HOST_CHANNEL,
-  CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
-  CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
-  NAVIGATE_BACK_HOST_CHANNEL,
-  NAVIGATE_FORWARD_HOST_CHANNEL,
-  REQUEST_NEW_WINDOW_HOST_CHANNEL,
-  WORKBENCH_CONTENT_SEARCH_COMMAND,
-  WORKBENCH_THREAD_RENAME_COMMAND,
-  WORKBENCH_SIDEBAR_TOGGLE_COMMAND,
-  type WorkbenchContentSearchHostChannel,
-  type WorkbenchPanelTabCloseHostChannel,
-  type WorkbenchPanelTabCycleHostChannel,
-  type WorkbenchThreadRenameHostChannel,
-  type WorkbenchSidebarToggleHostChannel,
-  type WorkbenchNavigationHostChannel,
-} from "../shared/window-navigation";
-import {
-  EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL,
-  type WorkbenchCommandInvocation,
-} from "../shared/workbench-commands";
+import { REQUEST_NEW_WINDOW_HOST_CHANNEL } from "../shared/window-navigation";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
 import {
   collectSecondInstancesForStartupReplay,
   requestsExplicitNewWindow,
 } from "./main-runtime-startup-events";
 import { captureMainException } from "./observability/sentry-main";
-import {
-  getPrimaryCommandAccelerator,
-  NEXT_PANEL_TAB_COMMAND_ID,
-  PREVIOUS_PANEL_TAB_COMMAND_ID,
-  toElectronAccelerator,
-} from "../shared/command-keybindings";
 import { safeSendToWindow } from "./ipc-safe-send";
 import type { RendererClientRouter } from "./codex/renderer-client-router";
 import type { ApplicationWindowRuntime } from "./window-runtime/ApplicationWindowRuntime";
-import {
-  buildNodexSetupMenuItems,
-  buildWindowFileMenu,
-  buildWorkbenchViewMenu,
-} from "./application-menu";
-import { installCliCommand } from "./cli-command-installer";
-import { runAgentSkillSetup } from "./agent-skill-setup";
 import {
   type CoreEventEnvelope,
   type CoreEventReplayRequired,
@@ -109,7 +64,6 @@ let applicationWindowRuntime: ApplicationWindowRuntime["Service"];
 let rendererHostReadyForWindows = false;
 let windowRuntime: WindowRuntimeService | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
-let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
 const logger = getLogger({ subsystem: "app" });
 
 function getLastFocusedWindow(): BrowserWindow | null {
@@ -170,7 +124,7 @@ function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
   }
 }
 
-function requestNewWindowFromActiveWindow(): void {
+export function requestNewWindowFromActiveWindow(): void {
   if (windowRuntime?.hasClosedSessionAvailable()) {
     openNewWindow();
     return;
@@ -222,204 +176,6 @@ export async function requestHostMicrophonePermission(): Promise<void> {
   }
 }
 
-async function installCommandLineTool(): Promise<void> {
-  try {
-    const result = installCliCommand({
-      environmentPath: process.env.PATH,
-      sourcePath: join(process.resourcesPath, "bin/nodex"),
-      targetPath: join(app.getPath("home"), ".local/bin/nodex"),
-    });
-    const statusMessage =
-      result.status === "already-installed"
-        ? "The Nodex command line tool is already installed."
-        : result.status === "updated"
-          ? "The Nodex command line tool was updated."
-          : "The Nodex command line tool was installed.";
-    const pathMessage = result.pathConfigured
-      ? `Run it as:\n\nnodex --help\n\nInstalled link: ${result.targetPath}`
-      : `Installed link: ${result.targetPath}\n\nAdd this line to your shell profile, then open a new terminal:\n\nexport PATH="$HOME/.local/bin:$PATH"`;
-    await dialog.showMessageBox({
-      type: "info",
-      buttons: ["OK"],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-      message: statusMessage,
-      detail: pathMessage,
-    });
-    await runAgentSkillSetup({
-      cliPath: result.sourcePath,
-      onlyWhenMissing: true,
-      pathConfigured: result.pathConfigured,
-      showMessageBox: (options) => dialog.showMessageBox(options),
-    });
-  } catch (error) {
-    logger.error("Could not install the Nodex command line tool", { error });
-    await dialog.showMessageBox({
-      type: "error",
-      buttons: ["OK"],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-      message: "Could not install the Nodex command line tool.",
-      detail: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-async function setupAgentSkills(): Promise<void> {
-  await runAgentSkillSetup({
-    cliPath: join(process.resourcesPath, "bin/nodex"),
-    showMessageBox: (options) => dialog.showMessageBox(options),
-  });
-}
-
-function configureApplicationMenus(commandKeymapState = getCommandKeymapState()): void {
-  const menuAccelerator = (commandId: string): string | undefined => {
-    return toElectronAccelerator(getPrimaryCommandAccelerator(commandKeymapState, commandId));
-  };
-
-  const dockMenuTemplate: MenuItemConstructorOptions[] = [
-    {
-      label: "New Window",
-      accelerator: menuAccelerator("newWindow"),
-      click: () => {
-        requestNewWindowFromActiveWindow();
-      },
-    },
-  ];
-  app.dock?.setMenu(Menu.buildFromTemplate(dockMenuTemplate));
-
-  const sendWorkbenchCommand = (invocation: WorkbenchCommandInvocation) => {
-    const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
-    safeSendToWindow(targetWindow, EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL, [invocation]);
-  };
-
-  const sendNavigationMessage = (
-    channel:
-      | WorkbenchNavigationHostChannel
-      | WorkbenchSidebarToggleHostChannel
-      | WorkbenchThreadRenameHostChannel
-      | WorkbenchContentSearchHostChannel
-      | WorkbenchPanelTabCycleHostChannel
-      | WorkbenchPanelTabCloseHostChannel,
-  ) => {
-    const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
-    safeSendToWindow(targetWindow, channel);
-  };
-
-  const closeFocusedWindow = () => {
-    const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
-    if (!targetWindow || targetWindow.isDestroyed()) return;
-    targetWindow.close();
-  };
-  const setupEnabled =
-    app.isPackaged &&
-    (typeof app.isInApplicationsFolder !== "function" || app.isInApplicationsFolder());
-
-  const appMenuTemplate: MenuItemConstructorOptions[] = [
-    ...(process.platform === "darwin"
-      ? [
-          {
-            role: "appMenu",
-            submenu: [
-              {
-                label: "Check for Updates…",
-                click: () => {
-                  void appUpdateRuntime?.check();
-                },
-              },
-              ...buildNodexSetupMenuItems({
-                enabled: setupEnabled,
-                onInstallCli: () => {
-                  void installCommandLineTool();
-                },
-                onSetupAgentSkills: () => {
-                  void setupAgentSkills();
-                },
-              }),
-            ],
-          } satisfies MenuItemConstructorOptions,
-        ]
-      : []),
-    buildWindowFileMenu({
-      commandKeymapState,
-      onNewWindow: () => {
-        requestNewWindowFromActiveWindow();
-      },
-      onCloseWindow: closeFocusedWindow,
-    }),
-    { role: "editMenu" },
-    {
-      label: "Navigate",
-      submenu: [
-        {
-          label: "Back",
-          accelerator: menuAccelerator("navigateBack"),
-          click: () => {
-            sendNavigationMessage(NAVIGATE_BACK_HOST_CHANNEL);
-          },
-        },
-        {
-          label: "Forward",
-          accelerator: menuAccelerator("navigateForward"),
-          click: () => {
-            sendNavigationMessage(NAVIGATE_FORWARD_HOST_CHANNEL);
-          },
-        },
-        { type: "separator" },
-        {
-          label: WORKBENCH_CONTENT_SEARCH_COMMAND.label,
-          accelerator: menuAccelerator(WORKBENCH_CONTENT_SEARCH_COMMAND.id),
-          click: () => {
-            sendNavigationMessage(WORKBENCH_CONTENT_SEARCH_COMMAND.hostChannel);
-          },
-        },
-        { type: "separator" },
-        {
-          label: "Previous Panel Tab",
-          accelerator: menuAccelerator(PREVIOUS_PANEL_TAB_COMMAND_ID),
-          click: () => {
-            sendNavigationMessage(CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL);
-          },
-        },
-        {
-          label: "Next Panel Tab",
-          accelerator: menuAccelerator(NEXT_PANEL_TAB_COMMAND_ID),
-          click: () => {
-            sendNavigationMessage(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL);
-          },
-        },
-        {
-          label: "Close Panel Tab",
-          accelerator: menuAccelerator("closeTab"),
-          click: () => {
-            sendNavigationMessage(CLOSE_PANEL_TAB_HOST_CHANNEL);
-          },
-        },
-        { type: "separator" },
-        {
-          label: WORKBENCH_SIDEBAR_TOGGLE_COMMAND.label,
-          accelerator: menuAccelerator("toggleSidebar"),
-          click: () => {
-            sendNavigationMessage(WORKBENCH_SIDEBAR_TOGGLE_COMMAND.hostChannel);
-          },
-        },
-        {
-          label: WORKBENCH_THREAD_RENAME_COMMAND.label,
-          accelerator: menuAccelerator("renameThread"),
-          click: () => {
-            sendNavigationMessage(WORKBENCH_THREAD_RENAME_COMMAND.hostChannel);
-          },
-        },
-      ],
-    },
-    buildWorkbenchViewMenu(commandKeymapState, sendWorkbenchCommand),
-    { role: "windowMenu" },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate));
-}
-
 export function awaitMainInitialization(): Promise<void> {
   return appInitializationPromise;
 }
@@ -453,6 +209,7 @@ async function initializeDesktopApp(
   applicationSchedulers: ApplicationSchedulerRuntime["Service"],
   coreApplicationProjection: MainRuntimeStartupContext["coreApplicationProjection"],
   projectionDelivery: MainRuntimeStartupContext["projectionDelivery"],
+  markApplicationReady: MainRuntimeStartupContext["markApplicationReady"],
   markInitializationDone: MainRuntimeStartupContext["markInitializationDone"],
 ): Promise<void> {
   const initializationStartedAt = performance.now();
@@ -527,15 +284,12 @@ async function initializeDesktopApp(
     authorityAndServicesMs: Math.round(performance.now() - initializationStartedAt),
     servicesMs: Math.round(performance.now() - servicesStartedAt),
   });
-  await appUpdateRuntime?.markApplicationReady();
+  await markApplicationReady();
 }
 
 export interface MainRuntimeStartupContext {
-  appUpdateRuntime: {
-    readonly check: () => Promise<unknown>;
-    readonly currentStatus: () => import("../shared/types").AppUpdateStatus;
-    readonly markApplicationReady: () => Promise<void>;
-    readonly startAutomaticChecks: () => Promise<void>;
+  applicationMenus: {
+    readonly refresh: (state: import("../shared/command-keybindings").CommandKeymapState) => void;
   };
   applicationWindows: ApplicationWindowRuntime["Service"];
   applicationSchedulers: ApplicationSchedulerRuntime["Service"];
@@ -561,6 +315,7 @@ export interface MainRuntimeStartupContext {
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
   libraryModule: DesktopLibraryModuleBridge;
+  markApplicationReady: () => Promise<void>;
   markInitializationDone: () => Promise<void>;
   projectWorkspace: DesktopProjectWorkspacePort;
   projectionDelivery: {
@@ -637,7 +392,6 @@ function beginMainRuntimeShutdown(): void {
   runtimeShutdownStarted = true;
   rendererHostReadyForWindows = false;
   windowRuntime?.beginApplicationQuit();
-  appUpdateRuntime = null;
   logger.info("Nodex before-quit");
   windowRuntime = null;
 }
@@ -671,7 +425,6 @@ export async function runMainAppStartup(
   codexService = context.codexService;
   deepLinkRuntime = context.deepLinks;
   applicationWindowRuntime = context.applicationWindows;
-  appUpdateRuntime = context.appUpdateRuntime;
   windowRuntime = context.windowRuntime;
   const startupSecondInstancesWithoutDeepLinks = await collectStartupDeepLinks(context);
 
@@ -741,10 +494,10 @@ export async function runMainAppStartup(
     context.applicationSchedulers,
     context.coreApplicationProjection,
     context.projectionDelivery,
+    context.markApplicationReady,
     context.markInitializationDone,
   );
   rendererHostReadyForWindows = true;
-  configureApplicationMenus();
   await codexService.reconcileCodexExecutionHosts().catch((error) => {
     logger.warn("Some configured SSH execution hosts are unavailable", {
       error: error instanceof Error ? error.message : String(error),
@@ -823,7 +576,7 @@ export async function runMainAppStartup(
     resolveWindowSessionId: (webContentsId) =>
       windowRuntime?.resolveSessionId(webContentsId) ?? null,
     onCommandKeybindingsChanged: (state) => {
-      configureApplicationMenus(state);
+      context.applicationMenus.refresh(state);
     },
     terminalRuntime: context.terminalRuntime,
   });

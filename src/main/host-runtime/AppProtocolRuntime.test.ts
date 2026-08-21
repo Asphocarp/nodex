@@ -44,6 +44,7 @@ it.effect("owns application protocol handlers with the Main Scope", () =>
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],
+                environmentPath: null,
                 isPackaged: false,
                 nodexHome: "/tmp/nodex-test",
                 platform: "darwin",

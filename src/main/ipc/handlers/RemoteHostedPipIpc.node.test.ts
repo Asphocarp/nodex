@@ -41,6 +41,7 @@ it.effect("registers and releases the Remote Hosted PiP ingress with the Main Sc
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],
+                environmentPath: null,
                 isPackaged: false,
                 nodexHome: "/tmp/nodex-test",
                 platform: "darwin",

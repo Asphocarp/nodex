@@ -47,6 +47,7 @@ it.effect("registers and releases app update ingress with the Main Scope", () =>
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],
+                environmentPath: null,
                 isPackaged: false,
                 nodexHome: "/tmp/nodex-test",
                 platform: "darwin",

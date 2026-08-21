@@ -54,6 +54,7 @@ it.effect(
                   appVersion: "test",
                   arch: "arm64",
                   argv: [],
+                  environmentPath: null,
                   isPackaged: false,
                   nodexHome: "/tmp/nodex-test",
                   platform: "darwin",

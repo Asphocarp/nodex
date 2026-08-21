@@ -204,6 +204,7 @@ function launchMainApplication(): void {
     appVersion: app.getVersion(),
     arch: process.arch,
     argv: [...process.argv],
+    environmentPath: process.env.PATH ?? null,
     isPackaged: app.isPackaged,
     nodexHome,
     platform: process.platform,

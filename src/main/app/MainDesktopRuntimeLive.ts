@@ -156,7 +156,12 @@ import {
   live as applicationInitializationRuntimeLive,
 } from "../host-runtime/ApplicationInitializationRuntime";
 import {
+  ApplicationMenuRuntime,
+  live as applicationMenuRuntimeLive,
+} from "../host-runtime/ApplicationMenuRuntime";
+import {
   getBackupSettings,
+  getCommandKeymapState,
   getHistorySettings,
   getThreadNotificationSettings,
 } from "../local-store/config";
@@ -907,6 +912,20 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
+        const applicationMenuContext = yield* Layer.buildWithScope(
+          applicationMenuRuntimeLive({
+            checkForUpdates: appUpdates.check,
+            environmentPath: config.environmentPath ?? undefined,
+            initialCommandKeymap: getCommandKeymapState(),
+            isPackaged: config.isPackaged,
+            requestNewWindow: module.requestNewWindowFromActiveWindow,
+            resourcesPath: config.resourcesPath,
+            showMessage: desktop.showMessage,
+            windows,
+          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
+          runtimeScope,
+        );
+        const applicationMenus = Context.get(applicationMenuContext, ApplicationMenuRuntime);
         const coreApplicationProjectionContext = yield* Layer.buildWithScope(
           coreApplicationProjectionRuntimeLive({
             automation: {
@@ -1054,12 +1073,7 @@ export const live: Layer.Layer<
           Effect.tryPromise({
             try: () =>
               module.runMainAppStartup({
-                appUpdateRuntime: {
-                  check: () => callbacks.runPromise(appUpdates.check),
-                  currentStatus: appUpdates.currentStatus,
-                  markApplicationReady: () => callbacks.runPromise(appUpdates.markApplicationReady),
-                  startAutomaticChecks: () => callbacks.runPromise(appUpdates.startAutomaticChecks),
-                },
+                applicationMenus,
                 applicationWindows,
                 applicationSchedulers,
                 automationModule,
@@ -1079,6 +1093,7 @@ export const live: Layer.Layer<
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
                 libraryModule,
+                markApplicationReady: () => callbacks.runPromise(appUpdates.markApplicationReady),
                 markInitializationDone: () => callbacks.runPromise(initialization.markDone),
                 projectWorkspace,
                 projectionDelivery: {
