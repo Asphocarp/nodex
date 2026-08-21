@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
+import { ApplicationInitializationRuntime } from "../../host-runtime/ApplicationInitializationRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./ApplicationLifecycleIpc";
@@ -23,17 +24,20 @@ it.effect("owns all application lifecycle handlers with the Main Scope", () =>
       on: (channel: string) => register(channel),
     } as unknown as ElectronIpc["Service"]);
     const windows = { has: () => true } as unknown as WindowRuntime["Service"];
+    const initialization = ApplicationInitializationRuntime.of({
+      current: Effect.succeed({ phase: "done" }),
+      reportRenderer: () => Effect.void,
+    } as unknown as ApplicationInitializationRuntime["Service"]);
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live({
         acknowledgeWindowClose: () => undefined,
         awaitInitialization: async () => undefined,
-        currentInitializationStep: () => ({ phase: "done" }),
-        reportRendererInitialization: () => undefined,
         requestMicrophonePermission: async () => undefined,
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
+            Layer.succeed(ApplicationInitializationRuntime, initialization),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, windows),

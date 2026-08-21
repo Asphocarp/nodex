@@ -3,8 +3,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
-import type { AppInitializationStep } from "../../../shared/app-startup";
 import { MainConfig } from "../../app/MainConfig";
+import { ApplicationInitializationRuntime } from "../../host-runtime/ApplicationInitializationRuntime";
 import { safeSendToWebContents } from "../../ipc-safe-send";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
@@ -13,11 +13,6 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 export interface ApplicationLifecycleIpcPort {
   readonly acknowledgeWindowClose: (webContentsId: number) => void;
   readonly awaitInitialization: () => Promise<void>;
-  readonly currentInitializationStep: () => AppInitializationStep;
-  readonly reportRendererInitialization: (
-    webContentsId: number,
-    report: { readonly durationMs: number; readonly outcome: "ready" | "failed" },
-  ) => void;
   readonly requestMicrophonePermission: () => Promise<void>;
 }
 
@@ -39,10 +34,15 @@ const RendererInitializationReport = z
 
 export const live = (
   port: ApplicationLifecycleIpcPort,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
+): Layer.Layer<
+  never,
+  never,
+  ApplicationInitializationRuntime | ElectronIpc | MainConfig | WindowRuntime
+> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
+      const initialization = yield* ApplicationInitializationRuntime;
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
       const authorize = (event: IpcMainEvent | IpcMainInvokeEvent, capabilityName: string) =>
@@ -60,11 +60,11 @@ export const live = (
       yield* ipc.handle("app:await-initialization", (event) =>
         authorize(event, "Application initialization").pipe(
           Effect.andThen(
-            Effect.sync(() => {
-              safeSendToWebContents(event.sender, "app:init-step", [
-                port.currentInitializationStep(),
-              ]);
-            }),
+            initialization.current.pipe(
+              Effect.map((step) => {
+                safeSendToWebContents(event.sender, "app:init-step", [step]);
+              }),
+            ),
           ),
           Effect.andThen(
             Effect.tryPromise({
@@ -87,9 +87,7 @@ export const live = (
                 }),
             }),
           ),
-          Effect.flatMap((report) =>
-            Effect.sync(() => port.reportRendererInitialization(event.sender.id, report)),
-          ),
+          Effect.flatMap((report) => initialization.reportRenderer(event.sender.id, report)),
           Effect.catch(() => Effect.void),
         ),
       );

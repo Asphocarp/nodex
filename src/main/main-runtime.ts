@@ -12,7 +12,6 @@ import {
 } from "electron";
 import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
-import type { AppInitializationStep } from "../shared/app-startup";
 import { APP_RENDERER_URL } from "../shared/app-renderer-policy";
 import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
@@ -84,7 +83,7 @@ import {
   PREVIOUS_PANEL_TAB_COMMAND_ID,
   toElectronAccelerator,
 } from "../shared/command-keybindings";
-import { safeBroadcastToWindows, safeSendToWindow } from "./ipc-safe-send";
+import { safeSendToWindow } from "./ipc-safe-send";
 import {
   type RendererClientRouter,
   type RendererClientRegistration,
@@ -116,7 +115,6 @@ import {
   type DesktopProjectWorkspacePort,
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
-import type { CoreAuthorityProcessExit, CoreStartupEvent } from "./core-client/core-launcher";
 import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
@@ -141,8 +139,6 @@ let deepLinkRuntime: MainRuntimeStartupContext["deepLinks"];
 
 let rendererHostReadyForWindows = false;
 let windowRuntime: WindowRuntimeService | null = null;
-let appInitializationStep: AppInitializationStep = { phase: "opening" };
-let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
 let rendererClientRouter: RendererClientRouter | null = null;
@@ -464,105 +460,12 @@ function configureApplicationMenus(commandKeymapState = getCommandKeymapState())
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate));
 }
 
-function broadcastToWindows(channel: string, payload: unknown): void {
-  safeBroadcastToWindows(windowRuntime?.all() ?? [], channel, [payload]);
-}
-
-function setAppInitializationStep(step: AppInitializationStep): void {
-  if (appInitializationStep.phase === "done") return;
-  if (appInitializationStep.phase === "migrating" && step.phase === "opening") return;
-  if (
-    appInitializationStep.phase === step.phase &&
-    (step.phase !== "migrating" ||
-      (appInitializationStep.phase === "migrating" &&
-        appInitializationStep.fromVersion === step.fromVersion &&
-        appInitializationStep.toVersion === step.toVersion &&
-        appInitializationStep.completed === step.completed &&
-        appInitializationStep.total === step.total))
-  )
-    return;
-  const now = performance.now();
-  logger.info("App initialization phase changed", {
-    previousPhase: appInitializationStep.phase,
-    phase: step.phase,
-    previousPhaseDurationMs: Math.round(now - appInitializationStepChangedAt),
-  });
-  appInitializationStep = step;
-  appInitializationStepChangedAt = now;
-  broadcastToWindows("app:init-step", step);
-}
-
-export function publishCoreStartupEvent(event: CoreStartupEvent): void {
-  if (event.kind === "migration_started") {
-    setAppInitializationStep({
-      phase: "migrating",
-      fromVersion: event.fromVersion,
-      toVersion: event.toVersion,
-    });
-    logger.info("Native Core Store migration started", {
-      fromVersion: event.fromVersion,
-      toVersion: event.toVersion,
-    });
-    return;
-  }
-  if (event.kind === "candidate_checked") {
-    logger.info("Native Core candidate checked", { artifactHashMs: event.artifactHashMs });
-    return;
-  }
-  if (event.kind === "migration_progress") {
-    if (appInitializationStep.phase === "migrating") {
-      setAppInitializationStep({
-        ...appInitializationStep,
-        completed: event.completed,
-        total: event.total,
-      });
-    }
-    return;
-  }
-  if (event.kind === "migration_heartbeat") return;
-  logger.info("Native Core Store ready", {
-    createdFresh: event.createdFresh,
-    migratedFromVersion: event.migratedFromVersion,
-    storeOpenMs: event.storeOpenMs,
-  });
-  setAppInitializationStep({ phase: "opening_workspace" });
-}
-
-export function publishCoreAuthorityProcessExit(event: CoreAuthorityProcessExit): void {
-  logger.error("Native Core authority process exited", {
-    code: event.code,
-    processId: event.processId,
-    signal: event.signal,
-    stderr: event.stderr || undefined,
-  });
-}
-
 function maybeStartAutomaticAppUpdateChecks(): void {
-  if (!appUpdateRuntime) return;
-  if (appInitializationStep.phase !== "done" || (windowRuntime?.count() ?? 0) === 0) {
-    return;
-  }
-  void appUpdateRuntime.startAutomaticChecks();
-}
-
-export function currentMainInitializationStep(): AppInitializationStep {
-  return appInitializationStep;
+  void appUpdateRuntime?.startAutomaticChecks();
 }
 
 export function awaitMainInitialization(): Promise<void> {
   return appInitializationPromise;
-}
-
-export function reportRendererInitialization(
-  webContentsId: number,
-  report: { readonly durationMs: number; readonly outcome: "ready" | "failed" },
-): void {
-  if (!windowRuntime?.markRendererInitialized(webContentsId)) return;
-  logger.info("Renderer initialization finished", {
-    durationMs: Math.round(report.durationMs),
-    outcome: report.outcome,
-    webContentsId,
-  });
 }
 
 function sendReminderOpenEvent(payload: {
@@ -857,6 +760,7 @@ async function initializeDesktopApp(
   startCoreEvents: MainRuntimeStartupContext["startCoreEvents"],
   applicationSchedulers: ApplicationSchedulerRuntime["Service"],
   projectionDelivery: MainRuntimeStartupContext["projectionDelivery"],
+  markInitializationDone: MainRuntimeStartupContext["markInitializationDone"],
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
@@ -924,7 +828,7 @@ async function initializeDesktopApp(
       sendReminderOpenEvent(payload);
     },
   });
-  setAppInitializationStep({ phase: "done" });
+  await markInitializationDone();
   logger.info("Desktop app initialization finished", {
     authorityAndServicesMs: Math.round(performance.now() - initializationStartedAt),
     servicesMs: Math.round(performance.now() - servicesStartedAt),
@@ -1037,6 +941,7 @@ export interface MainRuntimeStartupContext {
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
   libraryModule: DesktopLibraryModuleBridge;
+  markInitializationDone: () => Promise<void>;
   mcpAppSandbox: McpAppSandboxRuntime["Service"];
   projectWorkspace: DesktopProjectWorkspacePort;
   projectionDelivery: {
@@ -1169,7 +1074,6 @@ export async function runMainAppStartup(
   if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
     app.dock?.setIcon(appDockIcon);
   }
-  setAppInitializationStep({ phase: "opening" });
   const dataAuthority = context.dataAuthority;
   codexService.setNodexAgentAuthorityPort(
     createDesktopNodexAgentAuthorityPort({
@@ -1220,6 +1124,7 @@ export async function runMainAppStartup(
     context.startCoreEvents,
     context.applicationSchedulers,
     context.projectionDelivery,
+    context.markInitializationDone,
   );
   rendererHostReadyForWindows = true;
   configureApplicationMenus();

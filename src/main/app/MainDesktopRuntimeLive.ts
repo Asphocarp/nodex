@@ -148,6 +148,10 @@ import {
 } from "../host-runtime/McpAppSandboxRuntime";
 import { DeepLinkRuntime, live as deepLinkRuntimeLive } from "../host-runtime/DeepLinkRuntime";
 import {
+  ApplicationInitializationRuntime,
+  live as applicationInitializationRuntimeLive,
+} from "../host-runtime/ApplicationInitializationRuntime";
+import {
   getBackupSettings,
   getHistorySettings,
   getThreadNotificationSettings,
@@ -374,6 +378,11 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const windows = Context.get(windowRuntimeContext, WindowRuntime);
+        const initializationContext = yield* Layer.buildWithScope(
+          applicationInitializationRuntimeLive(windows),
+          runtimeScope,
+        );
+        const initialization = Context.get(initializationContext, ApplicationInitializationRuntime);
         yield* Layer.buildWithScope(
           DatabaseNotifierRuntime.live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows))),
           runtimeScope,
@@ -741,12 +750,11 @@ export const live: Layer.Layer<
           ApplicationLifecycleIpc.live({
             acknowledgeWindowClose: windows.acknowledgeClose,
             awaitInitialization: module.awaitMainInitialization,
-            currentInitializationStep: module.currentMainInitializationStep,
-            reportRendererInitialization: module.reportRendererInitialization,
             requestMicrophonePermission: module.requestHostMicrophonePermission,
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(ApplicationInitializationRuntime, initialization),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
@@ -797,8 +805,12 @@ export const live: Layer.Layer<
                 buildId: `nodex-desktop/${config.appVersion}`,
                 isPackaged: config.isPackaged,
                 nodexHome: config.nodexHome,
-                onAuthorityProcessExit: module.publishCoreAuthorityProcessExit,
-                onStartupEvent: module.publishCoreStartupEvent,
+                onAuthorityProcessExit: (event) => {
+                  void callbacks.runPromise(initialization.observeAuthorityExit(event));
+                },
+                onStartupEvent: (event) => {
+                  void callbacks.runPromise(initialization.observeCoreStartup(event));
+                },
                 repositoryRoot: config.projectRootPath,
               }),
               Layer.succeed(MainShutdown, shutdown),
@@ -1011,6 +1023,7 @@ export const live: Layer.Layer<
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
                 libraryModule,
+                markInitializationDone: () => callbacks.runPromise(initialization.markDone),
                 mcpAppSandbox,
                 projectWorkspace,
                 projectionDelivery: {
