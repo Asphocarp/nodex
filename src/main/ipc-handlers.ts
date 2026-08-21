@@ -225,7 +225,6 @@ import type {
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
   CodexConversationThreadSettingsPatch,
-  CodexPersonality,
   CodexSideChatStartInput,
   CodexThreadGoalSetActionInput,
   CodexThreadStartForSessionInput,
@@ -3519,11 +3518,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     (_, threadId: string, collaborationMode: CodexCollaborationModeKind) =>
       codexService.setConversationCollaborationMode(threadId, collaborationMode),
   );
-
-  registerHandle("codex:personality:get", () => codexService.getPersonality());
-  registerHandle("codex:personality:set", (_, personality: CodexPersonality) => {
-    codexService.setPersonality(personality);
-  });
 
   registerHandle(
     "codex:thread:settings:update",

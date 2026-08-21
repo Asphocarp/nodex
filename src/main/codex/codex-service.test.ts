@@ -150,8 +150,6 @@ interface TestableCodexService {
     listener: (event: CodexThreadNotificationEvent) => void,
   ) => () => void;
   shutdown: () => Promise<void>;
-  getPersonality: () => import("../../shared/types").CodexPersonality;
-  setPersonality: (personality: import("../../shared/types").CodexPersonality) => void;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   resolveThreadSummary: (
     threadId: string,
@@ -1516,6 +1514,7 @@ function createService(options?: {
         status: "unavailable",
       }),
     },
+    preferences: { current: () => "friendly" },
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome:
@@ -8728,19 +8727,6 @@ describe("codex-service startTurn", () => {
 });
 
 describe("codex-service collaboration modes", () => {
-  test("keeps the enabled host personality in manager state", async () => {
-    const service = createService();
-    try {
-      expect(service.getPersonality()).toBe("friendly");
-      service.setPersonality("pragmatic");
-      expect(service.getPersonality()).toBe("pragmatic");
-      service.setPersonality("none");
-      expect(service.getPersonality()).toBe("none");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("startTurn prefers explicit overrides over latest thread settings and legacy mode", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {

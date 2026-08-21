@@ -46,6 +46,10 @@ import {
   live as conversationRuntimeMapLive,
 } from "../codex-application/ConversationRuntimeMap";
 import {
+  CodexPreferences,
+  live as codexPreferencesLive,
+} from "../codex-application/CodexPreferences";
+import {
   CodexToolRuntime,
   live as codexToolRuntimeLive,
 } from "../codex-application/CodexToolRuntime";
@@ -210,6 +214,11 @@ export const live: Layer.Layer<
           conversationCommandsContext,
           ConversationCommands,
         );
+        const preferencesContext = yield* Layer.buildWithScope(
+          codexPreferencesLive,
+          runtimeScope,
+        );
+        const preferences = Context.get(preferencesContext, CodexPreferences);
         const computerUseContext = yield* Layer.buildWithScope(
           computerUseRuntimeLive({
             browserRuntime: codexRuntime.browserRuntime,
@@ -338,6 +347,7 @@ export const live: Layer.Layer<
                 Layer.succeed(CodexMedia, codexMedia),
                 Layer.succeed(ComposerCatalog, composerCatalogService),
                 Layer.succeed(ConversationCommands, conversationCommands),
+                Layer.succeed(CodexPreferences, preferences),
                 Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
                 Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
               ),
@@ -357,6 +367,7 @@ export const live: Layer.Layer<
               agentProviderRuntime,
               composerCatalog,
               computerUseRuntime,
+              preferences,
               codexClient: codexBridge,
               codexRuntime,
               runtimeStateHome,

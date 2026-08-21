@@ -5,6 +5,7 @@ import * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
+import type { CodexPersonality } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { CodexAccount } from "../../codex-application/CodexAccount";
 import { AgentProviderRuntime } from "../../codex-application/AgentProviderRuntime";
@@ -15,6 +16,7 @@ import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
+import { CodexPreferences } from "../../codex-application/CodexPreferences";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { live } from "./CodexApplicationIpc";
@@ -123,6 +125,15 @@ it.effect("registers application channels directly against their owning modules"
         ]),
       terminateBackgroundTerminal: () => Effect.succeed(true),
     });
+    let personality: CodexPersonality = "friendly";
+    const preferences = CodexPreferences.of({
+      snapshot: yield* SubscriptionRef.make<CodexPersonality>(personality),
+      current: () => personality,
+      setPersonality: (next) =>
+        Effect.sync(() => {
+          personality = next;
+        }),
+    });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live.pipe(
@@ -160,6 +171,7 @@ it.effect("registers application channels directly against their owning modules"
             Layer.succeed(ComposerCatalog, composer),
             Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
             Layer.succeed(ConversationCommands, conversations),
+            Layer.succeed(CodexPreferences, preferences),
             Layer.succeed(CodexToolRuntime, tools),
           ),
         ),
@@ -172,6 +184,8 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("agent-runtime:credential:set"));
     assert.isTrue(handlers.has("agent-runtime:credential:delete"));
     assert.isTrue(handlers.has("codex:connection:status"));
+    assert.isTrue(handlers.has("codex:personality:get"));
+    assert.isTrue(handlers.has("codex:personality:set"));
     assert.isTrue(handlers.has("codex:thread:memory-mode:set"));
     assert.isTrue(handlers.has("codex:feedback:upload"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:list"));

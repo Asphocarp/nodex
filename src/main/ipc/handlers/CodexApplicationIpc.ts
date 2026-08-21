@@ -12,6 +12,7 @@ import type {
   CodexComposerPluginListInput,
   CodexComposerSkillListInput,
   CodexConversationImageAssetResolveInput,
+  CodexPersonality,
   CodexRateLimitResetInput,
 } from "../../../shared/types";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
@@ -32,6 +33,7 @@ import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
+import { CodexPreferences } from "../../codex-application/CodexPreferences";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
@@ -147,6 +149,7 @@ export const live: Layer.Layer<
   | ComposerCatalog
   | ComposerExternalSuggestions
   | ConversationCommands
+  | CodexPreferences
   | CodexToolRuntime
 > = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -160,6 +163,7 @@ export const live: Layer.Layer<
     const composer = yield* ComposerCatalog;
     const externalSuggestions = yield* ComposerExternalSuggestions;
     const conversations = yield* ConversationCommands;
+    const preferences = yield* CodexPreferences;
     const tools = yield* CodexToolRuntime;
     const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
       validate("authorize-renderer", () =>
@@ -213,6 +217,12 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle("codex:account:logout", () => account.logout);
     yield* ipc.handle("codex:connection:status", () => connection.read);
+    yield* ipc.handle("codex:personality:get", () =>
+      Effect.sync(() => preferences.current()),
+    );
+    yield* ipc.handle("codex:personality:set", (_event, personality: CodexPersonality) =>
+      preferences.setPersonality(personality),
+    );
     yield* ipc.handle(
       "codex:thread:memory-mode:set",
       (_event, threadId: string, mode: ThreadMemoryMode) =>

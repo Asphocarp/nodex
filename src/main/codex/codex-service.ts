@@ -209,6 +209,8 @@ import type {
   WorktreeStartMode,
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
+import { parseCodexPersonality } from "../codex-application/CodexPersonality";
+import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
@@ -1411,6 +1413,7 @@ type CodexManagedWorktreeSettingsPort = {
 type CodexServiceOptions = {
   agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   composerCatalog: ComposerCatalogPromiseAdapter;
+  preferences: Pick<CodexPreferences["Service"], "current">;
   client: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntime: ComputerUseRuntimePromiseAdapter;
@@ -2575,11 +2578,6 @@ function parseCollaborationModeKind(value: unknown): CodexCollaborationModeKind 
   return null;
 }
 
-function parseCodexPersonality(value: unknown): CodexPersonality | null {
-  if (value === "none" || value === "friendly" || value === "pragmatic") return value;
-  return null;
-}
-
 function parseNullableReasoningEffort(
   value: unknown,
   fallback: CodexReasoningEffort | null,
@@ -2625,6 +2623,7 @@ export class CodexService extends EventEmitter {
   private readonly client: CodexApplicationClient;
   private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter;
+  private readonly preferences: Pick<CodexPreferences["Service"], "current">;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly runtimeVersion: string | null;
@@ -2796,7 +2795,6 @@ export class CodexService extends EventEmitter {
     string,
     Promise<CodexConversationThreadSettings>
   >();
-  private personality: CodexPersonality = "friendly";
   private readonly threadNamePersistenceByThreadId = new Map<string, Promise<void>>();
   private readonly activeGoalContinuationPromises = new Map<string, Promise<void>>();
   private readonly activeGoalContinuationTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -2867,6 +2865,7 @@ export class CodexService extends EventEmitter {
 
     this.agentProviderRuntime = options.agentProviderRuntime;
     this.composerCatalog = options.composerCatalog;
+    this.preferences = options.preferences;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.browserRuntime = runtime.browserRuntime;
@@ -6000,7 +5999,7 @@ export class CodexService extends EventEmitter {
       reasoningEffort: latestCollaborationMode.settings.reasoning_effort,
       summary: record.latestThreadSettings?.summary ?? null,
       collaborationMode: latestCollaborationMode,
-      personality: record.latestThreadSettings?.personality ?? this.personality,
+      personality: record.latestThreadSettings?.personality ?? this.preferences.current(),
     };
     const canonical = record.canonicalState;
     const hydrationContext = canonical?.sidecar.hydrationContext ?? null;
@@ -15298,7 +15297,7 @@ export class CodexService extends EventEmitter {
           model: input.latestCollaborationMode.settings.model,
           reasoningEffort: input.latestCollaborationMode.settings.reasoning_effort,
           collaborationMode: input.latestCollaborationMode,
-          personality: this.personality,
+          personality: this.preferences.current(),
         },
         turns: [],
         transcript: [],
@@ -16602,7 +16601,7 @@ export class CodexService extends EventEmitter {
           cwd: runLocation.cwd,
           permissions: launchPermissions,
           defaultFeatureOverrides: CODEX_DEFAULT_FEATURE_OVERRIDES,
-          personality: this.personality,
+          personality: this.preferences.current(),
           baseInstructions: input.baseInstructions,
           additionalDeveloperInstructions,
           mode: input.mode,
@@ -16819,7 +16818,7 @@ export class CodexService extends EventEmitter {
           : (effectiveReasoningEffort ?? threadStart.reasoningEffort),
         multiAgentMode: "explicitRequestOnly",
         summary: firstTurnReasoningSummary,
-        personality: this.personality,
+        personality: this.preferences.current(),
         outputSchema: null,
         collaborationMode,
         attachments: firstTurnAttachments,
@@ -19677,16 +19676,6 @@ export class CodexService extends EventEmitter {
     );
   }
 
-  getPersonality(): CodexPersonality {
-    return this.personality;
-  }
-
-  setPersonality(personality: CodexPersonality): void {
-    const parsed = parseCodexPersonality(personality);
-    if (!parsed) throw new Error(`Unsupported Codex personality: ${String(personality)}`);
-    this.personality = parsed;
-  }
-
   async updateThreadSettingsForNextTurn(
     threadId: string,
     patch: CodexConversationThreadSettingsPatch,
@@ -20274,7 +20263,7 @@ export class CodexService extends EventEmitter {
               multiAgentMode:
                 hydration.latestThreadSettings?.multiAgentMode ?? "explicitRequestOnly",
               summary: reasoningSummary,
-              personality: latestThreadSettings?.personality ?? this.personality,
+              personality: latestThreadSettings?.personality ?? this.preferences.current(),
               outputSchema: null,
               collaborationMode,
               attachments: dedupeCodexLiveFileAttachments([
@@ -23510,7 +23499,7 @@ export class CodexService extends EventEmitter {
       serviceTier: input.serviceTier,
       permissions: input.permissionSelection?.launchParams ?? null,
       defaultFeatureOverrides: threadStartProjection.defaultFeatureOverrides,
-      personality: this.personality,
+      personality: this.preferences.current(),
       additionalDeveloperInstructions,
       ...(input.baseInstructions === undefined ? {} : { baseInstructions: input.baseInstructions }),
       ...(input.mode === undefined ? {} : { mode: input.mode }),
@@ -23692,7 +23681,7 @@ export class CodexService extends EventEmitter {
       reasoningEffort: effectiveReasoningEffort,
       summary: firstTurnReasoningSummary,
       collaborationMode: latestCollaborationMode,
-      personality: this.personality,
+      personality: this.preferences.current(),
     });
     const previousStatus = {
       statusType: detail.statusType,
