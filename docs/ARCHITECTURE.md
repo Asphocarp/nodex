@@ -400,6 +400,20 @@ another's configuration view. User mutations preserve unrelated TOML sections
 and publish a fully flushed sibling staging file with an atomic rename; readers
 therefore observe either the previous or the complete next document.
 
+Application scheduling is split by authority rather than hidden behind a
+process-wide scheduler facade. `ReminderSchedulerRuntime` owns reminder claims,
+delivery, power-resume recovery, and notification callbacks;
+`ScheduledAutomationRuntime` owns scheduled execution leases and heartbeat
+projection; `StoreAdministrationSchedulerRuntime` owns automatic backup and the
+three Store maintenance lanes. Every schedule is a scoped Effect fiber.
+Per-domain semaphores reject overlapping ticks, the maintenance lanes share one
+Store-wide permit, and backup configuration replacement interrupts the previous
+schedule through one `FiberHandle`. Core remains the durable definition and
+lease authority. Core recovery triggers an immediate reminder and automation
+pass, while Main Scope closure interrupts every schedule and returns admitted
+leases. Native notification objects and their Electron listeners remain inside
+the platform capability and close with the application Scope.
+
 The launcher selects a single Core candidate while holding the Profile lifetime lock, then proves authority with an authenticated handshake. Existing descriptors and PIDs are hints, not process identity. Core compatibility is evaluated across transport, event, Module contracts, artifact policy, and exact Store identity.
 
 Electron keeps one logical authority supervisor for its lifetime. A disconnected transport may recover by selecting another compatible Core generation for the same Store epoch; epoch or authority drift fails closed. Long-lived stream supervisors reconnect from their retained logical cursors or resource identities.

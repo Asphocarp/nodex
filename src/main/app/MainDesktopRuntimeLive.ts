@@ -208,9 +208,17 @@ import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntim
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
 import { live as codexRendererProjectionRuntimeLive } from "../host-runtime/CodexRendererProjectionRuntime";
 import {
-  ApplicationSchedulerRuntime,
-  live as applicationSchedulerRuntimeLive,
-} from "../host-runtime/ApplicationSchedulerRuntime";
+  ReminderSchedulerRuntime,
+  live as reminderSchedulerRuntimeLive,
+} from "../host-runtime/ReminderSchedulerRuntime";
+import {
+  ScheduledAutomationRuntime,
+  live as scheduledAutomationRuntimeLive,
+} from "../host-runtime/ScheduledAutomationRuntime";
+import {
+  StoreAdministrationSchedulerRuntime,
+  live as storeAdministrationSchedulerRuntimeLive,
+} from "../host-runtime/StoreAdministrationSchedulerRuntime";
 import {
   McpAppSandboxRuntime,
   live as mcpAppSandboxRuntimeLive,
@@ -1238,19 +1246,39 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
+        const scheduledAutomationContext = yield* Layer.buildWithScope(
+          scheduledAutomationRuntimeLive({
+            automation: automationModule,
+            run: (automation, context) => codexService.runScheduledAutomation(automation, context),
+            notifyRunsUpdated: () => {
+              codexService.notifyAutomationRunsUpdated({
+                automationId: null,
+                threadId: null,
+                reason: "settle",
+              });
+            },
+          }).pipe(Layer.provide(Layer.succeed(CoreAuthority, authority))),
+          runtimeScope,
+        );
+        const scheduledAutomations = Context.get(
+          scheduledAutomationContext,
+          ScheduledAutomationRuntime,
+        );
         yield* Layer.buildWithScope(
           AutomationIpc.live({
             automation: automationModule,
             codex: codexService,
             rendererClients: rendererClients.router,
             onHeartbeatAutomationsEnabledChanged: (input) => {
-              applicationSchedulers.setHeartbeatAutomationsEnabled(input.enabled);
+              callbacks.fork(scheduledAutomations.setHeartbeatAutomationsEnabled(input.enabled));
             },
             onHeartbeatAutomationThreadStateChanged: (input, rendererClientId) => {
-              applicationSchedulers.setHeartbeatThreadRendererState({
-                ...input,
-                rendererClientId,
-              });
+              callbacks.fork(
+                scheduledAutomations.setHeartbeatThreadRendererState({
+                  ...input,
+                  rendererClientId,
+                }),
+              );
             },
           }).pipe(
             Layer.provide(
@@ -1477,22 +1505,8 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const applicationSchedulerContext = yield* Layer.buildWithScope(
-          applicationSchedulerRuntimeLive({
-            automation: automationModule,
-            storeAdministration,
-            readBackupSettings: getBackupSettings,
-            readBlockRetentionCount: () => getHistorySettings().retentionCount,
-            runScheduledAutomation: (automation, context) =>
-              codexService.runScheduledAutomation(automation, context),
-            notifyAutomationRunsUpdated: () => {
-              codexService.notifyAutomationRunsUpdated({
-                automationId: null,
-                threadId: null,
-                reason: "settle",
-              });
-            },
-          }).pipe(
+        const reminderSchedulerContext = yield* Layer.buildWithScope(
+          reminderSchedulerRuntimeLive({ automation: automationModule }).pipe(
             Layer.provide(
               Layer.merge(
                 Layer.succeed(CoreAuthority, authority),
@@ -1502,16 +1516,25 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const applicationSchedulers = Context.get(
-          applicationSchedulerContext,
-          ApplicationSchedulerRuntime,
+        const reminderScheduler = Context.get(reminderSchedulerContext, ReminderSchedulerRuntime);
+        const storeSchedulerContext = yield* Layer.buildWithScope(
+          storeAdministrationSchedulerRuntimeLive({
+            administration: storeAdministration,
+            readBackupSettings: getBackupSettings,
+            readBlockRetentionCount: () => getHistorySettings().retentionCount,
+          }).pipe(Layer.provide(Layer.succeed(CoreAuthority, authority))),
+          runtimeScope,
+        );
+        const storeSchedulers = Context.get(
+          storeSchedulerContext,
+          StoreAdministrationSchedulerRuntime,
         );
         yield* Layer.buildWithScope(
           ApplicationSettingsIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ApplicationMenuRuntime, applicationMenus),
-                Layer.succeed(ApplicationSchedulerRuntime, applicationSchedulers),
+                Layer.succeed(StoreAdministrationSchedulerRuntime, storeSchedulers),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
@@ -1644,7 +1667,16 @@ export const live: Layer.Layer<
             catch: (cause) => runtimeError("synchronize-automations", cause),
           });
           codexService.requestManagedWorktreeRetentionSweep();
-          applicationSchedulers.activate({ openReminder: applicationWindows.sendReminderOpen });
+          yield* Effect.all(
+            [
+              reminderScheduler.activate({
+                openReminder: applicationWindows.sendReminderOpen,
+              }),
+              scheduledAutomations.activate,
+              storeSchedulers.activate,
+            ],
+            { concurrency: "unbounded", discard: true },
+          );
           yield* initialization.markDone;
           applicationLogger.info("Desktop app initialization finished", {
             durationMs: Math.round(performance.now() - initializationStartedAt),

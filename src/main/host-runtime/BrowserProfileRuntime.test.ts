@@ -88,6 +88,7 @@ it.effect("owns Browser Profile services and the download session listener", () 
                       showItemInFolder: () => undefined,
                     } as never,
                     showMessage: () => Effect.die("unused"),
+                    showNotification: () => Effect.die("unused"),
                     onPowerEvent: () => Effect.void,
                   }),
                 ),

@@ -6,7 +6,7 @@ import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { ApplicationMenuRuntime } from "../../host-runtime/ApplicationMenuRuntime";
-import { ApplicationSchedulerRuntime } from "../../host-runtime/ApplicationSchedulerRuntime";
+import { StoreAdministrationSchedulerRuntime } from "../../host-runtime/StoreAdministrationSchedulerRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { ApplicationSettingsIpcError, live } from "./ApplicationSettingsIpc";
@@ -28,9 +28,9 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
       on: () => Effect.void,
     } as ElectronIpc["Service"]);
     const menus = ApplicationMenuRuntime.of({ refresh: () => undefined });
-    const schedulers = ApplicationSchedulerRuntime.of({
-      configureBackup: () => undefined,
-    } as unknown as ApplicationSchedulerRuntime["Service"]);
+    const schedulers = StoreAdministrationSchedulerRuntime.of({
+      configureBackup: () => Effect.void,
+    } as unknown as StoreAdministrationSchedulerRuntime["Service"]);
     const windows = WindowRuntime.of({
       all: () => [],
       has: () => true,
@@ -41,7 +41,7 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ApplicationMenuRuntime, menus),
-            Layer.succeed(ApplicationSchedulerRuntime, schedulers),
+            Layer.succeed(StoreAdministrationSchedulerRuntime, schedulers),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, windows),

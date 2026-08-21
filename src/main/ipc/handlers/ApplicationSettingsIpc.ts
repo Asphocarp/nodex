@@ -19,7 +19,7 @@ import type {
 } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { ApplicationMenuRuntime } from "../../host-runtime/ApplicationMenuRuntime";
-import { ApplicationSchedulerRuntime } from "../../host-runtime/ApplicationSchedulerRuntime";
+import { StoreAdministrationSchedulerRuntime } from "../../host-runtime/StoreAdministrationSchedulerRuntime";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
 import {
   getBackupSettings,
@@ -116,13 +116,17 @@ const CommandKeybindingMutation = z.discriminatedUnion("type", [
 export const live: Layer.Layer<
   never,
   never,
-  ApplicationMenuRuntime | ApplicationSchedulerRuntime | ElectronIpc | MainConfig | WindowRuntime
+  | ApplicationMenuRuntime
+  | StoreAdministrationSchedulerRuntime
+  | ElectronIpc
+  | MainConfig
+  | WindowRuntime
 > = Layer.effectDiscard(
   Effect.gen(function* () {
     const config = yield* MainConfig;
     const ipc = yield* ElectronIpc;
     const menus = yield* ApplicationMenuRuntime;
-    const schedulers = yield* ApplicationSchedulerRuntime;
+    const schedulers = yield* StoreAdministrationSchedulerRuntime;
     const windows = yield* WindowRuntime;
     const authorize = (event: IpcMainInvokeEvent, capability: string) =>
       Effect.try({
@@ -162,7 +166,7 @@ export const live: Layer.Layer<
         Effect.andThen(
           run("update-backup-settings", () => updateBackupSettings(BackupUpdate.parse(input))),
         ),
-        Effect.tap((settings) => Effect.sync(() => schedulers.configureBackup(settings))),
+        Effect.tap((settings) => schedulers.configureBackup(settings)),
       ),
     );
     yield* handleRead("settings:history:get", "History settings", getHistorySettings);

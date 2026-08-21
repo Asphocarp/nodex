@@ -588,7 +588,7 @@ import type {
   DesktopProjectWorkspaceThread,
   DesktopProjectWorkspaceThreadPatch,
 } from "../core-client/project-workspace-adapter";
-import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
+import { CodexScheduledAutomationRetryError } from "../host-runtime/ScheduledAutomationPolicy";
 import type { ProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 import {
   buildCodexNewConversationParams,
