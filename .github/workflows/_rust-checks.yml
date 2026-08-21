@@ -50,7 +50,6 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.source_sha || github.sha }}
       - uses: ./.github/actions/setup-vite-plus
-      - uses: ./.github/actions/setup-rust-ci
       - run: node --no-warnings scripts/ci/run-timed.ts --name rust-format -- cargo fmt --all --check
 
   clippy:

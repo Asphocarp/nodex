@@ -17,7 +17,9 @@ runs:
           sudo apt-get install --yes ripgrep
         fi
     - name: Install sccache
-      uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        disable_annotations: true
     - name: Install cargo-nextest
       if: inputs.nextest == 'true'
       uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
