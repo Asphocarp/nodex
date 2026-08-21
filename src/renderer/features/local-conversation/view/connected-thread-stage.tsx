@@ -11,12 +11,6 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex-thread-title";
 import { buildCodexTurnOccurrenceKey } from "../../../../shared/codex-turn-identity";
-import type {
-  CodexCollaborationModeKind,
-  CodexCollaborationModeState,
-  CodexConversationChildMembership,
-  CodexConversationThreadSettings,
-} from "@/lib/types";
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
 import { buildBackgroundSubagentRows } from "../projection/background-subagent-row-model";
 import { selectPrimaryBackgroundConversationRequest } from "../conversation-request-helpers";
@@ -86,7 +80,10 @@ import {
   ThreadSummaryPanelRenderErrorFallback,
 } from "./summary-panel";
 import { resolveEffectiveAgentExecutionProfile } from "@/lib/agent-execution-profile";
-import type { AgentExecutionProfile } from "../../../../shared/agent-runtime";
+import {
+  resolveChildConversationIds,
+  resolveEffectiveThreadStageSettings,
+} from "./connected-thread-stage-model";
 import {
   codexComposerChatGptConversationsListQueryOptions,
   codexComposerPluginsListQueryOptions,
@@ -155,76 +152,6 @@ function usePresentedConversationIds(
   useEffect(() => () => {
     updatePresentedIds([]);
   }, []);
-}
-
-function isKnownCollaborationMode(mode: string | null | undefined): mode is CodexCollaborationModeKind {
-  return mode === "default" || mode === "plan";
-}
-
-function normalizeSelectedModel(model: string | null | undefined): string | null {
-  const normalized = model?.trim();
-  return normalized ? normalized : null;
-}
-
-export function resolveChildConversationIds(
-  activeThreadId: string | null,
-  memberships: readonly CodexConversationChildMembership[],
-): string[] {
-  return Array.from(new Set(
-    memberships
-      .map((membership) => membership.threadId.trim())
-      .filter((threadId) => threadId.length > 0 && threadId !== activeThreadId),
-  ));
-}
-
-export function resolveEffectiveThreadStageSettings({
-  activeThreadId,
-  liveThreadSettings,
-  liveMode,
-  fallbackMode,
-  fallbackModel,
-  fallbackReasoningEffort,
-  threadExecutionProfile,
-  availableModes,
-}: {
-  activeThreadId: string | null;
-  liveThreadSettings: CodexConversationThreadSettings | null;
-  liveMode: CodexCollaborationModeState | null;
-  fallbackMode: CodexCollaborationModeKind;
-  fallbackModel: string;
-  fallbackReasoningEffort: ConnectedThreadStageInput["selectedReasoningEffort"];
-  threadExecutionProfile?: AgentExecutionProfile | null;
-  availableModes: ConnectedThreadStageInput["collaborationModes"];
-}): {
-  selectedCollaborationMode: CodexCollaborationModeKind;
-  selectedModel: string;
-  selectedReasoningEffort: ConnectedThreadStageInput["selectedReasoningEffort"];
-} {
-  const candidateMode = liveThreadSettings?.collaborationMode?.mode ?? liveMode?.mode;
-  const fallback = {
-    selectedCollaborationMode: fallbackMode,
-    selectedModel: threadExecutionProfile?.modelId ?? fallbackModel,
-    selectedReasoningEffort:
-      threadExecutionProfile?.reasoningEffort ?? fallbackReasoningEffort,
-  };
-  if (!activeThreadId || !isKnownCollaborationMode(candidateMode)) {
-    return fallback;
-  }
-
-  const selectedCollaborationMode = availableModes.length === 0 || availableModes.some((mode) => mode.mode === candidateMode)
-    ? candidateMode
-    : fallbackMode;
-  return {
-    selectedCollaborationMode,
-    selectedModel:
-      normalizeSelectedModel(liveThreadSettings?.model)
-      ?? threadExecutionProfile?.modelId
-      ?? fallbackModel,
-    selectedReasoningEffort:
-      liveThreadSettings?.reasoningEffort
-      ?? threadExecutionProfile?.reasoningEffort
-      ?? fallbackReasoningEffort,
-  };
 }
 
 interface ConnectedThreadStageProps extends ConnectedThreadStageInput {

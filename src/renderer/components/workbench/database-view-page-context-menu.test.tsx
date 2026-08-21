@@ -5,7 +5,6 @@ import {
   __getNodexToastSnapshotForTests,
   __resetNodexToastStoreForTests,
 } from "@/components/ui/toast";
-import { buildPageDeepLink } from "@/lib/page-deeplink";
 import { render } from "@/test/dom";
 import { DatabaseViewPageContextMenu } from "./database-view-page-context-menu";
 import { dataSourcePagePropertyMenuSourceFromBindings } from "@/components/database/data-source-page-property-menu-source";
@@ -107,17 +106,8 @@ describe("DatabaseViewPageContextMenu", () => {
     });
   });
 
-  test("copies Page identity, deeplink, title, and canonical Markdown", async () => {
+  test("wires direct and materialized Page copy requests", async () => {
     const screen = renderMenu();
-
-    await openMenu(screen);
-    await openSubmenu(screen, "Copy");
-    const copyId = await screen.findByRole("menuitem", { name: "Copy ID" });
-    await act(async () => {
-      fireEvent.click(copyId);
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("LAB-13"));
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
@@ -127,17 +117,8 @@ describe("DatabaseViewPageContextMenu", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith(
-      buildPageDeepLink({ pageId: "page-1" }),
+      "nodex://pages/page-1",
     ));
-
-    await openMenu(screen);
-    await openSubmenu(screen, "Copy");
-    const copyTitle = await screen.findByRole("menuitem", { name: "Copy title" });
-    await act(async () => {
-      fireEvent.click(copyTitle);
-      await Promise.resolve();
-    });
-    await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("Release plan"));
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");

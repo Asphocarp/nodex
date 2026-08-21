@@ -244,6 +244,10 @@ import {
   type ComposerIntelligenceController,
 } from "./use-composer-intelligence-controller";
 import {
+  isInterruptedTurnResumeEligible,
+  createInterruptedTurnResumeGate,
+} from "./interrupted-turn-resume-controller";
+import {
   findComposerPowerChoiceIndex,
   resolveComposerPowerPolicy,
 } from "./composer-intelligence-power-policy";
@@ -2288,7 +2292,7 @@ function HydratedThreadComposer({
   const pastedTextOperationGenerationRef = useRef(new Map<string, number>());
   const pastedTextOperationCounterRef = useRef(0);
   const composerMountedRef = useRef(true);
-  const resumeInFlightRef = useRef(false);
+  const [resumeAttemptGate] = useState(createInterruptedTurnResumeGate);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
   const imageEditComposerTarget = resolveImageEditComposerTarget({
@@ -3458,29 +3462,24 @@ function HydratedThreadComposer({
   }, [actions, model.activeTurn?.turnId, model.conversation, model.isThreadRunning, onErrorMessage]);
 
   const handleResumeInterruptedTurn = useCallback(async () => {
-    if (
-      resumeInFlightRef.current
-      || !actions.onResumeInterruptedTurn
-      || !model.conversation
-      || model.isThreadRunning
-      || model.conversation.turns.at(-1)?.status !== "interrupted"
-      || model.conversation.threadGoal
-    ) {
-      return;
-    }
-
-    resumeInFlightRef.current = true;
+    const resumeInterruptedTurn = actions.onResumeInterruptedTurn;
+    if (!resumeInterruptedTurn) return;
+    const releaseAttempt = resumeAttemptGate.tryAcquire(isInterruptedTurnResumeEligible({
+      model,
+      hasResumeAction: true,
+    }));
+    if (!releaseAttempt) return;
     setBusyAction("resume");
     onErrorMessage(null);
     try {
-      await actions.onResumeInterruptedTurn();
+      await resumeInterruptedTurn();
     } catch (error) {
       onErrorMessage(error instanceof Error ? error.message : "Could not resume Nodex");
     } finally {
-      resumeInFlightRef.current = false;
+      releaseAttempt();
       setBusyAction(null);
     }
-  }, [actions, model.conversation, model.isThreadRunning, onErrorMessage]);
+  }, [actions, model, onErrorMessage, resumeAttemptGate]);
 
   const handleRemoveFileAttachment = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();

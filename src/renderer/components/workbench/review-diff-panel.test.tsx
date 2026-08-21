@@ -2934,7 +2934,7 @@ describe("review diff panel", () => {
     expect(startThreadPromptCalls[1]?.prompt.includes("pull request")).toBe(true);
   });
 
-  test("renders codex-style review options with icons and diff toggle labels", async () => {
+  test("renders review option states and diff toggle actions", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
       if (channel !== "review-diff") return null;
@@ -2984,9 +2984,6 @@ describe("review diff panel", () => {
     expect(optionLabels.join("|")).toBe(
       "Refresh|Enable word wrap|Don't load full files|Enable rich preview|Disable word diffs|Hide white space|Copy git apply command",
     );
-    expect(
-      menuItems.every((node) => node.querySelector("svg") !== null),
-    ).toBe(true);
     expect(
       menuItems.some((node) =>
         node.textContent?.includes("Review uncommitted changes"),

@@ -47,7 +47,6 @@ import {
 } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { NfmSendToThreadMenu } from "@/components/board/editor/nfm-send-to-thread-menu";
-import { buildPageDeepLink } from "@/lib/page-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { loadPageDocumentMaterialization } from "@/lib/page-prompt-context";
 import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
@@ -63,6 +62,10 @@ import {
   type DatabaseViewPageMenuEntry,
   type DatabaseViewPageMoveDirection,
 } from "./database-view-page-menu-model";
+import {
+  isDatabaseViewPageCopyActionId,
+  resolveDatabaseViewPageCopyRequest,
+} from "./database-view-page-copy-model";
 
 interface ChatPickerState {
   readonly anchorRect: DOMRect;
@@ -302,36 +305,30 @@ export function DatabaseViewPageContextMenuOverlay({
       return;
     }
 
-    if (actionId === "copy-id" && page.pageKey) {
-      void copyWithFeedback(page.pageKey, "Copied ID", "Failed to copy ID");
-      return;
-    }
-    if (actionId === "copy-deeplink") {
-      void copyWithFeedback(
-        buildPageDeepLink({ pageId: page.pageId }),
-        "Copied deeplink",
-        "Failed to copy deeplink",
-      );
-      return;
-    }
-    if (actionId === "copy-title") {
-      void copyWithFeedback(
-        presentedTitle.trim() || "Untitled Page",
-        "Copied title",
-        "Failed to copy title",
-      );
-      return;
-    }
-    if (actionId === "copy-markdown") {
+    if (isDatabaseViewPageCopyActionId(actionId)) {
+      const request = resolveDatabaseViewPageCopyRequest({
+        actionId,
+        page,
+        presentedTitle,
+      });
+      if (!request) return;
+      if (request.kind === "value") {
+        void copyWithFeedback(
+          request.value,
+          request.successMessage,
+          request.failureMessage,
+        );
+        return;
+      }
       void loadPageDocumentMaterialization({
-        accessContext: page.accessContext,
-        pageId: page.pageId,
+        accessContext: request.accessContext,
+        pageId: request.pageId,
       }).then((materialized) => copyWithFeedback(
         materialized.nfm,
-        "Copied content as Markdown",
-        "Failed to copy content",
+        request.successMessage,
+        request.failureMessage,
       )).catch(() => {
-        toast.danger("Failed to copy content");
+        toast.danger(request.failureMessage);
       });
       return;
     }

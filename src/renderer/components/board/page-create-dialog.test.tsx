@@ -30,6 +30,7 @@ const editorState = vi.hoisted(() => ({
     delete: (index: number, length: number) => void;
   },
 }));
+const optionRuntime = vi.hoisted(() => ({ readWindow: vi.fn() }));
 
 const property = (
   propertyId: "priority" | "estimate",
@@ -49,6 +50,11 @@ const property = (
 
 vi.mock("@/lib/board-page-create-command", () => ({
   createBoardPage: (...args: unknown[]) => commandState.create(...args),
+}));
+
+vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/database-property-options-runtime")>(),
+  readPropertyOptionWindow: optionRuntime.readWindow,
 }));
 
 vi.mock("./editor/nfm-editor", async () => {
@@ -246,6 +252,12 @@ function TestShell({
 describe("PageCreateDialog", () => {
   beforeEach(() => {
     commandState.create.mockReset();
+    optionRuntime.readWindow.mockReset();
+    optionRuntime.readWindow.mockResolvedValue({
+      options: [],
+      nextCursor: null,
+      projectionRevision: 1,
+    });
     editorState.latestFragment = null;
     __resetNodexToastStoreForTests();
   });

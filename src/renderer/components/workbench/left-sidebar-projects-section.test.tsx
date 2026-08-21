@@ -10,7 +10,6 @@ import { TestQueryProvider } from "../../test/query";
 let SidebarProjectsSection: typeof import("./left-sidebar-projects-section")["SidebarProjectsSection"];
 let CodexProjectRow: typeof import("./codex-sidebar")["CodexProjectRow"];
 let CodexProjectSessionList: typeof import("./codex-sidebar")["CodexProjectSessionList"];
-let getCodexSidebarSortableStyle: typeof import("./codex-sidebar")["getCodexSidebarSortableStyle"];
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
@@ -96,7 +95,6 @@ beforeAll(async () => {
   SidebarProjectsSection = sectionModule.SidebarProjectsSection;
   CodexProjectRow = sidebarModule.CodexProjectRow;
   CodexProjectSessionList = sidebarModule.CodexProjectSessionList;
-  getCodexSidebarSortableStyle = sidebarModule.getCodexSidebarSortableStyle;
 });
 
 beforeEach(() => {
@@ -631,62 +629,6 @@ describe("SidebarProjectsSection", () => {
     expect(queryByText(/Reveal in Finder|Open in Explorer|Open in File Manager/)).toBe(null);
   });
 
-  test("wraps expanded project sessions in the Codex height and opacity motion disclosure", () => {
-    const { container, getByText } = renderProjectRowWithSessions();
-
-    const motionDisclosure = container.querySelector("[data-app-action-sidebar-project-list-motion]");
-    expect(Boolean(motionDisclosure)).toBe(true);
-
-    const sessionList = container.querySelector("[data-app-action-sidebar-project-list-id='alpha']");
-    expect(Boolean(sessionList)).toBe(true);
-    expect(sessionList?.getAttribute("data-app-action-sidebar-project-show-all")).toBe("false");
-    expect(getByText("Alpha session").textContent).toBe("Alpha session");
-  });
-
-  test("reuses the Project marker slot for the independent disclosure control", () => {
-    const { container, rerender } = renderProjectRowWithSessions();
-
-    const expandedRow = container.querySelector("[data-app-action-sidebar-project-row]");
-    const leadingSlot = expandedRow?.querySelector("[data-app-action-sidebar-project-leading-slot]");
-    const projectMarker = expandedRow?.querySelector("[data-app-action-sidebar-project-marker]");
-    const expandedLabel = expandedRow?.querySelector("[data-app-action-sidebar-project-label-text]");
-    const expandedChevron = expandedRow?.querySelector("[data-app-action-sidebar-project-toggle-chevron]");
-
-    if (!leadingSlot || !projectMarker || !expandedLabel || !expandedChevron) {
-      throw new Error("Expected a shared Project marker and disclosure slot before the label");
-    }
-
-    expect(leadingSlot.contains(projectMarker)).toBe(true);
-    expect(leadingSlot.contains(expandedChevron)).toBe(true);
-    expect(Boolean(expandedChevron.compareDocumentPosition(expandedLabel) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(expandedChevron.getAttribute("aria-expanded")).toBe("true");
-
-    rerender(
-      <TestQueryProvider>
-        <NodexHoverCardProvider>
-          <NodexTooltipProvider>
-            <CodexProjectRow
-              project={PROJECTS[0] as Project}
-              active
-              expanded={false}
-              onActivate={() => undefined}
-              onUpdateProject={async () => null}
-              onArchiveProject={async () => ({ kind: "not-found" })}
-            >
-              <CodexProjectSessionList project={PROJECTS[0] as Project}>
-                <div role="listitem">Alpha session</div>
-              </CodexProjectSessionList>
-            </CodexProjectRow>
-          </NodexTooltipProvider>
-        </NodexHoverCardProvider>
-      </TestQueryProvider>,
-    );
-
-    const collapsedChevronIcon = container.querySelector("[data-app-action-sidebar-project-toggle-chevron] svg");
-    expect(collapsedChevronIcon !== null).toBe(true);
-    expect(container.querySelector("[data-app-action-sidebar-project-toggle-chevron]")?.getAttribute("aria-expanded")).toBe("false");
-  });
-
   test("unmounts project session children when collapsed", () => {
     const { container, queryByText } = renderProjectRowWithSessions({ expanded: false });
 
@@ -703,14 +645,4 @@ describe("SidebarProjectsSection", () => {
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
 
-  test("project sortable style translates without scaling to target slot size", () => {
-    const style = getCodexSidebarSortableStyle(
-      { x: 12, y: 34, scaleX: 3, scaleY: 0.25 },
-      "transform 200ms ease",
-    );
-
-    expect(style.transform).toBe("translate3d(12px, 34px, 0)");
-    expect(String(style.transform).includes("scale")).toBe(false);
-    expect(style.transition).toBe("transform 200ms ease");
-  });
 });

@@ -9,6 +9,7 @@ import { CodexUserInputRequestCard } from "./codex-user-input-request-card";
 import { NodexAgentAuthorizationRequestCard } from "./nodex-agent-authorization-request-card";
 import type { ComposerIntelligenceController } from "../use-composer-intelligence-controller";
 import { buildComposerIntelligenceTurnOverrides } from "../composer-intelligence-selection";
+import { bindPendingRequestConversationActions } from "./pending-request-conversation-actions";
 
 interface CodexPendingRequestCardProps {
   entry: ThreadComposerShellPendingRequestModel;
@@ -19,18 +20,17 @@ interface CodexPendingRequestCardProps {
 
 const PLAN_IMPLEMENTATION_PROMPT_PREFIX = "PLEASE IMPLEMENT THIS PLAN:";
 
-function isAcceptedApprovalDecision(
-  response: Parameters<ThreadStageActions["onRespondApproval"]>[1],
-): boolean {
-  return response.decision !== "decline" && response.decision !== "cancel";
-}
-
 export function CodexPendingRequestCard({
   entry,
   actions,
   intelligenceController,
   onManualApproval,
 }: CodexPendingRequestCardProps) {
+  const conversationActions = bindPendingRequestConversationActions({
+    actions,
+    conversationId: entry.conversationId,
+    onManualApproval,
+  });
   const approvalQuestionActor = entry.surface === "backgroundThread" && entry.actorName?.trim()
     ? (
         <span className="font-medium text-token-foreground">
@@ -48,16 +48,7 @@ export function CodexPendingRequestCard({
           requestItem={entry.requestItem}
           actorName={entry.actorName ?? null}
           approvalQuestionActor={approvalQuestionActor}
-          onRespond={async (requestId, response) => {
-            await actions.onRespondApproval(
-              requestId,
-              response,
-              { conversationId: entry.conversationId },
-            );
-            if (isAcceptedApprovalDecision(response)) {
-              await onManualApproval?.(entry.conversationId);
-            }
-          }}
+          onRespond={conversationActions.respondApproval}
           onSubmitLocalFollowup={async (prompt) => {
             await actions.onSendPrompt(prompt);
           }}
@@ -72,32 +63,21 @@ export function CodexPendingRequestCard({
           onInterrupt={async () => {
             await actions.onInterruptTurn(entry.request.turnId);
           }}
-          onRespond={async (requestId, answers) => {
-            await actions.onRespondUserInput(requestId, answers, { conversationId: entry.conversationId });
-          }}
+          onRespond={conversationActions.respondUserInput}
         />
       );
     case "mcpServerElicitation":
       return (
         <CodexMcpElicitationRequestCard
           request={entry.request}
-          onRespond={async (requestId, action) => {
-            await actions.onRespondMcpElicitation(requestId, action, { conversationId: entry.conversationId });
-          }}
+          onRespond={conversationActions.respondMcpElicitation}
         />
       );
     case "permissionRequest":
       return (
         <CodexPermissionRequestCard
           request={entry.request}
-          onRespond={async (requestId, response) => {
-            await (actions.onRespondPermissionRequest ?? (async () => {}))(
-              requestId,
-              response,
-              { conversationId: entry.conversationId },
-            );
-            await onManualApproval?.(entry.conversationId);
-          }}
+          onRespond={conversationActions.respondPermissionRequest}
           onSubmitLocalFollowup={async (prompt) => {
             await actions.onSendPrompt(prompt);
           }}
@@ -107,39 +87,21 @@ export function CodexPendingRequestCard({
       return (
         <NodexAgentAuthorizationRequestCard
           request={entry.request}
-          onRespond={async (requestId, response) => {
-            await (actions.onRespondNodexAgentAuthorization ?? (async () => {}))(
-              requestId,
-              response,
-              { conversationId: entry.conversationId },
-            );
-          }}
+          onRespond={conversationActions.respondNodexAgentAuthorization}
         />
       );
     case "optionPicker":
       return (
         <CodexOptionPickerRequestCard
           request={entry.request}
-          onRespond={async (requestId, response) => {
-            await (actions.onRespondOptionPicker ?? (async () => {}))(
-              requestId,
-              response,
-              { conversationId: entry.conversationId },
-            );
-          }}
+          onRespond={conversationActions.respondOptionPicker}
         />
       );
     case "setupCodexStep":
       return (
         <CodexSetupCodexStepRequestCard
           request={entry.request}
-          onRespond={async (requestId, response) => {
-            await (actions.onRespondSetupCodexStep ?? (async () => {}))(
-              requestId,
-              response,
-              { conversationId: entry.conversationId },
-            );
-          }}
+          onRespond={conversationActions.respondSetupCodexStep}
         />
       );
     case "implementPlan":
