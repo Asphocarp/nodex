@@ -16,8 +16,18 @@ class FakeSender implements RemoteHostedPipWebContentsLike {
     if (eventName === "destroyed") this.destroyedListeners.push(listener);
   }
 
+  removeListener(eventName: "destroyed", listener: () => void): void {
+    if (eventName !== "destroyed") return;
+    const index = this.destroyedListeners.indexOf(listener);
+    if (index >= 0) this.destroyedListeners.splice(index, 1);
+  }
+
+  listenerCount(): number {
+    return this.destroyedListeners.length;
+  }
+
   destroy(): void {
-    for (const listener of this.destroyedListeners) listener();
+    for (const listener of [...this.destroyedListeners]) listener();
   }
 }
 
@@ -60,14 +70,24 @@ class FakeWindow implements RemoteHostedPipWindowLike {
     if (eventName === "closed") this.closedListeners.push(listener);
   }
 
+  removeListener(eventName: "focus" | "closed", listener: () => void): void {
+    const listeners = eventName === "focus" ? this.focusListeners : this.closedListeners;
+    const index = listeners.indexOf(listener);
+    if (index >= 0) listeners.splice(index, 1);
+  }
+
+  listenerCount(eventName: "focus" | "closed"): number {
+    return eventName === "focus" ? this.focusListeners.length : this.closedListeners.length;
+  }
+
   focus(): void {
     this.focused = true;
-    for (const listener of this.focusListeners) listener();
+    for (const listener of [...this.focusListeners]) listener();
   }
 
   close(): void {
     this.destroyed = true;
-    for (const listener of this.closedListeners) listener();
+    for (const listener of [...this.closedListeners]) listener();
   }
 }
 
@@ -306,10 +326,16 @@ describe("RemoteHostedPipService", () => {
     expect(getMaxDisplaySize()).toBe(360);
     addon.privacySettingsTerminationRequest = true;
     expect(service.isPrivacySettingsTerminationRequest()).toBe(true);
+    expect(window.listenerCount("focus")).toBe(1);
+    expect(window.listenerCount("closed")).toBe(1);
+    expect(window.webContents.listenerCount()).toBe(1);
 
     service.dispose();
     expect(addon.maxDisplaySizeChangedHandler).toBeNull();
     expect(addon.shouldShowTaskHandler).toBeNull();
+    expect(window.listenerCount("focus")).toBe(0);
+    expect(window.listenerCount("closed")).toBe(0);
+    expect(window.webContents.listenerCount()).toBe(0);
   });
 
   test("persists the global always-hide setting and refreshes native visibility", () => {

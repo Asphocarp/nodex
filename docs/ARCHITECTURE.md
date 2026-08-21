@@ -148,6 +148,12 @@ contribute focus observations; closing a window or Main releases its listeners,
 target handles, helper process, and polling timers through that runtime's Scope.
 Renderer IPC borrows the runtime and never owns a second cache or scheduler.
 
+Remote Hosted PiP likewise keeps its native presentation poll in one scoped
+Effect fiber. The native host coordinator contains no timer; it tracks every
+window focus/closed and WebContents destroyed listener by Window identity and
+removes the whole registration on window removal or Main Scope release. Gateway
+notifications and Browser Use refresh signals enter the same runtime owner.
+
 The MCP App sandbox coordinator owns its protocol cache together with Electron session policy,
 guest hosts, pending attachments, and protocol handlers. Skybridge fetches are shared only within
 that coordinator lifetime; releasing the Main Scope aborts in-flight fetches and clears cached

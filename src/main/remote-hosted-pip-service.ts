@@ -11,6 +11,7 @@ import type { SkyNativeAddon } from "./sky-native";
 export interface RemoteHostedPipWebContentsLike {
   id: number;
   once(eventName: "destroyed", listener: () => void): void;
+  removeListener(eventName: "destroyed", listener: () => void): void;
 }
 
 export interface RemoteHostedPipWindowLike {
@@ -23,6 +24,7 @@ export interface RemoteHostedPipWindowLike {
   isFocused(): boolean;
   on(eventName: "focus", listener: () => void): void;
   once(eventName: "closed", listener: () => void): void;
+  removeListener(eventName: "focus" | "closed", listener: () => void): void;
 }
 
 type RemoteHostedPipMessageChannel =
@@ -60,7 +62,13 @@ interface PublishedStreamState {
   isAnyActive: boolean;
 }
 
-const REMOTE_HOSTED_PIP_POLL_INTERVAL_MS = 500;
+interface TrackedWindow {
+  readonly onClosed: () => void;
+  readonly onDestroyed: () => void;
+  readonly onFocus: () => void;
+  readonly sender: RemoteHostedPipWebContentsLike;
+  readonly window: RemoteHostedPipWindowLike;
+}
 
 export class RemoteHostedPipService {
   private readonly activeThreadByWindowId = new Map<number, string>();
@@ -70,11 +78,10 @@ export class RemoteHostedPipService {
   private readonly hostLayoutByWindowId = new Map<number, RemoteHostedPipHostLayout>();
   private readonly hostOwnerWindowIdByHostId = new Map<string, number>();
   private readonly publishedStreamStateByConversationId = new Map<string, PublishedStreamState>();
-  private readonly trackedWindowIds = new Set<number>();
+  private readonly trackedWindows = new Map<number, TrackedWindow>();
   private alwaysHide = false;
   private contentHostStarted = false;
   private disposed = false;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
   private selectedThreadId: string | null = null;
 
   constructor(private readonly deps: RemoteHostedPipServiceDeps) {
@@ -206,8 +213,7 @@ export class RemoteHostedPipService {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = null;
+    for (const windowId of [...this.trackedWindows.keys()]) this.removeWindow(windowId);
     for (const sessionId of [...this.browserUsePipSessions.keys()]) {
       this.invalidateBrowserUseSession(sessionId);
     }
@@ -228,18 +234,32 @@ export class RemoteHostedPipService {
   private trackSender(sender: RemoteHostedPipWebContentsLike): RemoteHostedPipWindowLike | null {
     const window = this.deps.getWindowForSender(sender);
     if (!window || window.isDestroyed()) return null;
-    if (!this.trackedWindowIds.has(window.id)) {
-      this.trackedWindowIds.add(window.id);
-      window.on("focus", () => this.reconcileNativeState());
-      window.once("closed", () => this.removeWindow(window.id));
-      sender.once("destroyed", () => this.removeWindow(window.id));
+    if (!this.trackedWindows.has(window.id)) {
+      const onFocus = () => this.reconcileNativeState();
+      const onClosed = () => this.removeWindow(window.id);
+      const onDestroyed = () => this.removeWindow(window.id);
+      this.trackedWindows.set(window.id, {
+        onClosed,
+        onDestroyed,
+        onFocus,
+        sender,
+        window,
+      });
+      window.on("focus", onFocus);
+      window.once("closed", onClosed);
+      sender.once("destroyed", onDestroyed);
     }
     this.sendHiddenThreadIdsRequested(sender);
     return window;
   }
 
   private removeWindow(windowId: number): void {
-    if (!this.trackedWindowIds.delete(windowId)) return;
+    const tracked = this.trackedWindows.get(windowId);
+    if (!tracked) return;
+    this.trackedWindows.delete(windowId);
+    tracked.window.removeListener("focus", tracked.onFocus);
+    tracked.window.removeListener("closed", tracked.onClosed);
+    tracked.sender.removeListener("destroyed", tracked.onDestroyed);
     this.activeThreadByWindowId.delete(windowId);
     this.hostLayoutByWindowId.delete(windowId);
     this.unregisterWindowHost(windowId);
@@ -324,11 +344,6 @@ export class RemoteHostedPipService {
     this.deps.addon.setRemoteHostedPIPContentPetWakeRequestHandler(null);
     this.alwaysHide = this.deps.readAlwaysHide?.() ?? false;
     this.deps.addon.refreshRemoteHostedPIPContentVisibility();
-    this.pollTimer = setInterval(
-      () => this.pollNativePresentationState(),
-      REMOTE_HOSTED_PIP_POLL_INTERVAL_MS,
-    );
-    this.pollTimer.unref?.();
     return true;
   }
 
@@ -368,7 +383,7 @@ export class RemoteHostedPipService {
     this.pollNativePresentationState();
   }
 
-  private pollNativePresentationState(): void {
+  pollNativePresentationState(): void {
     if (!this.contentHostStarted || !this.deps.addon) return;
     const selectedThreadId = this.selectedThreadId;
     if (!selectedThreadId) return;

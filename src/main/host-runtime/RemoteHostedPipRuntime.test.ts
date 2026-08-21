@@ -4,6 +4,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { assert, it } from "@effect/vitest";
 import { RemoteHostedPipRuntime, testLayer } from "./RemoteHostedPipRuntime";
 
@@ -29,6 +30,7 @@ it.effect("owns notification consumption and releases the native host with its S
           },
           handleDesktopMessageFromView: () => undefined,
           isPrivacySettingsTerminationRequest: () => false,
+          pollNativePresentationState: () => undefined,
           setAlwaysHide: (value) => {
             alwaysHide = value;
           },
@@ -66,6 +68,7 @@ it.effect("tracks Browser Use refresh signals only while its Scope is open", () 
           handleCodexNotification: () => undefined,
           handleDesktopMessageFromView: () => undefined,
           isPrivacySettingsTerminationRequest: () => false,
+          pollNativePresentationState: () => undefined,
           setAlwaysHide: () => undefined,
         },
         Stream.empty,
@@ -88,5 +91,38 @@ it.effect("tracks Browser Use refresh signals only while its Scope is open", () 
 
     yield* Scope.close(scope, Exit.void);
     assert.isNull(listener);
+  }),
+);
+
+it.effect("owns native presentation polling with the Main Scope clock", () =>
+  Effect.gen(function* () {
+    let polls = 0;
+    const scope = yield* Scope.make();
+    yield* Layer.buildWithScope(
+      testLayer(
+        {
+          dispose: () => undefined,
+          getAlwaysHide: () => false,
+          handleBrowserUseStateSnapshot: async () => undefined,
+          handleCodexNotification: () => undefined,
+          handleDesktopMessageFromView: () => undefined,
+          isPrivacySettingsTerminationRequest: () => false,
+          pollNativePresentationState: () => {
+            polls += 1;
+          },
+          setAlwaysHide: () => undefined,
+        },
+        Stream.empty,
+        undefined,
+        500,
+      ),
+      scope,
+    );
+
+    yield* TestClock.adjust(1_500);
+    assert.strictEqual(polls, 3);
+    yield* Scope.close(scope, Exit.void);
+    yield* TestClock.adjust(1_000);
+    assert.strictEqual(polls, 3);
   }),
 );

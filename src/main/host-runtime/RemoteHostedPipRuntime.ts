@@ -24,8 +24,11 @@ interface RemoteHostedPipPort {
     message: CodexDesktopMessageFromView,
   ) => void;
   readonly isPrivacySettingsTerminationRequest: () => boolean;
+  readonly pollNativePresentationState: () => void;
   readonly setAlwaysHide: (value: boolean) => void;
 }
+
+const REMOTE_HOSTED_PIP_POLL_INTERVAL_MS = 500;
 
 export class RemoteHostedPipRuntime extends Context.Service<
   RemoteHostedPipRuntime,
@@ -56,6 +59,7 @@ const fromPort = (
   acquire: Effect.Effect<RemoteHostedPipPort>,
   notifications: Stream.Stream<unknown>,
   subscribeBrowserUseState?: (listener: () => void) => () => void,
+  pollIntervalMs = REMOTE_HOSTED_PIP_POLL_INTERVAL_MS,
 ): Layer.Layer<RemoteHostedPipRuntime> =>
   Layer.effect(
     RemoteHostedPipRuntime,
@@ -69,6 +73,11 @@ const fromPort = (
         ),
         Effect.forkScoped,
       );
+      yield* Effect.forever(
+        Effect.sleep(Math.max(1, pollIntervalMs)).pipe(
+          Effect.andThen(Effect.sync(() => service.pollNativePresentationState())),
+        ),
+      ).pipe(Effect.forkScoped);
       const refresh = Effect.tryPromise({
         try: () => service.handleBrowserUseStateSnapshot(),
         catch: (cause) => new RemoteHostedPipRuntimeError({ operation: "refresh", cause }),
@@ -159,5 +168,6 @@ export const testLayer = (
   service: RemoteHostedPipPort,
   notifications: Stream.Stream<unknown> = Stream.empty,
   subscribeBrowserUseState?: (listener: () => void) => () => void,
+  pollIntervalMs?: number,
 ): Layer.Layer<RemoteHostedPipRuntime> =>
-  fromPort(Effect.succeed(service), notifications, subscribeBrowserUseState);
+  fromPort(Effect.succeed(service), notifications, subscribeBrowserUseState, pollIntervalMs);
