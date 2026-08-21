@@ -15,6 +15,7 @@ import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
+import { ExecutionHostRuntime, live as executionHostRuntimeLive } from "./ExecutionHostRuntime";
 import { ThreadCatalog, live as threadCatalogLive } from "./ThreadCatalog";
 
 export type CodexRequestHandling =
@@ -36,7 +37,8 @@ export type CodexApplicationModules =
   | ConversationCommands
   | ThreadCatalog
   | ComposerCatalog
-  | CodexAccount;
+  | CodexAccount
+  | ExecutionHostRuntime;
 
 /** Application-facing modules share the same Gateway and per-thread runtime map. */
 export const modulesLive = (
@@ -47,5 +49,6 @@ export const modulesLive = (
     threadCatalogLive,
     composerCatalogLive,
     accountLive(account),
+    executionHostRuntimeLive,
     CodexApplicationEventRouter.live,
   );
