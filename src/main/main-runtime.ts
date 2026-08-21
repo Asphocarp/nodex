@@ -68,7 +68,7 @@ import type {
   WindowSessionRecord,
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
-import { getLogger, shutdownBackendLogger } from "./logging/logger";
+import { getLogger } from "./logging/logger";
 import { closeWindowsBeforeRuntimeShutdown } from "./runtime-quit-coordinator";
 import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
 import {
@@ -106,11 +106,7 @@ import {
   collectSecondInstancesForStartupReplay,
   requestsExplicitNewWindow,
 } from "./main-runtime-startup-events";
-import {
-  captureMainException,
-  captureMainMessage,
-  shutdownMainSentry,
-} from "./observability/sentry-main";
+import { captureMainException, captureMainMessage } from "./observability/sentry-main";
 import { recordDevRuntimeMetricCounter } from "./dev-runtime-metrics";
 import {
   getPrimaryCommandAccelerator,
@@ -2160,16 +2156,6 @@ function shutdownMainRuntime(): Promise<void> {
     await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await settleRuntimeShutdownStep(
-      "Main diagnostics",
-      () => shutdownMainSentry(),
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await settleRuntimeShutdownStep(
-      "Backend logger",
-      () => shutdownBackendLogger(),
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     runtimeShutdownCompleted = true;
