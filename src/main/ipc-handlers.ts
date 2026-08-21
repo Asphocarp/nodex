@@ -1,5 +1,4 @@
 import {
-  app,
   BrowserWindow,
   Menu,
   dialog,
@@ -21,7 +20,6 @@ import {
   prepareComposerPickedFiles,
 } from "./composer-picked-files";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
-import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
 import {
   materializeCanvasImage,
@@ -71,27 +69,16 @@ import { openFileLinkTarget } from "./file-link-opener";
 import { parseExternalNavigationUrl } from "./external-navigation";
 import { isWorkspaceFileUserError } from "./workspace-files-service";
 import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
-import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { IpcApi, IpcEvents } from "../shared/ipc-api";
-import { WorkbenchSceneSnapshotSchema } from "../shared/schemas/workbench-scene";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
 } from "../shared/native-context-menu";
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
-import { deleteProjectSessionWithBrowserCleanupUsing } from "./project-session-browser-ownership";
-import {
-  createProjectLifecycleService,
-  runWithTerminalProjectAdmission,
-} from "./project-lifecycle-service";
-import { ProjectLifecycleInputSchema } from "../shared/schemas/projects";
+import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
-import { createProjectWithDefaultSource } from "./default-project-source";
-import { resolveNodexProjectsDirectory } from "./nodex-projects-directory";
-import type { CoreResult } from "../shared/core-result";
-import { coreResultFrom } from "./core-result-ipc";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { GitWorkerHost } from "./git-worker-host";
@@ -182,27 +169,6 @@ function registerHandle<Channel extends keyof IpcApi>(
   });
 }
 
-type CoreResultChannelValue<Channel extends keyof IpcApi> =
-  IpcApi[Channel]["result"] extends CoreResult<infer Value> ? Value : never;
-
-/**
- * Registers a Core-backed channel behind the `CoreResult` envelope:
- * typed Core errors travel as data instead of being flattened into IPC error
- * strings, so the renderer can classify cursor rejections and retryable
- * failures without matching message text. Non-Core failures still throw.
- */
-function registerCoreResultHandle<Channel extends keyof IpcApi>(
-  channel: Channel,
-  read: (
-    event: IpcMainInvokeEvent,
-    ...args: IpcApi[Channel]["args"]
-  ) => Promise<CoreResultChannelValue<Channel>>,
-): void {
-  registerHandle(channel, (async (event, ...args) => {
-    return await coreResultFrom(async () => await read(event, ...args));
-  }) as TypedIpcHandler<Channel>);
-}
-
 function requireTrustedAppRendererSender(
   event: IpcMainInvokeEvent | IpcMainEvent,
   capabilityName: string,
@@ -231,18 +197,6 @@ async function showDirectoryPicker(
     : await dialog.showOpenDialog(options);
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0] ?? null;
-}
-
-async function showDirectoriesPicker(
-  event: IpcMainInvokeEvent,
-  options: OpenDialogOptions,
-): Promise<string[]> {
-  const window = BrowserWindow.fromWebContents(event.sender);
-  const result = window
-    ? await dialog.showOpenDialog(window, options)
-    : await dialog.showOpenDialog(options);
-  if (result.canceled) return [];
-  return result.filePaths;
 }
 
 function buildNativeContextMenuTemplate(
@@ -329,7 +283,6 @@ function showNativeContextMenu(
 }
 
 interface RegisterIpcHandlersOptions {
-  browserSidebarService: BrowserSidebarService;
   codexService: CodexService;
   gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
@@ -486,7 +439,7 @@ function createGitActionWorkerPort(
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
-  const { browserSidebarService, codexService } = options;
+  const { codexService } = options;
   const gitActionWorker = createGitActionWorkerPort(options.gitWorkerHost);
   const storeAdministration =
     options.storeAdministration ??
@@ -498,12 +451,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     createUnconfiguredIpcAuthority<DesktopAutomationModulePort>("Automation authority");
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace ?? createUnconfiguredIpcAuthority("Project Workspace authority");
-  const requireBrowserViewScope = (senderId: number, scopeId: string): void => {
-    const expectedScopeId = options.resolveWindowSessionId?.(senderId) ?? null;
-    if (!expectedScopeId || expectedScopeId !== scopeId) {
-      throw new Error("Browser view scope does not belong to the requesting window");
-    }
-  };
   const requireAssignedWindowSessionId = (senderId: number): string => {
     const windowSessionId = options.resolveWindowSessionId?.(senderId) ?? null;
     if (!windowSessionId) {
@@ -511,17 +458,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     }
     return windowSessionId;
   };
-  const projectLifecycleService = createProjectLifecycleService({
-    projectWorkspace,
-    browserRuntime: browserSidebarService,
-    listCodexBlockers: (threadIds) => codexService.listProjectArchiveBlockers(threadIds),
-    listBackgroundProcessRows: async (threadId) =>
-      await codexService.listBackgroundProcessRows({ threadId }),
-    listLiveTerminalSessions: (input) =>
-      options.terminalRuntime?.listLiveSessionsForOwners(input) ?? Promise.resolve([]),
-    discardExitedTerminalSessions: (input) =>
-      options.terminalRuntime?.discardExitedSessionsForOwners(input) ?? Promise.resolve([]),
-  });
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
       .clientId ?? null;
@@ -571,202 +507,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
       ]);
     },
   });
-
-  // Projects
-  registerHandle(
-    "projects:list",
-    async (_, input) => await projectWorkspace.listProjectWindow(input),
-  );
-
-  registerHandle(
-    "projects:get",
-    async (_, projectId: string) => await projectWorkspace.getProject(projectId),
-  );
-
-  registerHandle(
-    "projects:activity-summaries",
-    async (_, projectIds: string[]) =>
-      await projectWorkspace.readProjectActivitySummaries(projectIds),
-  );
-
-  registerCoreResultHandle(
-    "projects:create",
-    async (_, input) =>
-      await createProjectWithDefaultSource(input, {
-        projectsDirectory: resolveNodexProjectsDirectory(app.getPath("documents")),
-        createProject: async (projectInput) => await projectWorkspace.createProject(projectInput),
-      }),
-  );
-
-  registerCoreResultHandle(
-    "projects:update",
-    async (_, projectId: string, updates) =>
-      await projectWorkspace.updateProject(projectId, updates),
-  );
-
-  registerHandle(
-    "projects:reorder",
-    async (_, input) => await projectWorkspace.reorderProjects(input),
-  );
-
-  registerHandle(
-    "projects:set-pinned",
-    async (_, projectId: string, input) =>
-      await projectWorkspace.setProjectPinned(projectId, input),
-  );
-
-  registerHandle(
-    "projects:set-pinned-order",
-    async (_, input) => await projectWorkspace.setPinnedProjectOrder(input),
-  );
-
-  registerHandle("projects:pick-source-roots", async (event) => {
-    return showDirectoriesPicker(event, {
-      title: "Select Project Root",
-      properties: ["openDirectory", "createDirectory", "multiSelections"],
-    });
-  });
-
-  registerHandle("workspace:pick-directory", async (event, input) => {
-    return showDirectoryPicker(event, {
-      title: typeof input?.title === "string" ? input.title : "Choose folder",
-      properties:
-        input?.createDirectory === true ? ["openDirectory", "createDirectory"] : ["openDirectory"],
-    });
-  });
-
-  registerHandle("projects:set-lifecycle", async (_, projectId: string, input) => {
-    const parsed = ProjectLifecycleInputSchema.parse(input);
-    return await projectLifecycleService.setLifecycle(projectId, parsed.lifecycle);
-  });
-
-  // Project sessions
-  registerHandle("workspace:tasks:list", async (_, projectId: string | null, input) => {
-    const startedAt = getDevRuntimeMetricStart();
-    const window = await projectWorkspace.listProjectSessionSummaryWindow(projectId, input);
-    logDevRuntimeMetric("ipc.workspace_tasks_list", {
-      projectId,
-      includeArchived: input?.includeArchived === true,
-      requestedFirst: input?.first ?? 50,
-      itemCount: window.items.length,
-      hasMore: window.hasMore,
-      approxPayloadBytes: approximateJsonPayloadBytes(window),
-      durationMs: getDevRuntimeMetricDurationMs(startedAt),
-    });
-    return window;
-  });
-
-  registerHandle("project-sessions:get", async (_, sessionId: string) => {
-    const startedAt = getDevRuntimeMetricStart();
-    const session = await projectWorkspace.getProjectSession(sessionId);
-    logDevRuntimeMetric("ipc.project_sessions_get", {
-      sessionId,
-      found: session !== null,
-      approxPayloadBytes: approximateJsonPayloadBytes(session),
-      durationMs: getDevRuntimeMetricDurationMs(startedAt),
-    });
-    return session;
-  });
-
-  registerHandle(
-    "project-sessions:create",
-    async (_, input) => await projectWorkspace.createProjectSession(input),
-  );
-
-  registerHandle(
-    "project-sessions:ensure-default-draft",
-    async (_, projectId) => await projectWorkspace.ensureDefaultDraftProjectSession(projectId),
-  );
-
-  registerHandle("project-sessions:update", async (_, sessionId: string, input) => {
-    return await projectWorkspace.updateProjectSession(sessionId, input);
-  });
-
-  registerHandle("project-sessions:rename", (_, sessionId: string, input) =>
-    renameProjectSessionChat(sessionId, input, {
-      getProjectSession: projectWorkspace.getProjectSession,
-      renameProjectSession: projectWorkspace.renameProjectSession,
-      setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
-    }),
-  );
-
-  registerHandle("project-sessions:delete", async (_, sessionId: string) => {
-    return await deleteProjectSessionWithBrowserCleanupUsing({
-      sessionId,
-      browserRuntime: browserSidebarService,
-      deleteProjectSession: projectWorkspace.deleteProjectSession,
-    });
-  });
-
-  registerHandle(
-    "project-sessions:reorder",
-    async (_, projectId: string | null, orderedSessionIds: string[]) =>
-      await projectWorkspace.reorderProjectSessions(projectId, orderedSessionIds),
-  );
-
-  registerHandle(
-    "project-sessions:set-pinned",
-    async (_, sessionId: string, input) =>
-      await projectWorkspace.setProjectSessionPinned(sessionId, input),
-  );
-
-  registerHandle(
-    "project-sessions:set-pinned-order",
-    async (_, projectId: string, input) =>
-      await projectWorkspace.setPinnedProjectSessionOrder(projectId, input),
-  );
-
-  registerHandle("project-sessions:archive", async (_, sessionId: string) => {
-    const existing = await projectWorkspace.getProjectSession(sessionId);
-    if (!existing) return null;
-    if (existing.thread) {
-      await codexService.archiveThread(existing.thread.threadId);
-      return await projectWorkspace.getProjectSession(sessionId);
-    }
-    return await projectWorkspace.archiveProjectSession(sessionId);
-  });
-
-  registerHandle("project-sessions:unarchive", async (_, sessionId: string) => {
-    const existing = await projectWorkspace.getProjectSession(sessionId);
-    if (!existing) return null;
-    if (existing.thread) {
-      await codexService.unarchiveThread(existing.thread.threadId);
-      return await projectWorkspace.getProjectSession(sessionId);
-    }
-    return await projectWorkspace.unarchiveProjectSession(sessionId);
-  });
-
-  registerHandle(
-    "project-sessions:mark-unread",
-    async (_, sessionId: string, input) =>
-      await projectWorkspace.markProjectSessionUnread(sessionId, input),
-  );
-
-  registerHandle(
-    "project-sessions:fork",
-    async (event, sessionId: string, input, sourceSceneContext) => {
-      if (sourceSceneContext) {
-        requireBrowserViewScope(event.sender.id, sourceSceneContext.browserViewScopeId);
-      }
-      const parsedSceneContext = sourceSceneContext
-        ? {
-            browserViewScopeId: sourceSceneContext.browserViewScopeId,
-            scene: WorkbenchSceneSnapshotSchema.parse(sourceSceneContext.scene),
-          }
-        : undefined;
-      return await codexService.forkProjectSessionThread(sessionId, input, parsedSceneContext);
-    },
-  );
-
-  registerHandle(
-    "project-session-threads:attach",
-    async (_, input) => await projectWorkspace.upsertProjectSessionThreadLink(input),
-  );
-
-  registerHandle(
-    "project-session-threads:detach",
-    async (_, sessionId: string) => await projectWorkspace.detachProjectSessionThread(sessionId),
-  );
 
   registerHandle(
     "calendar:occurrences",

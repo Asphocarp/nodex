@@ -109,6 +109,7 @@ import * as DatabaseProjectionIpc from "../ipc/handlers/DatabaseProjectionIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
+import * as ProjectWorkspaceIpc from "../ipc/handlers/ProjectWorkspaceIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
@@ -1021,6 +1022,29 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
+          ProjectWorkspaceIpc.live({
+            browserSidebar: browserSidebarService,
+            codex: codexService,
+            projects: projectWorkspace,
+            terminals: {
+              listLiveSessionsForOwners: (input) =>
+                callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),
+              discardExitedSessionsForOwners: (input) =>
+                callbacks.runPromise(terminals.discardExitedSessionsForOwners(input)),
+            },
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronDesktop, desktop),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
           PageSearchIpc.live({ library: libraryModule }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1333,7 +1357,6 @@ export const live: Layer.Layer<
           try: () =>
             registerIpcHandlers({
               automationModule,
-              browserSidebarService,
               codexService,
               gitWorkerHost: hostWorkers.git,
               storeAdministration,
