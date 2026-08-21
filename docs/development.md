@@ -4,37 +4,40 @@ This document keeps contributor setup and local validation details out of the pu
 
 ## Setup
 
-Install dependencies from the repository root:
+Install the [Vite+ CLI](https://viteplus.dev/guide/install) once, then install
+dependencies from the repository root:
 
 ```bash
-pnpm install
+vp install --frozen-lockfile
 ```
 
 Nodex pins Node `24.15.0` in `.node-version` and pnpm `11.11.0` in
-`package.json`. Use those versions before running a frozen install.
+`package.json`; Vite+ resolves both declarations for the project. The exact
+`vite-plus` development dependency pins the project toolchain independently of
+the globally installed launcher version.
 
 The install lifecycle runs `electron-builder install-app-deps`, which rebuilds
-`node-pty` for Electron. Do not run `pnpm rebuild` for it: that can replace the
+`node-pty` for Electron. Do not run `vp rebuild` for it: that can replace the
 Electron-compatible binary with a host-Node binary. SQLite and collaborative
 Document authority are native Rust code and do not use a Node addon.
 
 Start the desktop app in development mode:
 
 ```bash
-pnpm exec vp run dev
+vp run dev
 ```
 
 `vp run dev` is the single manual real-app launcher. It starts the HMR app by
 default and accepts options directly, without an intermediate `--`:
 
 ```bash
-pnpm exec vp run dev --home runs.local/perf
-pnpm exec vp run dev --seed board/dense
-pnpm exec vp run dev --home runs.local/perf --build
-pnpm exec vp run dev --home runs.local/ephemeral --delete
-pnpm exec vp run dev --auth-json /path/to/auth.json
-pnpm exec vp run dev --agent-config-toml /path/to/config.toml
-pnpm exec vp run dev --enable runtime-metrics
+vp run dev --home runs.local/perf
+vp run dev --seed board/dense
+vp run dev --home runs.local/perf --build
+vp run dev --home runs.local/ephemeral --delete
+vp run dev --auth-json /path/to/auth.json
+vp run dev --agent-config-toml /path/to/config.toml
+vp run dev --enable runtime-metrics
 ```
 
 The default environment root is `<worktree>/runs.local/default`. Relative
@@ -101,7 +104,7 @@ environment and before Electron starts. `board/dense` creates a Project with
 five workflow columns, ten Pages, and structured NFM content:
 
 ```bash
-pnpm exec vp run dev --home runs.local/board-dense --seed board/dense
+vp run dev --home runs.local/board-dense --seed board/dense
 ```
 
 The manifest records the seed id and revision. Reopening the same home with the
@@ -111,19 +114,19 @@ environment and are not reset or compared with the original recipe.
 
 The catalog is shared by Core integration and Electron E2E tests. Deterministic
 UI behavior belongs in a dedicated Playwright spec such as
-`tests/e2e/board-dense.spec.ts`; `pnpm run dev --seed ...` never starts
+`tests/e2e/board-dense.spec.ts`; `vp run dev --seed ...` never starts
 Playwright, focuses a Page, or performs assertions.
 
 Build the app:
 
 ```bash
-pnpm exec vp run build
+vp run build
 ```
 
 Package local macOS installers:
 
 ```bash
-pnpm run package
+vp run package
 ```
 
 ## Validation
@@ -138,8 +141,8 @@ vp run verify:source
 ```
 
 Vite+ is the repository engineering control plane. `vp check` combines the
-configured Effect-patched TypeScript 7 checker, type-aware Oxlint, and Oxfmt
-check. CI and `vp run verify:static` invoke that integrated gate directly.
+configured Effect-patched TypeScript 7 checker, Oxlint, and Oxfmt check. CI and
+`vp run verify:static` invoke that integrated gate directly.
 `correctness`, `suspicious`, and `perf` diagnostics are advisory warnings: keep
 them visible and improve nearby code when useful, but do not treat the warning
 count as an acceptance condition. Type errors, lint errors, and precise
@@ -148,9 +151,9 @@ the compact agent-facing form and also reports stale suppression comments.
 `vp run typecheck` remains a compatibility alias to the same integrated semantic
 path; it is deliberately not a lint-bypassing type-only authority.
 
-CI runs `vp check` as its own step, then `vp run verify:static:contracts` for the
-repository's architecture and generated-artifact gates. `vp run verify:static`
-is the local composition of those same two commands.
+CI's typed static matrix runs `vp check` in the `types` lane and routes the
+remaining selected lanes through `verify-static.ts`. `vp run verify:static` is
+the local composition of the same integrated check and repository contracts.
 
 The complete severity rationale, scoped overrides, remediation paths, and
 upgrade review process live in [Lint governance](LINTING.md).
@@ -166,38 +169,38 @@ likewise execute `vp install`, `vp run`, and `vp exec` directly.
 
 The test commands follow production boundaries:
 
-- `pnpm exec vp run test` runs the ordinary deterministic test tier across the Node, main,
+- `vp run test` runs the ordinary deterministic test tier across the Node, main,
   renderer, and integration runtimes.
-- `pnpm exec vp run test:unit` runs pure shared, script, configuration, and renderer helper
+- `vp run test:unit` runs pure shared, script, configuration, and renderer helper
   logic in Node. Under `src/renderer`, ordinary `.test.ts` files run in Node by
   default; use `.node.test.tsx` when a pure test needs TSX syntax.
-- `pnpm exec vp run test:core-client` builds the development Core binary, then runs the
+- `vp run test:core-client` builds the development Core binary, then runs the
   Node-side Core client, adapter, projection, and supervisor contracts. These
   tests seed disposable Stores only through public Core APIs.
-- `pnpm exec vp run test:main` runs Electron main-process adapter and host tests.
-- `pnpm exec vp run test:renderer` runs ordinary `.test.tsx` React behavior and explicit
+- `vp run test:main` runs Electron main-process adapter and host tests.
+- `vp run test:renderer` runs ordinary `.test.tsx` React behavior and explicit
   `.jsdom.test.ts` DOM behavior in jsdom. A `.test.ts` file must not rely on
   browser globals implicitly.
-- `pnpm exec vp run test:browser` runs browser-sensitive renderer contracts in Chromium.
-- `pnpm exec vp run test:integration` runs integration tests in Electron's Node runtime.
-- `pnpm run test:stress` runs volume, repeated-lifecycle, and concurrency
+- `vp run test:browser` runs browser-sensitive renderer contracts in Chromium.
+- `vp run test:integration` runs integration tests in Electron's Node runtime.
+- `vp run test:stress` runs volume, repeated-lifecycle, and concurrency
   contracts one worker at a time, independently of the ordinary suite.
-- `pnpm run test:complete` runs both ordinary and stress tiers without the
+- `vp run test:complete` runs both ordinary and stress tiers without the
   full Electron end-to-end suite.
-- `pnpm run test:performance` runs Core runtime and scale gates below Electron.
+- `vp run test:performance` runs Core runtime and scale gates below Electron.
   Run it manually on a stable machine; the same lower-level contracts run in
   weekly Performance CI.
-- `pnpm run core:fmt`, `pnpm run core:clippy`, and the Core test tiers validate
-  the native authority. `pnpm run core:test:pr` is the fast CI tier (nextest
-  plus doctests); `pnpm run core:test:full` adds migration compatibility, and
-  `pnpm run core:test:nightly` runs every explicitly named ignored scale,
-  performance, and reliability gate. `pnpm run core:test`
+- `vp run core:fmt`, `vp run core:clippy`, and the Core test tiers validate
+  the native authority. `vp run core:test:pr` is the fast CI tier (nextest
+  plus doctests); `vp run core:test:full` adds migration compatibility, and
+  `vp run core:test:nightly` runs every explicitly named ignored scale,
+  performance, and reliability gate. `vp run core:test`
   remains the complete local/source-verification alias.
-- `pnpm run core:protocol:verify` and `pnpm run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
+- `vp run core:protocol:verify` and `vp run core:module-boundaries` verify generated contracts and the Rust-only production boundary.
 - Core protocol generation runs `openapi-typescript` inside `packages/core-protocol-codegen`, where its officially supported TypeScript 5 compiler runtime is pinned. That package is a generator implementation detail; TypeScript 7 remains the only repository source checker and semantic authority.
-- `pnpm run tooling:verify` also proves that Vite+ can load the complete workspace metadata graph while keeping third-party packages outside root task execution. Keep dependencies imported by workspace-local Vite configs resolvable even when those packages are not selected by `vp run`.
-- `pnpm run verify:effect-boundaries` keeps Effect inside the Main/script control plane, generated/shared/renderer contracts Effect-free, unstable APIs inside app-owned adapters, and runtime execution at approved composition/facade seams. Lifecycle tests use fake capabilities or `@effect/vitest` TestClock instead of real retry or escalation sleeps.
-- `pnpm test:e2e` rebuilds the native Core plus Electron application, then
+- `vp run tooling:verify` also proves that Vite+ can load the complete workspace metadata graph while keeping third-party packages outside root task execution. Keep dependencies imported by workspace-local Vite configs resolvable even when those packages are not selected by `vp run`.
+- `vp run verify:effect-boundaries` keeps Effect inside the Main/script control plane, generated/shared/renderer contracts Effect-free, unstable APIs inside app-owned adapters, and runtime execution at approved composition/facade seams. Lifecycle tests use fake capabilities or `@effect/vitest` TestClock instead of real retry or escalation sleeps.
+- `vp run test:e2e` rebuilds the native Core plus Electron application, then
   exercises the complete Electron/preload/IPC/Core chain. Do not invoke the
   Playwright config directly after changing Rust authority code; that can run
   against a stale `target/debug/nodex-core` binary.
@@ -225,7 +228,7 @@ Never share a writable seeded Store between tests.
 Add a snapshot cache only after measurement shows live authoritative materialization is a meaningful bottleneck; `board/dense` remains live-seeded in the initial implementation.
 
 ```bash
-NODEX_ALLOW_SUBSCRIPTION_E2E=1 pnpm run test:e2e:subscription
+NODEX_ALLOW_SUBSCRIPTION_E2E=1 vp run test:e2e:subscription
 ```
 
 ### Block drag-and-drop smoke
@@ -235,9 +238,9 @@ The Electron test named `moves a Block into a Board with native DnD
 it after building the development Core and Electron bundle:
 
 ```bash
-pnpm run core:build:dev
-pnpm run build
-pnpm exec playwright test --config playwright.e2e.config.ts --grep "@dnd-smoke"
+vp run core:build:dev
+vp run build
+vp exec playwright test --config playwright.e2e.config.ts --grep "@dnd-smoke"
 ```
 
 Its `dragBlockToBoardWithMouse` helper remains in
@@ -264,7 +267,7 @@ delivery. After changing either the helper or DnD runtime, require ten clean
 isolated runs without gesture retries:
 
 ```bash
-pnpm exec playwright test --config playwright.e2e.config.ts \
+vp exec playwright test --config playwright.e2e.config.ts \
   --grep "@dnd-smoke" --repeat-each=10
 ```
 
@@ -297,32 +300,32 @@ Ordinary semantic tests clone an isolated current-schema Store template. Fresh
 Store creation, exact-schema validation, upgrades, recovery, and profile-secret
 generation retain dedicated tests against the real startup path.
 
-Run `pnpm run core:test:nightly` when changing Canvas incremental storage,
+Run `vp run core:test:nightly` when changing Canvas incremental storage,
 large-data reliability, or relation projection boundaries. Store preparation
 and supported-baseline migration changes belong in `core:test:migration` and
-the ordinary workspace suite. `pnpm run core:test` includes both the full and
+the ordinary workspace suite. `vp run core:test` includes both the full and
 nightly tiers for final source verification.
 
 Use the matching runtime when running one test file:
 
 ```bash
 # Pure Node/shared logic
-pnpm exec vp test run --config vitest.node.config.ts <test-file>
+vp test run --config vitest.node.config.ts <test-file>
 
 # Core client and adapter behavior
-pnpm exec vp run test:core-client <test-file>
+vp run test:core-client <test-file>
 
 # Renderer/jsdom behavior
-pnpm exec vp test run --config vitest.renderer.config.ts <test-file>
+vp test run --config vitest.renderer.config.ts <test-file>
 
 # Electron main process, local store, and native addons
-pnpm exec vp run test:main <test-file>
+vp run test:main <test-file>
 
 # Electron integration behavior
-pnpm exec vp run test:integration <test-file>
+vp run test:integration <test-file>
 
 # A specific stress test in its owning runtime
-NODEX_TEST_TIER=stress pnpm exec vp run test:renderer <stress-test-file>
+NODEX_TEST_TIER=stress vp run test:renderer <stress-test-file>
 ```
 
 Do not run `vitest.main.config.ts` or `vitest.integration.config.ts` directly.
@@ -335,10 +338,10 @@ includes the stress tier and browser suite, but not the opt-in Electron E2E
 diagnostic. On macOS, release/runtime changes additionally run:
 
 ```bash
-pnpm run verify:runtime:mac
+vp run verify:runtime:mac
 ```
 
-`pnpm test:all` remains a compatibility alias for `verify:source`; neither
+`vp run test:all` remains a compatibility alias for `verify:source`; neither
 command proves Apple signing, notarization, or native Intel behavior. Use the
 production-like `Distribution Rehearsal` described in `release-macos.md` for
 that boundary.
@@ -353,15 +356,15 @@ runtime it was rebuilt for. An error containing
 it does not necessarily mean dependencies are stale.
 
 First, rerun the operation through the repository command that owns its runtime.
-For a main/store test, use `pnpm test:main <test-file>`; for an integration
-test, use `pnpm test:integration <test-file>`. Reinstalling is unnecessary
+For a main/store test, use `vp run test:main <test-file>`; for an integration
+test, use `vp run test:integration <test-file>`. Reinstalling is unnecessary
 when the failing command invoked either Electron Vitest config directly.
 
 If a host-Node rebuild already replaced the native binaries, restore the
 repository's Electron target from the repository root:
 
 ```bash
-pnpm exec electron-builder install-app-deps
+vp exec electron-builder install-app-deps
 ```
 
 To diagnose an unfamiliar environment, compare the runtime-reported ABIs:

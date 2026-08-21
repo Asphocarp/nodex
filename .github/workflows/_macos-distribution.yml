@@ -68,12 +68,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+      - uses: ./.github/actions/setup-vite-plus
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nodex-release-identity-${{ inputs.source_sha }}
@@ -90,7 +85,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
           test "$(git rev-parse 'HEAD^{tree}')" = "${RELEASE_SOURCE_TREE}"
           test -z "$(git status --porcelain)"
-          pnpm install --frozen-lockfile
+          vp install --frozen-lockfile
           node -e '
             const certificate = require(process.argv[1]);
             if (certificate.schemaVersion !== 1
@@ -99,7 +94,7 @@ jobs:
               throw new Error("Release source certification does not match the exact source tree");
             }
           ' "${RUNNER_TEMP}/certification/source-certification.json"
-          pnpm release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
+          vp run release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
           node -e '
             const source = require(process.argv[1]);
             if (source.version !== process.env.RELEASE_VERSION || source.tag !== process.env.RELEASE_TAG) {
@@ -121,7 +116,7 @@ jobs:
             echo "Missing macOS signing or App Store Connect credentials." >&2
             exit 1
           fi
-          pnpm exec tsx scripts/ci/macos-signing-keychain.ts prepare
+          vp exec tsx scripts/ci/macos-signing-keychain.ts prepare
 
       - name: Build and verify signed distribution
         env:
@@ -138,7 +133,7 @@ jobs:
             echo "Production distribution requires complete Sentry source-map credentials." >&2
             exit 1
           fi
-          pnpm release:build:mac -- \
+          vp run release:build:mac -- \
             --arch "${RELEASE_ARCH}" \
             --identity "${RUNNER_TEMP}/identity/release-identity.json" \
             --output "${RELEASE_OUTPUT}"
@@ -198,12 +193,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+      - uses: ./.github/actions/setup-vite-plus
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nodex-release-identity-${{ inputs.source_sha }}
@@ -220,7 +210,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${RELEASE_SOURCE_SHA}"
           test "$(git rev-parse 'HEAD^{tree}')" = "${RELEASE_SOURCE_TREE}"
           test -z "$(git status --porcelain)"
-          pnpm install --frozen-lockfile
+          vp install --frozen-lockfile
           node -e '
             const certificate = require(process.argv[1]);
             if (certificate.schemaVersion !== 1
@@ -229,7 +219,7 @@ jobs:
               throw new Error("Release source certification does not match the exact source tree");
             }
           ' "${RUNNER_TEMP}/certification/source-certification.json"
-          pnpm release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
+          vp run release:verify:identity -- --identity "${RUNNER_TEMP}/identity/release-identity.json" --head "${RELEASE_SOURCE_SHA}" --output "${RUNNER_TEMP}/source.json"
           node -e '
             const source = require(process.argv[1]);
             if (source.version !== process.env.RELEASE_VERSION || source.tag !== process.env.RELEASE_TAG) {
@@ -251,7 +241,7 @@ jobs:
             echo "Missing macOS signing or App Store Connect credentials." >&2
             exit 1
           fi
-          pnpm exec tsx scripts/ci/macos-signing-keychain.ts prepare
+          vp exec tsx scripts/ci/macos-signing-keychain.ts prepare
 
       - name: Build and verify signed distribution
         env:
@@ -263,7 +253,7 @@ jobs:
           SENTRY_PROJECT: ""
           SENTRY_RELEASE: nodex@${{ inputs.version }}
         run: |
-          pnpm release:build:mac -- \
+          vp run release:build:mac -- \
             --arch "${RELEASE_ARCH}" \
             --identity "${RUNNER_TEMP}/identity/release-identity.json" \
             --output "${RELEASE_OUTPUT}"

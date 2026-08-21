@@ -18,18 +18,6 @@ export const STATIC_CHECKS: readonly StaticCheck[] = [
     name: "integrated TypeScript, Effect, lint, and format diagnostics",
   },
   {
-    command: ["run", "tooling:verify"],
-    group: "repository-contracts",
-    id: "tooling-contracts",
-    name: "tooling contracts",
-  },
-  {
-    command: ["run", "verify:effect-boundaries"],
-    group: "repository-contracts",
-    id: "effect-boundaries",
-    name: "Effect runtime boundaries",
-  },
-  {
     command: ["run", "semantic-theme:verify"],
     group: "ui-contracts",
     id: "semantic-theme",
@@ -48,6 +36,12 @@ export const STATIC_CHECKS: readonly StaticCheck[] = [
     name: "workflow contracts",
   },
   {
+    command: ["run", "ci:vite-plus-workflow-contracts"],
+    group: "ci-contracts",
+    id: "vite-plus-workflow-contracts",
+    name: "Vite+ workflow control plane",
+  },
+  {
     command: ["run", "ci:stress-workflow-contracts"],
     group: "ci-contracts",
     id: "stress-ownership",
@@ -58,6 +52,18 @@ export const STATIC_CHECKS: readonly StaticCheck[] = [
     group: "ci-contracts",
     id: "ignored-rust-tests",
     name: "ignored Rust test tiers",
+  },
+  {
+    command: ["run", "tooling:verify"],
+    group: "repository-contracts",
+    id: "tooling-contracts",
+    name: "tooling contracts",
+  },
+  {
+    command: ["run", "verify:effect-boundaries"],
+    group: "repository-contracts",
+    id: "effect-boundaries",
+    name: "Effect runtime boundaries",
   },
   {
     command: ["run", "core:module-boundaries"],

@@ -12,7 +12,7 @@ for every compatible Agent patch while still failing closed outside versions
 represented by the sealed closure.
 
 Normal development, CI, and packaging must use
-`pnpm run materialize:browser-runtime:mac`. They must not inspect an installed
+`vp run materialize:browser-runtime:mac`. They must not inspect an installed
 desktop application.
 
 Updating the runtime is an explicit maintainer workflow:
@@ -22,7 +22,7 @@ Updating the runtime is an explicit maintainer workflow:
    oldest Agent Codex version reviewed with that closure:
 
    ```sh
-   pnpm run browser-runtime:vendor -- \
+   vp run browser-runtime:vendor -- \
      --app <ChatGPT.app> \
      --codex-compatibility-version <version> \
      --target-arch <arm64|x64> \
@@ -32,7 +32,7 @@ Updating the runtime is an explicit maintainer workflow:
 3. Seal each prepared closure:
 
    ```sh
-   pnpm run browser-runtime:archive -- \
+   vp run browser-runtime:archive -- \
      --source .generated/browser-runtime-vendor/<arch> \
      --out .generated/browser-runtime-release/<asset>.tar.gz
    ```
@@ -44,7 +44,7 @@ Updating the runtime is an explicit maintainer workflow:
 5. Publish both immutable archives only through the guarded publisher:
 
    ```sh
-   pnpm browser-runtime:publish -- \
+   vp run browser-runtime:publish -- \
      --repo junyudev/nodex \
      --tag browser-runtime-v<build> \
      --arm64 .generated/browser-runtime-release/<arm64-asset>.tar.gz \

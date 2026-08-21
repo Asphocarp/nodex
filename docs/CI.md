@@ -90,18 +90,18 @@ fail closed to the whole workspace.
 
 Canonical local commands remain in `package.json`:
 
-- `pnpm run core:test:pr`: workspace nextest plus Rustdoc contracts.
-- `pnpm run core:test:migration`: supported Store baseline and convergence.
-- `pnpm run core:test:scale`: explicitly named ignored scale contracts.
-- `pnpm run core:test`: complete local Rust verification.
+- `vp run core:test:pr`: workspace nextest plus Rustdoc contracts.
+- `vp run core:test:migration`: supported Store baseline and convergence.
+- `vp run core:test:scale`: explicitly named ignored scale contracts.
+- `vp run core:test`: complete local Rust verification.
 
 Every ignored Rust test is listed in `.config/ci/ignored-rust-tests.json` and
-must have a direct package-script owner. `pnpm run
+must have a direct package-script owner. `vp run
 ci:verify-ignored-rust-tests` prevents silent drift.
 
 ## Local Electron diagnostics
 
-`pnpm test:e2e`, `pnpm run test:e2e:subscription`, and `pnpm run
+`vp run test:e2e`, `vp run test:e2e:subscription`, and `vp run
 test:e2e:performance` are retained for agents and developers who need to
 inspect the production Electron/preload/Main/Core composition. No scheduled,
 required, nightly, performance, or release workflow invokes these commands.
@@ -123,7 +123,7 @@ Wrap meaningful commands with `scripts/ci/run-timed.ts`. Historical workflow
 evidence is available through:
 
 ```bash
-pnpm run ci:report-timings -- \
+vp run ci:report-timings -- \
   --workflow CI \
   --limit 20 \
   --output notes.local/ci-timings.json

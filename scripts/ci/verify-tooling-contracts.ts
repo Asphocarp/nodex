@@ -22,11 +22,7 @@ interface RunLintOptions {
 }
 
 const projectRoot = resolve(import.meta.dirname, "../..");
-const vpExecutable = resolve(
-  projectRoot,
-  "node_modules/.bin",
-  process.platform === "win32" ? "vp.cmd" : "vp",
-);
+const vpExecutable = process.platform === "win32" ? "vp.cmd" : "vp";
 
 function runLint(
   paths: readonly string[],

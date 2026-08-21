@@ -33,25 +33,29 @@ describe("Vite+ CI command ownership", () => {
     );
   });
 
-  test("requires CI to run the integrated check before static contracts", () => {
+  test("requires the reusable static matrix to own the integrated check", () => {
     expect(() =>
       verifyStaticCheckSteps("workflow.static-contracts", [
-        { run: "vp exec tsx scripts/ci/run-timed.ts -- vp check" },
-        { run: "vp exec tsx scripts/ci/run-timed.ts -- vp run verify:static:contracts" },
+        {
+          run: [
+            "vp exec tsx scripts/ci/run-timed.ts -- vp check",
+            "vp exec tsx scripts/ci/verify-static.ts --group types",
+          ].join("\n"),
+        },
       ]),
     ).not.toThrow();
 
     expect(() =>
       verifyStaticCheckSteps("workflow.static-contracts", [
-        { run: "vp run verify:static:contracts" },
+        { run: "vp exec tsx scripts/ci/verify-static.ts --group types" },
       ]),
     ).toThrow(/must run vp check directly/u);
 
     expect(() =>
       verifyStaticCheckSteps("workflow.static-contracts", [
-        { run: "vp run verify:static:contracts" },
+        { run: "vp exec tsx scripts/ci/verify-static.ts --group types" },
         { run: "vp check" },
       ]),
-    ).toThrow(/before static contracts/u);
+    ).toThrow(/before grouped static contracts/u);
   });
 });

@@ -310,7 +310,7 @@ shared.
 
 The build-time owner is `scripts/semantic-theme/`. Generated artifacts are
 committed, deterministic inputs to the renderer build; ordinary builds do not
-need the temporary extraction source. `pnpm run semantic-theme:verify` checks
+need the temporary extraction source. `vp run semantic-theme:verify` checks
 artifact provenance, per-window/per-scheme transitive dependency closure,
 cycles, collision ownership, required utilities, and migration ratchets. A
 conditional declaration is not a global fallback, and a host variable is not a
@@ -363,7 +363,7 @@ evidence at the seam that owns the behavior:
   than parallel fake view models or live Electron fallbacks.
 - Prefer an authoritative isolated scenario when the behavior depends on an integrated Project, Database projection, Page lifecycle, document authority, preload/Main transport, or Window Session.
   The same domain recipe should serve Core integration and Electron/UI consumers through runtime-specific adapters; keep DOM navigation and observation in the optional UI projection.
-- Use `pnpm run dev --home <dir> --seed <scenario-id>` for a persistent,
+- Use `vp run dev --home <dir> --seed <scenario-id>` for a persistent,
   mutable real-app environment with HMR. The catalog initializes a new home but
   does not constrain later manual edits. Deterministic UI facts and navigation
   belong in the scenario's dedicated Electron E2E spec.

@@ -145,7 +145,7 @@ NODEX_LOG_CONSOLE_LEVEL=warn \
 NODEX_LOG_FILE_LEVEL=debug \
 NODEX_LOG_RETENTION_DAYS=30 \
 NODEX_LOG_DIR=/tmp/nodex-logs \
-pnpm run dev
+vp run dev
 ```
 
 ## Log Entry Shape
@@ -426,7 +426,7 @@ Guidelines:
 ## Development Runtime Metrics
 
 High-volume `dev runtime metric` records are disabled by default. Start the app
-with `pnpm run dev --enable runtime-metrics` to enable them for that invocation.
+with `vp run dev --enable runtime-metrics` to enable them for that invocation.
 They are emitted at `info`, so the default durable file sink
 captures an explicitly enabled diagnostic run without sending it to the default warn-only terminal.
 
