@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 function restoreWindow(originalWindowDescriptor: PropertyDescriptor | undefined): void {
   delete (globalThis as { window?: unknown }).window;

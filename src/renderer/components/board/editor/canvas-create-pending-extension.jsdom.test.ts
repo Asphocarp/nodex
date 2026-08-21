@@ -1,5 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import {
   canvasCreatePendingExtension,

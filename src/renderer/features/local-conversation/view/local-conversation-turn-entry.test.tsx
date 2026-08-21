@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";

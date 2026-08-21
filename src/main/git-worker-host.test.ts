@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
   GIT_WORKER_PROTOCOL_VERSION,
   type GitWorkerMessageForView,

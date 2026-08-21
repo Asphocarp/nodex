@@ -1,6 +1,6 @@
 import { act, fireEvent } from "@testing-library/react";
 import { useState } from "react";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { AppProviders } from "@/app-providers";
 import { __resetThreadNotificationSettingsForTests } from "@/lib/use-thread-notification-settings";
 import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-settings";

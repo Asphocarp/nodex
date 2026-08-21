@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { BrowserSiteInfoProvider } from "./browser-site-info-provider";
 
 const identity = {

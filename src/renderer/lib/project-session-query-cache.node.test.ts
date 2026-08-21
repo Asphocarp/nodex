@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ProjectSession, ProjectSessionSummaryWindow } from "./types";
 import { queryKeys } from "./query-keys";
 import {

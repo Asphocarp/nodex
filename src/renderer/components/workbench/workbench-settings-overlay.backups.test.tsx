@@ -1,4 +1,4 @@
-import { describe, expect, vi, test } from "vitest";
+import { describe, expect, vi, test } from "vite-plus/test";
 import { fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { installWindowApi } from "@/test/browser-globals";

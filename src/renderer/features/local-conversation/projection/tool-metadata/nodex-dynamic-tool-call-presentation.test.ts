@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexDynamicToolCallView } from "../../../../lib/types";
 import { resolveNodexDynamicToolCallPresentation } from "./nodex-dynamic-tool-call-presentation";
 

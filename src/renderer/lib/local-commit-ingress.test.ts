@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import type { AuthorizedDeliveryPacket } from "../../shared/local-commit-delivery";
 import type { AddressReset } from "../../shared/recipient-delivery";

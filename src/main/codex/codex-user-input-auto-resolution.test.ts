@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CodexUserInputAutoResolutionController,
   USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,

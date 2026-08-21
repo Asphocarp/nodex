@@ -1,6 +1,6 @@
 import { fireEvent } from "@testing-library/react";
 import { act, createRef, useState, type ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { render } from "@/test/dom";
 import { NodexHoverCard, NodexHoverCardProvider } from "./hover-card";
 import { dismissNodexFloatingSurfaces } from "./floating-surface";

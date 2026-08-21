@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
 
 function makeSection(itemStates: Array<{ id: string; active?: boolean }>) {

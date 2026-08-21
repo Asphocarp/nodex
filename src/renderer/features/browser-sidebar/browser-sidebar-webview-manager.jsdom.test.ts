@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import {
   BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX,
   BROWSER_SIDEBAR_WEBVIEW_LAYER_Z_INDEX,

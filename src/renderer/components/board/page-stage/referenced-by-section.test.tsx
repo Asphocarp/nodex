@@ -1,5 +1,5 @@
 import { fireEvent } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import { render } from "@/test/dom";
 import { ReferencedBySection } from "./referenced-by-section";

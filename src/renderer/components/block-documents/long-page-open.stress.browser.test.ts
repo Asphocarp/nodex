@@ -1,5 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import * as Y from "yjs";
 
 import {

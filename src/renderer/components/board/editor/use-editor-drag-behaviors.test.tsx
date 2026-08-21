@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import { createRef, type RefObject } from "react";
 import { DropCursorExtension, SideMenuExtension } from "@blocknote/core/extensions";

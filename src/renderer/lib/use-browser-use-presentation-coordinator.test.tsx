@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { makeWorkbenchPanelLayout } from "../../shared/workbench-panel-layout";
 import type {
   BrowserSidebarTabSnapshot,

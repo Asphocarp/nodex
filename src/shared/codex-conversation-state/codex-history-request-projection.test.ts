@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 import type { CodexItemView } from "../types";
 import {
   AGENT_ACTIVITY_V2_CORPUS_THREAD_ID,

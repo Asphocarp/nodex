@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { modifyCurrentBlock, type ModifyShortcutEditor } from "./modify-block-shortcut";
 
 type TestBlock = NonNullable<ReturnType<ModifyShortcutEditor["getTextCursorPosition"]>["block"]>;

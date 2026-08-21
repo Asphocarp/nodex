@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { load } from "js-yaml";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 interface ElectronBuilderFileSet {
   readonly filter?: readonly string[];

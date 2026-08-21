@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { applyCodexThemeVariant, getCodexThemeVariantStyle } from "./codex-theme-variant";
 
 function makeStyleTarget() {

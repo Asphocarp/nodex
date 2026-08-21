@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
 import { BrowserCredentialService } from "./browser-credential-service";
 import { BrowserCredentialVault } from "./browser-credential-vault";

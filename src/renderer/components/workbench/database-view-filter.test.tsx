@@ -1,6 +1,6 @@
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
-import { expect, test, vi } from "vitest";
+import { expect, test, vi } from "vite-plus/test";
 
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { commitDatabaseViewOperations } from "@/lib/database-view-row-mutations";

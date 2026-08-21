@@ -1,5 +1,5 @@
 import { DatabaseIcon } from "@/components/shared/icons";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import type { WorkbenchSurfaceDescriptor } from "../../shared/workbench-scene";
 import { resolveWorkbenchSceneTabPresentation } from "./workbench-scene-tab-presentation";

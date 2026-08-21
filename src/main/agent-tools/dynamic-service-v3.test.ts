@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { NodexAgentMutationEnvelope } from "./dynamic-service-v3-port";
 import {
   CreatePagesV3InputSchema,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { PageDetailResult } from "../shared/page-detail";
 import { PAGE_DETAIL_IPC_CHANNEL, registerPageDetailIpcHandler } from "./page-detail-ipc";
 

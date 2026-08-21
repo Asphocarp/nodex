@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { render } from "../../../test/dom";
 import {

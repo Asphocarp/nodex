@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   LEGACY_WORKFLOW_STATUS_ORDER,
   WORKFLOW_STATUS_CUTOVER_MAP,

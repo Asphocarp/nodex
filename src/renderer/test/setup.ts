@@ -1,6 +1,6 @@
 import { cleanup } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion";
-import { afterEach } from "vitest";
+import { afterEach } from "vite-plus/test";
 import { installMotionPreferenceForTest } from "./browser-globals";
 
 const nativeRequest = Request;

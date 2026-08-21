@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { AppProviders } from "@/app-providers";
 import { render, settleAsyncRender } from "@/test/dom";
 import type {

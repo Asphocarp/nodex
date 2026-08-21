@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { decodeAgentModelKey, encodeAgentModelKey } from "./agent-runtime";
 
 describe("agent model compound identity", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import {
   CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS,
   CODEX_OWNERLESS_WORKTREE_GRACE_MS,

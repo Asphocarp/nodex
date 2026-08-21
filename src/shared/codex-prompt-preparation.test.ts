@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { prepareCodexPrompt, splitCodexPromptAgentConfigLines } from "./codex-prompt-preparation";
 
 describe("Codex prompt preparation", () => {

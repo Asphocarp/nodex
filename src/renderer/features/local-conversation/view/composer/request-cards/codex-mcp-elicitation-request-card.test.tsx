@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import type { CodexMcpServerElicitationRequest } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";

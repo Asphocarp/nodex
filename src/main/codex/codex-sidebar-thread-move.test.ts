@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { Project } from "../../shared/types";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 import {

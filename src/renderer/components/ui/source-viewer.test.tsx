@@ -1,5 +1,5 @@
 import { render } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { forwardRef, useImperativeHandle } from "react";
 import { settleAsyncRender } from "../../test/dom";
 import { installAsyncRequestAnimationFrame } from "../../test/browser-globals";

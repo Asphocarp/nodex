@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
 import {
   createElectronRendererTransport,

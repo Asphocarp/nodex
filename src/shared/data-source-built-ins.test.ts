@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS,
   matchBuiltInDataSourceProperty,

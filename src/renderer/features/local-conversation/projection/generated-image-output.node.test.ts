@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexConversationItem } from "../../../lib/types";
 import { resolveGeneratedImageOutputState } from "./generated-image-output";
 

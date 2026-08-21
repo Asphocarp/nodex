@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { useRef } from "react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { useClippedFocusSafety } from "./use-clipped-focus-safety";
 
 type IntersectionCallback = ConstructorParameters<typeof IntersectionObserver>[0];

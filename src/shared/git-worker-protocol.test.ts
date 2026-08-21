@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   GIT_WORKER_PROTOCOL_VERSION,
   isGitWorkerMessageForView,

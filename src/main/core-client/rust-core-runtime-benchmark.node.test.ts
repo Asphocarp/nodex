@@ -14,7 +14,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { connectOrStartCore, type CoreLaunchResult } from "./core-launcher";

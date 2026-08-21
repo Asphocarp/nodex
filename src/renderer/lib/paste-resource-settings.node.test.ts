@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   DEFAULT_PASTE_RESOURCE_SETTINGS,
   PASTE_RESOURCE_SETTINGS_STORAGE_KEY,

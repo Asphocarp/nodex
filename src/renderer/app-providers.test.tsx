@@ -1,6 +1,6 @@
 import { useLayoutEffect } from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { TestQueryProvider } from "@/test/query";
 import { useMaitaiStore, type MaitaiStore } from "./lib/maitai";
 import type { AppUpdateStatus } from "./lib/types";

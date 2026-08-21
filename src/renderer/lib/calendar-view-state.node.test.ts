@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { formatCalendarToolbarMonthYear, resolveCalendarVisibleDays } from "./calendar-view-state";
 
 describe("calendar view state", () => {

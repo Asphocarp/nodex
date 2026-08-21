@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { CoreModuleResponseError } from "./core-client/core-client";
 import { cancellableCoreResultFrom, coreResultFrom } from "./core-result-ipc";

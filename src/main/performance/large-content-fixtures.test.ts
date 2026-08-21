@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { createLargeContentFixtures, LARGE_CONTENT_FIXTURE_SIZES } from "./large-content-fixtures";
 
 describe("large-content performance fixtures", () => {

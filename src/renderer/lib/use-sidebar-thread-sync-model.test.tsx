@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 import { act, waitFor } from "@testing-library/react";
 import { createElement, useEffect } from "react";
 import type {

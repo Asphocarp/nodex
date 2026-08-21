@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import { parseDataSourceId, parseDataSourcePropertyId } from "../../../shared/database-identities";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";

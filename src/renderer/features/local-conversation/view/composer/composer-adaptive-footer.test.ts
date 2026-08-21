@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolveComposerAdaptiveLayout } from "./composer-adaptive-footer";
 
 const compactFloatingComposer = {

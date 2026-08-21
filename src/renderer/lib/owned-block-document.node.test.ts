@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { QueryClient } from "@tanstack/react-query";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
 import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents/page-document";

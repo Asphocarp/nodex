@@ -1,6 +1,6 @@
 import { act, fireEvent, render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
-import { userEvent } from "vitest/browser";
+import { describe, expect, test } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 import * as Y from "yjs";
 import {
   readPortableRichTextFromYText,

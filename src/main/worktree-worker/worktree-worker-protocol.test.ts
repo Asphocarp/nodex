@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
   isCodexWorktreeWorkerHostMessage,

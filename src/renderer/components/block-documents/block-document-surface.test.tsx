@@ -1,6 +1,6 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { Activity } from "react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import * as Y from "yjs";
 import {
   PAGE_DOCUMENT_SCHEMA_KEY,

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vite-plus/test";
 
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import {

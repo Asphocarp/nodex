@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { readFileLinkOpener, writeFileLinkOpener } from "./file-link-opener-settings";
 
 describe("file-link opener preference", () => {

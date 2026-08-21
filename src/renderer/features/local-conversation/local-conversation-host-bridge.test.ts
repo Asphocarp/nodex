@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, vi, test } from "vitest";
+import { beforeEach, describe, expect, vi, test } from "vite-plus/test";
 import {
   __resetCodexAppServerMessageBusForTests,
   subscribeCodexAppServerMessage,

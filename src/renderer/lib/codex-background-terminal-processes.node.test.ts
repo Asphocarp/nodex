@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexBackgroundProcessRow, TerminalSessionSnapshot } from "../../shared/types";
 import {

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { resolveBrowserProfileHelperExecutable } from "./browser-profile-helper-client";
 

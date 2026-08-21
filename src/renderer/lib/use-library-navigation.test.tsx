@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { act, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
 import type { ProjectionStreamMessage } from "../../shared/projection-stream";
 import { render } from "../test/dom";

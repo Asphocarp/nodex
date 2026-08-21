@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX,
   REVIEW_FILE_TREE_FALLBACK_ITEM_HEIGHT_PX,

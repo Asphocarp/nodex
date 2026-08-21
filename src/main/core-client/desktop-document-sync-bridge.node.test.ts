@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import { materializePortableCanvasScene } from "../../shared/block-documents";
 import { type BlockTransferIntent } from "../../shared/block-transfer";

@@ -2,7 +2,7 @@ import { cp, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import {
   generateOfficialAgentSkills,

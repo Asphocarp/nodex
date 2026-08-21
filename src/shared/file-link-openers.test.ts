@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   buildFileUrl,
   DEFAULT_FILE_LINK_OPENER_ID,

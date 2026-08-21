@@ -7,7 +7,7 @@ import {
   expect,
   vi,
   test as bunTest,
-} from "vitest";
+} from "vite-plus/test";
 import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import type { ReactElement } from "react";

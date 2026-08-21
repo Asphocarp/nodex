@@ -1,5 +1,5 @@
 import "./workbench-testkit/workbench-shell-harness";
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi } from "vite-plus/test";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";

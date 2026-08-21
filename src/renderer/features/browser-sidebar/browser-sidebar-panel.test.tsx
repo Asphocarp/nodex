@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, vi, test } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import type { MotionValue } from "motion/react";
 import type {

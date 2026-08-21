@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import type { RecipientDeliveryEnvelope } from "../../shared/recipient-delivery";
 import type { ProjectionScope, ProjectionStreamMessage } from "../../shared/projection-stream";

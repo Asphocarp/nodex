@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { parseAuthorizedReadStamp, type AuthorityResource } from "./authorized-read-stamp";
 import { authorizedReadStampFixture } from "./testing/authorized-read-stamp-fixture";

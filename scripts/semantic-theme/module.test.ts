@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import { executeSemanticThemeCommand } from "./module";
 import { MIGRATED_SURFACE_POLICIES, SEMANTIC_THEME_ARTIFACT_PATHS } from "./profile";

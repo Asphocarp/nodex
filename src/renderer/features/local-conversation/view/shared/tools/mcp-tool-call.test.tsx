@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { fireEvent, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import type {

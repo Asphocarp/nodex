@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexDynamicCreatePermissionContext } from "./codex-dynamic-create-permissions";
 import {
   buildCodexDynamicCreatePermissionContextForMode,

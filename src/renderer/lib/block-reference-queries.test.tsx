@@ -1,5 +1,5 @@
 import { act, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
 import type { ProjectionScope, ProjectionStreamMessage } from "../../shared/projection-stream";
 import { render } from "../test/dom";

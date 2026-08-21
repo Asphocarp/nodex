@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CONTENT_SEARCH_ACTIVE_MARK_CLASS,
   CONTENT_SEARCH_MATCH_ID_ATTRIBUTE,

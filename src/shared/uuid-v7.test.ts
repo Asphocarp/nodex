@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { createUuidV7, createUuidV7FromTimestamp, isUuidV7 } from "./uuid-v7";
 
 describe("uuid-v7", () => {

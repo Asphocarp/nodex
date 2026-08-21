@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { resolveAssetSourceToDisplayUrl } from "./assets";
 import { getAssetSource } from "../../shared/assets";

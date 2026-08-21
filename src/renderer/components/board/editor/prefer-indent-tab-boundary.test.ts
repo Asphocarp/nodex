@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { shouldSuppressPreferIndentBoundaryTab } from "./prefer-indent-tab-boundary";
 
 function makeTarget(options?: {

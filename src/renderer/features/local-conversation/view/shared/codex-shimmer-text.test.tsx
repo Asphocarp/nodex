@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { render, textContent } from "../../../../test/dom";
 import {
   CODEX_SHIMMER_CADENCE_MS,

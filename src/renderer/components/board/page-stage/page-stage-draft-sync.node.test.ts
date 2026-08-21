@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { buildPageStageDraftOverlay } from "./page-stage-draft-sync";
 
 describe("page stage draft sync", () => {

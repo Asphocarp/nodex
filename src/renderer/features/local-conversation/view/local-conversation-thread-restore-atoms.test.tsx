@@ -1,6 +1,6 @@
 import { act } from "@testing-library/react";
 import { useRef, type ReactNode } from "react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   appScope,
   createMaitaiStore,

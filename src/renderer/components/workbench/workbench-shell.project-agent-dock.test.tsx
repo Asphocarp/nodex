@@ -1,6 +1,6 @@
 import "./workbench-testkit/workbench-shell-harness";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { settleAsyncRender } from "../../test/dom";
 import {
   makeAttachedSession,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
 import type { Thread, ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import {

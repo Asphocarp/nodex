@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ToggleListCard } from "./types";
 import { formatMeta } from "./meta";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";

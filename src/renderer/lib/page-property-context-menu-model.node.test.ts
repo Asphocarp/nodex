@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { DataSourcePagePropertyMenuDescriptor } from "@/components/database/data-source-page-property-menu-source";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";

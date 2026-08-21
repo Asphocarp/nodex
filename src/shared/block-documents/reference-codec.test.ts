@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import * as Y from "yjs";
 import { parseNfm } from "../nfm/parser";
 import { serializeNfm } from "../nfm/serializer";

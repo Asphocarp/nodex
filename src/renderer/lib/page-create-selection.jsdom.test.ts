@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { capturePageCreateSeed } from "./page-create-selection";
 
 const selectNodeContents = (element: HTMLElement): Selection => {

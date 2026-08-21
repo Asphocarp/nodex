@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { createGeneratedImageViewTransitionPlan } from "./generated-image-view-transition";
 
 const before = { height: 300, left: 240, top: 180, width: 400 };

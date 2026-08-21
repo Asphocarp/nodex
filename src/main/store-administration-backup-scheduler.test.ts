@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import { startStoreAdministrationBackupScheduler } from "./store-administration-backup-scheduler";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { buildComposerThreadGoalDraft } from "./composer-thread-goal-draft";
 
 describe("buildComposerThreadGoalDraft", () => {

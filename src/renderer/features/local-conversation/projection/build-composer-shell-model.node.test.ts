@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexConversationSnapshot } from "../../../lib/types";
 import { buildComposerShellModel } from "./build-composer-shell-model";
 

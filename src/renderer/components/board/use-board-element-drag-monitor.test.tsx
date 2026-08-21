@@ -1,6 +1,6 @@
 import { act } from "@testing-library/react";
 import { createElement, useState } from "react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import type { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { render } from "@/test/dom";
 import { useBoardElementDragMonitor } from "./use-board-element-drag-monitor";

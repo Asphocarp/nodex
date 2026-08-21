@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS,
   CodexThreadStreamSubscriptionState,

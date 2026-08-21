@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { BoardSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 import {

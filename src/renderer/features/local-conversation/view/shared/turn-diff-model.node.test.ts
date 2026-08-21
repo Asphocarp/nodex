@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import type { CodexConversationItem } from "../../../../lib/types";
 
 const parsePatchFiles = vi.hoisted(() => vi.fn(() => []));

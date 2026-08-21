@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import {
   BROWSER_USE_SITE_STATUS_CACHE_TTL_MS,

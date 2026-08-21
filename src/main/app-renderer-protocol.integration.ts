@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication } from "playwright";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { APP_RENDERER_URL } from "../shared/app-renderer-policy";
 
 const temporaryDirectories: string[] = [];

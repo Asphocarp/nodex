@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { buildRemoveSubmissionIntent } from "@/features/user-attachment-image-editor/model/image-edit-submission";
 import type { EditableImageDescriptor } from "@/features/user-attachment-image-editor/model/types";
 import type { ComposerImageAttachment } from "./composer-image-attachment-model";

@@ -1,5 +1,5 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { Project, ProjectLifecycleMutationResult } from "@/lib/types";
 import { render } from "@/test/dom";
 import { ProjectRemoveDialog } from "./project-remove-dialog";

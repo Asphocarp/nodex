@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { createMaitaiStore, MaitaiProvider } from "./maitai";
 import { useSpellcheck } from "./use-spellcheck";
 

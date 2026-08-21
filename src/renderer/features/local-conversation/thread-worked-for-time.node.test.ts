@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { formatWorkedForTimeLabel, resolveWorkedForLabelText } from "./thread-worked-for-time";
 
 describe("thread worked-for time helpers", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, vi, test } from "vitest";
+import { describe, expect, vi, test } from "vite-plus/test";
 import { EventEmitter } from "node:events";
 import type { MenuItemConstructorOptions } from "electron";
 import type {

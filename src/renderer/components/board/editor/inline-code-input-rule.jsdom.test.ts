@@ -1,6 +1,6 @@
 import { BlockNoteEditor, type PartialBlock } from "@blocknote/core";
 import { TextSelection } from "@tiptap/pm/state";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 
 function simulateTextInput(editor: BlockNoteEditor, text: string) {
   const view = editor.prosemirrorView;

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { handleNfmEditorModEnterShortcut } from "./nfm-editor-mod-enter-shortcut";
 import type { ModifyShortcutEditor } from "./modify-block-shortcut";
 

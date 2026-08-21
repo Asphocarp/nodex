@@ -1,6 +1,6 @@
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexDropdownButtonTrigger, NodexOptionPicker } from "./dropdown";

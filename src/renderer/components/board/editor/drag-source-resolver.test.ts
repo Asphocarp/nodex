@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { getElementFromTarget, resolveDraggedBlockIds } from "./drag-source-resolver";
 
 describe("drag source resolver", () => {

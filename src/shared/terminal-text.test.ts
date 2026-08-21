@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { applyTerminalTextDelta } from "./terminal-text";
 
 const MAX_CHARS = 32_000;

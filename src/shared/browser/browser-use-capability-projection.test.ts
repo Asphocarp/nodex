@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   BROWSER_USE_CAPABILITY_FORMAT_VERSION,
   projectBrowserUseCapabilities,

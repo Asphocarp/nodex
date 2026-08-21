@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import {
   BrowserUseNativePipeFrameDecoder,
   encodeBrowserUseNativePipeFrame,

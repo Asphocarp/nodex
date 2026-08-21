@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { BROWSER_RUNTIME_BUNDLE_DIRECTORY } from "../../shared/browser-runtime-metadata";
 import { resolveBrowserRuntimeBundle } from "./browser-runtime-bundle";
 import { writeBrowserRuntimeFixture } from "./browser-runtime-test-fixture";

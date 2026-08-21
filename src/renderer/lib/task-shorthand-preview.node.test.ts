@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import fixtures from "../../shared/fixtures/task-shorthand-v1-conformance.json";
 import { previewTaskShorthand } from "./task-shorthand-preview";
 

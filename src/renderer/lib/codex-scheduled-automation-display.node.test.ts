@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { formatCodexScheduledAutomationRruleSummary } from "./codex-scheduled-automation-display";
 
 describe("codex scheduled automation display", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NfmFloatingPopover } from "./nfm-floating-popover";

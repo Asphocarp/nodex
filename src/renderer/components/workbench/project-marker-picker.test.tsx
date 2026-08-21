@@ -1,6 +1,6 @@
 import { fireEvent } from "@testing-library/react";
 import { act, useState } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { ProjectAppearance } from "../../../shared/project-appearance";
 import { render, settleAsyncRender } from "@/test/dom";
 import { ProjectMarker } from "./project-marker";

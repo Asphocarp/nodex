@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT,
   getNodexDiffOptions,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolveDataSourcePropertyPresentationRole } from "./data-source-property-presentation-role";
 
 describe("Data Source Property presentation role", () => {

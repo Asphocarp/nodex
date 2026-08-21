@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vite-plus/test";
 import { createUuidV7FromTimestamp, isUuidV7 } from "./uuid-v7";
 import {
   BUILT_IN_DATA_SOURCE_PROPERTY_IDS,

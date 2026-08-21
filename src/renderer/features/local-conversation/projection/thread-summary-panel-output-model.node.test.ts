@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { McpToolCallResult, ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";

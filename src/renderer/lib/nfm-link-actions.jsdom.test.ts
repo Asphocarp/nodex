@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 import type { FileLinkTarget } from "../../shared/file-link-openers";
 import {
   openNfmResolvedLinkAction,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import type { DatabasePageKeyNamespaceV2 } from "../../shared/database-module-v2";
 import { projectPageKeyEditorModel } from "./project-page-key-editor-model";

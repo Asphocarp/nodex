@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { retireNodexHomeMarkRendererAfterPaint } from "./nodex-home-mark-renderer-retirement";
 
 describe("Nodex home mark renderer retirement", () => {

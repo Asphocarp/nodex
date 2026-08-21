@@ -1,6 +1,6 @@
 import { lazy, useState, type ComponentType } from "react";
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { appScope, type ScopeHandle, useScopeHandle } from "@/lib/maitai";
 import { renderWithMaitai } from "../test/dom";
 import {

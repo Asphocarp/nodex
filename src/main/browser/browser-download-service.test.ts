@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { BrowserDownloadRecord } from "../../shared/browser-download";
 import type { BrowserDownloadStore } from "./browser-download-store";
 import { BrowserDownloadService } from "./browser-download-service";

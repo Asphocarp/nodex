@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
   BOARD_SCROLL_CONTAINER_TEST_ID,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ServerRequest } from "@nodex/codex-app-server-protocol";
 import {
   createCodexCanonicalConversationState,

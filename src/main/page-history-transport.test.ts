@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { type PageHistoryPage } from "../shared/page-history";
 import type { PageHistoryCommandResult } from "../shared/page-history-transport";
 import {

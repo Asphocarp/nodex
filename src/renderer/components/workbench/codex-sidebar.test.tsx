@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { act } from "react";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexHoverCardProvider } from "@/components/ui/hover-card";

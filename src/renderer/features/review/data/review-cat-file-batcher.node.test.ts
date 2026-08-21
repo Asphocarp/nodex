@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import type { GitReviewCatFileInput, GitReviewCatFileOutput } from "@/lib/types";
 import {
   __resetReviewCatFileBatcherForTests,

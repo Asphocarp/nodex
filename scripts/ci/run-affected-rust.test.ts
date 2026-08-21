@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { selectAffectedRustPackageNames, type CargoMetadata } from "./run-affected-rust.ts";
 

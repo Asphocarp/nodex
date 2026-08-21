@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { NODEX_AGENT_V3_CATALOG_BUDGETS } from "./budgets";
 import { GetBlockOutputSchema } from "./read-schemas";
 import { FetchV3OutputSchema, QueryDatabaseV3OutputSchema } from "./v3-read-schemas";

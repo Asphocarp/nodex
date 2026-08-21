@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "vitest";
-import { cdp } from "vitest/browser";
+import { afterEach, describe, expect, test } from "vite-plus/test";
+import { cdp } from "vite-plus/test/browser";
 
 import "@/globals.css";
 

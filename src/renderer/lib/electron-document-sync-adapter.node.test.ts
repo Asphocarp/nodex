@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { DocumentSyncRealtimeEvent } from "../../shared/block-documents/document-sync";
 import { createCoreLocalCommitFixture } from "../../main/core-client/testing/local-commit-fixture";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";

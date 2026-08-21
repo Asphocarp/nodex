@@ -3,7 +3,7 @@ import path from "node:path";
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYXmlFragment } from "@blocknote/core/yjs";
 import { Awareness, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
-import { test } from "vitest";
+import { test } from "vite-plus/test";
 import * as Y from "yjs";
 import { materializePageDocument, populateBlockDocumentBodyFromNfm } from "./block-document-codec";
 import { assertValidBlockDocument } from "./block-structure";

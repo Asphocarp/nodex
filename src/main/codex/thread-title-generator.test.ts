@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   buildThreadTitleGenerationPrompt,
   CODEX_THREAD_TITLE_MODEL,

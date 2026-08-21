@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { ComposerImageAttachment } from "./composer-image-attachment-model";
 import { ComposerImageAttachmentThumbnail } from "./composer-image-attachment-thumbnail";
 

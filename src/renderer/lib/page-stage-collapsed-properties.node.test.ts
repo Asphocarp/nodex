@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   DEFAULT_PAGE_STAGE_COLLAPSED_PROPERTIES,
   PAGE_STAGE_COLLAPSED_PROPERTIES_STORAGE_KEY,

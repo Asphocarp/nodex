@@ -1,6 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import { motion } from "motion/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { useElementSizeMotionValues } from "./resize-observer-motion-values";
 
 describe("ResizeObserver MotionValue geometry", () => {

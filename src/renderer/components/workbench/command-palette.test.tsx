@@ -1,4 +1,4 @@
-import { describe, expect, vi, test } from "vitest";
+import { describe, expect, vi, test } from "vite-plus/test";
 import { createElement } from "react";
 import { act, fireEvent } from "@testing-library/react";
 import type {

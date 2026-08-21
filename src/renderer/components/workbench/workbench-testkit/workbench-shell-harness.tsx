@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, expect, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, vi } from "vite-plus/test";
 import { initPrefersReducedMotion } from "motion";
 import { installMotionPreferenceForTest } from "@/test/browser-globals";
 import {

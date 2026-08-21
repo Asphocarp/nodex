@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { BlockTreeNode } from "./block-document-codec";
 import { BLOCK_TO_PAGE_TYPE_CAPABILITIES } from "./block-semantic-content";
 import { HEADLESS_BLOCK_DOCUMENT_BLOCK_TYPES } from "./headless-blocknote-schema";

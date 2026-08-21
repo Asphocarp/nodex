@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { DesktopCapturerSource } from "electron";
 import type { ComposerAppshotServiceDependencies } from "./composer-appshot-service";
 

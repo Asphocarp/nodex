@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { resolveMcpWidgetMetadata } from "../../../shared/mcp-app/mcp-app-resource-contract";
 import type { McpAppRuntimeConfig } from "./mcp-app-runtime";
 import {

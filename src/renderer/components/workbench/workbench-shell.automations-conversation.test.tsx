@@ -1,5 +1,5 @@
 import "./workbench-testkit/workbench-shell-harness";
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi } from "vite-plus/test";
 import { waitFor, act, fireEvent, within } from "@testing-library/react";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { settleAsyncRender, textContent } from "../../test/dom";

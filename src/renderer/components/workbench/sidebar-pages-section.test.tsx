@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { LibraryPageNavigationNode } from "../../../shared/library-module";
 import { SidebarPagesSection, type SidebarPagesDataSource } from "./sidebar-pages-section";
 

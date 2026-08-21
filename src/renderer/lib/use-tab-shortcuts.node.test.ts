@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { handleTabShortcut, type TabShortcutActions } from "./use-tab-shortcuts";
 import type { Tab } from "./use-tabs";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { createCoreProjectWorkspaceAdapter } from "./project-workspace-adapter";
 import { mapCoreProjectWorkspaceEvent } from "./desktop-project-workspace-bridge";

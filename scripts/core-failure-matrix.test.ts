@@ -1,5 +1,5 @@
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { parseArguments, resolveDisposableProfile } from "./core-failure-matrix";
 
 describe("Core failure-matrix boundaries", () => {

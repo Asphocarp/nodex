@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   DATA_SOURCE_PROPERTY_OPTION_PALETTE,
   canCreateDataSourcePropertyOption,

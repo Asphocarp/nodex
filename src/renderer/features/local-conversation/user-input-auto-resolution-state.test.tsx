@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { CodexUserInputRequest } from "@/lib/types";
 import { render, settleAsyncRender } from "@/test/dom";

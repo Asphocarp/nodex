@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { forgetScrollPosition, loadScrollPosition, saveScrollPosition } from "./page-stage-scroll";
 
 describe("Page Stage scroll state", () => {

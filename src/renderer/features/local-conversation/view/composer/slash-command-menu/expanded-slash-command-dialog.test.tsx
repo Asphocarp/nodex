@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { render } from "@/test/dom";
 import { ExpandedSlashCommandDialog } from "./expanded-slash-command-dialog";
 import type { ComposerSlashCommand } from "./slash-command-types";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 
 describe("finalizeSideMenuBlockDrag", () => {

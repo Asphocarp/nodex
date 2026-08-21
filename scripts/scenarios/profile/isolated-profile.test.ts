@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import { acquireIsolatedRunLease } from "../../../src/main/core-client/isolated-run-ownership";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import {
   type CommandPaletteThreadSearchBatch,

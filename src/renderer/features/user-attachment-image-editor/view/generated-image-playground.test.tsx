@@ -1,6 +1,6 @@
 import { act, useState } from "react";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { render } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import type { GeneratedImageDescriptor, ImageComment, PlaygroundTool } from "../model/types";

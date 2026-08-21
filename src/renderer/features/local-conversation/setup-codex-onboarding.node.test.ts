@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ProtocolAppInfo } from "@/lib/types";
 import {
   CODEX_SETUP_ROLE_IDS,

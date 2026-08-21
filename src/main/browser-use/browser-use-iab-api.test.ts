@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type {
   BrowserSidebarTabIdentity,
   BrowserSidebarTabSnapshot,

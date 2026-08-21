@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import type { EffectiveDatabaseViewPresentation } from "../../../../shared/database-kernel";
 import type { DatabaseListWindowSnapshot } from "../../../../shared/database-views";

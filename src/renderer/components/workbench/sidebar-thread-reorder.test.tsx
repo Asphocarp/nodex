@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { act } from "react";
 import { render } from "@/test/dom";

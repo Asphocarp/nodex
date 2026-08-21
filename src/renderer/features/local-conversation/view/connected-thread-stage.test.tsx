@@ -1,5 +1,5 @@
-import { describe, expect, vi, test } from "vitest";
 import { useState, type ReactNode } from "react";
+import { describe, expect, vi, test } from "vite-plus/test";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../test/browser-globals";

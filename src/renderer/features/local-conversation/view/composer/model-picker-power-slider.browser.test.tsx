@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ComposerPowerChoice } from "./composer-intelligence-power-policy";
 import { ModelPickerPowerSlider } from "./model-picker-power-slider";
 import "../../../../globals.css";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION,
   CODEX_SUMMARY_SHIFT_X,

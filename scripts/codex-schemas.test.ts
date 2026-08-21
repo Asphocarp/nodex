@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { extractJsonSchemaRoot, stableJson, type JsonObject } from "./codex-schemas";
 
 describe("Codex runtime schema extraction", () => {

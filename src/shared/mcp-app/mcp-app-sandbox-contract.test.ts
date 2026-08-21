@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   MCP_APP_REQUIRED_GUEST_PORT_NAMES,
   appendMcpAppSandboxInitId,

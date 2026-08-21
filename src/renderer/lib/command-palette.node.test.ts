@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,
   LEGACY_COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY,

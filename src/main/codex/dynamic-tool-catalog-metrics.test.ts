@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { NODEX_AGENT_V3_CATALOG_BUDGETS } from "../../shared/nodex-agent-tools/budgets";
 import {
   NESTED_MARKDOWN_AGENT_GUIDE,

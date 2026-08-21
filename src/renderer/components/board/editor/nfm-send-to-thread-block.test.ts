@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { blockNoteToNfm, serializeNfm } from "@/lib/nfm";
 import { isUuidV7 } from "../../../../shared/uuid-v7";
 import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";

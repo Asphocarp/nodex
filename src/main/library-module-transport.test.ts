@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import type { LibraryModuleApplyResult, LibraryModuleReadResult } from "../shared/library-module";
 import { libraryContentAccess, projectContentAccess } from "../shared/content-access-context";

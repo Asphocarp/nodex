@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { classifyContentBudget, countLinesUpTo, getUtf8ByteLength } from "./content-budget";
 
 describe("content budgets", () => {

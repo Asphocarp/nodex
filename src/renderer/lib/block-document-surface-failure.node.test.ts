@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import {
   PAGE_DOCUMENT_SCHEMA_KEY,
   PAGE_DOCUMENT_SCHEMA_VERSION,

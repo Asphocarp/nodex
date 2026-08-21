@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { CORE_CLIENT_REQUIREMENTS, type components } from "@nodex/core-protocol";
 
 import { CoreClient, CoreModuleResponseError } from "./core-client";

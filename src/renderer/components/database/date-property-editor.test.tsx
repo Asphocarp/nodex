@@ -1,6 +1,6 @@
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vite-plus/test";
 import { render } from "@/test/dom";
 import { todayAsIsoDate } from "@/lib/data-source-property-date";
 import { DatePropertyEditor, preloadDatePropertyCalendar } from "./date-property-editor";

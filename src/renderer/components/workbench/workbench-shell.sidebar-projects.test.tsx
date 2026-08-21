@@ -1,5 +1,5 @@
 import "./workbench-testkit/workbench-shell-harness";
-import { describe, test, expect } from "vitest";
+import { describe, test, expect } from "vite-plus/test";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { within, act, fireEvent, waitFor } from "@testing-library/react";
 import { type CodexSidebarSyncResult, type CodexSidebarThreadItem } from "@/lib/types";

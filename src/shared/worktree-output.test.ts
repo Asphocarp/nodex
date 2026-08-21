@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { formatBoundedWorktreeOutput, WORKTREE_OUTPUT_TRUNCATION_MARKER } from "./worktree-output";
 
 describe("formatBoundedWorktreeOutput", () => {

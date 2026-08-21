@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { probeBrowserNativeCapabilities } from "./browser-native-capabilities";
 
 describe("probeBrowserNativeCapabilities", () => {

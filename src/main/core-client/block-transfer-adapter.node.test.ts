@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { type BlockTransferIntent } from "../../shared/block-transfer";
 import { createCoreBlockTransferAdapter } from "./block-transfer-adapter";

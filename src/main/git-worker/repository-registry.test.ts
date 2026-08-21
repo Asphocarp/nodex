@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { LocalGitCommandRunner } from "./git-command-runner";
 import { GitRepositoryRegistry } from "./repository-registry";
 

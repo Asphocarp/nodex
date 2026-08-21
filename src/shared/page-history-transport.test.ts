@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { MAX_PAGE_HISTORY_PAGE_SIZE, type PageHistoryPage } from "./page-history";
 import {
   PageHistoryContractError,

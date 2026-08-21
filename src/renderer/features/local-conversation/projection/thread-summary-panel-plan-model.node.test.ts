@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { buildThreadSummaryPanelPlanRow } from "./thread-summary-panel-plan-model";
 

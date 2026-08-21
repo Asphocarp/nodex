@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
 import type { WorkbenchSurfaceDescriptor } from "../../../shared/workbench-scene";
 import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";

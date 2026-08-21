@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { fireEvent } from "@testing-library/react";
 import { renderWithMaitai as render } from "../../../../../test/dom";
 import type {

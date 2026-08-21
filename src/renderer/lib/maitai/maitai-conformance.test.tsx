@@ -1,7 +1,7 @@
 import { Component, Fragment, useLayoutEffect, type ReactNode } from "react";
 import { act, fireEvent, render } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import {
   MaitaiProvider,
   ScopeProvider,

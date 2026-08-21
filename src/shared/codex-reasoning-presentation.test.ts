@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { resolveCodexReasoningSummaryPresentation } from "./codex-reasoning-presentation";
 
 function reasoning(itemId: string, markdownText: string) {

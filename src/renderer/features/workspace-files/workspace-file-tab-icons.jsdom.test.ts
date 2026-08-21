@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { render } from "@/test/dom";
 import {
   resolveWorkspaceFileTabIcon,

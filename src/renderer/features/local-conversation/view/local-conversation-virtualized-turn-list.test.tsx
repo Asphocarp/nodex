@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import { useState, type ReactNode } from "react";
 import { NodexTooltipProvider } from "../../../components/ui/tooltip";
 import { createMaitaiStore, MaitaiProvider } from "../../../lib/maitai";

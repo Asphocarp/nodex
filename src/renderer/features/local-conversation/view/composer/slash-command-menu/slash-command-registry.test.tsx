@@ -1,5 +1,5 @@
 import { fireEvent, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { installWindowApi } from "@/test/browser-globals";
 import { render } from "@/test/dom";
 import { queryKeys } from "@/lib/query-keys";

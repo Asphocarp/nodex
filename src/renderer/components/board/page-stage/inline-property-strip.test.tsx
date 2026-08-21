@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { PageDetail } from "../../../../shared/page-detail";
 import { render } from "@/test/dom";
 import { buildPageStageStoryPage } from "./page-stage-dev-story-data";

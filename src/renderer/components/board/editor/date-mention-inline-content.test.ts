@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { buildDateMentionUpdate } from "./date-mention-inline-content";
 
 describe("date mention inline content", () => {

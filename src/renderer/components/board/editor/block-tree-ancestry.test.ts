@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { isBlockWithinOwnerTree } from "./block-tree-ancestry";
 
 describe("Block tree ancestry", () => {

@@ -1,6 +1,6 @@
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
 import { NodexHoverCard, NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { render, settleAsyncRender } from "@/test/dom";

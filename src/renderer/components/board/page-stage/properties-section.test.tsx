@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 
 import type { PageStageCorePage } from "@/lib/page-stage-page";
 import { render } from "@/test/dom";

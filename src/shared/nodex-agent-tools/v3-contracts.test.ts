@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { z } from "zod";
 import { NESTED_MARKDOWN_AGENT_GUIDE, NESTED_MARKDOWN_COMPACT_HINT } from "../nfm/agent-guide";
 import { NODEX_AGENT_V3_TOOL_CONTRACTS } from "./v3-contracts";

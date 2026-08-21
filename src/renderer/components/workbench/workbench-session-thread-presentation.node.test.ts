@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { resolvePresentedSessionThread } from "./workbench-session-thread-presentation";
 
 describe("Session thread launch presentation", () => {

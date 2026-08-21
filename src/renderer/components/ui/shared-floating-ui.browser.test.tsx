@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vite-plus/test";
 import "../../globals.css";
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
 import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "@/components/board/editor/nfm-blocknote-floating-ui";

@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 import { render } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";

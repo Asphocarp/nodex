@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 describe("main test runtime", () => {
   test("uses the pinned Electron and Node runtimes", () => {

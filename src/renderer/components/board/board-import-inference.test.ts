@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { BoardSummary, PageInput, WorkflowStatus, DatabasePageSummary } from "@/lib/types";
 import type { DbViewRules } from "../../lib/db-view-prefs";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";

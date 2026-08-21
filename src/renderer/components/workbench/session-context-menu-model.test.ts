@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ProjectSession } from "@/lib/types";
 import {
   SESSION_CONTEXT_MENU_ACTION_IDS,

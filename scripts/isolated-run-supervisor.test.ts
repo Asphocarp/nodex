@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 
 import type { components } from "@nodex/core-protocol";
 import { BROWSER_USE_PEER_AUTHORIZATION_ENV } from "../src/shared/browser-use-host-capability";

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirements } from "@nodex/codex-app-server-protocol/v2/ConfigRequirements";
 import {
