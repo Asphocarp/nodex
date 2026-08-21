@@ -18,6 +18,8 @@ const fakeElectronLayer = (events: string[]) =>
   Layer.succeed(
     ElectronApp,
     ElectronApp.of({
+      appPath: Effect.succeed("/tmp/nodex-test-app"),
+      downloadsPath: Effect.succeed("/tmp/nodex-test-downloads"),
       locale: Effect.succeed("en-US"),
       userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
       whenReady: Effect.sync(() => events.push("ready")),
@@ -145,6 +147,8 @@ it.effect("defers a system-owned quit without closing the Main runtime", () =>
     const electron = Layer.succeed(
       ElectronApp,
       ElectronApp.of({
+        appPath: Effect.succeed("/tmp/nodex-test-app"),
+        downloadsPath: Effect.succeed("/tmp/nodex-test-downloads"),
         locale: Effect.succeed("en-US"),
         userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
         whenReady: Effect.void,

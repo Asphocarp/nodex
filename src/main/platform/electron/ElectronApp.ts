@@ -19,6 +19,8 @@ export interface ElectronBeforeQuitDecision {
 export class ElectronApp extends Context.Service<
   ElectronApp,
   {
+    readonly appPath: Effect.Effect<string>;
+    readonly downloadsPath: Effect.Effect<string>;
     readonly locale: Effect.Effect<string>;
     readonly userDataPath: Effect.Effect<string>;
     readonly whenReady: Effect.Effect<void, ElectronAppError>;
@@ -60,6 +62,8 @@ export const live: Layer.Layer<ElectronApp, never, ScopedCallbackRuntime> = Laye
     };
 
     return ElectronApp.of({
+      appPath: Effect.sync(() => app.getAppPath()),
+      downloadsPath: Effect.sync(() => app.getPath("downloads")),
       locale: Effect.sync(() => app.getLocale()),
       userDataPath: Effect.sync(() => app.getPath("userData")),
       whenReady: Effect.tryPromise({

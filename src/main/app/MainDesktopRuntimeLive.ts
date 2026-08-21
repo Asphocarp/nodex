@@ -98,16 +98,22 @@ import {
   BrowserUseRuntime,
   live as browserUseRuntimeLive,
 } from "../host-runtime/BrowserUseRuntime";
+import {
+  BrowserProfileRuntime,
+  live as browserProfileRuntimeLive,
+} from "../host-runtime/BrowserProfileRuntime";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import {
   activateMainServiceComposition,
   createMainServiceComposition,
 } from "../main-service-composition";
 import { ElectronApp } from "../platform/electron/ElectronApp";
+import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../platform/electron/ElectronIpc";
 import * as ElectronNet from "../platform/electron/ElectronNet";
 import * as ProviderCredentials from "../platform/electron/ProviderCredentials";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
+import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import * as CodexSessionTransport from "../platform/node/CodexSessionTransport";
 import { resolveCodexProcessEnvironment } from "../platform/node/CodexProcessEnvironment";
@@ -119,7 +125,6 @@ import { MainRuntime, MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
-import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 
 const runtimeError = (operation: string, cause: unknown) =>
   new MainRuntimeError({ operation, cause });
@@ -132,7 +137,9 @@ export const live: Layer.Layer<
   MainRuntime,
   MainRuntimeError,
   | ElectronApp
+  | ElectronDesktop
   | ElectronIpc
+  | ElectronSessionHost
   | ElectronWindowHost
   | MainConfig
   | MainShutdown
@@ -142,7 +149,9 @@ export const live: Layer.Layer<
   MainRuntime,
   Effect.gen(function* () {
     const electron = yield* ElectronApp;
+    const desktop = yield* ElectronDesktop;
     const ipc = yield* ElectronIpc;
+    const sessionHost = yield* ElectronSessionHost;
     const windowHost = yield* ElectronWindowHost;
     const config = yield* MainConfig;
     const shutdown = yield* MainShutdown;
@@ -445,6 +454,37 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const chatGpt = Context.get(chatGptContext, ChatGptDesktop);
+        const browserProfileContext = yield* Layer.buildWithScope(
+          browserProfileRuntimeLive({
+            browserSidebar: browserSidebarService,
+            isPackaged: config.isPackaged,
+            nodexHome: config.nodexHome,
+            projectRootPath: config.projectRootPath,
+            resourcesPath: config.resourcesPath,
+            userDataPath,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ChatGptDesktop, chatGpt),
+                Layer.succeed(ElectronApp, electron),
+                Layer.succeed(ElectronDesktop, desktop),
+                Layer.succeed(ElectronNet.ElectronNet, electronNet),
+                Layer.succeed(ElectronSessionHost, sessionHost),
+                Layer.succeed(ElectronWindowHost, windowHost),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const browserProfile = Context.get(browserProfileContext, BrowserProfileRuntime);
+        yield* browserUse.install({
+          grantDownload: (identity, sourceUrl, ttlMs) =>
+            browserProfile.download.grantAgentDownload(identity, sourceUrl, ttlMs),
+          policyStore: browserProfile.services.usePolicyStore,
+          releaseCredentialOwner: (ownerWebContentsId) =>
+            browserProfile.services.credentialService.releaseOwner(ownerWebContentsId),
+        });
         const codexMediaContext = yield* Layer.buildWithScope(
           codexMediaLive.pipe(
             Layer.provide(
@@ -671,17 +711,9 @@ export const live: Layer.Layer<
                 dataAuthority: Promise.resolve(dataAuthority),
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
-                installBrowserUseRuntime: (input) =>
-                  callbacks.runPromise(browserUse.install(input)),
                 manageElectronLifecycle: false,
                 startupEvents: [],
                 startCoreEvents,
-                readChatGptAuthStatus: (input) =>
-                  callbacks.runPromise(
-                    chatGpt
-                      .authStatus(input.includeToken, input.refreshToken)
-                      .pipe(Effect.map((value) => value as unknown as GetAuthStatusResponse)),
-                  ),
                 terminalRuntime: {
                   listLiveSessionsForOwners: (input) =>
                     callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),

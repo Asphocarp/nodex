@@ -4,6 +4,7 @@ import type { BrowserSidebarService } from "../browser-sidebar-service";
 import {
   BrowserUseIabApi,
   type BrowserUseCdpEvent,
+  type BrowserUseIabApiOptions,
   type BrowserUseRoute,
 } from "./browser-use-iab-api";
 import {
@@ -87,6 +88,7 @@ export interface BrowserUseSessionRegistryOptions {
   browserService: BrowserSidebarService;
   buildFlavor: string;
   enabled: boolean;
+  grantDownload?: BrowserUseIabApiOptions["grantDownload"];
   nativePipeEvents?: BrowserUseNativePipeServerEvents;
   policyStore?: BrowserUsePolicyReader;
   socketPeerAuthorizer: BrowserUseSocketPeerAuthorizer;
@@ -124,6 +126,7 @@ export class BrowserUseSessionRegistry {
           appVersion: this.appVersion,
           browserService: this.browserService,
           buildFlavor: this.buildFlavor,
+          grantDownload: options.grantDownload,
           policyStore: options.policyStore,
           route,
         }));

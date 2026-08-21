@@ -16,8 +16,12 @@ export interface BrowserProfileServices {
 
 let services: BrowserProfileServices | null = null;
 
-export function configureBrowserProfileServices(nextServices: BrowserProfileServices): void {
+export function activateBrowserProfileServices(nextServices: BrowserProfileServices): () => void {
+  if (services !== null) throw new Error("Browser Profile services are already active");
   services = nextServices;
+  return () => {
+    if (services === nextServices) services = null;
+  };
 }
 
 export function getBrowserProfileServices(): BrowserProfileServices {

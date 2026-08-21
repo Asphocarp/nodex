@@ -9,7 +9,6 @@ import {
 } from "../../shared/browser-sidebar";
 import { isAllowedBrowserNavigationUrl } from "../../shared/browser-url";
 import { BrowserSidebarService, type BrowserWebContentsLike } from "../browser-sidebar-service";
-import { getBrowserDownloadService } from "../browser/browser-download-service";
 import {
   buildBrowserUseInputTranslationScript,
   isSupportedBrowserUseInputMethod,
@@ -259,11 +258,7 @@ export class BrowserUseIabApi extends EventEmitter {
     );
     this.cursorArrivalTimeoutMs =
       options.cursorArrivalTimeoutMs ?? DEFAULT_CURSOR_ARRIVAL_TIMEOUT_MS;
-    this.grantDownload =
-      options.grantDownload ??
-      ((identity, sourceUrl, ttlMs) => {
-        getBrowserDownloadService().grantAgentDownload(identity, sourceUrl, ttlMs);
-      });
+    this.grantDownload = options.grantDownload ?? (() => undefined);
     this.pageReadyTimeoutMs = options.pageReadyTimeoutMs ?? DEFAULT_PAGE_READY_TIMEOUT_MS;
     this.policyStore = options.policyStore ?? null;
     this.route = options.route;

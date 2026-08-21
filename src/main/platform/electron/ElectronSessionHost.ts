@@ -8,6 +8,7 @@ export class ElectronSessionHost extends Context.Service<
   ElectronSessionHost,
   {
     readonly defaultSession: Effect.Effect<Session>;
+    readonly fromPartition: (partition: string) => Effect.Effect<Session>;
     readonly scopedRegistration: (
       acquire: () => void,
       release: () => void,
@@ -20,6 +21,7 @@ export const live: Layer.Layer<ElectronSessionHost> = Layer.succeed(
   ElectronSessionHost,
   ElectronSessionHost.of({
     defaultSession: Effect.sync(() => session.defaultSession),
+    fromPartition: (partition) => Effect.sync(() => session.fromPartition(partition)),
     scopedRegistration: (acquire, release) =>
       Effect.acquireRelease(Effect.sync(acquire), () => Effect.sync(release)),
     protocol,

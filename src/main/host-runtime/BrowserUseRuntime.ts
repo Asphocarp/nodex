@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
+import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
 import { resolveBrowserUseHostCapability } from "../../shared/browser-use-host-capability";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
 import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-authorizer";
@@ -27,6 +28,11 @@ export class BrowserUseRuntimeError extends Schema.TaggedError<BrowserUseRuntime
 ) {}
 
 export interface BrowserUseRuntimeInstallInput {
+  readonly grantDownload: (
+    identity: BrowserSidebarTabIdentity,
+    sourceUrl: string,
+    ttlMs?: number,
+  ) => void;
   readonly policyStore: BrowserUsePolicyReader;
   readonly releaseCredentialOwner: (ownerWebContentsId: number) => void;
 }
@@ -64,7 +70,7 @@ type DesktopToolPort = Pick<
 export interface BrowserUseRuntimePorts {
   readonly browserSidebar: BrowserSidebarPort;
   readonly desktopTools: DesktopToolPort;
-  readonly makeRegistry: (policyStore: BrowserUsePolicyReader) => BrowserUseRegistryPort;
+  readonly makeRegistry: (input: BrowserUseRuntimeInstallInput) => BrowserUseRegistryPort;
 }
 
 const logFailure = (operation: string, cause: unknown): Effect.Effect<void> =>
@@ -97,7 +103,7 @@ const make = (
           const result = yield* Effect.exit(
             Effect.gen(function* () {
               const registry = yield* Effect.try({
-                try: () => ports.makeRegistry(input.policyStore),
+                try: () => ports.makeRegistry(input),
                 catch: (cause) =>
                   new BrowserUseRuntimeError({ operation: "create-registry", cause }),
               });
@@ -246,7 +252,7 @@ export const live = (
       return yield* make({
         browserSidebar: options.browserSidebar,
         desktopTools,
-        makeRegistry: (policyStore) =>
+        makeRegistry: (input) =>
           new BrowserUseSessionRegistry({
             appVersion: options.appVersion,
             browserService: options.browserSidebar,
@@ -255,6 +261,7 @@ export const live = (
                 ? options.browserRuntime.bundle.manifest.buildFlavor
                 : "unavailable",
             enabled: capability.status === "available",
+            grantDownload: input.grantDownload,
             nativePipeEvents: {
               onAuthorizationError: (error) =>
                 logger.warn("Browser Use native pipe peer authorization failed", {
@@ -276,7 +283,7 @@ export const live = (
               onSocketError: (error) =>
                 logger.warn("Browser Use native pipe socket failed", { error: error.message }),
             },
-            policyStore,
+            policyStore: input.policyStore,
             socketPeerAuthorizer,
           }),
       });

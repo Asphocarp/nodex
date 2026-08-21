@@ -68,6 +68,7 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
     );
     const runtime = Context.get(context, BrowserUseRuntime);
     yield* runtime.install({
+      grantDownload: () => undefined,
       policyStore: {
         snapshot: () => DEFAULT_BROWSER_USE_POLICY,
         isExplicitlyDenied: () => false,

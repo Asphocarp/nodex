@@ -7,6 +7,7 @@ import {
   dialog,
   nativeTheme,
   powerMonitor,
+  safeStorage,
   shell,
   type MessageBoxOptions,
   type MessageBoxReturnValue,
@@ -19,6 +20,7 @@ export class ElectronDesktop extends Context.Service<
     readonly dialog: typeof dialog;
     readonly menu: typeof Menu;
     readonly nativeTheme: typeof nativeTheme;
+    readonly safeStorage: typeof safeStorage;
     readonly shell: typeof shell;
     readonly showMessage: (options: MessageBoxOptions) => Effect.Effect<MessageBoxReturnValue>;
     readonly onPowerEvent: (
@@ -36,6 +38,7 @@ export const live: Layer.Layer<ElectronDesktop, never, ScopedCallbackRuntime> = 
       dialog,
       menu: Menu,
       nativeTheme,
+      safeStorage,
       shell,
       showMessage: (options) => Effect.promise(() => dialog.showMessageBox(options)),
       onPowerEvent: (event, handler) => {

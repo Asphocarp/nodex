@@ -7,9 +7,7 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
-  net,
   powerMonitor,
-  safeStorage,
   screen,
   session as electronSession,
   shell,
@@ -33,7 +31,6 @@ import type {
   TerminalRunActionRequest,
   TerminalSessionSnapshot,
 } from "../shared/types";
-import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import { dbNotifier } from "./local-store/notifier";
@@ -43,22 +40,6 @@ import { getMainServiceComposition } from "./main-service-composition";
 import { FileBrowserPageSnapshotStore } from "./browser/browser-page-store";
 import { FileBrowserHistoryStore } from "./browser/browser-history-store";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
-import { FileBrowserDownloadStore } from "./browser/browser-download-store";
-import {
-  BrowserDownloadService,
-  configureBrowserDownloadService,
-} from "./browser/browser-download-service";
-import { BrowserCredentialVault } from "./browser/browser-credential-vault";
-import { BrowserCredentialService } from "./browser/browser-credential-service";
-import {
-  BrowserProfileHelperClient,
-  resolveBrowserProfileHelperExecutable,
-} from "./browser/browser-profile-helper-client";
-import { BrowserProfileImporter } from "./browser/browser-profile-importer";
-import { BrowserSiteInfoProvider } from "./browser/browser-site-info-provider";
-import { BrowserExtensionsProvider } from "./browser/browser-extensions-provider";
-import { BrowserLocalServerPreferencesStore } from "./browser/browser-local-server-preferences";
-import { configureBrowserProfileServices } from "./browser/browser-profile-services";
 import { McpAppSandboxHost } from "./mcp-app/mcp-app-sandbox-host";
 import {
   getAppUpdateSettings,
@@ -70,9 +51,6 @@ import {
   getWindowRestoreSettings,
   updateAppUpdateSettings,
 } from "./local-store/config";
-import { BrowserUsePolicyStore } from "./browser-use/browser-use-policy-store";
-import { BrowserUseSiteStatusPolicyService } from "./browser-use/site-status-policy-service";
-import { DEFAULT_CHATGPT_BASE_URL } from "./codex/chatgpt-base-url";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import {
   startCodexScheduledAutomationScheduler,
@@ -2055,10 +2033,6 @@ export interface MainRuntimeStartupContext {
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
-  installBrowserUseRuntime: (input: {
-    readonly policyStore: BrowserUsePolicyStore;
-    readonly releaseCredentialOwner: (ownerWebContentsId: number) => void;
-  }) => Promise<void>;
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
@@ -2072,10 +2046,6 @@ export interface MainRuntimeStartupContext {
       error?: unknown,
     ) => void;
   }) => Promise<void>;
-  readChatGptAuthStatus: (input: {
-    readonly includeToken: boolean;
-    readonly refreshToken: boolean;
-  }) => Promise<GetAuthStatusResponse>;
   terminalRuntime?: {
     readonly listLiveSessionsForOwners: (input: {
       readonly conversationIds: ReadonlySet<string>;
@@ -2374,101 +2344,6 @@ export async function runMainAppStartup(
       filePath: join(app.getPath("userData"), "browser-history.json"),
     }),
   );
-  const browserSession = electronSession.fromPartition(BROWSER_SIDEBAR_PARTITION);
-  const browserUsePolicyStore = new BrowserUsePolicyStore(
-    join(getNodexHome(), "agent", "browser", "config.toml"),
-  );
-  await browserUsePolicyStore.initialize();
-  browserSidebarService.setSiteStatusPolicy(
-    new BrowserUseSiteStatusPolicyService({
-      apiBaseUrl: DEFAULT_CHATGPT_BASE_URL,
-      fetchImpl: async (url, init) => await net.fetch(url, init),
-      getAppVersion: () => app.getVersion(),
-      logger,
-      readAuthStatus: context.readChatGptAuthStatus,
-    }),
-  );
-  const browserCredentialVault = new BrowserCredentialVault({
-    filePath: join(getNodexHome(), "secrets", "browser-credentials.v1.json"),
-    encryption: {
-      isAvailable: () => safeStorage.isEncryptionAvailable(),
-      encryptString: (plaintext) => safeStorage.encryptString(plaintext),
-      decryptString: (ciphertext) => safeStorage.decryptString(ciphertext),
-    },
-  });
-  const browserCredentialService = new BrowserCredentialService({
-    vault: browserCredentialVault,
-    resolveGuest: (identity) => browserSidebarService.getWebContentsForTab(identity),
-    resolveGuestIdentity: (webContentsId) =>
-      browserSidebarService.getIdentityForWebContents(webContentsId),
-    resolveGuestOwner: (webContentsId) =>
-      browserSidebarService.getOwnerWebContentsIdForGuest(webContentsId),
-  });
-  configureBrowserProfileServices({
-    credentialService: browserCredentialService,
-    extensionsProvider: new BrowserExtensionsProvider(browserSession.extensions ?? null),
-    localServerPreferencesStore: new BrowserLocalServerPreferencesStore(
-      join(app.getPath("userData"), "browser-local-server-preferences.json"),
-    ),
-    profileImporter: new BrowserProfileImporter({
-      cookieStore: browserSession.cookies,
-      credentialVault: browserCredentialVault,
-      helper: new BrowserProfileHelperClient({
-        executablePath: resolveBrowserProfileHelperExecutable({
-          isPackaged: app.isPackaged,
-          resourcesPath: process.resourcesPath,
-          repositoryRoot: app.getAppPath(),
-        }),
-      }),
-    }),
-    siteInfoProvider: new BrowserSiteInfoProvider(browserSidebarService, browserSession.cookies),
-    usePolicyStore: browserUsePolicyStore,
-  });
-  await context.installBrowserUseRuntime({
-    policyStore: browserUsePolicyStore,
-    releaseCredentialOwner: (ownerWebContentsId) =>
-      browserCredentialService.releaseOwner(ownerWebContentsId),
-  });
-  const browserDownloadService = new BrowserDownloadService({
-    downloadsDirectory: app.getPath("downloads"),
-    isAgentControlled: (identity) => browserSidebarService.isBrowserUseIdentity(identity),
-    onSnapshot: (snapshot) => {
-      const activeDownloadKeys = new Set(
-        snapshot.downloads
-          .filter(
-            (download) =>
-              download.status === "starting" ||
-              download.status === "progressing" ||
-              download.status === "paused",
-          )
-          .map(
-            (download) =>
-              `${download.browserConversationId}\0${download.browserViewScopeId}\0${download.browserTabId}`,
-          ),
-      );
-      for (const tab of browserSidebarService.getStateSnapshot().tabs) {
-        browserSidebarService.setDownloadActive(
-          tab,
-          activeDownloadKeys.has(
-            `${tab.browserConversationId}\0${tab.browserViewScopeId}\0${tab.browserTabId}`,
-          ),
-        );
-      }
-      for (const browserWindow of BrowserWindow.getAllWindows()) {
-        safeSendToWindow(browserWindow, "browser-downloads-state", [snapshot]);
-      }
-    },
-    resolveIdentity: (webContentsId) =>
-      browserSidebarService.getIdentityForWebContents(webContentsId),
-    shell,
-    store: new FileBrowserDownloadStore(join(app.getPath("userData"), "browser-downloads.json")),
-  });
-  configureBrowserDownloadService(browserDownloadService);
-  void browserDownloadService.initialize(browserSession).catch((error) => {
-    logger.error("Could not initialize Browser download history", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
   const packagedMacAppUpdater = (() => {
     if (!app.isPackaged || process.platform !== "darwin") return null;
     if (process.arch !== "arm64" && process.arch !== "x64") return null;

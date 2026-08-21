@@ -70,7 +70,7 @@ import {
   type BrowserPageEmulationTarget,
 } from "./browser/browser-page-emulation";
 import type { BrowserHistoryStore } from "./browser/browser-history-store";
-import { getBrowserDownloadService } from "./browser/browser-download-service";
+import type { BrowserDownloadService } from "./browser/browser-download-service";
 import { getLogger, type BackendLogger } from "./logging/logger";
 import { safeBroadcastToWindows } from "./ipc-safe-send";
 import type { SiteStatusPolicyService } from "./browser-use/site-status-policy-service";
@@ -422,6 +422,7 @@ export class BrowserSidebarService extends EventEmitter {
     BrowserLocalServerThumbnailService,
     "get" | "invalidate"
   >;
+  private downloadService: Pick<BrowserDownloadService, "clearHistory"> | null = null;
   private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
   private readonly browserUseCapturedRoutesByViewScope = new Map<string, BrowserUseCapturedRoute>();
   private readonly pendingBrowserUsePresentations = new Map<
@@ -476,7 +477,11 @@ export class BrowserSidebarService extends EventEmitter {
     this.historyStore = historyStore;
   }
 
-  setSiteStatusPolicy(siteStatusPolicy: SiteStatusPolicyService): void {
+  setDownloadService(service: Pick<BrowserDownloadService, "clearHistory"> | null): void {
+    this.downloadService = service;
+  }
+
+  setSiteStatusPolicy(siteStatusPolicy: SiteStatusPolicyService | null): void {
     this.siteStatusPolicy = siteStatusPolicy;
   }
 
@@ -1239,7 +1244,8 @@ export class BrowserSidebarService extends EventEmitter {
   async clearBrowsingData(kind: BrowserBrowsingDataKind): Promise<BrowserBrowsingDataClearResult> {
     try {
       if (kind === "downloads") {
-        await getBrowserDownloadService().clearHistory();
+        if (!this.downloadService) throw new Error("Browser download service is unavailable");
+        await this.downloadService.clearHistory();
         return { ok: true };
       }
       if (kind === "history") {

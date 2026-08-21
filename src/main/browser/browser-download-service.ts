@@ -40,6 +40,14 @@ interface BrowserDownloadSession {
       webContents: { id: number },
     ) => void,
   ): void;
+  removeListener(
+    event: "will-download",
+    listener: (
+      event: { preventDefault(): void },
+      item: BrowserDownloadItem,
+      webContents: { id: number },
+    ) => void,
+  ): void;
 }
 
 interface BrowserDownloadShell {
@@ -112,6 +120,14 @@ export class BrowserDownloadService {
   private readonly liveItems = new Map<string, BrowserDownloadItem>();
   private readonly records = new Map<string, BrowserDownloadRecord>();
   private readonly grants = new Map<string, BrowserDownloadGrant>();
+  private downloadBinding: {
+    readonly listener: (
+      event: { preventDefault(): void },
+      item: BrowserDownloadItem,
+      webContents: { id: number },
+    ) => void;
+    readonly session: BrowserDownloadSession;
+  } | null = null;
   private initialized = false;
 
   constructor(options: BrowserDownloadServiceOptions) {
@@ -128,13 +144,33 @@ export class BrowserDownloadService {
   async initialize(session: BrowserDownloadSession): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
-    for (const record of await this.store.list()) {
-      this.records.set(record.id, record);
+    let loadFailure: unknown = null;
+    try {
+      for (const record of await this.store.list()) {
+        this.records.set(record.id, record);
+      }
+      this.emitSnapshot();
+    } catch (error) {
+      loadFailure = error;
     }
-    this.emitSnapshot();
-    session.on("will-download", (event, item, webContents) => {
+    const listener = (
+      event: { preventDefault(): void },
+      item: BrowserDownloadItem,
+      webContents: { id: number },
+    ) => {
       this.handleWillDownload(event, item, webContents.id);
-    });
+    };
+    session.on("will-download", listener);
+    this.downloadBinding = { listener, session };
+    if (loadFailure !== null) throw loadFailure;
+  }
+
+  dispose(): void {
+    const binding = this.downloadBinding;
+    this.downloadBinding = null;
+    if (binding) binding.session.removeListener("will-download", binding.listener);
+    this.grants.clear();
+    this.liveItems.clear();
   }
 
   grantAgentDownload(identity: BrowserSidebarTabIdentity, sourceUrl: string, ttlMs = 10_000): void {
@@ -312,8 +348,14 @@ export class BrowserDownloadService {
 
 let configuredBrowserDownloadService: BrowserDownloadService | null = null;
 
-export function configureBrowserDownloadService(service: BrowserDownloadService): void {
+export function activateBrowserDownloadService(service: BrowserDownloadService): () => void {
+  if (configuredBrowserDownloadService !== null) {
+    throw new Error("Browser download service is already active");
+  }
   configuredBrowserDownloadService = service;
+  return () => {
+    if (configuredBrowserDownloadService === service) configuredBrowserDownloadService = null;
+  };
 }
 
 export function getBrowserDownloadService(): BrowserDownloadService {
