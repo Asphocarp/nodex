@@ -134,22 +134,28 @@ vp run package
 Run the standard checks before handing off code changes:
 
 ```bash
-vp check
+vp run check
 vp lint --format agent --report-unused-disable-directives
 vp run test
 vp run verify:source
 ```
 
 Vite+ is the repository engineering control plane. `vp check` combines the
-configured Effect-patched TypeScript 7 checker, Oxlint, and Oxfmt check. CI and
-`vp run verify:static` invoke that integrated gate directly.
+configured Effect-patched TypeScript 7 checker, Oxlint, and Oxfmt check. The
+cacheable `vp run check` developer task invokes that integrated gate. CI
+deliberately invokes `vp check` directly because its isolated jobs do not have a
+warm Vite Task cache.
 `correctness`, `suspicious`, and `perf` diagnostics are advisory warnings: keep
 them visible and improve nearby code when useful, but do not treat the warning
 count as an acceptance condition. Type errors, lint errors, and precise
 project-owned contract errors still block the command. The second command is
 the compact agent-facing form and also reports stale suppression comments.
-`vp run typecheck` remains a compatibility alias to the same integrated semantic
-path; it is deliberately not a lint-bypassing type-only authority.
+`vp run check`, `vp run typecheck`, `vp run lint`, and `vp run fmt:check` are
+deterministic root tasks with automatic input tracking and no restorable output.
+They cache successful local validation without enabling cache replay for the
+repository's side-effectful package scripts. `vp run typecheck` follows the same
+integrated semantic path without formatting; it is deliberately not a
+lint-bypassing type-only authority.
 
 CI's typed static matrix runs `vp check` in the `types` lane and routes the
 remaining selected lanes through `verify-static.ts`. `vp run verify:static` is
@@ -161,11 +167,13 @@ upgrade review process live in [Lint governance](LINTING.md).
 `vp run test` invokes Nodex's standard multi-runtime test aggregate. The
 aggregate delegates ordinary Node, CoreClient, Renderer, and Browser suites to
 `vp test`, while Main and Integration keep their Electron-hosted Vitest adapter
-so native modules load under Electron's ABI. Package-manager script aliases
-remain available for compatibility, but contributors and automation use the
-installed `vp` command as the canonical entry point. GitHub Actions acquire the
-package.json-pinned version through the shared `setup-vite-plus` action and
-likewise execute `vp install`, `vp run`, and `vp exec` directly.
+so native modules load under Electron's ABI. Package scripts remain the uncached
+ownership seam for runtime composition and side-effectful workflows, while
+deterministic static checks live in the root Vite Task map. Contributors and
+automation use the installed `vp` command as the canonical entry point. GitHub
+Actions acquire the package.json-pinned version through the shared
+`setup-vite-plus` action and likewise execute `vp install`, `vp run`, and
+`vp exec` directly.
 
 The test commands follow production boundaries:
 

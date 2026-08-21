@@ -328,6 +328,38 @@ export default defineConfig({
     ignorePatterns: generatedOrExternalPaths,
     sortPackageJson: {},
   },
+  // Static validation is deterministic and produces no restorable artifacts,
+  // so Vite Task owns its cache policy and automatic input tracking. Keep
+  // side-effectful development, generation, packaging, and release commands as
+  // uncached package scripts unless they earn a narrower task definition. Keep
+  // these entries literal so Vite+ can statically extract the run config.
+  run: {
+    cache: {
+      scripts: false,
+      tasks: true,
+    },
+    tasks: {
+      check: {
+        command: "vp check",
+        env: ["ESLINT_BETTER_TAILWIND", "NODEX_TOOLING_FIXTURE_MODE"],
+        output: [],
+      },
+      "fmt:check": {
+        command: "vp fmt --check",
+        output: [],
+      },
+      lint: {
+        command: "vp lint --report-unused-disable-directives",
+        env: ["ESLINT_BETTER_TAILWIND", "NODEX_TOOLING_FIXTURE_MODE"],
+        output: [],
+      },
+      typecheck: {
+        command: "vp check --no-fmt",
+        env: ["ESLINT_BETTER_TAILWIND", "NODEX_TOOLING_FIXTURE_MODE"],
+        output: [],
+      },
+    },
+  },
   staged: {
     "*": "vp fmt",
   },

@@ -12,7 +12,7 @@ export interface StaticCheck {
 
 export const STATIC_CHECKS: readonly StaticCheck[] = [
   {
-    command: ["check"],
+    command: ["run", "check"],
     group: "types",
     id: "integrated-check",
     name: "integrated TypeScript, Effect, lint, and format diagnostics",
