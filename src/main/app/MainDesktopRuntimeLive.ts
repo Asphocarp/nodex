@@ -77,6 +77,7 @@ import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
+import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
@@ -770,6 +771,19 @@ export const live: Layer.Layer<
         );
         const authority = Context.get(authorityContext, CoreAuthority);
         const access = Context.get(authorityContext, CoreSessionAccess);
+        yield* Layer.buildWithScope(
+          CoreAuthorityIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const coreModulesContext = yield* Layer.buildWithScope(
           coreModulesLive.pipe(Layer.provide(Layer.succeed(CoreSessionAccess, access))),
           runtimeScope,

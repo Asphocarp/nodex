@@ -8,7 +8,6 @@ import {
 import {
   DesktopCoreAuthoritySupervisor,
   type CoreAuthorityIdentity,
-  type CoreAuthorityState,
   type DesktopCoreAuthoritySupervisorDependencies,
   type DesktopCoreClient,
 } from "./desktop-core-authority-supervisor";
@@ -20,8 +19,6 @@ export interface RustDataAuthorityRuntime {
   readonly rootClient: DesktopCoreClient;
   clientForProject(projectId: string): DesktopCoreClient;
   close(): Promise<void>;
-  retryCoreNow(): Promise<void>;
-  subscribeToCoreAuthority(listener: (state: CoreAuthorityState) => void): () => void;
 }
 
 export type DesktopDataAuthorityRuntime = RustDataAuthorityRuntime;
@@ -62,7 +59,5 @@ export async function initializeDesktopDataAuthority(
     rootClient: supervisor.rootClient,
     clientForProject: (projectId) => supervisor.clientForProject(projectId),
     close: () => supervisor.close(),
-    retryCoreNow: () => supervisor.retryNow(),
-    subscribeToCoreAuthority: (listener) => supervisor.subscribe(listener),
   };
 }

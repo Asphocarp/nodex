@@ -1,37 +1,12 @@
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Stream from "effect/Stream";
-import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import type { CoreGenerationClient } from "../core-client/desktop-core-authority-supervisor";
 import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
 } from "../core-client/desktop-data-authority";
-import type { CoreAuthorityState as LegacyCoreAuthorityState } from "../core-client/desktop-core-authority-supervisor";
-import { CoreAuthority, type CoreAuthorityState } from "./CoreAuthority";
+import { CoreAuthority } from "./CoreAuthority";
 import { CoreSessionAccess } from "./CoreAuthority";
-
-const mapAuthorityState = (
-  state: CoreAuthorityState,
-  generation: CoreGenerationClient["handshake"]["generation"],
-): LegacyCoreAuthorityState => {
-  if (state.kind === "ready") {
-    return { kind: "ready", generation: { ...generation, start_nonce: state.generation } };
-  }
-  if (state.kind === "recovering") {
-    return {
-      kind: "recovering",
-      attempt: state.attempt,
-      previousGeneration: {
-        ...generation,
-        start_nonce: state.previousGeneration,
-      },
-    };
-  }
-  if (state.kind === "stopped") return { kind: "stopped" };
-  return { kind: "unavailable", circuitOpen: false, error: state.error };
-};
 
 const makeClient = (input: {
   readonly access: CoreSessionAccess["Service"];
@@ -97,24 +72,6 @@ export const makeDesktopDataAuthority = Effect.fn("DesktopCoreAdapter.makeDeskto
       // Scope owns the authority. Legacy callers may signal intent to close, but
       // they cannot retire the process-scoped resource out of order.
       close: () => Promise.resolve(),
-      retryCoreNow: () => callbacks.runPromise(authority.retry),
-      subscribeToCoreAuthority: (listener) => {
-        const fiber = callbacks.fork(
-          Stream.runForEach(SubscriptionRef.changes(authority.state), (state) =>
-            Effect.sync(() => listener(mapAuthorityState(state, handshake.generation))),
-          ),
-        );
-        const initial = SubscriptionRef.get(authority.state).pipe(
-          Effect.flatMap((state) =>
-            Effect.sync(() => listener(mapAuthorityState(state, handshake.generation))),
-          ),
-        );
-        callbacks.fork(initial);
-        return () => {
-          if (fiber === null) return;
-          callbacks.fork(Fiber.interrupt(fiber).pipe(Effect.asVoid));
-        };
-      },
     };
     return runtime;
   },

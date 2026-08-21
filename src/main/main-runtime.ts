@@ -16,13 +16,6 @@ import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
 import type { AppInitializationStep } from "../shared/app-startup";
 import { APP_RENDERER_URL } from "../shared/app-renderer-policy";
-import {
-  CORE_AUTHORITY_STATUS_CHANNEL,
-  GET_CORE_AUTHORITY_STATUS_CHANNEL,
-  RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL,
-  RETRY_CORE_AUTHORITY_CHANNEL,
-  type CoreAuthorityStatus,
-} from "../shared/core-authority-status";
 import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
@@ -132,7 +125,6 @@ import {
   type CoreEventEnvelope,
   type CoreEventReplayRequired,
   type CoreStreamCheckpoint,
-  type CoreAuthorityState,
   type DesktopAutomationModulePort,
   type DesktopDataAuthorityRuntime,
   type DesktopLibraryModuleBridge,
@@ -196,8 +188,6 @@ let localCommitCoordinator: LocalCommitCoordinator | null = null;
 let scopedProjectionLiveSupervisor: ScopedProjectionLiveSupervisor | null = null;
 let recipientDeliveryRouter: RecipientDeliveryRouter | null = null;
 let localCommitAudienceBroker: LocalCommitAudienceBroker | null = null;
-let coreAuthorityStatus: CoreAuthorityStatus = { kind: "ready" };
-let releaseCoreAuthorityStatus: (() => void) | null = null;
 const logger = getLogger({ subsystem: "app" });
 let desktopNotificationManager: DesktopNotificationManager | null = null;
 
@@ -650,57 +640,6 @@ export function publishCoreAuthorityProcessExit(event: CoreAuthorityProcessExit)
   });
 }
 
-function toRendererCoreAuthorityStatus(state: CoreAuthorityState): CoreAuthorityStatus {
-  if (state.kind === "ready") return { kind: "ready" };
-  if (state.kind === "recovering") {
-    return { attempt: state.attempt, kind: "recovering" };
-  }
-  if (state.kind === "stopped") {
-    return {
-      circuitOpen: false,
-      kind: "unavailable",
-      message: "Nodex Core has stopped.",
-    };
-  }
-  return {
-    circuitOpen: state.circuitOpen,
-    kind: "unavailable",
-    message: state.circuitOpen
-      ? "Nodex Core stopped repeatedly, so automatic recovery was paused."
-      : "Nodex Core could not reconnect.",
-  };
-}
-
-function publishCoreAuthorityStatus(state: CoreAuthorityState): void {
-  const next = toRendererCoreAuthorityStatus(state);
-  const previous = coreAuthorityStatus;
-  if (
-    previous.kind === next.kind &&
-    (next.kind === "ready" ||
-      (previous.kind === "recovering" &&
-        next.kind === "recovering" &&
-        previous.attempt === next.attempt) ||
-      (previous.kind === "unavailable" &&
-        next.kind === "unavailable" &&
-        previous.circuitOpen === next.circuitOpen &&
-        previous.message === next.message))
-  )
-    return;
-  coreAuthorityStatus = next;
-  if (next.kind === "recovering") {
-    logger.warn("Native Core generation recovery started", {
-      attempt: next.attempt,
-    });
-  } else if (next.kind === "unavailable") {
-    logger.error("Native Core authority is unavailable", {
-      circuitOpen: next.circuitOpen,
-    });
-  } else if (previous.kind !== "ready") {
-    logger.info("Native Core authority recovered");
-  }
-  broadcastToWindows(CORE_AUTHORITY_STATUS_CHANNEL, next);
-}
-
 function maybeStartAutomaticAppUpdateChecks(): void {
   if (!appUpdateRuntime) return;
   if (appInitializationStep.phase !== "done" || (windowRuntime?.count() ?? 0) === 0) {
@@ -714,27 +653,6 @@ function registerInitializationIpcHandlers(): void {
   ipcMain.handle("app:await-initialization", (event) => {
     safeSendToWebContents(event.sender, "app:init-step", [appInitializationStep]);
     return appInitializationPromise;
-  });
-  ipcMain.removeHandler(GET_CORE_AUTHORITY_STATUS_CHANNEL);
-  ipcMain.handle(GET_CORE_AUTHORITY_STATUS_CHANNEL, () => coreAuthorityStatus);
-  ipcMain.removeHandler(RETRY_CORE_AUTHORITY_CHANNEL);
-  ipcMain.handle(RETRY_CORE_AUTHORITY_CHANNEL, async (event) => {
-    if (!windowRuntime?.has(event.sender.id)) {
-      throw new Error("Core recovery requires an active Nodex window");
-    }
-    const runtime = desktopDataAuthorityRuntime;
-    if (!runtime) throw new Error("Native Core authority is not initialized");
-    await runtime.retryCoreNow();
-  });
-  ipcMain.removeHandler(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL);
-  ipcMain.handle(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL, (event) => {
-    if (!windowRuntime?.has(event.sender.id)) {
-      throw new Error("Core relaunch requires an active Nodex window");
-    }
-    setTimeout(() => {
-      app.relaunch();
-      app.quit();
-    }, 0);
   });
   ipcMain.removeAllListeners("app:renderer-initialization-finished");
   ipcMain.on("app:renderer-initialization-finished", (event, input: unknown) => {
@@ -1507,10 +1425,6 @@ async function initializeDesktopApp(
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
-  releaseCoreAuthorityStatus?.();
-  releaseCoreAuthorityStatus = desktopDataAuthorityRuntime.subscribeToCoreAuthority(
-    publishCoreAuthorityStatus,
-  );
   const servicesStartedAt = performance.now();
   logger.info("Native Core authority ready", {
     ...desktopDataAuthorityRuntime.launch.timings,
@@ -1840,8 +1754,6 @@ function beginMainRuntimeShutdown(): void {
   scopedProjectionLiveSupervisor = null;
   localCommitCoordinator = null;
   desktopDocumentSync = null;
-  releaseCoreAuthorityStatus?.();
-  releaseCoreAuthorityStatus = null;
   for (const state of projectionIpcSubscriptions.values()) {
     state.sender.removeListener("destroyed", state.onDestroyed);
     for (const release of state.releases.values()) release();
