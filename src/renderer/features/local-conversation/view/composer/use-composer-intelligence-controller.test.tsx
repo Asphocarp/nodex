@@ -59,6 +59,21 @@ function buildModel(): ThreadFooterModel {
   } as ThreadFooterModel;
 }
 
+function buildNewThreadAgentModel(): ThreadFooterModel {
+  return {
+    ...buildModel(),
+    isNewThreadTab: true,
+    agentProviderCatalog: { providers: [] },
+    executionProfile: {
+      providerId: "openai",
+      modelId: "gpt-5.6-sol",
+      harnessId: null,
+      reasoningEffort: "high",
+      serviceTier: null,
+    },
+  } as ThreadFooterModel;
+}
+
 function provider({ children }: { children: ReactNode }) {
   return <CodexServiceTierSettingsProvider>{children}</CodexServiceTierSettingsProvider>;
 }
@@ -67,6 +82,31 @@ describe("useComposerIntelligenceController", () => {
   beforeEach(() => {
     localStorage.clear();
     mocks.toastDanger.mockReset();
+  });
+
+  test("publishes one trigger ref for the lifetime of the controller", () => {
+    const actions = {} as unknown as ThreadStageActions;
+    const hook = renderHook(() => useComposerIntelligenceController(buildModel(), actions), {
+      wrapper: provider,
+    });
+    const triggerRef = hook.result.current.triggerRef;
+
+    hook.rerender();
+
+    expect(hook.result.current.triggerRef).toBe(triggerRef);
+  });
+
+  test("preserves a semantically unchanged new-task agent selection across rerenders", () => {
+    const actions = {} as unknown as ThreadStageActions;
+    const hook = renderHook(
+      () => useComposerIntelligenceController(buildNewThreadAgentModel(), actions),
+      { wrapper: provider },
+    );
+    const selection = hook.result.current.selection;
+
+    hook.rerender();
+
+    expect(hook.result.current.selection).toBe(selection);
   });
 
   test("keeps the latest optimistic selection and skips superseded work after an older failure", async () => {

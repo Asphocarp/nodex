@@ -25,6 +25,10 @@ The palette is a transient overlay and does not become part of durable navigatio
 - The palette searches the complete authorized Page corpus of every available Project context, not only Pages already loaded by a Board or the active Project.
 - The palette combines the current non-archived local chat catalog with eligible root chats returned by app-server search. A server-only result is materialized locally only when opened.
 - The palette closes after executing a result.
+- Pressing `Enter` on a selected Page result materializes and selects that Page as a durable
+  surface: in the active Session when one owns the workbench, otherwise in the target Project
+  Scene. An unopened Page follows the same path as a clicked result; closing the palette is not
+  evidence that navigation succeeded.
 - Closing the palette clears the query and resets the selection index.
 - The palette overlays the workbench without dimming the background content.
 

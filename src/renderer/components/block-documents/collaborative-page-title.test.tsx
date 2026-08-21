@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import * as Y from "yjs";
 import {
   readPortableRichTextFromYText,
@@ -32,6 +32,20 @@ const replaceEditorDraft = (editor: HTMLDivElement, value: string, isComposing =
 };
 
 describe("CollaborativePageTitle", () => {
+  test("keeps a forwarded ref attached across parent rerenders", () => {
+    const { document, title } = createTitle("Stable ref");
+    const forwardedRef = vi.fn<(node: HTMLDivElement | null) => void>();
+    const view = render(<CollaborativePageTitle title={title} ref={forwardedRef} />);
+    const editor = view.getByRole("textbox", { name: "Page title" });
+    expect(forwardedRef).toHaveBeenLastCalledWith(editor);
+    forwardedRef.mockClear();
+
+    view.rerender(<CollaborativePageTitle title={title} ref={forwardedRef} />);
+
+    expect(forwardedRef).not.toHaveBeenCalled();
+    document.destroy();
+  });
+
   test("writes a local DOM draft as a minimal Y.Text transaction and reports authority", async () => {
     const { document, title } = createTitle("Page alpha");
     const reportedValues: string[] = [];

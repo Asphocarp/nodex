@@ -2193,7 +2193,8 @@ export function WorkbenchRuntime({
     createSessionViewTab,
     updateTab: updateSessionViewTab,
     refreshProjectSessions,
-    openPageStage,
+    requestPageStageNavigation: openPageStage,
+    presentProjectScenePage: openProjectScenePage,
     pendingPageDeepLinkOpen,
     onPageDeepLinkHandled,
   });

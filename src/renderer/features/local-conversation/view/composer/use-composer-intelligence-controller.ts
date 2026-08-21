@@ -46,12 +46,19 @@ export function useComposerIntelligenceController(
   actions: ThreadStageActions,
 ): ComposerIntelligenceController {
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
-  const authoritativeSelection = deriveComposerIntelligenceSelection(
+  const derivedAuthoritativeSelection = deriveComposerIntelligenceSelection(
     model,
     serviceTierSettings.serviceTier,
   );
-  const authoritativeRef = useRef(authoritativeSelection);
-  authoritativeRef.current = authoritativeSelection;
+  const authoritativeRef = useRef(derivedAuthoritativeSelection);
+  // New-task defaults can clone an unchanged Agent profile; preserve its semantic identity for
+  // layout and menu consumers that react to a genuinely changed selection.
+  if (
+    !areComposerIntelligenceSelectionsEqual(authoritativeRef.current, derivedAuthoritativeSelection)
+  ) {
+    authoritativeRef.current = derivedAuthoritativeSelection;
+  }
+  const authoritativeSelection = authoritativeRef.current;
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
   const [optimisticSelection, setOptimisticSelection] =
@@ -133,6 +140,12 @@ export function useComposerIntelligenceController(
     if (lastFailureRef.current) throw lastFailureRef.current;
   }, [drain]);
 
+  // This ref is composed through Tooltip and Dropdown `asChild` triggers. Keeping it stable
+  // prevents React 19 from detaching the shared DOM node during unrelated composer renders.
+  const triggerRef = useCallback((element: HTMLButtonElement | null) => {
+    triggerElementRef.current = element;
+  }, []);
+
   const selection = optimisticSelection ?? authoritativeSelection;
   displayedSelectionRef.current = selection;
   useEffect(() => {
@@ -166,8 +179,6 @@ export function useComposerIntelligenceController(
     flush,
     getSelection: () => displayedSelectionRef.current,
     turnOverrides: buildComposerIntelligenceTurnOverrides(selection),
-    triggerRef: (element) => {
-      triggerElementRef.current = element;
-    },
+    triggerRef,
   };
 }

@@ -1,10 +1,65 @@
 import { createRef } from "react";
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vite-plus/test";
-import { IntelligenceSelectorTrigger } from "./intelligence-selector-trigger";
+import {
+  buildIntelligenceSelectorLabelMeasurementKey,
+  IntelligenceSelectorTrigger,
+  useIntelligenceSelectorTriggerGeometry,
+} from "./intelligence-selector-trigger";
 import "../../../../globals.css";
 
+function SemanticallyStableCandidatesHarness({ revision }: { readonly revision: number }) {
+  const labelCandidates = [
+    {
+      id: "openai:gpt-5.6-sol:xhigh",
+      modelLabel: "GPT-5.6-Sol",
+      reasoningLabel: "Extra High",
+    },
+  ];
+  const geometry = useIntelligenceSelectorTriggerGeometry(labelCandidates);
+
+  return (
+    <IntelligenceSelectorTrigger
+      geometry={geometry}
+      isOpen={false}
+      labelCandidates={labelCandidates}
+      modelLabel="GPT-5.6-Sol"
+      reasoningLabel="Extra High"
+      showFastIndicator={false}
+      data-revision={revision}
+    />
+  );
+}
+
 describe("IntelligenceSelectorTrigger layout", () => {
+  test("keys measurement work by rendered label semantics", () => {
+    const first = [
+      {
+        id: "first-id",
+        modelLabel: "GPT-5.6-Sol",
+        reasoningLabel: "Extra High",
+      },
+    ];
+    const sameLabels = [{ ...first[0], id: "replacement-id" }];
+    const changedLabels = [{ ...first[0], reasoningLabel: "High" }];
+
+    expect(buildIntelligenceSelectorLabelMeasurementKey(sameLabels)).toBe(
+      buildIntelligenceSelectorLabelMeasurementKey(first),
+    );
+    expect(buildIntelligenceSelectorLabelMeasurementKey(changedLabels)).not.toBe(
+      buildIntelligenceSelectorLabelMeasurementKey(first),
+    );
+  });
+
+  test("accepts semantically stable label candidates across parent rerenders", async () => {
+    const view = render(<SemanticallyStableCandidatesHarness revision={0} />);
+    await view.findByRole("button", { name: "Select model" });
+
+    view.rerender(<SemanticallyStableCandidatesHarness revision={1} />);
+
+    await view.findByRole("button", { name: "Select model" });
+  });
+
   test("measures every label candidate without adding scrollable height", async () => {
     const view = render(
       <div className="relative h-7 w-80 overflow-y-auto" data-testid="composer-control-row">

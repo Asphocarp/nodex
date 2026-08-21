@@ -43,6 +43,18 @@ export interface IntelligenceSelectorTriggerGeometry {
   wrapperRef: RefObject<HTMLSpanElement | null>;
 }
 
+export function buildIntelligenceSelectorLabelMeasurementKey(
+  labelCandidates: readonly IntelligenceSelectorLabelCandidate[],
+): string {
+  return JSON.stringify(
+    labelCandidates.map(({ modelLabel, reasoningLabel, reserveModelLabelWidth }) => [
+      modelLabel,
+      reasoningLabel,
+      reserveModelLabelWidth === true,
+    ]),
+  );
+}
+
 function roundToDevicePixel(value: number): number {
   const scale = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
   return Math.round(value * scale) / scale;
@@ -88,10 +100,13 @@ export function useIntelligenceSelectorTriggerGeometry(
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wrapperRef = useRef<HTMLSpanElement>(null);
   const measurementRef = useRef<HTMLSpanElement>(null);
-  const [measurements, setMeasurements] = useState<IntelligenceSelectorMeasurements>({
+  const initialMeasurements: IntelligenceSelectorMeasurements = {
     maxLabelWidth: null,
     triggerChromeWidth: null,
-  });
+  };
+  const measurementsRef = useRef(initialMeasurements);
+  const [measurements, setMeasurements] = useState(initialMeasurements);
+  const labelMeasurementKey = buildIntelligenceSelectorLabelMeasurementKey(labelCandidates);
 
   const measure = useCallback(() => {
     const trigger = triggerRef.current;
@@ -105,26 +120,27 @@ export function useIntelligenceSelectorTriggerGeometry(
     );
     if (maxLabelWidth <= 0 || triggerChromeWidth < 0) return;
 
-    setMeasurements((current) => {
-      if (
-        current.maxLabelWidth !== null &&
-        current.triggerChromeWidth !== null &&
-        Math.abs(current.maxLabelWidth - maxLabelWidth) <= 0.5 &&
-        Math.abs(current.triggerChromeWidth - triggerChromeWidth) <= 0.5
-      ) {
-        return current;
-      }
+    const current = measurementsRef.current;
+    // Guard before dispatch: pending React work can enqueue an otherwise equal state update.
+    if (
+      current.maxLabelWidth !== null &&
+      current.triggerChromeWidth !== null &&
+      Math.abs(current.maxLabelWidth - maxLabelWidth) <= 0.5 &&
+      Math.abs(current.triggerChromeWidth - triggerChromeWidth) <= 0.5
+    ) {
+      return;
+    }
 
-      return {
-        maxLabelWidth,
-        triggerChromeWidth,
-      };
-    });
+    const next = { maxLabelWidth, triggerChromeWidth };
+    measurementsRef.current = next;
+    setMeasurements(next);
   }, []);
 
   useLayoutEffect(() => {
     measure();
+  }, [labelMeasurementKey, measure]);
 
+  useLayoutEffect(() => {
     let active = true;
     void document.fonts?.ready.then(() => {
       if (active) measure();
@@ -149,7 +165,7 @@ export function useIntelligenceSelectorTriggerGeometry(
       active = false;
       observer.disconnect();
     };
-  }, [labelCandidates, measure]);
+  }, [measure]);
 
   const expandedContentWidth = resolveIntelligenceSelectorExpandedContentWidth(measurements);
   return {
