@@ -177,7 +177,6 @@ import { installCliCommand } from "./cli-command-installer";
 import { runAgentSkillSetup } from "./agent-skill-setup";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
-  initializeDesktopDataAuthority,
   createCoreProjectWorkspaceAdapter,
   createDesktopAutomationModuleBridge,
   createDesktopDatabaseModuleBridge,
@@ -193,7 +192,8 @@ import {
   mapCoreStoreAdministrationEvent,
   type CoreAuthorizedDeliveryAtom,
   type CoreEventEnvelope,
-  type CoreEventSubscription,
+  type CoreEventReplayRequired,
+  type CoreStreamCheckpoint,
   type CoreAuthorityState,
   type DesktopAutomationModulePort,
   type DesktopDataAuthorityRuntime,
@@ -202,7 +202,7 @@ import {
   type DesktopStoreAdministrationPort,
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
-import { superviseCoreEventStream } from "./core-client/core-event-stream-supervisor";
+import type { CoreAuthorityProcessExit, CoreStartupEvent } from "./core-client/core-launcher";
 import { LocalCommitCoordinator } from "./core-client/local-commit-coordinator";
 import { revocationsFromVisibilityDelta } from "../shared/local-commit-delivery";
 import { ScopedProjectionLiveSupervisor } from "./core-client/scoped-projection-live-supervisor";
@@ -213,7 +213,6 @@ import {
   DeliveryAddress,
   type RecipientAdmissionResult,
 } from "../shared/recipient-delivery";
-import { CoreEventCompatibilityError } from "./core-client/uds-http";
 import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
@@ -234,7 +233,6 @@ import { registerAppRendererProtocol } from "./app-renderer-protocol";
 import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
 import { resolveInitialProjectProjectsDirectory } from "./initial-project/initial-project-filesystem";
 import { resolveInitialProjectJournalPath } from "./initial-project/initial-project-journal-store";
-import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -279,13 +277,11 @@ let rendererClientRouter: RendererClientRouter | null = null;
 let codexThreadNotificationCoordinator: CodexThreadNotificationCoordinator | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopDataAuthorityStartup: Promise<DesktopDataAuthorityRuntime> | null = null;
-let coreLaunchAbortController: AbortController | null = null;
 let coreAuthorityClosePromise: Promise<void> | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopDocumentSync: DesktopDocumentSyncPort | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
-let coreEventSubscription: CoreEventSubscription | null = null;
 let localCommitCoordinator: LocalCommitCoordinator | null = null;
 let scopedProjectionLiveSupervisor: ScopedProjectionLiveSupervisor | null = null;
 let recipientDeliveryRouter: RecipientDeliveryRouter | null = null;
@@ -791,6 +787,51 @@ function setAppInitializationStep(step: AppInitializationStep): void {
   appInitializationStep = step;
   appInitializationStepChangedAt = now;
   broadcastToWindows("app:init-step", step);
+}
+
+export function publishCoreStartupEvent(event: CoreStartupEvent): void {
+  if (event.kind === "migration_started") {
+    setAppInitializationStep({
+      phase: "migrating",
+      fromVersion: event.fromVersion,
+      toVersion: event.toVersion,
+    });
+    logger.info("Native Core Store migration started", {
+      fromVersion: event.fromVersion,
+      toVersion: event.toVersion,
+    });
+    return;
+  }
+  if (event.kind === "candidate_checked") {
+    logger.info("Native Core candidate checked", { artifactHashMs: event.artifactHashMs });
+    return;
+  }
+  if (event.kind === "migration_progress") {
+    if (appInitializationStep.phase === "migrating") {
+      setAppInitializationStep({
+        ...appInitializationStep,
+        completed: event.completed,
+        total: event.total,
+      });
+    }
+    return;
+  }
+  if (event.kind === "migration_heartbeat") return;
+  logger.info("Native Core Store ready", {
+    createdFresh: event.createdFresh,
+    migratedFromVersion: event.migratedFromVersion,
+    storeOpenMs: event.storeOpenMs,
+  });
+  setAppInitializationStep({ phase: "opening_workspace" });
+}
+
+export function publishCoreAuthorityProcessExit(event: CoreAuthorityProcessExit): void {
+  logger.error("Native Core authority process exited", {
+    code: event.code,
+    processId: event.processId,
+    signal: event.signal,
+    stderr: event.stderr || undefined,
+  });
 }
 
 function broadcastAppUpdateStatus(status: AppUpdateStatus): void {
@@ -1703,6 +1744,7 @@ async function publishCoreResync(eventHead: number): Promise<void> {
 async function initializeDesktopApp(
   authority: Promise<DesktopDataAuthorityRuntime>,
   initialProjectBootstrap: InitialProjectBootstrapService,
+  startCoreEvents: MainRuntimeStartupContext["startCoreEvents"],
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
@@ -1724,7 +1766,6 @@ async function initializeDesktopApp(
   registerDatabaseNotifierBridges();
   const coreClient = desktopDataAuthorityRuntime.rootClient;
   const coreIdentity = desktopDataAuthorityRuntime.identity;
-  let coreStreamInterruptionPublished = false;
   localCommitCoordinator = new LocalCommitCoordinator({
     expectedLibraryId: coreIdentity.libraryId,
     expectedStoreEpoch: coreIdentity.storeEpoch,
@@ -1801,10 +1842,9 @@ async function initializeDesktopApp(
   });
   refreshScopedProjectionLiveScopes();
 
-  coreEventSubscription = superviseCoreEventStream({
+  let coreStreamInterruptionPublished = false;
+  await startCoreEvents({
     initialAfter: coreClient.handshake.commit_head,
-    open: (after, onEvent, onCheckpoint, onResyncRequired, signal) =>
-      coreClient.openEventStream(after, onEvent, onCheckpoint, onResyncRequired, signal),
     onEvent: publishCoreModuleEvent,
     onCheckpoint: (checkpoint) => {
       localCommitCoordinator?.observeCheckpoint(checkpoint);
@@ -1812,31 +1852,30 @@ async function initializeDesktopApp(
     onResyncRequired: async (resync) => {
       await publishCoreResync(resync.commit_head);
     },
-    onInterrupted: (error) => {
-      if (runtimeShutdownStarted) return;
-      if (error instanceof CoreEventCompatibilityError) {
-        logger.error("Native Core event contract changed; runtime rebind is required", {
-          error: error.message,
+    onConnectionStateChanged: (state, error) => {
+      if (state === "connected") {
+        coreStreamInterruptionPublished = false;
+        return;
+      }
+      if (state === "interrupted") {
+        if (coreStreamInterruptionPublished) return;
+        coreStreamInterruptionPublished = true;
+        localCommitCoordinator?.resetStream("reconnect");
+        logger.warn("Native Core event stream interrupted; reconnecting", {
+          error:
+            error instanceof Error
+              ? error.message
+              : error === undefined
+                ? undefined
+                : String(error),
         });
         return;
       }
-      if (coreStreamInterruptionPublished) return;
-      coreStreamInterruptionPublished = true;
-      localCommitCoordinator?.resetStream("reconnect");
-      logger.warn("Native Core event stream interrupted; reconnecting", {
+      logger.error("Native Core event supervisor terminated unexpectedly", {
         error:
-          error instanceof Error ? error.message : error === null ? "stream ended" : String(error),
+          error instanceof Error ? error.message : error === undefined ? undefined : String(error),
       });
     },
-    onConnectionStateChanged: (state) => {
-      if (state === "connected") coreStreamInterruptionPublished = false;
-    },
-  });
-  void coreEventSubscription.done.catch((error) => {
-    if (runtimeShutdownStarted || error instanceof CoreEventCompatibilityError) return;
-    logger.error("Native Core event supervisor terminated unexpectedly", {
-      error: error instanceof Error ? error.message : String(error),
-    });
   });
   await initialProjectBootstrap.ensureInitialProject({
     onProvisioned: async (presentation) => {
@@ -2027,10 +2066,21 @@ function startRuntimeScheduledAutomationScheduler(): void {
 }
 
 export interface MainRuntimeStartupContext {
+  dataAuthority: Promise<DesktopDataAuthorityRuntime>;
   initialArgv: string[];
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
+  startCoreEvents: (input: {
+    readonly initialAfter: number;
+    readonly onEvent: (event: CoreEventEnvelope) => Promise<void>;
+    readonly onCheckpoint: (checkpoint: CoreStreamCheckpoint) => void;
+    readonly onResyncRequired: (boundary: CoreEventReplayRequired) => Promise<void>;
+    readonly onConnectionStateChanged: (
+      state: "connected" | "interrupted" | "failed",
+      error?: unknown,
+    ) => void;
+  }) => Promise<void>;
   terminalRuntime?: {
     readonly listLiveSessionsForOwners: (input: {
       readonly conversationIds: ReadonlySet<string>;
@@ -2046,9 +2096,6 @@ export interface MainRuntimeStartupContext {
       readonly request: TerminalRunActionRequest;
     }) => Promise<void>;
   };
-  onTerminalProjectAuthorityReady?: (
-    authority: Pick<DesktopProjectWorkspacePort, "getProject" | "getProjectSession" | "getThread">,
-  ) => void;
 }
 
 export interface MainRuntimeController {
@@ -2095,17 +2142,12 @@ function beginMainRuntimeShutdown(): void {
   rendererHostReadyForWindows = false;
   appQuitRequested = true;
   logger.info("Nodex before-quit");
-  coreEventSubscription?.close();
-  coreEventSubscription = null;
   scopedProjectionLiveSupervisor?.stop();
   scopedProjectionLiveSupervisor = null;
   localCommitCoordinator = null;
   desktopDocumentSync = null;
   releaseCoreAuthorityStatus?.();
   releaseCoreAuthorityStatus = null;
-  coreLaunchAbortController?.abort(
-    new DOMException("Nodex runtime is shutting down", "AbortError"),
-  );
   coreAuthorityClosePromise =
     desktopDataAuthorityRuntime?.close() ??
     desktopDataAuthorityStartup?.then(
@@ -2615,60 +2657,7 @@ export async function runMainAppStartup(
   appUpdateService.initialize();
 
   setAppInitializationStep({ phase: "opening" });
-  coreLaunchAbortController = new AbortController();
-  const dataAuthority = initializeDesktopDataAuthority({
-    appResourcesPath: app.isPackaged ? process.resourcesPath : undefined,
-    buildId: `nodex-desktop/${app.getVersion()}`,
-    isPackaged: app.isPackaged,
-    nodexHome: getNodexHome(),
-    onAuthorityProcessExit: (event) => {
-      logger.error("Native Core authority process exited", {
-        code: event.code,
-        processId: event.processId,
-        signal: event.signal,
-        stderr: event.stderr || undefined,
-      });
-    },
-    signal: coreLaunchAbortController.signal,
-    onStartupEvent: (event) => {
-      if (event.kind === "migration_started") {
-        setAppInitializationStep({
-          phase: "migrating",
-          fromVersion: event.fromVersion,
-          toVersion: event.toVersion,
-        });
-        logger.info("Native Core Store migration started", {
-          fromVersion: event.fromVersion,
-          toVersion: event.toVersion,
-        });
-        return;
-      }
-      if (event.kind === "candidate_checked") {
-        logger.info("Native Core candidate checked", {
-          artifactHashMs: event.artifactHashMs,
-        });
-        return;
-      }
-      if (event.kind === "migration_progress") {
-        if (appInitializationStep.phase === "migrating") {
-          setAppInitializationStep({
-            ...appInitializationStep,
-            completed: event.completed,
-            total: event.total,
-          });
-        }
-        return;
-      }
-      if (event.kind === "migration_heartbeat") return;
-      logger.info("Native Core Store ready", {
-        createdFresh: event.createdFresh,
-        migratedFromVersion: event.migratedFromVersion,
-        storeOpenMs: event.storeOpenMs,
-      });
-      setAppInitializationStep({ phase: "opening_workspace" });
-    },
-    repositoryRoot: app.getAppPath(),
-  });
+  const dataAuthority = context.dataAuthority;
   desktopDataAuthorityStartup = dataAuthority;
   codexService.setNodexAgentAuthorityPort(
     createDesktopNodexAgentAuthorityPort({
@@ -2709,7 +2698,6 @@ export async function runMainAppStartup(
   const projectWorkspace = createDesktopProjectWorkspaceBridge({
     authority: dataAuthority,
   });
-  context.onTerminalProjectAuthorityReady?.(projectWorkspace);
   browserSidebarService.setProjectSessionResolver(
     async (sessionId) => (await projectWorkspace.getProjectSession(sessionId))?.projectId ?? null,
   );
@@ -2730,7 +2718,11 @@ export async function runMainAppStartup(
     }),
     journalPath: resolveInitialProjectJournalPath(getNodexHome()),
   });
-  appInitializationPromise = initializeDesktopApp(dataAuthority, initialProjectBootstrap);
+  appInitializationPromise = initializeDesktopApp(
+    dataAuthority,
+    initialProjectBootstrap,
+    context.startCoreEvents,
+  );
   rendererHostReadyForWindows = true;
   configureApplicationMenus();
   registerInitializationIpcHandlers();

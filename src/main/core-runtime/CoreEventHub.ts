@@ -55,7 +55,7 @@ export class CoreEventHub extends Context.Service<CoreEventHub, CoreEventHubServ
 ) {}
 
 export interface CoreEventHubOptions {
-  readonly initialAfter: number;
+  readonly initialAfter?: number;
   readonly retryBase?: Duration.Input;
   readonly retryCap?: Duration.Input;
   readonly jitter?: boolean;
@@ -84,13 +84,14 @@ const isOpeningFailure = (error: CoreRuntimeError): boolean =>
 
 export const live = (
   options: CoreEventHubOptions,
-): Layer.Layer<CoreEventHub, never, CoreSessionAccess | CoreEventDelivery> =>
+): Layer.Layer<CoreEventHub, CoreRuntimeError, CoreSessionAccess | CoreEventDelivery> =>
   Layer.effect(
     CoreEventHub,
     Effect.gen(function* () {
       const access = yield* CoreSessionAccess;
       const delivery = yield* CoreEventDelivery;
-      const cursor = yield* Ref.make(options.initialAfter);
+      const handshake = yield* access.handshake;
+      const cursor = yield* Ref.make(options.initialAfter ?? handshake.commit_head);
       const connection = yield* SubscriptionRef.make<CoreEventConnectionState>({
         kind: "connecting",
         attempt: 1,

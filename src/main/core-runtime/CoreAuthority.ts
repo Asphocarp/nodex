@@ -57,6 +57,7 @@ export class CoreAuthority extends Context.Service<
   CoreAuthority,
   {
     readonly identity: CoreAuthorityIdentity;
+    readonly initialLaunch: CoreTransportSession["launch"];
     readonly state: SubscriptionRef.SubscriptionRef<CoreAuthorityState>;
     readonly retry: Effect.Effect<void, CoreRuntimeError>;
     readonly requestRelaunch: Effect.Effect<void>;
@@ -255,7 +256,13 @@ export const live = (
 
       return Context.make(
         CoreAuthority,
-        CoreAuthority.of({ identity, state, retry, requestRelaunch }),
+        CoreAuthority.of({
+          identity,
+          initialLaunch: initial.launch,
+          state,
+          retry,
+          requestRelaunch,
+        }),
       ).pipe(Context.add(CoreSessionAccess, CoreSessionAccess.of({ use, handshake })));
     }),
   );
