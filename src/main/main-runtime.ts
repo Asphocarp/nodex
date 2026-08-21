@@ -349,7 +349,7 @@ function syncMacWindowTitle(window: BrowserWindow): void {
   window.setTitle("Nodex");
 }
 
-async function requestHostMicrophonePermission(): Promise<void> {
+export async function requestHostMicrophonePermission(): Promise<void> {
   if (process.platform !== "darwin") {
     return;
   }
@@ -647,37 +647,29 @@ function maybeStartAutomaticAppUpdateChecks(): void {
   void appUpdateRuntime.startAutomaticChecks();
 }
 
-function registerInitializationIpcHandlers(): void {
-  ipcMain.removeHandler("app:await-initialization");
-  ipcMain.handle("app:await-initialization", (event) => {
-    safeSendToWebContents(event.sender, "app:init-step", [appInitializationStep]);
-    return appInitializationPromise;
+export function currentMainInitializationStep(): AppInitializationStep {
+  return appInitializationStep;
+}
+
+export function awaitMainInitialization(): Promise<void> {
+  return appInitializationPromise;
+}
+
+export function reportRendererInitialization(
+  webContentsId: number,
+  report: { readonly durationMs: number; readonly outcome: "ready" | "failed" },
+): void {
+  if (rendererInitializationReports.has(webContentsId)) return;
+  rendererInitializationReports.add(webContentsId);
+  logger.info("Renderer initialization finished", {
+    durationMs: Math.round(report.durationMs),
+    outcome: report.outcome,
+    webContentsId,
   });
-  ipcMain.removeAllListeners("app:renderer-initialization-finished");
-  ipcMain.on("app:renderer-initialization-finished", (event, input: unknown) => {
-    if (
-      !windowRuntime?.has(event.sender.id) ||
-      rendererInitializationReports.has(event.sender.id)
-    ) {
-      return;
-    }
-    if (typeof input !== "object" || input === null || Array.isArray(input)) return;
-    const candidate = input as { durationMs?: unknown; outcome?: unknown };
-    if (
-      typeof candidate.durationMs !== "number" ||
-      !Number.isFinite(candidate.durationMs) ||
-      candidate.durationMs < 0 ||
-      candidate.durationMs > 10 * 60_000 ||
-      (candidate.outcome !== "ready" && candidate.outcome !== "failed")
-    )
-      return;
-    rendererInitializationReports.add(event.sender.id);
-    logger.info("Renderer initialization finished", {
-      durationMs: Math.round(candidate.durationMs),
-      outcome: candidate.outcome,
-      webContentsId: event.sender.id,
-    });
-  });
+}
+
+export function acknowledgeWindowClose(webContentsId: number): void {
+  pendingCloseResolvers.get(webContentsId)?.();
 }
 
 interface ProjectionIpcSenderSubscriptions {
@@ -1832,7 +1824,6 @@ export async function runMainAppStartup(
   );
   rendererHostReadyForWindows = true;
   configureApplicationMenus();
-  registerInitializationIpcHandlers();
   registerProjectionStreamIpcHandlers();
   await codexService.reconcileCodexExecutionHosts().catch((error) => {
     logger.warn("Some configured SSH execution hosts are unavailable", {
@@ -1917,17 +1908,6 @@ export async function runMainAppStartup(
       configureApplicationMenus(state);
     },
     terminalRuntime: context.terminalRuntime,
-  });
-
-  ipcMain.removeHandler("app:flush-before-close:done");
-  ipcMain.handle("app:flush-before-close:done", (_, webContentsId: number) => {
-    const resolve = pendingCloseResolvers.get(webContentsId);
-    if (!resolve) return;
-    resolve();
-  });
-  ipcMain.removeAllListeners("electron-request-microphone-permission");
-  ipcMain.on("electron-request-microphone-permission", () => {
-    void requestHostMicrophonePermission();
   });
 
   const restorePolicy = getWindowRestoreSettings().policy;

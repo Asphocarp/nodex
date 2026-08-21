@@ -73,6 +73,7 @@ import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
+import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
@@ -721,6 +722,24 @@ export const live: Layer.Layer<
           try: () => import("../main-runtime"),
           catch: (cause) => runtimeError("load-runtime", cause),
         });
+        yield* Layer.buildWithScope(
+          ApplicationLifecycleIpc.live({
+            acknowledgeWindowClose: module.acknowledgeWindowClose,
+            awaitInitialization: module.awaitMainInitialization,
+            currentInitializationStep: module.currentMainInitializationStep,
+            reportRendererInitialization: module.reportRendererInitialization,
+            requestMicrophonePermission: module.requestHostMicrophonePermission,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const windowSessions = WindowSessionCatalog.WindowSessionCatalog.of({
           resolveForWebContents: (webContentsId) =>
             Effect.sync(() => windows.resolveSessionId(webContentsId)),
