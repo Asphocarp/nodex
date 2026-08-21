@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, vi, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, vi, test } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
 import { useState } from "react";
 import { renderWithMaitai, settleAsyncRender } from "../../test/dom";
@@ -16,12 +16,26 @@ let openFileTabCalls: {
   panelId: WorkspaceFilesTab["panelId"];
   mode: "preview" | "durable";
 }[] = [];
+let pdfPreviewProps: { fileDataUrl: string; onOpenExternalLink: (url: string) => void } | null =
+  null;
 
 const WORKSPACE_ROOT = "/workspace";
 const WORKTREE_FILE = "/profile/worktrees/abcd/project/README.md";
 const HUGE_FILE = "/profile/worktrees/abcd/project/huge.txt";
 const LARGE_MARKDOWN_FILE = `${WORKSPACE_ROOT}/large.md`;
+const PDF_FILE = `${WORKSPACE_ROOT}/design.pdf`;
+const LARGE_PDF_FILE = `${WORKSPACE_ROOT}/large-design.pdf`;
+const IMAGE_FILE = `${WORKSPACE_ROOT}/diagram.png`;
 const CREATED_AT = "2026-06-13T00:00:00.000Z";
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
+const createObjectURLMock = vi.fn((_blob: Blob) => "blob:nodex-workspace-preview");
+const revokeObjectURLMock = vi.fn((_url: string) => undefined);
+
+Object.defineProperties(URL, {
+  createObjectURL: { configurable: true, value: createObjectURLMock },
+  revokeObjectURL: { configurable: true, value: revokeObjectURLMock },
+});
 
 const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
   "": [
@@ -54,6 +68,8 @@ vi.mock("@/lib/api", () => ({
     if (channel === "read-file-metadata") {
       const input = args[0] as { path: string };
       const unsupported = input.path.endsWith(".zip");
+      const pdf = input.path.endsWith(".pdf");
+      const image = input.path.endsWith(".png");
       return {
         isFile: true,
         sizeBytes:
@@ -61,10 +77,22 @@ vi.mock("@/lib/api", () => ({
             ? WORKSPACE_TEXT_LOAD_MAX_BYTES + 1
             : unsupported
               ? 12_000
-              : (fileContents[input.path]?.length ?? 0),
+              : input.path === LARGE_PDF_FILE
+                ? 25_000_001
+                : pdf || image
+                  ? 8
+                  : (fileContents[input.path]?.length ?? 0),
         createdAtMs: Date.parse(CREATED_AT),
         mtimeMs: Date.parse(CREATED_AT),
-        contentKind: unsupported ? "binary" : "text",
+        contentKind: unsupported || pdf || image ? "binary" : "text",
+        mimeType: pdf ? "application/pdf" : image ? "image/png" : undefined,
+      };
+    }
+    if (channel === "read-file-binary") {
+      const input = args[0] as { path: string };
+      return {
+        contentsBase64: "JVBERi0xLjQ=",
+        mimeType: input.path.endsWith(".png") ? "image/png" : "application/pdf",
       };
     }
     if (channel === "workspace-file-search") {
@@ -101,7 +129,13 @@ vi.mock("@/lib/api", () => ({
     if (channel === "write-file") {
       return { outcome: "saved", mtimeMs: Date.parse(CREATED_AT) + 1 };
     }
-    if (channel === "open-file" || channel === "shell:open-file-link") return true;
+    if (
+      channel === "open-file" ||
+      channel === "shell:open-file-link" ||
+      channel === "shell:open-external-url"
+    ) {
+      return true;
+    }
     throw new Error(`Unexpected channel: ${channel}`);
   },
   subscribeBoardChanges: () => () => undefined,
@@ -189,14 +223,44 @@ vi.mock("@/components/ui/lazy-source-viewer", () => ({
   ),
 }));
 
+vi.mock("./workspace-pdf-preview", () => ({
+  WorkspacePdfPreview: (props: {
+    fileDataUrl: string;
+    title: string;
+    onOpenExternalLink: (url: string) => void;
+  }) => {
+    pdfPreviewProps = props;
+    return (
+      <button
+        type="button"
+        aria-label={`PDF preview for ${props.title}`}
+        data-file-data-url={props.fileDataUrl}
+        onClick={() => props.onOpenExternalLink("https://example.com/spec")}
+      >
+        PDF preview
+      </button>
+    );
+  },
+}));
+
 beforeAll(async () => {
   const module = await import("./workspace-files-panel");
   WorkspaceFilesPanel = module.WorkspaceFilesPanel;
 });
 
+afterAll(() => {
+  Object.defineProperties(URL, {
+    createObjectURL: { configurable: true, value: originalCreateObjectURL },
+    revokeObjectURL: { configurable: true, value: originalRevokeObjectURL },
+  });
+});
+
 beforeEach(() => {
   invokeCalls = [];
   openFileTabCalls = [];
+  pdfPreviewProps = null;
+  createObjectURLMock.mockClear();
+  revokeObjectURLMock.mockClear();
 });
 
 describe("WorkspaceFilesPanel", () => {
@@ -333,6 +397,51 @@ describe("WorkspaceFilesPanel", () => {
     expect(JSON.stringify(invokeCalls.at(-1))).toBe(
       JSON.stringify(["shell:open-file-link", { path: `${WORKSPACE_ROOT}/archive.zip` }, "vscode"]),
     );
+  });
+
+  test("passes PDF bytes to the dedicated renderer without creating an object URL", async () => {
+    const view = renderPanel(PDF_FILE);
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const preview = view.getByRole("button", { name: "PDF preview for design.pdf" });
+    expect(preview.getAttribute("data-file-data-url")).toBe(
+      "data:application/pdf;base64,JVBERi0xLjQ=",
+    );
+    expect(pdfPreviewProps?.fileDataUrl).toBe("data:application/pdf;base64,JVBERi0xLjQ=");
+    expect(createObjectURLMock).not.toHaveBeenCalled();
+    expect(invokeCalls.some((call) => call[0] === "read-file-binary")).toBe(true);
+
+    fireEvent.click(preview);
+    await settleAsyncRender();
+    expect(invokeCalls).toContainEqual(["shell:open-external-url", "https://example.com/spec"]);
+
+    view.unmount();
+    expect(revokeObjectURLMock).not.toHaveBeenCalled();
+  });
+
+  test("does not apply the generic raster size threshold to PDF.js documents", async () => {
+    const view = renderPanel(LARGE_PDF_FILE);
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(view.getByRole("button", { name: "PDF preview for large-design.pdf" })).not.toBeNull();
+    expect(invokeCalls.some((call) => call[0] === "read-file-binary")).toBe(true);
+  });
+
+  test("keeps raster previews on revocable object URLs", async () => {
+    const view = renderPanel(IMAGE_FILE);
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
+      "blob:nodex-workspace-preview",
+    );
+    expect(createObjectURLMock).toHaveBeenCalledOnce();
+    expect(createObjectURLMock.mock.calls[0]?.[0].type).toBe("image/png");
+
+    view.unmount();
+    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:nodex-workspace-preview");
   });
 
   test("restores expanded directory queries after the selected Files body remounts", async () => {

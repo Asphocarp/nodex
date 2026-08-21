@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fixed moving the final Block from Page Stage into Board or List crashing the source editor; remote structural deletions now restore a valid selection, and cross-surface transfers require prepared causal heads.
+- PDF files now render natively inside Files with selectable text, safe links, page navigation, fit-width and percentage zoom, and bounded offscreen work instead of depending on Chromium's embedded PDF frame.
 - Fixed Core-backed views intermittently timing out during larger searches or maintenance; interactive work keeps reserved capacity, Full Page search avoids pathological SQLite query plans and preserves multi-term evidence, stale searches cancel silently end to end, and slow requests return typed Core outcomes instead of arbitrary transport failures.
 - Fixed background retention and automation work making the sidebar or Pages fail with Core deadlines on slower Macs; maintenance now yields in bounded slices, background work cannot starve interactive requests, the sidebar preserves its last known state during transient failures, and Page opens retry brief Core contention before asking the user to retry.
 

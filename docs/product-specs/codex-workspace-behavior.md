@@ -128,7 +128,15 @@ destroying the page when panels hide.
 Exact file previews may open outside a Project tree after top-level window
 ownership is verified. Tree browsing stays within an explicit canonical root.
 Editable files use bounded reads, recoverable drafts, compare-and-swap save,
-watcher refresh, and explicit external-change conflict presentation.
+watcher refresh, and explicit external-change conflict presentation. Bounded
+image previews use ephemeral object URLs that are revoked when the file or
+surface changes. PDF previews decode the binary response into PDF.js,
+render every page through a dedicated worker-backed canvas pipeline, and add
+selectable text plus inert-form annotation layers. Pages fit the panel by
+default, support percentage and Ctrl-wheel zoom without losing the reading
+anchor, track page navigation during scroll, and keep distant pages out of the
+render window. Embedded destinations stay inside the preview; external HTTP(S)
+links cross a validated Main-process navigation boundary.
 
 Terminal PTYs start from the Chat cwd or Project primary source and have one
 active Window Session input lease. Moving or closing a presentation does not

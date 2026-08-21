@@ -1051,6 +1051,10 @@ export interface IpcApi {
     args: [target: FileLinkTarget, openerId: FileLinkOpenerId];
     result: boolean;
   };
+  "shell:open-external-url": {
+    args: [url: string];
+    result: boolean;
+  };
   "shell:open-path-default": {
     args: [path: string];
     result: boolean;
