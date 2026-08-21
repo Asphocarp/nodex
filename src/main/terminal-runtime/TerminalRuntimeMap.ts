@@ -6,7 +6,6 @@ import * as LayerMap from "effect/LayerMap";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { TerminalSessionSnapshot, TerminalSize } from "../../shared/types";
@@ -46,6 +45,9 @@ export class TerminalRuntime extends Context.Service<
     readonly snapshot: SubscriptionRef.SubscriptionRef<TerminalSessionSnapshot>;
     readonly events: Stream.Stream<TerminalRuntimeEvent>;
     readonly exit: Effect.Effect<TerminalPtyExit>;
+    readonly updateSnapshot: (
+      update: (snapshot: TerminalSessionSnapshot) => TerminalSessionSnapshot,
+    ) => Effect.Effect<void>;
     readonly write: (data: string) => Effect.Effect<void, TerminalRuntimeError>;
     readonly resize: (size: TerminalSize) => Effect.Effect<void, TerminalRuntimeError>;
   }
@@ -158,6 +160,7 @@ const runtimeLayer = (
         snapshot,
         events: Stream.fromPubSub(events),
         exit: handle.exit,
+        updateSnapshot: (update) => SubscriptionRef.update(snapshot, update),
         write: (data) =>
           requireRunning().pipe(
             Effect.andThen(handle.write(data)),
@@ -201,7 +204,6 @@ export const live: Layer.Layer<TerminalRuntimeMap, never, TerminalPty> = Layer.e
   TerminalRuntimeMap,
   Effect.gen(function* () {
     const configs = yield* Ref.make<ReadonlyMap<string, TerminalRuntimeConfig>>(new Map());
-    const mutationLock = yield* Semaphore.make(1);
     const runtimes = yield* LayerMap.make(
       (sessionId: string): Layer.Layer<TerminalRuntime, TerminalRuntimeError, TerminalPty> =>
         Layer.unwrap(
@@ -223,23 +225,24 @@ export const live: Layer.Layer<TerminalRuntimeMap, never, TerminalPty> = Layer.e
         ),
     );
     const open = Effect.fn("TerminalRuntimeMap.open")((config: TerminalRuntimeConfig) =>
-      mutationLock.withPermits(1)(
-        Ref.get(configs).pipe(
-          Effect.flatMap((current) => {
-            if (current.has(config.sessionId)) return runtime(config.sessionId);
-            const next = new Map(current);
-            next.set(config.sessionId, config);
-            return Ref.set(configs, next).pipe(
-              Effect.andThen(runtime(config.sessionId)),
-              Effect.onError(() =>
-                Ref.update(configs, (latest) => {
-                  const rolledBack = new Map(latest);
-                  rolledBack.delete(config.sessionId);
-                  return rolledBack;
-                }),
-              ),
-            );
-          }),
+      Ref.modify(configs, (current) => {
+        if (current.has(config.sessionId)) return [false, current] as const;
+        const next = new Map(current);
+        next.set(config.sessionId, config);
+        return [true, next] as const;
+      }).pipe(
+        Effect.andThen((registered) =>
+          runtime(config.sessionId).pipe(
+            Effect.onError(() => {
+              if (!registered) return Effect.void;
+              return Ref.update(configs, (latest) => {
+                if (latest.get(config.sessionId) !== config) return latest;
+                const rolledBack = new Map(latest);
+                rolledBack.delete(config.sessionId);
+                return rolledBack;
+              });
+            }),
+          ),
         ),
       ),
     );
@@ -251,7 +254,7 @@ export const live: Layer.Layer<TerminalRuntimeMap, never, TerminalPty> = Layer.e
           const next = new Map(current);
           next.delete(sessionId);
           return next;
-        }).pipe(Effect.andThen(runtimes.invalidate(sessionId)), mutationLock.withPermits(1)),
+        }).pipe(Effect.andThen(runtimes.invalidate(sessionId))),
     });
   }),
 );
