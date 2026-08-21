@@ -242,6 +242,8 @@ export interface DatabaseViewReferenceSurfaceProps extends ReferenceSurfaceState
   readonly ancestorPageIds?: readonly string[];
 }
 
+const EMPTY_ANCESTOR_PAGE_IDS: readonly string[] = [];
+
 export function DatabaseViewReferenceSurface({
   referenceKey,
   displayHint,
@@ -252,7 +254,7 @@ export function DatabaseViewReferenceSurface({
   renderDocument,
   onOpenPage,
   hostPageId = null,
-  ancestorPageIds = [],
+  ancestorPageIds = EMPTY_ANCESTOR_PAGE_IDS,
   disclosureStore,
   activationBudget,
   visibilityOverride,

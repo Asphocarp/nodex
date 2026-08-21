@@ -1147,7 +1147,7 @@ describe("special block copy", () => {
     const payload: CopiedSelectionPayload = {
       clipboardHTML: `<img src="${source}" />`,
       externalHTML: `<img src="${source}" />`,
-      structuredText: `<image source="${source}">a[b]*` + "`" + `</image>`,
+      structuredText: `<image source="${source}">a[b]*\`</image>`,
     };
 
     const rewritten = await rewriteCopiedSelectionAssetSources(payload, async () => {

@@ -46,6 +46,12 @@ const PROJECTS: Project[] = [
   },
 ];
 
+const DEFAULT_NOTIFICATION_SETTINGS: ThreadNotificationSettings = {
+  turnMode: "unfocused",
+  permissionsEnabled: true,
+  questionsEnabled: true,
+};
+
 function buildEnvironmentSnapshot(
   projectId: string,
   overrides?: Partial<WorktreeEnvironmentSettingsSnapshot>,
@@ -432,11 +438,7 @@ function SettingsRouteShellStory({
   initialCommandKeybindingOverrides,
   initialSettingsSearchQuery,
   initialSettingsSearchHighlightIndex,
-  notificationSettings = {
-    turnMode: "unfocused",
-    permissionsEnabled: true,
-    questionsEnabled: true,
-  },
+  notificationSettings = DEFAULT_NOTIFICATION_SETTINGS,
 }: {
   initialPath: string;
   initialServiceTier?: "standard" | "fast";

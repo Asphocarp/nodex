@@ -5,7 +5,7 @@ import {
   type CommandPaletteThreadSearchIndex,
 } from "./command-palette-thread-search";
 
-function buildThreadsKey(threads: CommandPaletteThread[]): string {
+function buildThreadsKey(threads: readonly CommandPaletteThread[]): string {
   return threads
     .map((item) =>
       [
@@ -23,7 +23,7 @@ function buildThreadsKey(threads: CommandPaletteThread[]): string {
 }
 
 export function useCommandPaletteThreadSearchIndex(
-  threads: CommandPaletteThread[],
+  threads: readonly CommandPaletteThread[],
 ): CommandPaletteThreadSearchIndex {
   const threadsKey = useMemo(() => buildThreadsKey(threads), [threads]);
 

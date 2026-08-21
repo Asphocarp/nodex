@@ -26,6 +26,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MutableRefObject,
@@ -539,12 +540,15 @@ export function DatabaseListDndProvider({
     [],
   );
 
-  const context: DatabaseListDndContextValue = {
-    disabled,
-    activeOccurrenceKey: sources?.initiator.key ?? null,
-    target,
-    suppressesNextClick: () => suppressClickRef.current,
-  };
+  const context = useMemo<DatabaseListDndContextValue>(
+    () => ({
+      disabled,
+      activeOccurrenceKey: sources?.initiator.key ?? null,
+      target,
+      suppressesNextClick: () => suppressClickRef.current,
+    }),
+    [disabled, sources?.initiator.key, target],
+  );
   const overlayRow = sources
     ? (rows.find(
         (row): row is DatabaseListPageRow =>

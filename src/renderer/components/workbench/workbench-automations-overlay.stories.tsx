@@ -560,10 +560,12 @@ function setStoryInputValue(input: HTMLInputElement | null, value: string): void
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+const EMPTY_AUTOMATION_RUNS: CodexAutomationInboxItem[] = [];
+
 function AutomationsRouteShellStory({
   initialPath,
   automations = AUTOMATIONS,
-  automationRuns = [],
+  automationRuns = EMPTY_AUTOMATION_RUNS,
   autoOpenDeleteDialog = false,
   autoOpenDiscardDialog = false,
   autoOpenSchedulePopover = false,

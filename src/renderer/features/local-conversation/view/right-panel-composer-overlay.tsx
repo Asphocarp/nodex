@@ -32,6 +32,8 @@ interface RightPanelComposerOverlayProps {
   onPointerDownOutside?: () => void;
 }
 
+const ALWAYS_VISIBLE_COMPOSER: RightPanelComposerOverlayVisibility = { kind: "always" };
+
 export type RightPanelComposerOverlayAttention = "none" | "activity" | "request";
 
 export type RightPanelComposerOverlayVisibility =
@@ -221,7 +223,7 @@ function useAnchoredBodyPortalGeometry(
 export function RightPanelComposerOverlay({
   target,
   compact = false,
-  visibility = { kind: "always" },
+  visibility = ALWAYS_VISIBLE_COMPOSER,
   children,
   onPointerDownOutside,
 }: RightPanelComposerOverlayProps) {

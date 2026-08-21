@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 export type RightPanelComposerPresentation = "default" | "compact" | "compact-hovered" | "expanded";
 
@@ -28,8 +28,9 @@ export function RightPanelComposerPresentationProvider({
   children: ReactNode;
   presentation: RightPanelComposerPresentation;
 }) {
+  const value = useMemo(() => ({ floating: true, presentation }), [presentation]);
   return (
-    <RightPanelComposerPresentationContext.Provider value={{ floating: true, presentation }}>
+    <RightPanelComposerPresentationContext.Provider value={value}>
       {children}
     </RightPanelComposerPresentationContext.Provider>
   );

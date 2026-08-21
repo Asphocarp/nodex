@@ -14,7 +14,7 @@ import { formatThreadMessageTimestamp } from "./thread-message-timestamp";
 
 const USER_COPY_FEEDBACK_MS = 1500;
 const ASSISTANT_COPY_FEEDBACK_MS = 2000;
-const electronMessageActionSvgSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
+const electronMessageActionSvgSizeClassName = "electron:[&>svg]:icon-sm";
 
 export const threadMessageActionButtonClassName = `
   border-token-border no-drag cursor-interaction flex items-center

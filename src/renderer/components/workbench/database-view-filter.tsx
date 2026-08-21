@@ -25,6 +25,8 @@ interface DatabaseViewFilterProps {
   readonly onRequestPropertyOptions?: (property: DataSourcePropertyRecordV2) => void;
 }
 
+const EMPTY_OPTION_REGISTRIES: Readonly<Record<string, readonly DatabasePropertyOption[]>> = {};
+
 const hasFilter = (config: DatabaseViewConfigV4): boolean =>
   config.filter.kind === "clause" || config.filter.children.length > 0;
 
@@ -34,7 +36,7 @@ export function DatabaseViewFilter({
   commitOperations = commitDatabaseViewOperations,
   open: controlledOpen,
   onOpenChange,
-  optionRegistries = {},
+  optionRegistries = EMPTY_OPTION_REGISTRIES,
   onRequestPropertyOptions,
 }: DatabaseViewFilterProps) {
   const [internalOpen, setInternalOpen] = useState(false);

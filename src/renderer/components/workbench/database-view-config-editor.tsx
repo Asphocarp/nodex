@@ -28,6 +28,7 @@ import {
 } from "@/lib/database-view-authoring";
 import { cn } from "@/lib/utils";
 import { databaseIntrinsicFieldsForLayout } from "@/lib/database-intrinsic-field-registry";
+import { useObjectIdentityKey } from "@/lib/use-object-identity-keys";
 import { DatabaseViewSelect } from "./database-view-select";
 
 interface DatabaseViewConfigEditorProps {
@@ -40,6 +41,8 @@ interface DatabaseViewConfigEditorProps {
   readonly onlyFilter?: boolean;
   readonly onChange: (config: DatabaseViewConfigV4) => void;
 }
+
+const EMPTY_OPTION_REGISTRIES: Readonly<Record<string, readonly DatabasePropertyOption[]>> = {};
 
 const inputClass = cn(
   "h-7 min-w-0 rounded-md border border-transparent bg-token-foreground/5 px-2 text-xs",
@@ -217,6 +220,7 @@ function FilterNodeEditor({
   readonly onRemove: (path: DatabaseViewFilterPath) => void;
   readonly onAppend: (path: DatabaseViewFilterPath, node: DatabaseViewFilterNode) => void;
 }) {
+  const objectIdentityKey = useObjectIdentityKey();
   if (node.kind === "clause") {
     const property = propertyForClause(properties, node);
     if (!property) {
@@ -355,7 +359,7 @@ function FilterNodeEditor({
       <div className={cn("space-y-1", depth > 0 && "pl-2")}>
         {node.children.map((child, index) => (
           <FilterNodeEditor
-            key={`${path.join(".")}:${index}:${child.kind}`}
+            key={objectIdentityKey(child)}
             node={child}
             path={[...path, index]}
             depth={depth + 1}
@@ -403,10 +407,11 @@ function SortEditor({
   readonly disabled: boolean;
   readonly onChange: (sorts: readonly DatabaseViewSort[]) => void;
 }) {
+  const objectIdentityKey = useObjectIdentityKey();
   return (
     <div className="space-y-1">
       {sorts.map((sort, index) => (
-        <div key={`${sortFieldValue(sort)}:${index}`} className="flex min-h-8 items-center gap-1.5">
+        <div key={objectIdentityKey(sort)} className="flex min-h-8 items-center gap-1.5">
           <span className="w-4 text-center text-[11px] text-token-description-foreground">
             {index + 1}
           </span>
@@ -547,7 +552,7 @@ export function DatabaseViewConfigEditor({
   config,
   layout,
   properties: allProperties,
-  optionRegistries = {},
+  optionRegistries = EMPTY_OPTION_REGISTRIES,
   onRequestPropertyOptions,
   disabled = false,
   onlyFilter = false,

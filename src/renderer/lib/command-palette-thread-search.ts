@@ -181,7 +181,7 @@ function buildPreview(
 }
 
 export function createCommandPaletteThreadSearchIndex(
-  threads: CommandPaletteThread[],
+  threads: readonly CommandPaletteThread[],
 ): CommandPaletteThreadSearchIndex {
   const itemsById = new Map(threads.map((item) => [item.id, item] as const));
   const miniSearch = createMiniSearch();

@@ -183,12 +183,14 @@ function SidebarPageRootRow({
   );
 }
 
+const EMPTY_LIBRARY_PROJECT_OPTIONS: readonly LibraryProjectOption[] = [];
+
 export function SidebarPagesSection({
   collapsed,
   activeRoot,
   onToggle,
   onOpenRoot,
-  projects = [],
+  projects = EMPTY_LIBRARY_PROJECT_OPTIONS,
   onOpenInProject,
   dataSource = DEFAULT_PAGES_DATA_SOURCE,
   mutationsEnabled = dataSource === DEFAULT_PAGES_DATA_SOURCE,

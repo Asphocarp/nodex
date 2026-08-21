@@ -36,7 +36,7 @@ const threadSearchInFlight = new Map<
 >();
 
 export interface CommandPaletteThreadItemsState {
-  threads: CommandPaletteThread[];
+  threads: readonly CommandPaletteThread[];
   loading: boolean;
 }
 
@@ -327,7 +327,7 @@ export function selectCommandPaletteChatResults({
   activeProjectId,
 }: {
   query: string;
-  threads: CommandPaletteThread[];
+  threads: readonly CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   threadSearchBatch?: CommandPaletteThreadSearchBatch | null;
   threadLimit?: number;
@@ -413,7 +413,7 @@ export function useSelectedCommandPaletteChatResults({
   activeProjectId,
 }: {
   query: string;
-  threads: CommandPaletteThread[];
+  threads: readonly CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   threadSearchBatch?: CommandPaletteThreadSearchBatch | null;
   threadLimit?: number;

@@ -44,10 +44,10 @@ interface WorkbenchCommandPaletteHostProps {
     readonly mode: CommandMenuMode;
     readonly initialQuery: string;
   };
-  readonly projects: Project[];
+  readonly projects: readonly Project[];
   readonly activeProjectId: string | null;
   readonly activeSession: ProjectSession | null;
-  readonly recentPageSessions: RecentPageSession[];
+  readonly recentPageSessions: readonly RecentPageSession[];
   readonly canNavigateBack: boolean;
   readonly canNavigateForward: boolean;
   readonly canOpenSessionInNewWindow: boolean;

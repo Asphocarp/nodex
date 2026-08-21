@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { DEFAULT_CODEX_HOST_ID } from "../../../../shared/codex-host";
 import type { ImageEditComposerTarget } from "@/features/user-attachment-image-editor";
 
@@ -23,8 +23,12 @@ export function ConversationImageAssetProvider({
   children: ReactNode;
   composerTarget?: ImageEditComposerTarget | null;
 }) {
+  const value = useMemo(
+    () => ({ composerTarget, conversationId, hostId }),
+    [composerTarget, conversationId, hostId],
+  );
   return (
-    <ConversationImageAssetContext.Provider value={{ composerTarget, conversationId, hostId }}>
+    <ConversationImageAssetContext.Provider value={value}>
       {children}
     </ConversationImageAssetContext.Provider>
   );

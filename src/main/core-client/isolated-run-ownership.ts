@@ -278,6 +278,7 @@ const readExistingOwnerAfterContention = (paths: IsolatedRunPaths): IsolatedRunL
       if (attempt === OWNER_PUBLICATION_RETRIES) {
         throw new Error(
           "Isolated run lease is incomplete; preserve the Profile and inspect it manually",
+          { cause: error },
         );
       }
       waitForOwnerPublication();
@@ -349,10 +350,12 @@ export function acquireIsolatedRunLease(input: {
     if (isProcessAlive(existing.supervisorPid)) {
       throw new Error(
         `Another isolated run owns this Profile (supervisor PID ${existing.supervisorPid})`,
+        { cause: error },
       );
     }
     throw new Error(
       "A stale isolated run lease owns this Profile; verify that Core is stopped before removing the validated lease manually",
+      { cause: error },
     );
   }
 
@@ -442,7 +445,7 @@ export function publishIsolatedRunClaim(input: {
       if (!isFileSystemError(error, "EEXIST")) throw error;
       const racedClaim = readClaimAtPath(paths.claimPath);
       if (racedClaim.runId === runId) return racedClaim;
-      throw new Error("Another isolated run already claimed this Profile");
+      throw new Error("Another isolated run already claimed this Profile", { cause: error });
     }
   } finally {
     try {

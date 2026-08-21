@@ -30,6 +30,8 @@ export interface ChipPropertyEditorProps {
 }
 
 const MENU_GAP = 4;
+const EMPTY_SELECTED_CHIP_VALUES: readonly string[] = [];
+const EMPTY_CHIP_OPTIONS: readonly DatabasePropertyOption[] = [];
 
 function computePosition(
   anchorRect: DOMRect,
@@ -56,8 +58,8 @@ function computePosition(
 export function ChipPropertyEditor({
   propertyType,
   currentToken,
-  selectedValues = [],
-  options = [],
+  selectedValues = EMPTY_SELECTED_CHIP_VALUES,
+  options = EMPTY_CHIP_OPTIONS,
   pageId,
   anchorRect,
   onSelect,

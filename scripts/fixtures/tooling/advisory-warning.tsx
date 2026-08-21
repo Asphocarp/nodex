@@ -1,9 +1,3 @@
-export function AdvisoryList({ values }: { readonly values: readonly string[] }) {
-  return (
-    <ul>
-      {values.map((value, index) => (
-        <li key={index}>{value}</li>
-      ))}
-    </ul>
-  );
+export function AdvisoryDefaults({ values = [] }: { values?: readonly string[] }) {
+  return <span>{values.length}</span>;
 }

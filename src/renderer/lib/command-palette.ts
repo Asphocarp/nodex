@@ -625,9 +625,9 @@ function compareScoredThreadsWithActiveProjectPriority(
 export function filterCommandPaletteItems(input: {
   query: string;
   mode: CommandMenuMode;
-  commands: CommandPaletteCommand[];
-  pages: CommandPalettePage[];
-  threads?: CommandPaletteThread[];
+  commands: readonly CommandPaletteCommand[];
+  pages: readonly CommandPalettePage[];
+  threads?: readonly CommandPaletteThread[];
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   commandLimit?: number;
   threadLimit?: number;

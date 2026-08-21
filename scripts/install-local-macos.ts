@@ -172,7 +172,7 @@ export function assertLocalInstallDestination(options: LocalMacBuildInstallOptio
   }
   if (options.destination === PRODUCTION_DESTINATION && !options.allowProductionDestination) {
     throw new Error(
-      "Refusing to replace /Applications/Nodex.app without " + "--allow-production-destination.",
+      "Refusing to replace /Applications/Nodex.app without --allow-production-destination.",
     );
   }
   if (options.destination === "/" || dirname(options.destination) === "/") {

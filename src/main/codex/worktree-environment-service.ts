@@ -580,6 +580,7 @@ async function readWorktreeEnvironmentRecord(input: {
   } catch (error) {
     throw new Error(
       `Could not parse environment file: ${relativePath}${error instanceof Error ? ` (${error.message})` : ""}`,
+      { cause: error },
     );
   }
 }

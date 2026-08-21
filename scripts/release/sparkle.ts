@@ -95,8 +95,7 @@ const runWithPrivateKey = (
   });
   if (result.error || result.status !== 0) {
     throw new Error(
-      `Sparkle tool ${path.basename(executable)} failed: ` +
-        `${result.error?.message ?? result.stderr ?? result.stdout}`,
+      `Sparkle tool ${path.basename(executable)} failed: ${result.error?.message ?? result.stderr ?? result.stdout}`,
     );
   }
   return result.stdout.trim();
@@ -338,7 +337,7 @@ const normalizeGeneratedAppcast = (options: {
   const serialized = new XMLSerializer().serializeToString(document);
   writeFileSync(
     options.appcastPath,
-    `${serialized.endsWith("\n") ? serialized : `${serialized}\n`}`,
+    serialized.endsWith("\n") ? serialized : `${serialized}\n`,
     "utf8",
   );
   runWithPrivateKey(

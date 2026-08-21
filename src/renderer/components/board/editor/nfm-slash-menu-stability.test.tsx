@@ -61,7 +61,7 @@ function makeLoaders(options: Partial<NfmMentionGetItemsLoaders> = {}): NfmMenti
         return [makeThread()];
       }),
     searchThreads: options.searchThreads ?? (async () => []),
-    selectChatResults: options.selectChatResults ?? (({ threads }) => threads),
+    selectChatResults: options.selectChatResults ?? (({ threads }) => [...threads]),
     createThreadSearchIndex: options.createThreadSearchIndex ?? (() => ({ search: () => [] })),
   };
 }

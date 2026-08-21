@@ -492,6 +492,7 @@ async function readTomlRecord(filePath: string): Promise<Record<string, unknown>
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw new Error(
       `Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }
@@ -504,6 +505,7 @@ async function readJsonRecord(filePath: string): Promise<Record<string, unknown>
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw new Error(
       `Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

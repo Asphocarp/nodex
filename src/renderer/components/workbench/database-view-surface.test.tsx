@@ -2051,7 +2051,9 @@ describe("DatabaseViewSurface", () => {
         await Promise.resolve();
       });
       await waitFor(() =>
-        expect(screen.getByText("Couldn’t save this property. Try again.")).toBeTruthy(),
+        expect(screen.getByRole("alert").textContent).toBe(
+          "Couldn’t save this property. Try again.",
+        ),
       );
       expect(screen.queryByText(/databaseApplyV2/)).toBeNull();
     } finally {

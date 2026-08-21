@@ -38,11 +38,13 @@ const resolveLibraryPageAuthority = (_queryKey: readonly unknown[], data: unknow
   return authorization ? { authorizations: [authorization] } : null;
 };
 
+const ignoreLibraryPageClose = (): void => undefined;
+
 export function WorkbenchLibraryPageSurface({
   pageId,
   surfaceId = pageId,
   isActivePanelTab = true,
-  onClose = () => undefined,
+  onClose = ignoreLibraryPageClose,
   onOpenDatabase,
   onOpenPage,
   onOpenCanvas,

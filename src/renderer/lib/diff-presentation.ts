@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 
 type DiffThemeType = Exclude<ThemeTypes, "system">;
 type SharedDiffOptions = NonNullable<FileDiffProps<undefined>["options"]>;
-type SharedSourceOptions = NonNullable<CodeViewProps<undefined>["options"]>;
+type SharedSourceOptions = NonNullable<CodeViewProps["options"]>;
 type SharedCodeOptions = Pick<
   SharedSourceOptions,
   "disableFileHeader" | "overflow" | "theme" | "themeType" | "unsafeCSS"

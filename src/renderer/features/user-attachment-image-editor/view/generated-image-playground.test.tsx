@@ -18,7 +18,13 @@ const IMAGES: GeneratedImageDescriptor[] = [1, 2].map((number) => ({
   status: "ready",
 }));
 
-function PlaygroundHarness({ onSendComments = () => undefined }: { onSendComments?: () => void }) {
+const ignoreSendComments = (): void => undefined;
+
+function PlaygroundHarness({
+  onSendComments = ignoreSendComments,
+}: {
+  onSendComments?: () => void;
+}) {
   const [activeId, setActiveId] = useState(IMAGES[0]!.id);
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [comments, setComments] = useState<Readonly<Record<string, readonly ImageComment[]>>>({});

@@ -38,7 +38,7 @@ interface NativeFileWatcher {
 export type NativeFileWatchFactory = (
   watchPath: string,
   options: { readonly recursive: boolean },
-  listener: (eventType: WatchEventType, filename: string | Buffer<ArrayBufferLike> | null) => void,
+  listener: (eventType: WatchEventType, filename: string | Buffer | null) => void,
 ) => NativeFileWatcher;
 
 const defaultWatchFactory: NativeFileWatchFactory = (watchPath, options, listener) =>

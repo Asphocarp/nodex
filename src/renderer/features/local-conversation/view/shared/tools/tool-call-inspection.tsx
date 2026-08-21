@@ -18,7 +18,7 @@ import {
   type TextPreview,
 } from "@/lib/text-preview";
 
-const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
+const electronToolIconSizeClassName = "electron:[&>svg]:icon-sm";
 
 export function stringifyToolCallValue(value: unknown): string {
   try {

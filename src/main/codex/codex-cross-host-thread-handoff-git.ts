@@ -334,7 +334,9 @@ export async function importCrossHostThreadHandoff(
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
       const existing = await describeCodexTransferFile(rolloutPath, options.signal);
       if (existing.sha256 !== incomingRollout.sha256 || existing.size !== incomingRollout.size) {
-        throw new Error("Destination already contains a different rollout for this task");
+        throw new Error("Destination already contains a different rollout for this task", {
+          cause: error,
+        });
       }
     }
     options.onEvent({

@@ -208,7 +208,7 @@ function LiveCardTitleStory() {
       titleSource,
       contextLabel: "Roadmap",
       titleLabel: (title) => `Roadmap project, ${title}`,
-      tooltip: (title) => (
+      renderTooltip: (title) => (
         <div className="flex max-w-80 flex-col gap-0.5">
           <div className="truncate font-medium">{title}</div>
           <div className="truncate text-xs text-token-description-foreground">Project: Roadmap</div>

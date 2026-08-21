@@ -338,7 +338,9 @@ async function moveToWorktree(
       );
     }
     const suffix = warnings.length > 0 ? ` Rollback issues: ${warnings.join(", ")}.` : "";
-    throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`, {
+      cause: error,
+    });
   }
 }
 
@@ -412,7 +414,9 @@ async function moveToCheckout(
       );
     }
     const suffix = warnings.length > 0 ? ` Rollback issues: ${warnings.join(", ")}.` : "";
-    throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`, {
+      cause: error,
+    });
   }
 }
 

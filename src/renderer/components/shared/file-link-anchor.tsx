@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useMemo,
   type MouseEventHandler,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -36,10 +37,9 @@ export function FileLinkWorkspaceProvider({
   cwd?: string | null;
   workspacePath?: string | null;
 }) {
+  const value = useMemo(() => ({ cwd, workspacePath }), [cwd, workspacePath]);
   return (
-    <FileLinkWorkspaceContext.Provider value={{ cwd, workspacePath }}>
-      {children}
-    </FileLinkWorkspaceContext.Provider>
+    <FileLinkWorkspaceContext.Provider value={value}>{children}</FileLinkWorkspaceContext.Provider>
   );
 }
 

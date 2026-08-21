@@ -20,7 +20,7 @@ function RetryHarness() {
 
   return (
     <ThreadSummaryPanelRenderBoundary
-      fallback={({ resetError }) => (
+      renderFallback={({ resetError }) => (
         <ThreadSummaryPanelRenderErrorFallback
           mounted={true}
           onRetry={() => {
@@ -46,7 +46,7 @@ function ResetKeyHarness() {
         Switch thread
       </button>
       <ThreadSummaryPanelRenderBoundary
-        fallback={({ resetError }) => (
+        renderFallback={({ resetError }) => (
           <ThreadSummaryPanelRenderErrorFallback mounted={true} onRetry={resetError} open={true} />
         )}
         resetKey={threadId}

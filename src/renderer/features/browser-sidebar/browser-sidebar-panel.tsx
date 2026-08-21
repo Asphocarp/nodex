@@ -213,13 +213,15 @@ const DEFAULT_BROWSER_SNAPSHOT: Omit<
   pageActionsDisabled: true,
 };
 
+const ignoreBrowserTabUpdate = (): null => null;
+
 export function BrowserSidebarPanel({
   tab,
   activeSession,
   surfaceContext,
   browserViewScopeId,
   onRefreshSessions,
-  onUpdateTab = () => null,
+  onUpdateTab = ignoreBrowserTabUpdate,
   onOpenNewTab,
   onOpenBrowserSettings,
   boundsSyncTrigger,

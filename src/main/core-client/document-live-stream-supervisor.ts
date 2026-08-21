@@ -120,7 +120,8 @@ export function superviseDocumentLiveStream(
 
   const done = (async () => {
     try {
-      while (!closed) {
+      for (;;) {
+        if (closed) return;
         let repairRequested = false;
         let interruption: unknown | null = null;
         let delivery = Promise.resolve();

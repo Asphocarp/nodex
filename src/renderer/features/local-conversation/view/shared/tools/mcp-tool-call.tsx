@@ -46,7 +46,7 @@ import {
   type McpRenderableResource,
 } from "./mcp-tool-call-resource-utils";
 
-const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
+const electronToolIconSizeClassName = "electron:[&>svg]:icon-sm";
 const EMPTY_MCP_SERVER_STATUSES: ProtocolListMcpServerStatusResponse = {
   data: [],
   nextCursor: null,
@@ -122,12 +122,14 @@ function budgetMcpContentBlocks(blocks: readonly CodexMcpToolCallContentBlock[])
 }
 
 interface McpToolCallProps {
-  automaticApprovalReviews?: CodexTranscriptEntry[];
+  automaticApprovalReviews?: readonly CodexTranscriptEntry[];
   item: CodexTranscriptEntry;
   rawDialogOpen?: boolean;
   onRawDialogOpenChange?: (open: boolean) => void;
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
+
+const EMPTY_AUTOMATIC_APPROVAL_REVIEWS: readonly CodexTranscriptEntry[] = [];
 
 function formatAnnotations(annotations: unknown): string | null {
   const candidate = asRecord(annotations);
@@ -556,7 +558,7 @@ function useControllableBoolean(
 }
 
 export function McpToolCall({
-  automaticApprovalReviews = [],
+  automaticApprovalReviews = EMPTY_AUTOMATIC_APPROVAL_REVIEWS,
   item,
   rawDialogOpen,
   onRawDialogOpenChange,

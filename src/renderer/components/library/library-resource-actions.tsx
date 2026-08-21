@@ -48,6 +48,8 @@ export type { LibraryProjectOption, LibraryResourceTarget } from "./library-reso
 
 type PendingDialog = "manage_access" | "open_project" | "archive" | null;
 
+const EMPTY_LIBRARY_PROJECTS: readonly LibraryProjectOption[] = [];
+
 const stopActionPropagation = (event: SyntheticEvent<HTMLElement>): void => {
   event.stopPropagation();
 };
@@ -63,7 +65,7 @@ export function LibraryResourceActions({
   expectedLocationRevision,
   expectedMetadataRevision,
   lifecycle = "active",
-  projects = [],
+  projects = EMPTY_LIBRARY_PROJECTS,
   triggerButton,
   onOpenInProject,
 }: {

@@ -92,7 +92,7 @@ export interface BlockDocumentSurfaceProps {
   /** Surface-specific first-sync placeholder; defaults to the generic status text. */
   readonly pendingFallback?: ReactNode;
   /** Surface-specific error composition; defaults to the generic recovery panel. */
-  readonly failureFallback?: (failure: BlockDocumentSurfaceFailureStateProps) => ReactNode;
+  readonly renderFailureFallback?: (failure: BlockDocumentSurfaceFailureStateProps) => ReactNode;
   readonly children: (surface: BlockDocumentSurfaceValue) => ReactNode;
 }
 
@@ -333,7 +333,7 @@ export interface OwnedBlockDocumentRuntimeSurfaceProps {
   readonly startupError: Error | null;
   readonly onReload: () => Promise<void>;
   readonly pendingFallback?: ReactNode;
-  readonly failureFallback?: OwnedBlockDocumentSurfaceProps["failureFallback"];
+  readonly renderFailureFallback?: OwnedBlockDocumentSurfaceProps["renderFailureFallback"];
   readonly children: OwnedBlockDocumentSurfaceProps["children"];
 }
 
@@ -346,7 +346,7 @@ export function OwnedBlockDocumentRuntimeSurface({
   startupError,
   onReload,
   pendingFallback,
-  failureFallback,
+  renderFailureFallback,
   children,
 }: OwnedBlockDocumentRuntimeSurfaceProps) {
   const status = useSyncExternalStore(runtime.subscribe, runtime.getStatus, runtime.getStatus);
@@ -404,8 +404,8 @@ export function OwnedBlockDocumentRuntimeSurface({
       reloading,
       ...(accessRevoked ? {} : { reload }),
     };
-    return failureFallback ? (
-      failureFallback(failureState)
+    return renderFailureFallback ? (
+      renderFailureFallback(failureState)
     ) : (
       <BlockDocumentSurfaceFailureState {...failureState} />
     );
@@ -449,7 +449,7 @@ function RuntimeOwner({
   dependencies = DEFAULT_DEPENDENCIES,
   runtimeRef,
   pendingFallback,
-  failureFallback,
+  renderFailureFallback,
   children,
   restart,
 }: RuntimeOwnerProps) {
@@ -524,8 +524,8 @@ function RuntimeOwner({
         reloading: false,
         reload: reloadWithoutRuntime,
       };
-      return failureFallback ? (
-        failureFallback(failureState)
+      return renderFailureFallback ? (
+        renderFailureFallback(failureState)
       ) : (
         <BlockDocumentSurfaceFailureState {...failureState} />
       );
@@ -553,7 +553,7 @@ function RuntimeOwner({
       startupError={startupError}
       onReload={handleReload}
       pendingFallback={pendingFallback}
-      failureFallback={failureFallback}
+      renderFailureFallback={renderFailureFallback}
     >
       {children}
     </OwnedBlockDocumentRuntimeSurface>

@@ -199,7 +199,12 @@ export const openDevelopmentEnvironmentHome = async (input: {
     if (!isMissing(error)) throw error;
     const entries = await readdir(root);
     if (entries.length > 0) {
-      throw new Error(`Development home exists without ${DEVELOPMENT_HOME_MANIFEST_FILE}: ${root}`);
+      throw new Error(
+        `Development home exists without ${DEVELOPMENT_HOME_MANIFEST_FILE}: ${root}`,
+        {
+          cause: error,
+        },
+      );
     }
     manifest = {
       version: DEVELOPMENT_HOME_MANIFEST_VERSION,

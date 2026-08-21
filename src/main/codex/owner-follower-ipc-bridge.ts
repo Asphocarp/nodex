@@ -227,7 +227,12 @@ export async function runThreadFollowerActionThroughOwner(
     );
   } catch (error) {
     if (isRendererOwnerUnavailableError(error)) {
-      throw new Error(`no-client-found: renderer owner for ${input.conversationId} is unavailable`);
+      throw new Error(
+        `no-client-found: renderer owner for ${input.conversationId} is unavailable`,
+        {
+          cause: error,
+        },
+      );
     }
     throw error;
   }

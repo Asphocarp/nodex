@@ -215,9 +215,11 @@ export class ElectronScenarioHarness {
         retention: "dispose",
       });
       if (cleanup.status === "unsafe") {
+        // oxlint-disable-next-line eslint/preserve-caught-error -- AggregateError retains the primary failure and cleanup failure explicitly.
         throw new AggregateError(
           [error, new Error(cleanup.reason)],
           `Failed to initialize and clean Electron scenario ${profile.runRoot}`,
+          { cause: error },
         );
       }
       throw error;

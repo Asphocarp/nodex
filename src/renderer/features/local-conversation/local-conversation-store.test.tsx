@@ -1273,7 +1273,8 @@ describe("local-conversation-store", () => {
           prompt: "Start without a blank transcript",
           runInTarget: "localProject",
         });
-        for (let index = 0; index < 20 && !transportStarted; index += 1) {
+        for (let index = 0; index < 20; index += 1) {
+          if (transportStarted) break;
           await settleAsyncRender();
         }
       });

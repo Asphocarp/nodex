@@ -104,9 +104,11 @@ export async function runMainProgram(
     try {
       await closeScope(Exit.fail(error));
     } catch (releaseError) {
+      // oxlint-disable-next-line eslint/preserve-caught-error -- AggregateError retains both failures; startup remains the primary cause.
       throw new AggregateError(
         [startupError, releaseError],
         "Main program startup and rollback both failed",
+        { cause: startupError },
       );
     }
     throw startupError;

@@ -29,9 +29,9 @@ interface CommandPaletteProps {
   openTriggerTick: number;
   initialMode?: CommandMenuMode;
   initialQuery?: string;
-  projects: Project[];
+  projects: readonly Project[];
   activeProjectId: string | null;
-  recentPageSessions: RecentPageSession[];
+  recentPageSessions: readonly RecentPageSession[];
   commandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands">;
   commandHandlers: CommandPaletteShellCommandHandlers;
   onOpenChange: (open: boolean) => void;

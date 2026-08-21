@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { CodexHooksSettingsTarget } from "../../../lib/codex-hooks-route";
 
 interface HookFeedbackSettingsNavigationValue {
@@ -14,8 +14,9 @@ export function HookFeedbackSettingsNavigationProvider({
   onOpenHooksSettings,
   children,
 }: HookFeedbackSettingsNavigationValue & { children: ReactNode }) {
+  const value = useMemo(() => ({ hostId, onOpenHooksSettings }), [hostId, onOpenHooksSettings]);
   return (
-    <HookFeedbackSettingsNavigationContext.Provider value={{ hostId, onOpenHooksSettings }}>
+    <HookFeedbackSettingsNavigationContext.Provider value={value}>
       {children}
     </HookFeedbackSettingsNavigationContext.Provider>
   );

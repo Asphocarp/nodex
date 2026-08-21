@@ -395,13 +395,15 @@ export interface WorkbenchRuntimeProps {
     sectionId: SidebarCollapsibleSectionId,
     collapsed: boolean,
   ) => void;
-  recentPageSessions?: RecentPageSession[];
+  recentPageSessions?: readonly RecentPageSession[];
   projectPickerOpenTick?: number;
   taskSearchOpenTick?: number;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
   onRegisterCommandPort?: (port: WorkbenchCommandPort) => () => void;
   commandKeymapState?: CommandKeymapState | null;
 }
+
+const EMPTY_RECENT_PAGE_SESSIONS: readonly RecentPageSession[] = [];
 
 export function WorkbenchRuntime({
   windowSessionId,
@@ -413,7 +415,7 @@ export function WorkbenchRuntime({
   projectCatalogError = null,
   onRetryProjects,
   onSceneMutation,
-  recentPageSessions = [],
+  recentPageSessions = EMPTY_RECENT_PAGE_SESSIONS,
   sidebar,
   pageStageCloseRef,
   pageStagePersistRef,

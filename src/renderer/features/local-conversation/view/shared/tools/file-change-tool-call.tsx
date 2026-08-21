@@ -52,10 +52,12 @@ interface FileChangeToolCallProps {
   projectWorkspacePath?: string;
   threadCwd?: string;
   isTurnCancelled?: boolean;
-  automaticApprovalReviews?: CodexTranscriptEntry[];
+  automaticApprovalReviews?: readonly CodexTranscriptEntry[];
   showDiffDetails?: boolean;
   onOpenFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
 }
+
+const EMPTY_AUTOMATIC_APPROVAL_REVIEWS: readonly CodexTranscriptEntry[] = [];
 
 type FileChangeRowAction = CodexFileChangePatchAction;
 type FileChangeRowState = CodexFileChangeDisplayStatus;
@@ -86,7 +88,7 @@ interface FileChangeRowModel {
   canExpand: boolean;
   preview: FileChangeRowPreview;
   change: CodexFileChange;
-  automaticApprovalReviews: CodexTranscriptEntry[];
+  automaticApprovalReviews: readonly CodexTranscriptEntry[];
 }
 
 function resolveFileChangeStatus(
@@ -208,7 +210,7 @@ function buildFileChangeRow(
   item: CodexTranscriptEntry,
   basePath: string | null,
   isTurnCancelled: boolean,
-  automaticApprovalReviews: CodexTranscriptEntry[],
+  automaticApprovalReviews: readonly CodexTranscriptEntry[],
   showDiffDetails: boolean,
 ): FileChangeRowModel {
   const unifiedDiff = showDiffDetails ? patchRow.unifiedDiff : null;
@@ -252,7 +254,7 @@ export function buildFileChangeRows(
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
   isTurnCancelled = false,
-  automaticApprovalReviews: CodexTranscriptEntry[] = [],
+  automaticApprovalReviews: readonly CodexTranscriptEntry[] = [],
   showDiffDetails = true,
 ): FileChangeRowModel[] {
   const basePath = resolveChangeBasePath(item.grantRoot, threadCwd, projectWorkspacePath);
@@ -647,7 +649,7 @@ export function FileChangeToolCall({
   projectWorkspacePath,
   threadCwd,
   isTurnCancelled = false,
-  automaticApprovalReviews = [],
+  automaticApprovalReviews = EMPTY_AUTOMATIC_APPROVAL_REVIEWS,
   showDiffDetails = true,
   onOpenFileInSidePanel,
 }: FileChangeToolCallProps) {

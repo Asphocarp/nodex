@@ -172,7 +172,9 @@ function readTomlConfig(configPath: string): RootTomlConfig {
     }
     return {};
   } catch (error) {
-    throw new Error(`Could not read config file at ${configPath}: ${(error as Error).message}`);
+    throw new Error(`Could not read config file at ${configPath}: ${(error as Error).message}`, {
+      cause: error,
+    });
   }
 }
 
@@ -858,6 +860,7 @@ export function getCodexExecutionHostSettings(): CodexExecutionHostSettings {
     } catch (error) {
       throw new Error(
         `Invalid SSH execution host at index ${String(index)}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   });

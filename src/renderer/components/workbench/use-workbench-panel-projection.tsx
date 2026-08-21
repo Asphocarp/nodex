@@ -190,7 +190,7 @@ function resolveProjectTargetTabChromeContext(
   tab: ProjectSessionRenderableTab,
   activeSession: ProjectSession,
   projects: readonly Project[],
-): Pick<AppShellTabItem, "contextLabel" | "titleLabel" | "tooltip"> {
+): Pick<AppShellTabItem, "contextLabel" | "titleLabel" | "renderTooltip" | "tooltip"> {
   if (
     isSideChatPanelTab(tab) ||
     isMcpAppPanelTab(tab) ||
@@ -215,7 +215,7 @@ function resolveProjectTargetTabChromeContext(
   return {
     contextLabel: projectLabel,
     titleLabel: (title) => `${projectLabel} project, ${title}`,
-    tooltip: (title) => (
+    renderTooltip: (title) => (
       <div className="flex max-w-80 flex-col gap-0.5">
         <div className="truncate font-medium">{title}</div>
         <div className="truncate text-xs text-token-description-foreground">

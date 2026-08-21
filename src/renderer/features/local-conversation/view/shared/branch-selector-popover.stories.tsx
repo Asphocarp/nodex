@@ -3,6 +3,8 @@ import { useState } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { BranchSelectorPopover } from "./branch-selector-popover";
 
+const DEFAULT_BRANCHES = ["main", "refactor/settings-pages", "codex/dropdown"];
+
 function StorySurface({ children }: { children: React.ReactNode }) {
   return (
     <NodexTooltipProvider>
@@ -18,7 +20,7 @@ function BranchSelectorStory({
   busy = false,
   loading = false,
   error = false,
-  branches = ["main", "refactor/settings-pages", "codex/dropdown"],
+  branches = DEFAULT_BRANCHES,
   selectedBranch: initialSelectedBranch = "main",
 }: {
   cwd?: string | null;

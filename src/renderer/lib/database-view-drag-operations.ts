@@ -91,7 +91,7 @@ export const applyOptimisticDatabaseViewBoardDrop = (
   );
   let valuesChanged = false;
   const projectedMoving = moving.map((row) => {
-    let values = row.values;
+    const values = { ...row.values };
     let rowValuesChanged = false;
     for (const { propertyId, value } of projection.propertyValues) {
       const property = propertiesById.get(propertyId);
@@ -104,14 +104,11 @@ export const applyOptimisticDatabaseViewBoardDrop = (
         continue;
       valuesChanged = true;
       rowValuesChanged = true;
-      values = {
-        ...values,
-        [propertyId]: {
-          propertyId: property.propertyId,
-          valueType: property.valueType,
-          value,
-          revision: current?.revision ?? 0,
-        },
+      values[propertyId] = {
+        propertyId: property.propertyId,
+        valueType: property.valueType,
+        value,
+        revision: current?.revision ?? 0,
       };
     }
     const groupChanged = row.effectiveGroupKey !== projection.target.groupKey;

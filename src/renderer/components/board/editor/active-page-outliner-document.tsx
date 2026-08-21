@@ -317,7 +317,7 @@ export function ActivePageOutlinerDocument({
             isActive={hostRuntime.isActiveSurface}
             onReload={controls.reload}
             pendingFallback={pending}
-            failureFallback={({ error, reloading, reload }) => (
+            renderFailureFallback={({ error, reloading, reload }) => (
               <PageOutlinerFailure
                 target={target}
                 rowProps={rowProps}
