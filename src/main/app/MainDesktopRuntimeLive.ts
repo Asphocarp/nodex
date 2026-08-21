@@ -116,6 +116,10 @@ import {
   live as desktopNotificationRuntimeLive,
 } from "../host-runtime/DesktopNotificationRuntime";
 import {
+  RendererClientRuntime,
+  live as rendererClientRuntimeLive,
+} from "../host-runtime/RendererClientRuntime";
+import {
   activateMainServiceComposition,
   createMainServiceComposition,
 } from "../main-service-composition";
@@ -312,6 +316,11 @@ export const live: Layer.Layer<
           desktopNotificationContext,
           DesktopNotificationRuntime,
         );
+        const rendererClientContext = yield* Layer.buildWithScope(
+          rendererClientRuntimeLive,
+          runtimeScope,
+        );
+        const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
             browserSidebarService,
@@ -826,6 +835,7 @@ export const live: Layer.Layer<
                 desktopNotificationManager: desktopNotifications.manager,
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
+                rendererClientRouter: rendererClients.router,
                 manageElectronLifecycle: false,
                 startupEvents: [],
                 startCoreEvents,

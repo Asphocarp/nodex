@@ -116,7 +116,7 @@ import {
 } from "../shared/command-keybindings";
 import { safeBroadcastToWindows, safeSendToWebContents, safeSendToWindow } from "./ipc-safe-send";
 import {
-  RendererClientRouter,
+  type RendererClientRouter,
   type RendererClientRegistration,
 } from "./codex/renderer-client-router";
 import {
@@ -1991,6 +1991,7 @@ export interface MainRuntimeStartupContext {
   desktopNotificationManager: DesktopNotificationManager;
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
+  rendererClientRouter: RendererClientRouter;
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
@@ -2064,6 +2065,7 @@ function beginMainRuntimeShutdown(): void {
   appQuitRequested = true;
   appUpdateRuntime = null;
   desktopNotificationManager = null;
+  rendererClientRouter = null;
   logger.info("Nodex before-quit");
   scopedProjectionLiveSupervisor?.stop();
   scopedProjectionLiveSupervisor = null;
@@ -2185,6 +2187,7 @@ export async function runMainAppStartup(
 ): Promise<MainRuntimeController> {
   appUpdateRuntime = context.appUpdateRuntime;
   desktopNotificationManager = context.desktopNotificationManager;
+  rendererClientRouter = context.rendererClientRouter;
   if (context.manageElectronLifecycle !== false) {
     registerRuntimeLifecycleHandlers(context.requestShutdown);
   }
@@ -2280,8 +2283,7 @@ export async function runMainAppStartup(
       error: error instanceof Error ? error.message : String(error),
     });
   });
-  rendererClientRouter = new RendererClientRouter();
-  const notificationRendererRouter = rendererClientRouter;
+  const notificationRendererRouter = context.rendererClientRouter;
   codexThreadNotificationCoordinator = new CodexThreadNotificationCoordinator({
     source: codexService,
     getSettings: getThreadNotificationSettings,
@@ -2326,7 +2328,7 @@ export async function runMainAppStartup(
   });
   codexService.setNodexAgentAuthorizationBroker(
     new NodexAgentAuthorizationBroker({
-      rendererClientRouter,
+      rendererClientRouter: notificationRendererRouter,
       readStoreEpoch: () => {
         const runtime = desktopDataAuthorityRuntime;
         if (!runtime) return null;
@@ -2346,7 +2348,7 @@ export async function runMainAppStartup(
     projectWorkspace,
     libraryModule,
     databaseModule,
-    rendererClientRouter,
+    rendererClientRouter: notificationRendererRouter,
     onHeartbeatAutomationsEnabledChanged: (input) => {
       scheduledAutomationScheduler?.setHeartbeatAutomationsEnabled(input.enabled);
     },
