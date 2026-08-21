@@ -16,7 +16,7 @@ import {
   type AgentWireApi,
 } from "../../shared/agent-runtime";
 
-const SUPPORTED_PROVIDER_IDS = [
+export const SUPPORTED_PROVIDER_IDS = [
   "openai",
   "anthropic",
   "kimi-for-coding",
@@ -57,7 +57,7 @@ function parseOptionalCatalogString(value: unknown, label: string): string | nul
   return parseCatalogString(value, label);
 }
 
-function parseWireApi(value: unknown): AgentWireApi {
+export function parseWireApi(value: unknown): AgentWireApi {
   if (value === "responses" || value === "chat" || value === "messages") return value;
   throw new Error(`Agent runtime advertised unsupported wire API ${String(value)}`);
 }
@@ -78,7 +78,7 @@ function parseProvider(value: unknown, index: number): InterpreterProvider {
   };
 }
 
-function parseProviderResponse(value: unknown): InterpreterProvider[] {
+export function parseProviderResponse(value: unknown): InterpreterProvider[] {
   if (!isRecord(value) || !Array.isArray(value.data)) {
     throw new Error("Agent runtime provider catalog response is invalid");
   }
@@ -163,14 +163,14 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
   };
 }
 
-function parseModelResponse(value: unknown, providerId: string): Model[] {
+export function parseModelResponse(value: unknown, providerId: string): Model[] {
   if (!isRecord(value) || !Array.isArray(value.data)) {
     throw new Error(`Agent runtime model catalog response for ${providerId} is invalid`);
   }
   return value.data.map((entry, index) => parseModel(entry, providerId, index));
 }
 
-function parseHarnessResponse(value: unknown, providerId: string): InterpreterHarness[] {
+export function parseHarnessResponse(value: unknown, providerId: string): InterpreterHarness[] {
   if (!isRecord(value) || !Array.isArray(value.data)) {
     throw new Error(`Agent runtime harness catalog response for ${providerId} is invalid`);
   }
@@ -187,7 +187,7 @@ function parseHarnessResponse(value: unknown, providerId: string): InterpreterHa
   });
 }
 
-function recommendedHarnessId(harnesses: readonly InterpreterHarness[]): string | null {
+export function recommendedHarnessId(harnesses: readonly InterpreterHarness[]): string | null {
   const recommended = harnesses.find((harness) => harness.isRecommended);
   if (!recommended) throw new Error("Agent runtime did not advertise a recommended harness");
   return recommended.id ?? null;
@@ -285,7 +285,7 @@ export async function resolveAgentExecutionProfileFromCatalog(input: {
   };
 }
 
-function toModelOption(
+export function toModelOption(
   providerId: string,
   model: Model,
   providerRecommendedHarnessId: string | null,

@@ -5,6 +5,7 @@ import type { ProviderCredentialStore } from "./codex/provider-credential-store"
 import type { CodexApplicationClient } from "./codex-runtime/CodexApplicationClient";
 import type { CodexAccountPromiseAdapter } from "./codex-application/CodexAccountPromiseAdapter";
 import type { ComposerCatalogPromiseAdapter } from "./codex-application/ComposerCatalogPromiseAdapter";
+import type { AgentProviderRuntimePromiseAdapter } from "./codex-application/AgentProviderRuntimePromiseAdapter";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
@@ -13,6 +14,7 @@ export interface MainServiceComposition {
 
 export interface MainServiceCompositionInput {
   readonly locale: () => string;
+  readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
   readonly codexAccount?: CodexAccountPromiseAdapter;
@@ -32,6 +34,7 @@ export function createMainServiceComposition(
   const codexService = new CodexService({
     browserTransferRuntime: browserSidebarService,
     computerUseRuntimeConfig: () => ({ locale: input.locale() }),
+    agentProviderRuntime: input.agentProviderRuntime,
     terminalRuntime: input.terminalRuntime,
     runtimeStateHome: input.runtimeStateHome,
     ...(input.codexAccount === undefined ? {} : { accountRuntime: input.codexAccount }),

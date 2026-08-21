@@ -12,9 +12,14 @@ import type {
   CodexConversationImageAssetResolveInput,
   CodexRateLimitResetInput,
 } from "../../../shared/types";
+import type {
+  AgentProviderCredentialDeleteInput,
+  AgentProviderCredentialMutationInput,
+} from "../../../shared/agent-runtime";
 import type { IpcEvents } from "../../../shared/ipc-api";
 import type { CodexHooksListInput, CodexHooksStateUpdateInput } from "../../../shared/codex-hooks";
 import { CodexAccount, type CodexAccountLoginInput } from "../../codex-application/CodexAccount";
+import { AgentProviderRuntime } from "../../codex-application/AgentProviderRuntime";
 import { CodexConnection } from "../../codex-application/CodexConnection";
 import { CodexMedia } from "../../codex-application/CodexMedia";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
@@ -76,12 +81,39 @@ const parseComposerPluginActivation = (
   return { id: input.id.trim(), cwds: parseComposerInventoryCwds(input) };
 };
 
+const parseProviderCredential = (input: unknown): AgentProviderCredentialMutationInput => {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    !("providerId" in input) ||
+    typeof input.providerId !== "string" ||
+    !("apiKey" in input) ||
+    typeof input.apiKey !== "string"
+  ) {
+    throw new Error("Invalid provider credential input");
+  }
+  return { providerId: input.providerId, apiKey: input.apiKey };
+};
+
+const parseProviderCredentialDelete = (input: unknown): AgentProviderCredentialDeleteInput => {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    !("providerId" in input) ||
+    typeof input.providerId !== "string"
+  ) {
+    throw new Error("Invalid provider credential delete input");
+  }
+  return { providerId: input.providerId };
+};
+
 export const live: Layer.Layer<
   never,
   never,
   | ElectronIpc
   | ElectronWindowHost
   | MainConfig
+  | AgentProviderRuntime
   | CodexAccount
   | CodexConnection
   | CodexMedia
@@ -93,6 +125,7 @@ export const live: Layer.Layer<
     const ipc = yield* ElectronIpc;
     const windows = yield* ElectronWindowHost;
     const config = yield* MainConfig;
+    const agentProviders = yield* AgentProviderRuntime;
     const account = yield* CodexAccount;
     const connection = yield* CodexConnection;
     const media = yield* CodexMedia;
@@ -117,6 +150,19 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle("codex:account:logout", () => account.logout);
     yield* ipc.handle("codex:connection:status", () => connection.read);
+    yield* ipc.handle("agent-runtime:catalog:get", (_event, options?: { refresh?: boolean }) =>
+      agentProviders.list({ refresh: options?.refresh === true }),
+    );
+    yield* ipc.handle("agent-runtime:credential:set", (_event, input: unknown) =>
+      validate("agent-provider-credential-set", () => parseProviderCredential(input)).pipe(
+        Effect.flatMap(agentProviders.setCredential),
+      ),
+    );
+    yield* ipc.handle("agent-runtime:credential:delete", (_event, input: unknown) =>
+      validate("agent-provider-credential-delete", () => parseProviderCredentialDelete(input)).pipe(
+        Effect.flatMap(agentProviders.deleteCredential),
+      ),
+    );
     yield* ipc.handle("codex:dictation:state:read", () => media.dictationState);
     yield* ipc.handle("codex:dictation:transcribe", (event, input: unknown) =>
       trusted(event, "Dictation transcription").pipe(

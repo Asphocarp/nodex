@@ -7,6 +7,7 @@ import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import { MainConfig } from "../../app/MainConfig";
 import { CodexAccount } from "../../codex-application/CodexAccount";
+import { AgentProviderRuntime } from "../../codex-application/AgentProviderRuntime";
 import { CodexConnection } from "../../codex-application/CodexConnection";
 import { CodexMedia } from "../../codex-application/CodexMedia";
 import { emptyAccountSnapshot } from "../../codex-application/CodexAccountState";
@@ -40,6 +41,23 @@ it.effect("registers application channels directly against their owning modules"
       startLogin: () => Effect.die("unused"),
       cancelLogin: () => Effect.die("unused"),
       logout: Effect.succeed(true),
+    });
+    const agentProviders = AgentProviderRuntime.of({
+      list: () => Effect.succeed({ providers: [] }),
+      resolveExecutionProfile: () => Effect.die("unused"),
+      setCredential: (input) =>
+        Effect.succeed({
+          providerId: input.providerId,
+          status: "ready",
+          runtimeRestartPending: false,
+        }),
+      deleteCredential: (input) =>
+        Effect.succeed({
+          providerId: input.providerId,
+          status: "missing",
+          runtimeRestartPending: false,
+        }),
+      ensureRuntimeReady: Effect.void,
     });
     const composer = ComposerCatalog.of({
       listModels: Effect.succeed([
@@ -116,6 +134,7 @@ it.effect("registers application channels directly against their owning modules"
               }),
             ),
             Layer.succeed(CodexAccount, account),
+            Layer.succeed(AgentProviderRuntime, agentProviders),
             Layer.succeed(CodexConnection, connection),
             Layer.succeed(CodexMedia, media),
             Layer.succeed(ComposerCatalog, composer),
@@ -128,6 +147,9 @@ it.effect("registers application channels directly against their owning modules"
     );
 
     assert.isTrue(handlers.has("codex:account:read"));
+    assert.isTrue(handlers.has("agent-runtime:catalog:get"));
+    assert.isTrue(handlers.has("agent-runtime:credential:set"));
+    assert.isTrue(handlers.has("agent-runtime:credential:delete"));
     assert.isTrue(handlers.has("codex:connection:status"));
     assert.isTrue(handlers.has("codex:dictation:state:read"));
     assert.isTrue(handlers.has("codex:dictation:transcribe"));

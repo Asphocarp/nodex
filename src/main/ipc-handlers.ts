@@ -3244,29 +3244,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return composerAppshotService.capture(input.targetId.trim());
   });
 
-  registerHandle("agent-runtime:catalog:get", (_, options?: { refresh?: boolean }) =>
-    codexService.listAgentProviderCatalog({ refresh: options?.refresh === true }),
-  );
-  registerHandle("agent-runtime:credential:set", (_, input) => {
-    if (
-      typeof input !== "object" ||
-      input === null ||
-      typeof input.providerId !== "string" ||
-      typeof input.apiKey !== "string"
-    ) {
-      throw new Error("Invalid provider credential input");
-    }
-    return codexService.setAgentProviderCredential({
-      providerId: input.providerId,
-      apiKey: input.apiKey,
-    });
-  });
-  registerHandle("agent-runtime:credential:delete", (_, input) => {
-    if (typeof input !== "object" || input === null || typeof input.providerId !== "string") {
-      throw new Error("Invalid provider credential delete input");
-    }
-    return codexService.deleteAgentProviderCredential({ providerId: input.providerId });
-  });
   const parseAgentImportSourceKind = (value: unknown): AgentImportSourceKind => {
     if (value === "claude-code" || value === "codex" || value === "open-interpreter") {
       return value;

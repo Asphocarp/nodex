@@ -225,6 +225,7 @@ import {
 import type { CodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { parseModelOption } from "../codex-application/ComposerCatalogState";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
+import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -532,9 +533,6 @@ import type {
   AgentExecutionProfileChange,
   AgentModelOption,
   AgentProviderCatalog,
-  AgentProviderCredentialDeleteInput,
-  AgentProviderCredentialMutationInput,
-  AgentProviderCredentialMutationResult,
 } from "../../shared/agent-runtime";
 import type {
   AgentImportApplyInput,
@@ -1438,6 +1436,7 @@ type CodexManagedWorktreeSettingsPort = {
 
 type CodexServiceOptions = {
   accountRuntime?: CodexAccountPromiseAdapter;
+  agentProviderRuntime?: AgentProviderRuntimePromiseAdapter;
   composerCatalog?: ComposerCatalogPromiseAdapter;
   client: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
@@ -2659,6 +2658,7 @@ export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexApplicationClient;
   private readonly accountRuntime: CodexAccountPromiseAdapter | null;
+  private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter | null;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter | null;
   private releaseAccountRuntimeSubscription: (() => void) | null = null;
   private readonly agentImportCoordinator: AgentImportCoordinator;
@@ -2672,7 +2672,7 @@ export class CodexService extends EventEmitter {
     ComputerUseRuntimeCoordinator,
     "dispose" | "ensureReady" | "getResult"
   >;
-  private readonly providerCredentialStore: ProviderCredentialStore;
+  private readonly providerCredentialStore: ProviderCredentialStore | null;
   private readonly rateLimitsPollIntervalMs: number;
   private readonly inactiveRendererOwnerRetentionMs: number;
   private readonly inactiveRendererOwnerMaxRetained: number;
@@ -2914,6 +2914,7 @@ export class CodexService extends EventEmitter {
     super();
 
     this.accountRuntime = options.accountRuntime ?? null;
+    this.agentProviderRuntime = options.agentProviderRuntime ?? null;
     this.composerCatalog = options.composerCatalog ?? null;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
@@ -2938,7 +2939,9 @@ export class CodexService extends EventEmitter {
         runtimeStateHome: this.runtimeStateHome,
       });
     this.providerCredentialStore =
-      options.providerCredentialStore ?? createElectronProviderCredentialStore();
+      this.agentProviderRuntime === null
+        ? (options.providerCredentialStore ?? createElectronProviderCredentialStore())
+        : null;
     this.rateLimitsPollIntervalMs =
       options.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
     this.inactiveRendererOwnerRetentionMs = Math.max(
@@ -10626,10 +10629,16 @@ export class CodexService extends EventEmitter {
       .filter((option): option is CodexModelOption => option !== null);
   }
 
-  async listAgentProviderCatalog(options?: { refresh?: boolean }): Promise<AgentProviderCatalog> {
+  private async listAgentProviderCatalog(options?: {
+    refresh?: boolean;
+  }): Promise<AgentProviderCatalog> {
     await this.ensureClientReady();
+    if (this.agentProviderRuntime !== null) return await this.agentProviderRuntime.list(options);
     if (this.agentProviderCatalog && options?.refresh !== true) {
       return this.agentProviderCatalog;
+    }
+    if (this.providerCredentialStore === null) {
+      throw new Error("Agent provider credential runtime is unavailable");
     }
     const client: AgentProviderCatalogClient = {
       request: async (method, params) => await this.client.request(method, params),
@@ -10646,6 +10655,9 @@ export class CodexService extends EventEmitter {
     requested: AgentExecutionProfile | null | undefined,
   ): Promise<AgentExecutionProfile | null> {
     if (!requested) return null;
+    if (this.agentProviderRuntime !== null) {
+      return await this.agentProviderRuntime.resolveExecutionProfile(requested);
+    }
     const catalog = await this.listAgentProviderCatalog();
     const client: AgentProviderCatalogClient = {
       request: async (method, params) => await this.client.request(method, params),
@@ -10771,32 +10783,6 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  async setAgentProviderCredential(
-    input: AgentProviderCredentialMutationInput,
-  ): Promise<AgentProviderCredentialMutationResult> {
-    await this.providerCredentialStore.setApiKey(input.providerId, input.apiKey);
-    this.agentProviderCatalog = null;
-    const runtimeRestartPending = await this.restartAgentRuntimeAfterCredentialChange();
-    return {
-      providerId: input.providerId,
-      status: await this.providerCredentialStore.status(input.providerId),
-      runtimeRestartPending,
-    };
-  }
-
-  async deleteAgentProviderCredential(
-    input: AgentProviderCredentialDeleteInput,
-  ): Promise<AgentProviderCredentialMutationResult> {
-    await this.providerCredentialStore.delete(input.providerId);
-    this.agentProviderCatalog = null;
-    const runtimeRestartPending = await this.restartAgentRuntimeAfterCredentialChange();
-    return {
-      providerId: input.providerId,
-      status: await this.providerCredentialStore.status(input.providerId),
-      runtimeRestartPending,
-    };
-  }
-
   private hasActiveAgentRuntimeWork(): boolean {
     for (const record of this.conversationRecords.values()) {
       if (record.detail?.statusType === "active") return true;
@@ -10806,6 +10792,10 @@ export class CodexService extends EventEmitter {
   }
 
   private async ensureAgentRuntimeCredentialReloaded(): Promise<void> {
+    if (this.agentProviderRuntime !== null) {
+      await this.agentProviderRuntime.ensureRuntimeReady();
+      return;
+    }
     if (!this.runtimeRestartPending) return;
     if (this.hasActiveAgentRuntimeWork()) {
       throw new Error("Agent credentials will be reloaded after the active turn finishes");
@@ -10837,6 +10827,7 @@ export class CodexService extends EventEmitter {
   }
 
   private restartPendingAgentRuntimeWhenIdle(): void {
+    if (this.agentProviderRuntime !== null) return;
     if (!this.runtimeRestartPending || this.hasActiveAgentRuntimeWork()) return;
     void this.restartAgentRuntimeNow().catch((error) => {
       this.logger.error("Could not restart agent runtime after credential change", {

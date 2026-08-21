@@ -23,6 +23,11 @@ import { makeDesktopDataAuthority } from "../core-runtime/DesktopCoreAdapter";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
+import {
+  AgentProviderRuntime,
+  live as agentProviderRuntimeLive,
+} from "../codex-application/AgentProviderRuntime";
+import { makeAgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import { makeCodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
@@ -52,6 +57,7 @@ import {
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronIpc } from "../platform/electron/ElectronIpc";
 import * as ElectronNet from "../platform/electron/ElectronNet";
+import * as ProviderCredentials from "../platform/electron/ProviderCredentials";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import * as CodexSessionTransport from "../platform/node/CodexSessionTransport";
@@ -169,6 +175,30 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
+        const providerCredentialsContext = yield* Layer.buildWithScope(
+          ProviderCredentials.fromStore(providerCredentialStore),
+          runtimeScope,
+        );
+        const providerCredentials = Context.get(
+          providerCredentialsContext,
+          ProviderCredentials.ProviderCredentials,
+        );
+        const agentProviderContext = yield* Layer.buildWithScope(
+          agentProviderRuntimeLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ProviderCredentials.ProviderCredentials, providerCredentials),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const agentProviders = Context.get(agentProviderContext, AgentProviderRuntime);
+        const agentProviderRuntime = makeAgentProviderRuntimePromiseAdapter(
+          agentProviders,
+          callbacks,
+        );
         const codexAccountContext = yield* Layer.buildWithScope(
           codexAccountLive({ pollInterval: "60 seconds" }).pipe(
             Layer.provide(Layer.succeed(CodexGateway, codexGateway)),
@@ -254,6 +284,7 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(ElectronWindowHost, windowHost),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(AgentProviderRuntime, agentProviders),
                 Layer.succeed(CodexAccount, codexAccountService),
                 Layer.succeed(CodexConnection, codexConnectionService),
                 Layer.succeed(CodexMedia, codexMedia),
@@ -275,6 +306,7 @@ export const live: Layer.Layer<
           try: () => {
             const composition = createMainServiceComposition({
               locale: () => locale,
+              agentProviderRuntime,
               codexAccount,
               composerCatalog,
               codexClient: codexBridge,
