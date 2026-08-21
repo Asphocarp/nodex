@@ -8998,6 +8998,7 @@ export class CodexService extends EventEmitter {
   private async buildBoundedWorkspaceSidebarSnapshot(
     includeArchived: boolean,
   ): Promise<CodexSidebarSnapshot> {
+    const revisionAtStart = this.sidebarSnapshotRevision;
     const overview = await this.projectWorkspace.readSidebarOverview(
       includeArchived,
     );
@@ -9067,11 +9068,11 @@ export class CodexService extends EventEmitter {
       pinnedThreadIds: items.map((item) => item.threadId),
       projectAssignments,
       projectlessThreadIds,
-      revision: this.sidebarSnapshotRevision,
+      revision: revisionAtStart,
       generatedAt: Date.now(),
     };
     this.sidebarSnapshotCacheByIncludeArchived.set(includeArchived, {
-      revision: this.sidebarSnapshotRevision,
+      revision: revisionAtStart,
       snapshot,
     });
     return snapshot;

@@ -718,8 +718,7 @@ mod tests {
         entered_receiver.recv().expect("writer blocked");
 
         let executor = RequestExecutor::with_capacities(1, 1, 1, 8);
-        let mut deadline_headers = headers("writer-deadline", "interactive");
-        deadline_headers.insert(REQUEST_DEADLINE_HEADER, "250".parse().unwrap());
+        let deadline_headers = headers("writer-deadline", "interactive");
         let timed_executor = executor.clone();
         let timed_writer = writer.clone();
         let timed = tokio::spawn(async move {

@@ -955,7 +955,10 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
       page: { hasMore: true, nextCursor: "nxd1.cursor.signature" },
     });
-    expect(libraryRead).toHaveBeenCalledOnce();
+    expect(libraryRead).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "agent_block_target" }),
+      { class: "background" },
+    );
     expect(documentRead).toHaveBeenCalledOnce();
   });
 
@@ -1133,7 +1136,14 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       },
     });
-    const libraryRead = vi.fn(async () => pageContent());
+    const libraryRead = vi.fn(async (
+      read: unknown,
+      options?: { readonly class: string },
+    ) => {
+      void read;
+      void options;
+      return pageContent();
+    });
     const documentRead = vi.fn(async (
       _clientSessionId: string,
       read: {
@@ -1279,6 +1289,11 @@ describe("native desktop Nodex Agent dynamic service", () => {
     expect(documentRead).toHaveBeenCalledTimes(2);
     expect(documentApply).toHaveBeenCalledOnce();
     expect(libraryRead).toHaveBeenCalledTimes(3);
+    expect(libraryRead.mock.calls.map(([, options]) => options)).toEqual([
+      { class: "background" },
+      { class: "background" },
+      { class: "background" },
+    ]);
   });
 
   test("maps Page insertion anchors and uses Core canonical preview Markdown", async () => {

@@ -101,7 +101,9 @@ Deleted Block collection is closure-based and fail-closed. Core proves no live
 ownership, reference, history, recovery, Database, Session, schedule, relocation,
 or unknown foreign-key root before physical removal. The complete candidate
 rolls back if any constraint changes. Collected stable Block identities remain
-retired permanently and are never reused.
+retired permanently and are never reused. Each maintenance pass selects one
+global bound of the oldest tombstones after applying the per-Library keep policy;
+Library count cannot multiply a pass's in-memory candidate set.
 
 Current reference evidence comes from the exact generation/head/schema-fenced
 Document and Canvas projections written with authority. A pass parses current

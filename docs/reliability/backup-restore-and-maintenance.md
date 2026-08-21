@@ -62,8 +62,9 @@ removes pinned revisions. A risky migration or large maintenance operation
 should begin from a labeled manual backup.
 
 Online maintenance does not hold the serialized writer for a complete pass.
-Block collection first plans a bounded candidate set and loads its fail-closed
-evidence once through a consistent WAL reader snapshot, then processes short
+Block collection first plans a globally bounded set of the oldest eligible
+tombstones and loads its fail-closed evidence once through a consistent WAL
+reader snapshot, then processes short
 candidate slices through separate writer commands. Each writer slice checks the
 snapshot's LocalCommit fence, and each candidate still commits atomically;
 interruption or an intervening product commit may leave earlier candidates
