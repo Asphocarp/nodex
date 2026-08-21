@@ -12,9 +12,8 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { performance } from "node:perf_hooks";
-import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve, sep } from "node:path";
+import { isAbsolute, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { writeStructuralClipboard } from "./clipboard-structural-writer";
 import { readClipboardPastePayload } from "./clipboard-paste-inspector";
@@ -85,28 +84,8 @@ import {
 } from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
 import { parseExternalNavigationUrl } from "./external-navigation";
-import {
-  isWorkspaceFileUserError,
-  listWorkspaceDirectoryEntries,
-  readWorkspaceFile,
-  readWorkspaceFileBinary,
-  readWorkspaceFileMetadata,
-  searchWorkspaceFiles,
-  toWorkspaceFileIpcError,
-  WorkspaceFileUserError,
-  writeWorkspaceFile,
-} from "./workspace-files-service";
+import { isWorkspaceFileUserError } from "./workspace-files-service";
 import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
-import { localFileWatchHost, type FileWatchSession } from "./file-watch-host";
-import {
-  WorkspaceDirectoryEntriesInputSchema,
-  WorkspaceFileMetadataInputSchema,
-  WorkspaceFileRequestSchema,
-  WorkspaceFileSearchInputSchema,
-  WorkspaceFileTextReadInputSchema,
-  WorkspaceFileWatchStopInputSchema,
-  WorkspaceFileWriteInputSchema,
-} from "../shared/schemas/workspace-files";
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
@@ -163,7 +142,7 @@ import type {
   CodexThreadStartForSessionInput,
   CodexTurnStartOptions,
 } from "../shared/types";
-import { safeBroadcastToWindows, safeSendToWebContents } from "./ipc-safe-send";
+import { safeBroadcastToWindows } from "./ipc-safe-send";
 import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
@@ -272,17 +251,6 @@ function registerCoreResultHandle<Channel extends keyof IpcApi>(
   }) as TypedIpcHandler<Channel>);
 }
 
-function requireTrustedWorkspaceFileSender(event: IpcMainInvokeEvent): void {
-  try {
-    requireTrustedAppRendererSender(event, "Workspace file access");
-  } catch {
-    throw new WorkspaceFileUserError(
-      "unauthorized_sender",
-      "Workspace file access is available only to the top-level app renderer",
-    );
-  }
-}
-
 function requireTrustedAppRendererSender(
   event: IpcMainInvokeEvent | IpcMainEvent,
   capabilityName: string,
@@ -292,18 +260,6 @@ function requireTrustedAppRendererSender(
     capabilityName,
     process.env.ELECTRON_RENDERER_URL ?? null,
   );
-}
-
-async function runWorkspaceFileHandler<Result>(
-  event: IpcMainInvokeEvent,
-  action: () => Result | Promise<Result>,
-): Promise<Result> {
-  requireTrustedWorkspaceFileSender(event);
-  try {
-    return await action();
-  } catch (error) {
-    throw toWorkspaceFileIpcError(error);
-  }
 }
 
 function broadcastIpcEvent<Channel extends keyof IpcEvents>(
@@ -335,14 +291,6 @@ async function showDirectoriesPicker(
     : await dialog.showOpenDialog(options);
   if (result.canceled) return [];
   return result.filePaths;
-}
-
-function sendIpcEvent<Channel extends keyof IpcEvents>(
-  sender: Electron.WebContents,
-  channel: Channel,
-  payload: IpcEvents[Channel],
-): void {
-  safeSendToWebContents(sender, channel, [payload]);
 }
 
 function buildNativeContextMenuTemplate(
@@ -621,36 +569,6 @@ function createGitActionWorkerPort(
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const { browserSidebarService, codexService } = options;
   const gitActionWorker = createGitActionWorkerPort(options.gitWorkerHost);
-  interface SharedWorkspaceFileWatch {
-    session: FileWatchSession;
-    subscriptionIds: Set<string>;
-  }
-  const workspaceFileWatchSubscriptions = new Map<
-    string,
-    {
-      ownerId: number;
-      sharedKey: string;
-    }
-  >();
-  const workspaceFileWatchSessions = new Map<string, Promise<SharedWorkspaceFileWatch>>();
-  const workspaceFileWatchDestroyListeners = new Set<number>();
-  const disposeWorkspaceFileWatchesForOwner = async (ownerId: number) => {
-    for (const [subscriptionId, subscription] of workspaceFileWatchSubscriptions) {
-      if (subscription.ownerId === ownerId) {
-        workspaceFileWatchSubscriptions.delete(subscriptionId);
-      }
-    }
-    const sharedKeyPrefix = `${ownerId}\0`;
-    const pendingDisposals: Promise<void>[] = [];
-    for (const [sharedKey, sharedPromise] of workspaceFileWatchSessions) {
-      if (!sharedKey.startsWith(sharedKeyPrefix)) continue;
-      workspaceFileWatchSessions.delete(sharedKey);
-      pendingDisposals.push(
-        sharedPromise.then(async (shared) => await shared.session.dispose()).catch(() => {}),
-      );
-    }
-    await Promise.all(pendingDisposals);
-  };
   const storeAdministration =
     options.storeAdministration ??
     createUnconfiguredIpcAuthority<DesktopStoreAdministrationPort>(
@@ -1564,134 +1482,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     homeDirectory: homedir(),
     separator: sep === "\\" ? ("\\" as const) : ("/" as const),
   }));
-
-  registerHandle("workspace-directory-entries", (event, input) =>
-    runWorkspaceFileHandler(event, () =>
-      listWorkspaceDirectoryEntries(WorkspaceDirectoryEntriesInputSchema.parse(input)),
-    ),
-  );
-
-  registerHandle("workspace-file-search", (event, input) =>
-    runWorkspaceFileHandler(event, () =>
-      searchWorkspaceFiles(WorkspaceFileSearchInputSchema.parse(input)),
-    ),
-  );
-
-  registerHandle("read-file", (event, input) =>
-    runWorkspaceFileHandler(event, () =>
-      readWorkspaceFile(WorkspaceFileTextReadInputSchema.parse(input)),
-    ),
-  );
-
-  registerHandle("read-file-metadata", (event, input) =>
-    runWorkspaceFileHandler(event, () =>
-      readWorkspaceFileMetadata(WorkspaceFileMetadataInputSchema.parse(input)),
-    ),
-  );
-
-  registerHandle("read-file-binary", (event, input) =>
-    runWorkspaceFileHandler(event, () =>
-      readWorkspaceFileBinary(WorkspaceFileRequestSchema.parse(input)),
-    ),
-  );
-
-  registerHandle("write-file", (event, input) =>
-    runWorkspaceFileHandler(event, () =>
-      writeWorkspaceFile(WorkspaceFileWriteInputSchema.parse(input)),
-    ),
-  );
-
-  registerHandle("workspace-file-watch:start", (event, input) =>
-    runWorkspaceFileHandler(event, async () => {
-      const request = WorkspaceFileRequestSchema.parse(input);
-      const ownerId = event.sender.id;
-      const watchedPath = resolve(request.path);
-      const sharedKey = `${ownerId}\0${watchedPath}`;
-      const subscriptionId = randomUUID();
-      if (!workspaceFileWatchDestroyListeners.has(ownerId)) {
-        workspaceFileWatchDestroyListeners.add(ownerId);
-        event.sender.once("destroyed", () => {
-          workspaceFileWatchDestroyListeners.delete(ownerId);
-          void disposeWorkspaceFileWatchesForOwner(ownerId);
-        });
-      }
-      let sharedPromise = workspaceFileWatchSessions.get(sharedKey);
-      if (!sharedPromise) {
-        const subscriptionIds = new Set<string>();
-        sharedPromise = localFileWatchHost
-          .startFileWatch({
-            path: dirname(watchedPath),
-            recursive: false,
-            renameEventHandling: "changed-path-with-parent-directory",
-            onChange: ({ changedPaths }) => {
-              const exactPathChanged =
-                changedPaths.length === 0 ||
-                changedPaths.some((changedPath) => resolve(changedPath) === watchedPath);
-              if (!exactPathChanged || event.sender.isDestroyed()) return;
-              for (const activeSubscriptionId of subscriptionIds) {
-                sendIpcEvent(event.sender, "workspace-file:changed", {
-                  subscriptionId: activeSubscriptionId,
-                  path: watchedPath,
-                });
-              }
-            },
-          })
-          .then((session) => ({
-            session,
-            subscriptionIds,
-          }))
-          .catch((error: unknown) => {
-            workspaceFileWatchSessions.delete(sharedKey);
-            throw error;
-          });
-        workspaceFileWatchSessions.set(sharedKey, sharedPromise);
-        const createdPromise = sharedPromise;
-        void createdPromise
-          .then((shared) =>
-            shared.session.closed.then(() => {
-              if (workspaceFileWatchSessions.get(sharedKey) !== createdPromise) return;
-              workspaceFileWatchSessions.delete(sharedKey);
-              for (const activeSubscriptionId of shared.subscriptionIds) {
-                workspaceFileWatchSubscriptions.delete(activeSubscriptionId);
-              }
-            }),
-          )
-          .catch(() => {});
-      }
-
-      const shared = await sharedPromise;
-      if (event.sender.isDestroyed()) {
-        workspaceFileWatchSessions.delete(sharedKey);
-        await shared.session.dispose();
-        throw new WorkspaceFileUserError(
-          "unauthorized_sender",
-          "Workspace file watcher owner is no longer available",
-        );
-      }
-      shared.subscriptionIds.add(subscriptionId);
-      workspaceFileWatchSubscriptions.set(subscriptionId, {
-        ownerId,
-        sharedKey,
-      });
-      return { subscriptionId };
-    }),
-  );
-
-  registerHandle("workspace-file-watch:stop", (event, input) =>
-    runWorkspaceFileHandler(event, async () => {
-      const request = WorkspaceFileWatchStopInputSchema.parse(input);
-      const subscription = workspaceFileWatchSubscriptions.get(request.subscriptionId);
-      if (!subscription || subscription.ownerId !== event.sender.id) return;
-      workspaceFileWatchSubscriptions.delete(request.subscriptionId);
-      const sharedPromise = workspaceFileWatchSessions.get(subscription.sharedKey);
-      if (!sharedPromise) return;
-      const shared = await sharedPromise;
-      shared.subscriptionIds.delete(request.subscriptionId);
-      if (shared.subscriptionIds.size > 0) return;
-      workspaceFileWatchSessions.delete(subscription.sharedKey);
-      await shared.session.dispose();
-    }),
-  );
 
   registerHandle("open-file", (_, target, openerId) => openFileLinkTarget(target, openerId));
 

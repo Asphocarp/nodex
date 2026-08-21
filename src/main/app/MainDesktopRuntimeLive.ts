@@ -101,6 +101,7 @@ import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
+import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
 import {
   ComputerUseRuntime,
   live as computerUseRuntimeLive,
@@ -785,6 +786,19 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(ElectronSyncIpc, syncIpc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          WorkspaceFileIpc.live().pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
