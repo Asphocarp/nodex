@@ -43,6 +43,16 @@ export class ApprovalCoordinator extends Context.Service<
       requestId: string | number,
       error: CodexAppServerError,
     ) => Effect.Effect<boolean>;
+    readonly respondCurrent: (
+      threadId: string,
+      requestId: string | number,
+      response: unknown,
+    ) => Effect.Effect<boolean>;
+    readonly rejectCurrent: (
+      threadId: string,
+      requestId: string | number,
+      error: CodexAppServerError,
+    ) => Effect.Effect<boolean>;
   }
 >()("nodex/main/codex-application/ApprovalCoordinator") {}
 
@@ -119,6 +129,14 @@ export const live: Layer.Layer<
         conversations
           .runtime(threadId)
           .pipe(Effect.flatMap((runtime) => runtime.reject(generation, requestId, error))),
+      respondCurrent: (threadId, requestId, response) =>
+        conversations
+          .runtime(threadId)
+          .pipe(Effect.flatMap((runtime) => runtime.respondCurrent(requestId, response))),
+      rejectCurrent: (threadId, requestId, error) =>
+        conversations
+          .runtime(threadId)
+          .pipe(Effect.flatMap((runtime) => runtime.rejectCurrent(requestId, error))),
     });
   }),
 );

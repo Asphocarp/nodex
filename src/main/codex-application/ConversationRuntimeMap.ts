@@ -13,7 +13,6 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { ServerRequestMethod } from "@nodex/effect-codex-app-server/rpc";
 import {
   CodexAppServerInputStreamEndedError,
-  CodexAppServerRequestError,
   type CodexAppServerError,
 } from "@nodex/effect-codex-app-server/errors";
 
@@ -48,6 +47,7 @@ export type ConversationRuntimeState =
 
 interface PendingRequest {
   readonly generation: number;
+  readonly requestId: string | number;
   readonly response: Deferred.Deferred<unknown, CodexAppServerError>;
 }
 
@@ -71,6 +71,14 @@ export class ConversationRuntime extends Context.Service<
       requestId: string | number,
       error: CodexAppServerError,
     ) => Effect.Effect<boolean>;
+    readonly respondCurrent: (
+      requestId: string | number,
+      response: unknown,
+    ) => Effect.Effect<boolean>;
+    readonly rejectCurrent: (
+      requestId: string | number,
+      error: CodexAppServerError,
+    ) => Effect.Effect<boolean>;
   }
 >()("nodex/main/codex-application/ConversationRuntime") {}
 
@@ -83,9 +91,6 @@ export class ConversationRuntimeMap extends Context.Service<
     readonly close: (threadId: string) => Effect.Effect<void>;
   }
 >()("nodex/main/codex-application/ConversationRuntimeMap") {}
-
-const requestKey = (generation: number, requestId: string | number): string =>
-  `${generation}:${typeof requestId}:${requestId}`;
 
 const runtimeLayer = (
   threadId: string,
@@ -100,21 +105,21 @@ const runtimeLayer = (
         pendingRequests: 0,
       });
       const events = yield* PubSub.unbounded<ConversationRuntimeEventEnvelope>();
-      const pending = yield* Ref.make<ReadonlyMap<string, PendingRequest>>(new Map());
+      const pending = yield* Ref.make<readonly PendingRequest[]>([]);
       const publishLock = yield* Semaphore.make(1);
 
       const syncPendingCount = Ref.get(pending).pipe(
         Effect.flatMap((current) =>
           SubscriptionRef.update(state, (value) => ({
             ...value,
-            pendingRequests: current.size,
+            pendingRequests: current.length,
           })),
         ),
       );
 
       yield* Effect.addFinalizer(() =>
         Effect.gen(function* () {
-          const outstanding = yield* Ref.getAndSet(pending, new Map());
+          const outstanding = yield* Ref.getAndSet(pending, []);
           const current = yield* SubscriptionRef.get(state);
           const closing: ConversationRuntimeState = {
             kind: "closing",
@@ -123,7 +128,7 @@ const runtimeLayer = (
           };
           yield* SubscriptionRef.set(state, closing);
           yield* Effect.forEach(
-            outstanding.values(),
+            outstanding,
             ({ response }) =>
               Deferred.fail(response, new CodexAppServerInputStreamEndedError()).pipe(
                 Effect.asVoid,
@@ -160,16 +165,14 @@ const runtimeLayer = (
 
       const complete = Effect.fn("ConversationRuntime.complete")(
         (
-          generation: number,
-          id: string | number,
+          matches: (pending: PendingRequest) => boolean,
           finish: (pending: PendingRequest) => Effect.Effect<boolean>,
         ) =>
           Ref.modify(pending, (current) => {
-            const key = requestKey(generation, id);
-            const entry = current.get(key);
+            const index = current.findIndex(matches);
+            const entry = current[index];
             if (entry === undefined) return [undefined, current] as const;
-            const next = new Map(current);
-            next.delete(key);
+            const next = [...current.slice(0, index), ...current.slice(index + 1)];
             return [entry, next] as const;
           }).pipe(
             Effect.flatMap((entry) =>
@@ -187,40 +190,43 @@ const runtimeLayer = (
         publish,
         request: (request) =>
           Effect.gen(function* () {
-            const key = requestKey(request.generation, request.requestId);
             const response = yield* Deferred.make<unknown, CodexAppServerError>();
-            const inserted = yield* Ref.modify(pending, (current) => {
-              if (current.has(key)) return [false, current] as const;
-              const next = new Map(current);
-              next.set(key, { generation: request.generation, response });
-              return [true, next] as const;
-            });
-            if (!inserted) {
-              return yield* CodexAppServerRequestError.internalError(
-                "Duplicate Codex server request",
-                undefined,
-                { method: request.method, requestId: String(request.requestId) },
-              );
-            }
+            const entry: PendingRequest = {
+              generation: request.generation,
+              requestId: request.requestId,
+              response,
+            };
+            yield* Ref.update(pending, (current) => [...current, entry]);
             yield* syncPendingCount;
             yield* publish({ kind: "server-request", value: request });
             return yield* Deferred.await(response).pipe(
               Effect.ensuring(
-                Ref.update(pending, (current) => {
-                  if (!current.has(key)) return current;
-                  const next = new Map(current);
-                  next.delete(key);
-                  return next;
-                }).pipe(Effect.andThen(syncPendingCount)),
+                Ref.update(pending, (current) =>
+                  current.filter((candidate) => candidate !== entry),
+                ).pipe(Effect.andThen(syncPendingCount)),
               ),
             );
           }),
         respond: (generation, id, response) =>
-          complete(generation, id, ({ response: deferred }) =>
-            Deferred.succeed(deferred, response),
+          complete(
+            (pending) => pending.generation === generation && pending.requestId === id,
+            ({ response: deferred }) => Deferred.succeed(deferred, response),
           ),
         reject: (generation, id, error) =>
-          complete(generation, id, ({ response }) => Deferred.fail(response, error)),
+          complete(
+            (pending) => pending.generation === generation && pending.requestId === id,
+            ({ response }) => Deferred.fail(response, error),
+          ),
+        respondCurrent: (id, response) =>
+          complete(
+            (pending) => pending.requestId === id,
+            ({ response: deferred }) => Deferred.succeed(deferred, response),
+          ),
+        rejectCurrent: (id, error) =>
+          complete(
+            (pending) => pending.requestId === id,
+            ({ response }) => Deferred.fail(response, error),
+          ),
       });
     }),
   );

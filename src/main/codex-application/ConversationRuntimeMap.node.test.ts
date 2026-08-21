@@ -103,6 +103,39 @@ it.effect("rejects pending requests when a thread runtime is invalidated", () =>
   }),
 );
 
+it.effect("preserves duplicate JSON-RPC ids and completes them in arrival order", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(applicationLayer, scope);
+    const serverRequests = Context.get(context, CodexServerRequestRuntime);
+    const approvals = Context.get(context, ApprovalCoordinator);
+    const conversations = Context.get(context, ConversationRuntimeMap);
+    const runtime = yield* conversations.runtime("thread-a");
+    const invoke = () =>
+      serverRequests.handle("local", 3, 7, "item/tool/requestUserInput", {
+        isBlocking: true,
+        itemId: "item-a",
+        questions: [],
+        threadId: "thread-a",
+        turnId: "turn-a",
+      });
+    const first = yield* invoke().pipe(Effect.forkScoped);
+    const second = yield* invoke().pipe(Effect.forkScoped);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if ((yield* SubscriptionRef.get(runtime.state)).pendingRequests === 2) break;
+      yield* Effect.yieldNow;
+    }
+    assert.strictEqual((yield* SubscriptionRef.get(runtime.state)).pendingRequests, 2);
+
+    assert.isTrue(yield* approvals.respondCurrent("thread-a", 7, { order: "first" }));
+    assert.isTrue(yield* approvals.respondCurrent("thread-a", 7, { order: "second" }));
+    assert.isFalse(yield* approvals.respondCurrent("thread-a", 7, { order: "third" }));
+    assert.deepEqual(yield* Fiber.join(first), { order: "first" });
+    assert.deepEqual(yield* Fiber.join(second), { order: "second" });
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("keeps each thread on an independent ordered event worker", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
