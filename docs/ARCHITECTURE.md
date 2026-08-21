@@ -154,6 +154,11 @@ that coordinator lifetime; releasing the Main Scope aborts in-flight fetches and
 responses before the custom protocol is detached. Protocol modules must not retain a cache across
 coordinator instances.
 
+The Computer Use runtime owns helper materialization, runtime-config serialization, native pipe,
+and managed service state as one process-scoped aggregate. Releasing it stops new readiness
+admission, joins an in-progress start, then attempts every pipe/service/config-writer cleanup even
+when one cleanup fails. Runtime-config write queues may not outlive that aggregate.
+
 Project lifecycle mutation and admission of Project-owned host work share one Main-scoped,
 Project-keyed coordination runtime. Codex turns, Terminal sessions, and background runtime
 actions revalidate the durable Project lifecycle inside the same exclusive boundary used by

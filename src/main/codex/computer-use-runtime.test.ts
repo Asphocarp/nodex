@@ -243,5 +243,6 @@ describe("ComputerUseRuntimeCoordinator", () => {
     await coordinator.dispose();
     expect(close).toHaveBeenCalledTimes(1);
     expect(disposeService).toHaveBeenCalledTimes(1);
+    await expect(coordinator.ensureReady()).rejects.toThrow("closed");
   });
 });

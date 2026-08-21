@@ -9,9 +9,9 @@ import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-
 import { isMacOSVersionAtLeast, loadSkyNativeAddon, type SkyNativeAddon } from "../sky-native";
 import type { BrowserRuntimeAvailability } from "./browser-runtime-bundle";
 import {
+  ComputerUseRuntimeConfigWriter,
   type ComputerUseRuntimeConfigInput,
   type ComputerUseRuntimeConfigWriteInput,
-  writeComputerUseRuntimeConfig,
 } from "./computer-use-runtime-config";
 
 const execFileAsync = promisify(execFile);
@@ -335,6 +335,8 @@ type ComputerUseHostServicesServer = {
 };
 
 export class ComputerUseRuntimeCoordinator {
+  private readonly configWriter: ComputerUseRuntimeConfigWriter | null;
+  private disposed = false;
   private readonly options: ComputerUseRuntimeCoordinatorOptions;
   private result: ComputerUseRuntimeResult | null = null;
   private startInFlight: Promise<ComputerUseRuntimeResult> | null = null;
@@ -344,6 +346,7 @@ export class ComputerUseRuntimeCoordinator {
 
   constructor(options: ComputerUseRuntimeCoordinatorOptions) {
     this.options = options;
+    this.configWriter = options.writeRuntimeConfig ? null : new ComputerUseRuntimeConfigWriter();
   }
 
   getResult(): ComputerUseRuntimeResult | null {
@@ -351,6 +354,7 @@ export class ComputerUseRuntimeCoordinator {
   }
 
   async ensureReady(): Promise<ComputerUseRuntimeResult> {
+    if (this.disposed) throw new Error("Computer Use runtime is closed");
     if (this.result?.status === "available") return this.result;
     if (this.startInFlight) return await this.startInFlight;
     const operation = this.start()
@@ -366,11 +370,25 @@ export class ComputerUseRuntimeCoordinator {
   }
 
   async dispose(): Promise<void> {
-    await this.nativePipeServer?.close();
+    if (this.disposed) return;
+    this.disposed = true;
+    await this.startInFlight?.catch(() => undefined);
+    const nativePipeServer = this.nativePipeServer;
+    const serviceManager = this.serviceManager;
     this.nativePipeServer = null;
-    this.serviceManager?.dispose();
     this.serviceManager = null;
     this.result = null;
+    const results = await Promise.allSettled([
+      nativePipeServer?.close() ?? Promise.resolve(),
+      Promise.resolve().then(() => serviceManager?.dispose()),
+      this.configWriter?.close() ?? Promise.resolve(),
+    ]);
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Computer Use runtime cleanup failed");
+    }
   }
 
   private async start(): Promise<ComputerUseRuntimeResult> {
@@ -406,7 +424,7 @@ export class ComputerUseRuntimeCoordinator {
       };
     }
     try {
-      await (this.options.writeRuntimeConfig ?? writeComputerUseRuntimeConfig)({
+      await (this.options.writeRuntimeConfig ?? this.configWriter!.write.bind(this.configWriter))({
         ...this.options.runtimeConfig?.(),
         runtimeStateHome: this.options.runtimeStateHome,
       });

@@ -13,7 +13,6 @@ const DEFAULT_STRINGS = {
 } as const;
 const ESC_TO_CANCEL_LOCALE_KEY = "computerUseOverlay.escToCancel";
 const USING_COMPUTER_LOCALE_KEY = "computerUseOverlay.usingComputer";
-const writeQueues = new Map<string, Promise<string>>();
 
 export interface ComputerUseRuntimeConfig {
   readonly accentColor: string;
@@ -141,19 +140,42 @@ async function writeConfigAtomically(
   return configPath;
 }
 
-export async function writeComputerUseRuntimeConfig(
-  input: ComputerUseRuntimeConfigWriteInput,
-): Promise<string> {
-  const directory = path.join(path.resolve(input.runtimeStateHome), COMPUTER_USE_CONFIG_DIRECTORY);
-  const configPath = path.join(directory, COMPUTER_USE_CONFIG_FILENAME);
-  const config = buildComputerUseRuntimeConfig(input);
-  const operation = (writeQueues.get(configPath) ?? Promise.resolve(configPath))
-    .catch(() => configPath)
-    .then(async () => await writeConfigAtomically(directory, configPath, config));
-  writeQueues.set(configPath, operation);
-  try {
-    return await operation;
-  } finally {
-    if (writeQueues.get(configPath) === operation) writeQueues.delete(configPath);
+/** Owns config-path serialization for one Computer Use runtime lifetime. */
+export class ComputerUseRuntimeConfigWriter {
+  readonly #active = new Set<Promise<unknown>>();
+  readonly #writeQueues = new Map<string, Promise<string>>();
+  #closed = false;
+
+  write(input: ComputerUseRuntimeConfigWriteInput): Promise<string> {
+    if (this.#closed) return Promise.reject(new Error("Computer Use config writer is closed"));
+    const operation = this.#write(input);
+    this.#active.add(operation);
+    return operation.finally(() => this.#active.delete(operation));
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    await Promise.allSettled([...this.#active]);
+    this.#writeQueues.clear();
+  }
+
+  async #write(input: ComputerUseRuntimeConfigWriteInput): Promise<string> {
+    const directory = path.join(
+      path.resolve(input.runtimeStateHome),
+      COMPUTER_USE_CONFIG_DIRECTORY,
+    );
+    const configPath = path.join(directory, COMPUTER_USE_CONFIG_FILENAME);
+    const config = buildComputerUseRuntimeConfig(input);
+    if (this.#closed) throw new Error("Computer Use config writer is closed");
+    const operation = (this.#writeQueues.get(configPath) ?? Promise.resolve(configPath))
+      .catch(() => configPath)
+      .then(async () => await writeConfigAtomically(directory, configPath, config));
+    this.#writeQueues.set(configPath, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.#writeQueues.get(configPath) === operation) this.#writeQueues.delete(configPath);
+    }
   }
 }

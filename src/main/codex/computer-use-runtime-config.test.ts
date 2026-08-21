@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 import {
   buildComputerUseRuntimeConfig,
-  writeComputerUseRuntimeConfig,
+  ComputerUseRuntimeConfigWriter,
 } from "./computer-use-runtime-config";
 
 const temporaryRoots: string[] = [];
@@ -52,13 +52,14 @@ describe("Computer Use runtime config", () => {
 
   test("serializes atomic writes to the canonical CODEX_HOME config", async () => {
     const runtimeStateHome = makeTemporaryRoot();
+    const writer = new ComputerUseRuntimeConfigWriter();
     await Promise.all([
-      writeComputerUseRuntimeConfig({
+      writer.write({
         accentColor: "invalid",
         locale: "en",
         runtimeStateHome,
       }),
-      writeComputerUseRuntimeConfig({
+      writer.write({
         locale: "zh-CN",
         runtimeStateHome,
         strings: {
@@ -82,5 +83,8 @@ describe("Computer Use runtime config", () => {
       },
     });
     expect(fs.readdirSync(directory).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
+
+    await writer.close();
+    await expect(writer.write({ runtimeStateHome })).rejects.toThrow("closed");
   });
 });
