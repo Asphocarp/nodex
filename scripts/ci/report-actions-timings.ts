@@ -350,7 +350,7 @@ export const formatTimingSummary = (workflow: string, summary: WorkflowTimingSum
     `Runner-minutes p50 / p90: ${displayDuration(summary.runnerMinutes.p50, "minutes")} / ${displayDuration(summary.runnerMinutes.p90, "minutes")}`,
     `Outcomes: ${
       Object.entries(summary.outcomes)
-        .sort()
+        .sort(([left], [right]) => left.localeCompare(right))
         .map(([name, count]) => `${name}=${count}`)
         .join(", ") || "none"
     }`,
