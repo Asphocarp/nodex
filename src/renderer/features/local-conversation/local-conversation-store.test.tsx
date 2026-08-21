@@ -428,7 +428,6 @@ function buildConversation(threadId: string, projectId: string): CodexConversati
     pendingSteers: [],
     queuedFollowUps: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: true,
       canForkFromTurn: true,
@@ -3166,60 +3165,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("parent snapshots keep child memberships lightweight without requesting child snapshots", async () => {
-    invokeCalls = [];
-    invokeRecords = [];
-    hostMessageListener = null;
-    threadListByProject = {};
-    snapshotByThread = {
-      "thread-child": buildConversation("thread-child", "project-1"),
-    };
-    const { CodexAppServerManager, __resetLocalConversationStoreForTests } =
-      await import("./local-conversation-store");
-    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
-    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
-
-    const manager = new CodexAppServerManager("default");
-    try {
-      const parentConversation: CodexConversationSnapshot = {
-        ...buildConversation("thread-parent", "project-1"),
-        childMemberships: [
-          {
-            threadId: "thread-child",
-            parentThreadId: "thread-parent",
-            role: "backgroundChild",
-            actorName: "Agent",
-          },
-        ],
-      };
-
-      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
-        hostId: "default",
-        conversationId: "thread-parent",
-        version: 1,
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: parentConversation,
-        },
-        sourceClientId: "test-owner",
-      });
-      await flushAsyncWork(4);
-
-      expect(manager.readConversation("thread-parent")?.childMemberships.length ?? 0).toBe(1);
-      expect(
-        invokeRecords.some(
-          (record) =>
-            record.channel === "codex:thread:snapshot:request" && record.args[0] === "thread-child",
-        ),
-      ).toBe(false);
-    } finally {
-      snapshotByThread = {};
-      manager.destroy();
-    }
-  });
-
-  test("shared child membership updates patch active parent conversations without child snapshots", async () => {
+  test("shared child relationships can arrive before the parent conversation", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -3231,19 +3177,6 @@ describe("local-conversation-store", () => {
 
     const manager = new CodexAppServerManager("default");
     try {
-      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
-        hostId: "default",
-        conversationId: "thread-parent",
-        version: 1,
-        change: {
-          type: "snapshot",
-          revision: 1,
-          conversationState: buildConversation("thread-parent", "project-1"),
-        },
-        sourceClientId: "test-owner",
-      });
-      await flushAsyncWork();
-
       dispatchCodexAppServerMessage("shared-object-updated", {
         hostId: "default",
         object: {
@@ -3269,9 +3202,27 @@ describe("local-conversation-store", () => {
       });
       await flushAsyncWork();
 
-      const conversation = manager.readConversation("thread-parent");
-      expect(conversation?.childMemberships[0]?.thread?.nickname).toBe("@Nash");
-      expect(conversation?.childMemberships[0]?.thread?.agentRole).toBe("worker");
+      expect(manager.readConversation("thread-parent")).toBeNull();
+      expect(manager.readConversationChildMemberships("thread-parent")[0]?.thread?.nickname).toBe(
+        "@Nash",
+      );
+
+      dispatchTestThreadStreamStateChanged(dispatchCodexAppServerMessage, {
+        hostId: "default",
+        conversationId: "thread-parent",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation("thread-parent", "project-1"),
+        },
+        sourceClientId: "test-owner",
+      });
+      await flushAsyncWork();
+
+      expect(manager.readConversationChildMemberships("thread-parent")[0]?.thread?.agentRole).toBe(
+        "worker",
+      );
       expect(
         invokeRecords.some(
           (record) =>
@@ -18090,7 +18041,6 @@ describe("local-conversation-store", () => {
         pendingSteers: undefined as unknown as [],
         queuedFollowUps: undefined as unknown as [],
         backgroundTerminalRows: undefined as unknown as [],
-        childMemberships: undefined as unknown as [],
         statusActiveFlags: undefined as unknown as [],
       };
       hostMessageListener?.({
@@ -18116,7 +18066,6 @@ describe("local-conversation-store", () => {
     expect(String(conversation?.pendingSteers.length ?? -1)).toBe("0");
     expect(String(conversation?.queuedFollowUps.length ?? -1)).toBe("0");
     expect(String(conversation?.backgroundTerminalRows.length ?? -1)).toBe("0");
-    expect(String(conversation?.childMemberships.length ?? -1)).toBe("0");
     expect(String(conversation?.statusActiveFlags.length ?? -1)).toBe("0");
   });
 

@@ -383,6 +383,12 @@ after the remote import completed, compensation scans the authorized
 destination repositories for the deterministic destination ref, finds only a
 matching worktree under the configured managed root, and removes it. It never
 repeats an unknown mutation or treats a timeout as proof that nothing happened.
+The transaction fiber's cancellation signal reaches each app-server and host
+worker operation. If cancellation races an import after destination state may
+exist, compensation does not reuse that already-aborted signal: it submits one
+operation-fenced cleanup to the destination host's still-live Scope. Main
+shutdown may interrupt that host Scope; the durable handoff journal then remains
+the authority for startup recovery.
 
 ## Runtime and protocol boundaries
 

@@ -14,7 +14,7 @@ import type {
   CodexWorktreeWorkerRestoreResult,
   CodexWorktreeWorkerSnapshotInput,
   CodexWorktreeWorkerSnapshotResult,
-} from "./codex-worktree-worker-port";
+} from "./codex-worktree-worker-protocol";
 import { runCodexGitCommand, throwIfCodexRequestAborted } from "./codex-git-command";
 import {
   readManagedWorktreeOwnerThread,

@@ -290,7 +290,7 @@ mod tests {
                 target_page_id: "page-a".to_owned(),
             },
             RichTextItem::DateMention {
-                start: "2026-08-23".to_owned(),
+                start: "2026-08-23T09:30:00+08:00".to_owned(),
                 end: None,
                 tz: Some("Asia/Shanghai".to_owned()),
                 format: None,

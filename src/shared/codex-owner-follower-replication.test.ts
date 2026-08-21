@@ -35,7 +35,6 @@ function conversation(
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: false,
       canForkFromTurn: false,

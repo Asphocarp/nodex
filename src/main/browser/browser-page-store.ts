@@ -1,4 +1,12 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as HashMap from "effect/HashMap";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
@@ -6,10 +14,10 @@ import { BrowserSidebarTabIdentitySchema } from "../../shared/browser/browser-sc
 
 const MAX_PAGE_COUNT = 100;
 const MAX_NAVIGATION_ENTRIES = 500;
-const MAX_STORE_BYTES = 64 * 1024 * 1024;
+const MAX_STORE_BYTES = 64 * 1_024 * 1_024;
 const MAX_URL_LENGTH = 16_384;
 const MAX_TITLE_LENGTH = 2_048;
-const MAX_PAGE_STATE_LENGTH = 2 * 1024 * 1024;
+const MAX_PAGE_STATE_LENGTH = 2 * 1_024 * 1_024;
 
 const BrowserNavigationEntrySchema = z
   .object({
@@ -74,169 +82,170 @@ export interface BrowserSerializedPage {
   };
 }
 
-export interface BrowserPageSnapshotStore {
-  get(browserStorageId: string): Promise<BrowserSerializedPage | null>;
-  set(page: BrowserSerializedPage): Promise<void>;
-  delete(browserStorageId: string): Promise<void>;
-  clear(): Promise<void>;
-  reassociate(sourceStorageId: string, targetStorageId: string): Promise<void>;
+export class BrowserPageRuntimeError extends Schema.TaggedError<BrowserPageRuntimeError>()(
+  "BrowserPageRuntimeError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+export interface BrowserPageRuntime {
+  readonly get: (browserStorageId: string) => Effect.Effect<BrowserSerializedPage | null>;
+  readonly set: (page: BrowserSerializedPage) => Effect.Effect<void, BrowserPageRuntimeError>;
+  readonly delete: (browserStorageId: string) => Effect.Effect<void, BrowserPageRuntimeError>;
+  readonly clear: Effect.Effect<void, BrowserPageRuntimeError>;
+  readonly reassociate: (
+    sourceStorageId: string,
+    targetStorageId: string,
+  ) => Effect.Effect<void, BrowserPageRuntimeError>;
 }
 
-export interface FileBrowserPageSnapshotStoreOptions {
-  filePath: string;
-  now?: () => number;
-}
+type PageState = HashMap.HashMap<string, BrowserSerializedPage>;
 
-export class FileBrowserPageSnapshotStore implements BrowserPageSnapshotStore {
-  private readonly filePath: string;
-  private readonly now: () => number;
-  private readonly pages = new Map<string, BrowserSerializedPage>();
-  private loadPromise: Promise<void> | null = null;
-  private writeQueue = Promise.resolve();
+const runtimeError = (operation: string, cause: unknown): BrowserPageRuntimeError =>
+  new BrowserPageRuntimeError({ operation, cause });
 
-  constructor(options: FileBrowserPageSnapshotStoreOptions) {
-    this.filePath = options.filePath;
-    this.now = options.now ?? Date.now;
-  }
+const isNotFound = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  "reason" in cause &&
+  typeof cause.reason === "object" &&
+  cause.reason !== null &&
+  "_tag" in cause.reason &&
+  cause.reason._tag === "NotFound";
 
-  async get(browserStorageId: string): Promise<BrowserSerializedPage | null> {
-    await this.ensureLoaded();
-    return this.pages.get(browserStorageId) ?? null;
-  }
-
-  async set(page: BrowserSerializedPage): Promise<void> {
-    await this.ensureLoaded();
-    const normalized = normalizePage(page, this.now());
-    this.pages.set(normalized.browserStorageId, normalized);
-    this.enforceLimits();
-    await this.persist();
-  }
-
-  async delete(browserStorageId: string): Promise<void> {
-    await this.ensureLoaded();
-    if (!this.pages.delete(browserStorageId)) return;
-    await this.persist();
-  }
-
-  async clear(): Promise<void> {
-    await this.ensureLoaded();
-    if (this.pages.size === 0) return;
-    this.pages.clear();
-    await this.persist();
-  }
-
-  async reassociate(sourceStorageId: string, targetStorageId: string): Promise<void> {
-    await this.ensureLoaded();
-    const source = this.pages.get(sourceStorageId);
-    if (!source) return;
-    this.pages.delete(sourceStorageId);
-    this.pages.set(targetStorageId, {
-      ...source,
-      browserStorageId: targetStorageId,
-      updatedAt: this.now(),
-    });
-    this.enforceLimits();
-    await this.persist();
-  }
-
-  private async ensureLoaded(): Promise<void> {
-    this.loadPromise ??= this.load();
-    await this.loadPromise;
-  }
-
-  private async load(): Promise<void> {
-    let raw: string;
-    try {
-      raw = await readFile(this.filePath, "utf8");
-    } catch (error) {
-      if (isMissingFileError(error)) return;
-      throw error;
-    }
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(raw);
-    } catch {
-      await this.quarantineCorruptStore();
-      return;
-    }
-    const result = BrowserPageStoreFileSchema.safeParse(parsedJson);
-    if (!result.success) {
-      await this.quarantineCorruptStore();
-      return;
-    }
-    for (const [browserStorageId, page] of Object.entries(result.data.pages)) {
-      if (browserStorageId !== page.browserStorageId) continue;
-      this.pages.set(browserStorageId, page);
-    }
-    this.enforceLimits();
-  }
-
-  private enforceLimits(): void {
-    const ordered = [...this.pages.values()].sort(
-      (left, right) => right.updatedAt - left.updatedAt,
+export const makeBrowserPageRuntime = (
+  filePath: string,
+): Effect.Effect<BrowserPageRuntime, BrowserPageRuntimeError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const quarantine = Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      yield* fs
+        .rename(filePath, `${filePath}.corrupt-${now}-${randomUUID()}`)
+        .pipe(Effect.catch((cause) => (isNotFound(cause) ? Effect.void : Effect.fail(cause))));
+    }).pipe(Effect.mapError((cause) => runtimeError("quarantine", cause)));
+    const load = fs.exists(filePath).pipe(
+      Effect.mapError((cause) => runtimeError("check-exists", cause)),
+      Effect.flatMap((exists) => {
+        if (!exists) return Effect.succeed(HashMap.empty<string, BrowserSerializedPage>());
+        return fs.readFileString(filePath).pipe(
+          Effect.mapError((cause) => runtimeError("read", cause)),
+          Effect.flatMap((raw) =>
+            Effect.try({
+              try: () => decodePages(raw),
+              catch: (cause) => runtimeError("parse", cause),
+            }).pipe(
+              Effect.catch(() =>
+                quarantine.pipe(Effect.as(HashMap.empty<string, BrowserSerializedPage>())),
+              ),
+            ),
+          ),
+        );
+      }),
     );
-    this.pages.clear();
-    for (const page of ordered.slice(0, MAX_PAGE_COUNT)) {
-      this.pages.set(page.browserStorageId, page);
-    }
-    while (this.pages.size > 0 && encodedStoreBytes(this.pages) > MAX_STORE_BYTES) {
-      const oldest = [...this.pages.values()].sort(
-        (left, right) => left.updatedAt - right.updatedAt,
-      )[0];
-      if (!oldest) break;
-      this.pages.delete(oldest.browserStorageId);
-    }
-  }
-
-  private async persist(): Promise<void> {
-    const write = async () => {
-      await mkdir(dirname(this.filePath), { recursive: true });
-      const temporaryPath = join(
-        dirname(this.filePath),
-        `.${basename(this.filePath)}.${process.pid}.${this.now()}.tmp`,
+    const persist = (pages: PageState) => {
+      const payload = encodePages(pages);
+      const directoryPath = dirname(filePath);
+      const temporaryPath = join(directoryPath, `.${basename(filePath)}.${randomUUID()}.tmp`);
+      return fs.makeDirectory(directoryPath, { recursive: true, mode: 0o700 }).pipe(
+        Effect.andThen(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const file = yield* fs.open(temporaryPath, { flag: "wx", mode: 0o600 });
+              yield* file.writeAll(new TextEncoder().encode(payload));
+              yield* file.sync;
+            }),
+          ),
+        ),
+        Effect.andThen(fs.rename(temporaryPath, filePath)),
+        Effect.andThen(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const directory = yield* fs.open(directoryPath, { flag: "r" });
+              yield* directory.sync;
+            }),
+          ),
+        ),
+        Effect.ensuring(fs.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
+        Effect.mapError((cause) => runtimeError("persist", cause)),
       );
-      const payload = `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          pages: Object.fromEntries(this.pages),
-        },
-        null,
-        2,
-      )}\n`;
-      const handle = await open(temporaryPath, "wx", 0o600);
-      try {
-        await handle.writeFile(payload, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      try {
-        await rename(temporaryPath, this.filePath);
-        const directory = await open(dirname(this.filePath), "r");
-        try {
-          await directory.sync();
-        } finally {
-          await directory.close();
-        }
-      } finally {
-        await rm(temporaryPath, { force: true });
-      }
     };
-    this.writeQueue = this.writeQueue.then(write, write);
-    await this.writeQueue;
-  }
 
-  private async quarantineCorruptStore(): Promise<void> {
-    const quarantinePath = `${this.filePath}.corrupt-${this.now()}`;
-    try {
-      await rename(this.filePath, quarantinePath);
-    } catch (error) {
-      if (!isMissingFileError(error)) throw error;
-    }
-  }
-}
+    const state = yield* Ref.make(yield* load);
+    const writes = yield* Semaphore.make(1);
+    return {
+      get: (browserStorageId) =>
+        Ref.get(state).pipe(
+          Effect.map((pages) => Option.getOrNull(HashMap.get(pages, browserStorageId))),
+        ),
+      set: (page) =>
+        writes.withPermits(1)(
+          Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis;
+            const normalized = yield* Effect.try({
+              try: () => normalizePage(page, now),
+              catch: (cause) => runtimeError("validate-page", cause),
+            });
+            const current = yield* Ref.get(state);
+            const next = limitPages(HashMap.set(current, normalized.browserStorageId, normalized));
+            yield* persist(next);
+            yield* Ref.set(state, next);
+          }),
+        ),
+      delete: (browserStorageId) =>
+        writes.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* Ref.get(state);
+            if (Option.isNone(HashMap.get(current, browserStorageId))) return;
+            const next = HashMap.remove(current, browserStorageId);
+            yield* persist(next);
+            yield* Ref.set(state, next);
+          }),
+        ),
+      clear: writes.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* Ref.get(state);
+          if (HashMap.isEmpty(current)) return;
+          const next = HashMap.empty<string, BrowserSerializedPage>();
+          yield* persist(next);
+          yield* Ref.set(state, next);
+        }),
+      ),
+      reassociate: (sourceStorageId, targetStorageId) =>
+        writes.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* Ref.get(state);
+            const source = Option.getOrUndefined(HashMap.get(current, sourceStorageId));
+            if (!source) return;
+            const updatedAt = yield* Clock.currentTimeMillis;
+            const next = limitPages(
+              HashMap.set(HashMap.remove(current, sourceStorageId), targetStorageId, {
+                ...source,
+                browserStorageId: targetStorageId,
+                updatedAt,
+              }),
+            );
+            yield* persist(next);
+            yield* Ref.set(state, next);
+          }),
+        ),
+    } satisfies BrowserPageRuntime;
+  });
 
-function normalizePage(page: BrowserSerializedPage, now: number): BrowserSerializedPage {
+const decodePages = (raw: string): PageState => {
+  if (Buffer.byteLength(raw, "utf8") > MAX_STORE_BYTES) {
+    throw new TypeError("Browser page snapshots exceed their size limit");
+  }
+  const parsed = BrowserPageStoreFileSchema.parse(JSON.parse(raw));
+  return limitPages(
+    HashMap.fromIterable(
+      Object.entries(parsed.pages)
+        .filter(([browserStorageId, page]) => browserStorageId === page.browserStorageId)
+        .map(([browserStorageId, page]) => [browserStorageId, page] as const),
+    ),
+  );
+};
+
+const normalizePage = (page: BrowserSerializedPage, now: number): BrowserSerializedPage => {
   const entries = page.navigation.entries.slice(-MAX_NAVIGATION_ENTRIES);
   const droppedCount = page.navigation.entries.length - entries.length;
   const currentIndex = Math.max(
@@ -246,22 +255,31 @@ function normalizePage(page: BrowserSerializedPage, now: number): BrowserSeriali
   return BrowserSerializedPageSchema.parse({
     ...page,
     updatedAt: Number.isFinite(page.updatedAt) ? page.updatedAt : now,
-    navigation: {
-      currentIndex,
-      entries,
-    },
+    navigation: { currentIndex, entries },
   });
-}
+};
 
-function encodedStoreBytes(pages: ReadonlyMap<string, BrowserSerializedPage>): number {
-  return Buffer.byteLength(
-    JSON.stringify({
-      schemaVersion: 1,
-      pages: Object.fromEntries(pages),
-    }),
+const limitPages = (state: PageState): PageState => {
+  const ordered = [...HashMap.values(state)].sort(
+    (left, right) => right.updatedAt - left.updatedAt,
   );
-}
+  const pages: BrowserSerializedPage[] = [];
+  let bytes = Buffer.byteLength(JSON.stringify({ schemaVersion: 1, pages: {} }), "utf8") + 1;
+  for (const page of ordered.slice(0, MAX_PAGE_COUNT)) {
+    const entryBytes =
+      Buffer.byteLength(JSON.stringify(page.browserStorageId), "utf8") +
+      1 +
+      Buffer.byteLength(JSON.stringify(page), "utf8") +
+      (pages.length > 0 ? 1 : 0);
+    if (bytes + entryBytes > MAX_STORE_BYTES) break;
+    pages.push(page);
+    bytes += entryBytes;
+  }
+  return HashMap.fromIterable(pages.map((page) => [page.browserStorageId, page] as const));
+};
 
-function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
+const encodePages = (state: PageState): string => {
+  const payload = `${JSON.stringify({ schemaVersion: 1, pages: Object.fromEntries(state) })}\n`;
+  if (Buffer.byteLength(payload, "utf8") <= MAX_STORE_BYTES) return payload;
+  throw new TypeError("Browser page snapshots exceed their size limit");
+};

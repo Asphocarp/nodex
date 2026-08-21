@@ -1,4 +1,4 @@
-export const GIT_WORKER_PROTOCOL_VERSION = 1 as const;
+export const GIT_WORKER_PROTOCOL_VERSION = 2 as const;
 
 export const GIT_WORKER_MESSAGE_FROM_VIEW_CHANNEL = "git-worker:message-from-view" as const;
 export const GIT_WORKER_MESSAGE_FOR_VIEW_CHANNEL = "git-worker:message-for-view" as const;
@@ -85,6 +85,10 @@ export interface GitWorkerMethodMap {
   };
   commit: {
     params: import("./types").GitCommitInput;
+    result: import("./types").GitActionMutationResult;
+  };
+  push: {
+    params: import("./types").GitPushInput;
     result: import("./types").GitActionMutationResult;
   };
   "subscribe-live-query": {
@@ -422,6 +426,9 @@ function isMethodParams(method: unknown, params: unknown): method is GitWorkerMe
         params.nextStep === "commit-and-push")
     );
   }
+  if (method === "push") {
+    return isCwdParams(params) && (params.force === undefined || typeof params.force === "boolean");
+  }
   if (method === "subscribe-live-query") return isLiveQueryParams(params);
   if (
     method === "unsubscribe-live-query" ||
@@ -661,6 +668,7 @@ const GIT_WORKER_METHODS: Record<GitWorkerMethod, true> = {
   "refresh-live-query": true,
   "unsubscribe-live-query": true,
   probe: true,
+  push: true,
 };
 
 function isGitWorkerMethod(value: unknown): value is GitWorkerMethod {
@@ -707,5 +715,5 @@ export function createGitWorkerInfrastructureErrorResponse(
       type: "error",
       error,
     },
-  };
+  } as GitWorkerResponse;
 }

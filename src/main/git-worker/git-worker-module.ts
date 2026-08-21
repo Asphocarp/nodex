@@ -1,9 +1,15 @@
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 import type { GitStatusSummaryResult } from "../../shared/git-review";
 import type {
+  GitActionMutationResult,
   GitBranchMetadataResult,
+  GitPushInput,
   GitReviewRepositoryMetadataResult,
 } from "../../shared/types";
 import type {
+  GitPerformanceOperationMetric,
   GitWorkerLiveQueryEvent,
   GitWorkerMethod,
   GitWorkerMethodMap,
@@ -13,6 +19,7 @@ import type {
 import { GIT_WORKER_PROTOCOL_VERSION } from "../../shared/git-worker-protocol";
 import {
   applyGitReviewPatch,
+  GitReviewRuntime,
   isGitReviewStaleSnapshotError,
   readBranchDiffStats,
   readGitReviewBaseBranch,
@@ -27,10 +34,15 @@ import {
   runGitReviewOperationWithSignal,
   searchGitReview,
 } from "./git-review-operations";
-import { LocalGitCommandRunner, runGitPerformanceOperation } from "./git-command-runner";
-import { GitLiveQueryRegistry } from "./live-query-registry";
-import { GitRepositoryRegistry } from "./repository-registry";
-import type { WorktreeRepository } from "./worktree-repository";
+import {
+  gitPerformancePromise,
+  makeGitCommandRunner,
+  runGitPerformanceOperationEffect,
+} from "./git-command-runner";
+import type { GitCommandPlatform } from "./git-command-platform";
+import { makeGitLiveQueryRegistry, type GitLiveQueryRegistry } from "./live-query-registry";
+import { makeGitRepositoryRegistry, type GitRepositoryRegistry } from "./repository-registry";
+import type { GitRepositoryError, WorktreeRepository } from "./worktree-repository";
 
 function commandErrorMessage(stderr: string, fallback: string): string {
   return stderr.trim() || fallback;
@@ -46,9 +58,7 @@ function parseTrackedStatusCounts(status: string): {
     if (record.length < 3) continue;
     const indexStatus = record[0];
     const worktreeStatus = record[1];
-    if (indexStatus && indexStatus !== " " && indexStatus !== "?") {
-      stagedCount += 1;
-    }
+    if (indexStatus && indexStatus !== " " && indexStatus !== "?") stagedCount += 1;
     if (worktreeStatus && worktreeStatus !== " " && worktreeStatus !== "?") {
       unstagedCount += 1;
     }
@@ -70,283 +80,244 @@ const GIT_MUTATION_METHODS = new Set<GitWorkerMethod>([
   "commit",
   "create-branch",
   "git-init-repo",
+  "push",
   "refresh-repository",
 ]);
 
 function classifyGitWorkerOperationOutcome(
   result: unknown,
-): import("../../shared/git-worker-protocol").GitPerformanceOperationOutcome {
+): GitPerformanceOperationMetric["outcome"] {
   if (!result || typeof result !== "object") return "success";
   if ("type" in result && result.type === "stale-snapshot") return "stale";
   if ("type" in result && result.type === "error") {
     if (
       "failureReason" in result &&
       (result.failureReason === "timed-out" || result.failureReason === "timed_out")
-    )
+    ) {
       return "timed-out";
-    if ("failureReason" in result && result.failureReason === "canceled") {
-      return "canceled";
     }
+    if ("failureReason" in result && result.failureReason === "canceled") return "canceled";
     return "operational-error";
   }
-  if ("status" in result && result.status === "error") {
-    return "operational-error";
-  }
+  if ("status" in result && result.status === "error") return "operational-error";
   return "success";
 }
 
-export class GitWorkerModule {
+const isInterrupted = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.length > 0 && cause.reasons.every(Cause.isInterruptReason);
+
+export interface GitWorkerModule {
+  readonly execute: (
+    request: GitWorkerRequest["request"],
+  ) => Effect.Effect<unknown, never, Scope.Scope>;
+}
+
+export interface GitWorkerModuleOptions {
+  readonly environment: NodeJS.ProcessEnv;
+  readonly publish?: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
+}
+
+class GitWorkerModuleState implements GitWorkerModule {
   readonly #registry: GitRepositoryRegistry;
+  readonly #reviewRuntime: GitReviewRuntime;
   readonly #publish: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
   readonly #liveQueries: GitLiveQueryRegistry;
 
-  constructor(
-    options: {
-      publish?: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
-      registry?: GitRepositoryRegistry;
-    } = {},
-  ) {
-    this.#registry = options.registry ?? new GitRepositoryRegistry(new LocalGitCommandRunner());
-    this.#publish = options.publish ?? (() => undefined);
-    this.#liveQueries = new GitLiveQueryRegistry({
-      registry: this.#registry,
-      publish: this.#publish,
-      execute: async (input) =>
-        await this.execute(
-          {
-            id: input.id,
-            method: input.method,
-            params: input.params,
-            enqueuedAtMs: Date.now(),
-          } as GitWorkerRequest["request"],
-          input.signal,
-        ),
-    });
+  constructor(options: {
+    liveQueries: GitLiveQueryRegistry;
+    publish: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
+    registry: GitRepositoryRegistry;
+    reviewRuntime: GitReviewRuntime;
+  }) {
+    this.#reviewRuntime = options.reviewRuntime;
+    this.#registry = options.registry;
+    this.#publish = options.publish;
+    this.#liveQueries = options.liveQueries;
   }
 
-  async execute(request: GitWorkerRequest["request"], signal: AbortSignal): Promise<unknown> {
+  readonly execute: GitWorkerModule["execute"] = Effect.fn("GitWorkerModule.execute")(function* (
+    this: GitWorkerModuleState,
+    request: GitWorkerRequest["request"],
+  ) {
     const trigger = /:(?:tracked|complete)$/.test(request.id)
       ? "live"
       : GIT_MUTATION_METHODS.has(request.method)
         ? "mutation"
         : "direct";
-    return await runGitPerformanceOperation({
+    return yield* runGitPerformanceOperationEffect({
       operation: request.method,
       trigger,
       classifyOutcome: classifyGitWorkerOperationOutcome,
       publish: (metric) =>
-        this.#publish({
-          type: "git-performance-operation",
-          workerId: "git",
-          metric,
-        }),
-      run: async () => await this.#executeRequest(request, signal),
+        this.#publish({ type: "git-performance-operation", workerId: "git", metric }),
+      run: this.#executeRequest(request).pipe(Effect.orDie),
     });
-  }
+  });
 
-  async #executeRequest(
+  readonly #executeRequest = Effect.fn("GitWorkerModule.executeRequest")(function* (
+    this: GitWorkerModuleState,
     request: GitWorkerRequest["request"],
-    signal: AbortSignal,
-  ): Promise<unknown> {
+  ) {
     switch (request.method) {
       case "probe":
-        return {
-          nonce: request.params.nonce,
-          protocolVersion: GIT_WORKER_PROTOCOL_VERSION,
-        };
+        return { nonce: request.params.nonce, protocolVersion: GIT_WORKER_PROTOCOL_VERSION };
       case "stable-metadata":
-        return await this.#readStableMetadata(request.params.cwd, signal);
+        return yield* this.#readStableMetadata(request.params.cwd);
       case "branch-metadata":
-        return await this.#readBranchMetadata(request.params.cwd, signal);
+        return yield* this.#readBranchMetadata(request.params.cwd);
       case "status-summary":
-        return await this.#readStatusSummary(
+        return yield* this.#readStatusSummary(
           request.params.cwd,
           request.params.includeUntrackedFiles === true,
-          signal,
         );
       case "action-status":
-        return await this.#readActionStatus(request.params.cwd, signal);
+        return yield* this.#readActionStatus(request.params.cwd);
       case "review-summary":
-        return await this.#runReviewRequest({
+        return yield* this.#runReviewRequest({
           method: request.method,
           params: request.params,
-          signal,
           cwd: request.params.cwd,
           source: request.params.source,
-          operation: async (operationSignal, repository) => {
-            const includeUntracked =
-              request.params.includeUntrackedFiles !== false &&
-              (request.params.source === "unstaged" || request.params.source === "branch");
-            const [untracked, status] = repository
-              ? await Promise.all([
-                  includeUntracked
-                    ? repository.untrackedPaths.read(operationSignal)
-                    : Promise.resolve(null),
-                  this.#readStatusSummary(
-                    repository.identity.root,
-                    includeUntracked,
-                    operationSignal,
-                  ),
-                ])
-              : [null, null];
-            return await readGitReviewSummary({
-              ...request.params,
-              requestId: request.id,
-              ...(includeUntracked && repository
-                ? {
-                    precomputedUntrackedPaths: untracked?.success ? untracked.paths : null,
-                    untrackedFilesOmitted: untracked?.omittedCount ?? 0,
-                  }
-                : {}),
-              ...(repository
-                ? {
-                    precomputedStageCounts:
-                      status?.type === "success"
-                        ? {
-                            stagedFileCount: status.stagedCount,
-                            unstagedFileCount: status.unstagedCount,
-                            untrackedFileCount: status.untrackedCount ?? 0,
-                          }
-                        : null,
-                  }
-                : {}),
-            });
-          },
+          operation: (repository) =>
+            Effect.gen({ self: this }, function* () {
+              const includeUntracked =
+                request.params.includeUntrackedFiles !== false &&
+                (request.params.source === "unstaged" || request.params.source === "branch");
+              const [untracked, status] = repository
+                ? yield* Effect.all(
+                    [
+                      includeUntracked ? repository.untrackedPaths.read() : Effect.succeed(null),
+                      this.#readStatusSummary(repository.identity.root, includeUntracked),
+                    ] as const,
+                    { concurrency: "unbounded" },
+                  )
+                : [null, null];
+              return yield* this.#runOperation(() =>
+                readGitReviewSummary({
+                  ...request.params,
+                  requestId: request.id,
+                  ...(includeUntracked && repository
+                    ? {
+                        precomputedUntrackedPaths: untracked?.success ? untracked.paths : null,
+                        untrackedFilesOmitted: untracked?.omittedCount ?? 0,
+                      }
+                    : {}),
+                  ...(repository
+                    ? {
+                        precomputedStageCounts:
+                          status?.type === "success"
+                            ? {
+                                stagedFileCount: status.stagedCount,
+                                unstagedFileCount: status.unstagedCount,
+                                untrackedFileCount: status.untrackedCount ?? 0,
+                              }
+                            : null,
+                      }
+                    : {}),
+                }),
+              );
+            }),
         });
       case "branch-diff-stats":
-        return await this.#runReviewRequest({
+        return yield* this.#runReviewRequest({
           method: request.method,
           params: request.params,
-          signal,
           cwd: request.params.cwd,
           source: "branch",
-          operation: async (operationSignal, repository) => {
-            const includeUntracked = request.params.includeUntrackedFiles === true;
-            const untracked =
-              includeUntracked && repository
-                ? await repository.untrackedPaths.read(operationSignal)
-                : null;
-            return await readBranchDiffStats({
-              ...request.params,
-              requestId: request.id,
-              ...(includeUntracked && repository
-                ? {
-                    precomputedUntrackedPaths: untracked?.success ? untracked.paths : null,
-                    untrackedFilesOmitted: untracked?.omittedCount ?? 0,
-                  }
-                : {}),
-            });
-          },
+          operation: (repository) =>
+            Effect.gen({ self: this }, function* () {
+              const includeUntracked = request.params.includeUntrackedFiles === true;
+              const untracked =
+                includeUntracked && repository ? yield* repository.untrackedPaths.read() : null;
+              return yield* this.#runOperation(() =>
+                readBranchDiffStats({
+                  ...request.params,
+                  requestId: request.id,
+                  ...(includeUntracked && repository
+                    ? {
+                        precomputedUntrackedPaths: untracked?.success ? untracked.paths : null,
+                        untrackedFilesOmitted: untracked?.omittedCount ?? 0,
+                      }
+                    : {}),
+                }),
+              );
+            }),
         });
       case "review-diff":
-        return await this.#runReviewRequest({
+        return yield* this.#runReviewRequest({
           method: request.method,
           params: request.params,
-          signal,
           cwd: request.params.cwd,
           source: request.params.source,
-          operation: async () =>
-            await readGitReviewDiff({
-              ...request.params,
-              requestId: request.id,
-            }),
+          operation: () =>
+            this.#runOperation(() =>
+              readGitReviewDiff({ ...request.params, requestId: request.id }),
+            ),
         });
-      case "review-cat-file": {
-        const repository = await this.#registry.get(request.params.cwd, signal);
-        signal.throwIfAborted();
-        const result = await runGitReviewOperationWithSignal(
-          signal,
-          async () => await readGitReviewCatFile(request.params),
-          repository ?? undefined,
-        );
-        signal.throwIfAborted();
+      case "review-cat-file":
+        yield* this.#registry.get(request.params.cwd);
         return {
           type: "success",
-          value: result,
+          value: yield* this.#runOperation(() => readGitReviewCatFile(request.params)),
         } satisfies GitWorkerMethodMap["review-cat-file"]["result"];
-      }
       case "review-search":
-        return await this.#runReviewRequest({
+        return yield* this.#runReviewRequest({
           method: request.method,
           params: request.params,
-          signal,
           cwd: request.params.cwd,
           source: request.params.source,
-          operation: async () =>
-            await searchGitReview({
-              ...request.params,
-              requestId: request.id,
-            }),
+          operation: () =>
+            this.#runOperation(() => searchGitReview({ ...request.params, requestId: request.id })),
         });
       case "review-patch":
-        return await this.#runReviewRequest({
+        return yield* this.#runReviewRequest({
           method: request.method,
           params: request.params,
-          signal,
           cwd: request.params.cwd,
           source: request.params.source,
-          operation: async () =>
-            await readGitReviewPatch({
-              ...request.params,
-              requestId: request.id,
-            }),
+          operation: () =>
+            this.#runOperation(() =>
+              readGitReviewPatch({ ...request.params, requestId: request.id }),
+            ),
         });
-      case "blame-file": {
-        const repository = await this.#registry.get(request.params.cwd, signal);
-        signal.throwIfAborted();
-        return await runGitReviewOperationWithSignal(
-          signal,
-          async () => await readGitReviewBlameFile(request.params),
-          repository ?? undefined,
-        );
-      }
+      case "blame-file":
+        yield* this.#registry.get(request.params.cwd);
+        return yield* this.#runOperation(() => readGitReviewBlameFile(request.params));
       case "base-branch":
-        return await this.#runReviewRequest({
+        return yield* this.#runReviewRequest({
           method: request.method,
           params: request.params,
-          signal,
           cwd: request.params.cwd,
           source: "branch",
-          operation: async () =>
-            await readGitReviewBaseBranch({
-              ...request.params,
-              requestId: request.id,
-            }),
+          operation: () =>
+            this.#runOperation(() =>
+              readGitReviewBaseBranch({ ...request.params, requestId: request.id }),
+            ),
         });
       case "branch-commits":
-        return await this.#runReviewRequest({
+        return yield* this.#runReviewRequest({
           method: request.method,
           params: request.params,
-          signal,
           cwd: request.params.cwd,
           source: "branch",
-          operation: async () =>
-            await readGitReviewBranchCommits({
-              ...request.params,
-              requestId: request.id,
-            }),
+          operation: () =>
+            this.#runOperation(() =>
+              readGitReviewBranchCommits({ ...request.params, requestId: request.id }),
+            ),
         });
-      case "merge-base": {
-        const repository = await this.#registry.get(request.params.cwd, signal);
-        signal.throwIfAborted();
-        return await runGitReviewOperationWithSignal(
-          signal,
-          async () => await resolveGitMergeBase(request.params),
-          repository ?? undefined,
-        );
-      }
+      case "merge-base":
+        yield* this.#registry.get(request.params.cwd);
+        return yield* this.#runOperation(() => resolveGitMergeBase(request.params));
       case "refresh-repository": {
-        const repository = await this.#registry.get(request.params.cwd, signal);
-        if (!repository) {
-          return { type: "error", failureReason: "not-a-repository" };
-        }
+        const repository = yield* this.#registry.get(request.params.cwd);
+        if (!repository) return { type: "error", failureReason: "not-a-repository" };
         return {
           type: "success",
-          generation: await repository.invalidateGitReadCachesForRepoChange("head"),
+          generation: yield* repository.invalidateGitReadCachesForRepoChange("head"),
         };
       }
       case "git-init-repo": {
-        const repository = await this.#registry.initialize(request.params.cwd, signal);
+        const repository = yield* this.#registry.initialize(request.params.cwd);
         if (!repository) {
           return {
             cwd: request.params.cwd,
@@ -361,82 +332,72 @@ export class GitWorkerModule {
             snapshotGeneration: 0,
           };
         }
-        await repository.invalidateGitReadCachesForRepoChange("head");
-        return await runGitReviewOperationWithSignal(
-          signal,
-          async () =>
-            await readGitReviewSnapshot({
-              cwd: repository.identity.root,
-              source: "unstaged",
-            }),
-          repository,
+        yield* repository.invalidateGitReadCachesForRepoChange("head");
+        return yield* this.#runOperation(() =>
+          readGitReviewSnapshot({ cwd: repository.identity.root, source: "unstaged" }),
         );
       }
       case "apply-patch": {
-        const repository = await this.#registry.get(request.params.cwd, signal);
-        signal.throwIfAborted();
-        const result = await runGitReviewOperationWithSignal(
-          signal,
-          async () => await applyGitReviewPatch(request.params),
-          repository ?? undefined,
-        );
-        if (result.status !== "error") {
-          await repository?.invalidateGitReadCachesForRepoChange(
+        const repository = yield* this.#registry.get(request.params.cwd);
+        const result = yield* this.#runOperation(() => applyGitReviewPatch(request.params));
+        if (result.status !== "error" && repository) {
+          yield* repository.invalidateGitReadCachesForRepoChange(
             request.params.target === "staged" ? "index" : "working-tree",
           );
         }
         return result;
       }
       case "checkout-branch":
-        return await this.#mutateBranch(request.params.cwd, request.params.branch, false, signal);
+        return yield* this.#mutateBranch(request.params.cwd, request.params.branch, false);
       case "create-branch":
-        return await this.#mutateBranch(request.params.cwd, request.params.branch, true, signal);
+        return yield* this.#mutateBranch(request.params.cwd, request.params.branch, true);
       case "commit":
-        return await this.#commit(request.params, signal);
-      case "subscribe-live-query": {
-        await this.#liveQueries.subscribe(request.params);
+        return yield* this.#commit(request.params);
+      case "push":
+        return yield* this.#push(request.params);
+      case "subscribe-live-query":
+        yield* this.#liveQueries.subscribe(request.params);
         return { subscribed: true };
-      }
-      case "unsubscribe-live-query": {
+      case "unsubscribe-live-query":
         return {
-          unsubscribed: this.#liveQueries.unsubscribe(request.params.subscriptionId),
+          unsubscribed: yield* this.#liveQueries.unsubscribe(request.params.subscriptionId),
         };
-      }
-      case "recover-live-query": {
-        return {
-          recovered: await this.#liveQueries.recover(request.params.subscriptionId),
-        };
-      }
-      case "refresh-live-query": {
-        return {
-          refreshed: await this.#liveQueries.refresh(request.params.subscriptionId),
-        };
-      }
+      case "recover-live-query":
+        return { recovered: yield* this.#liveQueries.recover(request.params.subscriptionId) };
+      case "refresh-live-query":
+        return { refreshed: yield* this.#liveQueries.refresh(request.params.subscriptionId) };
     }
-  }
+  });
 
-  dispose(): void {
-    this.#liveQueries.dispose();
-    this.#registry.dispose();
-  }
+  readonly #runOperation = <Result>(operation: () => Promise<Result>): Effect.Effect<Result> =>
+    gitPerformancePromise((signal) =>
+      runGitReviewOperationWithSignal(this.#reviewRuntime, signal, operation),
+    );
 
-  async #runReviewRequest<Result>(input: {
-    method: GitWorkerMethod;
-    params: unknown;
-    signal: AbortSignal;
-    cwd: string;
-    source: import("../../shared/types").GitReviewSource;
-    operation: (signal: AbortSignal, repository: WorktreeRepository | null) => Promise<Result>;
-  }): Promise<Result | import("../../shared/git-review").GitReviewStaleSnapshotResult> {
-    const repository = await this.#registry.get(input.cwd, input.signal);
-    if (!repository) {
-      return await runGitReviewOperationWithSignal(
-        input.signal,
-        async () => await input.operation(input.signal, null),
-      );
-    }
-    input.signal.throwIfAborted();
-    return await repository.query({
+  readonly #runReviewRequest = Effect.fn("GitWorkerModule.runReviewRequest")(function* <Result>(
+    this: GitWorkerModuleState,
+    input: {
+      method: GitWorkerMethod;
+      params: unknown;
+      cwd: string;
+      source: import("../../shared/types").GitReviewSource;
+      operation: (
+        repository: WorktreeRepository | null,
+      ) => Effect.Effect<Result, GitRepositoryError, Scope.Scope>;
+    },
+  ) {
+    const repository = yield* this.#registry.get(input.cwd);
+    const run = input.operation(repository).pipe(
+      Effect.catchCause((cause) => {
+        if (isInterrupted(cause)) return Effect.failCause(cause);
+        const error = Cause.squash(cause);
+        return isGitReviewStaleSnapshotError(error)
+          ? Effect.succeed({ type: "stale-snapshot" as const, source: input.source })
+          : Effect.failCause(cause);
+      }),
+    );
+    if (!repository) return yield* run;
+    return yield* repository.query({
       key: [
         "review-operation",
         input.method,
@@ -447,31 +408,16 @@ export class GitWorkerModule {
         gitReadDomains: ["config", "head", "index", "local-refs", "remote-refs", "working-tree"],
         gitReadGeneration: repository.generation,
       },
-      signal: input.signal,
       staleTime: 0,
-      run: async (sharedSignal) => {
-        try {
-          return await runGitReviewOperationWithSignal(
-            sharedSignal,
-            async () => await input.operation(sharedSignal, repository),
-            repository,
-          );
-        } catch (error) {
-          if (sharedSignal.aborted) throw sharedSignal.reason;
-          if (isGitReviewStaleSnapshotError(error)) {
-            return { type: "stale-snapshot", source: input.source };
-          }
-          throw error;
-        }
-      },
+      run,
     });
-  }
+  });
 
-  async #readStableMetadata(
+  readonly #readStableMetadata = Effect.fn("GitWorkerModule.readStableMetadata")(function* (
+    this: GitWorkerModuleState,
     cwd: string,
-    signal: AbortSignal,
-  ): Promise<GitReviewRepositoryMetadataResult> {
-    const repository = await this.#registry.get(cwd, signal);
+  ) {
+    const repository = yield* this.#registry.get(cwd);
     if (!repository) {
       return {
         cwd,
@@ -482,32 +428,30 @@ export class GitWorkerModule {
         currentBranch: null,
         defaultBranch: null,
         errorMessage: null,
-      };
+      } satisfies GitReviewRepositoryMetadataResult;
     }
-    return await repository.query({
+    return yield* repository.query({
       key: ["stable-metadata", repository.identity.root],
-      meta: {
-        gitReadDomains: ["config", "head", "local-refs", "remote-refs"],
-      },
-      signal,
-      run: async (querySignal) => await this.#loadStableMetadata(repository, cwd, querySignal),
+      meta: { gitReadDomains: ["config", "head", "local-refs", "remote-refs"] },
+      run: this.#loadStableMetadata(repository, cwd),
     });
-  }
+  });
 
-  async #loadStableMetadata(
+  readonly #loadStableMetadata = Effect.fn("GitWorkerModule.loadStableMetadata")(function* (
+    this: GitWorkerModuleState,
     repository: WorktreeRepository,
     cwd: string,
-    signal: AbortSignal,
-  ): Promise<GitReviewRepositoryMetadataResult> {
-    const [currentResult, branchesResult, defaultResult] = await Promise.all([
-      repository.runGit(["branch", "--show-current"], { signal }),
-      repository.runGit(["branch", "--format=%(refname:short)"], { signal }),
-      repository.runGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
-        allowedNonZeroExitCodes: [1, 128],
-        signal,
-      }),
-    ]);
-    signal.throwIfAborted();
+  ) {
+    const [currentResult, branchesResult, defaultResult] = yield* Effect.all(
+      [
+        repository.runGit(["branch", "--show-current"]),
+        repository.runGit(["branch", "--format=%(refname:short)"]),
+        repository.runGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
+          allowedNonZeroExitCodes: [1, 128],
+        }),
+      ] as const,
+      { concurrency: "unbounded" },
+    );
     if (!currentResult.success || !branchesResult.success || !defaultResult.success) {
       const failure = [currentResult, branchesResult, defaultResult].find(
         (result) => !result.success,
@@ -524,7 +468,7 @@ export class GitWorkerModule {
           failure?.stderr ?? "",
           "Could not read Git repository metadata.",
         ),
-      };
+      } satisfies GitReviewRepositoryMetadataResult;
     }
     const currentBranch = currentResult.stdout.trim() || null;
     const branches = branchesResult.stdout
@@ -549,33 +493,34 @@ export class GitWorkerModule {
       currentBranch,
       defaultBranch,
       errorMessage: null,
-    };
-  }
+    } satisfies GitReviewRepositoryMetadataResult;
+  });
 
-  async #readBranchMetadata(cwd: string, signal: AbortSignal): Promise<GitBranchMetadataResult> {
-    const repository = await this.#registry.get(cwd, signal);
-    if (!repository) {
-      return { currentBranch: null, defaultBranch: null, branches: [] };
-    }
-    return await repository.query({
+  readonly #readBranchMetadata: (
+    cwd: string,
+  ) => Effect.Effect<GitBranchMetadataResult, GitRepositoryError, Scope.Scope> = Effect.fn(
+    "GitWorkerModule.readBranchMetadata",
+  )(function* (this: GitWorkerModuleState, cwd: string) {
+    const repository = yield* this.#registry.get(cwd);
+    if (!repository) return { currentBranch: null, defaultBranch: null, branches: [] };
+    return yield* repository.query({
       key: ["branch-metadata", repository.generation],
       meta: {
         gitReadDomains: ["config", "head", "local-refs", "remote-refs"],
         gitReadGeneration: repository.generation,
       },
-      signal,
-      run: async (querySignal) => {
-        const [current, branchList, remoteBranches, remoteDefault] = await Promise.all([
-          repository.runGit(["branch", "--show-current"], { signal: querySignal }),
-          repository.runGit(["branch", "--format=%(refname:short)"], { signal: querySignal }),
-          repository.runGit(["for-each-ref", "--format=%(refname)", "refs/remotes"], {
-            signal: querySignal,
-          }),
-          repository.runGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
-            allowedNonZeroExitCodes: [1, 128],
-            signal: querySignal,
-          }),
-        ]);
+      run: Effect.gen(function* () {
+        const [current, branchList, remoteBranches, remoteDefault] = yield* Effect.all(
+          [
+            repository.runGit(["branch", "--show-current"]),
+            repository.runGit(["branch", "--format=%(refname:short)"]),
+            repository.runGit(["for-each-ref", "--format=%(refname)", "refs/remotes"]),
+            repository.runGit(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
+              allowedNonZeroExitCodes: [1, 128],
+            }),
+          ] as const,
+          { concurrency: "unbounded" },
+        );
         if (
           !current.success ||
           !branchList.success ||
@@ -611,24 +556,21 @@ export class GitWorkerModule {
                 ? "master"
                 : currentBranch);
         return { currentBranch, defaultBranch, branches, remoteBranchRefs };
-      },
+      }),
     });
-  }
+  });
 
-  async #readStatusSummary(
+  readonly #readStatusSummary: (
     cwd: string,
     includeUntrackedFiles: boolean,
-    signal: AbortSignal,
-  ): Promise<GitStatusSummaryResult> {
-    const repository = await this.#registry.get(cwd, signal);
+  ) => Effect.Effect<GitStatusSummaryResult, GitRepositoryError, Scope.Scope> = Effect.fn(
+    "GitWorkerModule.readStatusSummary",
+  )(function* (this: GitWorkerModuleState, cwd: string, includeUntrackedFiles: boolean) {
+    const repository = yield* this.#registry.get(cwd);
     if (!repository) {
-      return {
-        type: "error",
-        failureReason: "not-a-repository",
-        errorMessage: null,
-      };
+      return { type: "error", failureReason: "not-a-repository", errorMessage: null };
     }
-    return await repository.query({
+    return yield* repository.query({
       key: [
         "status-summary",
         includeUntrackedFiles ? "complete" : "tracked",
@@ -638,12 +580,11 @@ export class GitWorkerModule {
         gitReadDomains: ["index", "working-tree"],
         gitReadGeneration: repository.generation,
       },
-      signal,
       staleTime: 0,
-      run: async (querySignal) => {
-        const configOverrides = await repository
-          .readSafeAttributeFilterOverrides(querySignal)
-          .catch(() => null);
+      run: Effect.gen(function* () {
+        const configOverrides = yield* repository.readSafeAttributeFilterOverrides.pipe(
+          Effect.catch(() => Effect.succeed(null)),
+        );
         if (!configOverrides) {
           return {
             type: "error",
@@ -651,9 +592,9 @@ export class GitWorkerModule {
             errorMessage: "Could not read Git status configuration.",
           } satisfies GitStatusSummaryResult;
         }
-        const result = await repository.runGit(
+        const result = yield* repository.runGit(
           ["status", "--no-renames", "--porcelain=v1", "-z", "--untracked-files=no"],
-          { configOverrides, signal: querySignal },
+          { configOverrides },
         );
         if (!result.success) {
           return {
@@ -676,7 +617,7 @@ export class GitWorkerModule {
             snapshotGeneration: repository.generation,
           } satisfies GitStatusSummaryResult;
         }
-        const untracked = await repository.untrackedPaths.read(querySignal);
+        const untracked = yield* repository.untrackedPaths.read();
         if (!untracked.success) {
           return {
             type: "error",
@@ -690,52 +631,48 @@ export class GitWorkerModule {
           untrackedCount: untracked.paths.length + untracked.omittedCount,
           snapshotGeneration: repository.generation,
         } satisfies GitStatusSummaryResult;
-      },
+      }),
     });
-  }
+  });
 
-  async #mutateBranch(
+  readonly #mutateBranch = Effect.fn("GitWorkerModule.mutateBranch")(function* (
+    this: GitWorkerModuleState,
     cwd: string,
     rawBranch: string,
     create: boolean,
-    signal: AbortSignal,
-  ): Promise<GitWorkerMethodMap["checkout-branch"]["result"]> {
-    const repository = await this.#registry.get(cwd, signal);
-    if (!repository) {
-      return { type: "error", errorMessage: "Git repository is required." };
-    }
+  ) {
+    const repository = yield* this.#registry.get(cwd);
+    if (!repository) return { type: "error" as const, errorMessage: "Git repository is required." };
     const branch = rawBranch.trim();
-    const validation = await repository.runGit(["check-ref-format", "--branch", branch], {
-      signal,
-    });
+    const validation = yield* repository.runGit(["check-ref-format", "--branch", branch]);
     if (!validation.success) {
-      return { type: "error", errorMessage: "Branch name is invalid." };
+      return { type: "error" as const, errorMessage: "Branch name is invalid." };
     }
-    const result = await repository.runGit(
+    const result = yield* repository.runGit(
       create ? ["checkout", "-b", branch] : ["checkout", branch],
-      { timeoutMs: null, signal },
+      { timeoutMs: null },
     );
     if (!result.success) {
       return {
-        type: "error",
+        type: "error" as const,
         errorMessage: commandErrorMessage(
           result.stderr,
           create ? "Could not create branch." : "Could not switch branch.",
         ),
       };
     }
-    await repository.invalidateGitReadCachesForRepoChange("head");
+    yield* repository.invalidateGitReadCachesForRepoChange("head");
     return {
-      type: "success",
-      value: await this.#readBranchMetadata(repository.identity.root, signal),
+      type: "success" as const,
+      value: yield* this.#readBranchMetadata(repository.identity.root),
     };
-  }
+  });
 
-  async #readActionStatus(
+  readonly #readActionStatus = Effect.fn("GitWorkerModule.readActionStatus")(function* (
+    this: GitWorkerModuleState,
     cwd: string,
-    signal: AbortSignal,
-  ): Promise<import("../../shared/types").GitActionStatusResult> {
-    const repository = await this.#registry.get(cwd, signal);
+  ) {
+    const repository = yield* this.#registry.get(cwd);
     const empty = (errorMessage: string | null = null) => ({
       cwd,
       isGitRepository: false,
@@ -755,41 +692,35 @@ export class GitWorkerModule {
       errorMessage,
     });
     if (!repository) return empty();
-    return await repository.query({
+    return yield* repository.query({
       key: ["action-status", repository.generation],
       meta: {
         gitReadDomains: ["config", "head", "index", "local-refs", "remote-refs", "working-tree"],
         gitReadGeneration: repository.generation,
       },
-      signal,
-      run: async (querySignal) => {
-        const [branches, head, staged, unstaged, remotes, upstream, untracked] = await Promise.all([
-          this.#readBranchMetadata(repository.identity.root, querySignal),
-          repository.runGit(["rev-parse", "--verify", "HEAD"], {
-            allowedNonZeroExitCodes: [128],
-            signal: querySignal,
-          }),
-          repository.runGit(["diff", "--quiet", "--cached"], {
-            allowedNonZeroExitCodes: [1],
-            signal: querySignal,
-          }),
-          repository.runGit(["diff", "--quiet"], {
-            allowedNonZeroExitCodes: [1],
-            signal: querySignal,
-          }),
-          repository.runGit(["remote"], { signal: querySignal }),
-          repository.runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
-            allowedNonZeroExitCodes: [128],
-            signal: querySignal,
-          }),
-          repository.untrackedPaths.read(querySignal),
-        ]);
+      run: Effect.gen({ self: this }, function* () {
+        const [branches, head, staged, unstaged, remotes, upstream, untracked] = yield* Effect.all(
+          [
+            this.#readBranchMetadata(repository.identity.root),
+            repository.runGit(["rev-parse", "--verify", "HEAD"], {
+              allowedNonZeroExitCodes: [128],
+            }),
+            repository.runGit(["diff", "--quiet", "--cached"], {
+              allowedNonZeroExitCodes: [1],
+            }),
+            repository.runGit(["diff", "--quiet"], { allowedNonZeroExitCodes: [1] }),
+            repository.runGit(["remote"]),
+            repository.runGit(
+              ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+              { allowedNonZeroExitCodes: [128] },
+            ),
+            repository.untrackedPaths.read(),
+          ] as const,
+          { concurrency: "unbounded" },
+        );
         const required = [head, staged, unstaged, remotes, upstream];
         if (required.some((result) => !result.success) || !untracked.success) {
-          return {
-            ...empty("Could not read Git action status."),
-            cwd: repository.identity.root,
-          };
+          return { ...empty("Could not read Git action status."), cwd: repository.identity.root };
         }
         const hasHeadCommit = head.code === 0;
         const hasStagedChanges = staged.code === 1;
@@ -801,9 +732,8 @@ export class GitWorkerModule {
           .map((name) => name.trim())
           .filter(Boolean);
         const ahead = upstreamBranch
-          ? await repository.runGit(["rev-list", "--count", `${upstreamBranch}..HEAD`], {
+          ? yield* repository.runGit(["rev-list", "--count", `${upstreamBranch}..HEAD`], {
               allowedNonZeroExitCodes: [128],
-              signal: querySignal,
             })
           : null;
         const commitsAhead = Number.parseInt(ahead?.stdout.trim() ?? "0", 10) || 0;
@@ -832,15 +762,15 @@ export class GitWorkerModule {
           pushNeedsUpstream,
           errorMessage: null,
         };
-      },
+      }),
     });
-  }
+  });
 
-  async #commit(
+  readonly #commit = Effect.fn("GitWorkerModule.commit")(function* (
+    this: GitWorkerModuleState,
     input: import("../../shared/types").GitCommitInput,
-    signal: AbortSignal,
-  ): Promise<import("../../shared/types").GitActionMutationResult> {
-    const repository = await this.#registry.get(input.cwd, signal);
+  ) {
+    const repository = yield* this.#registry.get(input.cwd);
     if (!repository) {
       return {
         cwd: input.cwd,
@@ -849,14 +779,11 @@ export class GitWorkerModule {
         stdout: "",
         stderr: "",
         errorMessage: "Git repository is required before committing.",
-      };
+      } satisfies GitActionMutationResult;
     }
-    const branches = await this.#readBranchMetadata(repository.identity.root, signal);
+    const branches = yield* this.#readBranchMetadata(repository.identity.root);
     if (input.includeUnstaged !== false) {
-      const add = await repository.runGit(["add", "-A"], {
-        timeoutMs: null,
-        signal,
-      });
+      const add = yield* repository.runGit(["add", "-A"], { timeoutMs: null });
       if (!add.success) {
         return {
           cwd: repository.identity.root,
@@ -865,12 +792,11 @@ export class GitWorkerModule {
           stdout: add.stdout,
           stderr: add.stderr,
           errorMessage: commandErrorMessage(add.stderr, "Could not stage changes."),
-        };
+        } satisfies GitActionMutationResult;
       }
     }
-    const staged = await repository.runGit(["diff", "--quiet", "--cached"], {
+    const staged = yield* repository.runGit(["diff", "--quiet", "--cached"], {
       allowedNonZeroExitCodes: [1],
-      signal,
     });
     if (!staged.success || staged.code !== 1) {
       return {
@@ -882,11 +808,10 @@ export class GitWorkerModule {
         errorMessage: staged.success
           ? "No staged changes to commit."
           : commandErrorMessage(staged.stderr, "Could not inspect staged changes."),
-      };
+      } satisfies GitActionMutationResult;
     }
-    const commit = await repository.runGit(["commit", "-m", input.message.trim()], {
+    const commit = yield* repository.runGit(["commit", "-m", input.message.trim()], {
       timeoutMs: null,
-      signal,
     });
     if (!commit.success) {
       return {
@@ -896,9 +821,9 @@ export class GitWorkerModule {
         stdout: commit.stdout,
         stderr: commit.stderr,
         errorMessage: commandErrorMessage(commit.stderr, "Could not commit changes."),
-      };
+      } satisfies GitActionMutationResult;
     }
-    await repository.invalidateGitReadCachesForRepoChange("head");
+    yield* repository.invalidateGitReadCachesForRepoChange("head");
     return {
       cwd: repository.identity.root,
       status: "success",
@@ -906,6 +831,121 @@ export class GitWorkerModule {
       stdout: commit.stdout,
       stderr: commit.stderr,
       errorMessage: null,
-    };
-  }
+    } satisfies GitActionMutationResult;
+  });
+
+  readonly #push = Effect.fn("GitWorkerModule.push")(function* (
+    this: GitWorkerModuleState,
+    input: GitPushInput,
+  ) {
+    const repository = yield* this.#registry.get(input.cwd);
+    if (!repository) {
+      return {
+        cwd: input.cwd,
+        status: "error",
+        branch: null,
+        stdout: "",
+        stderr: "",
+        errorMessage: "Git repository is required before pushing.",
+      } satisfies GitActionMutationResult;
+    }
+    const [current, remotes, upstream] = yield* Effect.all(
+      [
+        repository.runGit(["branch", "--show-current"]),
+        repository.runGit(["remote"]),
+        repository.runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+          allowedNonZeroExitCodes: [128],
+        }),
+      ] as const,
+      { concurrency: "unbounded" },
+    );
+    const branch = current.success ? current.stdout.trim() || null : null;
+    const failed = [current, remotes, upstream].find((result) => !result.success);
+    if (failed) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch,
+        stdout: failed.stdout,
+        stderr: failed.stderr,
+        errorMessage: commandErrorMessage(failed.stderr, "Could not inspect Git push state."),
+      } satisfies GitActionMutationResult;
+    }
+    if (!branch) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch: null,
+        stdout: "",
+        stderr: "",
+        errorMessage: "Current branch is required before pushing.",
+      } satisfies GitActionMutationResult;
+    }
+    const upstreamBranch = upstream.code === 0 ? upstream.stdout.trim() || null : null;
+    const remoteNames = remotes.stdout
+      .split(/\r?\n/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (!upstreamBranch && !remoteNames.includes("origin")) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch,
+        stdout: "",
+        stderr: "",
+        errorMessage: "No upstream branch or origin remote is configured.",
+      } satisfies GitActionMutationResult;
+    }
+    const result = yield* repository.runGit(
+      [
+        "push",
+        ...(input.force ? ["--force-with-lease"] : []),
+        ...(upstreamBranch ? [] : ["-u", "origin", branch]),
+      ],
+      { timeoutMs: 30_000 },
+    );
+    if (!result.success) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        errorMessage: commandErrorMessage(result.stderr, "Could not push changes."),
+      } satisfies GitActionMutationResult;
+    }
+    yield* repository.invalidateGitReadCachesForRepoChange("remote-refs");
+    return {
+      cwd: repository.identity.root,
+      status: "success",
+      branch,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      errorMessage: null,
+    } satisfies GitActionMutationResult;
+  });
 }
+
+export const makeGitWorkerModule = (
+  options: GitWorkerModuleOptions,
+): Effect.Effect<GitWorkerModule, never, GitCommandPlatform | Scope.Scope> =>
+  Effect.gen(function* () {
+    const runner = yield* makeGitCommandRunner({ environment: options.environment });
+    const reviewRuntime = new GitReviewRuntime({ commandRunner: runner });
+    const registry = yield* makeGitRepositoryRegistry(runner, reviewRuntime);
+    const publish = options.publish ?? (() => undefined);
+    let module!: GitWorkerModuleState;
+    const liveQueries = yield* makeGitLiveQueryRegistry({
+      registry,
+      publish,
+      execute: (input) =>
+        module.execute({
+          id: input.id,
+          method: input.method,
+          params: input.params,
+          enqueuedAtMs: Date.now(),
+        } as GitWorkerRequest["request"]),
+    });
+    module = new GitWorkerModuleState({ liveQueries, publish, registry, reviewRuntime });
+    return module;
+  });

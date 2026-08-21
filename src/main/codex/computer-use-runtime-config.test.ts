@@ -50,23 +50,16 @@ describe("Computer Use runtime config", () => {
     });
   });
 
-  test("serializes atomic writes to the canonical CODEX_HOME config", async () => {
+  test("atomically writes the canonical CODEX_HOME config", async () => {
     const runtimeStateHome = makeTemporaryRoot();
-    await Promise.all([
-      writeComputerUseRuntimeConfig({
-        accentColor: "invalid",
-        locale: "en",
-        runtimeStateHome,
-      }),
-      writeComputerUseRuntimeConfig({
-        locale: "zh-CN",
-        runtimeStateHome,
-        strings: {
-          escToCancel: "按 Esc 取消",
-          usingComputer: "Nodex 正在使用你的电脑",
-        },
-      }),
-    ]);
+    await writeComputerUseRuntimeConfig({
+      locale: "zh-CN",
+      runtimeStateHome,
+      strings: {
+        escToCancel: "按 Esc 取消",
+        usingComputer: "Nodex 正在使用你的电脑",
+      },
+    });
 
     const directory = path.join(runtimeStateHome, "computer-use");
     const config = JSON.parse(

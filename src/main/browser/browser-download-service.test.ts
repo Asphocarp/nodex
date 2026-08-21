@@ -1,24 +1,12 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, test, vi } from "vite-plus/test";
-import type { BrowserDownloadRecord } from "../../shared/browser-download";
-import type { BrowserDownloadStore } from "./browser-download-store";
-import { BrowserDownloadService } from "./browser-download-service";
-
-class MemoryDownloadStore implements BrowserDownloadStore {
-  records = new Map<string, BrowserDownloadRecord>();
-  async list() {
-    return [...this.records.values()];
-  }
-  async upsert(record: BrowserDownloadRecord) {
-    this.records.set(record.id, record);
-  }
-  async remove(downloadId: string) {
-    this.records.delete(downloadId);
-  }
-  async clear() {
-    this.records.clear();
-  }
-}
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as Scope from "effect/Scope";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it, vi } from "@effect/vitest";
+import { makeBrowserDownloadRuntime } from "./browser-download-service";
 
 class FakeDownloadItem extends EventEmitter {
   cancelled = false;
@@ -66,67 +54,116 @@ const identity = {
   browserTabId: "browser-tab-1",
 };
 
-function fixture(options: { agentControlled?: boolean } = {}) {
-  const store = new MemoryDownloadStore();
-  const snapshots: BrowserDownloadRecord[][] = [];
-  const service = new BrowserDownloadService({
-    downloadsDirectory: "/tmp/nodex-download-tests",
-    idFactory: () => "download-1",
-    isAgentControlled: () => options.agentControlled === true,
-    now: () => 100,
-    onSnapshot: (snapshot) => snapshots.push(snapshot.downloads),
-    resolveIdentity: () => identity,
-    shell: {
-      openPath: vi.fn(async () => ""),
-      showItemInFolder: vi.fn(),
-    },
-    store,
-  });
-  return { service, session: new FakeSession(), snapshots, store };
-}
-
-describe("BrowserDownloadService", () => {
-  test("tracks progress and persists sanitized source origin", async () => {
-    const test = fixture();
-    await test.service.initialize(test.session as never);
-    const item = new FakeDownloadItem();
-    const event = { preventDefault: vi.fn() };
-    test.session.emit("will-download", event, item, { id: 7 });
-    await Promise.resolve();
-
-    expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(item.savePath.endsWith("report.pdf")).toBe(true);
-    expect(test.store.records.get("download-1")).toMatchObject({
-      sourceOrigin: "https://example.com",
-      status: "starting",
+it.layer(NodeServices.layer)("Browser download runtime", (it) => {
+  const fixture = (
+    options: { readonly agentControlled?: boolean; readonly history?: string } = {},
+  ) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "nodex-browser-download-" });
+      const session = new FakeSession();
+      const snapshots: Array<readonly unknown[]> = [];
+      const scope = yield* Scope.make();
+      const historyFilePath = options.history ?? path.join(root, "browser-downloads.json");
+      const runtime = yield* makeBrowserDownloadRuntime({
+        downloadsDirectory: path.join(root, "downloads"),
+        historyFilePath,
+        idFactory: () => "download-1",
+        isAgentControlled: () => options.agentControlled === true,
+        logger: { warn: vi.fn() },
+        now: () => 100,
+        onSnapshot: (snapshot) => snapshots.push(snapshot.downloads),
+        resolveIdentity: () => identity,
+        session: session as never,
+        shell: { openPath: vi.fn(async () => ""), showItemInFolder: vi.fn() },
+      }).pipe(Effect.provideService(Scope.Scope, scope));
+      return { fs, historyFilePath, root, runtime, scope, session, snapshots };
     });
-    item.receivedBytes = 50;
-    item.emit("updated", {}, "progressing");
-    await Promise.resolve();
-    expect(test.service.snapshot().downloads[0]).toMatchObject({
-      receivedBytes: 50,
-      status: "progressing",
-    });
-  });
 
-  test("requires and consumes a 10-second agent download grant", async () => {
-    const test = fixture({ agentControlled: true });
-    await test.service.initialize(test.session as never);
-    const denied = new FakeDownloadItem();
-    const deniedEvent = { preventDefault: vi.fn() };
-    test.session.emit("will-download", deniedEvent, denied, { id: 7 });
-    expect(deniedEvent.preventDefault).toHaveBeenCalledOnce();
-    expect(denied.cancelled).toBe(true);
+  it.effect("tracks progress, persists sanitized origins, and reloads history", () =>
+    Effect.gen(function* () {
+      const test = yield* fixture();
+      const item = new FakeDownloadItem();
+      const event = { preventDefault: vi.fn() };
+      test.session.emit("will-download", event, item, { id: 7 });
 
-    test.service.grantAgentDownload(identity, "https://example.com/download?secret=1");
-    const allowed = new FakeDownloadItem();
-    const allowedEvent = { preventDefault: vi.fn() };
-    test.session.emit("will-download", allowedEvent, allowed, { id: 7 });
-    expect(allowedEvent.preventDefault).not.toHaveBeenCalled();
+      assert.isFalse(event.preventDefault.mock.calls.length > 0);
+      assert.isTrue(item.savePath.endsWith("report.pdf"));
+      assert.deepInclude(test.runtime.snapshot().downloads[0], {
+        sourceOrigin: "https://example.com",
+        status: "starting",
+      });
+      assert.deepEqual(
+        yield* test.runtime.handleAction({ action: "pause", downloadId: "download-1" }),
+        { ok: true },
+      );
+      item.receivedBytes = 50;
+      item.emit("updated", {}, "progressing");
+      assert.deepEqual(
+        yield* test.runtime.handleAction({ action: "resume", downloadId: "download-1" }),
+        { ok: true },
+      );
+      assert.deepInclude(test.runtime.snapshot().downloads[0], {
+        receivedBytes: 50,
+        status: "progressing",
+      });
+      yield* Scope.close(test.scope, Exit.void);
 
-    const replay = new FakeDownloadItem();
-    const replayEvent = { preventDefault: vi.fn() };
-    test.session.emit("will-download", replayEvent, replay, { id: 7 });
-    expect(replayEvent.preventDefault).toHaveBeenCalledOnce();
-  });
+      const replacementScope = yield* Scope.make();
+      const replacement = yield* makeBrowserDownloadRuntime({
+        downloadsDirectory: `${test.root}/downloads`,
+        historyFilePath: test.historyFilePath,
+        logger: { warn: vi.fn() },
+        resolveIdentity: () => identity,
+        session: new FakeSession() as never,
+        shell: { openPath: vi.fn(async () => ""), showItemInFolder: vi.fn() },
+      }).pipe(Effect.provideService(Scope.Scope, replacementScope));
+      assert.deepInclude(replacement.snapshot().downloads[0], {
+        id: "download-1",
+        receivedBytes: 50,
+        status: "progressing",
+      });
+      yield* Scope.close(replacementScope, Exit.void);
+    }),
+  );
+
+  it.effect("requires and consumes an exact short-lived agent download grant", () =>
+    Effect.gen(function* () {
+      const test = yield* fixture({ agentControlled: true });
+      const denied = new FakeDownloadItem();
+      const deniedEvent = { preventDefault: vi.fn() };
+      test.session.emit("will-download", deniedEvent, denied, { id: 7 });
+      assert.strictEqual(deniedEvent.preventDefault.mock.calls.length, 1);
+      assert.isTrue(denied.cancelled);
+
+      test.runtime.grantAgentDownload(identity, "https://example.com/download?secret=1");
+      const allowed = new FakeDownloadItem();
+      const allowedEvent = { preventDefault: vi.fn() };
+      test.session.emit("will-download", allowedEvent, allowed, { id: 7 });
+      assert.strictEqual(allowedEvent.preventDefault.mock.calls.length, 0);
+
+      const replay = new FakeDownloadItem();
+      const replayEvent = { preventDefault: vi.fn() };
+      test.session.emit("will-download", replayEvent, replay, { id: 7 });
+      assert.strictEqual(replayEvent.preventDefault.mock.calls.length, 1);
+      yield* Scope.close(test.scope, Exit.void);
+    }),
+  );
+
+  it.effect("quarantines malformed history without disabling download admission", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "nodex-download-corrupt-" });
+      const historyFilePath = path.join(root, "browser-downloads.json");
+      yield* fs.writeFileString(historyFilePath, "{broken");
+      const test = yield* fixture({ history: historyFilePath });
+      assert.deepEqual(test.runtime.snapshot(), { downloads: [] });
+      assert.isTrue((yield* fs.readDirectory(root)).includes("browser-downloads.json.corrupt-100"));
+      assert.strictEqual(test.session.listenerCount("will-download"), 1);
+      yield* Scope.close(test.scope, Exit.void);
+      assert.strictEqual(test.session.listenerCount("will-download"), 0);
+    }),
+  );
 });

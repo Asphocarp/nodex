@@ -23,13 +23,13 @@ import type {
   CodexWorktreeWorkerExportHandoffInput,
   CodexWorktreeWorkerImportHandoffInput,
   CodexWorktreeWorkerCleanupTransferHandoffInput,
-} from "../codex/codex-worktree-worker-port";
+} from "../codex/codex-worktree-worker-protocol";
 import {
   CODEX_WORKTREE_HANDOFF_STEPS,
   CODEX_WORKTREE_WORKER_OPERATIONS,
-} from "../codex/codex-worktree-worker-port";
+} from "../codex/codex-worktree-worker-protocol";
 
-export const CODEX_WORKTREE_WORKER_PROTOCOL_VERSION = 4 as const;
+export const CODEX_WORKTREE_WORKER_PROTOCOL_VERSION = 5 as const;
 
 export type CodexWorktreeWorkerHostMessage =
   | {
@@ -140,6 +140,8 @@ function isCreateInput(value: unknown): value is CodexWorktreeWorkerCreateInput 
       "projectId",
       "targetId",
       "threadTitle",
+      "branchPrefix",
+      "mode",
       "startingState",
       "localEnvironmentConfigPath",
       "setUpSyncedBranch",
@@ -152,6 +154,10 @@ function isCreateInput(value: unknown): value is CodexWorktreeWorkerCreateInput 
     isNonEmptyString(value.projectId, 1_024) &&
     isNonEmptyString(value.targetId, 1_024) &&
     isNonEmptyString(value.threadTitle, 4_096) &&
+    (value.branchPrefix === undefined ||
+      value.branchPrefix === null ||
+      typeof value.branchPrefix === "string") &&
+    (value.mode === undefined || value.mode === "autoBranch" || value.mode === "detachedHead") &&
     (value.startingState === null || isStartingState(value.startingState)) &&
     (value.localEnvironmentConfigPath === null ||
       isCodexWorktreeEnvironmentConfigPath(value.localEnvironmentConfigPath)) &&

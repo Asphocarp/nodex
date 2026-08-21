@@ -8,8 +8,8 @@ import type {
 import { FetchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { serializeInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import { extractPlainText } from "../../shared/nfm/extract-text";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 
 type FetchRequest = Extract<NodexAgentV3ReadRequest, { readonly tool: "fetch" }>;
@@ -83,7 +83,8 @@ const dataSource = (detail: CorePageDetail) => {
 
 export async function readNativeFetch(
   request: FetchRequest,
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
+  signal?: AbortSignal,
 ): Promise<NodexAgentV3ReadCommandResult> {
   if (!request.authority) {
     return {
@@ -110,7 +111,7 @@ export async function readNativeFetch(
         block_id: request.input.id,
         authorization,
       },
-      { class: "background" },
+      { class: "background", signal },
     );
     if (targetRead.value.kind !== "agent_block_target") {
       throw new Error("Core returned the wrong Agent Block target variant");
@@ -157,7 +158,7 @@ export async function readNativeFetch(
         cursor: request.input.page?.cursor ?? null,
         limit: request.input.page?.limit ?? null,
       },
-      { class: "background" },
+      { class: "background", signal },
     );
     if (snapshotRead.value.kind !== "agent_semantic_snapshot") {
       throw new Error("Core returned the wrong Agent Document snapshot variant");

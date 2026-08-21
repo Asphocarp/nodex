@@ -1,8 +1,7 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS,
   CODEX_OWNERLESS_WORKTREE_GRACE_MS,
-  executeManagedWorktreeRetentionPlan,
   planManagedWorktreeRetention,
   type CodexManagedWorktreeRetentionPlanInput,
   type CodexManagedWorktreeRetentionRecord,
@@ -195,42 +194,5 @@ describe("planManagedWorktreeRetention", () => {
     );
     expect(plan.delete).toEqual([]);
     expect(plan.keep).toHaveLength(3);
-  });
-});
-
-describe("executeManagedWorktreeRetentionPlan", () => {
-  test("deduplicates paths, caps concurrency at three, and settles every removal", async () => {
-    const plan = planManagedWorktreeRetention(
-      input(
-        Array.from({ length: 7 }, (_, index) => record(String(index))),
-        { keepCount: 1, protectPreMigrationOwnerlessWorktrees: false },
-      ),
-    );
-    expect(plan.status).toBe("planned");
-    let active = 0;
-    let peak = 0;
-    const releases: Array<() => void> = [];
-    const remove = vi.fn(async (item: { worktreeGitRoot: string }) => {
-      active += 1;
-      peak = Math.max(peak, active);
-      await new Promise<void>((resolve) => releases.push(resolve));
-      active -= 1;
-      if (item.worktreeGitRoot.endsWith("/2/repo")) throw new Error("expected");
-    });
-    const execution = executeManagedWorktreeRetentionPlan(
-      [...plan.delete, plan.delete[0]!],
-      remove,
-      3,
-    );
-    while (remove.mock.calls.length < 3) await Promise.resolve();
-    expect(peak).toBe(3);
-    while (releases.length > 0 || remove.mock.calls.length < plan.delete.length) {
-      releases.splice(0).forEach((release) => release());
-      await Promise.resolve();
-    }
-    const results = await execution;
-    expect(remove).toHaveBeenCalledTimes(plan.delete.length);
-    expect(results).toHaveLength(plan.delete.length);
-    expect(results.some((result) => result.status === "rejected")).toBe(true);
   });
 });

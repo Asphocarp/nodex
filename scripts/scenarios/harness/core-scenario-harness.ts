@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  initializeDesktopDataAuthority,
+  initializeStandaloneDataAuthority,
   type DesktopCoreClient,
   type RustDataAuthorityRuntime,
 } from "../../../src/main/core-client";
@@ -70,7 +70,7 @@ export const withCoreScenario = async <Value>(
   let value: Value | undefined;
   let operationError: unknown;
   try {
-    runtime = await initializeDesktopDataAuthority({
+    runtime = await initializeStandaloneDataAuthority({
       buildId: `scenario:${input.scenarioId}`,
       isPackaged: false,
       nodexHome: profile.nodexHome,
@@ -103,11 +103,6 @@ export const withCoreScenario = async <Value>(
     try {
       await runtime.rootClient.shutdown();
       await waitForCoreRemoval(profile.nodexHome);
-    } catch (error) {
-      teardownErrors.push(error);
-    }
-    try {
-      await runtime.close();
     } catch (error) {
       teardownErrors.push(error);
     }

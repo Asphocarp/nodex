@@ -14,8 +14,8 @@ import type {
   CodexWorktreeWorkerExportHandoffResult,
   CodexWorktreeWorkerImportHandoffInput,
   CodexWorktreeWorkerImportHandoffResult,
-  CodexWorktreeWorkerRequestOptions,
-} from "./codex-worktree-worker-port";
+  CodexWorktreeWorkerOperationOptions,
+} from "./codex-worktree-worker-protocol";
 
 const SOURCE_REF_PREFIX = "refs/codex/handoff/source/";
 const DESTINATION_REF_PREFIX = "refs/codex/handoff/destination/";
@@ -115,7 +115,7 @@ async function readCurrentBranch(root: string, signal?: AbortSignal): Promise<st
 /** Captures the complete materialized source tree without touching its real index. */
 export async function exportCrossHostThreadHandoff(
   input: CodexWorktreeWorkerExportHandoffInput,
-  options: CodexWorktreeWorkerRequestOptions,
+  options: CodexWorktreeWorkerOperationOptions,
 ): Promise<CodexWorktreeWorkerExportHandoffResult> {
   const transferId = transferToken(input.transferId);
   if (!isWithin(input.sourceWorkspaceRoot, input.sourceCwd)) {
@@ -261,7 +261,7 @@ async function resolveDestinationRepository(
 /** Imports one verified source bundle and creates a detached destination worktree. */
 export async function importCrossHostThreadHandoff(
   input: CodexWorktreeWorkerImportHandoffInput,
-  options: CodexWorktreeWorkerRequestOptions,
+  options: CodexWorktreeWorkerOperationOptions,
 ): Promise<CodexWorktreeWorkerImportHandoffResult> {
   const transferId = transferToken(input.transferId);
   const destinationRef = `${DESTINATION_REF_PREFIX}${transferId}`;

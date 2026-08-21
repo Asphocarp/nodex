@@ -215,6 +215,44 @@ describe("Nodex home config", () => {
 });
 
 describe("backup settings config", () => {
+  test("keeps explicit settings sources isolated and observes external updates", async () => {
+    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-config-sources-"));
+    const firstHome = path.join(fixtureRoot, "first");
+    const secondHome = path.join(fixtureRoot, "second");
+    const workspace = path.join(fixtureRoot, "workspace");
+    fs.mkdirSync(workspace, { recursive: true });
+    const config = await importConfigModule();
+    const firstSource = { cwd: workspace, environment: {}, userHome: firstHome };
+    const secondSource = { cwd: workspace, environment: {}, userHome: secondHome };
+
+    try {
+      config.updateBackupSettings(
+        { autoEnabled: true, intervalHours: 2, retentionCount: 7 },
+        firstSource,
+      );
+      config.updateBackupSettings(
+        { autoEnabled: false, intervalHours: 8, retentionCount: 21 },
+        secondSource,
+      );
+
+      expect(config.getBackupSettings(firstSource).retentionCount).toBe(7);
+      expect(config.getBackupSettings(secondSource).retentionCount).toBe(21);
+
+      const firstConfigPath = path.join(firstHome, ".nodex", "config.toml");
+      fs.writeFileSync(
+        firstConfigPath,
+        fs
+          .readFileSync(firstConfigPath, "utf8")
+          .replace("backup_retention = 7", "backup_retention = 9"),
+        "utf8",
+      );
+      expect(config.getBackupSettings(firstSource).retentionCount).toBe(9);
+      expect(fs.readdirSync(path.dirname(firstConfigPath))).toEqual(["config.toml"]);
+    } finally {
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   test("persists updated backup settings to user config", async () => {
     await withTempConfigFixture(async ({ tempHome }) => {
       const config = await importConfigModule();

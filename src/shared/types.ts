@@ -1056,9 +1056,13 @@ export interface ProjectSessionThreadSummary {
   agentPath?: string | null;
   threadName?: string;
   threadPreview: string;
+  modelProvider: string;
+  executionProfile?: AgentExecutionProfile | null;
   executionHostId: string;
   cwd?: string;
   managedWorktreePath?: string | null;
+  projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;
@@ -2315,6 +2319,8 @@ export interface CodexThreadStartForSessionInput {
   runInEnvironmentPath?: string | null;
   worktreeStartingState?: CodexPendingWorktreeStartingState;
   heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
+  /** Classifies the new Thread's origin without coupling launch to its caller. */
+  threadSource?: CodexAppServerThreadSource;
   /** Surface that must own Browser Use before the first turn can start. */
   browserUsePresentationOrigin?: BrowserUsePresentationOrigin;
 }
@@ -4322,11 +4328,11 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
   queuedFollowUps: CodexQueuedFollowUp[];
   pendingSteers: CodexPendingSteer[];
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
-  childMemberships: CodexConversationChildMembership[];
   capabilityFlags: CodexConversationCapabilityFlags;
 }
 
 export interface CodexBackgroundSubagentThreadsHydrateInput {
+  rootThreadId: string;
   threadIds: string[];
   includeTurns?: boolean;
 }

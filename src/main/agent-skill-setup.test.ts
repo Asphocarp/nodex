@@ -1,4 +1,6 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import { it } from "@effect/vitest";
+import { describe, expect, vi } from "vite-plus/test";
 import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 
 import {
@@ -42,113 +44,122 @@ const successfulRunner =
     invocations: AgentSkillCliInvocation[],
     statusTargets = [target("codex", "missing"), target("claude-code", "missing")],
   ): AgentSkillCliRunner =>
-  async (invocation) => {
-    invocations.push(invocation);
-    const installing = invocation.argv.includes("install");
-    return {
-      stderr: "",
-      stdout: JSON.stringify(
-        installing
-          ? commandResult(
-              "install",
-              statusTargets.map((entry) => ({
-                ...entry,
-                changed: entry.state === "missing",
-                outcome: entry.state === "missing" ? "installed" : "already-installed",
-                state: "managed-current",
-              })),
-              statusTargets.some((entry) => entry.state === "missing"),
-            )
-          : commandResult("status", statusTargets),
-      ),
-    };
-  };
+  (invocation) =>
+    Effect.sync(() => {
+      invocations.push(invocation);
+      const installing = invocation.argv.includes("install");
+      return {
+        stderr: "",
+        stdout: JSON.stringify(
+          installing
+            ? commandResult(
+                "install",
+                statusTargets.map((entry) => ({
+                  ...entry,
+                  changed: entry.state === "missing",
+                  outcome: entry.state === "missing" ? "installed" : "already-installed",
+                  state: "managed-current",
+                })),
+                statusTargets.some((entry) => entry.state === "missing"),
+              )
+            : commandResult("status", statusTargets),
+        ),
+      };
+    });
 
 const messageBox = (responses: number[], calls: MessageBoxOptions[]) =>
-  vi.fn(async (options: MessageBoxOptions): Promise<MessageBoxReturnValue> => {
-    calls.push(options);
-    return {
-      response: responses.shift() ?? 0,
-      checkboxChecked: false,
-    };
-  });
+  vi.fn((options: MessageBoxOptions): Effect.Effect<MessageBoxReturnValue> =>
+    Effect.sync(() => {
+      calls.push(options);
+      return {
+        response: responses.shift() ?? 0,
+        checkboxChecked: false,
+      };
+    }),
+  );
 
 describe("Agent Skill setup", () => {
-  test("cancellation performs only the read-only status call", async () => {
-    const invocations: AgentSkillCliInvocation[] = [];
-    const dialogs: MessageBoxOptions[] = [];
-    const result = await runAgentSkillSetup({
-      cliPath: CLI_PATH,
-      runCli: successfulRunner(invocations),
-      showMessageBox: messageBox([3], dialogs),
-    });
+  it.effect("cancellation performs only the read-only status call", () =>
+    Effect.gen(function* () {
+      const invocations: AgentSkillCliInvocation[] = [];
+      const dialogs: MessageBoxOptions[] = [];
+      const result = yield* runAgentSkillSetup({
+        cliPath: CLI_PATH,
+        runCli: successfulRunner(invocations),
+        showMessageBox: messageBox([3], dialogs),
+      });
 
-    expect(result.status).toBe("cancelled");
-    expect(invocations).toEqual([
-      {
-        executable: CLI_PATH,
-        argv: ["--json", "skills", "status"],
-        shell: false,
-      },
-    ]);
-    expect(dialogs).toHaveLength(1);
-  });
+      expect(result.status).toBe("cancelled");
+      expect(invocations).toEqual([
+        {
+          executable: CLI_PATH,
+          argv: ["--json", "skills", "status"],
+          shell: false,
+        },
+      ]);
+      expect(dialogs).toHaveLength(1);
+    }),
+  );
 
-  test("uses fixed shell-free argv for the selected Agents", async () => {
-    const invocations: AgentSkillCliInvocation[] = [];
-    const dialogs: MessageBoxOptions[] = [];
-    const result = await runAgentSkillSetup({
-      cliPath: CLI_PATH,
-      pathConfigured: false,
-      runCli: successfulRunner(invocations),
-      showMessageBox: messageBox([0, 0], dialogs),
-    });
+  it.effect("uses fixed shell-free argv for the selected Agents", () =>
+    Effect.gen(function* () {
+      const invocations: AgentSkillCliInvocation[] = [];
+      const dialogs: MessageBoxOptions[] = [];
+      const result = yield* runAgentSkillSetup({
+        cliPath: CLI_PATH,
+        pathConfigured: false,
+        runCli: successfulRunner(invocations),
+        showMessageBox: messageBox([0, 0], dialogs),
+      });
 
-    expect(result.status).toBe("installed");
-    expect(invocations).toEqual([
-      {
-        executable: CLI_PATH,
-        argv: ["--json", "skills", "status"],
-        shell: false,
-      },
-      {
-        executable: CLI_PATH,
-        argv: [
-          "--json",
-          "skills",
-          "install",
-          "--agent",
-          "codex",
-          "--agent",
-          "claude-code",
-          "--yes",
-        ],
-        shell: false,
-      },
-    ]);
-    expect(dialogs[0]?.detail).toContain("~/.local/bin on PATH");
-    expect(dialogs[1]?.type).toBe("info");
-  });
+      expect(result.status).toBe("installed");
+      expect(invocations).toEqual([
+        {
+          executable: CLI_PATH,
+          argv: ["--json", "skills", "status"],
+          shell: false,
+        },
+        {
+          executable: CLI_PATH,
+          argv: [
+            "--json",
+            "skills",
+            "install",
+            "--agent",
+            "codex",
+            "--agent",
+            "claude-code",
+            "--yes",
+          ],
+          shell: false,
+        },
+      ]);
+      expect(dialogs[0]?.detail).toContain("~/.local/bin on PATH");
+      expect(dialogs[1]?.type).toBe("info");
+    }),
+  );
 
-  test("onboarding skips the prompt when both official targets are available", async () => {
-    const invocations: AgentSkillCliInvocation[] = [];
-    const showMessageBox = vi.fn();
-    const result = await runAgentSkillSetup({
-      cliPath: CLI_PATH,
-      onlyWhenMissing: true,
-      runCli: successfulRunner(invocations, [
-        target("codex", "managed-current"),
-        target("claude-code", "compatible-external"),
-      ]),
-      showMessageBox,
-    });
+  it.effect("onboarding skips the prompt when both official targets are available", () =>
+    Effect.gen(function* () {
+      const invocations: AgentSkillCliInvocation[] = [];
+      const showMessageBox = vi.fn();
+      const result = yield* runAgentSkillSetup({
+        cliPath: CLI_PATH,
+        onlyWhenMissing: true,
+        runCli: successfulRunner(invocations, [
+          target("codex", "managed-current"),
+          target("claude-code", "compatible-external"),
+        ]),
+        showMessageBox,
+      });
 
-    expect(result.status).toBe("already-configured");
-    expect(invocations).toHaveLength(1);
-    expect(showMessageBox).not.toHaveBeenCalled();
-  });
+      expect(result.status).toBe("already-configured");
+      expect(invocations).toHaveLength(1);
+      expect(showMessageBox).not.toHaveBeenCalled();
+    }),
+  );
 
-  test("preserves unknown target identities in structured status", () => {
+  it("preserves unknown target identities in structured status", () => {
     const parsed = parseAgentSkillCommandResult({
       schemaVersion: 1,
       operation: "status",
@@ -163,33 +174,36 @@ describe("Agent Skill setup", () => {
     });
   });
 
-  test("shows structured CLI errors with the exact target path", async () => {
-    const dialogs: MessageBoxOptions[] = [];
-    const targetPath = "/Users/test/.agents/skills/nodex";
-    const result = await runAgentSkillSetup({
-      cliPath: CLI_PATH,
-      runCli: async () => {
-        throw new AgentSkillCliProcessError(
-          "CLI failed",
-          "",
-          JSON.stringify({
-            version: 1,
-            ok: false,
-            error: {
-              code: "SKILL_TARGET_CONFLICT",
-              message: "The target belongs to the user.",
-              path: targetPath,
-            },
-          }),
-        );
-      },
-      showMessageBox: messageBox([0], dialogs),
-    });
+  it.effect("shows structured CLI errors with the exact target path", () =>
+    Effect.gen(function* () {
+      const dialogs: MessageBoxOptions[] = [];
+      const targetPath = "/Users/test/.agents/skills/nodex";
+      const result = yield* runAgentSkillSetup({
+        cliPath: CLI_PATH,
+        runCli: () =>
+          Effect.fail(
+            new AgentSkillCliProcessError({
+              message: "CLI failed",
+              stdout: "",
+              stderr: JSON.stringify({
+                version: 1,
+                ok: false,
+                error: {
+                  code: "SKILL_TARGET_CONFLICT",
+                  message: "The target belongs to the user.",
+                  path: targetPath,
+                },
+              }),
+            }),
+          ),
+        showMessageBox: messageBox([0], dialogs),
+      });
 
-    expect(result.status).toBe("failed");
-    expect(dialogs).toHaveLength(1);
-    expect(dialogs[0]?.type).toBe("error");
-    expect(dialogs[0]?.detail).toContain(targetPath);
-    expect(dialogs[0]?.detail).toContain("SKILL_TARGET_CONFLICT");
-  });
+      expect(result.status).toBe("failed");
+      expect(dialogs).toHaveLength(1);
+      expect(dialogs[0]?.type).toBe("error");
+      expect(dialogs[0]?.detail).toContain(targetPath);
+      expect(dialogs[0]?.detail).toContain("SKILL_TARGET_CONFLICT");
+    }),
+  );
 });

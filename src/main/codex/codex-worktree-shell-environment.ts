@@ -5,7 +5,12 @@ import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { killChildProcessTree } from "../process-tree";
-import type { CodexStoredShellEnvironment } from "./codex-thread-launch-context";
+
+export interface CodexStoredShellEnvironment {
+  readonly version: 1;
+  readonly set: Readonly<Record<string, string>>;
+  readonly exclude: readonly string[];
+}
 
 const CODEX_SHELL_ENVIRONMENT_DELIMITER = "_SHELL_ENV_DELIMITER_";
 const CODEX_SHELL_ENVIRONMENT_COMMAND = [
@@ -21,8 +26,6 @@ const CODEX_INTERACTIVE_SHELL_ENVIRONMENT = {
   ZSH_TMUX_AUTOSTART: "false",
   ZSH_TMUX_AUTOSTARTED: "true",
 } as const;
-
-let cachedCodexLocalShellEnvironment: Promise<NodeJS.ProcessEnv> | null = null;
 
 const CODEX_VOLATILE_SETUP_ENVIRONMENT_KEYS = new Set([
   "CODEX_SOURCE_TREE_PATH",
@@ -114,6 +117,7 @@ export function parseCodexInteractiveShellEnvironment(output: string): Record<st
 function readCodexLoginShellEnvironment(input: {
   readonly shell: string;
   readonly baseEnvironment: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal;
 }): Promise<Record<string, string>> {
   return new Promise((resolve, reject) => {
     const child = spawn(input.shell, ["-ilc", CODEX_SHELL_ENVIRONMENT_COMMAND], {
@@ -127,6 +131,19 @@ function readCodexLoginShellEnvironment(input: {
     const stderrDecoder = new StringDecoder("utf8");
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const settle = (complete: () => void): void => {
+      if (settled) return;
+      settled = true;
+      input.signal?.removeEventListener("abort", onAbort);
+      complete();
+    };
+    const onAbort = (): void => {
+      killChildProcessTree(child, "SIGKILL");
+      settle(() => reject(new Error("Interactive login shell environment loading was canceled")));
+    };
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    if (input.signal?.aborted) onAbort();
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += stdoutDecoder.write(chunk);
@@ -134,21 +151,24 @@ function readCodexLoginShellEnvironment(input: {
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += stderrDecoder.write(chunk);
     });
-    child.on("error", reject);
+    child.on("error", (error) => settle(() => reject(error)));
     child.on("close", (code, signal) => {
       stdout += stdoutDecoder.end();
       stderr += stderrDecoder.end();
       if (code === 0 && signal === null) {
         try {
-          resolve(parseCodexInteractiveShellEnvironment(stdout));
+          const environment = parseCodexInteractiveShellEnvironment(stdout);
+          settle(() => resolve(environment));
         } catch (error) {
-          reject(error);
+          settle(() => reject(error));
         }
         return;
       }
-      reject(
-        new Error(
-          `Interactive login shell environment failed (${signal ?? `exit ${code ?? "unknown"}`}).${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
+      settle(() =>
+        reject(
+          new Error(
+            `Interactive login shell environment failed (${signal ?? `exit ${code ?? "unknown"}`}).${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
+          ),
         ),
       );
     });
@@ -158,6 +178,7 @@ function readCodexLoginShellEnvironment(input: {
 async function readCodexInteractiveShellEnvironment(
   baseEnvironment: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
+  signal?: AbortSignal,
 ): Promise<Record<string, string>> {
   const preferredShell = resolveCodexLoginShell(platform, baseEnvironment);
   const shells = [preferredShell, "/bin/zsh", "/bin/bash"].filter(
@@ -166,46 +187,49 @@ async function readCodexInteractiveShellEnvironment(
   let lastError: unknown = null;
 
   for (const shell of shells) {
+    signal?.throwIfAborted();
     try {
-      return await readCodexLoginShellEnvironment({ shell, baseEnvironment });
+      return await readCodexLoginShellEnvironment({ shell, baseEnvironment, signal });
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
     }
   }
   throw lastError ?? new Error("No interactive login shell is available");
 }
 
+export interface CodexLocalShellEnvironmentOptions {
+  readonly baseEnvironment?: NodeJS.ProcessEnv;
+  readonly loadInteractiveEnvironment?: (signal?: AbortSignal) => Promise<NodeJS.ProcessEnv>;
+  readonly onError?: (error: unknown) => void;
+  readonly platform?: NodeJS.Platform;
+}
+
 export async function loadCodexLocalShellEnvironment(
-  input: {
-    readonly baseEnvironment?: NodeJS.ProcessEnv;
-    readonly loadInteractiveEnvironment?: () => Promise<NodeJS.ProcessEnv>;
-    readonly onError?: (error: unknown) => void;
-    readonly platform?: NodeJS.Platform;
-  } = {},
+  input: CodexLocalShellEnvironmentOptions & { readonly signal?: AbortSignal } = {},
 ): Promise<NodeJS.ProcessEnv> {
   const baseEnvironment = input.baseEnvironment ?? process.env;
   const platform = input.platform ?? process.platform;
+  input.signal?.throwIfAborted();
   if (platform === "win32") return compactProcessEnvironment(baseEnvironment);
 
   const load = async (): Promise<NodeJS.ProcessEnv> => {
     try {
-      const interactiveEnvironment = await (input.loadInteractiveEnvironment?.() ??
-        readCodexInteractiveShellEnvironment(baseEnvironment, platform));
+      const interactiveEnvironment = await (input.loadInteractiveEnvironment?.(input.signal) ??
+        readCodexInteractiveShellEnvironment(baseEnvironment, platform, input.signal));
+      input.signal?.throwIfAborted();
       return withoutCodexShellEnvironment({
         ...baseEnvironment,
         ...interactiveEnvironment,
       });
     } catch (error) {
+      input.signal?.throwIfAborted();
       input.onError?.(error);
       return withoutCodexShellEnvironment(baseEnvironment);
     }
   };
 
-  if (input.baseEnvironment || input.loadInteractiveEnvironment || input.platform) {
-    return await load();
-  }
-  cachedCodexLocalShellEnvironment ??= load();
-  return await cachedCodexLocalShellEnvironment;
+  return await load();
 }
 
 /** Exact `L0`: parse newline-delimited `env` output, retaining the final duplicate. */
@@ -573,7 +597,22 @@ export async function persistCodexWorktreeShellEnvironment(input: {
   if (!gitPath) {
     throw new Error("No git repository found for worktree shell environment");
   }
-  const configPath = path.isAbsolute(gitPath) ? gitPath : path.resolve(input.cwd, gitPath);
+  await persistCodexWorktreeShellEnvironmentAtGitPath({
+    cwd: input.cwd,
+    gitPath,
+    shellEnvironment: input.shellEnvironment,
+  });
+}
+
+/** Filesystem adapter after application code has resolved the repository-relative Git path. */
+export async function persistCodexWorktreeShellEnvironmentAtGitPath(input: {
+  readonly cwd: string;
+  readonly gitPath: string;
+  readonly shellEnvironment: CodexStoredShellEnvironment | null;
+}): Promise<void> {
+  const configPath = path.isAbsolute(input.gitPath)
+    ? input.gitPath
+    : path.resolve(input.cwd, input.gitPath);
   if (input.shellEnvironment === null) {
     await rm(configPath, { force: true });
     return;

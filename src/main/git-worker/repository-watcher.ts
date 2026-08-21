@@ -1,5 +1,13 @@
 import path from "node:path";
-import type { FileWatchHost, FileWatchSession } from "../file-watch-host";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as FiberMap from "effect/FiberMap";
+import * as Queue from "effect/Queue";
+import * as Semaphore from "effect/Semaphore";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import type { FileWatchHost } from "../file-watch-host";
 import { getLogger } from "../logging/logger";
 
 export const GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS = 1_000;
@@ -22,6 +30,16 @@ export type GitReviewRepositoryChange =
   | "synced-branch"
   | "worktree-topology";
 
+const CHANGE_TYPES = [
+  "config",
+  "head",
+  "index",
+  "remote-refs",
+  "working-tree",
+  "synced-branch",
+  "worktree-topology",
+] as const satisfies readonly GitReviewRepositoryChange[];
+
 export interface GitReviewWatchRoots {
   readonly root: string;
   readonly gitDir: string;
@@ -37,16 +55,19 @@ export interface GitReviewRepositoryChangedEvent {
 }
 
 export interface GitReviewRepositoryWatcher {
-  readonly requiresRecovery: boolean;
-  start(): Promise<void>;
-  dispose(): void;
+  readonly recover: Effect.Effect<void>;
+  readonly requiresRecovery: Effect.Effect<boolean>;
 }
 
 export interface GitReviewRepositoryWatcherOptions {
   readonly roots: GitReviewWatchRoots;
   readonly host: FileWatchHost;
-  readonly onChange: (event: GitReviewRepositoryChangedEvent) => void | Promise<void>;
-  readonly onRequiresRecoveryChanged?: (requiresRecovery: boolean) => void;
+  readonly onChange: (
+    event: GitReviewRepositoryChangedEvent,
+  ) => Effect.Effect<void, never, Scope.Scope>;
+  readonly onRequiresRecoveryChanged?: (
+    requiresRecovery: boolean,
+  ) => Effect.Effect<void, never, Scope.Scope>;
 }
 
 interface WatchTarget {
@@ -55,9 +76,20 @@ interface WatchTarget {
   readonly recursive: boolean;
   readonly shouldHandleChangedPath: (changedPath: string) => boolean;
   readonly watchPath: string;
-  retryTimer: ReturnType<typeof setTimeout> | null;
-  session: FileWatchSession | null;
-  sessionStartPromise: Promise<void> | null;
+}
+
+interface WatchTargetState {
+  available: boolean;
+  recursiveCoverage: boolean;
+  attempted: boolean;
+  readonly firstAttempt: Deferred.Deferred<void>;
+  readonly recoveryWaiters: Set<Deferred.Deferred<void>>;
+  readonly retryWake: Queue.Queue<void>;
+}
+
+interface ChangeState {
+  active: boolean;
+  pending: boolean;
 }
 
 function isPathInside(directory: string, candidate: string): boolean {
@@ -80,363 +112,340 @@ function isWorktreeTopologyPath(worktreesDirectory: string, candidate: string): 
   return parts.length === 1 || (parts.length === 2 && WORKTREE_TOPOLOGY_FILES.has(parts[1] ?? ""));
 }
 
-export function shouldRefreshGitReviewSummary(change: GitReviewRepositoryChange): boolean {
-  return (
-    change === "config" ||
-    change === "head" ||
-    change === "index" ||
-    change === "remote-refs" ||
-    change === "working-tree"
-  );
-}
-
-export class NodeGitReviewRepositoryWatcher implements GitReviewRepositoryWatcher {
-  private readonly watchTargets: WatchTarget[] = [];
-  private readonly pendingChangeCounts: Record<GitReviewRepositoryChange, number> = {
-    config: 0,
-    head: 0,
-    index: 0,
-    "remote-refs": 0,
-    "synced-branch": 0,
-    "worktree-topology": 0,
-    "working-tree": 0,
-  };
-  private readonly changeTimers = new Map<
-    GitReviewRepositoryChange,
-    ReturnType<typeof setTimeout>
-  >();
-  private readonly activeChangeEmissions = new Set<GitReviewRepositoryChange>();
-  private pendingWorkingTreePaths: Set<string> | null = new Set();
-  private lastRequiresRecovery: boolean | null = null;
-  private disposed = false;
-
-  constructor(private readonly options: GitReviewRepositoryWatcherOptions) {}
-
-  get requiresRecovery(): boolean {
-    return this.watchTargets.some(
-      (target) =>
-        target.session === null || (target.recursive && !target.session.coverage.recursive),
-    );
-  }
-
-  async start(): Promise<void> {
-    if (this.disposed) return;
-    if (this.watchTargets.length > 0) {
-      await Promise.all(
-        this.watchTargets.map(async (target) => {
-          if (target.session !== null) return;
-          await this.tryStartWatchSession(target, true);
-        }),
-      );
-      return;
-    }
-
-    const { commonDir, gitDir, headPath, indexPath, root, syncedBranchPath } = this.options.roots;
-    await this.tryWatchFile(headPath, "head");
-
-    const commonHeadPath = path.join(commonDir, "HEAD");
-    if (commonHeadPath !== headPath) {
-      await this.tryWatchFile(commonHeadPath, "head");
-    }
-
-    await this.tryWatchFile(indexPath, "index");
-    await this.tryWatchFile(path.join(commonDir, "FETCH_HEAD"), "remote-refs");
-    await this.tryWatchFile(path.join(commonDir, "packed-refs"), "remote-refs");
-
-    const localHeadsDirectory = path.join(commonDir, "refs", "heads");
-    await this.tryWatchDirectory(localHeadsDirectory, "head", (changedPath) =>
-      isUnlockedPath(localHeadsDirectory, changedPath),
-    );
-
-    const refsDirectory = path.join(commonDir, "refs");
-    const remoteRefsDirectory = path.join(refsDirectory, "remotes");
-    await this.tryWatchDirectory(refsDirectory, "remote-refs", (changedPath) =>
-      isUnlockedPath(remoteRefsDirectory, changedPath),
-    );
-
-    await this.tryWatchFile(path.join(commonDir, "config"), "config");
-    const infoDirectory = path.join(commonDir, "info");
-    const excludePath = path.join(infoDirectory, "exclude");
-    const attributesPath = path.join(infoDirectory, "attributes");
-    await this.tryWatchDirectory(
-      infoDirectory,
-      "config",
-      (changedPath) => changedPath === excludePath || changedPath === attributesPath,
-    );
-
-    await this.tryWatchFile(path.join(gitDir, "config.worktree"), "config");
-    await this.tryWatchFile(syncedBranchPath, "synced-branch");
-
-    const worktreesDirectory = path.join(commonDir, "worktrees");
-    await this.tryWatchDirectory(commonDir, "worktree-topology", (changedPath) =>
-      isWorktreeTopologyPath(worktreesDirectory, changedPath),
-    );
-    await this.tryWatchDirectory(
-      root,
-      "working-tree",
-      (changedPath) => !this.isGitInternalPath(changedPath),
-    );
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    for (const target of this.watchTargets) this.disposeWatchTarget(target);
-    this.watchTargets.length = 0;
-    for (const timer of this.changeTimers.values()) clearTimeout(timer);
-    this.changeTimers.clear();
-  }
-
-  private async tryWatchFile(
-    targetPath: string,
-    changeType: GitReviewRepositoryChange,
-  ): Promise<void> {
-    const target: WatchTarget = {
+function watchTargets(roots: GitReviewWatchRoots): readonly WatchTarget[] {
+  const { commonDir, gitDir, headPath, indexPath, root, syncedBranchPath } = roots;
+  const targets: WatchTarget[] = [];
+  const file = (targetPath: string, changeType: GitReviewRepositoryChange) => {
+    targets.push({
       changeType,
       path: targetPath,
       recursive: false,
-      retryTimer: null,
-      session: null,
-      sessionStartPromise: null,
       shouldHandleChangedPath: (changedPath) => changedPath === targetPath,
       watchPath: path.dirname(targetPath),
-    };
-    this.watchTargets.push(target);
-    await this.tryStartWatchSession(target, false);
-  }
-
-  private async tryWatchDirectory(
+    });
+  };
+  const directory = (
     targetPath: string,
     changeType: GitReviewRepositoryChange,
     shouldHandleChangedPath: (changedPath: string) => boolean,
-  ): Promise<void> {
-    const target: WatchTarget = {
+  ) => {
+    targets.push({
       changeType,
       path: targetPath,
       recursive: true,
-      retryTimer: null,
-      session: null,
-      sessionStartPromise: null,
       shouldHandleChangedPath,
       watchPath: targetPath,
-    };
-    this.watchTargets.push(target);
-    await this.tryStartWatchSession(target, false);
-  }
-
-  private async tryStartWatchSession(target: WatchTarget, isRetry: boolean): Promise<void> {
-    if (this.disposed || target.retryTimer !== null) return;
-    if (target.sessionStartPromise !== null) {
-      await target.sessionStartPromise;
-      if (isRetry && !this.disposed && target.session === null) {
-        this.scheduleWatchSessionRetry(target);
-      }
-      return;
-    }
-
-    const startPromise = this.startWatchSession(target, isRetry);
-    target.sessionStartPromise = startPromise;
-    try {
-      await startPromise;
-    } finally {
-      if (target.sessionStartPromise === startPromise) {
-        target.sessionStartPromise = null;
-      }
-    }
-  }
-
-  private async startWatchSession(target: WatchTarget, isRetry: boolean): Promise<void> {
-    try {
-      const workingTree = target.changeType === "working-tree";
-      const session = await this.options.host.startFileWatch({
-        path: target.watchPath,
-        recursive: target.recursive,
-        renameEventHandling: workingTree ? "changed-path-with-parent-directory" : "changed-path",
-        onChange: ({ changedPaths }) => {
-          const acceptedPaths = changedPaths.flatMap((changedPath) => {
-            if (!target.shouldHandleChangedPath(changedPath)) return [];
-            if (!workingTree) return [changedPath];
-            const affectedPath = this.getAffectedWorkingTreePath(changedPath);
-            return affectedPath === null ? [] : [affectedPath];
-          });
-          if (changedPaths.length > 0 && acceptedPaths.length === 0) return;
-          const includesRoot = workingTree && acceptedPaths.includes(this.options.roots.root);
-          this.handleFileWatchEvent(
-            target,
-            changedPaths.length === 0 || includesRoot ? undefined : acceptedPaths,
-          );
-        },
-      });
-
-      if (this.disposed || !this.watchTargets.includes(target)) {
-        await session.dispose();
-        return;
-      }
-
-      target.session = session;
-      this.updateRequiresRecovery();
-      void session.closed.then((closed) => {
-        if (this.disposed || target.session !== session || !this.watchTargets.includes(target))
-          return;
-        if (closed.reason === "watch-error") {
-          logger.warn("Git repository watcher session failed", {
-            path: target.path,
-            error: closed.error,
-          });
-        }
-        target.session = null;
-        this.updateRequiresRecovery();
-        void this.tryStartWatchSession(target, true);
-      });
-
-      if (isRetry) this.handleFileWatchEvent(target);
-    } catch (error) {
-      logger.warn("Could not watch Git repository path", {
-        path: target.path,
-        error,
-      });
-      if (this.disposed) return;
-      this.updateRequiresRecovery();
-      this.scheduleWatchSessionRetry(target);
-    }
-  }
-
-  private scheduleWatchSessionRetry(target: WatchTarget): void {
-    if (this.disposed || target.retryTimer !== null) return;
-    target.retryTimer = setTimeout(() => {
-      target.retryTimer = null;
-      if (this.disposed || target.session !== null) return;
-      void this.tryStartWatchSession(target, true);
-    }, GIT_REVIEW_WATCH_RETRY_MS);
-  }
-
-  private updateRequiresRecovery(): void {
-    const next = this.requiresRecovery;
-    if (this.lastRequiresRecovery === next) return;
-    this.lastRequiresRecovery = next;
-    this.options.onRequiresRecoveryChanged?.(next);
-  }
-
-  private handleFileWatchEvent(target: WatchTarget, changedPaths?: readonly string[]): void {
-    this.pendingChangeCounts[target.changeType] += 1;
-    if (target.changeType === "working-tree") {
-      if (changedPaths === undefined) {
-        this.pendingWorkingTreePaths = null;
-      } else if (this.pendingWorkingTreePaths !== null) {
-        for (const changedPath of changedPaths) {
-          this.addPendingWorkingTreePath(changedPath);
-          if (this.pendingWorkingTreePaths === null) break;
-        }
-      }
-    }
-    this.scheduleRepositoryChange(target.changeType);
-  }
-
-  private addPendingWorkingTreePath(changedPath: string): void {
-    const pendingPaths = this.pendingWorkingTreePaths;
-    if (pendingPaths === null) return;
-    if ([...pendingPaths].some((existingPath) => isPathInside(existingPath, changedPath))) return;
-
-    for (const existingPath of pendingPaths) {
-      if (isPathInside(changedPath, existingPath)) {
-        pendingPaths.delete(existingPath);
-      }
-    }
-    pendingPaths.add(changedPath);
-    if (pendingPaths.size <= GIT_REVIEW_MAX_WORKING_TREE_PATHS) return;
-
-    const topLevelPaths = new Set<string>();
-    for (const pendingPath of pendingPaths) {
-      const relative = path.relative(this.options.roots.root, pendingPath);
-      if (
-        relative === "" ||
-        relative === ".." ||
-        relative.startsWith(`..${path.sep}`) ||
-        path.isAbsolute(relative)
-      ) {
-        this.pendingWorkingTreePaths = null;
-        return;
-      }
-      const [topLevelName] = relative.split(path.sep, 1);
-      if (!topLevelName) {
-        this.pendingWorkingTreePaths = null;
-        return;
-      }
-      topLevelPaths.add(path.join(this.options.roots.root, topLevelName));
-      if (topLevelPaths.size > GIT_REVIEW_MAX_WORKING_TREE_PATHS) {
-        this.pendingWorkingTreePaths = null;
-        return;
-      }
-    }
-    this.pendingWorkingTreePaths = topLevelPaths;
-  }
-
-  private scheduleRepositoryChange(changeType: GitReviewRepositoryChange): void {
-    if (
-      this.disposed ||
-      this.activeChangeEmissions.has(changeType) ||
-      this.changeTimers.has(changeType)
-    )
-      return;
-
-    const timer = setTimeout(() => {
-      this.changeTimers.delete(changeType);
-      void this.emitRepositoryChange(changeType);
-    }, GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
-    this.changeTimers.set(changeType, timer);
-  }
-
-  private async emitRepositoryChange(changeType: GitReviewRepositoryChange): Promise<void> {
-    this.activeChangeEmissions.add(changeType);
-    this.pendingChangeCounts[changeType] = 0;
-    const changedPaths =
-      changeType === "working-tree" && this.pendingWorkingTreePaths !== null
-        ? [...this.pendingWorkingTreePaths]
-        : undefined;
-    if (changeType === "working-tree") {
-      this.pendingWorkingTreePaths = new Set();
-    }
-
-    try {
-      await this.options.onChange({
-        changeType,
-        ...(changedPaths === undefined ? {} : { changedPaths }),
-      });
-    } finally {
-      this.activeChangeEmissions.delete(changeType);
-      if (this.pendingChangeCounts[changeType] > 0) {
-        this.scheduleRepositoryChange(changeType);
-      }
-    }
-  }
-
-  private isGitInternalPath(changedPath: string): boolean {
-    return (
-      isPathInside(this.options.roots.commonDir, changedPath) ||
-      isPathInside(path.join(this.options.roots.root, ".git"), changedPath)
-    );
-  }
-
-  private getAffectedWorkingTreePath(changedPath: string): string | null {
-    const relativeParts = path.relative(this.options.roots.root, changedPath).split(path.sep);
-    const gitPartIndex = relativeParts.indexOf(".git");
-    if (gitPartIndex < 1) return changedPath;
-    const metadataName = relativeParts[gitPartIndex + 1];
-    if (metadataName !== "HEAD" && metadataName !== "packed-refs" && metadataName !== "refs")
-      return null;
-    return path.join(this.options.roots.root, ...relativeParts.slice(0, gitPartIndex));
-  }
-
-  private disposeWatchTarget(target: WatchTarget): void {
-    if (target.retryTimer !== null) {
-      clearTimeout(target.retryTimer);
-      target.retryTimer = null;
-    }
-    const session = target.session;
-    target.session = null;
-    target.sessionStartPromise = null;
-    void session?.dispose().catch((error) => {
-      logger.warn("Could not dispose Git repository watcher session", { error });
     });
-  }
+  };
+
+  file(headPath, "head");
+  const commonHeadPath = path.join(commonDir, "HEAD");
+  if (commonHeadPath !== headPath) file(commonHeadPath, "head");
+  file(indexPath, "index");
+  file(path.join(commonDir, "FETCH_HEAD"), "remote-refs");
+  file(path.join(commonDir, "packed-refs"), "remote-refs");
+
+  const localHeadsDirectory = path.join(commonDir, "refs", "heads");
+  directory(localHeadsDirectory, "head", (changedPath) =>
+    isUnlockedPath(localHeadsDirectory, changedPath),
+  );
+
+  const refsDirectory = path.join(commonDir, "refs");
+  const remoteRefsDirectory = path.join(refsDirectory, "remotes");
+  directory(refsDirectory, "remote-refs", (changedPath) =>
+    isUnlockedPath(remoteRefsDirectory, changedPath),
+  );
+
+  file(path.join(commonDir, "config"), "config");
+  const infoDirectory = path.join(commonDir, "info");
+  const excludePath = path.join(infoDirectory, "exclude");
+  const attributesPath = path.join(infoDirectory, "attributes");
+  directory(
+    infoDirectory,
+    "config",
+    (changedPath) => changedPath === excludePath || changedPath === attributesPath,
+  );
+
+  file(path.join(gitDir, "config.worktree"), "config");
+  file(syncedBranchPath, "synced-branch");
+
+  const worktreesDirectory = path.join(commonDir, "worktrees");
+  directory(commonDir, "worktree-topology", (changedPath) =>
+    isWorktreeTopologyPath(worktreesDirectory, changedPath),
+  );
+  directory(
+    root,
+    "working-tree",
+    (changedPath) =>
+      !isPathInside(commonDir, changedPath) && !isPathInside(path.join(root, ".git"), changedPath),
+  );
+  return targets;
 }
+
+function affectedWorkingTreePath(roots: GitReviewWatchRoots, changedPath: string): string | null {
+  const relativeParts = path.relative(roots.root, changedPath).split(path.sep);
+  const gitPartIndex = relativeParts.indexOf(".git");
+  if (gitPartIndex < 1) return changedPath;
+  const metadataName = relativeParts[gitPartIndex + 1];
+  if (metadataName !== "HEAD" && metadataName !== "packed-refs" && metadataName !== "refs") {
+    return null;
+  }
+  return path.join(roots.root, ...relativeParts.slice(0, gitPartIndex));
+}
+
+function addPendingWorkingTreePath(
+  roots: GitReviewWatchRoots,
+  pendingPaths: Set<string> | null,
+  changedPath: string,
+): Set<string> | null {
+  if (pendingPaths === null) return null;
+  if ([...pendingPaths].some((existingPath) => isPathInside(existingPath, changedPath))) {
+    return pendingPaths;
+  }
+
+  for (const existingPath of pendingPaths) {
+    if (isPathInside(changedPath, existingPath)) pendingPaths.delete(existingPath);
+  }
+  pendingPaths.add(changedPath);
+  if (pendingPaths.size <= GIT_REVIEW_MAX_WORKING_TREE_PATHS) return pendingPaths;
+
+  const topLevelPaths = new Set<string>();
+  for (const pendingPath of pendingPaths) {
+    const relative = path.relative(roots.root, pendingPath);
+    if (
+      relative === "" ||
+      relative === ".." ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    ) {
+      return null;
+    }
+    const [topLevelName] = relative.split(path.sep, 1);
+    if (!topLevelName) return null;
+    topLevelPaths.add(path.join(roots.root, topLevelName));
+    if (topLevelPaths.size > GIT_REVIEW_MAX_WORKING_TREE_PATHS) return null;
+  }
+  return topLevelPaths;
+}
+
+function logWatchFailure(message: string, details: Record<string, unknown>): void {
+  logger.warn(message, details);
+}
+
+/** Acquires every native watch target and owns its retry and emission fibers in one Scope. */
+export const makeGitReviewRepositoryWatcher = (
+  options: GitReviewRepositoryWatcherOptions,
+): Effect.Effect<GitReviewRepositoryWatcher, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const changeFibers = yield* FiberMap.make<GitReviewRepositoryChange>();
+    const recoveryLock = yield* Semaphore.make(1);
+    const targets = watchTargets(options.roots);
+    const states = new Map<WatchTarget, WatchTargetState>();
+    const changeStates = new Map<GitReviewRepositoryChange, ChangeState>();
+    let lastRequiresRecovery: boolean | null = null;
+    let pendingWorkingTreePaths: Set<string> | null = new Set();
+
+    for (const changeType of CHANGE_TYPES) {
+      changeStates.set(changeType, { active: false, pending: false });
+    }
+    for (const target of targets) {
+      states.set(target, {
+        available: false,
+        recursiveCoverage: false,
+        attempted: false,
+        firstAttempt: yield* Deferred.make<void>(),
+        recoveryWaiters: new Set(),
+        retryWake: yield* Queue.sliding<void>(1),
+      });
+    }
+
+    const requiresRecovery = () =>
+      [...states.entries()].some(
+        ([target, state]) => !state.available || (target.recursive && !state.recursiveCoverage),
+      );
+    const updateRequiresRecovery = Effect.fn("GitReviewRepositoryWatcher.updateRequiresRecovery")(
+      function* () {
+        const next = requiresRecovery();
+        if (lastRequiresRecovery === next) return;
+        lastRequiresRecovery = next;
+        if (options.onRequiresRecoveryChanged) {
+          yield* options.onRequiresRecoveryChanged(next);
+        }
+      },
+    );
+    const settleRecovery = (state: WatchTargetState) => {
+      const waiters = [...state.recoveryWaiters];
+      state.recoveryWaiters.clear();
+      return Effect.forEach(waiters, (waiter) => Deferred.succeed(waiter, undefined), {
+        discard: true,
+      });
+    };
+    const signalChange = Effect.fn("GitReviewRepositoryWatcher.signalChange")(function* (
+      target: WatchTarget,
+      changedPaths?: readonly string[],
+    ) {
+      if (target.changeType === "working-tree") {
+        if (changedPaths === undefined) {
+          pendingWorkingTreePaths = null;
+        } else if (pendingWorkingTreePaths !== null) {
+          for (const changedPath of changedPaths) {
+            pendingWorkingTreePaths = addPendingWorkingTreePath(
+              options.roots,
+              pendingWorkingTreePaths,
+              changedPath,
+            );
+            if (pendingWorkingTreePaths === null) break;
+          }
+        }
+      }
+      const changeType = target.changeType;
+      const state = changeStates.get(changeType);
+      if (!state) return;
+      state.pending = true;
+      if (state.active) return;
+      state.active = true;
+      yield* FiberMap.run(
+        changeFibers,
+        changeType,
+        Effect.gen(function* () {
+          while (true) {
+            yield* Effect.sleep(Duration.millis(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS));
+            state.pending = false;
+            const event = yield* Effect.sync((): GitReviewRepositoryChangedEvent => {
+              const changedPaths =
+                changeType === "working-tree" && pendingWorkingTreePaths !== null
+                  ? [...pendingWorkingTreePaths]
+                  : undefined;
+              if (changeType === "working-tree") pendingWorkingTreePaths = new Set();
+              return {
+                changeType,
+                ...(changedPaths === undefined ? {} : { changedPaths }),
+              };
+            });
+            yield* options.onChange(event).pipe(
+              Effect.catchCause((cause) =>
+                Effect.sync(() =>
+                  logWatchFailure("Could not publish Git repository change", {
+                    changeType,
+                    cause,
+                  }),
+                ),
+              ),
+            );
+            if (state.pending) continue;
+            state.active = false;
+            return;
+          }
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              state.active = false;
+            }),
+          ),
+        ),
+        { onlyIfMissing: true, startImmediately: true },
+      );
+    });
+
+    for (const target of targets) {
+      const state = states.get(target);
+      if (!state) continue;
+      yield* Effect.forever(
+        Effect.gen(function* () {
+          yield* options.host
+            .watch({
+              path: target.watchPath,
+              recursive: target.recursive,
+              renameEventHandling:
+                target.changeType === "working-tree"
+                  ? "changed-path-with-parent-directory"
+                  : "changed-path",
+            })
+            .pipe(
+              Stream.runForEach((event) => {
+                if (event._tag === "Ready") {
+                  return Effect.gen(function* () {
+                    const recovering = state.attempted;
+                    state.available = true;
+                    state.recursiveCoverage = event.coverage.recursive;
+                    if (!state.attempted) {
+                      state.attempted = true;
+                      yield* Deferred.succeed(state.firstAttempt, undefined);
+                    }
+                    yield* settleRecovery(state);
+                    yield* updateRequiresRecovery();
+                    if (recovering) yield* signalChange(target);
+                  });
+                }
+
+                const acceptedPaths = event.changedPaths.flatMap((changedPath) => {
+                  if (!target.shouldHandleChangedPath(changedPath)) return [];
+                  if (target.changeType !== "working-tree") return [changedPath];
+                  const affectedPath = affectedWorkingTreePath(options.roots, changedPath);
+                  return affectedPath === null ? [] : [affectedPath];
+                });
+                if (event.changedPaths.length > 0 && acceptedPaths.length === 0) {
+                  return Effect.void;
+                }
+                const includesRoot =
+                  target.changeType === "working-tree" &&
+                  acceptedPaths.includes(options.roots.root);
+                return signalChange(
+                  target,
+                  event.changedPaths.length === 0 || includesRoot ? undefined : acceptedPaths,
+                );
+              }),
+            );
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              const wasAvailable = state.available;
+              state.available = false;
+              state.recursiveCoverage = false;
+              if (!state.attempted) {
+                state.attempted = true;
+                yield* Deferred.succeed(state.firstAttempt, undefined);
+              }
+              yield* settleRecovery(state);
+              yield* updateRequiresRecovery();
+              logWatchFailure("Could not watch Git repository path", {
+                path: target.path,
+                error,
+              });
+              if (wasAvailable) return;
+              yield* Effect.raceFirst(
+                Effect.sleep(Duration.millis(GIT_REVIEW_WATCH_RETRY_MS)),
+                Queue.take(state.retryWake),
+              );
+            }),
+          ),
+        ),
+      ).pipe(Effect.forkScoped({ startImmediately: true }));
+    }
+
+    yield* Effect.forEach(states.values(), (state) => Deferred.await(state.firstAttempt), {
+      concurrency: "unbounded",
+      discard: true,
+    });
+
+    return {
+      requiresRecovery: Effect.sync(requiresRecovery),
+      recover: recoveryLock.withPermits(1)(
+        Effect.gen(function* () {
+          const waiters: Deferred.Deferred<void>[] = [];
+          for (const state of states.values()) {
+            if (state.available) continue;
+            const waiter = yield* Deferred.make<void>();
+            if (state.available) continue;
+            state.recoveryWaiters.add(waiter);
+            waiters.push(waiter);
+            yield* Queue.offer(state.retryWake, undefined);
+          }
+          yield* Effect.forEach(waiters, Deferred.await, {
+            concurrency: "unbounded",
+            discard: true,
+          });
+        }),
+      ),
+    };
+  });

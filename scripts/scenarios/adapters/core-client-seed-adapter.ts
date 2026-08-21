@@ -1,10 +1,9 @@
 import {
   createCoreDocumentSyncAdapter,
   createCoreLibraryModuleAdapter,
-  createCoreProjectWorkspaceAdapter,
-  createDesktopDatabaseModuleBridge,
   type RustDataAuthorityRuntime,
 } from "../../../src/main/core-client";
+import * as Effect from "effect/Effect";
 import { compilePageLifecycleRequestV2 } from "../../../src/shared/page-lifecycle-v2-runtime";
 import type { Project, ProjectCreateInput } from "../../../src/shared/types";
 import { createUuidV7 } from "../../../src/shared/uuid-v7";
@@ -19,7 +18,13 @@ import { normalizeScenarioBoardGroups } from "./normalize-board-groups";
 import {
   ensurePrimaryDataSourcePropertyCount,
   readPrimaryDataSourcePropertyCount,
+  type ScenarioDatabasePort,
 } from "../seed/primary-data-source-properties";
+import {
+  runScenarioDatabase,
+  runScenarioLibrary,
+  runScenarioProjectWorkspace,
+} from "./core-client-seed-runtime";
 
 const requireSuccess = <Value>(
   result:
@@ -36,23 +41,19 @@ const requireSuccess = <Value>(
 
 export class CoreClientSeedAdapter implements ScenarioSeedPort {
   readonly #runtime: RustDataAuthorityRuntime;
-  readonly #workspace;
-  readonly #database;
   readonly #libraryIdsByProject = new Map<string, string>();
   #bootstrap: Promise<void> | null = null;
 
   constructor(runtime: RustDataAuthorityRuntime) {
     this.#runtime = runtime;
-    this.#workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);
-    this.#database = createDesktopDatabaseModuleBridge({
-      authority: Promise.resolve(runtime),
-    });
   }
 
   async createProject(input: ProjectCreateInput): Promise<Project> {
     this.#bootstrap ??= this.#ensureInitialProject(input.sources?.[0]);
     await this.#bootstrap;
-    const project = await this.#workspace.createProject(input);
+    const project = await runScenarioProjectWorkspace(this.#runtime, (workspace) =>
+      workspace.createProject(input),
+    );
     this.#libraryIdsByProject.set(project.id, project.libraryId);
     return project;
   }
@@ -85,11 +86,11 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     projectId: string,
     count: number,
   ): Promise<{ readonly commitSeq: number; readonly propertyCount: number }> {
-    return await ensurePrimaryDataSourcePropertyCount(this.#database, projectId, count);
+    return await ensurePrimaryDataSourcePropertyCount(this.#databasePort(), projectId, count);
   }
 
   async readPrimaryDataSourcePropertyCount(projectId: string): Promise<number> {
-    return await readPrimaryDataSourcePropertyCount(this.#database, projectId);
+    return await readPrimaryDataSourcePropertyCount(this.#databasePort(), projectId);
   }
 
   async replaceOwnedDocument(
@@ -129,7 +130,9 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     minimumCommitSeq?: number,
   ): Promise<ScenarioPageObservation> {
     const detail = requireSuccess(
-      await this.#library(projectId).readProjectPageDetail(projectId, pageId, minimumCommitSeq),
+      await runScenarioLibrary(this.#runtime, (library) =>
+        library.readProjectPageDetail(projectId, pageId, minimumCommitSeq),
+      ),
       `Read ${pageId}`,
     );
     return {
@@ -146,10 +149,15 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     databaseViewId: string,
     minimumCommitSeq?: number,
   ): Promise<ScenarioBoardObservation> {
-    const snapshot = await this.#database.getDatabaseViewGroups(projectId, {
-      databaseViewId,
-      ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
-    });
+    const snapshot = await runScenarioDatabase(this.#runtime, (database) =>
+      database.viewGroups(
+        { kind: "project", projectId },
+        {
+          databaseViewId,
+          ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
+        },
+      ),
+    );
     const groups = normalizeScenarioBoardGroups(snapshot);
     return { totalRows: snapshot.totalRows, commitSeq: snapshot.commitSeq, groups };
   }
@@ -167,22 +175,34 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     });
   }
 
+  #databasePort(): ScenarioDatabasePort {
+    return {
+      read: (request) => runScenarioDatabase(this.#runtime, (database) => database.read(request)),
+      apply: (request) => runScenarioDatabase(this.#runtime, (database) => database.apply(request)),
+    };
+  }
+
   async #ensureInitialProject(sourceRoot?: string): Promise<void> {
-    const bootstrap = await this.#workspace.readProjectBootstrap();
-    if (bootstrap.status === "ready") return;
-    const projectId = createUuidV7();
-    await this.#workspace.createInitialProject({
-      operationId: createUuidV7(),
-      projectId,
-      name: "Scenario Bootstrap",
-      description: "",
-      sources: sourceRoot ? [sourceRoot] : [],
-      starterPage: {
-        pageId: createUuidV7(),
-        documentId: createUuidV7(),
-        titleMarkdown: "Scenario Bootstrap",
-        nfm: "Scenario bootstrap authority.",
-      },
-    });
+    await runScenarioProjectWorkspace(
+      this.#runtime,
+      Effect.fn("CoreClientSeedAdapter.ensureInitialProject")(function* (workspace) {
+        const bootstrap = yield* workspace.readProjectBootstrap;
+        if (bootstrap.status === "ready") return;
+        const projectId = createUuidV7();
+        yield* workspace.createInitialProject({
+          operationId: createUuidV7(),
+          projectId,
+          name: "Scenario Bootstrap",
+          description: "",
+          sources: sourceRoot ? [sourceRoot] : [],
+          starterPage: {
+            pageId: createUuidV7(),
+            documentId: createUuidV7(),
+            titleMarkdown: "Scenario Bootstrap",
+            nfm: "Scenario bootstrap authority.",
+          },
+        });
+      }),
+    );
   }
 }

@@ -45,10 +45,10 @@ import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contr
 import { decodeOwnedDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
 import { documentBytesToBase64 } from "../../shared/block-documents/http-wire";
 import type {
+  DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
-  DocumentSyncAdapter,
   DocumentSyncCommandError,
   DocumentSyncCommandResult,
   DocumentUpdateResourceReadResult,
@@ -60,35 +60,16 @@ import type {
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
 import { applyResultCursor, applyResultStoreEpoch, rendererLocalCommitApply } from "./types";
-import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
-import {
-  superviseDocumentLiveStream,
-  type SupervisedDocumentLiveSubscription,
-} from "./document-live-stream-supervisor";
-import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
   resolveAuthorizedDocumentEffect,
   type ExactDocumentUpdateFetcher,
 } from "./document-effect-delivery";
-import type {
-  CoreClientPort,
-  CoreEventEnvelope,
-  DocumentLiveRepair,
-  OwnedDocumentIntent,
-} from "./types";
+import type { CoreClientPort, CoreEventEnvelope, OwnedDocumentIntent } from "./types";
 
 type CoreDocumentOwnerCommand = Extract<
   OwnedDocumentIntent,
   { readonly kind: "apply_owner_command" }
 >["command"];
-
-type ActiveSubscription = SupervisedDocumentLiveSubscription;
-
-interface CoreDocumentSyncAdapterOptions {
-  readonly retryDelayMs?: number;
-  readonly maxRetryDelayMs?: number;
-  readonly maxInitialOpenAttempts?: number;
-}
 
 class DocumentUpdateResourceIntegrityError extends Error {}
 
@@ -122,11 +103,14 @@ const decodeCoreOwnedDocumentDescriptor = (
   );
 };
 
-export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
-  subscribeWithLifecycle(
-    request: DocumentSyncSubscribeRequest,
-    listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedDocumentLiveSubscription;
+export interface CoreDocumentSyncAdapter {
+  sync(request: DocumentSyncRequest): Promise<DocumentSyncCommandResult<DocumentSyncResponse>>;
+  applyUpdate(
+    request: DocumentSyncApplyRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
+  publishAwareness(
+    request: DocumentAwarenessPublishRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
   readDescriptor(input: {
     readonly ownerBlockId: string;
     readonly clientSessionId: string;
@@ -629,41 +613,17 @@ const assertHistoryScope = (
   );
 };
 
-const subscriptionKey = (
-  request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
-): string => JSON.stringify([request.clientSessionId, request.documentId]);
-
-export const createCoreDocumentSyncAdapter = (
-  client: CoreClientPort,
-  options: CoreDocumentSyncAdapterOptions = {},
-): CoreDocumentSyncAdapter => {
-  const subscriptions = new Map<string, ActiveSubscription>();
+export const createCoreDocumentSyncAdapter = (client: CoreClientPort): CoreDocumentSyncAdapter => {
   const updateResourceFetches = new Map<
     string,
     Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>>
   >();
 
-  const subscriptionFor = (
-    request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
-  ): ActiveSubscription => {
-    const subscription = subscriptions.get(subscriptionKey(request));
-    if (subscription) return subscription;
-    throw new Error("Owned Document sync requires an active event subscription");
-  };
-
   const sync = async (
     request: DocumentSyncRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>> => {
     try {
-      const key = subscriptionKey(request);
-      const subscription = subscriptionFor(request);
-      return success(
-        await executeWithDocumentSubscription(
-          subscription,
-          () => subscriptions.get(key) === subscription,
-          async () => await client.documentSync(request),
-        ),
-      );
+      return success(await client.documentSync(request));
     } catch (error) {
       return failure(error);
     }
@@ -673,15 +633,7 @@ export const createCoreDocumentSyncAdapter = (
     request: DocumentSyncApplyRequest,
   ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>> => {
     try {
-      const key = subscriptionKey(request);
-      const subscription = subscriptionFor(request);
-      return success(
-        await executeWithDocumentSubscription(
-          subscription,
-          () => subscriptions.get(key) === subscription,
-          async () => await client.documentApplyUpdate(request),
-        ),
-      );
+      return success(await client.documentApplyUpdate(request));
     } catch (error) {
       return failure(error);
     }
@@ -785,87 +737,6 @@ export const createCoreDocumentSyncAdapter = (
     });
     updateResourceFetches.set(key, fetch);
     return fetch;
-  };
-
-  const subscribeWithLifecycle = (
-    request: DocumentSyncSubscribeRequest,
-    listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedDocumentLiveSubscription => {
-    const key = subscriptionKey(request);
-    const predecessor = subscriptions.get(key);
-    predecessor?.close();
-    const predecessorDone = predecessor?.done.catch(() => undefined) ?? Promise.resolve();
-    const supervisor = superviseDocumentLiveStream({
-      maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
-      shouldRetry: isRetryableCoreEventStreamError,
-      retryDelayMs: options.retryDelayMs,
-      maxRetryDelayMs: options.maxRetryDelayMs,
-      open: async (onEvent, onRepair, onRealtime, signal) => {
-        await predecessorDone;
-        if (signal.aborted) throw signal.reason;
-        return await client.openDocumentEventStream(
-          {
-            documentId: request.documentId,
-            clientSessionId: request.clientSessionId,
-            signal,
-          },
-          onEvent,
-          onRepair,
-          onRealtime,
-        );
-      },
-      onEvent: async (envelope) => {
-        const commitSeq = envelope.packet.manifest.identity.commit_seq;
-        try {
-          const events = await documentEvents(request, envelope, fetchUpdateResource);
-          events.forEach(listener);
-        } catch {
-          listener({
-            kind: "resync-required",
-            documentId: request.documentId,
-            storeEpoch: envelope.packet.manifest.identity.store_epoch,
-            generation: 1,
-            headSeq: 0,
-            commitSeq,
-            reason: "resource-integrity-failure",
-          });
-        }
-      },
-      onRepair: (repair: DocumentLiveRepair) => {
-        listener({
-          kind: "resync-required",
-          documentId: repair.document_id,
-          storeEpoch: repair.store_epoch,
-          generation: repair.document_generation,
-          headSeq: repair.head_seq,
-          commitSeq: repair.commit_head,
-          reason:
-            repair.reason === "identity_changed"
-              ? "identity-boundary-changed"
-              : repair.reason === "access_revoked"
-                ? "access-revoked"
-                : "event-gap",
-        });
-      },
-      onRealtime: (event) => listener(event),
-      onConnectionStateChanged: (state) => {
-        listener({
-          kind: "connection",
-          documentId: request.documentId,
-          clientSessionId: request.clientSessionId,
-          state,
-        });
-      },
-    });
-    subscriptions.set(key, supervisor);
-    void supervisor.done
-      .catch(() => undefined)
-      .finally(() => {
-        if (subscriptions.get(key) === supervisor) {
-          subscriptions.delete(key);
-        }
-      });
-    return supervisor;
   };
 
   const applyDocumentMutation = async (
@@ -1211,19 +1082,9 @@ export const createCoreDocumentSyncAdapter = (
     restoreVersion: async (request) => await applyDocumentMutation(request),
     sync,
     applyUpdate,
-    subscribeWithLifecycle,
-    subscribe: (request, listener) => subscribeWithLifecycle(request, listener).close,
     publishAwareness: async (request: DocumentAwarenessPublishRequest) => {
       try {
-        const key = subscriptionKey(request);
-        const subscription = subscriptionFor(request);
-        return success(
-          await executeWithDocumentSubscription(
-            subscription,
-            () => subscriptions.get(key) === subscription,
-            async () => await client.documentPublishAwareness(request),
-          ),
-        );
+        return success(await client.documentPublishAwareness(request));
       } catch (error) {
         return failure(error);
       }
@@ -1231,7 +1092,7 @@ export const createCoreDocumentSyncAdapter = (
   };
 };
 
-const documentEvents = async (
+export const mapDocumentLiveEnvelope = async (
   request: DocumentSyncSubscribeRequest,
   envelope: CoreEventEnvelope,
   fetchUpdateResource: ExactDocumentUpdateFetcher,

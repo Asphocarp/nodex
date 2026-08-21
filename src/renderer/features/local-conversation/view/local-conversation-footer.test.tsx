@@ -50,7 +50,6 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
       queuedFollowUps: [],
       pendingSteers: [],
       backgroundTerminalRows: [],
-      childMemberships: [],
       capabilityFlags: {
         canEditLastUserTurn: true,
         canForkFromTurn: true,

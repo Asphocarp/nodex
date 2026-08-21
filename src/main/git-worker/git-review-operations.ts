@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { tmpdir } from "node:os";
 import { readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -48,7 +47,13 @@ import {
   REVIEW_RENDERABLE_TEXT_MAX_BYTES,
   REVIEW_UNTRACKED_DIFF_CONCURRENCY,
 } from "../../shared/review-file-safety";
-import { LocalGitCommandRunner } from "./git-command-runner";
+import {
+  GIT_CAT_FILE_TIMEOUT_MS,
+  type GitCommandOptions,
+  type GitCommandResult as GitRunnerCommandResult,
+  type GitCommandRunner,
+  type GitRepositoryExecutionIdentity,
+} from "./git-command-runner";
 
 interface GitCommandResult {
   stdout: string;
@@ -64,7 +69,7 @@ interface GitCommandError extends Error {
 const GIT_EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const REVIEW_FILE_CHANGED_LINES_LIMIT = 15_000;
 const REVIEW_CAT_FILE_MAX_BYTES = 5_242_880;
-const REVIEW_CAT_FILE_TIMEOUT_MS = 30_000;
+const REVIEW_GIT_STREAM_ERROR_MAX_BYTES = 64 * 1024;
 export const GIT_REVIEW_LOCAL_HOST_ID = "local";
 
 export interface GitReviewRepositoryIdentity {
@@ -81,42 +86,19 @@ export type GitReviewWorkingTreePathFilterResult =
   | { type: "filtered"; changedPaths: string[] }
   | { type: "full" };
 
-const fallbackSnapshotGenerations = new Map<string, number>();
 interface GitReviewOperationContext {
+  runtime: GitReviewRuntime;
   signal: AbortSignal;
   repository?: {
-    runGit(
-      args: readonly string[],
-      options?: import("./git-command-runner").GitCommandOptions,
-    ): Promise<import("./git-command-runner").GitCommandResult>;
+    runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitRunnerCommandResult>;
   };
 }
 
 const gitReviewOperationContext = new AsyncLocalStorage<GitReviewOperationContext>();
-const gitReviewRepositoryIdentitiesByKey = new Map<string, GitReviewRepositoryIdentity>();
-const gitReviewRepositoryPathsByKey = new Map<string, GitReviewRepositoryPaths>();
-const gitReviewRepositoryKeysByCwd = new Map<string, string>();
-const gitReviewRepositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
 interface GitReviewSnapshotGenerationProvider {
   advance(): number;
   current(): number;
 }
-const gitReviewSnapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
-const GIT_CONFIG_OVERRIDES = [
-  "-c",
-  "diff.mnemonicPrefix=false",
-  "-c",
-  "diff.noprefix=false",
-  "-c",
-  "core.quotePath=false",
-];
-const GIT_READ_ENVIRONMENT: NodeJS.ProcessEnv = {
-  ...process.env,
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_TERMINAL_PROMPT: "0",
-  LC_ALL: "C",
-  LANG: "C",
-};
 const GIT_REVIEW_DIFF_BASE_ARGS = [
   "--no-ext-diff",
   "--no-textconv",
@@ -125,7 +107,6 @@ const GIT_REVIEW_DIFF_BASE_ARGS = [
   "--dst-prefix=b/",
   "--find-renames",
 ];
-const gitReviewCommandRunner = new LocalGitCommandRunner();
 
 interface GitReviewUntrackedPathsInput {
   precomputedUntrackedPaths?: readonly string[] | null;
@@ -171,55 +152,155 @@ function buildGitReviewRepositoryCwdKey(hostId: string, cwd: string): string {
   return JSON.stringify([hostId, normalizeGitReviewRepositoryPath(cwd)]);
 }
 
-export function registerGitReviewRepositoryIdentity(
-  cwd: string,
-  identity: GitReviewRepositoryIdentity & { gitDir?: string },
-): GitReviewRepositoryIdentity {
-  const normalizedIdentity: GitReviewRepositoryIdentity = {
-    hostId: identity.hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID,
-    commonDir: normalizeGitReviewRepositoryPath(identity.commonDir),
-    root: normalizeGitReviewRepositoryPath(identity.root),
-  };
-  const key = buildGitReviewRepositoryKey(normalizedIdentity);
-  gitReviewRepositoryIdentitiesByKey.set(key, normalizedIdentity);
-  gitReviewRepositoryKeysByCwd.set(
-    buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, cwd),
-    key,
-  );
-  gitReviewRepositoryKeysByCwd.set(
-    buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, normalizedIdentity.root),
-    key,
-  );
-  if (identity.gitDir) {
-    gitReviewRepositoryPathsByKey.set(key, {
-      ...normalizedIdentity,
-      gitDir: normalizeGitReviewRepositoryPath(identity.gitDir),
-    });
+export class GitReviewRuntime {
+  readonly #commandRunner: GitCommandRunner;
+  readonly #fallbackSnapshotGenerations = new Map<string, number>();
+  readonly #repositoryIdentitiesByKey = new Map<string, GitReviewRepositoryIdentity>();
+  readonly #repositoryPathsByKey = new Map<string, GitReviewRepositoryPaths>();
+  readonly #repositoryKeysByCwd = new Map<string, string>();
+  readonly #repositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
+  readonly #snapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
+
+  constructor(options: { commandRunner: GitCommandRunner }) {
+    this.#commandRunner = options.commandRunner;
   }
-  return normalizedIdentity;
-}
 
-export function registerGitReviewSnapshotGenerationProvider(
-  identity: GitReviewRepositoryIdentity,
-  provider: GitReviewSnapshotGenerationProvider,
-): () => void {
-  const normalizedIdentity = registerGitReviewRepositoryIdentity(identity.root, identity);
-  const key = buildGitReviewRepositoryKey(normalizedIdentity);
-  gitReviewSnapshotGenerationProviders.set(key, provider);
-  return () => {
-    if (gitReviewSnapshotGenerationProviders.get(key) === provider) {
-      gitReviewSnapshotGenerationProviders.delete(key);
+  get commandRunner(): GitCommandRunner {
+    return this.#commandRunner;
+  }
+
+  registerRepositoryIdentity(
+    cwd: string,
+    identity: GitReviewRepositoryIdentity & { gitDir?: string },
+  ): GitReviewRepositoryIdentity {
+    const normalizedIdentity: GitReviewRepositoryIdentity = {
+      hostId: identity.hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID,
+      commonDir: normalizeGitReviewRepositoryPath(identity.commonDir),
+      root: normalizeGitReviewRepositoryPath(identity.root),
+    };
+    const key = buildGitReviewRepositoryKey(normalizedIdentity);
+    this.#repositoryIdentitiesByKey.set(key, normalizedIdentity);
+    this.#repositoryKeysByCwd.set(
+      buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, cwd),
+      key,
+    );
+    this.#repositoryKeysByCwd.set(
+      buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, normalizedIdentity.root),
+      key,
+    );
+    if (identity.gitDir) {
+      this.#repositoryPathsByKey.set(key, {
+        ...normalizedIdentity,
+        gitDir: normalizeGitReviewRepositoryPath(identity.gitDir),
+      });
     }
-  };
+    return normalizedIdentity;
+  }
+
+  registerSnapshotGenerationProvider(
+    identity: GitReviewRepositoryIdentity,
+    provider: GitReviewSnapshotGenerationProvider,
+  ): () => void {
+    const normalizedIdentity = this.registerRepositoryIdentity(identity.root, identity);
+    const key = buildGitReviewRepositoryKey(normalizedIdentity);
+    this.#snapshotGenerationProviders.set(key, provider);
+    return () => {
+      if (this.#snapshotGenerationProviders.get(key) === provider) {
+        this.#snapshotGenerationProviders.delete(key);
+      }
+    };
+  }
+
+  findRepository(
+    cwd: string,
+    hostId = GIT_REVIEW_LOCAL_HOST_ID,
+  ): GitReviewRepositoryIdentity | null {
+    const cwdKey = buildGitReviewRepositoryCwdKey(hostId, cwd);
+    const registeredKey = this.#repositoryKeysByCwd.get(cwdKey);
+    return registeredKey ? (this.#repositoryIdentitiesByKey.get(registeredKey) ?? null) : null;
+  }
+
+  findRepositoryPaths(identity: GitReviewRepositoryIdentity): GitReviewRepositoryPaths | null {
+    return this.#repositoryPathsByKey.get(buildGitReviewRepositoryKey(identity)) ?? null;
+  }
+
+  findRepositoryPathRead(key: string): Promise<GitReviewRepositoryPaths | null> | undefined {
+    return this.#repositoryPathReads.get(key);
+  }
+
+  registerRepositoryPathRead(key: string, read: Promise<GitReviewRepositoryPaths | null>): void {
+    this.#repositoryPathReads.set(key, read);
+  }
+
+  completeRepositoryPathRead(key: string, read: Promise<GitReviewRepositoryPaths | null>): void {
+    if (this.#repositoryPathReads.get(key) === read) {
+      this.#repositoryPathReads.delete(key);
+    }
+  }
+
+  readSnapshotGeneration(repository: GitReviewRepositoryIdentity): number {
+    const key = buildGitReviewRepositoryKey(repository);
+    return (
+      this.#snapshotGenerationProviders.get(key)?.current() ??
+      this.#fallbackSnapshotGenerations.get(key) ??
+      1
+    );
+  }
+
+  invalidateSnapshot(cwd: string, identity?: GitReviewRepositoryIdentity): void {
+    const normalizedCwd = cwd.trim();
+    if (!normalizedCwd) return;
+    const repository = identity
+      ? this.registerRepositoryIdentity(normalizedCwd, identity)
+      : this.findRepository(normalizedCwd);
+    if (!repository) return;
+    const key = buildGitReviewRepositoryKey(repository);
+    const provider = this.#snapshotGenerationProviders.get(key);
+    if (provider) {
+      provider.advance();
+      return;
+    }
+    this.#fallbackSnapshotGenerations.set(
+      key,
+      (this.#fallbackSnapshotGenerations.get(key) ?? 1) + 1,
+    );
+  }
+
+  run<Result>(
+    signal: AbortSignal,
+    operation: () => Promise<Result>,
+    repository?: GitReviewOperationContext["repository"],
+  ): Promise<Result> {
+    return gitReviewOperationContext.run({ runtime: this, signal, repository }, operation);
+  }
 }
 
-function findRegisteredGitReviewRepository(
+function currentGitReviewRuntime(): GitReviewRuntime {
+  const runtime = gitReviewOperationContext.getStore()?.runtime;
+  if (!runtime) throw new Error("Git review operation requires an explicit runtime context");
+  return runtime;
+}
+
+function runGitRunnerCommand(
+  args: readonly string[],
   cwd: string,
-  hostId = GIT_REVIEW_LOCAL_HOST_ID,
-): GitReviewRepositoryIdentity | null {
-  const cwdKey = buildGitReviewRepositoryCwdKey(hostId, cwd);
-  const registeredKey = gitReviewRepositoryKeysByCwd.get(cwdKey);
-  return registeredKey ? (gitReviewRepositoryIdentitiesByKey.get(registeredKey) ?? null) : null;
+  options: GitCommandOptions = {},
+): Promise<GitRunnerCommandResult> {
+  const context = gitReviewOperationContext.getStore();
+  const runtime = context?.runtime ?? currentGitReviewRuntime();
+  const signal = options.signal ?? context?.signal;
+  signal?.throwIfAborted();
+  const normalizedCwd = normalizeGitReviewRepositoryPath(cwd);
+  const registered = runtime.findRepository(normalizedCwd);
+  const identity: GitRepositoryExecutionIdentity = {
+    hostId: "local",
+    root: registered?.root ?? normalizedCwd,
+    commonDir: registered?.commonDir ?? normalizedCwd,
+  };
+  const commandOptions = { ...options, signal };
+  return context?.repository
+    ? context.repository.runGit(args, commandOptions)
+    : runtime.commandRunner.run(identity, args, commandOptions);
 }
 
 async function ensureDirectory(cwd: string): Promise<string> {
@@ -244,24 +325,13 @@ function runGitCommand(
 ): Promise<GitCommandResult> {
   const context = gitReviewOperationContext.getStore();
   const signal = options?.signal ?? context?.signal;
-  signal?.throwIfAborted();
-  const normalizedCwd = normalizeGitReviewRepositoryPath(cwd);
-  const registered = findRegisteredGitReviewRepository(normalizedCwd);
-  const identity = {
-    hostId: "local" as const,
-    root: registered?.root ?? normalizedCwd,
-    commonDir: registered?.commonDir ?? normalizedCwd,
-  };
   const commandOptions = {
     allowedNonZeroExitCodes: allowedExitCodes.filter((code) => code !== 0),
     outputBytesCap: REVIEW_GIT_DIFF_MAX_BYTES,
     literalPathspecs: options?.literalPathspecs,
     signal,
   };
-  const command = context?.repository
-    ? context.repository.runGit(args, commandOptions)
-    : gitReviewCommandRunner.run(identity, args, commandOptions);
-  return command.then((result) => {
+  return runGitRunnerCommand(args, cwd, commandOptions).then((result) => {
     if (result.success) {
       return {
         stdout: result.stdout,
@@ -326,18 +396,17 @@ export async function resolveGitReviewRepositoryPaths(
   cwd: string,
   hostId = GIT_REVIEW_LOCAL_HOST_ID,
 ): Promise<GitReviewRepositoryPaths | null> {
+  const runtime = currentGitReviewRuntime();
   const normalizedCwd = await ensureDirectory(cwd);
   const normalizedHostId = hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID;
-  const registered = findRegisteredGitReviewRepository(normalizedCwd, normalizedHostId);
+  const registered = runtime.findRepository(normalizedCwd, normalizedHostId);
   if (registered) {
-    const registeredPaths = gitReviewRepositoryPathsByKey.get(
-      buildGitReviewRepositoryKey(registered),
-    );
+    const registeredPaths = runtime.findRepositoryPaths(registered);
     if (registeredPaths) return registeredPaths;
   }
 
   const readKey = buildGitReviewRepositoryCwdKey(normalizedHostId, normalizedCwd);
-  const existing = gitReviewRepositoryPathReads.get(readKey);
+  const existing = runtime.findRepositoryPathRead(readKey);
   if (existing) return existing;
 
   const promise = runGitCommand(["rev-parse", "--show-toplevel"], normalizedCwd, [0, 128])
@@ -364,24 +433,22 @@ export async function resolveGitReviewRepositoryPaths(
         gitDir,
         commonDir,
       };
-      const identity = registerGitReviewRepositoryIdentity(normalizedCwd, paths);
+      const identity = runtime.registerRepositoryIdentity(normalizedCwd, paths);
       return { ...paths, ...identity };
     })
     .catch(() => null);
-  gitReviewRepositoryPathReads.set(readKey, promise);
+  runtime.registerRepositoryPathRead(readKey, promise);
   try {
     return await promise;
   } finally {
-    if (gitReviewRepositoryPathReads.get(readKey) === promise) {
-      gitReviewRepositoryPathReads.delete(readKey);
-    }
+    runtime.completeRepositoryPathRead(readKey, promise);
   }
 }
 
 async function resolveGitReviewRepositoryIdentity(
   cwd: string,
 ): Promise<GitReviewRepositoryIdentity> {
-  const registered = findRegisteredGitReviewRepository(cwd, GIT_REVIEW_LOCAL_HOST_ID);
+  const registered = currentGitReviewRuntime().findRepository(cwd, GIT_REVIEW_LOCAL_HOST_ID);
   if (registered) return registered;
   const paths = await resolveGitReviewRepositoryPaths(cwd);
   if (paths) return paths;
@@ -490,33 +557,16 @@ export async function filterGitReviewWorkingTreePaths(input: {
 
 async function readGitReviewSnapshotGeneration(cwd: string, signal?: AbortSignal): Promise<number> {
   signal?.throwIfAborted();
+  const runtime = currentGitReviewRuntime();
   const repository = await resolveGitReviewRepositoryIdentity(cwd);
-  const repositoryKey = buildGitReviewRepositoryKey(repository);
-  const provider = gitReviewSnapshotGenerationProviders.get(repositoryKey);
-  if (provider) return provider.current();
-  return fallbackSnapshotGenerations.get(repositoryKey) ?? 1;
+  return runtime.readSnapshotGeneration(repository);
 }
 
 export function invalidateGitReviewSnapshot(
   cwd: string,
   identity?: GitReviewRepositoryIdentity,
 ): void {
-  const normalizedCwd = cwd.trim();
-  if (!normalizedCwd) return;
-  const repository = identity
-    ? registerGitReviewRepositoryIdentity(normalizedCwd, identity)
-    : findRegisteredGitReviewRepository(normalizedCwd);
-  if (!repository) return;
-  const repositoryKey = buildGitReviewRepositoryKey(repository);
-  const provider = gitReviewSnapshotGenerationProviders.get(repositoryKey);
-  if (provider) {
-    provider.advance();
-    return;
-  }
-  fallbackSnapshotGenerations.set(
-    repositoryKey,
-    (fallbackSnapshotGenerations.get(repositoryKey) ?? 1) + 1,
-  );
+  currentGitReviewRuntime().invalidateSnapshot(cwd, identity);
 }
 
 async function assertGitReviewSnapshotGeneration(
@@ -525,15 +575,9 @@ async function assertGitReviewSnapshotGeneration(
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted();
+  const runtime = currentGitReviewRuntime();
   const repository = await resolveGitReviewRepositoryIdentity(cwd);
-  const repositoryKey = buildGitReviewRepositoryKey(repository);
-  const provider = gitReviewSnapshotGenerationProviders.get(repositoryKey);
-  if (provider) {
-    const actualGeneration = provider.current();
-    if (actualGeneration === expectedGeneration) return;
-    throw new GitReviewStaleSnapshotError(expectedGeneration, actualGeneration);
-  }
-  const actualGeneration = fallbackSnapshotGenerations.get(repositoryKey) ?? 1;
+  const actualGeneration = runtime.readSnapshotGeneration(repository);
   if (actualGeneration === expectedGeneration) return;
   throw new GitReviewStaleSnapshotError(expectedGeneration, actualGeneration);
 }
@@ -548,11 +592,12 @@ async function runGitReviewRequest<T>(
 }
 
 export function runGitReviewOperationWithSignal<Result>(
+  runtime: GitReviewRuntime,
   signal: AbortSignal,
   operation: () => Promise<Result>,
   repository?: GitReviewOperationContext["repository"],
 ): Promise<Result> {
-  return gitReviewOperationContext.run({ signal, repository }, operation);
+  return runtime.run(signal, operation, repository);
 }
 
 function isNotGitRepositoryError(error: unknown): boolean {
@@ -1411,79 +1456,29 @@ function splitGitObjectLines(contents: string): string[] {
   return lines;
 }
 
-function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer> {
-  if (objectSpecs.length === 0) return Promise.resolve(Buffer.alloc(0));
+async function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer> {
+  if (objectSpecs.length === 0) return Buffer.alloc(0);
 
-  const signal = gitReviewOperationContext.getStore()?.signal;
+  const context = gitReviewOperationContext.getStore();
+  const signal = context?.signal;
   signal?.throwIfAborted();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", [...GIT_CONFIG_OVERRIDES, "cat-file", "--batch"], {
-      cwd,
-      env: GIT_READ_ENVIRONMENT,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    const outputChunks: Buffer[] = [];
-    const errorChunks: Buffer[] = [];
-    const outputLimit = objectSpecs.length * (REVIEW_CAT_FILE_MAX_BYTES + 512);
-    let outputBytes = 0;
-    let settled = false;
-    let outputLimitReached = false;
-    const abort = () => child.kill("SIGKILL");
-    signal?.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(() => {
-      if (settled) return;
-      child.kill("SIGKILL");
-    }, REVIEW_CAT_FILE_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      if (outputLimitReached) return;
-      const remaining = outputLimit - outputBytes;
-      if (remaining <= 0) {
-        outputLimitReached = true;
-        child.kill("SIGKILL");
-        return;
-      }
-      const accepted = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-      outputChunks.push(accepted);
-      outputBytes += accepted.length;
-      if (accepted.length !== chunk.length) {
-        outputLimitReached = true;
-        child.kill("SIGKILL");
-      }
-    });
-    child.stderr.on("data", (chunk: Buffer) => errorChunks.push(chunk));
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-      reject(error);
-    });
-    child.once("close", (exitCode) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-      if (signal?.aborted) {
-        reject(signal.reason ?? new DOMException("Git object read aborted", "AbortError"));
-        return;
-      }
-      const output = Buffer.concat(outputChunks);
-      if (exitCode === 0 || outputLimitReached) {
-        resolve(output);
-        return;
-      }
-      reject(
-        new Error(
-          Buffer.concat(errorChunks).toString("utf8").trim() || "Could not read Git objects.",
-        ),
-      );
-    });
-
-    child.stdin.end(`${objectSpecs.join("\n")}\n`);
+  const outputChunks: Buffer[] = [];
+  const stdoutBytesCap = objectSpecs.length * (REVIEW_CAT_FILE_MAX_BYTES + 512);
+  const result = await runGitRunnerCommand(["cat-file", "--batch"], cwd, {
+    outputBytesCap: REVIEW_GIT_STREAM_ERROR_MAX_BYTES,
+    signal,
+    stdin: `${objectSpecs.join("\n")}\n`,
+    stdoutStream: {
+      maxBytes: stdoutBytesCap,
+      onChunk: (chunk) => outputChunks.push(Buffer.from(chunk)),
+    },
+    timeoutMs: GIT_CAT_FILE_TIMEOUT_MS,
   });
+  signal?.throwIfAborted();
+  if (result.success || (result.outputLimitExceeded && result.stdoutBytes > stdoutBytesCap)) {
+    return Buffer.concat(outputChunks);
+  }
+  throw new Error(result.stderr.trim() || "Could not read Git objects.");
 }
 
 function parseGitCatFileBatch(
@@ -2723,84 +2718,56 @@ function scanGitReviewPatchLines(input: {
   }
 }
 
-function streamTrackedGitReviewSearch(input: {
+async function streamTrackedGitReviewSearch(input: {
   cwd: string;
   diffArgs: string[];
   generatedPaths: ReadonlySet<string>;
   accumulator: GitReviewSearchAccumulator;
   signal?: AbortSignal;
 }): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "git",
-      [...GIT_CONFIG_OVERRIDES, "diff", ...input.diffArgs, "--unified=3"],
-      {
-        cwd: input.cwd,
-        env: GIT_READ_ENVIRONMENT,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
+  const state = createGitReviewPatchSearchState();
+  const decoder = new TextDecoder();
+  let pending = "";
+  const scanPendingLines = () => {
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    if (pending.length > REVIEW_GIT_DIFF_MAX_BYTES) {
+      throw new Error("Git review diff contains a line above the safe search limit.");
+    }
+    scanGitReviewPatchLines({
+      lines: lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),
+      generatedPaths: input.generatedPaths,
+      accumulator: input.accumulator,
+      state,
+    });
+  };
+  const result = await runGitRunnerCommand(["diff", ...input.diffArgs, "--unified=3"], input.cwd, {
+    outputBytesCap: REVIEW_GIT_STREAM_ERROR_MAX_BYTES,
+    signal: input.signal,
+    stdoutStream: {
+      // The stream is not retained; the process deadline and bounded pending line own resource use.
+      maxBytes: null,
+      onChunk: (chunk) => {
+        pending += decoder.decode(chunk, { stream: true });
+        scanPendingLines();
       },
-    );
-    child.stderr.setEncoding("utf8");
-    const state = createGitReviewPatchSearchState();
-    const decoder = new TextDecoder();
-    let pending = "";
-    let stderr = "";
-    let settled = false;
-    const timeout = setTimeout(() => child.kill("SIGKILL"), 30_000);
-    const abort = () => child.kill("SIGKILL");
-    input.signal?.addEventListener("abort", abort, { once: true });
-
-    const scanPendingLines = () => {
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      scanGitReviewPatchLines({
-        lines: lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),
-        generatedPaths: input.generatedPaths,
-        accumulator: input.accumulator,
-        state,
-      });
-    };
-    child.stdout.on("data", (chunk: Uint8Array) => {
-      pending += decoder.decode(chunk, { stream: true });
-      scanPendingLines();
-    });
-    child.stderr.on("data", (chunk: string) => {
-      if (stderr.length < 8_192) stderr += chunk;
-    });
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      input.signal?.removeEventListener("abort", abort);
-      reject(error);
-    });
-    child.once("close", (exitCode) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      input.signal?.removeEventListener("abort", abort);
-      pending += decoder.decode();
-      scanPendingLines();
-      if (pending) {
-        scanGitReviewPatchLines({
-          lines: [pending.endsWith("\r") ? pending.slice(0, -1) : pending],
-          generatedPaths: input.generatedPaths,
-          accumulator: input.accumulator,
-          state,
-        });
-      }
-      if (input.signal?.aborted) {
-        reject(new DOMException("Git review search aborted", "AbortError"));
-        return;
-      }
-      if (exitCode === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(stderr.trim() || "Could not search the Git review diff."));
-    });
+    },
+    timeoutMs: 30_000,
   });
+  input.signal?.throwIfAborted();
+  if (!result.success) {
+    throw new Error(result.stderr.trim() || "Could not search the Git review diff.");
+  }
+  pending += decoder.decode();
+  scanPendingLines();
+  if (pending) {
+    scanGitReviewPatchLines({
+      lines: [pending.endsWith("\r") ? pending.slice(0, -1) : pending],
+      generatedPaths: input.generatedPaths,
+      accumulator: input.accumulator,
+      state,
+    });
+  }
 }
 
 export async function searchGitReview(input: GitReviewSearchInput): Promise<GitReviewSearchResult> {

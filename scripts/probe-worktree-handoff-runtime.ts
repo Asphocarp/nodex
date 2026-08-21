@@ -13,6 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+import type * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
 import type {
   ThreadReadResponse,
@@ -20,8 +22,14 @@ import type {
   ThreadStartResponse,
   TurnStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
-import { CodexAppServerClient } from "../src/main/codex/codex-app-server-client";
+import { ScopedCallbackRuntime } from "../src/main/app/ScopedCallbackRuntime";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
+import {
+  type CodexProbeClient,
+  type CodexProbeSessionLease,
+  openCodexProbeSession,
+  runCodexProbeMain,
+} from "./codex-probe-session";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..");
@@ -95,7 +103,7 @@ function quoteShellPath(filePath: string): string {
 }
 
 function waitForNotification(
-  client: CodexAppServerClient,
+  client: CodexProbeClient,
   predicate: (notification: ServerNotification) => boolean,
   label: string,
 ): Promise<ServerNotification> {
@@ -148,7 +156,7 @@ function pathsMatch(actual: string, expected: string): boolean {
 }
 
 async function waitForThreadCwd(input: {
-  readonly client: CodexAppServerClient;
+  readonly client: CodexProbeClient;
   readonly expectedCwd: string;
   readonly label: string;
   readonly threadId: string;
@@ -206,24 +214,28 @@ async function startBlockingResponsesServer(): Promise<{
   };
 }
 
-function createClient(binaryPath: string, stateHome: string): Promise<CodexAppServerClient> {
-  const client = new CodexAppServerClient({
-    binaryPath,
-    expectedCodexHome: stateHome,
-    logStderr: false,
-    requestTimeoutMs: waitTimeoutMs,
-    env: {
-      ...process.env,
-      INTERPRETER_HOME: stateHome,
-      NODEX_HANDOFF_PROBE_API_KEY: "isolated-probe-secret",
-    },
-    clientInfo: {
-      name: "nodex-worktree-handoff-probe",
-      title: "Nodex Worktree Handoff Probe",
-      version: "1.0.0",
-    },
-  });
-  return client.start().then(() => client);
+function createClient(
+  callbacks: ScopedCallbackRuntime["Service"],
+  binaryPath: string,
+  stateHome: string,
+): Promise<CodexProbeSessionLease> {
+  return callbacks.runPromise(
+    openCodexProbeSession(callbacks, {
+      binaryPath,
+      expectedCodexHome: stateHome,
+      requestTimeout: waitTimeoutMs,
+      env: {
+        ...process.env,
+        INTERPRETER_HOME: stateHome,
+        NODEX_HANDOFF_PROBE_API_KEY: "isolated-probe-secret",
+      },
+      clientInfo: {
+        name: "nodex-worktree-handoff-probe",
+        title: "Nodex Worktree Handoff Probe",
+        version: "1.0.0",
+      },
+    }),
+  );
 }
 
 function assertSamePath(actual: string, expected: string, label: string): void {
@@ -241,7 +253,7 @@ function assertRoots(actual: readonly string[], expected: readonly string[], lab
 }
 
 async function assertShellCwd(input: {
-  readonly client: CodexAppServerClient;
+  readonly client: CodexProbeClient;
   readonly cwd: string;
   readonly evidencePath: string;
   readonly threadId: string;
@@ -253,10 +265,13 @@ async function assertShellCwd(input: {
   await waitForFile(input.evidencePath, realpathSync(input.cwd));
 }
 
-export async function probeWorktreeHandoffRuntime(input: {
-  readonly binaryPath: string;
-  readonly outputPath?: string;
-}): Promise<WorktreeHandoffRuntimeProbeReport> {
+async function probeWorktreeHandoffRuntimePromise(
+  input: {
+    readonly binaryPath: string;
+    readonly outputPath?: string;
+  },
+  callbacks: ScopedCallbackRuntime["Service"],
+): Promise<WorktreeHandoffRuntimeProbeReport> {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "nodex-handoff-runtime-"));
   const stateHome = path.join(fixtureRoot, "agent-home");
   const sourceRoot = path.join(fixtureRoot, "source");
@@ -276,9 +291,9 @@ export async function probeWorktreeHandoffRuntime(input: {
   }
 
   const notifications: string[] = [];
-  let firstClient: CodexAppServerClient | null = null;
-  let secondClient: CodexAppServerClient | null = null;
-  let thirdClient: CodexAppServerClient | null = null;
+  let firstClient: CodexProbeSessionLease | null = null;
+  let secondClient: CodexProbeSessionLease | null = null;
+  let thirdClient: CodexProbeSessionLease | null = null;
   const responsesServer = await startBlockingResponsesServer();
   const probeConfig = {
     "model_providers.nodex-handoff-probe": {
@@ -293,7 +308,7 @@ export async function probeWorktreeHandoffRuntime(input: {
     "features.plugins": false,
   } as const;
   try {
-    firstClient = await createClient(input.binaryPath, stateHome);
+    firstClient = await createClient(callbacks, input.binaryPath, stateHome);
     firstClient.on("notification", (notification: ServerNotification) => {
       notifications.push(notification.method);
     });
@@ -400,7 +415,7 @@ export async function probeWorktreeHandoffRuntime(input: {
 
     await firstClient.stop();
     firstClient = null;
-    secondClient = await createClient(input.binaryPath, stateHome);
+    secondClient = await createClient(callbacks, input.binaryPath, stateHome);
     secondClient.on("notification", (notification: ServerNotification) => {
       notifications.push(notification.method);
     });
@@ -527,7 +542,7 @@ export async function probeWorktreeHandoffRuntime(input: {
 
     await secondClient.stop();
     secondClient = null;
-    thirdClient = await createClient(input.binaryPath, stateHome);
+    thirdClient = await createClient(callbacks, input.binaryPath, stateHome);
     const coldRead = await thirdClient.request<"thread/read", ThreadReadResponse>("thread/read", {
       threadId,
       includeTurns: false,
@@ -599,6 +614,15 @@ export async function probeWorktreeHandoffRuntime(input: {
   }
 }
 
+export const probeWorktreeHandoffRuntime = (input: {
+  readonly binaryPath: string;
+  readonly outputPath?: string;
+}): Effect.Effect<WorktreeHandoffRuntimeProbeReport, Cause.UnknownError, ScopedCallbackRuntime> =>
+  Effect.gen(function* () {
+    const callbacks = yield* ScopedCallbackRuntime;
+    return yield* Effect.tryPromise(() => probeWorktreeHandoffRuntimePromise(input, callbacks));
+  });
+
 function readOption(argv: readonly string[], name: string): string | null {
   const index = argv.indexOf(name);
   if (index < 0) return null;
@@ -607,7 +631,7 @@ function readOption(argv: readonly string[], name: string): string | null {
   return value;
 }
 
-async function main(): Promise<void> {
+const main = Effect.gen(function* () {
   const runtime = resolveCodexRuntime({ isPackaged: false, projectRootPath: projectRoot });
   const argv = process.argv.slice(2);
   const binaryPath = path.resolve(readOption(argv, "--binary") ?? runtime.binaryPath);
@@ -615,15 +639,10 @@ async function main(): Promise<void> {
     readOption(argv, "--out") ??
       path.join(projectRoot, ".generated", "agent-runtime-conformance", "handoff.json"),
   );
-  const report = await probeWorktreeHandoffRuntime({ binaryPath, outputPath });
+  const report = yield* probeWorktreeHandoffRuntime({ binaryPath, outputPath });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-}
+});
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch((error: unknown) => {
-    process.stderr.write(
-      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-    );
-    process.exitCode = 1;
-  });
+  runCodexProbeMain(main);
 }

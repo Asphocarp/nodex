@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 
 import type { components } from "@nodex/core-protocol";
 import { BROWSER_USE_PEER_AUTHORIZATION_ENV } from "../src/shared/browser-use-host-capability";
@@ -22,6 +23,9 @@ import {
 
 const RUN_A = "11111111-1111-4111-8111-111111111111";
 const createdHomes: string[] = [];
+
+const runSupervisor = (input: Parameters<typeof superviseIsolatedRun>[0]) =>
+  Effect.runPromise(superviseIsolatedRun(input));
 
 const GENERATION: components["schemas"]["RuntimeGenerationIdentity"] = {
   artifact_sha256: "a".repeat(64),
@@ -308,7 +312,7 @@ describe("isolated run supervisor", () => {
     );
 
     await expect(
-      superviseIsolatedRun({
+      runSupervisor({
         environment: {
           [BROWSER_USE_PEER_AUTHORIZATION_ENV]: "0",
           NODEX_CORE_IDLE_TIMEOUT_MS: "65432",
@@ -361,7 +365,7 @@ describe("isolated run supervisor", () => {
     const signalSource = new EventEmitter() as unknown as SupervisorSignalSource;
     const signalProcessGroup = vi.fn();
 
-    const resultPromise = superviseIsolatedRun({
+    const resultPromise = runSupervisor({
       environment: { NODEX_HOME: nodexHome },
       nodexHome,
       repositoryRoot: path.resolve("."),
@@ -405,7 +409,7 @@ describe("isolated run supervisor", () => {
     const forceExit = vi.fn();
     const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(500);
 
-    const resultPromise = superviseIsolatedRun({
+    const resultPromise = runSupervisor({
       environment: { NODEX_HOME: nodexHome },
       nodexHome,
       repositoryRoot: path.resolve("."),
@@ -452,7 +456,7 @@ describe("isolated run supervisor", () => {
     const isProcessGroupAlive = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
 
     await expect(
-      superviseIsolatedRun({
+      runSupervisor({
         environment: { NODEX_HOME: nodexHome },
         nodexHome,
         repositoryRoot: path.resolve("."),
@@ -490,7 +494,7 @@ describe("isolated run supervisor", () => {
     const signalProcessGroup = vi.fn();
     let clock = 0;
 
-    const resultPromise = superviseIsolatedRun({
+    const resultPromise = runSupervisor({
       environment: { NODEX_HOME: nodexHome },
       nodexHome,
       repositoryRoot: path.resolve("."),
@@ -539,7 +543,7 @@ describe("isolated run supervisor", () => {
     const signalSource = new EventEmitter() as unknown as SupervisorSignalSource;
 
     await expect(
-      superviseIsolatedRun({
+      runSupervisor({
         environment: { NODEX_HOME: nodexHome },
         nodexHome,
         repositoryRoot: path.resolve("."),
@@ -574,7 +578,7 @@ describe("isolated run supervisor", () => {
     for (let iteration = 0; iteration < 10; iteration += 1) {
       const nodexHome = createNodexHome();
       const child = new FakeChild();
-      await superviseIsolatedRun({
+      await runSupervisor({
         environment: { NODEX_HOME: nodexHome },
         nodexHome,
         repositoryRoot: path.resolve("."),

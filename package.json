@@ -10,8 +10,9 @@
   ],
   "main": "out/main/bootstrap.js",
   "scripts": {
-    "test": "pnpm run test:unit && pnpm run test:core-client && pnpm run test:main && pnpm run test:renderer && pnpm run test:integration",
+    "test": "pnpm run test:unit && pnpm run test:effect-codex && pnpm run test:core-client && pnpm run test:main && pnpm run test:renderer && pnpm run test:integration",
     "test:unit": "vp test run --config vitest.node.config.ts",
+    "test:effect-codex": "vp test run --config vitest.effect-codex.config.ts",
     "test:unit:related": "vp test related --run --passWithNoTests --config vitest.node.config.ts",
     "test:core-client": "cargo build -p nodex-core-server && vp test run --config vitest.core-client.config.ts",
     "test:core-client:related": "cargo build -p nodex-core-server && vp test related --run --passWithNoTests --config vitest.core-client.config.ts",
@@ -166,6 +167,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.111",
+    "@nodex/effect-codex-app-server": "workspace:*",
     "@radix-ui/react-slider": "1.4.7",
     "@sentry/electron": "7.13.0",
     "effect": "4.0.0-rc.111",

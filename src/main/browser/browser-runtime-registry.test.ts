@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { BrowserRuntimeRegistry } from "./browser-runtime-registry";
+import { makeBrowserRuntimeRegistry } from "./browser-runtime-registry";
 
 const identity = {
   browserConversationId: "conversation-1",
@@ -22,7 +22,7 @@ function host(overrides: Record<string, unknown> = {}) {
 
 describe("BrowserRuntimeRegistry", () => {
   test("binds renderer and host generations to one owner window", () => {
-    const registry = new BrowserRuntimeRegistry();
+    const registry = makeBrowserRuntimeRegistry();
     registry.registerRendererSession({
       browserViewScopeId: identity.browserViewScopeId,
       ownerWebContentsId: 7,
@@ -54,7 +54,7 @@ describe("BrowserRuntimeRegistry", () => {
   });
 
   test("prevents one durable storage identity from being owned by two routes", () => {
-    const registry = new BrowserRuntimeRegistry();
+    const registry = makeBrowserRuntimeRegistry();
     registry.registerRendererSession({
       browserViewScopeId: identity.browserViewScopeId,
       ownerWebContentsId: 7,
@@ -77,7 +77,7 @@ describe("BrowserRuntimeRegistry", () => {
 
   test("uses a single-use attach token instead of attachment order", () => {
     let tokenSequence = 0;
-    const registry = new BrowserRuntimeRegistry({
+    const registry = makeBrowserRuntimeRegistry({
       tokenFactory: () => `attach-${++tokenSequence}`,
     });
     registry.registerRendererSession({
@@ -104,7 +104,7 @@ describe("BrowserRuntimeRegistry", () => {
   });
 
   test("rejects presentation updates from a superseded host generation", () => {
-    const registry = new BrowserRuntimeRegistry();
+    const registry = makeBrowserRuntimeRegistry();
     registry.registerRendererSession({
       browserViewScopeId: identity.browserViewScopeId,
       ownerWebContentsId: 7,
@@ -148,7 +148,7 @@ describe("BrowserRuntimeRegistry", () => {
   });
 
   test("revoked attachment authorization cannot be consumed", () => {
-    const registry = new BrowserRuntimeRegistry();
+    const registry = makeBrowserRuntimeRegistry();
     registry.registerRendererSession({
       browserViewScopeId: identity.browserViewScopeId,
       ownerWebContentsId: 7,
@@ -167,7 +167,7 @@ describe("BrowserRuntimeRegistry", () => {
   });
 
   test("blocks new attachments while generation-safe teardown is pending", () => {
-    const registry = new BrowserRuntimeRegistry();
+    const registry = makeBrowserRuntimeRegistry();
     registry.registerRendererSession({
       browserViewScopeId: identity.browserViewScopeId,
       ownerWebContentsId: 7,

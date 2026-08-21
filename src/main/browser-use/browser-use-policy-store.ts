@@ -1,4 +1,9 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
@@ -24,11 +29,10 @@ const TABLE_BY_RESOURCE: Record<BrowserUsePolicyResource, string> = {
   fullCdp: "full_cdp",
 };
 
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const isRecord = (value: unknown): value is UnknownRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
-function readStringArray(value: unknown): string[] {
+const readStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   const result: string[] = [];
   const seen = new Set<string>();
@@ -40,34 +44,32 @@ function readStringArray(value: unknown): string[] {
       seen.add(origin);
       result.push(origin);
     } catch {
-      // Invalid rules are ignored and disappear on the next user mutation.
+      // Invalid rules disappear on the next successful user mutation.
     }
     if (result.length >= MAX_ORIGIN_RULES) break;
   }
   return result;
-}
+};
 
-function readApprovalMode(value: unknown): "alwaysAsk" | "neverAsk" {
-  return value === "never_ask" ? "neverAsk" : "alwaysAsk";
-}
+const readApprovalMode = (value: unknown): "alwaysAsk" | "neverAsk" =>
+  value === "never_ask" ? "neverAsk" : "alwaysAsk";
 
-function writeApprovalMode(value: "alwaysAsk" | "neverAsk"): string {
-  return value === "neverAsk" ? "never_ask" : "always_ask";
-}
+const writeApprovalMode = (value: "alwaysAsk" | "neverAsk"): string =>
+  value === "neverAsk" ? "never_ask" : "always_ask";
 
-function readRuleTable(
+const readRuleTable = (
   config: UnknownRecord,
   resource: BrowserUsePolicyResource,
-): { allowed: string[]; denied: string[] } {
+): { allowed: string[]; denied: string[] } => {
   const table = config[TABLE_BY_RESOURCE[resource]];
   if (!isRecord(table)) return { allowed: [], denied: [] };
   return {
     allowed: readStringArray(table.allowed),
     denied: readStringArray(table.denied),
   };
-}
+};
 
-function projectSnapshot(config: UnknownRecord): BrowserUsePolicySnapshot {
+const projectSnapshot = (config: UnknownRecord): BrowserUsePolicySnapshot => {
   const origins = readRuleTable(config, "origin");
   const downloads = readRuleTable(config, "download");
   const uploads = readRuleTable(config, "upload");
@@ -87,165 +89,233 @@ function projectSnapshot(config: UnknownRecord): BrowserUsePolicySnapshot {
     allowedFullCdpOrigins: fullCdp.allowed,
     deniedFullCdpOrigins: fullCdp.denied,
   };
-}
+};
+
+const copySnapshot = (current: BrowserUsePolicySnapshot): BrowserUsePolicySnapshot => ({
+  ...current,
+  allowedOrigins: [...current.allowedOrigins],
+  deniedOrigins: [...current.deniedOrigins],
+  allowedDownloadOrigins: [...current.allowedDownloadOrigins],
+  deniedDownloadOrigins: [...current.deniedDownloadOrigins],
+  allowedUploadOrigins: [...current.allowedUploadOrigins],
+  deniedUploadOrigins: [...current.deniedUploadOrigins],
+  allowedFullCdpOrigins: [...current.allowedFullCdpOrigins],
+  deniedFullCdpOrigins: [...current.deniedFullCdpOrigins],
+});
 
 export interface BrowserUsePolicyReader {
-  snapshot(): BrowserUsePolicySnapshot;
-  isExplicitlyDenied(resource: BrowserUsePolicyResource, urlOrOrigin: string): boolean;
+  readonly snapshot: () => BrowserUsePolicySnapshot;
+  readonly isExplicitlyDenied: (resource: BrowserUsePolicyResource, urlOrOrigin: string) => boolean;
 }
 
-export class BrowserUsePolicyStore implements BrowserUsePolicyReader {
-  private config: UnknownRecord = {};
-  private current = DEFAULT_BROWSER_USE_POLICY;
-  private initialized = false;
-  private writeQueue = Promise.resolve();
+export class BrowserUsePolicyRuntimeError extends Schema.TaggedError<BrowserUsePolicyRuntimeError>()(
+  "BrowserUsePolicyRuntimeError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
 
-  constructor(
-    private readonly filePath: string,
-    private readonly now: () => number = Date.now,
-  ) {}
+export interface BrowserUsePolicyRuntime extends BrowserUsePolicyReader {
+  readonly updateModes: (
+    update: BrowserUsePolicyModesUpdate,
+  ) => Effect.Effect<BrowserUsePolicySnapshot, BrowserUsePolicyRuntimeError>;
+  readonly updateOriginRule: (
+    update: BrowserUseOriginRuleUpdate,
+  ) => Effect.Effect<BrowserUsePolicySnapshot, BrowserUsePolicyRuntimeError>;
+}
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-    this.initialized = true;
-    try {
-      const raw = await readFile(this.filePath, "utf8");
-      if (Buffer.byteLength(raw, "utf8") > MAX_POLICY_FILE_BYTES) {
-        throw new Error("Browser Use policy file exceeds its size limit");
-      }
-      const parsed = parseToml(raw);
-      if (!isRecord(parsed)) throw new Error("Browser Use policy root is invalid");
-      this.config = parsed;
-      this.current = projectSnapshot(parsed);
-    } catch (error) {
-      if (isMissingFileError(error)) return;
-      await this.quarantine();
-      this.config = {};
-      this.current = DEFAULT_BROWSER_USE_POLICY;
-    }
-  }
+interface BrowserUsePolicyState {
+  readonly config: UnknownRecord;
+  readonly snapshot: BrowserUsePolicySnapshot;
+}
 
-  snapshot(): BrowserUsePolicySnapshot {
-    return {
-      ...this.current,
-      allowedOrigins: [...this.current.allowedOrigins],
-      deniedOrigins: [...this.current.deniedOrigins],
-      allowedDownloadOrigins: [...this.current.allowedDownloadOrigins],
-      deniedDownloadOrigins: [...this.current.deniedDownloadOrigins],
-      allowedUploadOrigins: [...this.current.allowedUploadOrigins],
-      deniedUploadOrigins: [...this.current.deniedUploadOrigins],
-      allowedFullCdpOrigins: [...this.current.allowedFullCdpOrigins],
-      deniedFullCdpOrigins: [...this.current.deniedFullCdpOrigins],
-    };
-  }
+const defaultState = (): BrowserUsePolicyState => ({
+  config: {},
+  snapshot: DEFAULT_BROWSER_USE_POLICY,
+});
 
-  isExplicitlyDenied(resource: BrowserUsePolicyResource, urlOrOrigin: string): boolean {
-    let origin: string;
-    try {
-      origin = normalizeBrowserUsePolicyOrigin(urlOrOrigin);
-    } catch {
-      return true;
-    }
-    const originDenied = this.current.deniedOrigins.includes(origin);
-    if (resource === "origin") return originDenied;
-    const denied = {
-      download: this.current.deniedDownloadOrigins,
-      upload: this.current.deniedUploadOrigins,
-      fullCdp: this.current.deniedFullCdpOrigins,
-    }[resource];
-    return originDenied || denied.includes(origin);
-  }
+const runtimeError = (operation: string, cause: unknown): BrowserUsePolicyRuntimeError =>
+  new BrowserUsePolicyRuntimeError({ operation, cause });
 
-  async updateModes(rawUpdate: BrowserUsePolicyModesUpdate): Promise<BrowserUsePolicySnapshot> {
-    await this.initialize();
-    const update = BrowserUsePolicyModesUpdateSchema.parse(rawUpdate);
-    if (update.approvalMode !== undefined) {
-      this.config.approval_mode = writeApprovalMode(update.approvalMode);
-    }
-    if (update.historyApprovalMode !== undefined) {
-      this.config.history_approval_mode = writeApprovalMode(update.historyApprovalMode);
-    }
-    if (update.downloadApprovalMode !== undefined) {
-      this.config.download_approval_mode = writeApprovalMode(update.downloadApprovalMode);
-    }
-    if (update.uploadApprovalMode !== undefined) {
-      this.config.upload_approval_mode = writeApprovalMode(update.uploadApprovalMode);
-    }
-    if (update.fullCdpAccessEnabled !== undefined) {
-      this.config.full_cdp_access_enabled = update.fullCdpAccessEnabled;
-    }
-    this.current = projectSnapshot(this.config);
-    await this.persist();
-    return this.snapshot();
-  }
+const isNotFound = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  "reason" in cause &&
+  typeof cause.reason === "object" &&
+  cause.reason !== null &&
+  "_tag" in cause.reason &&
+  cause.reason._tag === "NotFound";
 
-  async updateOriginRule(rawUpdate: BrowserUseOriginRuleUpdate): Promise<BrowserUsePolicySnapshot> {
-    await this.initialize();
-    const update = BrowserUseOriginRuleUpdateSchema.parse(rawUpdate);
-    const origin = normalizeBrowserUsePolicyOrigin(update.origin);
-    const tableName = TABLE_BY_RESOURCE[update.resource];
-    const table = isRecord(this.config[tableName]) ? this.config[tableName] : {};
-    this.config[tableName] = table;
-    const selected = readStringArray(table[update.kind]);
-    if (update.action === "remove") {
-      table[update.kind] = selected.filter((entry) => entry !== origin);
-    } else {
-      const oppositeKind = update.kind === "allowed" ? "denied" : "allowed";
-      const opposite = readStringArray(table[oppositeKind]);
-      table[update.kind] = selected.includes(origin)
-        ? selected
-        : [...selected, origin].slice(0, MAX_ORIGIN_RULES);
-      table[oppositeKind] = opposite.filter((entry) => entry !== origin);
-    }
-    this.current = projectSnapshot(this.config);
-    await this.persist();
-    return this.snapshot();
-  }
+export const makeBrowserUsePolicyRuntime = (
+  filePath: string,
+  now: () => number = Date.now,
+): Effect.Effect<BrowserUsePolicyRuntime, BrowserUsePolicyRuntimeError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const quarantine = fs.rename(filePath, `${filePath}.corrupt-${now()}`).pipe(
+      Effect.catch((cause) => (isNotFound(cause) ? Effect.void : Effect.fail(cause))),
+      Effect.mapError((cause) => runtimeError("quarantine", cause)),
+    );
 
-  private async persist(): Promise<void> {
-    const write = async () => {
-      await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
-      const payload = stringifyToml(this.config);
-      const normalizedPayload = payload.endsWith("\n") ? payload : `${payload}\n`;
-      if (Buffer.byteLength(normalizedPayload, "utf8") > MAX_POLICY_FILE_BYTES) {
-        throw new Error("Browser Use policy file exceeds its size limit");
-      }
-      const temporaryPath = join(
-        dirname(this.filePath),
-        `.${basename(this.filePath)}.${process.pid}.${this.now()}.tmp`,
+    const load = Effect.gen(function* () {
+      const exists = yield* fs
+        .exists(filePath)
+        .pipe(Effect.mapError((cause) => runtimeError("check-exists", cause)));
+      if (!exists) return defaultState();
+      return yield* fs.readFileString(filePath).pipe(
+        Effect.mapError((cause) => runtimeError("read", cause)),
+        Effect.flatMap((raw) =>
+          Effect.try({
+            try: () => {
+              if (Buffer.byteLength(raw, "utf8") > MAX_POLICY_FILE_BYTES) {
+                throw new TypeError("Browser Use policy file exceeds its size limit");
+              }
+              const config = parseToml(raw);
+              if (!isRecord(config)) throw new TypeError("Browser Use policy root is invalid");
+              return { config, snapshot: projectSnapshot(config) } satisfies BrowserUsePolicyState;
+            },
+            catch: (cause) => runtimeError("parse", cause),
+          }),
+        ),
+        Effect.catch(() => quarantine.pipe(Effect.as(defaultState()))),
       );
-      const handle = await open(temporaryPath, "wx", 0o600);
+    });
+
+    const persist = (config: UnknownRecord): Effect.Effect<void, BrowserUsePolicyRuntimeError> =>
+      Effect.gen(function* () {
+        const payload = yield* Effect.try({
+          try: () => {
+            const value = stringifyToml(config);
+            const normalized = value.endsWith("\n") ? value : `${value}\n`;
+            if (Buffer.byteLength(normalized, "utf8") > MAX_POLICY_FILE_BYTES) {
+              throw new TypeError("Browser Use policy file exceeds its size limit");
+            }
+            return normalized;
+          },
+          catch: (cause) => runtimeError("serialize", cause),
+        });
+        const directoryPath = dirname(filePath);
+        const temporaryPath = join(
+          directoryPath,
+          `.${basename(filePath)}.${now()}.${randomUUID()}.tmp`,
+        );
+        yield* fs
+          .makeDirectory(directoryPath, { recursive: true, mode: 0o700 })
+          .pipe(Effect.mapError((cause) => runtimeError("make-directory", cause)));
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const file = yield* fs.open(temporaryPath, { flag: "wx", mode: 0o600 });
+            yield* file.writeAll(new TextEncoder().encode(payload));
+            yield* file.sync;
+          }),
+        ).pipe(
+          Effect.andThen(fs.rename(temporaryPath, filePath)),
+          Effect.andThen(
+            Effect.scoped(
+              Effect.gen(function* () {
+                const directory = yield* fs.open(directoryPath, { flag: "r" });
+                yield* directory.sync;
+              }),
+            ),
+          ),
+          Effect.ensuring(fs.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
+          Effect.mapError((cause) => runtimeError("persist", cause)),
+        );
+      });
+
+    const state = yield* Ref.make(yield* load);
+    const writes = yield* Semaphore.make(1);
+    const snapshot = (): BrowserUsePolicySnapshot => copySnapshot(Ref.getUnsafe(state).snapshot);
+    const isExplicitlyDenied = (
+      resource: BrowserUsePolicyResource,
+      urlOrOrigin: string,
+    ): boolean => {
+      let origin: string;
       try {
-        await handle.writeFile(normalizedPayload, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
+        origin = normalizeBrowserUsePolicyOrigin(urlOrOrigin);
+      } catch {
+        return true;
       }
-      try {
-        await rename(temporaryPath, this.filePath);
-        const directory = await open(dirname(this.filePath), "r");
-        try {
-          await directory.sync();
-        } finally {
-          await directory.close();
-        }
-      } finally {
-        await rm(temporaryPath, { force: true });
-      }
+      const current = Ref.getUnsafe(state).snapshot;
+      const originDenied = current.deniedOrigins.includes(origin);
+      if (resource === "origin") return originDenied;
+      const denied = {
+        download: current.deniedDownloadOrigins,
+        upload: current.deniedUploadOrigins,
+        fullCdp: current.deniedFullCdpOrigins,
+      }[resource];
+      return originDenied || denied.includes(origin);
     };
-    this.writeQueue = this.writeQueue.then(write, write);
-    await this.writeQueue;
-  }
 
-  private async quarantine(): Promise<void> {
-    try {
-      await rename(this.filePath, `${this.filePath}.corrupt-${this.now()}`);
-    } catch (error) {
-      if (!isMissingFileError(error)) throw error;
-    }
-  }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
+    return {
+      snapshot,
+      isExplicitlyDenied,
+      updateModes: (rawUpdate) =>
+        Effect.try({
+          try: () => BrowserUsePolicyModesUpdateSchema.parse(rawUpdate),
+          catch: (cause) => runtimeError("validate-modes", cause),
+        }).pipe(
+          Effect.flatMap((update) =>
+            writes.withPermits(1)(
+              Effect.gen(function* () {
+                const current = yield* Ref.get(state);
+                const config = { ...current.config };
+                if (update.approvalMode !== undefined) {
+                  config.approval_mode = writeApprovalMode(update.approvalMode);
+                }
+                if (update.historyApprovalMode !== undefined) {
+                  config.history_approval_mode = writeApprovalMode(update.historyApprovalMode);
+                }
+                if (update.downloadApprovalMode !== undefined) {
+                  config.download_approval_mode = writeApprovalMode(update.downloadApprovalMode);
+                }
+                if (update.uploadApprovalMode !== undefined) {
+                  config.upload_approval_mode = writeApprovalMode(update.uploadApprovalMode);
+                }
+                if (update.fullCdpAccessEnabled !== undefined) {
+                  config.full_cdp_access_enabled = update.fullCdpAccessEnabled;
+                }
+                const next = { config, snapshot: projectSnapshot(config) };
+                yield* persist(config);
+                yield* Ref.set(state, next);
+                return copySnapshot(next.snapshot);
+              }),
+            ),
+          ),
+        ),
+      updateOriginRule: (rawUpdate) =>
+        Effect.try({
+          try: () => BrowserUseOriginRuleUpdateSchema.parse(rawUpdate),
+          catch: (cause) => runtimeError("validate-origin-rule", cause),
+        }).pipe(
+          Effect.flatMap((update) =>
+            writes.withPermits(1)(
+              Effect.gen(function* () {
+                const current = yield* Ref.get(state);
+                const origin = normalizeBrowserUsePolicyOrigin(update.origin);
+                const tableName = TABLE_BY_RESOURCE[update.resource];
+                const previousTable = isRecord(current.config[tableName])
+                  ? current.config[tableName]
+                  : {};
+                const table = { ...previousTable };
+                const selected = readStringArray(table[update.kind]);
+                if (update.action === "remove") {
+                  table[update.kind] = selected.filter((entry) => entry !== origin);
+                } else {
+                  const oppositeKind = update.kind === "allowed" ? "denied" : "allowed";
+                  table[update.kind] = selected.includes(origin)
+                    ? selected
+                    : [...selected, origin].slice(0, MAX_ORIGIN_RULES);
+                  table[oppositeKind] = readStringArray(table[oppositeKind]).filter(
+                    (entry) => entry !== origin,
+                  );
+                }
+                const config = { ...current.config, [tableName]: table };
+                const next = { config, snapshot: projectSnapshot(config) };
+                yield* persist(config);
+                yield* Ref.set(state, next);
+                return copySnapshot(next.snapshot);
+              }),
+            ),
+          ),
+        ),
+    } satisfies BrowserUsePolicyRuntime;
+  });

@@ -1,14 +1,20 @@
 import path from "node:path";
-import { afterEach, describe, expect, test, vi } from "vite-plus/test";
-import type {
-  FileWatchChange,
-  FileWatchClosed,
-  FileWatchHost,
-  FileWatchSession,
-} from "../file-watch-host";
+import { it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Queue from "effect/Queue";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
+import { describe, expect } from "vite-plus/test";
+import type { FileWatchEvent, FileWatchHost, FileWatchInput } from "../file-watch-host";
+import { FileWatchError } from "../file-watch-host";
 import {
   GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS,
-  NodeGitReviewRepositoryWatcher,
+  GIT_REVIEW_WATCH_RETRY_MS,
+  makeGitReviewRepositoryWatcher,
   type GitReviewRepositoryChangedEvent,
   type GitReviewWatchRoots,
 } from "./repository-watcher";
@@ -25,49 +31,34 @@ const ROOTS: GitReviewWatchRoots = {
   syncedBranchPath: path.join(GIT_DIR, "codex-synced-branch.json"),
 };
 
-interface WatchInput {
-  readonly path: string;
-  readonly recursive: boolean;
-  readonly renameEventHandling: "changed-path" | "changed-path-with-parent-directory";
-  readonly onChange: (change: FileWatchChange) => void;
-}
-
-class FakeSession implements FileWatchSession {
-  readonly coverage;
-  readonly path;
-  readonly closed: Promise<FileWatchClosed>;
-  readonly dispose = vi.fn(async () => {
-    this.close({ reason: "disposed" });
-  });
-  private resolveClosed!: (closed: FileWatchClosed) => void;
-  private settled = false;
+class FakeSession {
+  closeCount = 0;
+  private closed = false;
 
   get isClosed(): boolean {
-    return this.settled;
+    return this.closed;
   }
 
   constructor(
-    readonly input: WatchInput,
-    recursiveCoverage = input.recursive,
-  ) {
-    this.path = input.path;
-    this.coverage = {
-      recursive: recursiveCoverage,
-      typedPathChanges: false as const,
-    };
-    this.closed = new Promise((resolve) => {
-      this.resolveClosed = resolve;
-    });
-  }
+    readonly input: FileWatchInput,
+    private readonly events: Queue.Queue<FileWatchEvent, FileWatchError | Cause.Done>,
+  ) {}
 
   emit(changedPaths: readonly string[]): void {
-    this.input.onChange({ changedPaths });
+    Queue.offerUnsafe(this.events, { _tag: "Changed", changedPaths });
   }
 
-  close(closed: FileWatchClosed): void {
-    if (this.settled) return;
-    this.settled = true;
-    this.resolveClosed(closed);
+  fail(cause: Error): void {
+    Queue.failCauseUnsafe(
+      this.events,
+      Cause.fail(new FileWatchError({ path: this.input.path, cause })),
+    );
+  }
+
+  release(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.closeCount += 1;
   }
 }
 
@@ -76,17 +67,31 @@ class FakeFileWatchHost implements FileWatchHost {
   readonly starts: string[] = [];
   readonly failuresRemaining = new Map<string, number>();
 
-  async startFileWatch(input: WatchInput): Promise<FileWatchSession> {
-    this.starts.push(`${input.path}:${input.recursive}`);
-    const remaining = this.failuresRemaining.get(input.path) ?? 0;
-    if (remaining > 0) {
-      this.failuresRemaining.set(input.path, remaining - 1);
-      throw new Error(`Could not watch ${input.path}`);
-    }
-    const session = new FakeSession(input);
-    this.sessions.push(session);
-    return session;
-  }
+  readonly watch = (input: FileWatchInput): Stream.Stream<FileWatchEvent, FileWatchError> =>
+    Stream.callback<FileWatchEvent, FileWatchError>((events) =>
+      Effect.acquireRelease(
+        Effect.try({
+          try: () => {
+            this.starts.push(`${input.path}:${input.recursive}`);
+            const remaining = this.failuresRemaining.get(input.path) ?? 0;
+            if (remaining > 0) {
+              this.failuresRemaining.set(input.path, remaining - 1);
+              throw new Error(`Could not watch ${input.path}`);
+            }
+            const session = new FakeSession(input, events);
+            this.sessions.push(session);
+            Queue.offerUnsafe(events, {
+              _tag: "Ready",
+              coverage: { recursive: input.recursive, typedPathChanges: false },
+              path: input.path,
+            });
+            return session;
+          },
+          catch: (cause) => new FileWatchError({ path: input.path, cause }),
+        }),
+        (session) => Effect.sync(() => session.release()),
+      ).pipe(Effect.catch((error) => Queue.fail(events, error).pipe(Effect.asVoid))),
+    );
 
   activeSessions(
     input: {
@@ -107,199 +112,225 @@ class FakeFileWatchHost implements FileWatchHost {
   }
 }
 
-function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
-}
+describe("makeGitReviewRepositoryWatcher", () => {
+  it.effect("watches exact Git targets and emits all seven semantic change types", () =>
+    Effect.gen(function* () {
+      const host = new FakeFileWatchHost();
+      const events: GitReviewRepositoryChangedEvent[] = [];
+      yield* makeGitReviewRepositoryWatcher({
+        roots: ROOTS,
+        host,
+        onChange: (event) => Effect.sync(() => events.push(event)),
+      });
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+      expect(
+        host.activeSessions({
+          path: path.dirname(ROOTS.headPath),
+          recursive: false,
+        }).length,
+      ).toBeGreaterThan(0);
+      expect(
+        host.activeSessions({
+          path: path.join(COMMON_DIR, "refs", "heads"),
+          recursive: true,
+        }),
+      ).toHaveLength(1);
+      expect(
+        host.activeSessions({
+          path: path.join(COMMON_DIR, "refs"),
+          recursive: true,
+        }),
+      ).toHaveLength(1);
+      expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
+      expect(
+        host.activeSessions({ path: ROOT, recursive: true })[0]?.input.renameEventHandling,
+      ).toBe("changed-path-with-parent-directory");
 
-describe("NodeGitReviewRepositoryWatcher", () => {
-  test("watches exact Git targets and emits all seven semantic change types", async () => {
-    vi.useFakeTimers();
-    const host = new FakeFileWatchHost();
-    const events: GitReviewRepositoryChangedEvent[] = [];
-    const watcher = new NodeGitReviewRepositoryWatcher({
-      roots: ROOTS,
-      host,
-      onChange: (event) => {
-        events.push(event);
-      },
-    });
-    await watcher.start();
+      host.emitEverywhere([ROOTS.headPath]);
+      host.emitEverywhere([ROOTS.indexPath]);
+      host.emitEverywhere([path.join(COMMON_DIR, "FETCH_HEAD")]);
+      host.emitEverywhere([path.join(COMMON_DIR, "info", "attributes")]);
+      host.emitEverywhere([ROOTS.syncedBranchPath]);
+      host.emitEverywhere([path.join(COMMON_DIR, "worktrees", "other", "HEAD")]);
+      host.emitEverywhere([path.join(ROOT, "src", "example.ts")]);
 
-    expect(
-      host.activeSessions({
-        path: path.dirname(ROOTS.headPath),
-        recursive: false,
-      }).length,
-    ).toBeGreaterThan(0);
-    expect(
-      host.activeSessions({
-        path: path.join(COMMON_DIR, "refs", "heads"),
-        recursive: true,
-      }),
-    ).toHaveLength(1);
-    expect(
-      host.activeSessions({
-        path: path.join(COMMON_DIR, "refs"),
-        recursive: true,
-      }),
-    ).toHaveLength(1);
-    expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
-    expect(host.activeSessions({ path: ROOT, recursive: true })[0]?.input.renameEventHandling).toBe(
-      "changed-path-with-parent-directory",
-    );
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1);
+      expect(events).toHaveLength(0);
+      yield* TestClock.adjust(1);
+      expect(new Set(events.map((event) => event.changeType))).toEqual(
+        new Set([
+          "config",
+          "head",
+          "index",
+          "remote-refs",
+          "working-tree",
+          "synced-branch",
+          "worktree-topology",
+        ]),
+      );
+    }),
+  );
 
-    host.emitEverywhere([ROOTS.headPath]);
-    host.emitEverywhere([ROOTS.indexPath]);
-    host.emitEverywhere([path.join(COMMON_DIR, "FETCH_HEAD")]);
-    host.emitEverywhere([path.join(COMMON_DIR, "info", "attributes")]);
-    host.emitEverywhere([ROOTS.syncedBranchPath]);
-    host.emitEverywhere([path.join(COMMON_DIR, "worktrees", "other", "HEAD")]);
-    host.emitEverywhere([path.join(ROOT, "src", "example.ts")]);
+  it.effect("deduplicates working-tree ancestors and collapses more than 64 paths", () =>
+    Effect.gen(function* () {
+      const host = new FakeFileWatchHost();
+      const events: GitReviewRepositoryChangedEvent[] = [];
+      yield* makeGitReviewRepositoryWatcher({
+        roots: ROOTS,
+        host,
+        onChange: (event) => Effect.sync(() => events.push(event)),
+      });
+      const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
+      if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
 
-    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1);
-    expect(events).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(new Set(events.map((event) => event.changeType))).toEqual(
-      new Set([
-        "config",
-        "head",
-        "index",
-        "remote-refs",
-        "working-tree",
-        "synced-branch",
-        "worktree-topology",
-      ]),
-    );
+      workingTreeSession.emit([path.join(ROOT, "src", "nested", "child.ts")]);
+      workingTreeSession.emit([path.join(ROOT, "src", "nested")]);
+      for (let index = 0; index < 65; index += 1) {
+        workingTreeSession.emit([
+          path.join(ROOT, index % 2 === 0 ? "src" : "tests", `${index}.ts`),
+        ]);
+      }
 
-    watcher.dispose();
-  });
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
+      expect(events).toEqual([
+        {
+          changeType: "working-tree",
+          changedPaths: [path.join(ROOT, "src"), path.join(ROOT, "tests")],
+        },
+      ]);
+    }),
+  );
 
-  test("deduplicates working-tree ancestors and collapses more than 64 paths", async () => {
-    vi.useFakeTimers();
-    const host = new FakeFileWatchHost();
-    const events: GitReviewRepositoryChangedEvent[] = [];
-    const watcher = new NodeGitReviewRepositoryWatcher({
-      roots: ROOTS,
-      host,
-      onChange: (event) => {
-        events.push(event);
-      },
-    });
-    await watcher.start();
-    const workingTreeSession = host.activeSessions({
-      path: ROOT,
-      recursive: true,
-    })[0];
-    if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
+  it.effect("serializes one semantic type and starts a new fixed window afterward", () =>
+    Effect.gen(function* () {
+      const host = new FakeFileWatchHost();
+      const firstEmission = yield* Deferred.make<void>();
+      const events: GitReviewRepositoryChangedEvent[] = [];
+      yield* makeGitReviewRepositoryWatcher({
+        roots: ROOTS,
+        host,
+        onChange: (event) =>
+          Effect.sync(() => events.push(event)).pipe(
+            Effect.andThen(events.length === 0 ? Deferred.await(firstEmission) : Effect.void),
+          ),
+      });
+      const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
+      if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
 
-    workingTreeSession.emit([path.join(ROOT, "src", "nested", "child.ts")]);
-    workingTreeSession.emit([path.join(ROOT, "src", "nested")]);
-    for (let index = 0; index < 65; index += 1) {
-      workingTreeSession.emit([path.join(ROOT, index % 2 === 0 ? "src" : "tests", `${index}.ts`)]);
-    }
+      workingTreeSession.emit([path.join(ROOT, "first.ts")]);
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
+      workingTreeSession.emit([path.join(ROOT, "second.ts")]);
+      yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS * 2);
+      expect(events).toHaveLength(1);
 
-    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
-    expect(events).toEqual([
-      {
-        changeType: "working-tree",
-        changedPaths: [path.join(ROOT, "src"), path.join(ROOT, "tests")],
-      },
-    ]);
-    watcher.dispose();
-  });
+      yield* Deferred.succeed(firstEmission, undefined);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1);
+      expect(events).toHaveLength(1);
+      yield* TestClock.adjust(1);
+      expect(events).toEqual([
+        {
+          changeType: "working-tree",
+          changedPaths: [path.join(ROOT, "first.ts")],
+        },
+        {
+          changeType: "working-tree",
+          changedPaths: [path.join(ROOT, "second.ts")],
+        },
+      ]);
+    }),
+  );
 
-  test("serializes the same semantic type and starts a new fixed window afterward", async () => {
-    vi.useFakeTimers();
-    const host = new FakeFileWatchHost();
-    const firstEmission = deferred();
-    const events: GitReviewRepositoryChangedEvent[] = [];
-    const watcher = new NodeGitReviewRepositoryWatcher({
-      roots: ROOTS,
-      host,
-      onChange: (event) => {
-        events.push(event);
-        return events.length === 1 ? firstEmission.promise : undefined;
-      },
-    });
-    await watcher.start();
-    const workingTreeSession = host.activeSessions({
-      path: ROOT,
-      recursive: true,
-    })[0];
-    if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
+  it.effect("retries failed sessions and emits a synthetic unknown-path change", () =>
+    Effect.gen(function* () {
+      const host = new FakeFileWatchHost();
+      const events: GitReviewRepositoryChangedEvent[] = [];
+      const recoveryStates: boolean[] = [];
+      const watcher = yield* makeGitReviewRepositoryWatcher({
+        roots: ROOTS,
+        host,
+        onChange: (event) => Effect.sync(() => events.push(event)),
+        onRequiresRecoveryChanged: (requiresRecovery) =>
+          Effect.sync(() => recoveryStates.push(requiresRecovery)),
+      });
+      const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
+      if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
 
-    workingTreeSession.emit([path.join(ROOT, "first.ts")]);
-    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
-    workingTreeSession.emit([path.join(ROOT, "second.ts")]);
-    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS * 2);
-    expect(events).toHaveLength(1);
+      host.failuresRemaining.set(ROOT, 1);
+      workingTreeSession.fail(new Error("watch overflow"));
+      while (host.starts.filter((start) => start === `${ROOT}:true`).length < 2) {
+        yield* Effect.yieldNow;
+      }
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      expect(recoveryStates.at(-1)).toBe(true);
+      expect(yield* watcher.requiresRecovery).toBe(true);
 
-    firstEmission.resolve();
-    await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1);
-    expect(events).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(events).toEqual([
-      {
-        changeType: "working-tree",
-        changedPaths: [path.join(ROOT, "first.ts")],
-      },
-      {
-        changeType: "working-tree",
-        changedPaths: [path.join(ROOT, "second.ts")],
-      },
-    ]);
-    watcher.dispose();
-  });
+      yield* TestClock.adjust(GIT_REVIEW_WATCH_RETRY_MS - 1);
+      expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(0);
+      yield* TestClock.adjust(1);
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
+      expect(recoveryStates.at(-1)).toBe(false);
 
-  test("retries failed sessions and emits a synthetic unknown-path change", async () => {
-    vi.useFakeTimers();
-    const host = new FakeFileWatchHost();
-    const events: GitReviewRepositoryChangedEvent[] = [];
-    const recoveryStates: boolean[] = [];
-    const watcher = new NodeGitReviewRepositoryWatcher({
-      roots: ROOTS,
-      host,
-      onChange: (event) => {
-        events.push(event);
-      },
-      onRequiresRecoveryChanged: (requiresRecovery) => {
-        recoveryStates.push(requiresRecovery);
-      },
-    });
-    await watcher.start();
-    const workingTreeSession = host.activeSessions({
-      path: ROOT,
-      recursive: true,
-    })[0];
-    if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
+      expect(events.at(-1)).toEqual({ changeType: "working-tree" });
+    }),
+  );
 
-    host.failuresRemaining.set(ROOT, 1);
-    workingTreeSession.close({
-      reason: "watch-error",
-      error: new Error("watch overflow"),
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(recoveryStates.at(-1)).toBe(true);
+  it.effect("awaits one immediate recovery attempt", () =>
+    Effect.gen(function* () {
+      const host = new FakeFileWatchHost();
+      const watcher = yield* makeGitReviewRepositoryWatcher({
+        roots: ROOTS,
+        host,
+        onChange: () => Effect.void,
+      });
+      const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
+      if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
 
-    await vi.advanceTimersByTimeAsync(999);
-    expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1);
-    await Promise.resolve();
-    expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
-    expect(recoveryStates.at(-1)).toBe(false);
+      host.failuresRemaining.set(ROOT, 1);
+      workingTreeSession.fail(new Error("watch overflow"));
+      while (host.starts.filter((start) => start === `${ROOT}:true`).length < 2) {
+        yield* Effect.yieldNow;
+      }
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      expect(yield* watcher.requiresRecovery).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
-    expect(events.at(-1)).toEqual({ changeType: "working-tree" });
-    watcher.dispose();
-  });
+      yield* watcher.recover;
+
+      expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
+      expect(yield* watcher.requiresRecovery).toBe(false);
+    }),
+  );
+
+  it.effect("closes every active native session with its Scope", () =>
+    Effect.gen(function* () {
+      const parentScope = yield* Scope.Scope;
+      const watcherScope = yield* Scope.fork(parentScope);
+      const host = new FakeFileWatchHost();
+      yield* makeGitReviewRepositoryWatcher({
+        roots: ROOTS,
+        host,
+        onChange: () => Effect.void,
+      }).pipe(Scope.provide(watcherScope));
+      const sessions = host.activeSessions();
+      expect(sessions.length).toBeGreaterThan(0);
+
+      yield* Scope.close(watcherScope, Exit.void);
+
+      expect(host.activeSessions()).toHaveLength(0);
+      expect(sessions.every((session) => session.closeCount === 1)).toBe(true);
+    }),
+  );
 });

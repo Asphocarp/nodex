@@ -95,15 +95,8 @@ export interface CoreLibraryModuleAdapterInput {
 export interface CoreLibraryModuleAdapter {
   read(request: LibraryModuleReadRequest): Promise<LibraryModuleReadResult>;
   apply(request: LibraryModuleApplyRequest): Promise<LibraryModuleApplyResult>;
-  readProjectPageDetail(
-    projectId: string,
-    pageId: string,
-    minimumCommitSeq?: number,
-  ): Promise<PageDetailResult>;
-  readLibraryPageDetail(
-    pageId: string,
-    minimumCommitSeq?: number,
-  ): Promise<LibraryPageDetailResult>;
+  readProjectPageDetail(projectId: string, pageId: string): Promise<PageDetailResult>;
+  readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
   listPageHistory(request: ListPageHistoryRequest): Promise<PageHistoryCommandResult>;
   searchPages(input: PageSearchInput, signal?: AbortSignal): Promise<PageSearchSnapshot>;
   pageSearchMetadata(projectIds: string[], pageIds?: string[]): Promise<PageSearchMetadataSnapshot>;
@@ -1731,35 +1724,28 @@ export const createCoreLibraryModuleAdapter = (
 ): CoreLibraryModuleAdapter => {
   const readPageDetail = async (
     pageId: string,
-    minimumCommitSeq = 0,
   ): Promise<{
     readonly detail: CorePageDetail;
     readonly authorization: NonNullable<LibraryReadSnapshot["authorization"]>;
   }> => {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      const snapshot = await input.client.libraryRead({
-        kind: "page_detail",
-        page_id: pageId,
-      });
-      if (snapshot.value.kind !== "page_detail") {
-        throw new Error("Core returned a non-Page-detail Library read value");
-      }
-      const detail = snapshot.value.value;
-      if (detail.library_id !== input.libraryId || detail.store_epoch !== snapshot.store_epoch) {
-        throw new Error("Core Page Detail escaped its Library snapshot boundary");
-      }
-      if (detail.commit_seq !== snapshot.commit_head) {
-        throw new Error("Core Page Detail crossed its LocalCommit snapshot boundary");
-      }
-      if (!snapshot.authorization) {
-        throw new Error("Core Page Detail omitted its authorization stamp");
-      }
-      if (snapshot.commit_head >= minimumCommitSeq) {
-        return { detail, authorization: snapshot.authorization };
-      }
-      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    const snapshot = await input.client.libraryRead({
+      kind: "page_detail",
+      page_id: pageId,
+    });
+    if (snapshot.value.kind !== "page_detail") {
+      throw new Error("Core returned a non-Page-detail Library read value");
     }
-    throw new Error(`Core Page Detail read did not reach local commit ${minimumCommitSeq}`);
+    const detail = snapshot.value.value;
+    if (detail.library_id !== input.libraryId || detail.store_epoch !== snapshot.store_epoch) {
+      throw new Error("Core Page Detail escaped its Library snapshot boundary");
+    }
+    if (detail.commit_seq !== snapshot.commit_head) {
+      throw new Error("Core Page Detail crossed its LocalCommit snapshot boundary");
+    }
+    if (!snapshot.authorization) {
+      throw new Error("Core Page Detail omitted its authorization stamp");
+    }
+    return { detail, authorization: snapshot.authorization };
   };
 
   type CoreBlockPropertyApplyRequest = {
@@ -1983,9 +1969,9 @@ export const createCoreLibraryModuleAdapter = (
         return failure(error);
       }
     },
-    readProjectPageDetail: async (projectId, pageId, minimumCommitSeq) => {
+    readProjectPageDetail: async (projectId, pageId) => {
       try {
-        const snapshot = await readPageDetail(pageId, minimumCommitSeq);
+        const snapshot = await readPageDetail(pageId);
         return parsePageDetailResult({
           ok: true,
           value: {
@@ -1997,9 +1983,9 @@ export const createCoreLibraryModuleAdapter = (
         return { ok: false, error: pageDetailError(error) };
       }
     },
-    readLibraryPageDetail: async (pageId, minimumCommitSeq) => {
+    readLibraryPageDetail: async (pageId) => {
       try {
-        const snapshot = await readPageDetail(pageId, minimumCommitSeq);
+        const snapshot = await readPageDetail(pageId);
         return parseLibraryPageDetailResult({
           ok: true,
           value: {

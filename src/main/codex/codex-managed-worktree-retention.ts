@@ -178,39 +178,3 @@ export function planManagedWorktreeRetention(
     delete: deleting,
   };
 }
-
-export interface CodexManagedWorktreeRetentionExecutionResult {
-  readonly item: CodexManagedWorktreeRetentionPlanItem;
-  readonly status: "fulfilled" | "rejected";
-  readonly error?: unknown;
-}
-
-/** Runs a stable, deduplicated plan without allowing one failure to stop peers. */
-export async function executeManagedWorktreeRetentionPlan(
-  items: readonly CodexManagedWorktreeRetentionPlanItem[],
-  remove: (item: CodexManagedWorktreeRetentionPlanItem) => Promise<void>,
-  concurrency = 3,
-): Promise<readonly CodexManagedWorktreeRetentionExecutionResult[]> {
-  if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
-    throw new Error("Retention concurrency must be a positive integer");
-  }
-  const unique = [...new Map(items.map((item) => [item.key, item])).values()];
-  const results = new Array<CodexManagedWorktreeRetentionExecutionResult>(unique.length);
-  let nextIndex = 0;
-  const worker = async (): Promise<void> => {
-    while (nextIndex < unique.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const item = unique[index];
-      if (!item) continue;
-      try {
-        await remove(item);
-        results[index] = { item, status: "fulfilled" };
-      } catch (error) {
-        results[index] = { item, status: "rejected", error };
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, unique.length) }, worker));
-  return results;
-}

@@ -2,8 +2,11 @@ import { describe, expect, test, vi } from "vite-plus/test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as Effect from "effect/Effect";
+import { it } from "@effect/vitest";
 import {
   createProjectWithDefaultSource,
+  DefaultProjectSourceError,
   findAvailableDefaultProjectSource,
   sanitizeDefaultProjectDirectoryName,
 } from "./default-project-source";
@@ -23,61 +26,73 @@ describe("default Project sources", () => {
     expect(sanitizeDefaultProjectDirectoryName("\u0000. ")).toBe("_");
   });
 
-  test("allocates the first free Documents/Nodex folder with numeric suffixes", async () => {
-    const occupied = new Set([
-      "/Users/test/Documents/Nodex/New project",
-      "/Users/test/Documents/Nodex/New project 2",
-    ]);
+  it.effect("allocates the first free Documents/Nodex folder with numeric suffixes", () =>
+    Effect.gen(function* () {
+      const occupied = new Set([
+        "/Users/test/Documents/Nodex/New project",
+        "/Users/test/Documents/Nodex/New project 2",
+      ]);
 
-    await expect(
-      findAvailableDefaultProjectSource(PROJECTS_DIRECTORY, "New project", async (candidate) =>
-        occupied.has(candidate),
-      ),
-    ).resolves.toBe("/Users/test/Documents/Nodex/New project 3");
-  });
+      const selected = yield* findAvailableDefaultProjectSource(
+        PROJECTS_DIRECTORY,
+        "New project",
+        (candidate) => Effect.succeed(occupied.has(candidate)),
+      );
+      expect(selected).toBe("/Users/test/Documents/Nodex/New project 3");
+    }),
+  );
 
-  test("does not let a legacy Documents folder consume the nested name", async () => {
-    const occupied = new Set(["/Users/test/Documents/Launch plan"]);
+  it.effect("does not let a legacy Documents folder consume the nested name", () =>
+    Effect.gen(function* () {
+      const occupied = new Set(["/Users/test/Documents/Launch plan"]);
 
-    await expect(
-      findAvailableDefaultProjectSource(PROJECTS_DIRECTORY, "Launch plan", async (candidate) =>
-        occupied.has(candidate),
-      ),
-    ).resolves.toBe("/Users/test/Documents/Nodex/Launch plan");
-  });
+      const selected = yield* findAvailableDefaultProjectSource(
+        PROJECTS_DIRECTORY,
+        "Launch plan",
+        (candidate) => Effect.succeed(occupied.has(candidate)),
+      );
+      expect(selected).toBe("/Users/test/Documents/Nodex/Launch plan");
+    }),
+  );
 
-  test("preserves explicitly selected sources without provisioning a folder", async () => {
-    const createProject = vi.fn(async () => PROJECT);
-    const createDirectory = vi.fn(async () => undefined);
-    const initializeRepository = vi.fn(async () => undefined);
-    const input: ProjectCreateInput = {
-      name: "",
-      sources: ["/workspace/existing"],
-    };
+  it.effect("preserves explicitly selected sources without provisioning a folder", () =>
+    Effect.gen(function* () {
+      const createProject = vi.fn(() => Effect.succeed(PROJECT));
+      const createDirectory = vi.fn(() => Effect.void);
+      const initializeRepository = vi.fn(() => Effect.void);
+      const input: ProjectCreateInput = {
+        name: "",
+        sources: ["/workspace/existing"],
+      };
 
-    await expect(
-      createProjectWithDefaultSource(input, {
+      const created = yield* createProjectWithDefaultSource(input, {
         projectsDirectory: PROJECTS_DIRECTORY,
         createProject,
         createDirectory,
         initializeRepository,
-      }),
-    ).resolves.toBe(PROJECT);
+      });
+      expect(created).toBe(PROJECT);
 
-    expect(createProject).toHaveBeenCalledWith(input);
-    expect(createDirectory).not.toHaveBeenCalled();
-    expect(initializeRepository).not.toHaveBeenCalled();
-  });
+      expect(createProject).toHaveBeenCalledWith(input);
+      expect(createDirectory).not.toHaveBeenCalled();
+      expect(initializeRepository).not.toHaveBeenCalled();
+    }),
+  );
 
-  test("provisions and binds a default source when the dialog submits no folders", async () => {
-    const createProject = vi.fn(async () => PROJECT);
-    const createDirectory = vi.fn(async () => undefined);
-    const initializeRepository = vi.fn(async () => {
-      throw new Error("git unavailable");
-    });
+  it.effect("provisions and binds a default source when the dialog submits no folders", () =>
+    Effect.gen(function* () {
+      const createProject = vi.fn(() => Effect.succeed(PROJECT));
+      const createDirectory = vi.fn(() => Effect.void);
+      const initializeRepository = vi.fn(() =>
+        Effect.fail(
+          new DefaultProjectSourceError({
+            operation: "initialize-test",
+            cause: new Error("git unavailable"),
+          }),
+        ),
+      );
 
-    await expect(
-      createProjectWithDefaultSource(
+      const created = yield* createProjectWithDefaultSource(
         {
           appearance: {
             color: "black",
@@ -90,44 +105,50 @@ describe("default Project sources", () => {
           projectsDirectory: PROJECTS_DIRECTORY,
           createProject,
           createDirectory,
-          pathExists: async () => false,
+          pathExists: () => Effect.succeed(false),
           initializeRepository,
         },
-      ),
-    ).resolves.toBe(PROJECT);
-
-    expect(createDirectory).toHaveBeenCalledWith("/Users/test/Documents/Nodex/Launch plan");
-    expect(initializeRepository).toHaveBeenCalledWith("/Users/test/Documents/Nodex/Launch plan");
-    expect(createProject).toHaveBeenCalledWith({
-      appearance: {
-        color: "black",
-        marker: { kind: "icon", icon: "folder" },
-      },
-      name: "Launch plan",
-      sources: ["/Users/test/Documents/Nodex/Launch plan"],
-    });
-  });
-
-  test("creates the default folder before persisting an unnamed Project", async () => {
-    const documentsDirectory = await mkdtemp(join(tmpdir(), "nodex-default-project-source-"));
-    const createProject = vi.fn(async () => PROJECT);
-
-    try {
-      const projectsDirectory = resolveNodexProjectsDirectory(documentsDirectory);
-      await createProjectWithDefaultSource(
-        { name: "", sources: [] },
-        { projectsDirectory, createProject },
       );
+      expect(created).toBe(PROJECT);
 
-      const source = join(projectsDirectory, "New project");
-      const sourceMetadata = await stat(source);
-      expect(sourceMetadata.isDirectory()).toBe(true);
+      expect(createDirectory).toHaveBeenCalledWith("/Users/test/Documents/Nodex/Launch plan");
+      expect(initializeRepository).toHaveBeenCalledWith("/Users/test/Documents/Nodex/Launch plan");
       expect(createProject).toHaveBeenCalledWith({
-        name: "",
-        sources: [source],
+        appearance: {
+          color: "black",
+          marker: { kind: "icon", icon: "folder" },
+        },
+        name: "Launch plan",
+        sources: ["/Users/test/Documents/Nodex/Launch plan"],
       });
-    } finally {
-      await rm(documentsDirectory, { recursive: true, force: true });
-    }
-  });
+    }),
+  );
+
+  it.effect("creates the default folder before persisting an unnamed Project", () =>
+    Effect.acquireUseRelease(
+      Effect.tryPromise(() => mkdtemp(join(tmpdir(), "nodex-default-project-source-"))),
+      (documentsDirectory) =>
+        Effect.gen(function* () {
+          const createProject = vi.fn(() => Effect.succeed(PROJECT));
+
+          const projectsDirectory = resolveNodexProjectsDirectory(documentsDirectory);
+          yield* createProjectWithDefaultSource(
+            { name: "", sources: [] },
+            { projectsDirectory, createProject },
+          );
+
+          const source = join(projectsDirectory, "New project");
+          const sourceMetadata = yield* Effect.tryPromise(() => stat(source));
+          expect(sourceMetadata.isDirectory()).toBe(true);
+          expect(createProject).toHaveBeenCalledWith({
+            name: "",
+            sources: [source],
+          });
+        }),
+      (documentsDirectory) =>
+        Effect.tryPromise(() => rm(documentsDirectory, { recursive: true, force: true })).pipe(
+          Effect.ignore,
+        ),
+    ),
+  );
 });

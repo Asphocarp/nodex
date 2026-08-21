@@ -25,6 +25,7 @@
     "electron.vite.config.ts",
     "vite.config.ts",
     "packages/codex-app-server-protocol/**/*.ts",
+    "packages/effect-codex-app-server/**/*.ts",
     "packages/core-protocol/**/*.ts"
   ],
   "exclude": ["scripts/**/*.test.ts", "scripts/fixtures/**"]

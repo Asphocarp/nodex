@@ -1,7 +1,7 @@
 import { defineRule } from "@oxlint/plugins";
 import { getPropertyName, isIdentifier, unwrapExpression } from "../utils.ts";
 
-const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const TEST_FILE_PATTERN = /\.(?:test|spec|test-support)\.[cm]?[jt]sx?$/u;
 const EFFECT_RUNTIME_METHODS = new Set([
   "runCallback",
   "runCallbackWith",
@@ -38,7 +38,8 @@ export default defineRule({
   meta: {
     type: "problem",
     docs: {
-      description: "Keep Effect test execution inside the project-owned @effect/vitest lifecycle.",
+      description:
+        "Keep Effect test and test-support execution inside the project-owned @effect/vitest lifecycle.",
     },
   },
   create(context) {

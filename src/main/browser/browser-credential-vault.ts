@@ -94,8 +94,6 @@ export class BrowserCredentialVault {
   private readonly filePath: string;
   private readonly encryption: BrowserCredentialEncryption;
   private readonly now: () => Date;
-  private writeQueue: Promise<void> = Promise.resolve();
-
   constructor(options: BrowserCredentialVaultOptions) {
     this.filePath = path.resolve(options.filePath);
     this.encryption = options.encryption;
@@ -116,7 +114,7 @@ export class BrowserCredentialVault {
     };
   }
 
-  async listForOrigin(origin: string): Promise<BrowserCredentialSummary[]> {
+  listForOrigin(origin: string): BrowserCredentialSummary[] {
     const normalizedOrigin = normalizeOrigin(origin);
     return this.readFile()
       .credentials.filter((credential) => credential.origin === normalizedOrigin)
@@ -124,14 +122,14 @@ export class BrowserCredentialVault {
       .map(toSummary);
   }
 
-  async list(): Promise<BrowserCredentialSummary[]> {
+  list(): BrowserCredentialSummary[] {
     return this.readFile()
       .credentials.slice()
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(toSummary);
   }
 
-  async get(id: string): Promise<DecryptedBrowserCredential | null> {
+  get(id: string): DecryptedBrowserCredential | null {
     const credential = this.readFile().credentials.find((entry) => entry.id === id);
     if (!credential) return null;
     this.requireEncryption();
@@ -146,7 +144,7 @@ export class BrowserCredentialVault {
     };
   }
 
-  async save(input: SaveBrowserCredentialInput): Promise<BrowserCredentialSummary> {
+  save(input: SaveBrowserCredentialInput): BrowserCredentialSummary {
     this.requireEncryption();
     const origin = normalizeOrigin(input.origin);
     const username = normalizeUsername(input.username);
@@ -158,7 +156,7 @@ export class BrowserCredentialVault {
     }
     const updatedAt = this.now().toISOString();
     let saved: StoredCredential | null = null;
-    await this.enqueueWrite((current) => {
+    this.write((current) => {
       const existing = current.credentials.find((credential) => credential.id === id);
       saved = StoredCredentialSchema.parse({
         id,
@@ -182,18 +180,18 @@ export class BrowserCredentialVault {
     return toSummary(saved);
   }
 
-  async remove(id: string): Promise<void> {
-    await this.enqueueWrite((current) => ({
+  remove(id: string): void {
+    this.write((current) => ({
       schemaVersion: FILE_SCHEMA_VERSION,
       credentials: current.credentials.filter((credential) => credential.id !== id),
       contacts: current.contacts,
     }));
   }
 
-  async matches(input: SaveBrowserCredentialInput): Promise<boolean> {
+  matches(input: SaveBrowserCredentialInput): boolean {
     const origin = normalizeOrigin(input.origin);
     const username = normalizeUsername(input.username);
-    const existing = await this.get(credentialId(origin, username));
+    const existing = this.get(credentialId(origin, username));
     if (!existing) return false;
     return existing.password === normalizePassword(input.password);
   }
@@ -219,7 +217,7 @@ export class BrowserCredentialVault {
     return shuffleWithSecureRandom(required).join("");
   }
 
-  async listContactInfo(): Promise<BrowserContactInfo[]> {
+  listContactInfo(): BrowserContactInfo[] {
     this.requireEncryption();
     return this.readFile()
       .contacts.slice()
@@ -227,13 +225,13 @@ export class BrowserCredentialVault {
       .map((contact) => this.decryptContact(contact));
   }
 
-  async getContactInfo(id: string): Promise<BrowserContactInfo | null> {
+  getContactInfo(id: string): BrowserContactInfo | null {
     this.requireEncryption();
     const contact = this.readFile().contacts.find((entry) => entry.id === id);
     return contact ? this.decryptContact(contact) : null;
   }
 
-  async saveContactInfo(rawInput: BrowserContactInfoUpsertInput): Promise<BrowserContactInfo> {
+  saveContactInfo(rawInput: BrowserContactInfoUpsertInput): BrowserContactInfo {
     this.requireEncryption();
     const input = BrowserContactInfoUpsertInputSchema.parse(rawInput);
     const payload = ContactPayloadSchema.parse({
@@ -250,7 +248,7 @@ export class BrowserCredentialVault {
     });
     const updatedAt = this.now().toISOString();
     let savedId: string | null = null;
-    await this.enqueueWrite((current) => {
+    this.write((current) => {
       const existing = input.id
         ? current.contacts.find((contact) => contact.id === input.id)
         : undefined;
@@ -275,13 +273,13 @@ export class BrowserCredentialVault {
       };
     });
     if (!savedId) throw new Error("Browser contact info save did not complete");
-    const saved = await this.getContactInfo(savedId);
+    const saved = this.getContactInfo(savedId);
     if (!saved) throw new Error("Browser contact info save did not persist");
     return saved;
   }
 
-  async removeContactInfo(id: string): Promise<void> {
-    await this.enqueueWrite((current) => ({
+  removeContactInfo(id: string): void {
+    this.write((current) => ({
       schemaVersion: FILE_SCHEMA_VERSION,
       credentials: current.credentials,
       contacts: current.contacts.filter((contact) => contact.id !== id),
@@ -339,13 +337,9 @@ export class BrowserCredentialVault {
     };
   }
 
-  private async enqueueWrite(update: (current: CredentialFile) => CredentialFile): Promise<void> {
-    const operation = this.writeQueue.then(() => {
-      const current = this.readFile();
-      this.writeFileAtomically(CredentialFileSchema.parse(update(current)));
-    });
-    this.writeQueue = operation.catch(() => undefined);
-    await operation;
+  private write(update: (current: CredentialFile) => CredentialFile): void {
+    const current = this.readFile();
+    this.writeFileAtomically(CredentialFileSchema.parse(update(current)));
   }
 
   private writeFileAtomically(value: CredentialFile): void {

@@ -2,7 +2,6 @@ import type {
   CodexBackgroundTerminalRow,
   CodexCanonicalConversationState,
   CodexCanonicalServerRequest,
-  CodexConversationChildMembership,
   CodexConversationCapabilityFlags,
   CodexConversationItem,
   CodexCollaborationModeState,
@@ -99,7 +98,6 @@ export function buildCodexConversationSnapshot(input: {
   queuedFollowUps?: CodexQueuedFollowUp[];
   pendingSteers?: CodexPendingSteer[];
   backgroundTerminalRows?: CodexBackgroundTerminalRow[];
-  childMemberships?: CodexConversationChildMembership[];
   capabilityFlags: CodexConversationCapabilityFlags;
   turnPagination?: CodexConversationTurnPagination;
   threadGoal?: ThreadGoal | null;
@@ -143,7 +141,6 @@ export function buildCodexConversationSnapshot(input: {
       (left, right) => left.createdAt - right.createdAt,
     ),
     backgroundTerminalRows: [...(input.backgroundTerminalRows ?? [])],
-    childMemberships: [...(input.childMemberships ?? [])],
     capabilityFlags: input.capabilityFlags,
   };
 }

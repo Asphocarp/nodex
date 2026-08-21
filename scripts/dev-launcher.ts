@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 
 import {
   developmentFeatureEnvironment,
@@ -14,6 +17,7 @@ import {
   NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV,
   NODEX_CORE_EXECUTABLE_ENV,
 } from "../src/shared/native-runtime-environment";
+import { runProcessMain } from "../src/main/app/EffectProcessEntry";
 import {
   cleanupDevelopmentEnvironmentHome,
   ensureDevelopmentProfileDirectories,
@@ -27,6 +31,7 @@ import {
   type DevelopmentSeedProvenance,
 } from "./development-environment-home";
 import { superviseIsolatedRun, type SupervisedCommandPlan } from "./isolated-run-supervisor";
+import type { IsolatedRunFailure } from "./isolated-run/IsolatedRun";
 import { getScenario } from "./scenarios/registry";
 import { materializeDevelopmentSeed } from "./scenarios/harness/development-seed";
 
@@ -50,6 +55,12 @@ export interface DevLaunchPlan {
   readonly enabledFeatures: readonly DevelopmentFeatureSlug[];
   readonly mode: "hmr" | "built";
 }
+
+export class DevLauncherError extends Data.TaggedError("DevLauncherError")<{
+  readonly cause: unknown;
+}> {}
+
+const devLauncherError = (cause: unknown): DevLauncherError => new DevLauncherError({ cause });
 
 const USAGE = `Usage: pnpm run dev [options]
 
@@ -272,31 +283,56 @@ export const createDevLaunchPlan = (input: {
   };
 };
 
-const runCommand = async (
+const runCommand = (
   command: SupervisedCommandPlan,
   repositoryRoot: string,
   environment: NodeJS.ProcessEnv,
-): Promise<void> => {
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    const child = spawn(command.command, [...command.args], {
-      cwd: repositoryRoot,
-      env: environment,
-      shell: false,
-      stdio: "inherit",
-    });
-    child.once("error", reject);
-    child.once("close", (code, signal) => {
-      if (signal) {
-        reject(new Error(`${command.command} stopped by ${signal}`));
-        return;
+): Effect.Effect<void, DevLauncherError> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const child = yield* Effect.acquireRelease(
+        Effect.try({
+          try: () =>
+            spawn(command.command, [...command.args], {
+              cwd: repositoryRoot,
+              env: environment,
+              shell: false,
+              stdio: "inherit",
+            }),
+          catch: devLauncherError,
+        }),
+        (child) =>
+          Effect.sync(() => {
+            if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+          }),
+      );
+      const exitCode = yield* Effect.callback<number, DevLauncherError>((resume) => {
+        const onError = (error: Error) => resume(Effect.fail(devLauncherError(error)));
+        const onClose = (code: number | null, signal: NodeJS.Signals | null) =>
+          signal === null
+            ? resume(Effect.succeed(code ?? 1))
+            : resume(
+                Effect.fail(devLauncherError(new Error(`${command.command} stopped by ${signal}`))),
+              );
+        child.once("error", onError);
+        child.once("close", onClose);
+        return Effect.sync(() => {
+          child.off("error", onError);
+          child.off("close", onClose);
+        });
+      });
+      if (exitCode !== 0) {
+        return yield* Effect.fail(
+          devLauncherError(
+            new Error(`${command.command} ${command.args.join(" ")} exited with ${exitCode}`),
+          ),
+        );
       }
-      resolve(code ?? 1);
-    });
-  });
-  if (exitCode !== 0) {
-    throw new Error(`${command.command} ${command.args.join(" ")} exited with ${exitCode}`);
-  }
-};
+    }),
+  );
+
+const attemptPromise = <A>(operation: () => Promise<A>): Effect.Effect<A, DevLauncherError> =>
+  Effect.tryPromise({ try: operation, catch: devLauncherError });
 
 export type DevelopmentSeedInitialization =
   | { readonly kind: "none" }
@@ -375,87 +411,123 @@ const readProfileSnapshotReceipt = async (
   };
 };
 
-const prepareProfileSnapshot = async (input: {
+const prepareProfileSnapshot = (input: {
   readonly arguments: DevLauncherArguments;
   readonly environment: NodeJS.ProcessEnv;
   readonly home: DevelopmentEnvironmentHome;
-}): Promise<void> => {
-  if (!input.arguments.fromProfile) return;
-  const sourceProfileHome = await realpath(path.resolve(input.arguments.fromProfile));
-  const sourceProfileFingerprint = createHash("sha256").update(sourceProfileHome).digest("hex");
-  const current = await refreshDevelopmentEnvironmentHome(input.home);
-  const existing = current.manifest.profileSnapshot;
-  if (existing) {
-    const sameBackup =
-      input.arguments.backup === "latest" || existing.backupId === input.arguments.backup;
-    if (existing.sourceProfileHome !== sourceProfileHome || !sameBackup) {
-      throw new Error(
-        `Development home already contains backup ${existing.backupId} from ${existing.sourceProfileHome}`,
+}): Effect.Effect<void, DevLauncherError> =>
+  Effect.gen(function* () {
+    if (!input.arguments.fromProfile) return;
+    const sourceProfileHome = yield* attemptPromise(() =>
+      realpath(path.resolve(input.arguments.fromProfile!)),
+    );
+    const sourceProfileFingerprint = createHash("sha256").update(sourceProfileHome).digest("hex");
+    const current = yield* attemptPromise(() => refreshDevelopmentEnvironmentHome(input.home));
+    const existing = current.manifest.profileSnapshot;
+    if (existing) {
+      const sameBackup =
+        input.arguments.backup === "latest" || existing.backupId === input.arguments.backup;
+      if (existing.sourceProfileHome !== sourceProfileHome || !sameBackup) {
+        return yield* Effect.fail(
+          devLauncherError(
+            new Error(
+              `Development home already contains backup ${existing.backupId} from ${existing.sourceProfileHome}`,
+            ),
+          ),
+        );
+      }
+      yield* attemptPromise(() => ensureDevelopmentProfileDirectories(current));
+      yield* Effect.sync(() =>
+        process.stdout.write(`Reusing Profile snapshot ${existing.backupId} in ${current.root}\n`),
+      );
+      return;
+    }
+    if (current.manifest.initializedAt) {
+      return yield* Effect.fail(
+        devLauncherError(
+          new Error("Development home was already initialized without a Profile snapshot"),
+        ),
       );
     }
-    await ensureDevelopmentProfileDirectories(current);
-    process.stdout.write(`Reusing Profile snapshot ${existing.backupId} in ${current.root}\n`);
-    return;
-  }
-  if (current.manifest.initializedAt) {
-    throw new Error("Development home was already initialized without a Profile snapshot");
-  }
 
-  try {
-    const published = await readProfileSnapshotReceipt(current.nodexHome, sourceProfileHome);
-    const sameBackup =
-      input.arguments.backup === "latest" || published.backupId === input.arguments.backup;
-    if (published.sourceProfileFingerprint !== sourceProfileFingerprint || !sameBackup) {
-      throw new Error("Existing Profile snapshot does not match the requested source backup");
-    }
-    await ensureDevelopmentProfileDirectories(current);
-    await markDevelopmentEnvironmentInitialized(current, {
-      kind: "profileSnapshot",
-      profileSnapshot: published,
-    });
-    process.stdout.write(`Adopted Profile snapshot ${published.backupId} in ${current.root}\n`);
-    return;
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-  }
-
-  const executable = path.join(
-    current.repositoryRealpath,
-    input.arguments.build ? "target/release/nodex" : "target/debug/nodex",
-  );
-  await runCommand(
-    {
-      command: executable,
-      args: [
-        "--json",
-        "profile",
-        "clone",
-        "--from",
-        sourceProfileHome,
-        "--to",
-        current.nodexHome,
-        "--backup",
-        input.arguments.backup,
-      ],
-    },
-    current.repositoryRealpath,
-    input.environment,
-  );
-  const profileSnapshot = await readProfileSnapshotReceipt(current.nodexHome, sourceProfileHome);
-  await ensureDevelopmentProfileDirectories(current);
-  await markDevelopmentEnvironmentInitialized(current, {
-    kind: "profileSnapshot",
-    profileSnapshot,
-  });
-  if (profileSnapshot.missingManagedAssetCount > 0) {
-    process.stderr.write(
-      `Profile snapshot preserved ${profileSnapshot.missingManagedAssetCount} missing managed asset reference(s) from the source backup.\n`,
+    const publishedResult = yield* Effect.result(
+      attemptPromise(() => readProfileSnapshotReceipt(current.nodexHome, sourceProfileHome)),
     );
-  }
-  process.stdout.write(
-    `Initialized ${current.root} from Profile backup ${profileSnapshot.backupId}\n`,
-  );
-};
+    if (Result.isSuccess(publishedResult)) {
+      const published = publishedResult.success;
+      const sameBackup =
+        input.arguments.backup === "latest" || published.backupId === input.arguments.backup;
+      if (published.sourceProfileFingerprint !== sourceProfileFingerprint || !sameBackup) {
+        return yield* Effect.fail(
+          devLauncherError(
+            new Error("Existing Profile snapshot does not match the requested source backup"),
+          ),
+        );
+      }
+      yield* attemptPromise(() => ensureDevelopmentProfileDirectories(current));
+      yield* attemptPromise(() =>
+        markDevelopmentEnvironmentInitialized(current, {
+          kind: "profileSnapshot",
+          profileSnapshot: published,
+        }),
+      );
+      yield* Effect.sync(() =>
+        process.stdout.write(`Adopted Profile snapshot ${published.backupId} in ${current.root}\n`),
+      );
+      return;
+    }
+    const receiptError = publishedResult.failure.cause;
+    if (
+      !(receiptError instanceof Error && "code" in receiptError && receiptError.code === "ENOENT")
+    ) {
+      return yield* Effect.fail(publishedResult.failure);
+    }
+
+    const executable = path.join(
+      current.repositoryRealpath,
+      input.arguments.build ? "target/release/nodex" : "target/debug/nodex",
+    );
+    yield* runCommand(
+      {
+        command: executable,
+        args: [
+          "--json",
+          "profile",
+          "clone",
+          "--from",
+          sourceProfileHome,
+          "--to",
+          current.nodexHome,
+          "--backup",
+          input.arguments.backup,
+        ],
+      },
+      current.repositoryRealpath,
+      input.environment,
+    );
+    const profileSnapshot = yield* attemptPromise(() =>
+      readProfileSnapshotReceipt(current.nodexHome, sourceProfileHome),
+    );
+    yield* attemptPromise(() => ensureDevelopmentProfileDirectories(current));
+    yield* attemptPromise(() =>
+      markDevelopmentEnvironmentInitialized(current, {
+        kind: "profileSnapshot",
+        profileSnapshot,
+      }),
+    );
+    if (profileSnapshot.missingManagedAssetCount > 0) {
+      yield* Effect.sync(() =>
+        process.stderr.write(
+          `Profile snapshot preserved ${profileSnapshot.missingManagedAssetCount} missing managed asset reference(s) from the source backup.\n`,
+        ),
+      );
+    }
+    yield* Effect.sync(() =>
+      process.stdout.write(
+        `Initialized ${current.root} from Profile backup ${profileSnapshot.backupId}\n`,
+      ),
+    );
+  });
 
 const prepareEnvironment = async (input: {
   readonly arguments: DevLauncherArguments;
@@ -517,107 +589,140 @@ const prepareEnvironment = async (input: {
   );
 };
 
-export const runDevLauncher = async (input: {
+export const runDevLauncher = (input: {
   readonly args: readonly string[];
   readonly environment?: NodeJS.ProcessEnv;
   readonly repositoryRoot: string;
-}): Promise<number> => {
-  const arguments_ = parseDevLauncherArguments(input.args);
-  if (arguments_.help) {
-    process.stdout.write(USAGE);
-    return 0;
-  }
-  const environment = input.environment ?? process.env;
-  const recipe = arguments_.seed ? getScenario(arguments_.seed) : null;
-  const home = await openDevelopmentEnvironmentHome({
-    repositoryRoot: input.repositoryRoot,
-    home: arguments_.home,
-    initializeProfileHome: arguments_.fromProfile === undefined,
-  });
-  let plan: DevLaunchPlan;
-  try {
-    plan = createDevLaunchPlan({ arguments: arguments_, environment, home });
-  } catch (error) {
-    if (home.wasCreated) await cleanupDevelopmentEnvironmentHome(home);
-    throw error;
-  }
-  process.stdout.write(`Nodex ${plan.mode} environment: ${home.root}\n`);
-  if (plan.enabledFeatures.length > 0) {
-    process.stdout.write(`Enabled features: ${plan.enabledFeatures.join(", ")}\n`);
-  }
-
-  let preparationError: unknown;
-  try {
-    for (const command of plan.preparation) {
-      await runCommand(command, home.repositoryRealpath, plan.environment);
-    }
-    await prepareProfileSnapshot({
-      arguments: arguments_,
-      environment: plan.environment,
-      home,
+}): Effect.Effect<number, DevLauncherError | IsolatedRunFailure> =>
+  Effect.gen(function* () {
+    const arguments_ = yield* Effect.try({
+      try: () => parseDevLauncherArguments(input.args),
+      catch: devLauncherError,
     });
-  } catch (error) {
-    preparationError = error;
-  }
-  if (preparationError) {
-    if (home.wasCreated) {
-      await cleanupDevelopmentEnvironmentHome(home);
+    if (arguments_.help) {
+      yield* Effect.sync(() => process.stdout.write(USAGE));
+      return 0;
     }
-    throw preparationError;
-  }
+    const environment = input.environment ?? process.env;
+    const recipe = yield* Effect.try({
+      try: () => (arguments_.seed ? getScenario(arguments_.seed) : null),
+      catch: devLauncherError,
+    });
+    const home = yield* attemptPromise(() =>
+      openDevelopmentEnvironmentHome({
+        repositoryRoot: input.repositoryRoot,
+        home: arguments_.home,
+        initializeProfileHome: arguments_.fromProfile === undefined,
+      }),
+    );
+    const planResult = yield* Effect.result(
+      Effect.try({
+        try: () => createDevLaunchPlan({ arguments: arguments_, environment, home }),
+        catch: devLauncherError,
+      }),
+    );
+    if (Result.isFailure(planResult)) {
+      if (home.wasCreated) {
+        yield* attemptPromise(() => cleanupDevelopmentEnvironmentHome(home));
+      }
+      return yield* Effect.fail(planResult.failure);
+    }
+    const plan = planResult.success;
+    yield* Effect.sync(() =>
+      process.stdout.write(`Nodex ${plan.mode} environment: ${home.root}\n`),
+    );
+    if (plan.enabledFeatures.length > 0) {
+      yield* Effect.sync(() =>
+        process.stdout.write(`Enabled features: ${plan.enabledFeatures.join(", ")}\n`),
+      );
+    }
 
-  let environmentPreparationFailed = false;
-  const result = await superviseIsolatedRun({
-    command: plan.application,
-    environment: plan.environment,
-    nodexHome: home.nodexHome,
-    repositoryRoot: home.repositoryRealpath,
-    prepare: async () => {
-      try {
-        await prepareEnvironment({
+    const preparation = yield* Effect.result(
+      Effect.gen(function* () {
+        yield* Effect.forEach(
+          plan.preparation,
+          (command) => runCommand(command, home.repositoryRealpath, plan.environment),
+          { discard: true },
+        );
+        yield* prepareProfileSnapshot({
           arguments: arguments_,
           environment: plan.environment,
           home,
-          seedRevision: recipe?.revision,
         });
-      } catch (error) {
-        environmentPreparationFailed = true;
-        throw error;
+      }),
+    );
+    if (Result.isFailure(preparation)) {
+      if (home.wasCreated) {
+        yield* attemptPromise(() => cleanupDevelopmentEnvironmentHome(home));
       }
-    },
-  });
+      return yield* Effect.fail(preparation.failure);
+    }
 
-  const shouldDelete = arguments_.deleteHome || (home.wasCreated && environmentPreparationFailed);
-  if (shouldDelete) {
-    if (!result.safeToDeleteRunRoot) {
-      process.stderr.write(
-        `Preserved unsafe development home ${home.root}; clean shutdown was not proven.\n`,
-      );
-      return result.childExitCode === 0 ? 1 : result.childExitCode;
+    let environmentPreparationFailed = false;
+    const result = yield* superviseIsolatedRun({
+      command: plan.application,
+      environment: plan.environment,
+      nodexHome: home.nodexHome,
+      repositoryRoot: home.repositoryRealpath,
+      prepare: async () => {
+        try {
+          await prepareEnvironment({
+            arguments: arguments_,
+            environment: plan.environment,
+            home,
+            seedRevision: recipe?.revision,
+          });
+        } catch (error) {
+          environmentPreparationFailed = true;
+          throw error;
+        }
+      },
+    });
+
+    const shouldDelete = arguments_.deleteHome || (home.wasCreated && environmentPreparationFailed);
+    if (shouldDelete) {
+      if (!result.safeToDeleteRunRoot) {
+        yield* Effect.sync(() =>
+          process.stderr.write(
+            `Preserved unsafe development home ${home.root}; clean shutdown was not proven.\n`,
+          ),
+        );
+        return result.childExitCode === 0 ? 1 : result.childExitCode;
+      }
+      const cleanup = yield* attemptPromise(() => cleanupDevelopmentEnvironmentHome(home));
+      if (cleanup.status === "unsafe") {
+        yield* Effect.sync(() =>
+          process.stderr.write(
+            `Preserved unsafe development home ${home.root}: ${cleanup.reason}\n`,
+          ),
+        );
+        return result.childExitCode === 0 ? 1 : result.childExitCode;
+      }
+      yield* Effect.sync(() => process.stdout.write(`Deleted development home ${home.root}\n`));
     }
-    const cleanup = await cleanupDevelopmentEnvironmentHome(home);
-    if (cleanup.status === "unsafe") {
-      process.stderr.write(`Preserved unsafe development home ${home.root}: ${cleanup.reason}\n`);
-      return result.childExitCode === 0 ? 1 : result.childExitCode;
-    }
-    process.stdout.write(`Deleted development home ${home.root}\n`);
-  }
-  return result.childExitCode;
-};
+    return result.childExitCode;
+  });
 
 const scriptPath = fileURLToPath(import.meta.url);
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
-  void runDevLauncher({
-    args: process.argv.slice(2),
-    repositoryRoot,
-  })
-    .then((exitCode) => {
-      process.exitCode = exitCode;
-    })
-    .catch((error: unknown) => {
-      process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
-    });
+  runProcessMain(
+    runDevLauncher({
+      args: process.argv.slice(2),
+      repositoryRoot,
+    }).pipe(
+      Effect.tap((exitCode) => Effect.sync(() => (process.exitCode = exitCode))),
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          const cause = error.cause;
+          process.stderr.write(
+            `Error: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+          );
+          process.exitCode = 1;
+        }),
+      ),
+    ),
+    { disableErrorReporting: true },
+  );
 }

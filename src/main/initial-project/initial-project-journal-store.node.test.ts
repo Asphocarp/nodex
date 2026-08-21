@@ -64,7 +64,7 @@ describe("InitialProjectRecoveryJournal", () => {
 
     await journal.save(attempt);
 
-    expect(await journal.load()).toEqual(attempt);
+    expect(await journal.load(123)).toEqual(attempt);
     expect(JSON.parse(readFileSync(filePath, "utf8"))).toEqual(attempt);
   });
 
@@ -88,12 +88,9 @@ describe("InitialProjectRecoveryJournal", () => {
     mkdirSync(recoveryDirectory, { recursive: true });
     writeFileSync(target, JSON.stringify(attempt));
     symlinkSync(target, filePath, "file");
-    const journal = new InitialProjectRecoveryJournal({
-      filePath,
-      now: () => 123,
-    });
+    const journal = new InitialProjectRecoveryJournal({ filePath });
 
-    expect(await journal.load()).toBeNull();
+    expect(await journal.load(123)).toBeNull();
     expect(JSON.parse(readFileSync(target, "utf8"))).toEqual(attempt);
     expect(readdirSync(recoveryDirectory)).toEqual(["initial-project-v2.json.corrupt-123"]);
   });

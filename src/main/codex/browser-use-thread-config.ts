@@ -7,7 +7,7 @@ import type {
 } from "./browser-runtime-bundle";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import { resolveAvailableBrowserUseBackends } from "./browser-use-backends";
-import type { ComputerUseRuntimeResult } from "./computer-use-runtime";
+import type { ComputerUseRuntimeResult } from "../host-runtime/ComputerUseRuntime";
 
 const BROWSER_USE_IN_APP_INSTRUCTIONS =
   "Control the in-app browser in conjunction with the Browser Plugin.";

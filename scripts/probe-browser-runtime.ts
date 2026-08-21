@@ -5,19 +5,33 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import type * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+import * as Scope from "effect/Scope";
 import type {
   McpServerToolCallResponse,
   ThreadStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { BrowserUsePeerAuthorizationMode } from "../src/shared/browser-use-host-capability";
-import { CodexAppServerClient } from "../src/main/codex/codex-app-server-client";
-import { BrowserPluginReconciler } from "../src/main/codex/browser-plugin-reconciler";
+import { ScopedCallbackRuntime } from "../src/main/app/ScopedCallbackRuntime";
+import {
+  browserPluginRequestPortFromPromise,
+  makeBrowserPluginReconciler,
+} from "../src/main/codex/browser-plugin-reconciler";
 import { BrowserUseThreadConfigBuilder } from "../src/main/codex/browser-use-thread-config";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
-import { BrowserUseNativePipeServer } from "../src/main/browser-use/browser-use-native-pipe-server";
+import { makeBrowserUseNativePipeServer } from "../src/main/browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../src/main/browser-use/browser-use-peer-authorizer";
-import { ComputerUseRuntimeCoordinator } from "../src/main/codex/computer-use-runtime";
+import {
+  ComputerUseRuntime,
+  testLayer as computerUseRuntimeLayer,
+} from "../src/main/host-runtime/ComputerUseRuntime";
+import { makeComputerUseHostPlatform } from "../src/main/platform/electron/ComputerUseHostPlatform";
 import type { SkyNativeAddon } from "../src/main/sky-native";
+import { runCodexProbeMain, withCodexProbeSession } from "./codex-probe-session";
 
 type BrowserRuntimeProbeReport = {
   appServerCompatibilityVersion: string;
@@ -189,9 +203,10 @@ nodeRepl.write(JSON.stringify({
 `;
 }
 
-export async function probeBrowserRuntime(
+async function probeBrowserRuntimePromise(
   projectRoot: string,
-  options: BrowserRuntimeProbeOptions = {},
+  options: BrowserRuntimeProbeOptions,
+  callbacks: ScopedCallbackRuntime["Service"],
 ): Promise<BrowserRuntimeProbeReport> {
   const resourcesPath = options.resourcesPath?.trim();
   const isPackaged = Boolean(resourcesPath);
@@ -210,6 +225,7 @@ export async function probeBrowserRuntime(
   if (!runtime.codexCompatibilityVersion) {
     throw new Error("Agent runtime is missing its Codex compatibility version");
   }
+  const codexCompatibilityVersion = runtime.codexCompatibilityVersion;
 
   const bundle = runtime.browserRuntime.bundle;
   const stateHome = fs.mkdtempSync(path.join(projectRoot, ".generated", "browser-runtime-probe-"));
@@ -225,214 +241,249 @@ export async function probeBrowserRuntime(
   const turnId = randomUUID();
   const nativePipeMethods: string[] = [];
   const nativePipeDiagnostics: string[] = [];
-  const nativePipeServer = new BrowserUseNativePipeServer({
-    events: {
-      onAuthorizationError: (error) => {
-        nativePipeDiagnostics.push(
-          `authorization-error:${error instanceof Error ? error.message : String(error)}`,
-        );
+  const nativePipeScope = await callbacks.runPromise(Scope.make());
+  await callbacks.runPromise(
+    makeBrowserUseNativePipeServer({
+      events: {
+        onAuthorizationError: (error) => {
+          nativePipeDiagnostics.push(
+            `authorization-error:${error instanceof Error ? error.message : String(error)}`,
+          );
+        },
+        onRejectedSocket: (result) => {
+          nativePipeDiagnostics.push(`rejected:${JSON.stringify(result)}`);
+        },
+        onSocketError: (error) => {
+          nativePipeDiagnostics.push(`socket-error:${error.message}`);
+        },
       },
-      onRejectedSocket: (result) => {
-        nativePipeDiagnostics.push(`rejected:${JSON.stringify(result)}`);
+      handler: (request) => {
+        nativePipeMethods.push(request.method);
+        if (request.method === "ping") return "pong";
+        if (request.method === "getInfo") {
+          return {
+            apiSupportOverrides: {},
+            capabilities: { browser: [], tab: [] },
+            metadata: {
+              codexAppBuildFlavor: bundle.manifest.buildFlavor,
+              codexAppSessionId: "runtime-probe",
+              codexSessionId: sessionId,
+            },
+            name: "Nodex Browser Runtime Probe",
+            type: "iab",
+            version: bundle.manifest.desktopBuild,
+          };
+        }
+        throw new Error(`Unexpected Browser runtime probe method: ${request.method}`);
       },
-      onSocketError: (error) => {
-        nativePipeDiagnostics.push(`socket-error:${error.message}`);
-      },
-    },
-    handler: (request) => {
-      nativePipeMethods.push(request.method);
-      if (request.method === "ping") return "pong";
-      if (request.method === "getInfo") {
-        return {
-          apiSupportOverrides: {},
-          capabilities: { browser: [], tab: [] },
-          metadata: {
-            codexAppBuildFlavor: bundle.manifest.buildFlavor,
-            codexAppSessionId: "runtime-probe",
-            codexSessionId: sessionId,
-          },
-          name: "Nodex Browser Runtime Probe",
-          type: "iab",
-          version: bundle.manifest.desktopBuild,
-        };
-      }
-      throw new Error(`Unexpected Browser runtime probe method: ${request.method}`);
-    },
-    socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
-      addonPath: bundle.paths.peerAuthorization,
-      mode: peerAuthorizationMode,
-    }),
-  });
-  const client = new CodexAppServerClient({
-    additionalSearchPaths: runtime.additionalSearchPaths,
-    binaryPath: runtime.binaryPath,
-    clientInfo: {
-      name: "nodex-browser-runtime-probe",
-      title: "Nodex Browser Runtime Probe",
-      version: "1.0.0",
-    },
-    env: {
-      ...process.env,
-      CODEX_HOME: stateHome,
-      INTERPRETER_HOME: stateHome,
-    },
-    expectedCodexHome: stateHome,
-    logStderr: false,
-    requestTimeoutMs: 150_000,
-  });
+      platform: process.platform,
+      socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
+        addonPath: bundle.paths.peerAuthorization,
+        mode: peerAuthorizationMode,
+      }),
+    }).pipe(Scope.provide(nativePipeScope)),
+  );
   const requireForProbe = createRequire(import.meta.url);
-  const computerUseRuntime = new ComputerUseRuntimeCoordinator({
-    browserRuntime: runtime.browserRuntime,
-    loadAddon: () =>
-      requireForProbe(bundle.paths.skyNativeAddon) as Pick<
-        SkyNativeAddon,
-        "computerUseServiceProcessMatchesExecutablePath" | "spawnComputerUseService"
-      >,
-    macOSRelease: execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
-      encoding: "utf8",
-    }).trim(),
-    peerAuthorizationMode,
-    runtimeStateHome: stateHome,
-    terminateManagedServiceOnDispose: true,
-  });
+  const computerUseScope = await callbacks.runPromise(Scope.make());
+  const macOSRelease = execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
+    encoding: "utf8",
+  }).trim();
+  const computerUseHost = {
+    ...makeComputerUseHostPlatform({ macOSRelease, platform: process.platform }, callbacks),
+    loadAddon: Effect.sync(
+      () =>
+        requireForProbe(bundle.paths.skyNativeAddon) as Pick<
+          SkyNativeAddon,
+          "computerUseServiceProcessMatchesExecutablePath" | "spawnComputerUseService"
+        >,
+    ),
+  };
+  const computerUseContext = await callbacks.runPromise(
+    Layer.buildWithScope(
+      computerUseRuntimeLayer(
+        {
+          browserRuntime: runtime.browserRuntime,
+          macOSRelease,
+          peerAuthorizationMode,
+          platform: process.platform,
+          runtimeStateHome: stateHome,
+          terminateManagedServiceOnDispose: true,
+        },
+        computerUseHost,
+      ),
+      computerUseScope,
+    ),
+  );
+  const computerUseRuntime = Context.get(computerUseContext, ComputerUseRuntime);
 
   try {
-    await nativePipeServer.start();
-    const computerUseRuntimeResult = await computerUseRuntime.ensureReady();
-    await client.start();
-    const reconciliation = await new BrowserPluginReconciler({
-      browserRuntime: runtime.browserRuntime,
-      client,
-      computerUseAvailable: () => computerUseRuntimeResult.status === "available",
-      runtimeStateHome: stateHome,
-    }).ensureInstalled();
-    if (reconciliation.status !== "ready") throw new Error(reconciliation.message);
-
-    const browserConfig = await new BrowserUseThreadConfigBuilder({
-      availableBackends: () => ["iab"],
-      browserRuntime: runtime.browserRuntime,
-      computerUsePluginReady: () =>
-        reconciliation.status === "ready" && reconciliation.computerUse.status === "ready",
-      computerUseRuntime: () => computerUseRuntimeResult,
-      runtimeStateHome: stateHome,
-    }).build();
-    if (!browserConfig) throw new Error("Verified Browser runtime did not build thread config");
-    const nodeReplConfig = browserConfig["mcp_servers.node_repl"];
-    if (
-      typeof nodeReplConfig !== "object" ||
-      nodeReplConfig === null ||
-      !("env" in nodeReplConfig) ||
-      typeof nodeReplConfig.env !== "object" ||
-      nodeReplConfig.env === null ||
-      Array.isArray(nodeReplConfig.env)
-    ) {
-      throw new Error("Browser runtime thread config is missing Node REPL environment");
-    }
-    const nodeReplEnv = nodeReplConfig.env;
-    const trustedClientHashes = nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S;
-    if (typeof trustedClientHashes !== "string" || trustedClientHashes.length === 0) {
-      throw new Error("Browser runtime thread config is missing its trusted client hash");
-    }
-    nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = `${trustedClientHashes},${trustedBridgeProbeSha256}`;
-
-    const threadResponse = await client.request<ThreadStartResponse>("thread/start", {
-      config: browserConfig,
-      cwd: projectRoot,
-      ephemeral: true,
-    });
-    const threadId = threadResponse.thread.id;
-    const toolResponse = await client.request<McpServerToolCallResponse>("mcpServer/tool/call", {
-      _meta: {
-        "x-codex-turn-metadata": {
-          session_id: sessionId,
-          thread_id: threadId,
-          turn_id: turnId,
-        },
-      },
-      arguments: {
-        code: makeBrowserClientProbeCode(bundle.paths.browserPluginClient, trustedBridgeProbePath),
-      },
-      server: "node_repl",
-      threadId,
-      tool: "js",
-    });
-    const nodeReplResult = textFromToolResponse(toolResponse);
-    if (
-      toolResponse.isError ||
-      !nodeReplResult.includes('"backendType":"iab"') ||
-      !nodeReplResult.includes('"rootNodeRepl":{"fetchAvailable":false') ||
-      !nodeReplResult.includes(
-        '"trustedBridge":{"authenticatedFetchAvailable":true,"nativePipeAvailable":true',
-      )
-    ) {
-      throw new Error(
-        `Browser client conformance failed: ${nodeReplResult || "empty result"}` +
-          (nativePipeDiagnostics.length > 0 ? ` (${nativePipeDiagnostics.join("; ")})` : ""),
-      );
-    }
-    if (!nativePipeMethods.includes("getInfo")) {
-      throw new Error("Browser client did not reach the native-pipe Browser backend");
-    }
-
-    let computerUse: BrowserRuntimeProbeReport["computerUse"];
-    if (
-      computerUseRuntimeResult.status === "available" &&
-      reconciliation.computerUse.status === "ready"
-    ) {
-      const installedComputerUsePluginRoot = resolveInstalledComputerUsePluginRoot(
-        stateHome,
-        reconciliation.computerUse.installedVersion,
-      );
-      const computerUseResponse = await client.request<McpServerToolCallResponse>(
-        "mcpServer/tool/call",
+    const computerUseRuntimeResult = await callbacks.runPromise(computerUseRuntime.ensureReady);
+    return await callbacks.runPromise(
+      withCodexProbeSession(
+        callbacks,
         {
-          _meta: {
-            "x-codex-turn-metadata": {
-              item_id: randomUUID(),
-              session_id: sessionId,
-              thread_id: threadId,
-              turn_id: turnId,
-            },
+          additionalSearchPaths: runtime.additionalSearchPaths,
+          binaryPath: runtime.binaryPath,
+          clientInfo: {
+            name: "nodex-browser-runtime-probe",
+            title: "Nodex Browser Runtime Probe",
+            version: "1.0.0",
           },
-          arguments: {
-            code: makeComputerUseProbeCode(installedComputerUsePluginRoot),
-            timeout_ms: 30_000,
+          env: {
+            ...process.env,
+            CODEX_HOME: stateHome,
+            INTERPRETER_HOME: stateHome,
           },
-          server: "node_repl",
-          threadId,
-          tool: "js",
+          expectedCodexHome: stateHome,
+          requestTimeout: 150_000,
         },
-      );
-      const computerUseText = textFromToolResponse(computerUseResponse);
-      computerUse = classifyComputerUseProbeResponse(
-        computerUseText,
-        computerUseResponse.isError === true,
-      );
-    } else {
-      computerUse = {
-        reason:
-          computerUseRuntimeResult.status === "unavailable"
-            ? computerUseRuntimeResult.reason
-            : reconciliation.computerUse.status === "unavailable"
-              ? reconciliation.computerUse.reason
-              : "Computer Use probe prerequisites were not ready",
-        status: "unavailable",
-      };
-    }
+        async (client) => {
+          const reconciler = await callbacks.runPromise(
+            makeBrowserPluginReconciler({
+              browserRuntime: runtime.browserRuntime,
+              client: browserPluginRequestPortFromPromise(client),
+              computerUseAvailable: () => computerUseRuntimeResult.status === "available",
+              runtimeStateHome: stateHome,
+            }),
+          );
+          const reconciliation = await callbacks.runPromise(reconciler.ensureInstalled);
+          if (reconciliation.status !== "ready") throw new Error(reconciliation.message);
 
-    return {
-      appServerCompatibilityVersion: runtime.codexCompatibilityVersion,
-      browserPluginVersion: bundle.manifest.browserPlugin.version,
-      browserRuntimeVersions: bundle.manifest.runtimeVersions,
-      computerUse,
-      nativePipeMethods: [...new Set(nativePipeMethods)],
-      nodeReplResult,
-      targetArch: bundle.manifest.targetArch,
-      targetPlatform: bundle.manifest.targetPlatform,
-    };
+          const browserConfig = await new BrowserUseThreadConfigBuilder({
+            availableBackends: () => ["iab"],
+            browserRuntime: runtime.browserRuntime,
+            computerUsePluginReady: () =>
+              reconciliation.status === "ready" && reconciliation.computerUse.status === "ready",
+            computerUseRuntime: () => computerUseRuntimeResult,
+            runtimeStateHome: stateHome,
+          }).build();
+          if (!browserConfig)
+            throw new Error("Verified Browser runtime did not build thread config");
+          const nodeReplConfig = browserConfig["mcp_servers.node_repl"];
+          if (
+            typeof nodeReplConfig !== "object" ||
+            nodeReplConfig === null ||
+            !("env" in nodeReplConfig) ||
+            typeof nodeReplConfig.env !== "object" ||
+            nodeReplConfig.env === null ||
+            Array.isArray(nodeReplConfig.env)
+          ) {
+            throw new Error("Browser runtime thread config is missing Node REPL environment");
+          }
+          const nodeReplEnv = nodeReplConfig.env;
+          const trustedClientHashes = nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S;
+          if (typeof trustedClientHashes !== "string" || trustedClientHashes.length === 0) {
+            throw new Error("Browser runtime thread config is missing its trusted client hash");
+          }
+          nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = `${trustedClientHashes},${trustedBridgeProbeSha256}`;
+
+          const threadResponse = await client.request<ThreadStartResponse>("thread/start", {
+            config: browserConfig,
+            cwd: projectRoot,
+            ephemeral: true,
+          });
+          const threadId = threadResponse.thread.id;
+          const toolResponse = await client.request<McpServerToolCallResponse>(
+            "mcpServer/tool/call",
+            {
+              _meta: {
+                "x-codex-turn-metadata": {
+                  session_id: sessionId,
+                  thread_id: threadId,
+                  turn_id: turnId,
+                },
+              },
+              arguments: {
+                code: makeBrowserClientProbeCode(
+                  bundle.paths.browserPluginClient,
+                  trustedBridgeProbePath,
+                ),
+              },
+              server: "node_repl",
+              threadId,
+              tool: "js",
+            },
+          );
+          const nodeReplResult = textFromToolResponse(toolResponse);
+          if (
+            toolResponse.isError ||
+            !nodeReplResult.includes('"backendType":"iab"') ||
+            !nodeReplResult.includes('"rootNodeRepl":{"fetchAvailable":false') ||
+            !nodeReplResult.includes(
+              '"trustedBridge":{"authenticatedFetchAvailable":true,"nativePipeAvailable":true',
+            )
+          ) {
+            throw new Error(
+              `Browser client conformance failed: ${nodeReplResult || "empty result"}` +
+                (nativePipeDiagnostics.length > 0 ? ` (${nativePipeDiagnostics.join("; ")})` : ""),
+            );
+          }
+          if (!nativePipeMethods.includes("getInfo")) {
+            throw new Error("Browser client did not reach the native-pipe Browser backend");
+          }
+
+          let computerUse: BrowserRuntimeProbeReport["computerUse"];
+          if (
+            computerUseRuntimeResult.status === "available" &&
+            reconciliation.computerUse.status === "ready"
+          ) {
+            const installedComputerUsePluginRoot = resolveInstalledComputerUsePluginRoot(
+              stateHome,
+              reconciliation.computerUse.installedVersion,
+            );
+            const computerUseResponse = await client.request<McpServerToolCallResponse>(
+              "mcpServer/tool/call",
+              {
+                _meta: {
+                  "x-codex-turn-metadata": {
+                    item_id: randomUUID(),
+                    session_id: sessionId,
+                    thread_id: threadId,
+                    turn_id: turnId,
+                  },
+                },
+                arguments: {
+                  code: makeComputerUseProbeCode(installedComputerUsePluginRoot),
+                  timeout_ms: 30_000,
+                },
+                server: "node_repl",
+                threadId,
+                tool: "js",
+              },
+            );
+            const computerUseText = textFromToolResponse(computerUseResponse);
+            computerUse = classifyComputerUseProbeResponse(
+              computerUseText,
+              computerUseResponse.isError === true,
+            );
+          } else {
+            computerUse = {
+              reason:
+                computerUseRuntimeResult.status === "unavailable"
+                  ? computerUseRuntimeResult.reason
+                  : reconciliation.computerUse.status === "unavailable"
+                    ? reconciliation.computerUse.reason
+                    : "Computer Use probe prerequisites were not ready",
+              status: "unavailable",
+            };
+          }
+
+          return {
+            appServerCompatibilityVersion: codexCompatibilityVersion,
+            browserPluginVersion: bundle.manifest.browserPlugin.version,
+            browserRuntimeVersions: bundle.manifest.runtimeVersions,
+            computerUse,
+            nativePipeMethods: [...new Set(nativePipeMethods)],
+            nodeReplResult,
+            targetArch: bundle.manifest.targetArch,
+            targetPlatform: bundle.manifest.targetPlatform,
+          };
+        },
+      ),
+    );
   } finally {
     await cleanupBrowserRuntime({
-      closeNativePipeServer: () => nativePipeServer.close(),
+      closeNativePipeServer: () => callbacks.runPromise(Scope.close(nativePipeScope, Exit.void)),
       removeStateHome: () =>
         fs.rmSync(stateHome, {
           force: true,
@@ -440,11 +491,22 @@ export async function probeBrowserRuntime(
           recursive: true,
           retryDelay: 100,
         }),
-      stopComputerUseRuntime: () => computerUseRuntime.dispose(),
-      stopClient: () => client.stop(),
+      stopComputerUseRuntime: () => callbacks.runPromise(Scope.close(computerUseScope, Exit.void)),
+      stopClient: () => Promise.resolve(),
     });
   }
 }
+
+export const probeBrowserRuntime = (
+  projectRoot: string,
+  options: BrowserRuntimeProbeOptions = {},
+): Effect.Effect<BrowserRuntimeProbeReport, Cause.UnknownError, ScopedCallbackRuntime> =>
+  Effect.gen(function* () {
+    const callbacks = yield* ScopedCallbackRuntime;
+    return yield* Effect.tryPromise(() =>
+      probeBrowserRuntimePromise(projectRoot, options, callbacks),
+    );
+  });
 
 function isDirectExecution(): boolean {
   const scriptPath = process.argv[1];
@@ -462,13 +524,13 @@ if (isDirectExecution()) {
   if (resourcesPathIndex >= 0 && (!resourcesPath || resourcesPath.startsWith("--"))) {
     throw new Error("--resources-path requires a path to packaged Resources");
   }
-  probeBrowserRuntime(projectRoot, resourcesPath ? { resourcesPath } : {}).then(
-    (report) => {
+  runCodexProbeMain(
+    Effect.gen(function* () {
+      const report = yield* probeBrowserRuntime(
+        projectRoot,
+        resourcesPath ? { resourcesPath } : {},
+      );
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-    },
-    (error: unknown) => {
-      process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-      process.exitCode = 1;
-    },
+    }),
   );
 }

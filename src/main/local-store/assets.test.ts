@@ -2,7 +2,6 @@ import { describe, expect, vi, test } from "vite-plus/test";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { storeMaintenanceGate, StoreMaintenanceInProgressError } from "./store-maintenance-gate";
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-assets-"));
 
@@ -18,39 +17,11 @@ function resetFixture(): void {
 }
 
 async function withFixture<T>(run: () => Promise<T> | T): Promise<T> {
-  assetService.resetAssetPathCacheForTests();
   resetFixture();
-
-  try {
-    return await run();
-  } finally {
-    assetService.resetAssetPathCacheForTests();
-  }
+  return await run();
 }
 
 describe("asset service", () => {
-  test("rejects managed asset writes while a whole-store snapshot is frozen", async () => {
-    await withFixture(async () => {
-      const maintenance = await storeMaintenanceGate.beginMaintenance();
-      try {
-        let rejected = false;
-        try {
-          await assetService.saveUploadedResource({
-            name: "late.txt",
-            mimeType: "text/plain",
-            bytes: new TextEncoder().encode("late"),
-          });
-        } catch (error) {
-          rejected = error instanceof StoreMaintenanceInProgressError;
-        }
-        expect(rejected).toBe(true);
-        expect(fs.existsSync(path.join(fixtureRoot, "assets"))).toBe(false);
-      } finally {
-        maintenance.release();
-      }
-    });
-  });
-
   test("saveUploadedImage stores files in the flat assets root", async () => {
     await withFixture(async () => {
       const result = await assetService.saveUploadedImage({
@@ -62,6 +33,7 @@ describe("asset service", () => {
 
       expect(result.source).toBe(`nodex://assets/${result.fileName}`);
       expect(fs.existsSync(absolutePath)).toBe(true);
+      expect(fs.readdirSync(path.join(fixtureRoot, "assets.staging"))).toEqual([]);
     });
   });
 

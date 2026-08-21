@@ -1,5 +1,8 @@
-import { describe, expect, test, vi } from "vite-plus/test";
-import { BrowserPageEmulationController } from "./browser-page-emulation";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import { assert, it } from "@effect/vitest";
+import { describe, vi } from "vite-plus/test";
+import { makeBrowserPageEmulationRuntime } from "./browser-page-emulation";
 
 function target({ initiallyAttached = false } = {}) {
   const commands: Array<[string, Record<string, unknown> | undefined]> = [];
@@ -8,7 +11,7 @@ function target({ initiallyAttached = false } = {}) {
     commands,
     target: {
       debugger: {
-        attach: vi.fn(() => {
+        attach: vi.fn((_protocolVersion?: string) => {
           attached = true;
         }),
         detach: vi.fn(() => {
@@ -24,114 +27,116 @@ function target({ initiallyAttached = false } = {}) {
   };
 }
 
-describe("BrowserPageEmulationController", () => {
-  test("retains one debugger session so viewport emulation survives", async () => {
-    const fixture = target();
-    const controller = new BrowserPageEmulationController();
+describe("Browser page emulation runtime", () => {
+  it.effect("retains one debugger session and detaches it when its Scope closes", () =>
+    Effect.gen(function* () {
+      const fixture = target();
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* makeBrowserPageEmulationRuntime;
+          const result = yield* runtime.syncDeviceMetrics(fixture.target, {
+            width: 393,
+            height: 852,
+            zoomPercent: 100,
+            presetId: "iphone-15-pro",
+          });
+          assert.deepEqual(result, { ok: true });
+          assert.isTrue(runtime.isDebuggerRetained(fixture.target));
+        }),
+      );
 
-    await expect(
-      controller.syncDeviceMetrics(fixture.target, {
-        width: 393,
-        height: 852,
-        zoomPercent: 100,
-        presetId: "iphone-15-pro",
-      }),
-    ).resolves.toEqual({ ok: true });
-    expect(fixture.commands).toEqual([
-      [
-        "Emulation.setDeviceMetricsOverride",
-        {
-          width: 393,
-          height: 852,
-          deviceScaleFactor: 1,
-          mobile: true,
-          screenWidth: 393,
-          screenHeight: 852,
-        },
-      ],
-      [
-        "Emulation.setTouchEmulationEnabled",
-        {
-          enabled: true,
-          maxTouchPoints: 5,
-        },
-      ],
-    ]);
-    expect(fixture.target.debugger.attach).toHaveBeenCalledWith("1.3");
-    expect(fixture.target.debugger.detach).not.toHaveBeenCalled();
-    expect(controller.isDebuggerRetained(fixture.target)).toBe(true);
-  });
+      assert.strictEqual(fixture.target.debugger.attach.mock.calls[0]?.[0], "1.3");
+      assert.strictEqual(fixture.target.debugger.detach.mock.calls.length, 1);
+      assert.deepEqual(
+        fixture.commands.map(([method]) => method),
+        ["Emulation.setDeviceMetricsOverride", "Emulation.setTouchEmulationEnabled"],
+      );
+    }),
+  );
 
-  test("adopts an existing Browser Use debugger without detaching it", async () => {
-    const fixture = target({ initiallyAttached: true });
-    const controller = new BrowserPageEmulationController();
-
-    await expect(controller.syncColorScheme(fixture.target, "dark")).resolves.toEqual({ ok: true });
-    expect(fixture.commands).toEqual([
-      [
-        "Emulation.setEmulatedMedia",
-        {
-          features: [
-            {
-              name: "prefers-color-scheme",
-              value: "dark",
-            },
-          ],
-        },
-      ],
-    ]);
-    expect(fixture.target.debugger.attach).not.toHaveBeenCalled();
-    expect(fixture.target.debugger.detach).not.toHaveBeenCalled();
-    expect(controller.isDebuggerRetained(fixture.target)).toBe(true);
-  });
-
-  test("serializes color scheme and viewport mutations for one page", async () => {
-    const fixture = target({ initiallyAttached: true });
-    const controller = new BrowserPageEmulationController();
-    let releaseFirstCommand: () => void = () => undefined;
-    fixture.target.debugger.sendCommand.mockImplementationOnce(
-      async (method: string, params?: Record<string, unknown>) => {
-        fixture.commands.push([method, params]);
-        await new Promise<void>((resolve) => {
-          releaseFirstCommand = resolve;
+  it.effect("serializes mutations for one guest", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = target({ initiallyAttached: true });
+        let releaseFirstCommand: () => void = () => undefined;
+        let markFirstCommandStarted: () => void = () => undefined;
+        const firstCommandStarted = new Promise<void>((resolve) => {
+          markFirstCommandStarted = resolve;
         });
-      },
-    );
+        fixture.target.debugger.sendCommand.mockImplementationOnce(
+          async (method: string, params?: Record<string, unknown>) => {
+            fixture.commands.push([method, params]);
+            markFirstCommandStarted();
+            await new Promise<void>((resolve) => {
+              releaseFirstCommand = resolve;
+            });
+          },
+        );
+        const runtime = yield* makeBrowserPageEmulationRuntime;
+        const colorScheme = yield* Effect.forkChild(
+          runtime.syncColorScheme(fixture.target, "light"),
+        );
+        const metrics = yield* Effect.forkChild(runtime.clearDeviceMetrics(fixture.target));
+        yield* Effect.promise(() => firstCommandStarted);
+        assert.deepEqual(
+          fixture.commands.map(([method]) => method),
+          ["Emulation.setEmulatedMedia"],
+        );
 
-    const colorSchemeSync = controller.syncColorScheme(fixture.target, "light");
-    const metricsSync = controller.clearDeviceMetrics(fixture.target);
-    await Promise.resolve();
-    expect(fixture.commands.map(([method]) => method)).toEqual(["Emulation.setEmulatedMedia"]);
+        releaseFirstCommand();
+        assert.deepEqual(yield* Effect.all([Fiber.join(colorScheme), Fiber.join(metrics)]), [
+          { ok: true },
+          { ok: true },
+        ]);
+        assert.deepEqual(
+          fixture.commands.map(([method]) => method),
+          [
+            "Emulation.setEmulatedMedia",
+            "Emulation.clearDeviceMetricsOverride",
+            "Emulation.setTouchEmulationEnabled",
+          ],
+        );
+      }),
+    ),
+  );
 
-    releaseFirstCommand();
-    await expect(Promise.all([colorSchemeSync, metricsSync])).resolves.toEqual([
-      { ok: true },
-      { ok: true },
-    ]);
-    expect(fixture.commands.map(([method]) => method)).toEqual([
-      "Emulation.setEmulatedMedia",
-      "Emulation.clearDeviceMetricsOverride",
-      "Emulation.setTouchEmulationEnabled",
-    ]);
-  });
+  it.effect("closes admission, drains the guest lane, and detaches on release", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = target();
+        let finishCommand: () => void = () => undefined;
+        let markCommandStarted: () => void = () => undefined;
+        const commandStarted = new Promise<void>((resolve) => {
+          markCommandStarted = resolve;
+        });
+        fixture.target.debugger.sendCommand.mockImplementationOnce(async () => {
+          markCommandStarted();
+          await new Promise<void>((resolve) => {
+            finishCommand = resolve;
+          });
+        });
+        const runtime = yield* makeBrowserPageEmulationRuntime;
+        const command = yield* Effect.forkChild(runtime.syncColorScheme(fixture.target, "dark"));
+        yield* Effect.promise(() => commandStarted);
+        const release = yield* Effect.forkChild(runtime.release(fixture.target));
+        yield* Effect.yieldNow;
+        assert.strictEqual(fixture.target.debugger.detach.mock.calls.length, 0);
+        assert.isTrue(runtime.isDebuggerRetained(fixture.target));
+        assert.deepEqual(yield* runtime.retainDebugger(fixture.target), {
+          ok: false,
+          reason: "target-destroyed",
+        });
 
-  test("fails closed when a debugger target is unavailable", async () => {
-    const controller = new BrowserPageEmulationController();
-    await expect(
-      controller.syncDeviceMetrics(
-        {
-          isDestroyed: () => false,
-        },
-        {
-          width: 390,
-          height: 844,
-          zoomPercent: 100,
-          presetId: "responsive",
-        },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      reason: "debugger-unavailable",
-    });
-  });
+        finishCommand();
+        assert.deepEqual(yield* Fiber.join(command), { ok: true });
+        yield* Fiber.join(release);
+        assert.strictEqual(fixture.target.debugger.detach.mock.calls.length, 1);
+        assert.isFalse(runtime.isDebuggerRetained(fixture.target));
+        assert.deepEqual(yield* runtime.retainDebugger(fixture.target), {
+          ok: false,
+          reason: "target-destroyed",
+        });
+      }),
+    ),
+  );
 });

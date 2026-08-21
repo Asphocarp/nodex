@@ -10,6 +10,7 @@ export interface BootstrapRuntimeController {
 
 export class BootstrapRuntimeEventQueue {
   private controller: BootstrapRuntimeController | null = null;
+  private deliveryTail: Promise<void> = Promise.resolve();
   private readonly pendingEvents: BootstrapRuntimeEvent[] = [];
 
   enqueueOpenUrl(url: string): Promise<void> {
@@ -26,12 +27,13 @@ export class BootstrapRuntimeEventQueue {
     return events;
   }
 
-  async attachController(controller: BootstrapRuntimeController): Promise<void> {
+  async attachController(controller: BootstrapRuntimeController): Promise<() => void> {
     this.controller = controller;
     const events = this.takePendingEvents();
-    for (const event of events) {
-      await this.dispatch(event);
-    }
+    await Promise.all(events.map(async (event) => await this.schedule(event)));
+    return () => {
+      if (this.controller === controller) this.controller = null;
+    };
   }
 
   private async enqueue(event: BootstrapRuntimeEvent): Promise<void> {
@@ -40,7 +42,17 @@ export class BootstrapRuntimeEventQueue {
       return;
     }
 
-    await this.dispatch(event);
+    await this.schedule(event);
+  }
+
+  private async schedule(event: BootstrapRuntimeEvent): Promise<void> {
+    const delivery = this.deliveryTail
+      .catch(() => undefined)
+      .then(async () => {
+        await this.dispatch(event);
+      });
+    this.deliveryTail = delivery;
+    await delivery;
   }
 
   private async dispatch(event: BootstrapRuntimeEvent): Promise<void> {

@@ -11,7 +11,6 @@ import {
   isPackagedAppReady,
   removePrivateTemporaryDirectory,
   selectPackagedSmokeProjectId,
-  shutdownPackagedCore,
 } from "./verify-native-runtime";
 import {
   acquireIsolatedRunLease,
@@ -62,37 +61,6 @@ describe("packaged native runtime verification", () => {
     expect(() =>
       selectPackagedSmokeProjectId([{ id: "project-one" }, { id: "project-two" }]),
     ).toThrow("expected one bootstrapped Project, found 2");
-  });
-
-  test("explicitly drains the Core held by the bootstrap client", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-native-runtime-shutdown-"));
-    temporaryDirectories.push(directory);
-    const descriptor = path.join(directory, "core.json");
-    fs.writeFileSync(descriptor, "{}\n");
-    let shutdownCalls = 0;
-
-    await expect(
-      shutdownPackagedCore(
-        {
-          shutdown: async () => {
-            shutdownCalls += 1;
-            fs.rmSync(descriptor);
-            return { status: "draining" };
-          },
-        },
-        descriptor,
-      ),
-    ).resolves.toBeUndefined();
-
-    expect(shutdownCalls).toBe(1);
-    await expect(
-      shutdownPackagedCore(
-        {
-          shutdown: async () => ({ status: "busy" }),
-        },
-        descriptor,
-      ),
-    ).rejects.toThrow("rejected smoke-test shutdown with busy");
   });
 
   test("requires one supervised host and Core generation to reach packaged app readiness", () => {
@@ -147,7 +115,6 @@ describe("packaged native runtime verification", () => {
       lease.release();
     }
   });
-
   test("rejects the obsolete nested Agent runtime even when canonical resources exist", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-native-runtime-layout-"));
     temporaryDirectories.push(directory);

@@ -1,5 +1,4 @@
 import {
-  CANVAS_PRESENCE_SWEEP_MS,
   CANVAS_PRESENCE_TTL_MS,
   canonicalizeCanvasPresencePublication,
   canonicalizeCanvasPresenceRealtimeEvent,
@@ -39,13 +38,12 @@ export interface CanvasPresenceHub {
   adoptBoundary(key: string, generation: number): void;
   publish(key: string, publication: CanvasPresencePublication): CanvasPresencePublishAck;
   unregister(key: string): void;
-  sweep(): void;
+  sweep(currentTime?: number): void;
   destroy(): void;
 }
 
 export interface CanvasPresenceHubOptions {
   readonly now?: () => number;
-  readonly scheduleSweep?: (callback: () => void, intervalMs: number) => () => void;
 }
 
 interface PresenceEntry {
@@ -56,12 +54,6 @@ interface PresenceEntry {
   state: CanvasPresenceValue | null;
   lastUpdated: number;
 }
-
-const defaultScheduleSweep = (callback: () => void, intervalMs: number): (() => void) => {
-  const timer = globalThis.setInterval(callback, intervalMs);
-  timer.unref?.();
-  return () => globalThis.clearInterval(timer);
-};
 
 const hashIdentity = (value: string): number => {
   let hash = 2_166_136_261;
@@ -128,8 +120,7 @@ export const createCanvasPresenceHub = (
     broadcast(entry, presenceEvent(entry, null));
   };
 
-  const sweep = (): void => {
-    const currentTime = now();
+  const sweep = (currentTime = now()): void => {
     for (const entry of entries.values()) {
       if (
         entry.state === null ||
@@ -143,11 +134,6 @@ export const createCanvasPresenceHub = (
       broadcast(entry, presenceEvent(entry, null));
     }
   };
-
-  const cancelSweep = (options.scheduleSweep ?? defaultScheduleSweep)(
-    sweep,
-    CANVAS_PRESENCE_SWEEP_MS,
-  );
 
   return {
     register(binding) {
@@ -265,7 +251,6 @@ export const createCanvasPresenceHub = (
     },
     sweep,
     destroy() {
-      cancelSweep();
       entries.clear();
     },
   };

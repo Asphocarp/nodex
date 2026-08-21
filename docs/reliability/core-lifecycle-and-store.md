@@ -15,13 +15,31 @@ Automation is demand. Core may idle-drain only after every demand source is
 gone. A lifecycle breadcrumb under the Profile run directory is bounded,
 contains no content or secret, and remains diagnostic rather than authority.
 
+The Electron Profile Scope owns the exact generation it selected. On normal
+Scope release it first closes application admission and live leases, then sends
+that generation the authenticated graceful-shutdown command and waits a bounded
+five seconds for its OS process to exit. The generation identity captured at
+acquisition fences this finalizer from targeting a later or foreign process;
+failure remains in the Scope-closing Cause instead of being hidden by a global
+shutdown checklist.
+
 ## Generation recovery
 
-Electron retains one process-lifetime authority supervisor and one logical Core
-connection identity. Definitive transport loss may start a single-flight
-selection of another ready generation only when Profile, Library, and Store
-epoch still match. Stable Module facades, projection cursors, Document/Canvas
-subscriptions, and schedulers survive the physical connection change.
+Electron's process Scope retains one Effect `CoreAuthority` and one logical Core
+connection identity. Definitive transport loss may start one scoped,
+single-flight selection of another ready generation only when Profile, Library,
+and Store epoch still match. Stable Module facades, projection cursors,
+Document/Canvas subscriptions, and schedulers survive the physical connection
+change. Scenario and integration harnesses may acquire one standalone generation
+for a bounded Scope, but they do not implement production recovery or circuit
+state.
+
+Every logical Document/Canvas subscription has one Main-scoped live lease. Its
+callback ingress is bounded to 512 queued items and delivered serially. A repair
+first marks the lease disconnected and closes the physical stream before the
+repair reaches consumers; retry/backoff uses the Effect clock and is interrupted
+with the owner Scope. Transport compatibility and Store-identity failures are
+terminal and release the renderer binding instead of entering a retry loop.
 
 Reads and writes with stable idempotency identity may retry once with their
 original input. Ephemeral Awareness triggers recovery but is never replayed.

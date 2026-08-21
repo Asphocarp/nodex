@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, test } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import { afterEach, expect } from "vite-plus/test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as Effect from "effect/Effect";
 import {
   applyGitReviewPatch,
   filterGitReviewWorkingTreePaths,
+  GitReviewRuntime,
   invalidateGitReviewSnapshot,
   initializeGitRepositoryAndReadReviewSnapshot,
   readBranchDiffStats,
@@ -21,6 +24,8 @@ import {
   resolveGitMergeBase,
   searchGitReview,
 } from "./git-review-operations";
+import { makeGitCommandRunner } from "./git-command-runner";
+import * as GitCommandPlatformNode from "../platform/node/GitCommandPlatformNode";
 import type {
   GitReviewSearchResult,
   ReviewDiffResult,
@@ -76,8 +81,20 @@ afterEach(() => {
   }
 });
 
-describe("git review service", () => {
-  test("reports non-git directories without throwing", async () => {
+it.layer(GitCommandPlatformNode.nodeLive)("git review service", (it) => {
+  const runtimeTest = (name: string, run: () => Promise<void>): void => {
+    it.effect(name, () =>
+      makeGitCommandRunner({ environment: process.env }).pipe(
+        Effect.flatMap((runner) =>
+          Effect.promise(() =>
+            new GitReviewRuntime({ commandRunner: runner }).run(new AbortController().signal, run),
+          ),
+        ),
+      ),
+    );
+  };
+
+  runtimeTest("reports non-git directories without throwing", async () => {
     const cwd = createTempDir("nodex-git-review-non-git-");
 
     const snapshot = await readGitReviewSnapshot({
@@ -90,7 +107,7 @@ describe("git review service", () => {
     expect(snapshot.patch).toBe("");
   });
 
-  test("preserves local and remote base-branch identities", async () => {
+  runtimeTest("preserves local and remote base-branch identities", async () => {
     const cwd = createTempDir("nodex-git-review-base-branch-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "base\n", "utf8");
@@ -106,7 +123,7 @@ describe("git review service", () => {
     });
   });
 
-  test("filters ignored and unchanged watcher paths with Git status", async () => {
+  runtimeTest("filters ignored and unchanged watcher paths with Git status", async () => {
     const cwd = createTempDir("nodex-git-review-path-filter-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, ".gitignore"), "ignored/\n", "utf8");
@@ -140,7 +157,7 @@ describe("git review service", () => {
     expect(unknown).toEqual({ type: "full" });
   });
 
-  test("returns unstaged snapshots with tracked and untracked files", async () => {
+  runtimeTest("returns unstaged snapshots with tracked and untracked files", async () => {
     const cwd = createTempDir("nodex-git-review-unstaged-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -161,7 +178,7 @@ describe("git review service", () => {
     expect(snapshot.patch).toBe("");
   });
 
-  test("reports untracked binary files without decoding them as text", async () => {
+  runtimeTest("reports untracked binary files without decoding them as text", async () => {
     const cwd = createTempDir("nodex-git-review-untracked-binary-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -214,7 +231,7 @@ describe("git review service", () => {
     expect(pathSearch.matches[0]?.path ?? "").toBe("image.png");
   });
 
-  test("returns staged snapshots from the git index", async () => {
+  runtimeTest("returns staged snapshots from the git index", async () => {
     const cwd = createTempDir("nodex-git-review-staged-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -248,7 +265,7 @@ describe("git review service", () => {
     expect(diff.patch.includes("@@ -1 +1,2 @@")).toBe(true);
   });
 
-  test("reports staged binary files from numstat metadata", async () => {
+  runtimeTest("reports staged binary files from numstat metadata", async () => {
     const cwd = createTempDir("nodex-git-review-staged-binary-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -272,7 +289,7 @@ describe("git review service", () => {
     expect(snapshot.files[0] ? snapshot.files[0].deletions : "missing").toBe(null);
   });
 
-  test("returns branch snapshots against the default branch", async () => {
+  runtimeTest("returns branch snapshots against the default branch", async () => {
     const cwd = createTempDir("nodex-git-review-branch-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -292,7 +309,7 @@ describe("git review service", () => {
     expect(snapshot.files[0]?.path).toBe("feature.ts");
   });
 
-  test("returns branch commits against the merge base", async () => {
+  runtimeTest("returns branch commits against the merge base", async () => {
     const cwd = createTempDir("nodex-git-review-branch-commits-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -317,7 +334,7 @@ describe("git review service", () => {
     );
   });
 
-  test("returns commit snapshots for a selected commit", async () => {
+  runtimeTest("returns commit snapshots for a selected commit", async () => {
     const cwd = createTempDir("nodex-git-review-commit-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -354,7 +371,7 @@ describe("git review service", () => {
     expect(diff.patch.includes("+++ b/feature.ts")).toBe(true);
   });
 
-  test("reviews a root commit against Git's empty tree", async () => {
+  runtimeTest("reviews a root commit against Git's empty tree", async () => {
     const cwd = createTempDir("nodex-git-review-root-commit-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "root.ts"), "export const rootCommit = true;\n", "utf8");
@@ -387,7 +404,7 @@ describe("git review service", () => {
     expect(diff.files[0]?.diff).toContain("export const rootCommit = true;");
   });
 
-  test("loads per-file diffs whose Git headers require C-style quoting", async () => {
+  runtimeTest("loads per-file diffs whose Git headers require C-style quoting", async () => {
     const cwd = createTempDir("nodex-git-review-quoted-path-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -420,7 +437,7 @@ describe("git review service", () => {
     expect(diff.files[0]?.diff).toContain("export const quotedPath = true;");
   });
 
-  test("returns codex-shaped per-file review diffs", async () => {
+  runtimeTest("returns codex-shaped per-file review diffs", async () => {
     const cwd = createTempDir("nodex-git-review-diff-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -454,7 +471,7 @@ describe("git review service", () => {
     expect(result.patch.includes("README.md")).toBe(false);
   });
 
-  test("returns branch diff stats and merge base", async () => {
+  runtimeTest("returns branch diff stats and merge base", async () => {
     const cwd = createTempDir("nodex-git-review-branch-stats-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -486,7 +503,7 @@ describe("git review service", () => {
     expect(mergeBase.mergeBaseSha).toBe(mainHead);
   });
 
-  test("returns generic review summary totals", async () => {
+  runtimeTest("returns generic review summary totals", async () => {
     const cwd = createTempDir("nodex-git-review-summary-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -506,7 +523,7 @@ describe("git review service", () => {
     expect(summary.files[0]?.deletions).toBe(0);
   });
 
-  test("reads a full review patch separately from the metadata snapshot", async () => {
+  runtimeTest("reads a full review patch separately from the metadata snapshot", async () => {
     const cwd = createTempDir("nodex-git-review-full-patch-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -529,7 +546,7 @@ describe("git review service", () => {
     expect(Boolean(unifiedDiff.includes("+beta"))).toBe(true);
   });
 
-  test("initializes a git repository when requested", async () => {
+  runtimeTest("initializes a git repository when requested", async () => {
     const cwd = createTempDir("nodex-git-review-init-");
 
     const snapshot = await initializeGitRepositoryAndReadReviewSnapshot(cwd);
@@ -538,7 +555,7 @@ describe("git review service", () => {
     expect(snapshot.currentBranch).toBe("main");
   });
 
-  test("stages an unstaged file patch through git apply", async () => {
+  runtimeTest("stages an unstaged file patch through git apply", async () => {
     const cwd = createTempDir("nodex-git-review-apply-stage-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -578,7 +595,7 @@ describe("git review service", () => {
     expect(stagedSnapshot.files[0]?.path).toBe("README.md");
   });
 
-  test("reverts a staged file patch through git apply", async () => {
+  runtimeTest("reverts a staged file patch through git apply", async () => {
     const cwd = createTempDir("nodex-git-review-apply-revert-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -619,7 +636,7 @@ describe("git review service", () => {
     expect(nextStagedSnapshot.files.length).toBe(0);
   });
 
-  test("applies and reverts binary patches through git apply", async () => {
+  runtimeTest("applies and reverts binary patches through git apply", async () => {
     const cwd = createTempDir("nodex-git-review-apply-binary-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "logo.bin"), Buffer.from([0, 1, 2, 3, 4]));
@@ -657,7 +674,7 @@ describe("git review service", () => {
     expect(nextStagedSnapshot.files.length).toBe(0);
   });
 
-  test("reads Git objects in a generation-bound batch with disk fallback", async () => {
+  runtimeTest("reads Git objects in a generation-bound batch with disk fallback", async () => {
     const cwd = createTempDir("nodex-git-review-cat-file-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -693,7 +710,7 @@ describe("git review service", () => {
     });
   });
 
-  test("parses multibyte object sizes and applies the five MiB disk cap", async () => {
+  runtimeTest("parses multibyte object sizes and applies the five MiB disk cap", async () => {
     const cwd = createTempDir("nodex-git-review-cat-file-bytes-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "utf8.txt"), "你好🙂\nsecond\n", "utf8");
@@ -723,7 +740,7 @@ describe("git review service", () => {
     });
   });
 
-  test("rejects stale snapshot generations before publishing file data", async () => {
+  runtimeTest("rejects stale snapshot generations before publishing file data", async () => {
     const cwd = createTempDir("nodex-git-review-stale-generation-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -755,7 +772,7 @@ describe("git review service", () => {
     ).resolves.toEqual({ type: "stale-snapshot", source: "unstaged" });
   });
 
-  test("shares snapshot generations across cwd aliases in one repository", async () => {
+  runtimeTest("shares snapshot generations across cwd aliases in one repository", async () => {
     const cwd = createTempDir("nodex-git-review-repository-identity-");
     const nestedCwd = path.join(cwd, "packages", "example");
     mkdirSync(nestedCwd, { recursive: true });
@@ -804,7 +821,7 @@ describe("git review service", () => {
     expect(refreshed.snapshotGeneration).toBeGreaterThan(rootSummary.snapshotGeneration);
   });
 
-  test("reads git blame for file source tabs", async () => {
+  runtimeTest("reads git blame for file source tabs", async () => {
     const cwd = createTempDir("nodex-git-review-blame-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -820,7 +837,7 @@ describe("git review service", () => {
     expect(result.lines[0]?.author).toBe("Nodex Test");
   });
 
-  test("searches git review content across file paths and contents", async () => {
+  runtimeTest("searches git review content across file paths and contents", async () => {
     const cwd = createTempDir("nodex-git-review-search-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -843,7 +860,7 @@ describe("git review service", () => {
     });
   });
 
-  test("returns trimmed, case-insensitive UTF-16 match offsets", async () => {
+  runtimeTest("returns trimmed, case-insensitive UTF-16 match offsets", async () => {
     const cwd = createTempDir("nodex-git-review-search-unicode-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -889,7 +906,7 @@ describe("git review service", () => {
     ]);
   });
 
-  test("decodes Git-quoted UTF-8 paths before path search", async () => {
+  runtimeTest("decodes Git-quoted UTF-8 paths before path search", async () => {
     const cwd = createTempDir("nodex-git-review-search-unicode-path-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -921,7 +938,7 @@ describe("git review service", () => {
     ]);
   });
 
-  test("indexes rename paths before body hunks", async () => {
+  runtimeTest("indexes rename paths before body hunks", async () => {
     const cwd = createTempDir("nodex-git-review-search-rename-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "old-needle.ts"), "export const value = 1;\n", "utf8");
@@ -968,7 +985,7 @@ describe("git review service", () => {
     ]);
   });
 
-  test("resets offsets and increments hunk ids for each file hunk", async () => {
+  runtimeTest("resets offsets and increments hunk ids for each file hunk", async () => {
     const cwd = createTempDir("nodex-git-review-search-hunks-");
     initializeRepository(cwd);
     const baseLines = Array.from(
@@ -1002,7 +1019,7 @@ describe("git review service", () => {
     ]);
   });
 
-  test("preserves deterministic untracked-file match order", async () => {
+  runtimeTest("preserves deterministic untracked-file match order", async () => {
     const cwd = createTempDir("nodex-git-review-search-untracked-order-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -1020,7 +1037,7 @@ describe("git review service", () => {
     expect(result.matches.map((match) => match.path)).toEqual(["alpha.ts", "zeta.ts"]);
   });
 
-  test("preserves path matches for empty untracked files without a patch body", async () => {
+  runtimeTest("preserves path matches for empty untracked files without a patch body", async () => {
     const cwd = createTempDir("nodex-git-review-search-empty-untracked-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
@@ -1050,7 +1067,7 @@ describe("git review service", () => {
     ]);
   });
 
-  test("excludes generated file paths and bodies from search", async () => {
+  runtimeTest("excludes generated file paths and bodies from search", async () => {
     const cwd = createTempDir("nodex-git-review-search-generated-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, ".gitattributes"), "generated.ts linguist-generated\n", "utf8");
@@ -1074,7 +1091,7 @@ describe("git review service", () => {
     expect(pathResult.matches).toEqual([]);
   });
 
-  test("caps stored search matches at 250 while counting the full diff stream", async () => {
+  runtimeTest("caps stored search matches at 250 while counting the full diff stream", async () => {
     const cwd = createTempDir("nodex-git-review-search-cap-");
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "matches.ts"), "export const base = 1;\n", "utf8");

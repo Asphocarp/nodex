@@ -3,9 +3,13 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vite-plus/test";
-import { LocalGitCommandRunner } from "./git-command-runner";
-import { GitRepositoryRegistry } from "./repository-registry";
+import { it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import { afterEach, describe, expect } from "vite-plus/test";
+import * as GitCommandPlatformNode from "../platform/node/GitCommandPlatformNode";
+import { makeGitCommandRunner } from "./git-command-runner";
+import { GitReviewRuntime } from "./git-review-operations";
+import { makeGitRepositoryRegistry } from "./repository-registry";
 
 const execFileAsync = promisify(execFile);
 const temporaryDirectories: string[] = [];
@@ -18,30 +22,48 @@ afterEach(async () => {
   );
 });
 
+const makeRegistry = makeGitCommandRunner({ environment: process.env }).pipe(
+  Effect.flatMap((runner) =>
+    makeGitRepositoryRegistry(runner, new GitReviewRuntime({ commandRunner: runner })),
+  ),
+  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the test application composition root.
+  Effect.provide(GitCommandPlatformNode.nodeLive),
+);
+
 describe("GitRepositoryRegistry", () => {
-  it("canonicalizes cwd aliases to one worktree owner", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "nodex-git-registry-"));
-    temporaryDirectories.push(root);
-    const nested = path.join(root, "nested", "directory");
-    await mkdir(nested, { recursive: true });
-    await execFileAsync("git", ["init", "-q", root]);
-    const registry = new GitRepositoryRegistry(new LocalGitCommandRunner());
+  it.effect("canonicalizes cwd aliases to one worktree owner", () =>
+    makeRegistry.pipe(
+      Effect.flatMap((registry) =>
+        Effect.gen(function* () {
+          const root = yield* Effect.promise(() =>
+            mkdtemp(path.join(tmpdir(), "nodex-git-registry-")),
+          );
+          temporaryDirectories.push(root);
+          const nested = path.join(root, "nested", "directory");
+          yield* Effect.promise(() => mkdir(nested, { recursive: true }));
+          yield* Effect.promise(() => execFileAsync("git", ["init", "-q", root]));
 
-    const fromRoot = await registry.get(root);
-    const fromNested = await registry.get(nested);
+          const fromRoot = yield* registry.get(root);
+          const fromNested = yield* registry.get(nested);
 
-    expect(fromRoot).not.toBeNull();
-    expect(fromNested).toBe(fromRoot);
-    expect(fromRoot?.identity.root).toBe(await realpath(root));
-    registry.dispose();
-  });
+          expect(fromRoot).not.toBeNull();
+          expect(fromNested).toBe(fromRoot);
+          expect(fromRoot?.identity.root).toBe(yield* Effect.promise(() => realpath(root)));
+        }),
+      ),
+    ),
+  );
 
-  it("returns null for an ordinary directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "nodex-not-git-"));
-    temporaryDirectories.push(root);
-    const registry = new GitRepositoryRegistry(new LocalGitCommandRunner());
+  it.effect("returns null for an ordinary directory", () =>
+    makeRegistry.pipe(
+      Effect.flatMap((registry) =>
+        Effect.gen(function* () {
+          const root = yield* Effect.promise(() => mkdtemp(path.join(tmpdir(), "nodex-not-git-")));
+          temporaryDirectories.push(root);
 
-    await expect(registry.get(root)).resolves.toBeNull();
-    registry.dispose();
-  });
+          expect(yield* registry.get(root)).toBeNull();
+        }),
+      ),
+    ),
+  );
 });

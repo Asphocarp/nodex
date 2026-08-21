@@ -1,14 +1,14 @@
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import type { BrowserSiteInfo } from "../../shared/browser-profile";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
 
 interface BrowserSiteInfoTabReader {
-  getTabSnapshot(identity: BrowserSidebarTabIdentity): {
-    url: string;
-  } | null;
+  readonly getTabSnapshot: (identity: BrowserSidebarTabIdentity) => { readonly url: string } | null;
 }
 
 interface BrowserSiteInfoCookieStore {
-  get(filter: { url: string }): Promise<unknown[]>;
+  readonly get: (filter: { readonly url: string }) => Promise<unknown[]>;
 }
 
 const DEFAULT_BLOCKED_PERMISSIONS: BrowserSiteInfo["permissions"] = [
@@ -22,34 +22,54 @@ const DEFAULT_BLOCKED_PERMISSIONS: BrowserSiteInfo["permissions"] = [
   { permission: "open-external", state: "block" },
 ];
 
-export class BrowserSiteInfoProvider {
-  constructor(
-    private readonly tabs: BrowserSiteInfoTabReader,
-    private readonly cookies: BrowserSiteInfoCookieStore,
-  ) {}
+export class BrowserSiteInfoRuntimeError extends Schema.TaggedError<BrowserSiteInfoRuntimeError>()(
+  "BrowserSiteInfoRuntimeError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
 
-  async get(identity: BrowserSidebarTabIdentity): Promise<BrowserSiteInfo> {
-    const tab = this.tabs.getTabSnapshot(identity);
-    if (!tab) throw new Error("Browser tab is not registered");
-    const site = parseSiteUrl(tab.url);
-    const cookieCount = site ? (await this.cookies.get({ url: site.url.href })).length : 0;
-    return {
-      ...identity,
-      url: tab.url,
-      origin: site?.url.origin ?? null,
-      connection: site?.connection ?? "none",
-      cookieCount,
-      permissions: DEFAULT_BLOCKED_PERMISSIONS.map((permission) => ({
-        ...permission,
-      })),
-    };
-  }
+export interface BrowserSiteInfoRuntime {
+  readonly get: (
+    identity: BrowserSidebarTabIdentity,
+  ) => Effect.Effect<BrowserSiteInfo, BrowserSiteInfoRuntimeError>;
 }
 
-function parseSiteUrl(value: string): {
-  url: URL;
-  connection: BrowserSiteInfo["connection"];
-} | null {
+const runtimeError = (operation: string, cause: unknown): BrowserSiteInfoRuntimeError =>
+  new BrowserSiteInfoRuntimeError({ operation, cause });
+
+export const makeBrowserSiteInfoRuntime = (
+  tabs: BrowserSiteInfoTabReader,
+  cookies: BrowserSiteInfoCookieStore,
+): BrowserSiteInfoRuntime => ({
+  get: (identity) =>
+    Effect.gen(function* () {
+      const tab = tabs.getTabSnapshot(identity);
+      if (!tab) {
+        return yield* new BrowserSiteInfoRuntimeError({
+          operation: "resolve-tab",
+          cause: new Error("Browser tab is not registered"),
+        });
+      }
+      const site = parseSiteUrl(tab.url);
+      const cookieCount = site
+        ? yield* Effect.tryPromise({
+            try: () => cookies.get({ url: site.url.href }).then((values) => values.length),
+            catch: (cause) => runtimeError("read-cookies", cause),
+          })
+        : 0;
+      return {
+        ...identity,
+        url: tab.url,
+        origin: site?.url.origin ?? null,
+        connection: site?.connection ?? "none",
+        cookieCount,
+        permissions: DEFAULT_BLOCKED_PERMISSIONS.map((permission) => ({ ...permission })),
+      };
+    }),
+});
+
+const parseSiteUrl = (
+  value: string,
+): { readonly url: URL; readonly connection: BrowserSiteInfo["connection"] } | null => {
   let url: URL;
   try {
     url = new URL(value);
@@ -67,4 +87,4 @@ function parseSiteUrl(value: string): {
     url,
     connection: local ? "local" : url.protocol === "https:" ? "secure" : "insecure",
   };
-}
+};
