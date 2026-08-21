@@ -62,12 +62,15 @@ removes pinned revisions. A risky migration or large maintenance operation
 should begin from a labeled manual backup.
 
 Online maintenance does not hold the serialized writer for a complete pass.
-Block collection first plans a bounded candidate set, then processes short
-candidate slices through separate writer commands. Each candidate still commits
-atomically; interruption may leave earlier candidates collected, and replaying
-the same receipt-backed operation safely converges before the final receipt is
-written. Request-class scheduling can run queued interactive work between those
-slices, while aging guarantees maintenance eventually receives another slice.
+Block collection first plans a bounded candidate set and loads its fail-closed
+evidence once through a consistent WAL reader snapshot, then processes short
+candidate slices through separate writer commands. Each writer slice checks the
+snapshot's LocalCommit fence, and each candidate still commits atomically;
+interruption or an intervening product commit may leave earlier candidates
+collected, and replaying the same receipt-backed operation safely converges from
+a fresh plan before the final receipt is written. Request-class scheduling can
+run queued interactive work between those slices, while aging guarantees
+maintenance eventually receives another slice.
 
 ## Recovery evidence
 

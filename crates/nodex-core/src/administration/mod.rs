@@ -661,6 +661,15 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no durable writer",
             ));
         };
+        let retention_readers = if tasks.contains(&MaintenanceTask::BlockRetention) {
+            Some(
+                self.readers
+                    .clone()
+                    .ok_or_else(|| unavailable("Store Administration Module has no readers"))?,
+            )
+        } else {
+            None
+        };
         let StoreAdministrationIntent::RunMaintenance {
             block_retention_count,
             ..
@@ -732,22 +741,29 @@ impl StoreAdministrationModule {
                         let planning_profile_id = profile_id.clone();
                         let planning_library_id = library_id.clone();
                         let planning_store_epoch = requested_store_epoch.clone();
-                        let planned = writer.call(move |connection| {
+                        let readers = retention_readers
+                            .as_ref()
+                            .expect("Block retention readers were validated");
+                        let planned = readers.read_default(move |connection| {
+                            let transaction = connection.unchecked_transaction()?;
                             validate_maintenance_attempt(
-                                connection,
+                                &transaction,
                                 &planning_profile_id,
                                 &planning_library_id,
                                 &planning_store_epoch,
                             )?;
-                            crate::document::plan_block_retention_pass(connection, retain_count)
+                            let plan = crate::document::plan_block_retention_pass(
+                                &transaction,
+                                retain_count,
+                            )?;
+                            transaction.commit()?;
+                            Ok(plan)
                         });
                         task_result = planned.and_then(|planned| {
                             let mut cursor = 0;
                             while cursor < planned.len() {
-                                let slice_end = cursor
-                                    .saturating_add(BLOCK_RETENTION_SLICE_CANDIDATES)
-                                    .min(planned.len());
-                                let candidates = planned[cursor..slice_end].to_vec();
+                                let slice =
+                                    planned.slice_from(cursor, BLOCK_RETENTION_SLICE_CANDIDATES)?;
                                 let profile_id = profile_id.clone();
                                 let library_id = library_id.clone();
                                 let requested_store_epoch = requested_store_epoch.clone();
@@ -761,7 +777,7 @@ impl StoreAdministrationModule {
                                     let result =
                                         crate::document::run_bounded_block_retention_slice(
                                             connection,
-                                            &candidates,
+                                            &slice,
                                             retain_count,
                                             BLOCK_RETENTION_SLICE_TARGET,
                                         )?;
@@ -797,12 +813,7 @@ impl StoreAdministrationModule {
                                 &library_id,
                                 &requested_store_epoch,
                             )?;
-                            run_maintenance_task(
-                                connection,
-                                &task_context,
-                                task,
-                                block_retention_count,
-                            )
+                            run_maintenance_task(connection, &task_context, task)
                         });
                     }
                 }
@@ -1370,7 +1381,6 @@ fn run_maintenance_task(
     connection: &mut Connection,
     context: &BoundModuleContext,
     task: MaintenanceTask,
-    block_retention_count: Option<usize>,
 ) -> Result<(), StoreError> {
     match task {
         MaintenanceTask::IntegrityCheck => {
@@ -1404,10 +1414,9 @@ fn run_maintenance_task(
             crate::document::prune_document_history_pass(connection)?;
         }
         MaintenanceTask::BlockRetention => {
-            crate::document::run_block_retention_pass(
-                connection,
-                block_retention_count.unwrap_or(DEFAULT_BLOCK_RETENTION_COUNT),
-            )?;
+            return Err(internal(
+                "Block retention must run through the sliced maintenance coordinator",
+            ));
         }
     }
     Ok(())

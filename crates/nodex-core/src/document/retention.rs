@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -76,6 +77,44 @@ pub(crate) struct BlockRetentionSummary {
 pub(crate) struct BlockRetentionCandidate {
     pub(crate) library_id: String,
     pub(crate) root_block_id: String,
+}
+
+#[derive(Debug)]
+pub(crate) struct BlockRetentionPlan {
+    candidates: Vec<BlockRetentionCandidate>,
+    evidence: Arc<RetentionEvidenceIndex>,
+    commit_head: i64,
+}
+
+impl BlockRetentionPlan {
+    pub(crate) fn len(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub(crate) fn slice_from(
+        &self,
+        cursor: usize,
+        maximum_candidates: usize,
+    ) -> Result<BlockRetentionSlice, StoreError> {
+        if maximum_candidates == 0 || cursor > self.candidates.len() {
+            return Err(internal("Block retention slice cursor is invalid"));
+        }
+        let end = cursor
+            .saturating_add(maximum_candidates)
+            .min(self.candidates.len());
+        Ok(BlockRetentionSlice {
+            candidates: self.candidates[cursor..end].to_vec(),
+            evidence: Arc::clone(&self.evidence),
+            commit_head: self.commit_head,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct BlockRetentionSlice {
+    candidates: Vec<BlockRetentionCandidate>,
+    evidence: Arc<RetentionEvidenceIndex>,
+    commit_head: i64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -166,7 +205,7 @@ impl CurrentDocumentEvidence {
 /// Current projections and retained versions are decoded once. Candidate
 /// analysis only intersects identity sets, so its cost does not multiply Yjs
 /// reconstruction or history decoding by the number of tombstones.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct RetentionEvidenceIndex {
     current_documents: Vec<CurrentDocumentEvidence>,
     historical_versions: Vec<super::history::DocumentVersionRetentionEvidence>,
@@ -643,18 +682,26 @@ enum CandidateOutcome {
     Covered,
 }
 
+#[cfg(test)]
 pub(crate) fn run_block_retention_pass(
     connection: &mut Connection,
     retain_newest_deleted_blocks: usize,
 ) -> Result<BlockRetentionSummary, StoreError> {
-    let candidates = plan_block_retention_pass(connection, retain_newest_deleted_blocks)?;
-    run_block_retention_slice(connection, &candidates, retain_newest_deleted_blocks)
+    let plan = plan_block_retention_pass(connection, retain_newest_deleted_blocks)?;
+    let slice = plan.slice_from(0, plan.len().max(1))?;
+    Ok(run_block_retention_slice_with_target(
+        connection,
+        &slice,
+        retain_newest_deleted_blocks,
+        None,
+    )?
+    .summary)
 }
 
 pub(crate) fn plan_block_retention_pass(
     connection: &Connection,
     retain_newest_deleted_blocks: usize,
-) -> Result<Vec<BlockRetentionCandidate>, StoreError> {
+) -> Result<BlockRetentionPlan, StoreError> {
     let foreign_key_violations =
         connection.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
             row.get::<_, i64>(0)
@@ -684,32 +731,28 @@ pub(crate) fn plan_block_retention_pass(
                 }),
         );
     }
-    Ok(planned)
-}
-
-pub(crate) fn run_block_retention_slice(
-    connection: &mut Connection,
-    candidates: &[BlockRetentionCandidate],
-    retain_newest_deleted_blocks: usize,
-) -> Result<BlockRetentionSummary, StoreError> {
-    Ok(run_block_retention_slice_with_target(
-        connection,
-        candidates,
-        retain_newest_deleted_blocks,
-        None,
-    )?
-    .summary)
+    let evidence = if planned.is_empty() {
+        Arc::new(RetentionEvidenceIndex::default())
+    } else {
+        Arc::new(RetentionEvidenceIndex::load(connection)?)
+    };
+    let commit_head = crate::infrastructure::local_commit::head(connection)?;
+    Ok(BlockRetentionPlan {
+        candidates: planned,
+        evidence,
+        commit_head,
+    })
 }
 
 pub(crate) fn run_bounded_block_retention_slice(
     connection: &mut Connection,
-    candidates: &[BlockRetentionCandidate],
+    slice: &BlockRetentionSlice,
     retain_newest_deleted_blocks: usize,
     target_duration: Duration,
 ) -> Result<BlockRetentionSliceResult, StoreError> {
     run_block_retention_slice_with_target(
         connection,
-        candidates,
+        slice,
         retain_newest_deleted_blocks,
         Some(target_duration),
     )
@@ -717,23 +760,30 @@ pub(crate) fn run_bounded_block_retention_slice(
 
 fn run_block_retention_slice_with_target(
     connection: &mut Connection,
-    candidates: &[BlockRetentionCandidate],
+    slice: &BlockRetentionSlice,
     retain_newest_deleted_blocks: usize,
     target_duration: Option<Duration>,
 ) -> Result<BlockRetentionSliceResult, StoreError> {
+    let current_commit_head = crate::infrastructure::local_commit::head(connection)?;
+    if current_commit_head != slice.commit_head {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Block retention evidence snapshot was superseded by a Store commit",
+            true,
+        ));
+    }
     let started_at = Instant::now();
-    let evidence = RetentionEvidenceIndex::load(connection)?;
     let mut summary = BlockRetentionSummary::default();
     let mut first_failure = None;
     let mut retained_roots = BTreeSet::new();
-    for (index, candidate) in candidates.iter().enumerate() {
+    for (index, candidate) in slice.candidates.iter().enumerate() {
         if index % 8 == 0 {
             check_request_interruption()?;
         }
         summary.selected_candidates += 1;
         match maintain_candidate(
             connection,
-            &evidence,
+            &slice.evidence,
             &candidate.library_id,
             &candidate.root_block_id,
             retain_newest_deleted_blocks,
@@ -1575,62 +1625,67 @@ mod tests {
         fn insert_active_page_documents(&self, count: usize) {
             self.kernel
                 .writer()
-                .call(move |connection| {
-                    let now = "2026-01-01T00:00:00.000Z";
-                    for index in 0..count {
-                        let page_id = format!("page:retention-pressure:{index:04}");
-                        let document_id = format!("document:retention-pressure:{index:04}");
-                        connection.execute(
-                            "INSERT INTO blocks( \
+                .call_with_budget(
+                    Duration::from_secs(30),
+                    QueryCancellation::new(),
+                    move |connection| {
+                        let now = "2026-01-01T00:00:00.000Z";
+                        for index in 0..count {
+                            let page_id = format!("page:retention-pressure:{index:04}");
+                            let document_id = format!("document:retention-pressure:{index:04}");
+                            connection.execute(
+                                "INSERT INTO blocks( \
                                id, library_id, type, lifecycle, created_at, updated_at \
                              ) VALUES (?1, ?2, 'page', 'active', ?3, ?3)",
-                            params![page_id, LIBRARY_ID, now],
-                        )?;
-                        connection.execute(
-                            "INSERT INTO documents( \
+                                params![page_id, LIBRARY_ID, now],
+                            )?;
+                            connection.execute(
+                                "INSERT INTO documents( \
                                id, library_id, schema_key, schema_version, created_at, updated_at \
                              ) VALUES (?1, ?2, 'nodex.page', 2, ?3, ?3)",
-                            params![document_id, LIBRARY_ID, now],
-                        )?;
-                        connection.execute(
-                            "INSERT INTO block_documents( \
+                                params![document_id, LIBRARY_ID, now],
+                            )?;
+                            connection.execute(
+                                "INSERT INTO block_documents( \
                                block_id, document_id, library_id, created_at \
                              ) VALUES (?1, ?2, ?3, ?4)",
-                            params![page_id, document_id, LIBRARY_ID, now],
-                        )?;
-                        connection.execute(
-                            "INSERT INTO pages( \
+                                params![page_id, document_id, LIBRARY_ID, now],
+                            )?;
+                            connection.execute(
+                                "INSERT INTO pages( \
                                block_id, library_id, document_id, parent_kind, parent_id, \
                                created_at, updated_at \
                              ) VALUES (?1, ?2, ?3, 'library', ?2, ?4, ?4)",
-                            params![page_id, LIBRARY_ID, document_id, now],
-                        )?;
-                        let authority = read_document_authority(connection, &document_id)?
-                            .expect("pending pressure Page authority");
-                        let root_block_id = format!("019c0000-0000-7000-8001-{index:012x}");
-                        let genesis = prepare_page_yjs_genesis(&document_id, "", &root_block_id)?;
-                        let update_id = format!("genesis:retention-pressure:{index:04}");
-                        let operation_id = format!("operation:retention-pressure:{index:04}");
-                        persist_yjs_genesis(
-                            connection,
-                            PersistYjsGenesis {
-                                authority: &authority,
-                                actor_project_id: PROJECT_ID,
-                                materialization: &genesis.materialization,
-                                update_id: &update_id,
-                                client_session_id: "client:retention-pressure",
-                                update: &genesis.update_v1,
-                                state_vector: &genesis.state_vector_v1,
-                                full_state: &genesis.engine.full_state_v1(),
-                                store_epoch: "epoch:test",
-                                operation_id: &operation_id,
-                                placement: DocumentPlacementEvidence::STRUCTURAL,
-                                emit_event: false,
-                            },
-                        )?;
-                    }
-                    Ok(())
-                })
+                                params![page_id, LIBRARY_ID, document_id, now],
+                            )?;
+                            let authority = read_document_authority(connection, &document_id)?
+                                .expect("pending pressure Page authority");
+                            let root_block_id = format!("019c0000-0000-7000-8001-{index:012x}");
+                            let genesis =
+                                prepare_page_yjs_genesis(&document_id, "", &root_block_id)?;
+                            let update_id = format!("genesis:retention-pressure:{index:04}");
+                            let operation_id = format!("operation:retention-pressure:{index:04}");
+                            persist_yjs_genesis(
+                                connection,
+                                PersistYjsGenesis {
+                                    authority: &authority,
+                                    actor_project_id: PROJECT_ID,
+                                    materialization: &genesis.materialization,
+                                    update_id: &update_id,
+                                    client_session_id: "client:retention-pressure",
+                                    update: &genesis.update_v1,
+                                    state_vector: &genesis.state_vector_v1,
+                                    full_state: &genesis.engine.full_state_v1(),
+                                    store_epoch: "epoch:test",
+                                    operation_id: &operation_id,
+                                    placement: DocumentPlacementEvidence::STRUCTURAL,
+                                    emit_event: false,
+                                },
+                            )?;
+                        }
+                        Ok(())
+                    },
+                )
                 .expect("active pressure Documents");
         }
     }
@@ -1673,12 +1728,17 @@ mod tests {
         for index in 0..100 {
             fixture.insert_deleted_block(&format!("block:concurrent-pressure:{index:03}"));
         }
-        let candidates = fixture
+        let plan = fixture
             .kernel
-            .writer()
-            .call(|connection| plan_block_retention_pass(connection, 0))
+            .readers()
+            .read_default(|connection| {
+                let transaction = connection.unchecked_transaction()?;
+                let plan = plan_block_retention_pass(&transaction, 0)?;
+                transaction.commit()?;
+                Ok(plan)
+            })
             .expect("retention plan");
-        assert_eq!(candidates.len(), 100);
+        assert_eq!(plan.len(), 100);
 
         let start = Arc::new(Barrier::new(5));
         let writer = fixture.kernel.writer();
@@ -1699,9 +1759,8 @@ mod tests {
                         let mut cursor = 0;
                         let mut collected = 0;
                         let mut slice_durations = Vec::new();
-                        while cursor < candidates.len() {
-                            let slice_end = cursor.saturating_add(8).min(candidates.len());
-                            let slice = candidates[cursor..slice_end].to_vec();
+                        while cursor < plan.len() {
+                            let slice = plan.slice_from(cursor, 8)?;
                             let started_at = Instant::now();
                             let result = writer.call(move |connection| {
                                 run_bounded_block_retention_slice(
@@ -1814,9 +1873,10 @@ mod tests {
             .kernel
             .writer()
             .call(|connection| {
-                let candidates = plan_block_retention_pass(connection, 0)?;
+                let plan = plan_block_retention_pass(connection, 0)?;
+                let slice = plan.slice_from(0, plan.len())?;
                 let result =
-                    run_bounded_block_retention_slice(connection, &candidates, 0, Duration::ZERO)?;
+                    run_bounded_block_retention_slice(connection, &slice, 0, Duration::ZERO)?;
 
                 assert_eq!(result.processed_candidates, 1);
                 assert_eq!(result.summary.selected_candidates, 1);
@@ -1832,6 +1892,48 @@ mod tests {
                 Ok(())
             })
             .expect("bounded retention slice");
+    }
+
+    #[test]
+    fn writer_slice_rejects_evidence_superseded_by_an_interactive_commit() {
+        let fixture = Fixture::new();
+        fixture.insert_deleted_block("block:stale-evidence");
+        let plan = fixture
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let transaction = connection.unchecked_transaction()?;
+                let plan = plan_block_retention_pass(&transaction, 0)?;
+                transaction.commit()?;
+                Ok(plan)
+            })
+            .expect("retention plan");
+        let slice = plan.slice_from(0, 1).expect("retention slice");
+
+        fixture.insert_active_page_documents(1);
+
+        let error = fixture
+            .kernel
+            .writer()
+            .call(move |connection| {
+                run_bounded_block_retention_slice(connection, &slice, 0, Duration::from_millis(100))
+            })
+            .expect_err("stale evidence must fail closed");
+        assert_eq!(error.code, StoreErrorCode::RevisionConflict);
+        let retained = fixture
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM blocks WHERE id = 'block:stale-evidence'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("retained candidate");
+        assert_eq!(retained, 1);
     }
 
     #[test]

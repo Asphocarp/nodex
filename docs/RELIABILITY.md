@@ -137,8 +137,9 @@ replay across that epoch.
 Maintenance has one canonical coordinator for integrity, compaction, retention,
 collection, and vacuum. It never rewrites immutable receipts/history or removes
 pinned revisions. Block collection uses version-fenced current projections and
-pass-local evidence rather than reconstructing every current Document for every
-candidate, and releases the single writer between bounded candidate slices.
+a commit-fenced WAL reader snapshot rather than reconstructing every current
+Document for every candidate. Evidence loading never owns the serialized writer,
+and collection releases that writer between bounded candidate slices.
 
 Read [Backup, Restore, and Maintenance](reliability/backup-restore-and-maintenance.md).
 

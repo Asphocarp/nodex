@@ -104,13 +104,15 @@ rolls back if any constraint changes. Collected stable Block identities remain
 retired permanently and are never reused.
 
 Current reference evidence comes from the exact generation/head/schema-fenced
-Document and Canvas projections written with authority. A retention slice parses
-current projections, retained versions, immutable audit rows, relocation rows,
-recovery artifacts, and extension foreign-key schema once, then intersects that
-evidence with each candidate closure. Missing, stale, unregistered, or invalid
-projection evidence retains the candidate; collection never falls back to Yjs
-or Canvas reconstruction. The index is rebuilt after yielding the writer so an
-intervening interactive write is visible to the next slice.
+Document and Canvas projections written with authority. A pass parses current
+projections, retained versions, immutable audit rows, relocation rows, recovery
+artifacts, and extension foreign-key schema once on a consistent WAL reader
+snapshot, then intersects that immutable evidence with each candidate closure.
+The serialized writer never performs or repeats that full scan. Every writer
+slice requires the snapshot's LocalCommit head to remain current; an intervening
+product commit invalidates the pass and maintenance retries from a fresh
+snapshot. Missing, stale, unregistered, or invalid projection evidence retains
+the candidate; collection never falls back to Yjs or Canvas reconstruction.
 
 Canvas tombstone/file compaction runs only after the last committed surface
 closes and no pending/active copy remains. It pins a safety revision and rotates

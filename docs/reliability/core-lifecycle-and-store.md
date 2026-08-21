@@ -50,16 +50,20 @@ deadline or cancellation token. A response may return before an uncooperative
 blocking closure exits, but its execution permits remain held until the closure
 actually stops. The serialized Store writer is a cooperative boundary: callers
 poll the same cancellation/deadline while queued, release their blocking worker
-promptly, and leave a cancelled queue tombstone that cannot execute domain
-side effects when dequeued.
+promptly, and immediately evict a cancelled command that is still queued. A
+command racing with dequeue retains the same cancellation token and cannot
+execute domain side effects after the boundary expires.
 
 The writer schedules a bounded total queue by request class. Interactive work
 runs before unaged background and maintenance work; aging promotes one older
 lower-class command so sustained interaction cannot starve upkeep. Maintenance
 commands must therefore be short slices. Block collection plans a bounded pass,
-revalidates current authority for every slice, commits each candidate in its own
-transaction, and leaves the writer between slices. Increasing a request deadline
-is not a substitute for these cancellation and yielding contracts.
+loads its evidence once from a consistent WAL reader snapshot, and validates
+that snapshot's LocalCommit head before every writer slice. Each candidate
+commits in its own transaction, and the coordinator leaves the writer between
+slices. An intervening product commit invalidates the plan and defers collection
+instead of deleting from stale evidence. Increasing a request deadline is not a
+substitute for these cancellation and yielding contracts.
 
 Core reports `deadline_exceeded`, `cancelled`, and `overloaded` as semantic
 Module errors. Electron's HTTP timer is the semantic deadline plus a five-second

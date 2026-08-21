@@ -29,9 +29,21 @@ static NEXT_WRITER_COMMAND_ID: AtomicU64 = AtomicU64::new(1);
 type WriterJob = Box<dyn FnOnce(&mut Connection) + Send + 'static>;
 
 struct QueuedWriterJob {
+    command_id: u64,
     class: RequestExecutionClass,
     enqueued_at: Instant,
+    deadline: Instant,
+    cancellation: QueryCancellation,
     operation: WriterJob,
+}
+
+impl QueuedWriterJob {
+    fn interruption(&self, now: Instant) -> Option<bool> {
+        if self.cancellation.is_cancelled() {
+            return Some(true);
+        }
+        (now >= self.deadline).then_some(false)
+    }
 }
 
 #[derive(Clone)]
@@ -59,6 +71,7 @@ struct WriterQueue {
 enum WriterQueuePushError {
     Full,
     Closed,
+    Interrupted(bool),
 }
 
 impl WriterQueue {
@@ -82,6 +95,11 @@ impl WriterQueue {
         if state.closed {
             return Err(WriterQueuePushError::Closed);
         }
+        let now = Instant::now();
+        Self::prune_interrupted_locked(&mut state, now);
+        if let Some(cancelled) = job.interruption(now) {
+            return Err(WriterQueuePushError::Interrupted(cancelled));
+        }
         if Self::len_locked(&state) >= self.capacity {
             return Err(WriterQueuePushError::Full);
         }
@@ -100,7 +118,9 @@ impl WriterQueue {
             if shutdown.load(Ordering::Acquire) || state.closed {
                 return None;
             }
-            if let Some(job) = self.pop_next(&mut state, Instant::now()) {
+            let now = Instant::now();
+            Self::prune_interrupted_locked(&mut state, now);
+            if let Some(job) = self.pop_next(&mut state, now) {
                 return Some(job);
             }
             state = self.available.wait(state).ok()?;
@@ -147,13 +167,35 @@ impl WriterQueue {
     }
 
     fn len(&self) -> usize {
-        self.state
-            .lock()
-            .map_or(0, |state| Self::len_locked(&state))
+        self.state.lock().map_or(0, |mut state| {
+            Self::prune_interrupted_locked(&mut state, Instant::now());
+            Self::len_locked(&state)
+        })
     }
 
     fn len_locked(state: &WriterQueueState) -> usize {
         state.interactive.len() + state.background.len() + state.maintenance.len()
+    }
+
+    fn prune_interrupted_locked(state: &mut WriterQueueState, now: Instant) {
+        state
+            .interactive
+            .retain(|job| job.interruption(now).is_none());
+        state
+            .background
+            .retain(|job| job.interruption(now).is_none());
+        state
+            .maintenance
+            .retain(|job| job.interruption(now).is_none());
+    }
+
+    fn remove(&self, command_id: u64) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.interactive.retain(|job| job.command_id != command_id);
+        state.background.retain(|job| job.command_id != command_id);
+        state.maintenance.retain(|job| job.command_id != command_id);
     }
 
     fn close(&self) {
@@ -700,11 +742,8 @@ impl StoreWriter {
         let _writer_queue_phase = enter_request_execution_phase(RequestExecutionPhase::WriterQueue);
         let (endpoint, _lease) = self.control.acquire_writer()?;
         let started_at = Instant::now();
-        let writer_command_id = format!(
-            "writer:{}:{}",
-            std::process::id(),
-            NEXT_WRITER_COMMAND_ID.fetch_add(1, Ordering::Relaxed)
-        );
+        let command_id = NEXT_WRITER_COMMAND_ID.fetch_add(1, Ordering::Relaxed);
+        let writer_command_id = format!("writer:{}:{command_id}", std::process::id());
         let parent = tracing::Span::current();
         let command_span = tracing::debug_span!(
             parent: &parent,
@@ -716,6 +755,7 @@ impl StoreWriter {
         let runtime_metrics = Arc::clone(&self.control);
         let queued_at = Instant::now();
         let job_cancellation = cancellation.clone();
+        let queued_cancellation = cancellation.clone();
         let job_execution_observer = execution_observer.clone();
         let job = Box::new(move |connection: &mut Connection| {
             command_span.in_scope(|| {
@@ -755,8 +795,11 @@ impl StoreWriter {
         endpoint
             .queue
             .try_push(QueuedWriterJob {
+                command_id,
                 class,
                 enqueued_at: queued_at,
+                deadline,
+                cancellation: queued_cancellation,
                 operation: job,
             })
             .map_err(|error| {
@@ -767,6 +810,7 @@ impl StoreWriter {
                         true,
                     ),
                     WriterQueuePushError::Closed => writer_closed(),
+                    WriterQueuePushError::Interrupted(cancelled) => query_interrupted(cancelled),
                 };
                 rejected_span.in_scope(|| {
                     tracing::warn!(
@@ -779,16 +823,24 @@ impl StoreWriter {
             })?;
         let result = loop {
             if cancellation.is_cancelled() {
+                endpoint.queue.remove(command_id);
                 break Err(query_interrupted(true));
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
+                endpoint.queue.remove(command_id);
                 break Err(query_interrupted(false));
             }
             match result_receiver.recv_timeout(remaining.min(WRITER_RESULT_POLL_INTERVAL)) {
                 Ok(result) => break result,
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
+                    if cancellation.is_cancelled() {
+                        break Err(query_interrupted(true));
+                    }
+                    if Instant::now() >= deadline {
+                        break Err(query_interrupted(false));
+                    }
                     break Err(StoreError::new(
                         StoreErrorCode::WriterClosed,
                         "SQLite writer stopped before returning a result",
@@ -983,8 +1035,11 @@ mod tests {
 
     fn queued_test_job(class: RequestExecutionClass, enqueued_at: Instant) -> QueuedWriterJob {
         QueuedWriterJob {
+            command_id: NEXT_WRITER_COMMAND_ID.fetch_add(1, Ordering::Relaxed),
             class,
             enqueued_at,
+            deadline: enqueued_at + Duration::from_secs(60),
+            cancellation: QueryCancellation::new(),
             operation: Box::new(|_| {}),
         }
     }
@@ -1208,7 +1263,7 @@ mod tests {
     fn cancelled_queued_writer_releases_its_caller_without_late_execution() {
         let directory = tempdir().expect("store");
         let path = directory.path().join("nodex.db");
-        let runtime = StoreWriterRuntime::start(&path, 2).expect("writer runtime");
+        let runtime = StoreWriterRuntime::start(&path, 1).expect("writer runtime");
         let writer = runtime.handle();
         let (entered_sender, entered_receiver) = mpsc::sync_channel(1);
         let (release_sender, release_receiver) = mpsc::sync_channel(1);
@@ -1250,10 +1305,21 @@ mod tests {
             .expect_err("cancelled job");
         assert_eq!(cancelled.code, StoreErrorCode::QueryCancelled);
         assert!(!operation_ran.load(Ordering::Acquire));
+        assert_eq!(writer.queued_job_count(), 0);
+
+        let replacement_writer = writer.clone();
+        let replacement = thread::spawn(move || replacement_writer.call(|_| Ok("replacement")));
+        while writer.queued_job_count() != 1 {
+            thread::yield_now();
+        }
 
         release_sender.send(()).expect("release first");
         assert!(first.join().expect("first join").is_ok());
         queued.join().expect("queued join");
+        assert_eq!(
+            replacement.join().expect("replacement join").unwrap(),
+            "replacement"
+        );
         while writer.queued_job_count() != 0 {
             thread::yield_now();
         }
@@ -1295,6 +1361,7 @@ mod tests {
         .expect("deadline caller join")
         .expect_err("queued deadline");
         assert_eq!(expired.code, StoreErrorCode::DeadlineExceeded);
+        assert_eq!(writer.queued_job_count(), 0);
 
         release_sender.send(()).expect("release first");
         assert!(first.join().expect("first join").is_ok());
