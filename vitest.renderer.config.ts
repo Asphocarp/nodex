@@ -5,7 +5,13 @@ import {
   rendererViteResolve,
 } from "./config/renderer-vite-shared";
 import { selectTieredTestFiles } from "./config/vitest-test-tier";
-import { rendererWorkerCount } from "./config/renderer-worker-count";
+import {
+  rendererWorkerAllocation,
+  rendererWorkerCount,
+} from "./config/renderer-worker-count";
+
+const workbenchShellTestFiles =
+  "src/renderer/components/workbench/workbench-shell.*.test.tsx";
 
 const testFiles = selectTieredTestFiles({
   defaultExclude: [
@@ -19,6 +25,8 @@ const testFiles = selectTieredTestFiles({
   ],
   stressInclude: ["src/renderer/**/*.stress.test.{ts,tsx}"],
 });
+const isCi = process.env.CI === "true";
+const workerAllocation = rendererWorkerAllocation({ ci: isCi });
 
 export default defineConfig({
   plugins: createRendererVitePlugins(),
@@ -33,8 +41,31 @@ export default defineConfig({
     exclude: testFiles.exclude,
     include: testFiles.include,
     pool: "forks",
-    maxWorkers: rendererWorkerCount({ ci: process.env.CI === "true", stress: testFiles.isStress }),
+    maxWorkers: rendererWorkerCount({ ci: isCi, stress: testFiles.isStress }),
     fileParallelism: !testFiles.isStress,
+    projects: testFiles.isStress
+      ? undefined
+      : [
+          {
+            extends: true,
+            test: {
+              name: "renderer",
+              include: testFiles.include,
+              exclude: [...testFiles.exclude, workbenchShellTestFiles],
+              maxWorkers: workerAllocation.regular,
+            },
+          },
+          {
+            extends: true,
+            test: {
+              name: "renderer-workbench-shell",
+              include: [workbenchShellTestFiles],
+              exclude: testFiles.exclude,
+              fileParallelism: false,
+              maxWorkers: workerAllocation.workbenchShell,
+            },
+          },
+        ],
     passWithNoTests: testFiles.isStress,
     setupFiles: ["./src/renderer/test/setup.ts"],
     hookTimeout: testFiles.isStress ? 60_000 : 30_000,
