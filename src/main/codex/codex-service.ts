@@ -25,7 +25,6 @@ import type { ExternalAgentConfigImportProgressNotification } from "@nodex/codex
 import type { ExternalAgentConfigImportResponse } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportResponse";
 import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
-import type { ConsumeAccountRateLimitResetCreditResponse } from "@nodex/codex-app-server-protocol/v2/ConsumeAccountRateLimitResetCreditResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
@@ -33,17 +32,11 @@ import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/F
 import type { FsGetMetadataResponse } from "@nodex/codex-app-server-protocol/v2/FsGetMetadataResponse";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
 import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
-import type { LoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/LoginAccountResponse";
-import type { CancelLoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/CancelLoginAccountResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
-import type { PluginInstalledResponse } from "@nodex/codex-app-server-protocol/v2/PluginInstalledResponse";
-import type { PluginInstallResponse } from "@nodex/codex-app-server-protocol/v2/PluginInstallResponse";
-import type { SkillsListParams } from "@nodex/codex-app-server-protocol/v2/SkillsListParams";
-import type { SkillsListResponse } from "@nodex/codex-app-server-protocol/v2/SkillsListResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
@@ -117,10 +110,7 @@ import type {
   CodexConversationSnapshot,
   CodexConversationTurnPagination,
   CodexComposerChatGptConversationListResult,
-  CodexComposerPlugin,
-  CodexComposerPluginActivateInput,
   CodexComposerSiteListResult,
-  CodexComposerSkill,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
@@ -154,8 +144,6 @@ import type {
   CodexReviewDiffCommentAttachment,
   CodexRateLimitsSnapshot,
   CodexRateLimitResetCreditsSummary,
-  CodexRateLimitResetInput,
-  CodexRateLimitResetResult,
   CodexReasoningEffort,
   CodexRendererConversationResumeResult,
   CodexSidebarRefreshPolicy,
@@ -235,16 +223,6 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
-import {
-  buildComposerPluginInventory,
-  COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES,
-  hydrateComposerPluginInventoryIcons,
-  resolveComposerPluginActivation,
-} from "./composer-plugin-inventory";
-import {
-  buildComposerSkillInventory,
-  hydrateComposerSkillInventoryIcons,
-} from "./composer-skill-inventory";
 import {
   emptyAccountRateLimitState,
   emptyAccountSnapshot,
@@ -8450,7 +8428,7 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
+  private async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
     if (this.accountRuntime !== null) return await this.accountRuntime.refresh();
     if (this.accountReadInFlight) return await this.accountReadInFlight;
 
@@ -8492,115 +8470,6 @@ export class CodexService extends EventEmitter {
     });
     this.emitEvent({ type: "account", account: this.accountSnapshot });
     return this.accountSnapshot;
-  }
-
-  async consumeAccountRateLimitResetCredit(
-    input: CodexRateLimitResetInput,
-  ): Promise<CodexRateLimitResetResult> {
-    if (this.accountRuntime !== null) {
-      return await this.accountRuntime.consumeRateLimitResetCredit(input);
-    }
-    await this.ensureClientReady();
-
-    const idempotencyKey = input.idempotencyKey.trim();
-    if (!idempotencyKey) throw new Error("Rate-limit reset idempotency key is required");
-    const creditId = input.creditId?.trim();
-    if (input.creditId !== undefined && input.creditId !== null && !creditId) {
-      throw new Error("Rate-limit reset credit ID must not be empty");
-    }
-
-    const response = await this.client.request<
-      "account/rateLimitResetCredit/consume",
-      ConsumeAccountRateLimitResetCreditResponse
-    >("account/rateLimitResetCredit/consume", {
-      idempotencyKey,
-      ...(creditId ? { creditId } : {}),
-    });
-
-    if (
-      response.outcome === "reset" ||
-      response.outcome === "alreadyRedeemed" ||
-      response.outcome === "noCredit"
-    ) {
-      await this.refreshRateLimitsSnapshot();
-    }
-
-    return {
-      outcome: response.outcome,
-      account: this.accountSnapshot,
-    };
-  }
-
-  async startAccountLogin(
-    input: { type: "chatgpt" } | { type: "apiKey"; apiKey: string },
-  ): Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }> {
-    if (this.accountRuntime !== null) return await this.accountRuntime.startLogin(input);
-    await this.ensureClientReady();
-
-    if (input.type === "apiKey") {
-      await this.client.request("account/login/start", {
-        type: "apiKey",
-        apiKey: input.apiKey,
-      });
-      await this.readAccountSnapshot();
-      return { type: "apiKey" };
-    }
-
-    const result = await this.client.request<"account/login/start", LoginAccountResponse>(
-      "account/login/start",
-      { type: "chatgpt" },
-    );
-
-    const response: { type: "chatgpt"; loginId: string; authUrl: string } = {
-      type: "chatgpt",
-      loginId: result.type === "chatgpt" ? result.loginId : "",
-      authUrl: result.type === "chatgpt" ? result.authUrl : "",
-    };
-
-    this.accountSnapshot = {
-      ...this.accountSnapshot,
-      pendingLogin: {
-        loginId: response.loginId,
-        authUrl: response.authUrl,
-      },
-    };
-
-    this.emitEvent({ type: "account", account: this.accountSnapshot });
-    return response;
-  }
-
-  async cancelAccountLogin(loginId: string): Promise<{ status: "canceled" | "notFound" }> {
-    if (this.accountRuntime !== null) return await this.accountRuntime.cancelLogin(loginId);
-    await this.ensureClientReady();
-
-    const result = await this.client.request<"account/login/cancel", CancelLoginAccountResponse>(
-      "account/login/cancel",
-      {
-        loginId,
-      },
-    );
-
-    if (this.accountSnapshot.pendingLogin?.loginId === loginId) {
-      this.accountSnapshot = {
-        ...this.accountSnapshot,
-        pendingLogin: null,
-      };
-      this.emitEvent({ type: "account", account: this.accountSnapshot });
-    }
-
-    return {
-      status: result.status === "canceled" ? "canceled" : "notFound",
-    };
-  }
-
-  async logoutAccount(): Promise<boolean> {
-    if (this.accountRuntime !== null) return await this.accountRuntime.logout();
-    await this.ensureClientReady();
-    await this.client.request("account/logout");
-    this.accountSnapshot = emptyAccountSnapshot();
-    this.syncRateLimitsPolling();
-    this.emitEvent({ type: "account", account: this.accountSnapshot });
-    return true;
   }
 
   async readDictationStateSnapshot(): Promise<CodexDictationStateSnapshot> {
@@ -10993,75 +10862,6 @@ export class CodexService extends EventEmitter {
     return result.data
       .map(parseModelOption)
       .filter((option): option is CodexModelOption => option !== null);
-  }
-
-  async listComposerPlugins(cwds: readonly string[]): Promise<CodexComposerPlugin[]> {
-    if (this.composerCatalog !== null) return await this.composerCatalog.listPlugins(cwds);
-    await this.ensureClientReady();
-
-    const normalizedCwds = Array.from(new Set(cwds.map((cwd) => cwd.trim()).filter(Boolean)));
-    const response = await this.client.request<"plugin/installed", PluginInstalledResponse>(
-      "plugin/installed",
-      {
-        cwds: normalizedCwds.length > 0 ? normalizedCwds : null,
-        installSuggestionPluginNames: [...COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES],
-      },
-    );
-
-    return hydrateComposerPluginInventoryIcons(
-      response,
-      buildComposerPluginInventory(response, {
-        installSuggestionPluginNames: COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES,
-      }),
-    );
-  }
-
-  async activateComposerPlugin(input: CodexComposerPluginActivateInput): Promise<void> {
-    if (this.composerCatalog !== null) return await this.composerCatalog.activatePlugin(input);
-    await this.ensureClientReady();
-
-    const id = input.id.trim();
-    if (!id) throw new Error("Composer plugin id is required");
-    const normalizedCwds = Array.from(new Set(input.cwds.map((cwd) => cwd.trim()).filter(Boolean)));
-    const readInstalled = () =>
-      this.client.request<"plugin/installed", PluginInstalledResponse>("plugin/installed", {
-        cwds: normalizedCwds.length > 0 ? normalizedCwds : null,
-        installSuggestionPluginNames: [...COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES],
-      });
-    const response = await readInstalled();
-    const activation = resolveComposerPluginActivation(response, id);
-    if (activation.kind === "active") return;
-    if (activation.kind === "enable") {
-      await this.client.request("config/batchWrite", activation.params);
-    } else {
-      await this.client.request<"plugin/install", PluginInstallResponse>(
-        "plugin/install",
-        activation.params,
-      );
-    }
-    await this.client.request<"skills/list", SkillsListResponse>("skills/list", {
-      cwds: normalizedCwds,
-      forceReload: true,
-    } satisfies SkillsListParams);
-
-    const verified = (await readInstalled()).marketplaces
-      .flatMap((marketplace) => marketplace.plugins)
-      .find((plugin) => plugin.id.trim() === id);
-    if (!verified?.installed || !verified.enabled) {
-      throw new Error("Composer plugin activation did not become active");
-    }
-  }
-
-  async listComposerSkills(cwds: readonly string[]): Promise<CodexComposerSkill[]> {
-    if (this.composerCatalog !== null) return await this.composerCatalog.listSkills(cwds);
-    await this.ensureClientReady();
-
-    const normalizedCwds = Array.from(new Set(cwds.map((cwd) => cwd.trim()).filter(Boolean)));
-    const response = await this.client.request<"skills/list", SkillsListResponse>("skills/list", {
-      cwds: normalizedCwds.length > 0 ? normalizedCwds : undefined,
-      forceReload: false,
-    });
-    return hydrateComposerSkillInventoryIcons(response, buildComposerSkillInventory(response));
   }
 
   async listComposerSites(): Promise<CodexComposerSiteListResult> {

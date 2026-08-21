@@ -39,7 +39,9 @@ it.effect("owns account, login, rate-limit, and notification state behind one in
         if (method === "account/logout") return {};
         throw new Error(`Unexpected request: ${method}`);
       })();
-      return Effect.succeed(response);
+      return method === "account/read"
+        ? Effect.yieldNow.pipe(Effect.as(response))
+        : Effect.succeed(response);
     }) as CodexGateway["Service"]["requestLocal"];
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
@@ -74,6 +76,18 @@ it.effect("owns account, login, rate-limit, and notification state behind one in
     assert.strictEqual(first.rateLimits?.primary?.usedPercent, 25);
     assert.strictEqual(first.rateLimitResetCredits?.availableCount, 1);
 
+    const readsBeforeConcurrentRefresh = requests.filter(
+      (method) => method === "account/read",
+    ).length;
+    const concurrent = yield* Effect.all([account.refresh, account.refresh], {
+      concurrency: "unbounded",
+    });
+    assert.strictEqual(concurrent[0], concurrent[1]);
+    assert.strictEqual(
+      requests.filter((method) => method === "account/read").length,
+      readsBeforeConcurrentRefresh + 1,
+    );
+
     const login = yield* account.startLogin({ type: "chatgpt" });
     assert.strictEqual(login.type, "chatgpt");
     assert.strictEqual(
@@ -99,6 +113,14 @@ it.effect("owns account, login, rate-limit, and notification state behind one in
     const reset = yield* account.consumeRateLimitResetCredit({ idempotencyKey: "reset-1" });
     assert.strictEqual(reset.outcome, "reset");
     assert.isTrue(requests.includes("account/rateLimitResetCredit/consume"));
+
+    const nextLogin = yield* account.startLogin({ type: "chatgpt" });
+    if (nextLogin.type === "chatgpt") {
+      assert.deepEqual(yield* account.cancelLogin(nextLogin.loginId), { status: "canceled" });
+    }
+    assert.isNull((yield* SubscriptionRef.get(account.snapshot)).pendingLogin ?? null);
+    assert.isTrue(yield* account.logout);
+    assert.isNull((yield* SubscriptionRef.get(account.snapshot)).account);
 
     yield* Scope.close(scope, Exit.void);
   }),

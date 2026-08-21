@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -33,6 +34,12 @@ export class CodexAccountInputError extends Schema.TaggedError<CodexAccountInput
 ) {}
 
 export type CodexAccountError = CodexRuntimeError | CodexAccountInputError;
+type AccountRefreshEffect = Effect.Effect<CodexAccountSnapshot, CodexRuntimeError>;
+
+interface AccountRefreshSelection {
+  readonly effect: AccountRefreshEffect;
+  readonly owner: boolean;
+}
 
 export type CodexAccountLoginInput =
   | { readonly type: "chatgpt" }
@@ -69,6 +76,7 @@ export const live = (
       const gateway = yield* CodexGateway;
       const snapshot = yield* SubscriptionRef.make<CodexAccountSnapshot>(emptyAccountSnapshot());
       const refreshLock = yield* Semaphore.make(1);
+      const refreshInFlight = yield* Ref.make<AccountRefreshEffect | null>(null);
       const awaitReady = gateway.awaitReady(gateway.localHostId);
       const asRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
         typeof value === "object" && value !== null && !Array.isArray(value)
@@ -88,7 +96,7 @@ export const live = (
         };
       });
 
-      const refresh: CodexAccount["Service"]["refresh"] = Effect.gen(function* () {
+      const load = Effect.gen(function* () {
         yield* awaitReady;
         const response = yield* gateway.requestLocal("account/read", { refreshToken: false });
         const account = parseAccountIdentity(response.account ?? null);
@@ -111,6 +119,25 @@ export const live = (
         );
         return next;
       }).pipe(refreshLock.withPermits(1));
+
+      const refresh: CodexAccount["Service"]["refresh"] = Effect.gen(function* () {
+        const candidate = yield* Effect.cached(load);
+        const selection = yield* Ref.modify<AccountRefreshEffect | null, AccountRefreshSelection>(
+          refreshInFlight,
+          (current) =>
+            current === null
+              ? [{ effect: candidate, owner: true }, candidate]
+              : [{ effect: current, owner: false }, current],
+        );
+        if (!selection.owner) return yield* selection.effect;
+        return yield* selection.effect.pipe(
+          Effect.ensuring(
+            Ref.update(refreshInFlight, (current) =>
+              current === selection.effect ? null : current,
+            ),
+          ),
+        );
+      });
 
       const refreshRateLimits = Effect.gen(function* () {
         const rateLimitState = yield* readRateLimits();
