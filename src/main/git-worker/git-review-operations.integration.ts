@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   applyGitReviewPatch,
   filterGitReviewWorkingTreePaths,
+  GitReviewRuntime,
   invalidateGitReviewSnapshot,
   initializeGitRepositoryAndReadReviewSnapshot,
   readBranchDiffStats,
@@ -66,6 +67,15 @@ function expectSuccessfulSearch(
 ): asserts result is GitReviewSearchSuccess {
   expect(result.type).toBe("success");
   if (result.type !== "success") throw new Error("Expected search result.");
+}
+
+async function withGitReviewRuntime<Result>(run: () => Promise<Result>): Promise<Result> {
+  const runtime = new GitReviewRuntime();
+  try {
+    return await runtime.run(new AbortController().signal, run);
+  } finally {
+    runtime.dispose();
+  }
 }
 
 afterEach(() => {
@@ -724,84 +734,88 @@ describe("git review service", () => {
   });
 
   test("rejects stale snapshot generations before publishing file data", async () => {
-    const cwd = createTempDir("nodex-git-review-stale-generation-");
-    initializeRepository(cwd);
-    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
-    commitAll(cwd, "initial");
-    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
-    const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
+    await withGitReviewRuntime(async () => {
+      const cwd = createTempDir("nodex-git-review-stale-generation-");
+      initializeRepository(cwd);
+      writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+      commitAll(cwd, "initial");
+      writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+      const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
 
-    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\ngamma\n", "utf8");
-    invalidateGitReviewSnapshot(cwd);
-    const catFile = await readGitReviewCatFile({
-      cwd,
-      snapshotGeneration: snapshot.snapshotGeneration,
-      requests: [
-        {
-          oid: snapshot.files[0]?.oldOid ?? null,
-          path: "README.md",
-        },
-      ],
-    });
-
-    expect(catFile.results).toEqual([{ type: "error", error: { type: "unknown" } }]);
-    await expect(
-      readGitReviewDiff({
+      writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\ngamma\n", "utf8");
+      invalidateGitReviewSnapshot(cwd);
+      const catFile = await readGitReviewCatFile({
         cwd,
-        source: "unstaged",
-        files: [{ path: "README.md", status: "modified" }],
         snapshotGeneration: snapshot.snapshotGeneration,
-      }),
-    ).resolves.toEqual({ type: "stale-snapshot", source: "unstaged" });
+        requests: [
+          {
+            oid: snapshot.files[0]?.oldOid ?? null,
+            path: "README.md",
+          },
+        ],
+      });
+
+      expect(catFile.results).toEqual([{ type: "error", error: { type: "unknown" } }]);
+      await expect(
+        readGitReviewDiff({
+          cwd,
+          source: "unstaged",
+          files: [{ path: "README.md", status: "modified" }],
+          snapshotGeneration: snapshot.snapshotGeneration,
+        }),
+      ).resolves.toEqual({ type: "stale-snapshot", source: "unstaged" });
+    });
   });
 
   test("shares snapshot generations across cwd aliases in one repository", async () => {
-    const cwd = createTempDir("nodex-git-review-repository-identity-");
-    const nestedCwd = path.join(cwd, "packages", "example");
-    mkdirSync(nestedCwd, { recursive: true });
-    initializeRepository(cwd);
-    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
-    commitAll(cwd, "initial");
-    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+    await withGitReviewRuntime(async () => {
+      const cwd = createTempDir("nodex-git-review-repository-identity-");
+      const nestedCwd = path.join(cwd, "packages", "example");
+      mkdirSync(nestedCwd, { recursive: true });
+      initializeRepository(cwd);
+      writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+      commitAll(cwd, "initial");
+      writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
 
-    const [rootSummary, nestedSummary] = await Promise.all([
-      readGitReviewSummary({ cwd, source: "unstaged" }),
-      readGitReviewSummary({ cwd: nestedCwd, source: "unstaged" }),
-    ]);
-    if (rootSummary.type !== "success" || nestedSummary.type !== "success") {
-      throw new Error("Expected repository summaries.");
-    }
-    expect(nestedSummary.snapshotGeneration).toBe(rootSummary.snapshotGeneration);
-    const [rootMetadata, nestedMetadata] = await Promise.all([
-      readGitReviewRepositoryMetadata({ cwd }),
-      readGitReviewRepositoryMetadata({ cwd: nestedCwd }),
-    ]);
-    expect(rootMetadata.isGitRepository).toBe(true);
-    expect(nestedMetadata).toMatchObject({
-      isGitRepository: true,
-      root: rootMetadata.root,
-      gitDir: rootMetadata.gitDir,
-      commonDir: rootMetadata.commonDir,
-    });
+      const [rootSummary, nestedSummary] = await Promise.all([
+        readGitReviewSummary({ cwd, source: "unstaged" }),
+        readGitReviewSummary({ cwd: nestedCwd, source: "unstaged" }),
+      ]);
+      if (rootSummary.type !== "success" || nestedSummary.type !== "success") {
+        throw new Error("Expected repository summaries.");
+      }
+      expect(nestedSummary.snapshotGeneration).toBe(rootSummary.snapshotGeneration);
+      const [rootMetadata, nestedMetadata] = await Promise.all([
+        readGitReviewRepositoryMetadata({ cwd }),
+        readGitReviewRepositoryMetadata({ cwd: nestedCwd }),
+      ]);
+      expect(rootMetadata.isGitRepository).toBe(true);
+      expect(nestedMetadata).toMatchObject({
+        isGitRepository: true,
+        root: rootMetadata.root,
+        gitDir: rootMetadata.gitDir,
+        commonDir: rootMetadata.commonDir,
+      });
 
-    invalidateGitReviewSnapshot(nestedCwd);
-    await expect(
-      readGitReviewDiff({
-        cwd,
+      invalidateGitReviewSnapshot(nestedCwd);
+      await expect(
+        readGitReviewDiff({
+          cwd,
+          source: "unstaged",
+          files: [{ path: "README.md", status: "modified" }],
+          snapshotGeneration: rootSummary.snapshotGeneration,
+        }),
+      ).resolves.toEqual({ type: "stale-snapshot", source: "unstaged" });
+
+      const refreshed = await readGitReviewSummary({
+        cwd: nestedCwd,
         source: "unstaged",
-        files: [{ path: "README.md", status: "modified" }],
-        snapshotGeneration: rootSummary.snapshotGeneration,
-      }),
-    ).resolves.toEqual({ type: "stale-snapshot", source: "unstaged" });
-
-    const refreshed = await readGitReviewSummary({
-      cwd: nestedCwd,
-      source: "unstaged",
+      });
+      if (refreshed.type !== "success") {
+        throw new Error("Expected refreshed summary.");
+      }
+      expect(refreshed.snapshotGeneration).toBeGreaterThan(rootSummary.snapshotGeneration);
     });
-    if (refreshed.type !== "success") {
-      throw new Error("Expected refreshed summary.");
-    }
-    expect(refreshed.snapshotGeneration).toBeGreaterThan(rootSummary.snapshotGeneration);
   });
 
   test("reads git blame for file source tabs", async () => {

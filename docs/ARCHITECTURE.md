@@ -303,6 +303,15 @@ request, progress, terminal result, and cancellation retain the same operation
 identity across the boundary. A worker crash fails its in-flight requests and
 the host adapter may start a fresh worker for later requests.
 
+The local Git worker has one application owner, `GitWorkerModule`. That owner
+constructs one command runner, one repository registry, and one
+`GitReviewRuntime`; repository identity aliases, discovery coalescing and review
+snapshot generations live only in that runtime. Each review request enters its
+runtime through an async operation context, and module disposal releases live
+queries, repositories, generation providers, and review caches together. A
+replacement worker therefore always starts from a fresh repository identity and
+generation space rather than inheriting process-module state.
+
 `ExecutionHostRuntime` is the sole owner of execution-host settings and remote
 host activation. Each enabled SSH host is one keyed Scope containing its health
 probe, deployed worker channel, file-transfer adapter, Codex endpoint, and host

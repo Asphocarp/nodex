@@ -13,6 +13,7 @@ import type {
 import { GIT_WORKER_PROTOCOL_VERSION } from "../../shared/git-worker-protocol";
 import {
   applyGitReviewPatch,
+  GitReviewRuntime,
   isGitReviewStaleSnapshotError,
   readBranchDiffStats,
   readGitReviewBaseBranch,
@@ -97,16 +98,22 @@ function classifyGitWorkerOperationOutcome(
 
 export class GitWorkerModule {
   readonly #registry: GitRepositoryRegistry;
+  readonly #reviewRuntime: GitReviewRuntime;
   readonly #publish: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
   readonly #liveQueries: GitLiveQueryRegistry;
 
   constructor(
     options: {
       publish?: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
-      registry?: GitRepositoryRegistry;
+      environment?: NodeJS.ProcessEnv;
     } = {},
   ) {
-    this.#registry = options.registry ?? new GitRepositoryRegistry(new LocalGitCommandRunner());
+    const runner = new LocalGitCommandRunner();
+    this.#reviewRuntime = new GitReviewRuntime({
+      commandRunner: runner,
+      environment: options.environment,
+    });
+    this.#registry = new GitRepositoryRegistry(runner, this.#reviewRuntime);
     this.#publish = options.publish ?? (() => undefined);
     this.#liveQueries = new GitLiveQueryRegistry({
       registry: this.#registry,
@@ -255,6 +262,7 @@ export class GitWorkerModule {
         const repository = await this.#registry.get(request.params.cwd, signal);
         signal.throwIfAborted();
         const result = await runGitReviewOperationWithSignal(
+          this.#reviewRuntime,
           signal,
           async () => await readGitReviewCatFile(request.params),
           repository ?? undefined,
@@ -295,6 +303,7 @@ export class GitWorkerModule {
         const repository = await this.#registry.get(request.params.cwd, signal);
         signal.throwIfAborted();
         return await runGitReviewOperationWithSignal(
+          this.#reviewRuntime,
           signal,
           async () => await readGitReviewBlameFile(request.params),
           repository ?? undefined,
@@ -330,6 +339,7 @@ export class GitWorkerModule {
         const repository = await this.#registry.get(request.params.cwd, signal);
         signal.throwIfAborted();
         return await runGitReviewOperationWithSignal(
+          this.#reviewRuntime,
           signal,
           async () => await resolveGitMergeBase(request.params),
           repository ?? undefined,
@@ -363,6 +373,7 @@ export class GitWorkerModule {
         }
         await repository.invalidateGitReadCachesForRepoChange("head");
         return await runGitReviewOperationWithSignal(
+          this.#reviewRuntime,
           signal,
           async () =>
             await readGitReviewSnapshot({
@@ -376,6 +387,7 @@ export class GitWorkerModule {
         const repository = await this.#registry.get(request.params.cwd, signal);
         signal.throwIfAborted();
         const result = await runGitReviewOperationWithSignal(
+          this.#reviewRuntime,
           signal,
           async () => await applyGitReviewPatch(request.params),
           repository ?? undefined,
@@ -418,6 +430,7 @@ export class GitWorkerModule {
   dispose(): void {
     this.#liveQueries.dispose();
     this.#registry.dispose();
+    this.#reviewRuntime.dispose();
   }
 
   async #runReviewRequest<Result>(input: {
@@ -431,6 +444,7 @@ export class GitWorkerModule {
     const repository = await this.#registry.get(input.cwd, input.signal);
     if (!repository) {
       return await runGitReviewOperationWithSignal(
+        this.#reviewRuntime,
         input.signal,
         async () => await input.operation(input.signal, null),
       );
@@ -452,6 +466,7 @@ export class GitWorkerModule {
       run: async (sharedSignal) => {
         try {
           return await runGitReviewOperationWithSignal(
+            this.#reviewRuntime,
             sharedSignal,
             async () => await input.operation(sharedSignal, repository),
             repository,

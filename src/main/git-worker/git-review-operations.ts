@@ -48,7 +48,7 @@ import {
   REVIEW_RENDERABLE_TEXT_MAX_BYTES,
   REVIEW_UNTRACKED_DIFF_CONCURRENCY,
 } from "../../shared/review-file-safety";
-import { LocalGitCommandRunner } from "./git-command-runner";
+import { LocalGitCommandRunner, type GitCommandRunner } from "./git-command-runner";
 
 interface GitCommandResult {
   stdout: string;
@@ -81,8 +81,8 @@ export type GitReviewWorkingTreePathFilterResult =
   | { type: "filtered"; changedPaths: string[] }
   | { type: "full" };
 
-const fallbackSnapshotGenerations = new Map<string, number>();
 interface GitReviewOperationContext {
+  runtime: GitReviewRuntime;
   signal: AbortSignal;
   repository?: {
     runGit(
@@ -93,15 +93,10 @@ interface GitReviewOperationContext {
 }
 
 const gitReviewOperationContext = new AsyncLocalStorage<GitReviewOperationContext>();
-const gitReviewRepositoryIdentitiesByKey = new Map<string, GitReviewRepositoryIdentity>();
-const gitReviewRepositoryPathsByKey = new Map<string, GitReviewRepositoryPaths>();
-const gitReviewRepositoryKeysByCwd = new Map<string, string>();
-const gitReviewRepositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
 interface GitReviewSnapshotGenerationProvider {
   advance(): number;
   current(): number;
 }
-const gitReviewSnapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
 const GIT_CONFIG_OVERRIDES = [
   "-c",
   "diff.mnemonicPrefix=false",
@@ -110,13 +105,6 @@ const GIT_CONFIG_OVERRIDES = [
   "-c",
   "core.quotePath=false",
 ];
-const GIT_READ_ENVIRONMENT: NodeJS.ProcessEnv = {
-  ...process.env,
-  GIT_OPTIONAL_LOCKS: "0",
-  GIT_TERMINAL_PROMPT: "0",
-  LC_ALL: "C",
-  LANG: "C",
-};
 const GIT_REVIEW_DIFF_BASE_ARGS = [
   "--no-ext-diff",
   "--no-textconv",
@@ -125,7 +113,6 @@ const GIT_REVIEW_DIFF_BASE_ARGS = [
   "--dst-prefix=b/",
   "--find-renames",
 ];
-const gitReviewCommandRunner = new LocalGitCommandRunner();
 
 interface GitReviewUntrackedPathsInput {
   precomputedUntrackedPaths?: readonly string[] | null;
@@ -171,55 +158,174 @@ function buildGitReviewRepositoryCwdKey(hostId: string, cwd: string): string {
   return JSON.stringify([hostId, normalizeGitReviewRepositoryPath(cwd)]);
 }
 
-export function registerGitReviewRepositoryIdentity(
-  cwd: string,
-  identity: GitReviewRepositoryIdentity & { gitDir?: string },
-): GitReviewRepositoryIdentity {
-  const normalizedIdentity: GitReviewRepositoryIdentity = {
-    hostId: identity.hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID,
-    commonDir: normalizeGitReviewRepositoryPath(identity.commonDir),
-    root: normalizeGitReviewRepositoryPath(identity.root),
-  };
-  const key = buildGitReviewRepositoryKey(normalizedIdentity);
-  gitReviewRepositoryIdentitiesByKey.set(key, normalizedIdentity);
-  gitReviewRepositoryKeysByCwd.set(
-    buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, cwd),
-    key,
-  );
-  gitReviewRepositoryKeysByCwd.set(
-    buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, normalizedIdentity.root),
-    key,
-  );
-  if (identity.gitDir) {
-    gitReviewRepositoryPathsByKey.set(key, {
-      ...normalizedIdentity,
-      gitDir: normalizeGitReviewRepositoryPath(identity.gitDir),
-    });
+export class GitReviewRuntime {
+  readonly #commandRunner: GitCommandRunner;
+  readonly #environment: NodeJS.ProcessEnv;
+  readonly #fallbackSnapshotGenerations = new Map<string, number>();
+  readonly #repositoryIdentitiesByKey = new Map<string, GitReviewRepositoryIdentity>();
+  readonly #repositoryPathsByKey = new Map<string, GitReviewRepositoryPaths>();
+  readonly #repositoryKeysByCwd = new Map<string, string>();
+  readonly #repositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
+  readonly #snapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
+  #closed = false;
+
+  constructor(
+    options: {
+      commandRunner?: GitCommandRunner;
+      environment?: NodeJS.ProcessEnv;
+    } = {},
+  ) {
+    this.#commandRunner = options.commandRunner ?? new LocalGitCommandRunner();
+    this.#environment = {
+      ...(options.environment ?? process.env),
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_TERMINAL_PROMPT: "0",
+      LC_ALL: "C",
+      LANG: "C",
+    };
   }
-  return normalizedIdentity;
-}
 
-export function registerGitReviewSnapshotGenerationProvider(
-  identity: GitReviewRepositoryIdentity,
-  provider: GitReviewSnapshotGenerationProvider,
-): () => void {
-  const normalizedIdentity = registerGitReviewRepositoryIdentity(identity.root, identity);
-  const key = buildGitReviewRepositoryKey(normalizedIdentity);
-  gitReviewSnapshotGenerationProviders.set(key, provider);
-  return () => {
-    if (gitReviewSnapshotGenerationProviders.get(key) === provider) {
-      gitReviewSnapshotGenerationProviders.delete(key);
+  get commandRunner(): GitCommandRunner {
+    this.#assertOpen();
+    return this.#commandRunner;
+  }
+
+  get environment(): NodeJS.ProcessEnv {
+    this.#assertOpen();
+    return this.#environment;
+  }
+
+  registerRepositoryIdentity(
+    cwd: string,
+    identity: GitReviewRepositoryIdentity & { gitDir?: string },
+  ): GitReviewRepositoryIdentity {
+    this.#assertOpen();
+    const normalizedIdentity: GitReviewRepositoryIdentity = {
+      hostId: identity.hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID,
+      commonDir: normalizeGitReviewRepositoryPath(identity.commonDir),
+      root: normalizeGitReviewRepositoryPath(identity.root),
+    };
+    const key = buildGitReviewRepositoryKey(normalizedIdentity);
+    this.#repositoryIdentitiesByKey.set(key, normalizedIdentity);
+    this.#repositoryKeysByCwd.set(
+      buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, cwd),
+      key,
+    );
+    this.#repositoryKeysByCwd.set(
+      buildGitReviewRepositoryCwdKey(normalizedIdentity.hostId, normalizedIdentity.root),
+      key,
+    );
+    if (identity.gitDir) {
+      this.#repositoryPathsByKey.set(key, {
+        ...normalizedIdentity,
+        gitDir: normalizeGitReviewRepositoryPath(identity.gitDir),
+      });
     }
-  };
+    return normalizedIdentity;
+  }
+
+  registerSnapshotGenerationProvider(
+    identity: GitReviewRepositoryIdentity,
+    provider: GitReviewSnapshotGenerationProvider,
+  ): () => void {
+    const normalizedIdentity = this.registerRepositoryIdentity(identity.root, identity);
+    const key = buildGitReviewRepositoryKey(normalizedIdentity);
+    this.#snapshotGenerationProviders.set(key, provider);
+    return () => {
+      if (this.#snapshotGenerationProviders.get(key) === provider) {
+        this.#snapshotGenerationProviders.delete(key);
+      }
+    };
+  }
+
+  findRepository(
+    cwd: string,
+    hostId = GIT_REVIEW_LOCAL_HOST_ID,
+  ): GitReviewRepositoryIdentity | null {
+    this.#assertOpen();
+    const cwdKey = buildGitReviewRepositoryCwdKey(hostId, cwd);
+    const registeredKey = this.#repositoryKeysByCwd.get(cwdKey);
+    return registeredKey ? (this.#repositoryIdentitiesByKey.get(registeredKey) ?? null) : null;
+  }
+
+  findRepositoryPaths(identity: GitReviewRepositoryIdentity): GitReviewRepositoryPaths | null {
+    this.#assertOpen();
+    return this.#repositoryPathsByKey.get(buildGitReviewRepositoryKey(identity)) ?? null;
+  }
+
+  findRepositoryPathRead(key: string): Promise<GitReviewRepositoryPaths | null> | undefined {
+    this.#assertOpen();
+    return this.#repositoryPathReads.get(key);
+  }
+
+  registerRepositoryPathRead(key: string, read: Promise<GitReviewRepositoryPaths | null>): void {
+    this.#assertOpen();
+    this.#repositoryPathReads.set(key, read);
+  }
+
+  completeRepositoryPathRead(key: string, read: Promise<GitReviewRepositoryPaths | null>): void {
+    if (this.#repositoryPathReads.get(key) === read) {
+      this.#repositoryPathReads.delete(key);
+    }
+  }
+
+  readSnapshotGeneration(repository: GitReviewRepositoryIdentity): number {
+    this.#assertOpen();
+    const key = buildGitReviewRepositoryKey(repository);
+    return (
+      this.#snapshotGenerationProviders.get(key)?.current() ??
+      this.#fallbackSnapshotGenerations.get(key) ??
+      1
+    );
+  }
+
+  invalidateSnapshot(cwd: string, identity?: GitReviewRepositoryIdentity): void {
+    this.#assertOpen();
+    const normalizedCwd = cwd.trim();
+    if (!normalizedCwd) return;
+    const repository = identity
+      ? this.registerRepositoryIdentity(normalizedCwd, identity)
+      : this.findRepository(normalizedCwd);
+    if (!repository) return;
+    const key = buildGitReviewRepositoryKey(repository);
+    const provider = this.#snapshotGenerationProviders.get(key);
+    if (provider) {
+      provider.advance();
+      return;
+    }
+    this.#fallbackSnapshotGenerations.set(
+      key,
+      (this.#fallbackSnapshotGenerations.get(key) ?? 1) + 1,
+    );
+  }
+
+  run<Result>(
+    signal: AbortSignal,
+    operation: () => Promise<Result>,
+    repository?: GitReviewOperationContext["repository"],
+  ): Promise<Result> {
+    this.#assertOpen();
+    return gitReviewOperationContext.run({ runtime: this, signal, repository }, operation);
+  }
+
+  dispose(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#fallbackSnapshotGenerations.clear();
+    this.#repositoryIdentitiesByKey.clear();
+    this.#repositoryPathsByKey.clear();
+    this.#repositoryKeysByCwd.clear();
+    this.#repositoryPathReads.clear();
+    this.#snapshotGenerationProviders.clear();
+  }
+
+  #assertOpen(): void {
+    if (this.#closed) throw new Error("Git review runtime is closed");
+  }
 }
 
-function findRegisteredGitReviewRepository(
-  cwd: string,
-  hostId = GIT_REVIEW_LOCAL_HOST_ID,
-): GitReviewRepositoryIdentity | null {
-  const cwdKey = buildGitReviewRepositoryCwdKey(hostId, cwd);
-  const registeredKey = gitReviewRepositoryKeysByCwd.get(cwdKey);
-  return registeredKey ? (gitReviewRepositoryIdentitiesByKey.get(registeredKey) ?? null) : null;
+function currentGitReviewRuntime(): GitReviewRuntime {
+  return gitReviewOperationContext.getStore()?.runtime ?? new GitReviewRuntime();
 }
 
 async function ensureDirectory(cwd: string): Promise<string> {
@@ -243,10 +349,11 @@ function runGitCommand(
   options?: { literalPathspecs?: boolean; signal?: AbortSignal },
 ): Promise<GitCommandResult> {
   const context = gitReviewOperationContext.getStore();
+  const runtime = context?.runtime ?? new GitReviewRuntime();
   const signal = options?.signal ?? context?.signal;
   signal?.throwIfAborted();
   const normalizedCwd = normalizeGitReviewRepositoryPath(cwd);
-  const registered = findRegisteredGitReviewRepository(normalizedCwd);
+  const registered = runtime.findRepository(normalizedCwd);
   const identity = {
     hostId: "local" as const,
     root: registered?.root ?? normalizedCwd,
@@ -260,7 +367,7 @@ function runGitCommand(
   };
   const command = context?.repository
     ? context.repository.runGit(args, commandOptions)
-    : gitReviewCommandRunner.run(identity, args, commandOptions);
+    : runtime.commandRunner.run(identity, args, commandOptions);
   return command.then((result) => {
     if (result.success) {
       return {
@@ -326,18 +433,17 @@ export async function resolveGitReviewRepositoryPaths(
   cwd: string,
   hostId = GIT_REVIEW_LOCAL_HOST_ID,
 ): Promise<GitReviewRepositoryPaths | null> {
+  const runtime = currentGitReviewRuntime();
   const normalizedCwd = await ensureDirectory(cwd);
   const normalizedHostId = hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID;
-  const registered = findRegisteredGitReviewRepository(normalizedCwd, normalizedHostId);
+  const registered = runtime.findRepository(normalizedCwd, normalizedHostId);
   if (registered) {
-    const registeredPaths = gitReviewRepositoryPathsByKey.get(
-      buildGitReviewRepositoryKey(registered),
-    );
+    const registeredPaths = runtime.findRepositoryPaths(registered);
     if (registeredPaths) return registeredPaths;
   }
 
   const readKey = buildGitReviewRepositoryCwdKey(normalizedHostId, normalizedCwd);
-  const existing = gitReviewRepositoryPathReads.get(readKey);
+  const existing = runtime.findRepositoryPathRead(readKey);
   if (existing) return existing;
 
   const promise = runGitCommand(["rev-parse", "--show-toplevel"], normalizedCwd, [0, 128])
@@ -364,24 +470,22 @@ export async function resolveGitReviewRepositoryPaths(
         gitDir,
         commonDir,
       };
-      const identity = registerGitReviewRepositoryIdentity(normalizedCwd, paths);
+      const identity = runtime.registerRepositoryIdentity(normalizedCwd, paths);
       return { ...paths, ...identity };
     })
     .catch(() => null);
-  gitReviewRepositoryPathReads.set(readKey, promise);
+  runtime.registerRepositoryPathRead(readKey, promise);
   try {
     return await promise;
   } finally {
-    if (gitReviewRepositoryPathReads.get(readKey) === promise) {
-      gitReviewRepositoryPathReads.delete(readKey);
-    }
+    runtime.completeRepositoryPathRead(readKey, promise);
   }
 }
 
 async function resolveGitReviewRepositoryIdentity(
   cwd: string,
 ): Promise<GitReviewRepositoryIdentity> {
-  const registered = findRegisteredGitReviewRepository(cwd, GIT_REVIEW_LOCAL_HOST_ID);
+  const registered = currentGitReviewRuntime().findRepository(cwd, GIT_REVIEW_LOCAL_HOST_ID);
   if (registered) return registered;
   const paths = await resolveGitReviewRepositoryPaths(cwd);
   if (paths) return paths;
@@ -490,33 +594,16 @@ export async function filterGitReviewWorkingTreePaths(input: {
 
 async function readGitReviewSnapshotGeneration(cwd: string, signal?: AbortSignal): Promise<number> {
   signal?.throwIfAborted();
+  const runtime = currentGitReviewRuntime();
   const repository = await resolveGitReviewRepositoryIdentity(cwd);
-  const repositoryKey = buildGitReviewRepositoryKey(repository);
-  const provider = gitReviewSnapshotGenerationProviders.get(repositoryKey);
-  if (provider) return provider.current();
-  return fallbackSnapshotGenerations.get(repositoryKey) ?? 1;
+  return runtime.readSnapshotGeneration(repository);
 }
 
 export function invalidateGitReviewSnapshot(
   cwd: string,
   identity?: GitReviewRepositoryIdentity,
 ): void {
-  const normalizedCwd = cwd.trim();
-  if (!normalizedCwd) return;
-  const repository = identity
-    ? registerGitReviewRepositoryIdentity(normalizedCwd, identity)
-    : findRegisteredGitReviewRepository(normalizedCwd);
-  if (!repository) return;
-  const repositoryKey = buildGitReviewRepositoryKey(repository);
-  const provider = gitReviewSnapshotGenerationProviders.get(repositoryKey);
-  if (provider) {
-    provider.advance();
-    return;
-  }
-  fallbackSnapshotGenerations.set(
-    repositoryKey,
-    (fallbackSnapshotGenerations.get(repositoryKey) ?? 1) + 1,
-  );
+  currentGitReviewRuntime().invalidateSnapshot(cwd, identity);
 }
 
 async function assertGitReviewSnapshotGeneration(
@@ -525,15 +612,9 @@ async function assertGitReviewSnapshotGeneration(
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted();
+  const runtime = currentGitReviewRuntime();
   const repository = await resolveGitReviewRepositoryIdentity(cwd);
-  const repositoryKey = buildGitReviewRepositoryKey(repository);
-  const provider = gitReviewSnapshotGenerationProviders.get(repositoryKey);
-  if (provider) {
-    const actualGeneration = provider.current();
-    if (actualGeneration === expectedGeneration) return;
-    throw new GitReviewStaleSnapshotError(expectedGeneration, actualGeneration);
-  }
-  const actualGeneration = fallbackSnapshotGenerations.get(repositoryKey) ?? 1;
+  const actualGeneration = runtime.readSnapshotGeneration(repository);
   if (actualGeneration === expectedGeneration) return;
   throw new GitReviewStaleSnapshotError(expectedGeneration, actualGeneration);
 }
@@ -548,11 +629,12 @@ async function runGitReviewRequest<T>(
 }
 
 export function runGitReviewOperationWithSignal<Result>(
+  runtime: GitReviewRuntime,
   signal: AbortSignal,
   operation: () => Promise<Result>,
   repository?: GitReviewOperationContext["repository"],
 ): Promise<Result> {
-  return gitReviewOperationContext.run({ signal, repository }, operation);
+  return runtime.run(signal, operation, repository);
 }
 
 function isNotGitRepositoryError(error: unknown): boolean {
@@ -1414,13 +1496,15 @@ function splitGitObjectLines(contents: string): string[] {
 function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer> {
   if (objectSpecs.length === 0) return Promise.resolve(Buffer.alloc(0));
 
-  const signal = gitReviewOperationContext.getStore()?.signal;
+  const context = gitReviewOperationContext.getStore();
+  const runtime = context?.runtime ?? new GitReviewRuntime();
+  const signal = context?.signal;
   signal?.throwIfAborted();
 
   return new Promise((resolve, reject) => {
     const child = spawn("git", [...GIT_CONFIG_OVERRIDES, "cat-file", "--batch"], {
       cwd,
-      env: GIT_READ_ENVIRONMENT,
+      env: runtime.environment,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -2730,13 +2814,14 @@ function streamTrackedGitReviewSearch(input: {
   accumulator: GitReviewSearchAccumulator;
   signal?: AbortSignal;
 }): Promise<void> {
+  const runtime = currentGitReviewRuntime();
   return new Promise((resolve, reject) => {
     const child = spawn(
       "git",
       [...GIT_CONFIG_OVERRIDES, "diff", ...input.diffArgs, "--unified=3"],
       {
         cwd: input.cwd,
-        env: GIT_READ_ENVIRONMENT,
+        env: runtime.environment,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       },
