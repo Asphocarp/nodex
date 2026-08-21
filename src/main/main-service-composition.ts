@@ -1,15 +1,14 @@
 import { BrowserSidebarService } from "./browser-sidebar-service";
-import { CodexService } from "./codex/codex-service";
-import { TerminalManager } from "./terminal-manager";
+import { CodexService, type CodexTerminalRuntimePort } from "./codex/codex-service";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
   readonly codexService: CodexService;
-  readonly terminalManager: TerminalManager;
 }
 
 export interface MainServiceCompositionInput {
   readonly locale: () => string;
+  readonly terminalRuntime: CodexTerminalRuntimePort;
 }
 
 let activeComposition: MainServiceComposition | null = null;
@@ -19,20 +18,13 @@ export function createMainServiceComposition(
   input: MainServiceCompositionInput,
 ): MainServiceComposition {
   const browserSidebarService = new BrowserSidebarService();
-  const terminalManager = new TerminalManager();
-  terminalManager.configurePtyDataObserver(browserSidebarService);
   const codexService = new CodexService({
     browserTransferRuntime: browserSidebarService,
     computerUseRuntimeConfig: () => ({ locale: input.locale() }),
-    terminalRuntime: {
-      getSessionSnapshot: async (sessionId) => terminalManager.getSessionSnapshot(sessionId),
-      getThreadSnapshot: async (threadId) => terminalManager.getThreadSnapshot(threadId),
-      refreshSessionProcessMetrics: async (sessionIds) =>
-        await terminalManager.refreshSessionProcessMetrics(sessionIds),
-    },
+    terminalRuntime: input.terminalRuntime,
   });
 
-  return { browserSidebarService, codexService, terminalManager };
+  return { browserSidebarService, codexService };
 }
 
 /**

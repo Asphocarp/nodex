@@ -216,7 +216,7 @@ function launchMainApplication(): void {
     const callbacks = yield* ScopedCallbackRuntime;
     yield* MainApp.program({
       initialEvents: startupEvents,
-      runtimeLayer: MainDesktopRuntimeLive.live,
+      runtimeLayer: MainDesktopRuntimeLive.productionLive,
       runStartupGate: Effect.tryPromise({
         try: async () => {
           await mainSentryInitialization;

@@ -28,7 +28,11 @@ import {
   RETRY_CORE_AUTHORITY_CHANNEL,
   type CoreAuthorityStatus,
 } from "../shared/core-authority-status";
-import type { AppUpdateStatus } from "../shared/types";
+import type {
+  AppUpdateStatus,
+  TerminalRunActionRequest,
+  TerminalSessionSnapshot,
+} from "../shared/types";
 import {
   disposeRemoteHostedPipRuntime,
   isRemoteHostedPipPrivacySettingsTerminationRequest,
@@ -230,13 +234,14 @@ import { registerAppRendererProtocol } from "./app-renderer-protocol";
 import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
 import { resolveInitialProjectProjectsDirectory } from "./initial-project/initial-project-filesystem";
 import { resolveInitialProjectJournalPath } from "./initial-project/initial-project-journal-store";
+import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
-const { browserSidebarService, codexService, terminalManager } = getMainServiceComposition();
+const { browserSidebarService, codexService } = getMainServiceComposition();
 
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
@@ -435,6 +440,10 @@ function getLastFocusedWindow(): BrowserWindow | null {
   }
 
   return null;
+}
+
+export function resolveMainWindowSessionId(webContentsId: number): string | null {
+  return windowSessionState?.getSessionIdForWindow(webContentsId) ?? null;
 }
 
 function focusLastWindow(): void {
@@ -2022,6 +2031,24 @@ export interface MainRuntimeStartupContext {
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
+  terminalRuntime?: {
+    readonly listLiveSessionsForOwners: (input: {
+      readonly conversationIds: ReadonlySet<string>;
+      readonly projectSessionIds: ReadonlySet<string>;
+    }) => Promise<readonly TerminalSessionSnapshot[]>;
+    readonly discardExitedSessionsForOwners: (input: {
+      readonly conversationIds: ReadonlySet<string>;
+      readonly projectSessionIds: ReadonlySet<string>;
+    }) => Promise<readonly string[]>;
+    readonly runAction: (input: {
+      readonly webContentsId: number;
+      readonly windowSessionId: string;
+      readonly request: TerminalRunActionRequest;
+    }) => Promise<void>;
+  };
+  onTerminalProjectAuthorityReady?: (
+    authority: Pick<DesktopProjectWorkspacePort, "getProject" | "getProjectSession" | "getThread">,
+  ) => void;
 }
 
 export interface MainRuntimeController {
@@ -2107,7 +2134,6 @@ function beginMainRuntimeShutdown(): void {
   codexThreadNotificationCoordinator?.dispose();
   codexThreadNotificationCoordinator = null;
   desktopNotificationManager.dispose();
-  terminalManager.killAll();
 }
 
 async function settleRuntimeShutdownStep(
@@ -2683,6 +2709,7 @@ export async function runMainAppStartup(
   const projectWorkspace = createDesktopProjectWorkspaceBridge({
     authority: dataAuthority,
   });
+  context.onTerminalProjectAuthorityReady?.(projectWorkspace);
   browserSidebarService.setProjectSessionResolver(
     async (sessionId) => (await projectWorkspace.getProjectSession(sessionId))?.projectId ?? null,
   );
@@ -2877,6 +2904,7 @@ export async function runMainAppStartup(
     onCommandKeybindingsChanged: (state) => {
       configureApplicationMenus(state);
     },
+    terminalRuntime: context.terminalRuntime,
   });
 
   ipcMain.removeHandler("app:flush-before-close:done");

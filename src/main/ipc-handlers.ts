@@ -86,6 +86,8 @@ import type {
   CodexHostMessage,
   CodexProtocolRequestId,
   DatabasePage,
+  TerminalRunActionRequest,
+  TerminalSessionSnapshot,
   UpdateWorktreeEnvironmentConfigInput,
 } from "../shared/types";
 import type { ProjectionCursor } from "../shared/projection-stream";
@@ -297,7 +299,7 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const { browserSidebarService, codexService, terminalManager } = getMainServiceComposition();
+const { browserSidebarService, codexService } = getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
@@ -918,6 +920,21 @@ interface RegisterIpcHandlersOptions {
   onStoreRestored?: () => void;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
+  terminalRuntime?: {
+    readonly listLiveSessionsForOwners: (input: {
+      readonly conversationIds: ReadonlySet<string>;
+      readonly projectSessionIds: ReadonlySet<string>;
+    }) => Promise<readonly TerminalSessionSnapshot[]>;
+    readonly discardExitedSessionsForOwners: (input: {
+      readonly conversationIds: ReadonlySet<string>;
+      readonly projectSessionIds: ReadonlySet<string>;
+    }) => Promise<readonly string[]>;
+    readonly runAction: (input: {
+      readonly webContentsId: number;
+      readonly windowSessionId: string;
+      readonly request: TerminalRunActionRequest;
+    }) => Promise<void>;
+  };
 }
 
 const createUnconfiguredIpcAuthority = <Port extends object>(name: string): Port =>
@@ -1241,8 +1258,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     listCodexBlockers: (threadIds) => codexService.listProjectArchiveBlockers(threadIds),
     listBackgroundProcessRows: async (threadId) =>
       await codexService.listBackgroundProcessRows({ threadId }),
-    listLiveTerminalSessions: (input) => terminalManager.listLiveSessionsForOwners(input),
-    discardExitedTerminalSessions: (input) => terminalManager.discardExitedSessionsForOwners(input),
+    listLiveTerminalSessions: (input) =>
+      options.terminalRuntime?.listLiveSessionsForOwners(input) ?? Promise.resolve([]),
+    discardExitedTerminalSessions: (input) =>
+      options.terminalRuntime?.discardExitedSessionsForOwners(input) ?? Promise.resolve([]),
   });
   const documentSync =
     options.documentSync ??
@@ -1260,31 +1279,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   resolveBrowserSidebarViewScope = (webContentsId) =>
     options.resolveWindowSessionId?.(webContentsId) ?? null;
   ensureBrowserSidebarEventBridge();
-  terminalManager.configureEventPublisher({
-    broadcast: (channel, payload) => {
-      safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel as keyof IpcEvents, [
-        payload as never,
-      ]);
-    },
-    sendToWebContentsId: (webContentsId, channel, payload) => {
-      const target = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.id === webContentsId,
-      )?.webContents;
-      if (!target) return;
-      safeSendToWebContents(target, channel as keyof IpcEvents, [payload as never]);
-    },
-  });
-
-  const terminalLeaseCleanupBound = new Set<number>();
-  const bindTerminalLeaseCleanup = (sender: Electron.WebContents): void => {
-    if (terminalLeaseCleanupBound.has(sender.id)) return;
-    terminalLeaseCleanupBound.add(sender.id);
-    sender.once("destroyed", () => {
-      terminalLeaseCleanupBound.delete(sender.id);
-      terminalManager.releaseLeasesForWebContents(sender.id);
-    });
-  };
-
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
       .clientId ?? null;
@@ -3175,104 +3169,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return preferences;
   });
 
-  // Terminal
-  registerHandle("terminal-create", async (event, input) => {
-    const sender = event.sender;
-    const windowSessionId = requireAssignedWindowSessionId(sender.id);
-    bindTerminalLeaseCleanup(sender);
-    return await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
-      return terminalManager.create(sender, windowSessionId, input, (channel, payload) => {
-        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-      });
-    });
-  });
-
-  registerHandle("terminal-acquire-view", async (event, input) => {
-    const sender = event.sender;
-    const windowSessionId = requireAssignedWindowSessionId(sender.id);
-    bindTerminalLeaseCleanup(sender);
-    return await runWithTerminalProjectAdmission(projectWorkspace, input, () => {
-      return terminalManager.acquireViewLease(
-        sender,
-        windowSessionId,
-        input,
-        (channel, payload) => {
-          sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-        },
-      );
-    });
-  });
-
-  registerHandle("terminal-take-over-view", (event, input) => {
-    const sender = event.sender;
-    const windowSessionId = requireAssignedWindowSessionId(sender.id);
-    bindTerminalLeaseCleanup(sender);
-    return terminalManager.takeOverViewLease(sender, windowSessionId, input, (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-    });
-  });
-
-  registerHandle("terminal-release-view", (event, sessionId: string) => {
-    terminalManager.releaseViewLease(
-      event.sender,
-      requireAssignedWindowSessionId(event.sender.id),
-      sessionId,
-    );
-  });
-
-  registerHandle("terminal-write", (event, sessionId: string, data: string) => {
-    const sender = event.sender;
-    terminalManager.write(
-      sender,
-      requireAssignedWindowSessionId(sender.id),
-      sessionId,
-      data,
-      (channel, payload) => {
-        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-      },
-    );
-  });
-
-  registerHandle("terminal-run-action", async (event, input) => {
-    const sender = event.sender;
-    await runWithTerminalProjectAdmission(projectWorkspace, input, async () => {
-      await terminalManager.runAction(
-        sender,
-        requireAssignedWindowSessionId(sender.id),
-        input,
-        (channel, payload) => {
-          sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-        },
-      );
-    });
-  });
-
-  registerHandle("terminal-session:snapshot", (_, sessionId: string) =>
-    terminalManager.getSessionSnapshot(sessionId),
-  );
-
-  registerHandle("terminal-resize", (event, sessionId: string, size) => {
-    const sender = event.sender;
-    terminalManager.resize(
-      sender,
-      requireAssignedWindowSessionId(sender.id),
-      sessionId,
-      size,
-      (channel, payload) => {
-        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-      },
-    );
-  });
-
-  registerHandle("terminal-kill", (event, sessionId: string) => {
-    requireAssignedWindowSessionId(event.sender.id);
-    terminalManager.killSession(sessionId);
-  });
-
-  registerHandle("thread-terminal-snapshot", (_, threadId: string) =>
-    terminalManager.getThreadSnapshot(threadId),
-  );
-
   // Codex
   registerHandle("codex:connection:status", () => codexService.getConnectionState());
 
@@ -3894,14 +3790,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       };
       await runWithTerminalProjectAdmission(projectWorkspace, terminalInput, async () => {
         await codexService.registerBackgroundProcessRunAction(input);
-        await terminalManager.runAction(
-          sender,
-          requireAssignedWindowSessionId(sender.id),
-          terminalInput,
-          (channel, payload) => {
-            sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-          },
-        );
+        if (!options.terminalRuntime) throw new Error("Terminal runtime is unavailable");
+        await options.terminalRuntime.runAction({
+          webContentsId: sender.id,
+          windowSessionId: requireAssignedWindowSessionId(sender.id),
+          request: terminalInput,
+        });
       });
       return codexService.listBackgroundProcessRows({
         threadId: input.threadId,
