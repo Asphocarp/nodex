@@ -4,7 +4,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { CodexSshExecutionHostConfig } from "../../shared/types";
-import type { CodexAppServerClientOptions } from "./codex-app-server-client";
+import type { CodexAppServerClientOptions } from "../codex-runtime/CodexApplicationClient";
 import {
   describeCodexTransferFile,
   sanitizeCodexTransferToken,

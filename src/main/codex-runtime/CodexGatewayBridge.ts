@@ -16,12 +16,11 @@ import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
   CodexRpcError,
-  type ClientRequestMethod,
-  type ClientRequestParams,
+  type CodexApplicationClient,
   type CodexAppServerClientOptions,
   type CodexServerNotification,
   type CodexServerRequest,
-} from "../codex/codex-app-server-client";
+} from "./CodexApplicationClient";
 import { parseCodexAppServerMessage } from "../codex/codex-app-server-message-parser";
 import { live as sessionLive } from "./CodexAppServerSession";
 import { CodexEndpointMap } from "./CodexEndpointMap";
@@ -29,27 +28,6 @@ import type { CodexEndpointConnection, CodexEndpointEvent } from "./CodexEventHu
 import { CodexGateway } from "./CodexGateway";
 import { codexRuntimeError, CodexRuntimeError } from "./CodexRuntimeError";
 import { CodexServerRequestRuntime } from "./CodexServerRequestRuntime";
-
-export interface CodexApplicationClient extends EventEmitter {
-  dispose(): Promise<void>;
-  getState(): CodexConnectionState;
-  hasHost(hostId: string): boolean;
-  notify(method: string, params?: unknown): Promise<void>;
-  registerProcessHost(hostId: string, options: CodexAppServerClientOptions): void;
-  request<TMethod extends ClientRequestMethod, TResult>(
-    method: TMethod,
-    ...args: ClientRequestParams<TMethod> extends undefined
-      ? [] | [params: ClientRequestParams<TMethod>]
-      : [params: ClientRequestParams<TMethod>]
-  ): Promise<TResult>;
-  request<TResult>(method: string, params?: unknown): Promise<TResult>;
-  requestOnHost<TResult>(hostId: string, method: string, params?: unknown): Promise<TResult>;
-  setServerRequestHandler(handler: (request: CodexServerRequest) => Promise<unknown>): void;
-  setThreadHostResolver?(resolver: (threadId: string) => string | null): void;
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  unregister(hostId: string): Promise<boolean>;
-}
 
 const directThreadId = (params: unknown): string | null => {
   if (typeof params !== "object" || params === null || Array.isArray(params)) return null;

@@ -227,6 +227,7 @@ export const live: Layer.Layer<
               composerCatalog,
               codexClient: codexBridge,
               codexRuntime,
+              runtimeStateHome,
               providerCredentialStore,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>

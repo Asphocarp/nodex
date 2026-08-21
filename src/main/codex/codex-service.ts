@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdir, open as openFile, readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { produceWithPatches } from "immer";
@@ -469,7 +468,7 @@ import { buildTurnErrorItemView } from "../../shared/codex-turn-error-projection
 import { normalizeCodexAppInfoLogos } from "../../shared/codex-app-info";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
 import { dbNotifier } from "../local-store/notifier";
-import type { CodexApplicationClient } from "../codex-runtime/CodexGatewayBridge";
+import type { CodexApplicationClient } from "../codex-runtime/CodexApplicationClient";
 import { resolveAssetPath } from "../local-store/assets";
 import {
   getCodexDeveloperInstructionSettings,
@@ -483,12 +482,10 @@ import {
 } from "../local-store/config";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
-  CodexAppServerClient,
   CodexRpcError,
   type CodexServerRequest,
   type CodexServerNotification,
-} from "./codex-app-server-client";
-import { CodexAppServerClientRouter } from "./codex-app-server-client-router";
+} from "../codex-runtime/CodexApplicationClient";
 import {
   readCodexSessionThreadDetail,
   readCodexSessionThreadMetadata,
@@ -528,8 +525,7 @@ import {
   buildCodexThreadStreamCheckpoint,
   type CodexThreadStreamReplica,
 } from "../../shared/codex-owner-follower-replication";
-import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
-import { materializeCodexFeatureDefaults } from "./codex-feature-defaults";
+import type { ResolvedCodexRuntime } from "./codex-runtime";
 import { BrowserUseThreadConfigBuilder } from "./browser-use-thread-config";
 import { BrowserPluginReconciler } from "./browser-plugin-reconciler";
 import {
@@ -539,7 +535,6 @@ import {
 import type { ComputerUseRuntimeConfigInput } from "./computer-use-runtime-config";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type { BrowserRuntimeAvailability } from "./browser-runtime-bundle";
-import { AGENT_RUNTIME_METADATA_FILENAME } from "../../shared/codex-runtime-metadata";
 import type {
   AgentExecutionProfile,
   AgentExecutionProfileChange,
@@ -823,8 +818,6 @@ const CODEX_HEARTBEAT_ACTIVE_ROLLOUT_EVENTS = new Set([
   "item",
   "unknown",
 ]);
-const require = createRequire(import.meta.url);
-
 const NODEX_AGENT_DYNAMIC_TOOL_SPECS = buildNodexAgentDynamicToolSpecs();
 
 interface ThreadRef {
@@ -1457,15 +1450,15 @@ type CodexManagedWorktreeSettingsPort = {
 type CodexServiceOptions = {
   accountRuntime?: CodexAccountPromiseAdapter;
   composerCatalog?: ComposerCatalogPromiseAdapter;
-  client?: CodexApplicationClient;
+  client: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntimeCoordinator?: Pick<
     ComputerUseRuntimeCoordinator,
     "dispose" | "ensureReady" | "getResult"
   >;
   computerUseRuntimeConfig?: () => ComputerUseRuntimeConfigInput;
-  runtime?: ResolvedCodexRuntime;
-  runtimeStateHome?: string;
+  runtime: ResolvedCodexRuntime;
+  runtimeStateHome: string;
   providerCredentialStore?: ProviderCredentialStore;
   rateLimitsPollIntervalMs?: number;
   inactiveRendererOwnerRetentionMs?: number;
@@ -1761,12 +1754,6 @@ function resolveAutomationArchiveMessagesFromProtocolTurns(
 
   return { archivedUserMessage, archivedAssistantMessage };
 }
-
-type DefaultCodexRuntimeOptions = {
-  isPackaged: boolean;
-  projectRootPath?: string;
-  resourcesPath?: string;
-};
 
 const THREAD_START_EXPERIMENTAL_RAW_EVENTS = false;
 const WORKTREE_LOG_STATUS_MESSAGE = "Creating a worktree and running setup.";
@@ -2534,8 +2521,6 @@ function normalizeTypeName(type: string | undefined): string {
   return type.replace(/[_\-\s]/g, "").toLowerCase();
 }
 
-let validatedDefaultCodexRuntime: ResolvedCodexRuntime | null = null;
-
 function extractReceiverThreadIds(item: CodexConversationItem): string[] {
   const args = item.toolCall?.args;
   if (!args || typeof args !== "object") return [];
@@ -2554,98 +2539,6 @@ function isChildThreadSourceItem(item: CodexConversationItem): boolean {
 
   const normalizedTool = normalizeTypeName(item.toolCall?.toolName);
   return normalizedTool === "spawnagent" || normalizedTool === "spawn_agent";
-}
-
-function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
-  if (validatedDefaultCodexRuntime) return validatedDefaultCodexRuntime;
-
-  const resolveRuntimeOptions = (): DefaultCodexRuntimeOptions => {
-    try {
-      const electronModule = require("electron") as { app?: { isPackaged?: boolean } };
-      const isPackaged = Boolean(electronModule.app?.isPackaged);
-      return {
-        isPackaged,
-        projectRootPath: isPackaged ? undefined : process.cwd(),
-        resourcesPath: process.resourcesPath,
-      };
-    } catch {
-      return {
-        isPackaged: false,
-        projectRootPath: process.cwd(),
-        resourcesPath: process.resourcesPath,
-      };
-    }
-  };
-
-  const buildDeferredRuntime = (options: DefaultCodexRuntimeOptions): ResolvedCodexRuntime => {
-    if (!options.isPackaged) {
-      const projectRootPath = options.projectRootPath?.trim();
-      if (!projectRootPath) {
-        throw new Error("Unpackaged Agent runtime resolution requires a project root path");
-      }
-
-      const runtimeRoot = path.join(
-        projectRootPath,
-        ".generated",
-        "codex-runtime",
-        "agent-runtime",
-      );
-      return {
-        source: "staged",
-        binaryPath: path.join(runtimeRoot, "bin", "interpreter"),
-        browserRuntime: {
-          message: "Browser runtime bundle is unavailable until the Agent runtime is staged",
-          reason: "manifest-missing",
-          status: "unavailable",
-        },
-        additionalSearchPaths: [path.join(runtimeRoot, "codex-path")],
-        codexCompatibilityVersion: null,
-        runtimeFamily: "open-interpreter",
-        version: null,
-        metadataPath: path.join(runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
-        missingBinaryMessage:
-          "Pinned agent runtime is missing or incomplete. Run `pnpm run stage:codex-runtime:mac`.",
-        rootPath: runtimeRoot,
-      };
-    }
-
-    const resourcesPath = options.resourcesPath?.trim();
-    if (!resourcesPath) {
-      throw new Error("Packaged Agent runtime resolution requires process.resourcesPath");
-    }
-
-    const runtimeRoot = resourcesPath;
-    return {
-      source: "bundled",
-      binaryPath: path.join(runtimeRoot, "bin", "interpreter"),
-      browserRuntime: {
-        message: "Browser runtime bundle is unavailable until the Agent runtime is validated",
-        reason: "manifest-missing",
-        status: "unavailable",
-      },
-      additionalSearchPaths: [path.join(runtimeRoot, "codex-path")],
-      codexCompatibilityVersion: null,
-      runtimeFamily: "open-interpreter",
-      version: null,
-      metadataPath: path.join(runtimeRoot, AGENT_RUNTIME_METADATA_FILENAME),
-      missingBinaryMessage: "Bundled agent runtime is missing or corrupted. Reinstall Nodex.",
-      rootPath: runtimeRoot,
-    };
-  };
-
-  const runtimeOptions = resolveRuntimeOptions();
-
-  try {
-    const runtime = resolveCodexRuntime(runtimeOptions);
-    validatedDefaultCodexRuntime = runtime;
-    return runtime;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Agent runtime is missing or incomplete under")) {
-      return buildDeferredRuntime(runtimeOptions);
-    }
-    throw error;
-  }
 }
 
 async function runWorktreeSetupScript(input: {
@@ -3103,39 +2996,37 @@ export class CodexService extends EventEmitter {
   };
   private sidebarSnapshotCacheNotifierSubscribed = false;
 
-  constructor(options?: CodexServiceOptions) {
+  constructor(options: CodexServiceOptions) {
     super();
 
-    this.accountRuntime = options?.accountRuntime ?? null;
-    this.composerCatalog = options?.composerCatalog ?? null;
-    const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
+    this.accountRuntime = options.accountRuntime ?? null;
+    this.composerCatalog = options.composerCatalog ?? null;
+    const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.browserRuntime = runtime.browserRuntime;
     this.terminalRuntime =
-      options?.terminalRuntime ??
+      options.terminalRuntime ??
       ({
         getSessionSnapshot: async () => null,
         getThreadSnapshot: async () => null,
         refreshSessionProcessMetrics: async () => undefined,
       } satisfies CodexTerminalRuntimePort);
-    this.runtimeStateHome = path.resolve(
-      options?.runtimeStateHome ?? path.join(getNodexHome(), "agent"),
-    );
+    this.runtimeStateHome = path.resolve(options.runtimeStateHome);
     this.remoteWorktreeWorkerBundlePath = path.resolve(
-      options?.remoteWorktreeWorkerBundlePath ?? path.join(__dirname, "remote-worktree-worker.cjs"),
+      options.remoteWorktreeWorkerBundlePath ?? path.join(__dirname, "remote-worktree-worker.cjs"),
     );
     this.computerUseRuntimeCoordinator =
-      options?.computerUseRuntimeCoordinator ??
+      options.computerUseRuntimeCoordinator ??
       new ComputerUseRuntimeCoordinator({
         browserRuntime: this.browserRuntime,
         peerAuthorizationMode: runtime.source === "bundled" ? "packaged" : "development",
-        runtimeConfig: options?.computerUseRuntimeConfig,
+        runtimeConfig: options.computerUseRuntimeConfig,
         runtimeStateHome: this.runtimeStateHome,
       });
     this.providerCredentialStore =
-      options?.providerCredentialStore ?? createElectronProviderCredentialStore();
+      options.providerCredentialStore ?? createElectronProviderCredentialStore();
     this.rateLimitsPollIntervalMs =
-      options?.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
+      options.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
       options?.inactiveRendererOwnerRetentionMs ?? INACTIVE_RENDERER_OWNER_RETENTION_MS,
@@ -3276,32 +3167,7 @@ export class CodexService extends EventEmitter {
       this.sidebarSnapshotCacheNotifierSubscribed = true;
     }
 
-    this.client =
-      options?.client ??
-      (() => {
-        const localClient = new CodexAppServerClient({
-          binaryPath: runtime.binaryPath,
-          additionalSearchPaths: runtime.additionalSearchPaths,
-          resolveEnv: async () => {
-            await materializeCodexFeatureDefaults(this.runtimeStateHome);
-            return {
-              ...process.env,
-              ...(await this.providerCredentialStore.buildRuntimeEnvOverlay()),
-              INTERPRETER_HOME: this.runtimeStateHome,
-            };
-          },
-          expectedCodexHome: this.runtimeStateHome,
-          missingBinaryMessage: runtime.missingBinaryMessage,
-          clientInfo: { name: "nodex", title: "Nodex", version: "0.5.0" },
-        });
-        return new CodexAppServerClientRouter({
-          localHostId: CODEX_APP_LOCAL_HOST_ID,
-          localClient,
-          resolveThreadHostId: (threadId) =>
-            this.workspaceThreadProjectionById.get(threadId)?.executionHostId ??
-            CODEX_APP_LOCAL_HOST_ID,
-        });
-      })();
+    this.client = options.client;
     this.client.setThreadHostResolver?.(
       (threadId) =>
         this.workspaceThreadProjectionById.get(threadId)?.executionHostId ??

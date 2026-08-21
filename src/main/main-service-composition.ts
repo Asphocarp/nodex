@@ -2,7 +2,7 @@ import { BrowserSidebarService } from "./browser-sidebar-service";
 import { CodexService, type CodexTerminalRuntimePort } from "./codex/codex-service";
 import type { ResolvedCodexRuntime } from "./codex/codex-runtime";
 import type { ProviderCredentialStore } from "./codex/provider-credential-store";
-import type { CodexApplicationClient } from "./codex-runtime/CodexGatewayBridge";
+import type { CodexApplicationClient } from "./codex-runtime/CodexApplicationClient";
 import type { CodexAccountPromiseAdapter } from "./codex-application/CodexAccountPromiseAdapter";
 import type { ComposerCatalogPromiseAdapter } from "./codex-application/ComposerCatalogPromiseAdapter";
 
@@ -14,10 +14,11 @@ export interface MainServiceComposition {
 export interface MainServiceCompositionInput {
   readonly locale: () => string;
   readonly terminalRuntime: CodexTerminalRuntimePort;
+  readonly runtimeStateHome: string;
   readonly codexAccount?: CodexAccountPromiseAdapter;
   readonly composerCatalog?: ComposerCatalogPromiseAdapter;
-  readonly codexClient?: CodexApplicationClient;
-  readonly codexRuntime?: ResolvedCodexRuntime;
+  readonly codexClient: CodexApplicationClient;
+  readonly codexRuntime: ResolvedCodexRuntime;
   readonly providerCredentialStore?: ProviderCredentialStore;
 }
 
@@ -32,10 +33,11 @@ export function createMainServiceComposition(
     browserTransferRuntime: browserSidebarService,
     computerUseRuntimeConfig: () => ({ locale: input.locale() }),
     terminalRuntime: input.terminalRuntime,
+    runtimeStateHome: input.runtimeStateHome,
     ...(input.codexAccount === undefined ? {} : { accountRuntime: input.codexAccount }),
     ...(input.composerCatalog === undefined ? {} : { composerCatalog: input.composerCatalog }),
-    ...(input.codexClient === undefined ? {} : { client: input.codexClient }),
-    ...(input.codexRuntime === undefined ? {} : { runtime: input.codexRuntime }),
+    client: input.codexClient,
+    runtime: input.codexRuntime,
     ...(input.providerCredentialStore === undefined
       ? {}
       : { providerCredentialStore: input.providerCredentialStore }),

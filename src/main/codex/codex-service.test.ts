@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test, vi } from "vite-plus/test";
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -96,8 +97,17 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
-import { CODEX_SERVER_REQUEST_NO_RESPONSE, CodexRpcError } from "./codex-app-server-client";
 import { CodexService } from "./codex-service";
+import type { ResolvedCodexRuntime } from "./codex-runtime";
+import type {
+  CodexApplicationClient,
+  CodexAppServerClientOptions,
+  CodexServerRequest,
+} from "../codex-runtime/CodexApplicationClient";
+import {
+  CODEX_SERVER_REQUEST_NO_RESPONSE,
+  CodexRpcError,
+} from "../codex-runtime/CodexApplicationClient";
 import { USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS } from "./codex-user-input-auto-resolution";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
@@ -891,6 +901,53 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
   }),
 };
 
+const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
+  source: "staged",
+  binaryPath: "/tmp/nodex-test-agent",
+  browserRuntime: {
+    message: "Browser runtime is unavailable in this fixture",
+    reason: "manifest-missing",
+    status: "unavailable",
+  },
+  additionalSearchPaths: [],
+  codexCompatibilityVersion: null,
+  metadataPath: "/tmp/nodex-test-agent-runtime.json",
+  missingBinaryMessage: "Agent runtime is unavailable in this fixture",
+  runtimeFamily: "open-interpreter",
+  rootPath: "/tmp",
+  version: null,
+};
+
+class TestCodexApplicationClient extends EventEmitter implements CodexApplicationClient {
+  readonly #hosts = new Set([DEFAULT_CODEX_HOST_ID]);
+
+  async dispose(): Promise<void> {}
+  hasHost(hostId: string): boolean {
+    return this.#hosts.has(hostId.trim());
+  }
+  async notify(_method: string, _params?: unknown): Promise<void> {}
+  registerProcessHost(hostId: string, _options: CodexAppServerClientOptions): void {
+    this.#hosts.add(hostId.trim());
+  }
+  async request<TResult>(method: string, _params?: unknown): Promise<TResult> {
+    throw new Error(`Unexpected client request: ${method}`);
+  }
+  async requestOnHost<TResult>(
+    _hostId: string,
+    method: string,
+    params?: unknown,
+  ): Promise<TResult> {
+    return await this.request<TResult>(method, params);
+  }
+  setServerRequestHandler(_handler: (request: CodexServerRequest) => Promise<unknown>): void {}
+  setThreadHostResolver(_resolver: (threadId: string) => string | null): void {}
+  async start(): Promise<void> {}
+  async stop(): Promise<void> {}
+  async unregister(hostId: string): Promise<boolean> {
+    return this.#hosts.delete(hostId.trim());
+  }
+}
+
 const createTestAutomationModule = (): DesktopAutomationModulePort => ({
   peekRunAutomationId: () => null,
   peekActiveHeartbeatAutomationId: () => null,
@@ -1441,7 +1498,10 @@ function createService(options?: {
     autoDeleteLimit: 15,
   };
   const service = new CodexService({
-    runtimeStateHome: options?.runtimeStateHome,
+    client: new TestCodexApplicationClient(),
+    runtime: TEST_CODEX_RUNTIME,
+    runtimeStateHome:
+      options?.runtimeStateHome ?? path.join(DEFAULT_TEST_LOCAL_STORE_ROOT, "agent"),
     browserPluginReconciler: {
       ensureInstalled: async () => ({
         message: "Browser plugin reconciliation is disabled in this fixture",
