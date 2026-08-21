@@ -2,6 +2,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
@@ -34,6 +35,24 @@ const decodeConsumeRateLimitResetCreditResponse = Schema.decodeUnknownEffect(
 );
 
 it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
+  it.effect("does not answer a server request that the application reports as withdrawn", () =>
+    Effect.gen(function* () {
+      const { stdio, input, output } = yield* makeInMemoryStdio();
+      yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
+        stdio,
+        onRequest: () => Effect.succeed(CodexProtocol.CodexAppServerNoResponse),
+      });
+
+      yield* Queue.offer(
+        input,
+        encodeJsonl({ id: 41, method: "private/request", params: { threadId: "thread-1" } }),
+      );
+      for (let attempt = 0; attempt < 10; attempt += 1) yield* Effect.yieldNow;
+
+      assert.isTrue(Option.isNone(yield* Queue.poll(output)));
+    }),
+  );
+
   it.effect("maps account usage responses to the upstream token usage schema", () =>
     Effect.gen(function* () {
       assert.strictEqual(

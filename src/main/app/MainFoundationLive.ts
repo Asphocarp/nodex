@@ -19,7 +19,8 @@ export type MainFoundation =
   | ElectronDesktop.ElectronDesktop
   | ElectronIpc.ElectronIpc
   | ElectronSessionHost.ElectronSessionHost
-  | ElectronWindowHost.ElectronWindowHost;
+  | ElectronWindowHost.ElectronWindowHost
+  | NodeServices.NodeServices;
 
 const electronPlatform = Layer.mergeAll(
   ElectronApp.live,

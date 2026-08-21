@@ -492,6 +492,7 @@ import { buildTurnErrorItemView } from "../../shared/codex-turn-error-projection
 import { normalizeCodexAppInfoLogos } from "../../shared/codex-app-info";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
 import { dbNotifier } from "../local-store/notifier";
+import type { CodexApplicationClient } from "../codex-runtime/CodexGatewayBridge";
 import { resolveAssetPath } from "../local-store/assets";
 import {
   getCodexDeveloperInstructionSettings,
@@ -1482,6 +1483,7 @@ type CodexManagedWorktreeSettingsPort = {
 };
 
 type CodexServiceOptions = {
+  client?: CodexApplicationClient;
   browserPluginReconciler?: Pick<BrowserPluginReconciler, "ensureInstalled">;
   computerUseRuntimeCoordinator?: Pick<
     ComputerUseRuntimeCoordinator,
@@ -3055,7 +3057,7 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
 
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
-  private readonly client: CodexAppServerClientRouter;
+  private readonly client: CodexApplicationClient;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly runtimeVersion: string | null;
@@ -3506,32 +3508,37 @@ export class CodexService extends EventEmitter {
       this.sidebarSnapshotCacheNotifierSubscribed = true;
     }
 
-    const localClient = new CodexAppServerClient({
-      binaryPath: runtime.binaryPath,
-      additionalSearchPaths: runtime.additionalSearchPaths,
-      resolveEnv: async () => {
-        await materializeCodexFeatureDefaults(this.runtimeStateHome);
-        return {
-          ...process.env,
-          ...(await this.providerCredentialStore.buildRuntimeEnvOverlay()),
-          INTERPRETER_HOME: this.runtimeStateHome,
-        };
-      },
-      expectedCodexHome: this.runtimeStateHome,
-      missingBinaryMessage: runtime.missingBinaryMessage,
-      clientInfo: {
-        name: "nodex",
-        title: "Nodex",
-        version: "0.5.0",
-      },
-    });
-    this.client = new CodexAppServerClientRouter({
-      localHostId: CODEX_APP_LOCAL_HOST_ID,
-      localClient,
-      resolveThreadHostId: (threadId) =>
+    this.client =
+      options?.client ??
+      (() => {
+        const localClient = new CodexAppServerClient({
+          binaryPath: runtime.binaryPath,
+          additionalSearchPaths: runtime.additionalSearchPaths,
+          resolveEnv: async () => {
+            await materializeCodexFeatureDefaults(this.runtimeStateHome);
+            return {
+              ...process.env,
+              ...(await this.providerCredentialStore.buildRuntimeEnvOverlay()),
+              INTERPRETER_HOME: this.runtimeStateHome,
+            };
+          },
+          expectedCodexHome: this.runtimeStateHome,
+          missingBinaryMessage: runtime.missingBinaryMessage,
+          clientInfo: { name: "nodex", title: "Nodex", version: "0.5.0" },
+        });
+        return new CodexAppServerClientRouter({
+          localHostId: CODEX_APP_LOCAL_HOST_ID,
+          localClient,
+          resolveThreadHostId: (threadId) =>
+            this.workspaceThreadProjectionById.get(threadId)?.executionHostId ??
+            CODEX_APP_LOCAL_HOST_ID,
+        });
+      })();
+    this.client.setThreadHostResolver?.(
+      (threadId) =>
         this.workspaceThreadProjectionById.get(threadId)?.executionHostId ??
         CODEX_APP_LOCAL_HOST_ID,
-    });
+    );
     this.browserPluginReconciler =
       options?.browserPluginReconciler ??
       new BrowserPluginReconciler({
@@ -5241,8 +5248,7 @@ export class CodexService extends EventEmitter {
             });
           },
         });
-        const appServer = new CodexAppServerClient(transport.appServerClientOptions());
-        this.client.register(config.id, appServer);
+        this.client.registerProcessHost(config.id, transport.appServerClientOptions());
         this.executionHosts.register({
           hostId: config.id,
           displayName: config.displayName,

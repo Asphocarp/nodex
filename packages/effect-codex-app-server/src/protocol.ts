@@ -31,6 +31,11 @@ export interface CodexAppServerIncomingRequest {
   readonly params?: unknown;
 }
 
+/** The app-server withdrew this request, so the client must not write a stale response. */
+export const CodexAppServerNoResponse = Symbol.for(
+  "@nodex/effect-codex-app-server/CodexAppServerNoResponse",
+);
+
 export interface CodexAppServerPatchedProtocolOptions {
   readonly stdio: Stdio.Stdio;
   readonly terminationError?: Effect.Effect<CodexError.CodexAppServerError>;
@@ -42,7 +47,7 @@ export interface CodexAppServerPatchedProtocolOptions {
   ) => Effect.Effect<void>;
   readonly onRequest?: (
     request: CodexAppServerIncomingRequest,
-  ) => Effect.Effect<unknown, CodexError.CodexAppServerError>;
+  ) => Effect.Effect<unknown | typeof CodexAppServerNoResponse, CodexError.CodexAppServerError>;
   readonly onTermination?: (error: CodexError.CodexAppServerError) => Effect.Effect<void>;
 }
 
@@ -285,7 +290,8 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
                         request.method,
                       ),
                     ),
-                  onSuccess: (result) => respond(request.id, result),
+                  onSuccess: (result) =>
+                    result === CodexAppServerNoResponse ? Effect.void : respond(request.id, result),
                 }),
               )
             : Effect.void,

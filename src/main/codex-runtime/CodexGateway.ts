@@ -61,10 +61,12 @@ export class CodexGateway extends Context.Service<
     readonly connection: (
       hostId: string,
     ) => Effect.Effect<CodexEndpointConnection, CodexRuntimeError>;
+    readonly awaitReady: (hostId: string) => Effect.Effect<void, CodexRuntimeError>;
     readonly reconcileHost: (
       config: CodexExecutionHostConfig,
     ) => Effect.Effect<void, CodexRuntimeError>;
     readonly removeHost: (hostId: string) => Effect.Effect<void, CodexRuntimeError>;
+    readonly restartHost: (hostId: string) => Effect.Effect<void, CodexRuntimeError>;
   }
 >()("nodex/main/codex-runtime/CodexGateway") {}
 
@@ -161,8 +163,14 @@ export const live = (
           endpoints
             .endpoint(hostId)
             .pipe(Effect.flatMap((endpoint) => SubscriptionRef.get(endpoint.state))),
+        awaitReady: (hostId) =>
+          endpoints.endpoint(hostId).pipe(
+            Effect.flatMap((endpoint) => endpoint.session),
+            Effect.asVoid,
+          ),
         reconcileHost: endpoints.register,
         removeHost: endpoints.unregister,
+        restartHost: endpoints.restart,
       });
     }),
   );

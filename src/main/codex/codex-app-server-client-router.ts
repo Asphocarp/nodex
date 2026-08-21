@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
 import type { InitializeResponse } from "@nodex/codex-app-server-protocol";
 import type { CodexConnectionState } from "../../shared/types";
-import type {
+import {
+  CodexAppServerClient,
+  type CodexAppServerClientOptions,
   ClientRequestMethod,
   ClientRequestParams,
   CodexAppServerClientPort,
@@ -65,6 +67,10 @@ export class CodexAppServerClientRouter extends EventEmitter implements CodexApp
         client.off("connection", onConnection);
       },
     });
+  }
+
+  registerProcessHost(hostId: string, options: CodexAppServerClientOptions): void {
+    this.register(hostId, new CodexAppServerClient(options));
   }
 
   async unregister(hostId: string): Promise<boolean> {

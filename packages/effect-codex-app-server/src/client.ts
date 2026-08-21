@@ -70,6 +70,7 @@ export class CodexAppServerClient extends Context.Service<
       handler: (
         method: string,
         params: unknown,
+        requestId: string | number,
       ) => Effect.Effect<unknown, CodexError.CodexAppServerError>,
     ) => Effect.Effect<void, never, Scope.Scope>;
     readonly handleServerRequestFallback: (
@@ -103,7 +104,11 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
   const requestHandlers = new Map<string, ServerRequestHandler>();
   const notificationHandlers = new Map<string, Array<ServerNotificationHandler>>();
   let unknownRequestHandler:
-    | ((method: string, params: unknown) => Effect.Effect<unknown, CodexError.CodexAppServerError>)
+    | ((
+        method: string,
+        params: unknown,
+        requestId: string | number,
+      ) => Effect.Effect<unknown, CodexError.CodexAppServerError>)
     | undefined;
   let serverRequestFallback:
     | ((
@@ -212,12 +217,21 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
 
       return decodeOptionalPayload(method, payloadSchema, request.params).pipe(
         Effect.flatMap((decoded) => runHandler(handler, decoded, method)),
-        Effect.flatMap((result) => encodeOptionalPayload(method, responseSchema, result)),
+        Effect.flatMap((result): Effect.Effect<unknown, CodexError.CodexAppServerRequestError> => {
+          if ((result as unknown) === CodexProtocol.CodexAppServerNoResponse) {
+            return Effect.succeed(result);
+          }
+          return encodeOptionalPayload(
+            method,
+            responseSchema as Schema.Codec<unknown, unknown> | undefined,
+            result,
+          );
+        }),
       );
     }
 
     return unknownRequestHandler
-      ? unknownRequestHandler(request.method, request.params)
+      ? unknownRequestHandler(request.method, request.params, request.id)
       : Effect.fail(CodexError.CodexAppServerRequestError.methodNotFound(request.method));
   };
 

@@ -24,6 +24,7 @@ export class CodexEndpointMap extends Context.Service<
     ) => Effect.Effect<CodexEndpoint["Service"], CodexRuntimeError>;
     readonly register: (config: CodexExecutionHostConfig) => Effect.Effect<void, CodexRuntimeError>;
     readonly unregister: (hostId: string) => Effect.Effect<void, CodexRuntimeError>;
+    readonly restart: (hostId: string) => Effect.Effect<void, CodexRuntimeError>;
     readonly has: (hostId: string) => Effect.Effect<boolean>;
   }
 >()("nodex/main/codex-runtime/CodexEndpointMap") {}
@@ -140,6 +141,15 @@ export const live = (
         endpoint,
         register,
         unregister,
+        restart: (hostId) =>
+          Ref.get(configs).pipe(
+            Effect.flatMap((current) =>
+              current.has(hostId.trim())
+                ? endpoints.invalidate(hostId.trim())
+                : Effect.fail(unavailable(hostId.trim())),
+            ),
+            mutationLock.withPermits(1),
+          ),
         has: (hostId) => Ref.get(configs).pipe(Effect.map((current) => current.has(hostId.trim()))),
       });
     }),

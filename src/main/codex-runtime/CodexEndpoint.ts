@@ -9,6 +9,7 @@ import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import type { CodexSessionTransport } from "../platform/node/CodexSessionTransport";
 import { CodexAppServerSession, type CodexAppServerSessionService } from "./CodexAppServerSession";
 import { CodexEventHub, type CodexEndpointConnection } from "./CodexEventHub";
@@ -95,6 +96,19 @@ export const live = (
             yield* session.client
               .handleServerRequestFallback((method, params, requestId) =>
                 serverRequests.handle(hostId, currentGeneration, requestId, method, params),
+              )
+              .pipe(Effect.provideService(Scope.Scope, attemptScope));
+            yield* session.client
+              .handleUnknownServerRequest((method, params, requestId) =>
+                serverRequests.handleUnknown === undefined
+                  ? Effect.fail(CodexAppServerRequestError.methodNotFound(method))
+                  : serverRequests.handleUnknown(
+                      hostId,
+                      currentGeneration,
+                      requestId,
+                      method,
+                      params,
+                    ),
               )
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
             yield* session.client

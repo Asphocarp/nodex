@@ -1,5 +1,8 @@
 import { BrowserSidebarService } from "./browser-sidebar-service";
 import { CodexService, type CodexTerminalRuntimePort } from "./codex/codex-service";
+import type { ResolvedCodexRuntime } from "./codex/codex-runtime";
+import type { ProviderCredentialStore } from "./codex/provider-credential-store";
+import type { CodexApplicationClient } from "./codex-runtime/CodexGatewayBridge";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
@@ -9,6 +12,9 @@ export interface MainServiceComposition {
 export interface MainServiceCompositionInput {
   readonly locale: () => string;
   readonly terminalRuntime: CodexTerminalRuntimePort;
+  readonly codexClient?: CodexApplicationClient;
+  readonly codexRuntime?: ResolvedCodexRuntime;
+  readonly providerCredentialStore?: ProviderCredentialStore;
 }
 
 let activeComposition: MainServiceComposition | null = null;
@@ -22,6 +28,11 @@ export function createMainServiceComposition(
     browserTransferRuntime: browserSidebarService,
     computerUseRuntimeConfig: () => ({ locale: input.locale() }),
     terminalRuntime: input.terminalRuntime,
+    ...(input.codexClient === undefined ? {} : { client: input.codexClient }),
+    ...(input.codexRuntime === undefined ? {} : { runtime: input.codexRuntime }),
+    ...(input.providerCredentialStore === undefined
+      ? {}
+      : { providerCredentialStore: input.providerCredentialStore }),
   });
 
   return { browserSidebarService, codexService };

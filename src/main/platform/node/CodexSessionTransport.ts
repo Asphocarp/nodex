@@ -5,6 +5,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CodexAppServerClient, layerChildProcess } from "@nodex/effect-codex-app-server/client";
 import { codexRuntimeError, type CodexRuntimeError } from "../../codex-runtime/CodexRuntimeError";
 
@@ -15,6 +16,10 @@ export interface CodexSessionProcessConfig {
   readonly args: readonly string[];
   readonly cwd?: string;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly resolveEnv?: () => Effect.Effect<
+    Readonly<Record<string, string | undefined>>,
+    CodexRuntimeError
+  >;
   readonly forceTermination: Duration.Input;
 }
 
@@ -45,11 +50,12 @@ export const live: Layer.Layer<
     const fileSystem = yield* FileSystem.FileSystem;
     return CodexSessionTransport.of({
       open: Effect.fn("CodexSessionTransport.open")(function* (config) {
+        const env = config.resolveEnv === undefined ? config.env : yield* config.resolveEnv();
         const handle = yield* spawner
           .spawn(
             ChildProcess.make(config.command, config.args, {
               ...(config.cwd === undefined ? {} : { cwd: config.cwd }),
-              env: { ...config.env },
+              env: { ...env },
               extendEnv: false,
               shell: false,
               killSignal: "SIGTERM",
@@ -113,4 +119,9 @@ export const live: Layer.Layer<
       ),
     });
   }),
+);
+
+/** Complete Node adapter Layer for application composition outside the unstable platform seam. */
+export const nodeLive: Layer.Layer<CodexSessionTransport> = live.pipe(
+  Layer.provide(NodeServices.layer),
 );

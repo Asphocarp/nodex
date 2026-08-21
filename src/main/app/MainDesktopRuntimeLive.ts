@@ -20,6 +20,14 @@ import { CoreModules, live as coreModulesLive } from "../core-runtime/CoreModule
 import { coreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { live as coreTransportLive } from "../core-runtime/CoreTransport";
 import { makeDesktopDataAuthority } from "../core-runtime/DesktopCoreAdapter";
+import { resolveCodexRuntime } from "../codex/codex-runtime";
+import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
+import { CodexEndpointMap } from "../codex-runtime/CodexEndpointMap";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { CodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
+import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
+import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
+import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
   activateMainServiceComposition,
@@ -29,6 +37,8 @@ import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronIpc } from "../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
+import * as CodexSessionTransport from "../platform/node/CodexSessionTransport";
+import { resolveCodexProcessEnvironment } from "../platform/node/CodexProcessEnvironment";
 import * as TerminalProjectAdmission from "../terminal-runtime/TerminalProjectAdmission";
 import * as TerminalRuntimeLive from "../terminal-runtime/TerminalRuntimeLive";
 import * as WindowSessionCatalog from "../window-runtime/WindowSessionCatalog";
@@ -66,40 +76,6 @@ export const live: Layer.Layer<
     const terminals = yield* TerminalSessions;
     const runtimeScope = yield* Scope.Scope;
     const locale = yield* electron.locale;
-    const activation = yield* Effect.acquireRelease(
-      Effect.try({
-        try: () => {
-          const composition = createMainServiceComposition({
-            locale: () => locale,
-            terminalRuntime: {
-              getSessionSnapshot: (sessionId) =>
-                callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
-              getThreadSnapshot: (threadId) =>
-                callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
-              refreshSessionProcessMetrics: (sessionIds) =>
-                callbacks.runPromise(terminals.refreshSessionProcessMetrics(sessionIds)),
-            },
-          });
-          return { composition, release: activateMainServiceComposition(composition) };
-        },
-        catch: (cause) => runtimeError("activate-services", cause),
-      }),
-      ({ release }) => Effect.sync(release),
-    );
-    yield* Effect.forkScoped(
-      terminals.events.pipe(
-        Stream.runForEach((event) =>
-          event.channel === "terminal-data"
-            ? Effect.sync(() =>
-                activation.composition.browserSidebarService.observePtyData(
-                  event.payload.sessionId,
-                  event.payload.data,
-                ),
-              )
-            : Effect.void,
-        ),
-      ),
-    );
     let controller: MainRuntimeController | null = null;
     let started = false;
 
@@ -117,6 +93,103 @@ export const live: Layer.Layer<
         if (started)
           return yield* runtimeError("startup", new Error("Main runtime already started"));
         started = true;
+        const codexRuntime = yield* Effect.try({
+          try: () =>
+            resolveCodexRuntime({
+              isPackaged: config.isPackaged,
+              projectRootPath: config.projectRootPath,
+              resourcesPath: config.resourcesPath,
+            }),
+          catch: (cause) => runtimeError("resolve-codex-runtime", cause),
+        });
+        const providerCredentialStore = yield* Effect.try({
+          try: createElectronProviderCredentialStore,
+          catch: (cause) => runtimeError("provider-credential-store", cause),
+        });
+        const runtimeStateHome = `${config.nodexHome}/agent`;
+        const codexBridge = new CodexGatewayBridge(callbacks);
+        const codexDependencies = Layer.mergeAll(
+          CodexSessionTransport.nodeLive,
+          Layer.succeed(CodexServerRequestRuntime, codexBridge.serverRequests()),
+          Layer.succeed(
+            CodexThreadHostResolver,
+            CodexThreadHostResolver.of({
+              resolve: (threadId) => codexBridge.resolveThreadHost(threadId),
+            }),
+          ),
+        );
+        const codexContext = yield* Layer.buildWithScope(
+          CodexRuntimeLive.live({
+            local: {
+              hostId: "local",
+              command: codexRuntime.binaryPath,
+              args: ["app-server", "--listen", "stdio://"],
+              env: {},
+              resolveEnv: () =>
+                resolveCodexProcessEnvironment({
+                  additionalSearchPaths: codexRuntime.additionalSearchPaths,
+                  pathDelimiter: config.platform === "win32" ? ";" : ":",
+                  providerCredentialStore,
+                  runtimeStateHome,
+                }),
+              forceTermination: "2 seconds",
+              initializeParams: {
+                clientInfo: { name: "nodex", title: "Nodex", version: "0.5.0" },
+                capabilities: {
+                  experimentalApi: true,
+                  extensions: { "openai/form": {} },
+                  requestAttestation: false,
+                },
+              },
+              initializeTimeout: "20 seconds",
+              expectedCodexHome: runtimeStateHome,
+            },
+            requestTimeout: "180 seconds",
+          }).pipe(Layer.provide(codexDependencies)),
+          runtimeScope,
+        ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
+        const codexGateway = Context.get(codexContext, CodexGateway);
+        const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
+        codexBridge.attach(codexGateway, codexEndpoints);
+        yield* codexBridge.events.pipe(
+          Stream.runForEach((event) => Effect.sync(() => codexBridge.observe(event))),
+          Effect.forkIn(runtimeScope),
+        );
+
+        const activation = yield* Effect.try({
+          try: () => {
+            const composition = createMainServiceComposition({
+              locale: () => locale,
+              codexClient: codexBridge,
+              codexRuntime,
+              providerCredentialStore,
+              terminalRuntime: {
+                getSessionSnapshot: (sessionId) =>
+                  callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
+                getThreadSnapshot: (threadId) =>
+                  callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
+                refreshSessionProcessMetrics: (sessionIds) =>
+                  callbacks.runPromise(terminals.refreshSessionProcessMetrics(sessionIds)),
+              },
+            });
+            return { composition, release: activateMainServiceComposition(composition) };
+          },
+          catch: (cause) => runtimeError("activate-services", cause),
+        });
+        yield* Scope.addFinalizer(runtimeScope, Effect.sync(activation.release));
+        yield* terminals.events.pipe(
+          Stream.runForEach((event) =>
+            event.channel === "terminal-data"
+              ? Effect.sync(() =>
+                  activation.composition.browserSidebarService.observePtyData(
+                    event.payload.sessionId,
+                    event.payload.data,
+                  ),
+                )
+              : Effect.void,
+          ),
+          Effect.forkIn(runtimeScope),
+        );
         const module = yield* Effect.tryPromise({
           try: () => import("../main-runtime"),
           catch: (cause) => runtimeError("load-runtime", cause),
