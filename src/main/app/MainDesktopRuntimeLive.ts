@@ -735,95 +735,6 @@ export const live: Layer.Layer<
           Effect.forkIn(runtimeScope),
         );
 
-        const codexService = yield* Effect.try({
-          try: () => {
-            return new CodexService({
-              browserTransferRuntime: browserSidebarService,
-              agentProviderRuntime,
-              composerCatalog,
-              desktopTools,
-              preferences,
-              attachments: attachments.legacy,
-              serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
-                approvalCoordinator,
-                callbacks,
-              ),
-              client: codexBridge,
-              runtime: codexRuntime,
-              runtimeStateHome,
-              worktreeWorkerPort: hostWorkers.worktree,
-              terminalRuntime: {
-                getSessionSnapshot: (sessionId) =>
-                  callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
-                getThreadSnapshot: (threadId) =>
-                  callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
-                refreshSessionProcessMetrics: (sessionIds) =>
-                  callbacks.runPromise(terminals.refreshSessionProcessMetrics(sessionIds)),
-              },
-            });
-          },
-          catch: (cause) => runtimeError("construct-codex-application", cause),
-        });
-        yield* Scope.addFinalizer(
-          runtimeScope,
-          Effect.tryPromise({
-            try: () => codexService.shutdown(),
-            catch: (cause) => runtimeError("shutdown-codex-application", cause),
-          }).pipe(
-            Effect.timeout("15 seconds"),
-            Effect.catch((error) =>
-              Effect.logWarning("Could not fully close the Codex application runtime").pipe(
-                Effect.annotateLogs({ error: String(error) }),
-              ),
-            ),
-          ),
-        );
-        yield* Layer.buildWithScope(
-          codexRendererProjectionRuntimeLive({
-            codex: codexService,
-            rendererClients: rendererClients.router,
-            windows,
-          }),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          CodexRendererIpc.live({
-            codex: codexService,
-            rendererClients: rendererClients.router,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          CodexPendingWorktreeIpc.live({ codex: codexService }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          applicationRequestDispatcherLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
-                Layer.succeed(CodexGlobalServerRequestRuntime, applicationServerRequests),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
         yield* terminals.events.pipe(
           Stream.runForEach((event) =>
             event.channel === "terminal-data"
@@ -974,6 +885,95 @@ export const live: Layer.Layer<
         const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
+        const codexService = yield* Effect.try({
+          try: () => {
+            return new CodexService({
+              browserTransferRuntime: browserSidebarService,
+              agentProviderRuntime,
+              composerCatalog,
+              desktopTools,
+              preferences,
+              attachments: attachments.legacy,
+              serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
+                approvalCoordinator,
+                callbacks,
+              ),
+              client: codexBridge,
+              runtime: codexRuntime,
+              runtimeStateHome,
+              worktreeWorkerPort: hostWorkers.worktree,
+              terminalRuntime: {
+                getSessionSnapshot: (sessionId) =>
+                  callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
+                getThreadSnapshot: (threadId) =>
+                  callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
+                refreshSessionProcessMetrics: (sessionIds) =>
+                  callbacks.runPromise(terminals.refreshSessionProcessMetrics(sessionIds)),
+              },
+            });
+          },
+          catch: (cause) => runtimeError("construct-codex-application", cause),
+        });
+        yield* Scope.addFinalizer(
+          runtimeScope,
+          Effect.tryPromise({
+            try: () => codexService.shutdown(),
+            catch: (cause) => runtimeError("shutdown-codex-application", cause),
+          }).pipe(
+            Effect.timeout("15 seconds"),
+            Effect.catch((error) =>
+              Effect.logWarning("Could not fully close the Codex application runtime").pipe(
+                Effect.annotateLogs({ error: String(error) }),
+              ),
+            ),
+          ),
+        );
+        yield* Layer.buildWithScope(
+          codexRendererProjectionRuntimeLive({
+            codex: codexService,
+            rendererClients: rendererClients.router,
+            windows,
+          }),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          CodexRendererIpc.live({
+            codex: codexService,
+            rendererClients: rendererClients.router,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          CodexPendingWorktreeIpc.live({ codex: codexService }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          applicationRequestDispatcherLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+                Layer.succeed(CodexGlobalServerRequestRuntime, applicationServerRequests),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const initialProjectBootstrap = new InitialProjectBootstrapService({
           projectWorkspace,
           projectsDirectory: resolveInitialProjectProjectsDirectory({
