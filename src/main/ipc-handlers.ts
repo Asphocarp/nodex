@@ -91,8 +91,6 @@ import {
 } from "./project-lifecycle-service";
 import { ProjectLifecycleInputSchema } from "../shared/schemas/projects";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
-import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
-import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import { createProjectWithDefaultSource } from "./default-project-source";
 import { resolveNodexProjectsDirectory } from "./nodex-projects-directory";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
@@ -139,28 +137,6 @@ import {
   recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
 import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
-import type { DocumentSyncClientTarget } from "./document-sync-transport";
-import {
-  registerBlockPropertyMutationIpcHandler,
-  registerLibraryBlockPropertyMutationIpcHandler,
-} from "./block-property-mutation-ipc";
-import { registerDatabaseModuleIpcHandlers } from "./database-module-ipc";
-import { registerLibraryModuleIpcHandler } from "./library-module-ipc";
-import { registerLibraryDatabaseModuleIpcHandler } from "./library-database-module-ipc";
-import { registerPageDetailIpcHandler } from "./page-detail-ipc";
-import { registerLibraryPageDetailIpcHandler } from "./library-page-detail-ipc";
-import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
-import { registerAdditionalDocumentCommandIpcHandler } from "./additional-document-command-ipc";
-import {
-  registerBlockTransferIpcHandler,
-  registerBlockTransferUndoIpcHandler,
-} from "./block-transfer-ipc";
-import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
-import {
-  registerPageLifecycleIpcHandler,
-  registerPageLifecyclePreflightIpcHandler,
-} from "./page-lifecycle-ipc";
-import { registerPageHistoryIpcHandler } from "./page-history-ipc";
 import { registerStoreAdministrationIpcHandlers } from "./store-administration-ipc-handlers";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
@@ -373,29 +349,8 @@ interface RegisterIpcHandlersOptions {
     input: CodexHeartbeatAutomationThreadStateChangedInput,
     rendererClientId: string | null,
   ) => void;
-  libraryModule?: Pick<
-    DesktopLibraryModuleBridge,
-    | "apply"
-    | "read"
-    | "readProjectPageDetail"
-    | "readLibraryPageDetail"
-    | "listPageHistory"
-    | "searchPages"
-    | "pageSearchMetadata"
-    | "pageSearchFacets"
-    | "resolvePageTarget"
-    | "resolvePageOwnershipPath"
-    | "readPageLifecyclePreflight"
-    | "applyPageLifecycleMutation"
-    | "applyBlockPropertyMutation"
-    | "applyLibraryBlockPropertyMutation"
-  >;
   databaseModule?: Pick<
     DesktopDatabaseModuleBridge,
-    | "read"
-    | "apply"
-    | "readLibrary"
-    | "applyLibrary"
     | "getDatabaseViewWindow"
     | "getDatabaseListWindow"
     | "getDatabaseViewGroups"
@@ -403,13 +358,11 @@ interface RegisterIpcHandlersOptions {
     | "getLibraryDatabaseListWindow"
     | "getLibraryDatabaseViewGroups"
     | "getDatabaseRowPage"
-    | "resolveDatabaseViewReference"
   >;
   automationModule?: DesktopAutomationModulePort;
   storeAdministration?: DesktopStoreAdministrationPort;
   onStoreRestored?: () => void;
   projectWorkspace?: DesktopProjectWorkspacePort;
-  documentSync?: DesktopDocumentSyncPort;
   terminalRuntime?: {
     readonly listLiveSessionsForOwners: (input: {
       readonly conversationIds: ReadonlySet<string>;
@@ -587,14 +540,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     discardExitedTerminalSessions: (input) =>
       options.terminalRuntime?.discardExitedSessionsForOwners(input) ?? Promise.resolve([]),
   });
-  const documentSync =
-    options.documentSync ??
-    createUnconfiguredIpcAuthority<DesktopDocumentSyncPort>("Document authority");
-  const libraryModule =
-    options.libraryModule ??
-    createUnconfiguredIpcAuthority<NonNullable<RegisterIpcHandlersOptions["libraryModule"]>>(
-      "Library authority",
-    );
   const databaseModule =
     options.databaseModule ??
     createUnconfiguredIpcAuthority<NonNullable<RegisterIpcHandlersOptions["databaseModule"]>>(
@@ -603,19 +548,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
       .clientId ?? null;
-
-  const resolveDocumentSyncTarget = (
-    event: IpcMainInvokeEvent,
-  ): DocumentSyncClientTarget | null => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (!window || event.sender.getType() !== "window") {
-      return null;
-    }
-    if (event.senderFrame !== event.sender.mainFrame) {
-      return null;
-    }
-    return event.sender;
-  };
 
   const createGitCommitMessageGenerator =
     (hostId: string | undefined) =>
@@ -647,276 +579,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     }
     rendererDiagnosticsLogger.info(input.message, input.fields);
   });
-  registerBlockPropertyMutationIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, request) => listener(event, projectId, request));
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: {
-          kind: "electron_renderer",
-          clientId,
-        },
-      };
-    },
-    applyMutation: libraryModule.applyBlockPropertyMutation,
-  });
-  registerLibraryBlockPropertyMutationIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, request) => listener(event, request));
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: { kind: "electron_renderer", clientId },
-      };
-    },
-    applyMutation: libraryModule.applyLibraryBlockPropertyMutation,
-  });
-
-  registerDatabaseModuleIpcHandlers({
-    registerHandle: (channel, listener) => {
-      registerHandle(
-        channel,
-        (event, projectId, request) =>
-          listener(event, projectId, request) as
-            | IpcApi[typeof channel]["result"]
-            | Promise<IpcApi[typeof channel]["result"]>,
-      );
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        actor: { kind: "electron_renderer", clientId },
-      };
-    },
-    apply: databaseModule.apply,
-    read: databaseModule.read,
-  });
-
-  registerLibraryModuleIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(
-        channel,
-        (event, accessContext, request) =>
-          listener(event, accessContext, request) as
-            | IpcApi[typeof channel]["result"]
-            | Promise<IpcApi[typeof channel]["result"]>,
-      );
-    },
-    isTrustedEvent: (rawEvent) =>
-      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: libraryModule.read,
-    apply: libraryModule.apply,
-  });
-
-  registerLibraryDatabaseModuleIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(
-        channel,
-        (event, request) =>
-          listener(event, request) as
-            | IpcApi[typeof channel]["result"]
-            | Promise<IpcApi[typeof channel]["result"]>,
-      );
-    },
-    isTrustedEvent: (rawEvent) =>
-      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: databaseModule.readLibrary,
-    apply: databaseModule.applyLibrary,
-  });
-
-  registerPageDetailIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, pageId, minimumCommitSeq) =>
-        listener(event, projectId, pageId, minimumCommitSeq),
-      );
-    },
-    isTrustedEvent: (rawEvent) =>
-      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: libraryModule.readProjectPageDetail,
-  });
-
-  registerLibraryPageDetailIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, pageId, minimumCommitSeq) =>
-        listener(event, pageId, minimumCommitSeq),
-      );
-    },
-    isTrustedEvent: (rawEvent) =>
-      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: (pageId, minimumCommitSeq) =>
-      libraryModule.readLibraryPageDetail(pageId, undefined, minimumCommitSeq),
-  });
-
-  registerPageLifecyclePreflightIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, pageId) => listener(event, projectId, pageId));
-    },
-    readPreflight: libraryModule.readPageLifecyclePreflight,
-  });
-
-  registerPageLifecycleIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, request) => listener(event, projectId, request));
-    },
-    getTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: { kind: "electron_renderer", clientId },
-      };
-    },
-    applyMutation: libraryModule.applyPageLifecycleMutation,
-  });
-
-  registerDocumentMutationIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, documentId, request) =>
-        listener(event, projectId, documentId, request),
-      );
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: {
-          kind: "electron_renderer",
-          clientId,
-        },
-      };
-    },
-    applyMutation: documentSync.applyDocumentMutation,
-  });
-
-  registerAdditionalDocumentCommandIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, request) => listener(event, projectId, request));
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: { kind: "electron_renderer", clientId },
-      };
-    },
-    applyCommand: documentSync.applyAdditionalDocumentCommand,
-  });
-
-  registerBlockTransferIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: { kind: "electron_renderer", clientId },
-      };
-    },
-    transfer: documentSync.transferBlocks,
-  });
-
-  registerBlockTransferUndoIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      return resolveDocumentSyncTarget(event);
-    },
-    undo: documentSync.undoBlockTransfer,
-  });
-
-  registerDocumentHistoryIpcHandlers({
-    registerHandle: (channel, listener) => {
-      if (channel === "block-documents:history:checkpoint") {
-        registerHandle(
-          channel,
-          (event, projectId, documentId, request) =>
-            listener(event, projectId, documentId, request) as
-              | IpcApi["block-documents:history:checkpoint"]["result"]
-              | Promise<IpcApi["block-documents:history:checkpoint"]["result"]>,
-        );
-        return;
-      }
-      if (channel === "block-documents:history:list") {
-        registerHandle(
-          channel,
-          (event, request) =>
-            listener(event, request) as
-              | IpcApi["block-documents:history:list"]["result"]
-              | Promise<IpcApi["block-documents:history:list"]["result"]>,
-        );
-        return;
-      }
-      if (channel === "block-documents:history:get") {
-        registerHandle(
-          channel,
-          (event, request) =>
-            listener(event, request) as
-              | IpcApi["block-documents:history:get"]["result"]
-              | Promise<IpcApi["block-documents:history:get"]["result"]>,
-        );
-        return;
-      }
-      registerHandle(
-        channel,
-        (event, projectId, documentId, request) =>
-          listener(event, projectId, documentId, request) as
-            | IpcApi["block-documents:history:restore"]["result"]
-            | Promise<IpcApi["block-documents:history:restore"]["result"]>,
-      );
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: { kind: "electron_renderer", clientId },
-      };
-    },
-    createCheckpoint: documentSync.createCheckpoint,
-    listVersions: documentSync.listVersions,
-    getVersion: documentSync.getVersion,
-    restoreVersion: documentSync.restoreVersion,
-  });
-
-  registerPageHistoryIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, request) => listener(event, request));
-    },
-    isTrustedEvent: (rawEvent) =>
-      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    listHistory: libraryModule.listPageHistory,
-  });
-
   registerPersistedAtomIpc({
     registerSync: (listener) => {
       registerHandle("persisted-atom:sync-request", listener);

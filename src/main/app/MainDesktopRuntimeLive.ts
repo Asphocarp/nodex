@@ -104,6 +104,7 @@ import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
 import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
+import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
@@ -990,6 +991,23 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
+          CoreMutationIpc.live({
+            database: databaseModule,
+            documents: documentSync,
+            library: libraryModule,
+            rendererClients: rendererClients.router,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
           PageSearchIpc.live({ library: libraryModule }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1314,9 +1332,7 @@ export const live: Layer.Layer<
                   ),
                 );
               },
-              documentSync,
               projectWorkspace,
-              libraryModule,
               databaseModule,
               rendererClientRouter: rendererClients.router,
               onHeartbeatAutomationsEnabledChanged: (input) => {
