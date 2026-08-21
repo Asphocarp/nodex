@@ -8,13 +8,13 @@ import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 export class ElectronIpc extends Context.Service<
   ElectronIpc,
   {
-    readonly handle: <A>(
+    readonly handle: <A, Args extends readonly unknown[]>(
       channel: string,
-      handler: (event: IpcMainInvokeEvent, input: unknown) => Effect.Effect<A, unknown>,
+      handler: (event: IpcMainInvokeEvent, ...args: Args) => Effect.Effect<A, unknown>,
     ) => Effect.Effect<void, never, Scope.Scope>;
-    readonly on: (
+    readonly on: <Args extends readonly unknown[]>(
       channel: string,
-      handler: (event: IpcMainEvent, input: unknown) => Effect.Effect<void>,
+      handler: (event: IpcMainEvent, ...args: Args) => Effect.Effect<void>,
     ) => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("nodex/main/platform/electron/ElectronIpc") {}
@@ -27,13 +27,20 @@ export const live: Layer.Layer<ElectronIpc, never, ScopedCallbackRuntime> = Laye
       handle: (channel, handler) =>
         Effect.acquireRelease(
           Effect.sync(() => {
-            ipcMain.handle(channel, (event, input) => callbacks.runPromise(handler(event, input)));
+            ipcMain.handle(channel, (event, ...args) => {
+              const task = Reflect.apply(handler, undefined, [event, ...args]) as Effect.Effect<
+                unknown,
+                unknown
+              >;
+              return callbacks.runPromise(task);
+            });
           }),
           () => Effect.sync(() => ipcMain.removeHandler(channel)),
         ),
       on: (channel, handler) => {
-        const listener = (event: IpcMainEvent, input: unknown) => {
-          callbacks.fork(handler(event, input));
+        const listener = (event: IpcMainEvent, ...args: unknown[]) => {
+          const task = Reflect.apply(handler, undefined, [event, ...args]) as Effect.Effect<void>;
+          callbacks.fork(task);
         };
         return Effect.acquireRelease(
           Effect.sync(() => ipcMain.on(channel, listener)),
