@@ -113,13 +113,10 @@ it.effect("routes private app-server methods through the same thread runtime", (
     assert.isFunction(serverRequests.handleUnknown);
     if (serverRequests.handleUnknown === undefined) return;
     const response = yield* serverRequests
-      .handleUnknown(
-        "local",
-        2,
-        "private-a",
-        "item/tool/requestOptionPicker",
-        { threadId: "thread-private", turnId: "turn-private" },
-      )
+      .handleUnknown("local", 2, "private-a", "item/tool/requestOptionPicker", {
+        threadId: "thread-private",
+        turnId: "turn-private",
+      })
       .pipe(Effect.forkScoped);
     const runtime = yield* Context.get(context, ConversationRuntimeMap).runtime("thread-private");
     for (let attempt = 0; attempt < 100; attempt += 1) {

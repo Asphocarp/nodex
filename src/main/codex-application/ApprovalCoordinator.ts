@@ -67,10 +67,7 @@ const asRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined
     : undefined;
 
 /** Method metadata is the only place where a server request is mapped to thread ownership. */
-export const serverRequestThreadId = (
-  method: string,
-  params: unknown,
-): string | undefined => {
+export const serverRequestThreadId = (method: string, params: unknown): string | undefined => {
   const record = asRecord(params);
   if (record === undefined) return undefined;
   switch (method) {

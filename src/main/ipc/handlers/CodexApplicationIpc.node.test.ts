@@ -137,7 +137,7 @@ it.effect("registers application channels directly against their owning modules"
       setPersonality: (next) =>
         Effect.sync(() => {
           personality = next;
-      }),
+        }),
     });
     const attachments = CodexAttachments.of({
       legacy: {

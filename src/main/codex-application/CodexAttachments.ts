@@ -70,15 +70,15 @@ export const live = (attachmentsRoot: string): Layer.Layer<CodexAttachments> =>
     Effect.gen(function* () {
       const pastedText = new PastedTextAttachmentManager({ attachmentsRoot });
       const goals = new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot });
-      yield* attempt("cleanup-pending-pasted-text", () =>
-        pastedText.cleanupPendingRemovals(),
-      ).pipe(Effect.ignore, Effect.forkScoped);
+      yield* attempt("cleanup-pending-pasted-text", () => pastedText.cleanupPendingRemovals()).pipe(
+        Effect.ignore,
+        Effect.forkScoped,
+      );
       return CodexAttachments.of({
         legacy: { pastedText, goals },
         createPastedText: (input) =>
           attempt("create-pasted-text", () => pastedText.createRawSource(input)),
-        readPastedText: (file) =>
-          attempt("read-pasted-text", () => pastedText.readRawSource(file)),
+        readPastedText: (file) => attempt("read-pasted-text", () => pastedText.readRawSource(file)),
         removePastedText: (file) =>
           attempt("remove-pasted-text", () => pastedText.remove(file.path)),
         materializePastedText: (attachments) =>

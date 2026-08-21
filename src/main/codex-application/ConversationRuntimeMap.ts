@@ -37,10 +37,7 @@ export interface ConversationRuntimeEventEnvelope {
   readonly event: ConversationRuntimeEvent;
 }
 
-export type ConversationServerRequestEnvelope = Omit<
-  ConversationRuntimeEventEnvelope,
-  "event"
-> & {
+export type ConversationServerRequestEnvelope = Omit<ConversationRuntimeEventEnvelope, "event"> & {
   readonly event: Extract<ConversationRuntimeEvent, { readonly kind: "server-request" }>;
 };
 
@@ -238,10 +235,9 @@ export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
   Effect.gen(function* () {
     const ingress = yield* Queue.unbounded<ConversationServerRequestEnvelope>();
     yield* Effect.addFinalizer(() => Queue.shutdown(ingress));
-    const runtimes = yield* LayerMap.make(
-      (threadId: string) => runtimeLayer(threadId, ingress),
-      { idleTimeToLive: Duration.infinity },
-    );
+    const runtimes = yield* LayerMap.make((threadId: string) => runtimeLayer(threadId, ingress), {
+      idleTimeToLive: Duration.infinity,
+    });
     return ConversationRuntimeMap.of({
       requests: Stream.fromQueue(ingress),
       runtime: (threadId) =>

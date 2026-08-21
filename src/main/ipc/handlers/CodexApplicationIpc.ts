@@ -226,9 +226,7 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle("codex:account:logout", () => account.logout);
     yield* ipc.handle("codex:connection:status", () => connection.read);
-    yield* ipc.handle("codex:personality:get", () =>
-      Effect.sync(() => preferences.current()),
-    );
+    yield* ipc.handle("codex:personality:get", () => Effect.sync(() => preferences.current()));
     yield* ipc.handle("codex:personality:set", (_event, personality: CodexPersonality) =>
       preferences.setPersonality(personality),
     );
@@ -241,9 +239,8 @@ export const live: Layer.Layer<
       (_event, attachmentDirectory: string | null) =>
         attachments.cleanupMaterializedGoal(attachmentDirectory),
     );
-    yield* ipc.handle(
-      "codex:thread:goal:editable-objective:read",
-      (_event, objective: string) => attachments.readEditableObjective(objective),
+    yield* ipc.handle("codex:thread:goal:editable-objective:read", (_event, objective: string) =>
+      attachments.readEditableObjective(objective),
     );
     yield* ipc.handle(
       "codex:pasted-text:create",
@@ -254,8 +251,7 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle(
       "codex:pasted-text:remove",
-      (_event, input: RemovePastedTextAttachmentInput) =>
-        attachments.removePastedText(input.file),
+      (_event, input: RemovePastedTextAttachmentInput) => attachments.removePastedText(input.file),
     );
     yield* ipc.handle(
       "codex:thread:memory-mode:set",
@@ -265,31 +261,24 @@ export const live: Layer.Layer<
     yield* ipc.handle("codex:feedback:upload", (_event, params: FeedbackUploadParams) =>
       conversations.uploadFeedback(parseFeedbackUpload(params)),
     );
-    yield* ipc.handle(
-      "codex:thread:background-terminals:list",
-      (_event, threadId: string) => {
-        const normalized = threadId.trim();
-        return normalized
-          ? conversations
-              .listBackgroundTerminals(normalized)
-              .pipe(
-                Effect.map((items) =>
-                  items.map(
-                    (item): ThreadBackgroundTerminal => ({
-                      itemId: item.itemId,
-                      processId: item.processId,
-                      command: item.command,
-                      cwd: item.cwd,
-                      osPid: item.osPid ?? null,
-                      cpuPercent: item.cpuPercent ?? null,
-                      rssKb: item.rssKb == null ? null : BigInt(Math.trunc(item.rssKb)),
-                    }),
-                  ),
-                ),
-              )
-          : Effect.succeed<ThreadBackgroundTerminal[]>([]);
-      },
-    );
+    yield* ipc.handle("codex:thread:background-terminals:list", (_event, threadId: string) => {
+      const normalized = threadId.trim();
+      return normalized
+        ? conversations.listBackgroundTerminals(normalized).pipe(
+            Effect.map((items) =>
+              items.map((item): ThreadBackgroundTerminal => ({
+                itemId: item.itemId,
+                processId: item.processId,
+                command: item.command,
+                cwd: item.cwd,
+                osPid: item.osPid ?? null,
+                cpuPercent: item.cpuPercent ?? null,
+                rssKb: item.rssKb == null ? null : BigInt(Math.trunc(item.rssKb)),
+              })),
+            ),
+          )
+        : Effect.succeed<ThreadBackgroundTerminal[]>([]);
+    });
     yield* ipc.handle(
       "codex:thread:background-terminals:terminate",
       (_event, input: { readonly threadId: string; readonly processId: string }) => {

@@ -17,9 +17,7 @@ it.effect("owns and validates the process personality preference", () =>
     yield* preferences.setPersonality("pragmatic");
     assert.strictEqual(preferences.current(), "pragmatic");
     assert.strictEqual(yield* SubscriptionRef.get(preferences.snapshot), "pragmatic");
-    const invalid = yield* preferences
-      .setPersonality("invalid" as never)
-      .pipe(Effect.result);
+    const invalid = yield* preferences.setPersonality("invalid" as never).pipe(Effect.result);
     assert.strictEqual(invalid._tag, "Failure");
 
     yield* Scope.close(scope, Exit.void);

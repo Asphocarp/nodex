@@ -93,7 +93,10 @@ it.effect("routes direct thread operations and drains background-terminal pages"
       ["process-a", "process-b"],
     );
     assert.isTrue(terminated);
-    assert.strictEqual(requests.filter(({ method }) => method === "feedback/upload")[0]?.scope, "local");
+    assert.strictEqual(
+      requests.filter(({ method }) => method === "feedback/upload")[0]?.scope,
+      "local",
+    );
     assert.deepEqual(
       requests
         .filter(({ method }) => method === "thread/backgroundTerminals/list")
