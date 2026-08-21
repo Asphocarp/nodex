@@ -1,24 +1,29 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use crate::document::DocumentRuntimeCache;
 
 use super::event_log::validate_local_commit_index;
 use super::migration::{
-    StorePreparation, StorePreparationEvent, prepare_profile_store_with_observer,
+    CurrentStoreValidation, StorePreparation, StorePreparationEvent, StoreValidationDisposition,
+    prepare_profile_store_with_validation,
 };
 #[cfg(test)]
 use super::schema::CURRENT_STORE_REVISION;
 use super::sqlite::{StoreError, StoreErrorCode, open_writer, optimize_query_planner_on_open};
 use super::store_lock::ProfileStoreLock;
 use super::store_replacement::recover_interrupted_store_replacement;
+use super::store_validation_receipt::{self, ConsumedStoreValidationReceipt};
 use super::writer::{
     DEFAULT_READ_CONNECTIONS, DEFAULT_WRITER_QUEUE_CAPACITY, StoreMaintenance, StoreReaders,
     StoreRuntime, StoreRuntimeActivity, StoreRuntimeMetrics, StoreWriter,
 };
 
 pub const STORE_FILE_NAME: &str = "nodex.db";
+
+pub use super::store_validation_receipt::StoreValidationReceipt;
 
 pub struct SqliteStoreKernel {
     preparation: StorePreparation,
@@ -52,6 +57,7 @@ impl SqliteStoreKernel {
                 schema_version: CURRENT_STORE_REVISION,
                 created_fresh: false,
                 migrated_from_version: None,
+                validation: StoreValidationDisposition::Deep,
             },
             lock,
         )
@@ -61,7 +67,19 @@ impl SqliteStoreKernel {
         profile_home: &Path,
         mut observer: impl FnMut(StorePreparationEvent),
     ) -> Result<Self, StoreError> {
+        let open_started_at = Instant::now();
         let lock = ProfileStoreLock::acquire(profile_home)?;
+        let receipt = match store_validation_receipt::consume(profile_home)? {
+            ConsumedStoreValidationReceipt::Absent => None,
+            ConsumedStoreValidationReceipt::Rejected { reason } => {
+                tracing::warn!(
+                    reason,
+                    "Store validation receipt was rejected; running full validation"
+                );
+                None
+            }
+            ConsumedStoreValidationReceipt::Trusted(receipt) => Some(receipt),
+        };
         recover_interrupted_store_replacement(profile_home)?;
         let database_path = profile_home.join(STORE_FILE_NAME);
         if fs::symlink_metadata(&database_path)
@@ -74,21 +92,50 @@ impl SqliteStoreKernel {
             ));
         }
         let mut migration_connection = open_writer(&database_path)?;
-        let preparation = prepare_profile_store_with_observer(
+        let preparation_started_at = Instant::now();
+        let preparation = prepare_profile_store_with_validation(
             &mut migration_connection,
             profile_home,
             &mut observer,
+            receipt.as_ref().map_or(
+                CurrentStoreValidation::Deep,
+                CurrentStoreValidation::TrustedReceipt,
+            ),
         )?;
-        validate_local_commit_index(&migration_connection)?;
-        if let Err(error) = optimize_query_planner_on_open(&migration_connection) {
-            tracing::warn!(
-                error = %error,
-                "SQLite query planner maintenance failed while opening the Store"
+        tracing::info!(
+            durationMs = duration_millis(preparation_started_at.elapsed()),
+            validation = ?preparation.validation,
+            "Store preparation completed"
+        );
+        if preparation.validation == StoreValidationDisposition::Deep {
+            let local_commit_validation_started_at = Instant::now();
+            validate_local_commit_index(&migration_connection)?;
+            tracing::info!(
+                durationMs = duration_millis(local_commit_validation_started_at.elapsed()),
+                "LocalCommit index validation completed"
+            );
+            let planner_maintenance_started_at = Instant::now();
+            if let Err(error) = optimize_query_planner_on_open(&migration_connection) {
+                tracing::warn!(
+                    error = %error,
+                    "SQLite query planner maintenance failed after full Store validation"
+                );
+            }
+            tracing::info!(
+                durationMs = duration_millis(planner_maintenance_started_at.elapsed()),
+                "SQLite query planner maintenance completed"
             );
         }
         drop(migration_connection);
-
-        Self::start_runtime(database_path, preparation, lock)
+        let runtime_started_at = Instant::now();
+        let store = Self::start_runtime(database_path, preparation, lock)?;
+        tracing::info!(
+            durationMs = duration_millis(runtime_started_at.elapsed()),
+            totalMs = duration_millis(open_started_at.elapsed()),
+            validation = ?store.preparation.validation,
+            "Store runtime started"
+        );
+        Ok(store)
     }
 
     fn start_runtime(
@@ -138,9 +185,25 @@ impl SqliteStoreKernel {
         &self.database_path
     }
 
+    pub fn clean_shutdown_validation_receipt(&self) -> Result<StoreValidationReceipt, StoreError> {
+        self.readers()
+            .read_default(store_validation_receipt::current)
+    }
+
     pub(crate) fn document_runtime_cache(&self) -> Arc<Mutex<DocumentRuntimeCache>> {
         Arc::clone(&self.document_runtime_cache)
     }
+}
+
+pub fn persist_clean_shutdown_validation_receipt(
+    profile_home: &Path,
+    receipt: &StoreValidationReceipt,
+) -> Result<(), StoreError> {
+    store_validation_receipt::persist(profile_home, receipt)
+}
+
+fn duration_millis(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]
@@ -161,6 +224,80 @@ mod tests {
 
         assert_ne!(first_secrets.0, second_secrets.0);
         assert_ne!(first_secrets.1, second_secrets.1);
+    }
+
+    #[test]
+    fn clean_shutdown_receipt_allows_one_trusted_reopen_then_expires() {
+        let directory = tempdir().expect("Profile");
+        let first = SqliteStoreKernel::open(directory.path()).expect("first Store open");
+        assert_eq!(
+            first.preparation().validation,
+            StoreValidationDisposition::Deep
+        );
+        initialize_store_epoch(&first);
+        let receipt = first
+            .clean_shutdown_validation_receipt()
+            .expect("clean shutdown validation receipt");
+        persist_clean_shutdown_validation_receipt(directory.path(), &receipt)
+            .expect("persist clean shutdown receipt");
+        drop(first);
+
+        let trusted = SqliteStoreKernel::open(directory.path()).expect("trusted Store reopen");
+        assert_eq!(
+            trusted.preparation().validation,
+            StoreValidationDisposition::TrustedReceipt
+        );
+        drop(trusted);
+
+        let recovered =
+            SqliteStoreKernel::open(directory.path()).expect("crash recovery Store open");
+        assert_eq!(
+            recovered.preparation().validation,
+            StoreValidationDisposition::Deep
+        );
+    }
+
+    #[test]
+    fn stale_clean_shutdown_receipt_requires_deep_validation() {
+        let directory = tempdir().expect("Profile");
+        let first = SqliteStoreKernel::open(directory.path()).expect("first Store open");
+        initialize_store_epoch(&first);
+        let receipt = first
+            .clean_shutdown_validation_receipt()
+            .expect("clean shutdown validation receipt");
+        persist_clean_shutdown_validation_receipt(directory.path(), &receipt)
+            .expect("persist clean shutdown receipt");
+        drop(first);
+
+        let connection = open_writer(&directory.path().join(STORE_FILE_NAME))
+            .expect("open Store to simulate replacement");
+        connection
+            .execute(
+                "UPDATE block_store_metadata SET store_epoch = 'replaced-epoch' WHERE id = 1",
+                [],
+            )
+            .expect("simulate Store replacement");
+        drop(connection);
+
+        let reopened = SqliteStoreKernel::open(directory.path()).expect("reopen replaced Store");
+        assert_eq!(
+            reopened.preparation().validation,
+            StoreValidationDisposition::Deep
+        );
+    }
+
+    fn initialize_store_epoch(kernel: &SqliteStoreKernel) {
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                     VALUES (1, 'test-epoch', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("initialize Store epoch");
     }
 
     fn read_profile_secrets(kernel: &SqliteStoreKernel) -> (Vec<u8>, String) {

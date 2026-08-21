@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed large, clean Profiles reopening slowly by reusing one single-use validation receipt after a graceful Core shutdown; interrupted, migrated, restored, or otherwise changed Stores still receive complete integrity validation before opening.
 - Fixed digit-leading Block titles without a shorthand separator being reported as malformed shorthand during Database promotion; authoring preview and Core promotion now use the same explicit boundary rules.
 - Fixed moving the final Block from Page Stage into Board or List crashing the source editor; remote structural deletions now restore a valid selection, and cross-surface transfers require prepared causal heads.
 - PDF files now render natively inside Files with selectable text, safe links, page navigation, fit-width and percentage zoom, and bounded offscreen work instead of depending on Chromium's embedded PDF frame.

@@ -24,5 +24,6 @@ pub mod store;
 pub mod store_lock;
 pub mod store_replacement;
 pub(crate) mod store_validation;
+pub(crate) mod store_validation_receipt;
 pub(crate) mod visibility_delta_journal;
 pub mod writer;

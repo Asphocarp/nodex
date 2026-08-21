@@ -24,7 +24,10 @@ use super::schema::{
 use super::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store, with_immediate_transaction,
 };
-use super::store_validation::{validate_current_store, validate_store_semantics};
+use super::store_validation::{
+    validate_core_metadata, validate_current_store, validate_store_semantics,
+};
+use super::store_validation_receipt::{self, StoreValidationReceipt};
 
 const BASELINE_STORE_REVISION: i64 = 130;
 const CORE_SCHEMA_OWNER: &str = "rust_core";
@@ -35,6 +38,20 @@ pub struct StorePreparation {
     pub schema_version: i64,
     pub created_fresh: bool,
     pub migrated_from_version: Option<i64>,
+    pub validation: StoreValidationDisposition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StoreValidationDisposition {
+    Deep,
+    TrustedReceipt,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum CurrentStoreValidation<'a> {
+    Deep,
+    TrustedReceipt(&'a StoreValidationReceipt),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,13 +86,32 @@ pub fn prepare_profile_store(
     connection: &mut Connection,
     profile_home: &Path,
 ) -> Result<StorePreparation, StoreError> {
-    prepare_profile_store_with_observer(connection, profile_home, &mut |_| {})
+    prepare_profile_store_with_validation(
+        connection,
+        profile_home,
+        &mut |_| {},
+        CurrentStoreValidation::Deep,
+    )
 }
 
 pub fn prepare_profile_store_with_observer(
     connection: &mut Connection,
     profile_home: &Path,
     observer: &mut dyn FnMut(StorePreparationEvent),
+) -> Result<StorePreparation, StoreError> {
+    prepare_profile_store_with_validation(
+        connection,
+        profile_home,
+        observer,
+        CurrentStoreValidation::Deep,
+    )
+}
+
+pub(crate) fn prepare_profile_store_with_validation(
+    connection: &mut Connection,
+    profile_home: &Path,
+    observer: &mut dyn FnMut(StorePreparationEvent),
+    current_store_validation: CurrentStoreValidation<'_>,
 ) -> Result<StorePreparation, StoreError> {
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let object_count: i64 = connection.query_row(
@@ -90,14 +126,28 @@ pub fn prepare_profile_store_with_observer(
             schema_version: CURRENT_STORE_REVISION,
             created_fresh: true,
             migrated_from_version: None,
+            validation: StoreValidationDisposition::Deep,
         });
     }
     if version == CURRENT_STORE_REVISION {
+        if let CurrentStoreValidation::TrustedReceipt(receipt) = current_store_validation {
+            validate_schema_identity(connection, CURRENT_STORE_REVISION)?;
+            validate_core_metadata(connection)?;
+            if store_validation_receipt::matches(receipt, connection)? {
+                return Ok(StorePreparation {
+                    schema_version: CURRENT_STORE_REVISION,
+                    created_fresh: false,
+                    migrated_from_version: None,
+                    validation: StoreValidationDisposition::TrustedReceipt,
+                });
+            }
+        }
         validate_current_store(connection)?;
         return Ok(StorePreparation {
             schema_version: CURRENT_STORE_REVISION,
             created_fresh: false,
             migrated_from_version: None,
+            validation: StoreValidationDisposition::Deep,
         });
     }
     let Some(step) = MIGRATION_STEPS
@@ -168,6 +218,7 @@ fn migrate_baseline_store(
         schema_version: step.to_revision,
         created_fresh: false,
         migrated_from_version: Some(step.from_revision),
+        validation: StoreValidationDisposition::Deep,
     })
 }
 
@@ -550,6 +601,7 @@ mod tests {
                 schema_version: CURRENT_STORE_REVISION,
                 created_fresh: true,
                 migrated_from_version: None,
+                validation: StoreValidationDisposition::Deep,
             }
         );
         assert_eq!(
