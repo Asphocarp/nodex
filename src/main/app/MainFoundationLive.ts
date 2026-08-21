@@ -18,6 +18,7 @@ export type MainFoundation =
   | ElectronApp.ElectronApp
   | ElectronDesktop.ElectronDesktop
   | ElectronIpc.ElectronIpc
+  | ElectronIpc.ElectronSyncIpc
   | ElectronSessionHost.ElectronSessionHost
   | ElectronWindowHost.ElectronWindowHost
   | NodeServices.NodeServices;

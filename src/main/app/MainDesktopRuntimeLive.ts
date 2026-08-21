@@ -88,6 +88,7 @@ import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRu
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
 import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
+import * as ApplicationSyncIpc from "../ipc/handlers/ApplicationSyncIpc";
 import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
@@ -179,7 +180,7 @@ import {
 import { getLogger } from "../logging/logger";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
-import { ElectronIpc } from "../platform/electron/ElectronIpc";
+import { ElectronIpc, ElectronSyncIpc } from "../platform/electron/ElectronIpc";
 import * as ElectronNet from "../platform/electron/ElectronNet";
 import * as ProviderCredentials from "../platform/electron/ProviderCredentials";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
@@ -217,6 +218,7 @@ export const live: Layer.Layer<
   | ElectronApp
   | ElectronDesktop
   | ElectronIpc
+  | ElectronSyncIpc
   | ElectronSessionHost
   | ElectronWindowHost
   | MainConfig
@@ -229,6 +231,7 @@ export const live: Layer.Layer<
     const electron = yield* ElectronApp;
     const desktop = yield* ElectronDesktop;
     const ipc = yield* ElectronIpc;
+    const syncIpc = yield* ElectronSyncIpc;
     const sessionHost = yield* ElectronSessionHost;
     const windowHost = yield* ElectronWindowHost;
     const config = yield* MainConfig;
@@ -776,6 +779,18 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const applicationHost = Context.get(applicationHostContext, ApplicationHostRuntime);
+        yield* Layer.buildWithScope(
+          ApplicationSyncIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronSyncIpc, syncIpc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         yield* Layer.buildWithScope(
           ApplicationLifecycleIpc.live.pipe(
             Layer.provide(

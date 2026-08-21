@@ -19,7 +19,18 @@ export class ElectronIpc extends Context.Service<
   }
 >()("nodex/main/platform/electron/ElectronIpc") {}
 
-export const live: Layer.Layer<ElectronIpc, never, ScopedCallbackRuntime> = Layer.effect(
+/** Synchronous preload contracts cannot cross an Effect fiber boundary. Keep this seam pure and scoped. */
+export class ElectronSyncIpc extends Context.Service<
+  ElectronSyncIpc,
+  {
+    readonly on: <Args extends readonly unknown[]>(
+      channel: string,
+      handler: (event: IpcMainEvent, ...args: Args) => void,
+    ) => Effect.Effect<void, never, Scope.Scope>;
+  }
+>()("nodex/main/platform/electron/ElectronSyncIpc") {}
+
+const asyncLive: Layer.Layer<ElectronIpc, never, ScopedCallbackRuntime> = Layer.effect(
   ElectronIpc,
   Effect.gen(function* () {
     const callbacks = yield* ScopedCallbackRuntime;
@@ -50,3 +61,21 @@ export const live: Layer.Layer<ElectronIpc, never, ScopedCallbackRuntime> = Laye
     });
   }),
 );
+
+const syncLive: Layer.Layer<ElectronSyncIpc> = Layer.succeed(
+  ElectronSyncIpc,
+  ElectronSyncIpc.of({
+    on: (channel, handler) => {
+      const listener = (event: IpcMainEvent, ...args: unknown[]) => {
+        Reflect.apply(handler, undefined, [event, ...args]);
+      };
+      return Effect.acquireRelease(
+        Effect.sync(() => ipcMain.on(channel, listener)),
+        () => Effect.sync(() => ipcMain.removeListener(channel, listener)),
+      );
+    },
+  }),
+);
+
+export const live: Layer.Layer<ElectronIpc | ElectronSyncIpc, never, ScopedCallbackRuntime> =
+  Layer.merge(asyncLive, syncLive);

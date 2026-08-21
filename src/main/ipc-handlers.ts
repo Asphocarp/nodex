@@ -13,12 +13,11 @@ import {
 } from "electron";
 import { performance } from "node:perf_hooks";
 import { randomUUID } from "node:crypto";
-import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
+import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { writeStructuralClipboard } from "./clipboard-structural-writer";
-import { inspectClipboardPasteItems, readClipboardPastePayload } from "./clipboard-paste-inspector";
+import { readClipboardPastePayload } from "./clipboard-paste-inspector";
 import {
   COMPOSER_IMAGE_FILE_EXTENSIONS,
   prepareComposerPickedFiles,
@@ -36,12 +35,6 @@ import {
   saveUploadedResource,
 } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
-import { CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL } from "../shared/clipboard-paste";
-import {
-  FILE_PATH_INSPECT_SYNC_CHANNEL,
-  MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL,
-  PRELOAD_FILE_PATH_MAX_LENGTH,
-} from "../shared/preload-file-access";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   parseCodexUserInputAutoResolutionActivityInput,
@@ -627,67 +620,6 @@ function createGitActionWorkerPort(
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const { browserSidebarService, codexService } = options;
-  ipcMain.removeAllListeners(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL);
-  ipcMain.on(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL, (event) => {
-    try {
-      requireTrustedAppRendererSender(event, "Clipboard paste inspection");
-      event.returnValue = inspectClipboardPasteItems();
-    } catch (error) {
-      captureMainException(error, {
-        tags: {
-          channel: CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL,
-          mechanism: "ipc-sync",
-        },
-        extra: {
-          senderWebContentsId: event.sender.id,
-        },
-      });
-      event.returnValue = { items: [] };
-    }
-  });
-  ipcMain.removeAllListeners(MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL);
-  ipcMain.on(MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL, (event, source: unknown) => {
-    try {
-      requireTrustedAppRendererSender(event, "Managed asset path access");
-      if (typeof source !== "string") {
-        event.returnValue = null;
-        return;
-      }
-      const parsed = parseAssetSource(source);
-      event.returnValue = parsed ? resolveAssetPath(parsed.fileName) : null;
-    } catch {
-      event.returnValue = null;
-    }
-  });
-  ipcMain.removeAllListeners(FILE_PATH_INSPECT_SYNC_CHANNEL);
-  ipcMain.on(FILE_PATH_INSPECT_SYNC_CHANNEL, (event, value: unknown) => {
-    try {
-      requireTrustedAppRendererSender(event, "Local file inspection");
-      if (
-        typeof value !== "string" ||
-        value.length === 0 ||
-        value.length > PRELOAD_FILE_PATH_MAX_LENGTH ||
-        value.includes("\0") ||
-        !isAbsolute(value)
-      ) {
-        event.returnValue = null;
-        return;
-      }
-      const stats = lstatSync(value);
-      if (stats.isSymbolicLink() || (!stats.isFile() && !stats.isDirectory())) {
-        event.returnValue = null;
-        return;
-      }
-      event.returnValue = {
-        path: value,
-        kind: stats.isDirectory() ? "folder" : "file",
-        name: basename(value),
-        ...(stats.isFile() ? { bytes: stats.size } : {}),
-      };
-    } catch {
-      event.returnValue = null;
-    }
-  });
   const gitActionWorker = createGitActionWorkerPort(options.gitWorkerHost);
   interface SharedWorkspaceFileWatch {
     session: FileWatchSession;
