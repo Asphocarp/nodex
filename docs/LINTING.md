@@ -15,11 +15,11 @@ Do not add `--max-warnings 0` or `--deny-warnings` to the canonical commands.
 ## Canonical commands
 
 ```bash
-# Integrated format, Effect-patched TypeScript 7, typed Oxlint, and typecheck gate
-vp check
+# Cached integrated format, Effect-patched TypeScript 7, typed Oxlint, and typecheck gate
+vp run check
 
 # Full lint output, including stale suppression comments
-vp lint --report-unused-disable-directives
+vp run lint
 
 # Compact output for a coding agent
 vp lint --format agent --report-unused-disable-directives

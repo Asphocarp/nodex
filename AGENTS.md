@@ -29,8 +29,8 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 - Dev Storybook: `vp run dev:storybook` (defaults to port 6006; override an occupied port with `STORYBOOK_PORT=6007 vp run dev:storybook`)
 - Build: `vp run build`
 - Package installers: `vp run package`
-- Unified check: `vp check`
-- Typecheck only: `vp run typecheck`
+- Unified check: `vp run check`
+- Semantic check without formatting: `vp run typecheck`
 - Lint only: `vp run lint`
 - Format check: `vp run fmt:check`
 - Standard tests: `vp run test`

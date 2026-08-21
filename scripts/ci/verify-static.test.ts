@@ -15,6 +15,13 @@ describe("static CI groups", () => {
     expect(new Set(selected.map(({ id }) => id)).size).toBe(STATIC_CHECKS.length);
   });
 
+  test("routes the integrated developer check through its cacheable task", () => {
+    expect(STATIC_CHECKS.find(({ id }) => id === "integrated-check")?.command).toEqual([
+      "run",
+      "check",
+    ]);
+  });
+
   test("parses explicit groups and rejects empty, unknown, or duplicate groups", () => {
     expect(parseStaticArguments([])).toEqual({ groups: null });
     expect(parseStaticArguments(["--group", "types", "--group", "generated"])).toEqual({
