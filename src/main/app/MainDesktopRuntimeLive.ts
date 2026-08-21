@@ -125,6 +125,7 @@ import {
   RendererClientRuntime,
   live as rendererClientRuntimeLive,
 } from "../host-runtime/RendererClientRuntime";
+import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
 import {
   ApplicationSchedulerRuntime,
@@ -352,6 +353,10 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const windows = Context.get(windowRuntimeContext, WindowRuntime);
+        yield* Layer.buildWithScope(
+          DatabaseNotifierRuntime.live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows))),
+          runtimeScope,
+        );
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
             browserSidebarService,

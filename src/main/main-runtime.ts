@@ -86,7 +86,6 @@ import {
   requestsExplicitNewWindow,
 } from "./main-runtime-startup-events";
 import { captureMainException, captureMainMessage } from "./observability/sentry-main";
-import { recordDevRuntimeMetricCounter } from "./dev-runtime-metrics";
 import {
   getPrimaryCommandAccelerator,
   NEXT_PANEL_TAB_COMMAND_ID,
@@ -1357,46 +1356,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
   return window;
 }
 
-let databaseNotifierBridgesRegistered = false;
-
-function registerDatabaseNotifierBridges(): void {
-  if (databaseNotifierBridgesRegistered) return;
-  databaseNotifierBridgesRegistered = true;
-
-  dbNotifier.on("board-changed", (event) => {
-    broadcastToWindows("board-changed", event);
-  });
-  dbNotifier.on("page-ownership-paths-changed", (event) => {
-    broadcastToWindows("page-ownership-paths-changed", event);
-  });
-  dbNotifier.on("database-changed", (event) => {
-    broadcastToWindows("database-changed", event);
-  });
-  dbNotifier.on("library-navigation-changed", (event) => {
-    broadcastToWindows("library-navigation-changed", event);
-  });
-  dbNotifier.on("project-sessions-changed", (event) => {
-    recordDevRuntimeMetricCounter(
-      "db.project_sessions_changed.broadcast",
-      {
-        summaryScopeCount: event.summaryScopes.length,
-        changeType: event.changeType,
-        detailScope: event.detailInvalidation.kind,
-        detailSessionCount:
-          event.detailInvalidation.kind === "sessions"
-            ? event.detailInvalidation.sessionIds.length
-            : 0,
-        windowCount: windowRuntime?.count() ?? 0,
-      },
-      { groupBy: ["changeType", "windowCount"] },
-    );
-    broadcastToWindows("project-sessions-changed", event);
-  });
-  dbNotifier.on("projects-changed", (event) => {
-    broadcastToWindows("projects-changed", event);
-  });
-}
-
 async function publishCoreResync(eventHead: number): Promise<void> {
   const runtime = desktopDataAuthorityRuntime;
   if (runtime) {
@@ -1435,7 +1394,6 @@ async function initializeDesktopApp(
     selectionMs: Math.round(desktopDataAuthorityRuntime.launch.timings.selectionMs),
     totalMs: Math.round(desktopDataAuthorityRuntime.launch.timings.totalMs),
   });
-  registerDatabaseNotifierBridges();
   const coreClient = desktopDataAuthorityRuntime.rootClient;
   const coreIdentity = desktopDataAuthorityRuntime.identity;
   localCommitCoordinator = new LocalCommitCoordinator({
