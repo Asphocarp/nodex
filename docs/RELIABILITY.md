@@ -136,10 +136,15 @@ authority together. Detailed identity and allocation decisions are recorded in
 ## Backup, restore, and maintenance
 
 A whole-Store backup covers the database and managed assets behind one Core
-maintenance fence. Restore validates the complete candidate, journals database/
-WAL/assets replacement, publishes all-or-nothing, rotates the Store epoch, and
-relaunches Electron. Old outboxes, checkpoints, Awareness, and cursors cannot
-replay across that epoch.
+maintenance boundary. Managed asset files are immutable and become visible only
+through same-filesystem atomic publication from a sibling staging directory
+outside the backup closure; Core snapshots the database before
+enumerating that asset closure, so concurrent materialization can add only an
+unreferenced extra file, never omit a file referenced by the captured database.
+Restore validates the complete candidate, journals database/WAL/assets
+replacement, publishes all-or-nothing, rotates the Store epoch, and relaunches
+Electron. Old outboxes, checkpoints, Awareness, and cursors cannot replay across
+that epoch.
 
 Maintenance has one canonical coordinator for integrity, compaction, retention,
 collection, and vacuum. It never rewrites immutable receipts/history or removes

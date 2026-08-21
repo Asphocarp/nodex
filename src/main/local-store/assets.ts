@@ -19,7 +19,6 @@ import {
   type ManagedImageSaveResult,
   type ManagedResourceSaveResult,
 } from "../../shared/managed-assets";
-import { storeMaintenanceGate } from "./store-maintenance-gate";
 
 export const MAX_IMAGE_UPLOAD_BYTES = MAX_MANAGED_IMAGE_BYTES;
 export const MAX_RESOURCE_UPLOAD_BYTES = MAX_MANAGED_RESOURCE_BYTES;
@@ -73,28 +72,12 @@ const EXTENSION_TO_TEXT_MIME: Record<string, string> = {
   ".zsh": "text/x-shellscript",
 };
 
-interface CachedAssetPaths {
-  pathPrefix: string;
-  rootPath: string;
-}
-
-let cachedAssetPaths: CachedAssetPaths | null = null;
-
-function getCachedAssetPaths(): CachedAssetPaths {
-  if (cachedAssetPaths) {
-    return cachedAssetPaths;
-  }
-
+function getAssetPaths(): { readonly pathPrefix: string; readonly rootPath: string } {
   const rootPath = path.resolve(path.join(getNodexHome(), "assets"));
-  cachedAssetPaths = {
+  return {
     pathPrefix: `${rootPath}${path.sep}`,
     rootPath,
   };
-  return cachedAssetPaths;
-}
-
-export function resetAssetPathCacheForTests(): void {
-  cachedAssetPaths = null;
 }
 
 export function isSupportedImageMimeType(mimeType: string): boolean {
@@ -102,11 +85,11 @@ export function isSupportedImageMimeType(mimeType: string): boolean {
 }
 
 export function getAssetsRootPath(): string {
-  return getCachedAssetPaths().rootPath;
+  return getAssetPaths().rootPath;
 }
 
 export function getAssetsPathPrefix(): string {
-  return getCachedAssetPaths().pathPrefix;
+  return getAssetPaths().pathPrefix;
 }
 
 function assertAssetPathInsideRoot(targetPath: string, assetsRootPath: string): void {
@@ -171,8 +154,23 @@ function resolveStoredExtension(fileName: string, mimeType: string): string {
 
 function writeAssetBytesAtRoot(assetsRootPath: string, fileName: string, bytes: Buffer): string {
   const absolutePath = resolveAssetPathInRoot(assetsRootPath, fileName);
+  const stagingRootPath = `${path.resolve(assetsRootPath)}.staging`;
   fs.mkdirSync(assetsRootPath, { recursive: true });
-  fs.writeFileSync(absolutePath, bytes);
+  fs.mkdirSync(stagingRootPath, { recursive: true });
+  const temporaryName = `.${fileName}.${process.pid}.${randomUUID()}.tmp`;
+  const temporaryPath = resolveAssetPathInRoot(stagingRootPath, temporaryName);
+  let fileDescriptor: number | null = null;
+  try {
+    fileDescriptor = fs.openSync(temporaryPath, "wx", 0o600);
+    fs.writeFileSync(fileDescriptor, bytes);
+    fs.fsyncSync(fileDescriptor);
+    fs.closeSync(fileDescriptor);
+    fileDescriptor = null;
+    fs.renameSync(temporaryPath, absolutePath);
+  } finally {
+    if (fileDescriptor !== null) fs.closeSync(fileDescriptor);
+    if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+  }
   return absolutePath;
 }
 
@@ -218,14 +216,16 @@ const publishContentAddressedAsset = (
   contentHash: string,
 ): void => {
   const absolutePath = resolveAssetPathInRoot(assetsRootPath, fileName);
+  const stagingRootPath = `${path.resolve(assetsRootPath)}.staging`;
   fs.mkdirSync(assetsRootPath, { recursive: true });
+  fs.mkdirSync(stagingRootPath, { recursive: true });
   if (fs.existsSync(absolutePath)) {
     assertContentAddressedAsset(absolutePath, contentHash);
     return;
   }
 
   const temporaryName = `.${fileName}.${process.pid}.${randomUUID()}.tmp`;
-  const temporaryPath = resolveAssetPathInRoot(assetsRootPath, temporaryName);
+  const temporaryPath = resolveAssetPathInRoot(stagingRootPath, temporaryName);
   let fileDescriptor: number | null = null;
   try {
     fileDescriptor = fs.openSync(temporaryPath, "wx", 0o600);
@@ -305,27 +305,17 @@ export function materializeInlineCanvasImage(dataUrl: string): {
   readonly fileName: string;
   readonly mimeType: string;
 } {
-  const mutation = storeMaintenanceGate.beginMutation();
-  try {
-    return materializeInlineImageAtRoot(dataUrl, {
-      assetsRootPath: getAssetsRootPath(),
-      namespace: "canvas",
-    });
-  } finally {
-    mutation.release();
-  }
+  return materializeInlineImageAtRoot(dataUrl, {
+    assetsRootPath: getAssetsRootPath(),
+    namespace: "canvas",
+  });
 }
 
 export function materializeCanvasImage(
   input: ManagedAssetUploadInput,
 ): ManagedCanvasImageMaterializationResult {
-  const mutation = storeMaintenanceGate.beginMutation();
-  try {
-    const upload = normalizeAssetUploadInput(input);
-    return materializeCanvasImageBytesAtRoot(upload.bytes, upload.mimeType, getAssetsRootPath());
-  } finally {
-    mutation.release();
-  }
+  const upload = normalizeAssetUploadInput(input);
+  return materializeCanvasImageBytesAtRoot(upload.bytes, upload.mimeType, getAssetsRootPath());
 }
 
 function inferMimeTypeFromLocalPath(localPath: string): string {
@@ -425,109 +415,91 @@ function normalizeAssetUploadInput(input: ManagedAssetUploadInput): {
 }
 
 export function saveUploadedImage(input: ManagedAssetUploadInput): ManagedImageSaveResult {
-  const mutation = storeMaintenanceGate.beginMutation();
-  try {
-    const upload = normalizeAssetUploadInput(input);
-    if (!isSupportedImageMimeType(upload.mimeType)) {
-      throw new Error(`Unsupported image type: ${upload.mimeType || "unknown"}`);
-    }
-
-    if (upload.bytes.byteLength > MAX_IMAGE_UPLOAD_BYTES) {
-      throw new Error("Image exceeds 10MB upload limit");
-    }
-
-    const extension = IMAGE_MIME_TO_EXTENSION[upload.mimeType] ?? "";
-    const fileName = `${crypto.randomUUID()}${extension}`;
-    const absolutePath = resolveFlatAssetPath(fileName);
-
-    fs.mkdirSync(getAssetsRootPath(), { recursive: true });
-    fs.writeFileSync(absolutePath, upload.bytes);
-
-    return {
-      source: getAssetSource(fileName),
-      fileName,
-    };
-  } finally {
-    mutation.release();
+  const upload = normalizeAssetUploadInput(input);
+  if (!isSupportedImageMimeType(upload.mimeType)) {
+    throw new Error(`Unsupported image type: ${upload.mimeType || "unknown"}`);
   }
+
+  if (upload.bytes.byteLength > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error("Image exceeds 10MB upload limit");
+  }
+
+  const extension = IMAGE_MIME_TO_EXTENSION[upload.mimeType] ?? "";
+  const fileName = `${crypto.randomUUID()}${extension}`;
+  writeAssetBytes(fileName, upload.bytes);
+
+  return {
+    source: getAssetSource(fileName),
+    fileName,
+  };
 }
 
 export function saveUploadedResource(input: ManagedAssetUploadInput): ManagedResourceSaveResult {
-  const mutation = storeMaintenanceGate.beginMutation();
-  try {
-    const upload = normalizeAssetUploadInput(input);
-    if (upload.bytes.byteLength > MAX_RESOURCE_UPLOAD_BYTES) {
-      throw new Error("Resource exceeds 64MB upload limit");
-    }
-
-    const normalizedMimeType = normalizeMimeType(
-      upload.mimeType === "application/octet-stream" && upload.name
-        ? inferMimeTypeFromLocalPath(upload.name)
-        : upload.mimeType,
-    );
-    const extension = resolveStoredExtension(upload.name, normalizedMimeType);
-    const fileName = `${crypto.randomUUID()}${extension}`;
-    writeAssetBytes(fileName, upload.bytes);
-
-    return {
-      source: getAssetSource(fileName),
-      fileName,
-      name: upload.name || fileName,
-      mimeType: normalizedMimeType,
-      bytes: upload.bytes.byteLength,
-    };
-  } finally {
-    mutation.release();
+  const upload = normalizeAssetUploadInput(input);
+  if (upload.bytes.byteLength > MAX_RESOURCE_UPLOAD_BYTES) {
+    throw new Error("Resource exceeds 64MB upload limit");
   }
+
+  const normalizedMimeType = normalizeMimeType(
+    upload.mimeType === "application/octet-stream" && upload.name
+      ? inferMimeTypeFromLocalPath(upload.name)
+      : upload.mimeType,
+  );
+  const extension = resolveStoredExtension(upload.name, normalizedMimeType);
+  const fileName = `${crypto.randomUUID()}${extension}`;
+  writeAssetBytes(fileName, upload.bytes);
+
+  return {
+    source: getAssetSource(fileName),
+    fileName,
+    name: upload.name || fileName,
+    mimeType: normalizedMimeType,
+    bytes: upload.bytes.byteLength,
+  };
 }
 
 export function materializeLocalResource(localPath: string): ManagedResourceSaveResult {
-  const mutation = storeMaintenanceGate.beginMutation();
-  try {
-    const trimmedLocalPath = localPath.trim();
-    if (!path.isAbsolute(trimmedLocalPath)) {
-      throw new Error("Local resource path must be absolute");
-    }
-    const normalizedLocalPath = path.resolve(trimmedLocalPath);
-    if (!fs.existsSync(normalizedLocalPath)) {
-      throw new Error("Local resource not found");
-    }
+  const trimmedLocalPath = localPath.trim();
+  if (!path.isAbsolute(trimmedLocalPath)) {
+    throw new Error("Local resource path must be absolute");
+  }
+  const normalizedLocalPath = path.resolve(trimmedLocalPath);
+  if (!fs.existsSync(normalizedLocalPath)) {
+    throw new Error("Local resource not found");
+  }
 
-    const stats = fs.statSync(normalizedLocalPath);
-    if (stats.isDirectory()) {
-      const manifest = buildFolderManifest(normalizedLocalPath);
-      const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
-      const fileName = `${crypto.randomUUID()}.json`;
-      writeAssetBytes(fileName, manifestBytes);
-      return {
-        source: getAssetSource(fileName),
-        fileName,
-        name: path.basename(normalizedLocalPath),
-        mimeType: "application/json",
-        bytes: manifestBytes.byteLength,
-      };
-    }
-
-    if (stats.size > MAX_RESOURCE_UPLOAD_BYTES) {
-      throw new Error("Resource exceeds 64MB upload limit");
-    }
-
-    const mimeType = inferMimeTypeFromLocalPath(normalizedLocalPath);
-    const extension = resolveStoredExtension(normalizedLocalPath, mimeType);
-    const fileName = `${crypto.randomUUID()}${extension}`;
-    const fileBytes = fs.readFileSync(normalizedLocalPath);
-    writeAssetBytes(fileName, fileBytes);
-
+  const stats = fs.statSync(normalizedLocalPath);
+  if (stats.isDirectory()) {
+    const manifest = buildFolderManifest(normalizedLocalPath);
+    const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
+    const fileName = `${crypto.randomUUID()}.json`;
+    writeAssetBytes(fileName, manifestBytes);
     return {
       source: getAssetSource(fileName),
       fileName,
       name: path.basename(normalizedLocalPath),
-      mimeType,
-      bytes: stats.size,
+      mimeType: "application/json",
+      bytes: manifestBytes.byteLength,
     };
-  } finally {
-    mutation.release();
   }
+
+  if (stats.size > MAX_RESOURCE_UPLOAD_BYTES) {
+    throw new Error("Resource exceeds 64MB upload limit");
+  }
+
+  const mimeType = inferMimeTypeFromLocalPath(normalizedLocalPath);
+  const extension = resolveStoredExtension(normalizedLocalPath, mimeType);
+  const fileName = `${crypto.randomUUID()}${extension}`;
+  const fileBytes = fs.readFileSync(normalizedLocalPath);
+  writeAssetBytes(fileName, fileBytes);
+
+  return {
+    source: getAssetSource(fileName),
+    fileName,
+    name: path.basename(normalizedLocalPath),
+    mimeType,
+    bytes: stats.size,
+  };
 }
 
 export function readAssetFile(fileName: string): { bytes: Buffer; mimeType: string } {
