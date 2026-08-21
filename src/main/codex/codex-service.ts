@@ -456,10 +456,7 @@ import {
   type CodexServerRequest,
   type CodexServerNotification,
 } from "../codex-runtime/CodexApplicationClient";
-import {
-  readCodexSessionThreadDetail,
-  readCodexSessionThreadMetadata,
-} from "./codex-session-store";
+import { CodexSessionStore } from "./codex-session-store";
 import {
   createManagedWorktree,
   resolveManagedWorktreeDefaultStartingState,
@@ -1388,6 +1385,7 @@ type CodexServiceOptions = {
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
   serverRequestResponses: ServerRequestResponsesPromiseAdapter;
+  sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
   inactiveRendererOwnerRetentionMs?: number;
@@ -1977,10 +1975,11 @@ function isPotentialAutoReviewReviewerPreview(value: unknown): boolean {
 }
 
 function isConfirmedAutoReviewReviewerMetadata(
+  sessionStore: CodexSessionStore,
   threadId: string,
   runtimeStateHome: string,
 ): boolean {
-  const metadata = readCodexSessionThreadMetadata(threadId, runtimeStateHome);
+  const metadata = sessionStore.readThreadMetadata(threadId, runtimeStateHome);
   if (!metadata) return false;
   const threadSource = parseThreadSourceValue(metadata.threadSource);
   return threadSource === "subagent" && isGuardianSubagentSource(metadata.source);
@@ -2608,6 +2607,7 @@ export class CodexService extends EventEmitter {
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
+  private readonly sessionStore: CodexSessionStore;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts: CodexExecutionHostRegistry;
   private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
@@ -2821,6 +2821,7 @@ export class CodexService extends EventEmitter {
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.serverRequestResponses = options.serverRequestResponses;
+    this.sessionStore = options.sessionStore;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
       options?.inactiveRendererOwnerRetentionMs ?? INACTIVE_RENDERER_OWNER_RETENTION_MS,
@@ -8920,7 +8921,11 @@ export class CodexService extends EventEmitter {
     const threadSource = parseThreadSourceValue(summary.threadSource);
     if (isInternalThreadSourceValue(threadSource)) return true;
     if (!isPotentialAutoReviewReviewerPreview(summary.threadPreview)) return false;
-    return isConfirmedAutoReviewReviewerMetadata(summary.threadId, this.runtimeStateHome);
+    return isConfirmedAutoReviewReviewerMetadata(
+      this.sessionStore,
+      summary.threadId,
+      this.runtimeStateHome,
+    );
   }
 
   private async createSidebarThreadSessionFromSummary(
@@ -14187,7 +14192,7 @@ export class CodexService extends EventEmitter {
     const historyHome = this.runtimeStateHome;
     const sessionMetadata = persistedLink
       ? null
-      : readCodexSessionThreadMetadata(threadId, historyHome);
+      : this.sessionStore.readThreadMetadata(threadId, historyHome);
     const link: CodexThreadSummary = persistedLink ?? {
       threadId,
       projectId: null,
@@ -14207,7 +14212,7 @@ export class CodexService extends EventEmitter {
       linkedAt: new Date(0).toISOString(),
     };
 
-    const sessionDetail = readCodexSessionThreadDetail({
+    const sessionDetail = this.sessionStore.readThreadDetail({
       threadId,
       link,
       codexHome: historyHome,

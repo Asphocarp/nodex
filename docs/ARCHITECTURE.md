@@ -327,6 +327,11 @@ Thread resume explicitly projects the durable cwd and writable roots; an
 app-server metadata read cannot rewrite that location or reintroduce a replaced
 Project source checkout into the writable-root set.
 
+Fallback rollout materialization uses one Main-scoped session repository injected into the Codex
+application. Its file-location and session-index caches never cross an application Scope. Missing
+rollouts are not cached, moved rollout paths are re-resolved, and the session index is reloaded when
+its file identity changes, so a live app can observe newly materialized and renamed Threads.
+
 ### Window Session and Workbench presentation
 
 A Window Session owns one restorable Workbench layout with owner-scoped Scenes. A Scene owner is a Project, Session, or the window-local Pages context. Project and Session owners have semantic primary surfaces; Pages has no protected primary. Right and bottom split trees are the only surface placement and ordering source.

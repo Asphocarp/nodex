@@ -97,6 +97,7 @@ import type {
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
 import { CodexService } from "./codex-service";
+import { CodexSessionStore } from "./codex-session-store";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import type {
   CodexApplicationClient,
@@ -1676,6 +1677,7 @@ function createService(options?: {
       reject: async (threadId, _requestId, occurrenceToken, reason) =>
         completeResponse(threadId, occurrenceToken, { kind: "failure", reason }),
     },
+    sessionStore: new CodexSessionStore(),
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,

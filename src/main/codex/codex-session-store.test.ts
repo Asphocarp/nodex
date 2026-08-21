@@ -1,14 +1,24 @@
-import { afterEach, describe, expect, test } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CodexThreadSummary } from "../../shared/types";
-import {
-  hasCodexSessionMaterialized,
-  readCodexSessionThreadDetail,
-  readCodexSessionThreadMetadata,
-  resetCodexSessionStoreCaches,
-} from "./codex-session-store";
+import { CodexSessionStore } from "./codex-session-store";
+
+let sessionStore: CodexSessionStore;
+
+beforeEach(() => {
+  sessionStore = new CodexSessionStore();
+});
+
+const hasCodexSessionMaterialized = (threadId: string, codexHome?: string) =>
+  sessionStore.hasMaterialized(threadId, codexHome);
+const readCodexSessionThreadDetail = (
+  input: Parameters<CodexSessionStore["readThreadDetail"]>[0],
+) => sessionStore.readThreadDetail(input);
+const readCodexSessionThreadMetadata = (threadId: string, codexHome?: string) =>
+  sessionStore.readThreadMetadata(threadId, codexHome);
+const resetCodexSessionStoreCaches = () => sessionStore.clear();
 
 function makeLink(threadId: string): CodexThreadSummary {
   return {
@@ -53,6 +63,17 @@ afterEach(() => {
 });
 
 describe("codex-session-store", () => {
+  test("does not retain a missing rollout after it materializes", () => {
+    withTempCodexHome((codexHome) => {
+      expect(hasCodexSessionMaterialized("thr_late")).toBe(false);
+      const directory = path.join(codexHome, "sessions", "2026", "08", "22");
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, "rollout-2026-08-22-thr_late.jsonl"), "{}\n");
+
+      expect(hasCodexSessionMaterialized("thr_late")).toBe(true);
+    });
+  });
+
   test("reads session metadata without materializing transcript history", () => {
     withTempCodexHome((codexHome) => {
       fs.mkdirSync(path.join(codexHome, "sessions", "2026", "07", "06"), { recursive: true });
@@ -217,6 +238,21 @@ describe("codex-session-store", () => {
       expect(detail?.transcript.length).toBe(2);
       expect(detail?.transcript.some((entry) => entry.kind === "toolCall")).toBe(false);
       expect(detail?.threadPreview).toBe("Implement it");
+
+      fs.writeFileSync(
+        path.join(codexHome, "session_index.jsonl"),
+        `${JSON.stringify({
+          id: "thr_session",
+          thread_name: "Updated imported thread",
+          updated_at: "2026-03-17T10:04:00.000Z",
+        })}\n`,
+      );
+      expect(
+        readCodexSessionThreadDetail({
+          threadId: "thr_session",
+          link: makeLink("thr_session"),
+        })?.threadName,
+      ).toBe("Updated imported thread");
     });
   });
 

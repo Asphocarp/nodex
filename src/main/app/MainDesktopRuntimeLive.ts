@@ -43,6 +43,7 @@ import { createDesktopNodexAgentV3DynamicService } from "../core-client/desktop-
 import { createDesktopNodexAgentResourceAuthorityPort } from "../core-client/desktop-nodex-agent-resource-authority";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
+import { CodexSessionStore } from "../codex/codex-session-store";
 import { configureNodexAgentV3DynamicService } from "../codex/nodex-agent-dynamic-tool-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
@@ -1005,6 +1006,11 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
+        const codexSessionStore = new CodexSessionStore();
+        yield* Scope.addFinalizer(
+          runtimeScope,
+          Effect.sync(() => codexSessionStore.clear()),
+        );
         const codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -1019,6 +1025,7 @@ export const live: Layer.Layer<
                 approvalCoordinator,
                 callbacks,
               ),
+              sessionStore: codexSessionStore,
               client: codexBridge,
               runtime: codexRuntime,
               runtimeStateHome,

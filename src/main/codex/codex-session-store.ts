@@ -49,10 +49,16 @@ interface MutableTurnRecord {
   updatedAt: number;
 }
 
-const sessionFileCache = new Map<string, SessionFileMatch | null>();
-const sessionIndexCache = new Map<string, CodexSessionIndexEntry>();
-let sessionIndexLoadedFromPath: string | null = null;
-let sessionFileCacheHome: string | null = null;
+interface CodexSessionStoreState {
+  readonly sessionFileCache: Map<string, SessionFileMatch>;
+  readonly sessionIndexCache: Map<string, CodexSessionIndexEntry>;
+  sessionIndexIdentity: {
+    readonly path: string;
+    readonly mtimeMs: number;
+    readonly size: number;
+  } | null;
+  sessionFileCacheHome: string | null;
+}
 
 function parseIsoTimestamp(value: unknown): number | null {
   if (typeof value !== "string") return null;
@@ -72,14 +78,27 @@ function resolveRuntimeHomeDir(): string {
   return path.join(resolveHomeDir(), ".openinterpreter");
 }
 
-function loadSessionIndexIfNeeded(codexHome?: string): void {
+function loadSessionIndexIfNeeded(state: CodexSessionStoreState, codexHome?: string): void {
   const indexPath = path.join(codexHome ?? resolveRuntimeHomeDir(), "session_index.jsonl");
-  if (sessionIndexLoadedFromPath === indexPath) return;
+  let identity: NonNullable<CodexSessionStoreState["sessionIndexIdentity"]>;
+  try {
+    const stats = fs.statSync(indexPath);
+    identity = { path: indexPath, mtimeMs: stats.mtimeMs, size: stats.size };
+  } catch {
+    state.sessionIndexCache.clear();
+    state.sessionIndexIdentity = null;
+    return;
+  }
+  if (
+    state.sessionIndexIdentity?.path === identity.path &&
+    state.sessionIndexIdentity.mtimeMs === identity.mtimeMs &&
+    state.sessionIndexIdentity.size === identity.size
+  ) {
+    return;
+  }
 
-  sessionIndexCache.clear();
-  sessionIndexLoadedFromPath = indexPath;
-
-  if (!fs.existsSync(indexPath)) return;
+  state.sessionIndexCache.clear();
+  state.sessionIndexIdentity = identity;
 
   const raw = fs.readFileSync(indexPath, "utf8");
   for (const line of raw.split(/\r?\n/)) {
@@ -87,22 +106,26 @@ function loadSessionIndexIfNeeded(codexHome?: string): void {
     if (!trimmed) continue;
     const entry = parseCodexSessionIndexEntryLine(trimmed);
     if (!entry) continue;
-    sessionIndexCache.set(entry.id, entry);
+    state.sessionIndexCache.set(entry.id, entry);
   }
 }
 
 function readSessionIndexEntry(
+  state: CodexSessionStoreState,
   threadId: string,
   codexHome?: string,
 ): CodexSessionIndexEntry | null {
-  loadSessionIndexIfNeeded(codexHome);
-  return sessionIndexCache.get(threadId) ?? null;
+  loadSessionIndexIfNeeded(state, codexHome);
+  return state.sessionIndexCache.get(threadId) ?? null;
 }
 
-function resolveSessionSearchRoots(codexHome: string): SessionFileMatch[] {
-  if (sessionFileCacheHome !== codexHome) {
-    sessionFileCache.clear();
-    sessionFileCacheHome = codexHome;
+function resolveSessionSearchRoots(
+  state: CodexSessionStoreState,
+  codexHome: string,
+): SessionFileMatch[] {
+  if (state.sessionFileCacheHome !== codexHome) {
+    state.sessionFileCache.clear();
+    state.sessionFileCacheHome = codexHome;
   }
   return [
     { filePath: path.join(codexHome, "sessions"), archived: false },
@@ -137,38 +160,29 @@ function findSessionFileInDirectory(
 }
 
 function resolveSessionFile(
+  state: CodexSessionStoreState,
   threadId: string,
   configuredCodexHome?: string,
 ): SessionFileMatch | null {
   const codexHome = configuredCodexHome ?? resolveRuntimeHomeDir();
-  if (sessionFileCacheHome !== codexHome) {
-    sessionFileCache.clear();
-    sessionFileCacheHome = codexHome;
+  if (state.sessionFileCacheHome !== codexHome) {
+    state.sessionFileCache.clear();
+    state.sessionFileCacheHome = codexHome;
   }
-  if (sessionFileCache.has(threadId)) {
-    return sessionFileCache.get(threadId) ?? null;
+  const cached = state.sessionFileCache.get(threadId);
+  if (cached && fs.existsSync(cached.filePath)) {
+    return cached;
   }
+  state.sessionFileCache.delete(threadId);
 
-  for (const root of resolveSessionSearchRoots(codexHome)) {
+  for (const root of resolveSessionSearchRoots(state, codexHome)) {
     const match = findSessionFileInDirectory(root.filePath, threadId, root.archived);
     if (!match) continue;
-    sessionFileCache.set(threadId, match);
+    state.sessionFileCache.set(threadId, match);
     return match;
   }
 
-  sessionFileCache.set(threadId, null);
   return null;
-}
-
-export function hasCodexSessionMaterialized(threadId: string, codexHome?: string): boolean {
-  const match = resolveSessionFile(threadId, codexHome);
-  if (!match) return false;
-
-  try {
-    return fs.statSync(match.filePath).size > 0;
-  } catch {
-    return false;
-  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -364,6 +378,7 @@ function parseSessionJsonl(
   raw: string,
   input: SessionThreadMaterializationInput,
   fileMatch: SessionFileMatch,
+  sessionIndexEntry: CodexSessionIndexEntry | null,
 ): CodexThreadDetail | null {
   const fallbackTimestamp = input.link.updatedAt || Date.now();
   const lines = raw
@@ -374,8 +389,6 @@ function parseSessionJsonl(
 
   const turnsById = new Map<string, MutableTurnRecord>();
   const transcript: CodexTranscriptEntry[] = [];
-  const sessionIndexEntry = readSessionIndexEntry(input.threadId, input.codexHome);
-
   let currentTurnId = `turn-${input.threadId}`;
   let sessionTimestamp = fallbackTimestamp;
   let sessionCwd = input.link.cwd;
@@ -633,68 +646,89 @@ function parseSessionJsonl(
   };
 }
 
-export function readCodexSessionThreadDetail(
-  input: SessionThreadMaterializationInput,
-): CodexThreadDetail | null {
-  const match = resolveSessionFile(input.threadId, input.codexHome);
-  if (!match) return null;
+/** One application-scoped repository for legacy rollout materialization. */
+export class CodexSessionStore {
+  readonly #state: CodexSessionStoreState = {
+    sessionFileCache: new Map(),
+    sessionIndexCache: new Map(),
+    sessionFileCacheHome: null,
+    sessionIndexIdentity: null,
+  };
 
-  try {
-    const raw = fs.readFileSync(match.filePath, "utf8");
-    if (!raw.trim()) return null;
+  hasMaterialized(threadId: string, codexHome?: string): boolean {
+    const match = resolveSessionFile(this.#state, threadId, codexHome);
+    if (!match) return false;
 
-    if (match.filePath.endsWith(".jsonl")) {
-      return parseSessionJsonl(raw, input, match);
+    try {
+      return fs.statSync(match.filePath).size > 0;
+    } catch {
+      return false;
     }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export function readCodexSessionThreadMetadata(
-  threadId: string,
-  codexHome?: string,
-): CodexSessionThreadMetadata | null {
-  const normalizedThreadId = threadId.trim();
-  if (!normalizedThreadId) return null;
-
-  const match = resolveSessionFile(normalizedThreadId, codexHome);
-  if (!match) return null;
-
-  try {
-    const raw = fs.readFileSync(match.filePath, "utf8");
-    if (!raw.trim() || !match.filePath.endsWith(".jsonl")) return null;
-
-    const fallbackTimestamp = Date.now();
-    for (const rawLine of raw.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      const parsedLine = parseCodexSessionJsonlLine(line, fallbackTimestamp);
-      if (!parsedLine || parsedLine.type !== "session_meta") continue;
-
-      const payload = asRecord(parsedLine.payload);
-      if (!payload) return null;
-      return {
-        threadId: normalizeOptionalSessionText(payload.id) ?? normalizedThreadId,
-        parentThreadId: normalizeOptionalSessionText(
-          payload.parent_thread_id ?? payload.parentThreadId,
-        ),
-        source: payload.source ?? null,
-        threadSource: normalizeOptionalSessionText(payload.thread_source ?? payload.threadSource),
-        cwd: normalizeOptionalSessionText(payload.cwd),
-      };
-    }
-  } catch {
-    return null;
   }
 
-  return null;
-}
+  readThreadDetail(input: SessionThreadMaterializationInput): CodexThreadDetail | null {
+    const match = resolveSessionFile(this.#state, input.threadId, input.codexHome);
+    if (!match) return null;
 
-export function resetCodexSessionStoreCaches(): void {
-  sessionFileCache.clear();
-  sessionIndexCache.clear();
-  sessionFileCacheHome = null;
-  sessionIndexLoadedFromPath = null;
+    try {
+      const raw = fs.readFileSync(match.filePath, "utf8");
+      if (!raw.trim()) return null;
+
+      if (match.filePath.endsWith(".jsonl")) {
+        return parseSessionJsonl(
+          raw,
+          input,
+          match,
+          readSessionIndexEntry(this.#state, input.threadId, input.codexHome),
+        );
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  readThreadMetadata(threadId: string, codexHome?: string): CodexSessionThreadMetadata | null {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return null;
+
+    const match = resolveSessionFile(this.#state, normalizedThreadId, codexHome);
+    if (!match) return null;
+
+    try {
+      const raw = fs.readFileSync(match.filePath, "utf8");
+      if (!raw.trim() || !match.filePath.endsWith(".jsonl")) return null;
+
+      const fallbackTimestamp = Date.now();
+      for (const rawLine of raw.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const parsedLine = parseCodexSessionJsonlLine(line, fallbackTimestamp);
+        if (!parsedLine || parsedLine.type !== "session_meta") continue;
+
+        const payload = asRecord(parsedLine.payload);
+        if (!payload) return null;
+        return {
+          threadId: normalizeOptionalSessionText(payload.id) ?? normalizedThreadId,
+          parentThreadId: normalizeOptionalSessionText(
+            payload.parent_thread_id ?? payload.parentThreadId,
+          ),
+          source: payload.source ?? null,
+          threadSource: normalizeOptionalSessionText(payload.thread_source ?? payload.threadSource),
+          cwd: normalizeOptionalSessionText(payload.cwd),
+        };
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  clear(): void {
+    this.#state.sessionFileCache.clear();
+    this.#state.sessionIndexCache.clear();
+    this.#state.sessionFileCacheHome = null;
+    this.#state.sessionIndexIdentity = null;
+  }
 }
