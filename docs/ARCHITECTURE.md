@@ -320,6 +320,14 @@ queries, repositories, generation providers, and review caches together. A
 replacement worker therefore always starts from a fresh repository identity and
 generation space rather than inheriting process-module state.
 
+Git and worktree worker entries are independent Effect applications. Each
+enters through `NodeRuntime.runMain`, registers its MessagePort or stdio ingress
+inside one Scope, and stores keyed requests in a scoped `FiberMap`. Cancellation
+interrupts the matching fiber; shutdown or transport loss closes admission,
+interrupts every remaining request, releases shell/repository resources, and
+then closes the transport. Worker entry files contain no module-level active
+request registry or detached Promise chain.
+
 `ExecutionHostRuntime` is the sole owner of execution-host settings and remote
 host activation. Each enabled SSH host is one keyed Scope containing its health
 probe, deployed worker channel, file-transfer adapter, Codex endpoint, and host
