@@ -108,8 +108,6 @@ import type {
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurnPagination,
-  CodexComposerChatGptConversationListResult,
-  CodexComposerSiteListResult,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
@@ -232,7 +230,6 @@ import {
 import type { CodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { parseModelOption } from "../codex-application/ComposerCatalogState";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
-import { CodexComposerExternalSuggestionService } from "./composer-external-suggestion-service";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -2937,18 +2934,6 @@ export class CodexService extends EventEmitter {
       return await electron.net.fetch(url, init);
     },
   });
-  private readonly composerExternalSuggestionService = new CodexComposerExternalSuggestionService({
-    readAuthMethod: async () =>
-      (
-        await this.readAuthStatusForChatGptServices({
-          includeToken: false,
-          refreshToken: false,
-        })
-      ).authMethod ?? null,
-    readConfig: async () => await this.readConfigForChatGptServices(),
-    requestChatGptDesktop: async (input) => await this.requestAuthenticatedChatGpt(input),
-  });
-
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
   private accountReadInFlight: Promise<CodexAccountSnapshot> | null = null;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
@@ -10728,18 +10713,6 @@ export class CodexService extends EventEmitter {
     return result.data
       .map(parseModelOption)
       .filter((option): option is CodexModelOption => option !== null);
-  }
-
-  async listComposerSites(): Promise<CodexComposerSiteListResult> {
-    await this.ensureClientReady();
-    return await this.composerExternalSuggestionService.listSites();
-  }
-
-  async listComposerChatGptConversations(
-    query: string,
-  ): Promise<CodexComposerChatGptConversationListResult> {
-    await this.ensureClientReady();
-    return await this.composerExternalSuggestionService.listChatGptConversations(query);
   }
 
   async listAgentProviderCatalog(options?: { refresh?: boolean }): Promise<AgentProviderCatalog> {

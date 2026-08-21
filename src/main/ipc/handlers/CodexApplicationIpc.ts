@@ -17,6 +17,7 @@ import { CodexAccount, type CodexAccountLoginInput } from "../../codex-applicati
 import { CodexConnection } from "../../codex-application/CodexConnection";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
+import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
@@ -81,6 +82,7 @@ export const live: Layer.Layer<
   | CodexAccount
   | CodexConnection
   | ComposerCatalog
+  | ComposerExternalSuggestions
   | CodexToolRuntime
 > = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -90,6 +92,7 @@ export const live: Layer.Layer<
     const account = yield* CodexAccount;
     const connection = yield* CodexConnection;
     const composer = yield* ComposerCatalog;
+    const externalSuggestions = yield* ComposerExternalSuggestions;
     const tools = yield* CodexToolRuntime;
     const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
       validate("authorize-renderer", () =>
@@ -153,6 +156,21 @@ export const live: Layer.Layer<
           ),
         ),
       ),
+    );
+    yield* ipc.handle("codex:composer-sites:list", () => externalSuggestions.listSites);
+    yield* ipc.handle("codex:composer-chatgpt-conversations:list", (_event, input: unknown) =>
+      validate("composer-chatgpt-conversations-list", () => {
+        if (
+          typeof input !== "object" ||
+          input === null ||
+          !("query" in input) ||
+          typeof input.query !== "string" ||
+          input.query.length > 1_000
+        ) {
+          throw new Error("Invalid composer ChatGPT conversation query");
+        }
+        return input.query.trim();
+      }).pipe(Effect.flatMap(externalSuggestions.listChatGptConversations)),
     );
 
     yield* ipc.handle("codex:mcp-resource:read", (event, params: McpResourceReadParams) =>

@@ -1008,19 +1008,6 @@ function assertValidOccurrenceUpdateIpcInput(input: PageOccurrenceUpdateInput): 
   }
 }
 
-function parseComposerChatGptConversationQuery(input: unknown): string {
-  if (
-    typeof input !== "object" ||
-    input === null ||
-    !("query" in input) ||
-    typeof input.query !== "string" ||
-    input.query.length > 1_000
-  ) {
-    throw new Error("Invalid composer ChatGPT conversation query");
-  }
-  return input.query.trim();
-}
-
 function createGitActionWorkerPort(
   host: Pick<GitWorkerHost, "requestFromMain"> | undefined,
 ): GitActionWorkerPort {
@@ -3254,10 +3241,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     onHeartbeatAutomationThreadStateChanged: options.onHeartbeatAutomationThreadStateChanged,
   });
 
-  registerHandle("codex:composer-sites:list", () => codexService.listComposerSites());
-  registerHandle("codex:composer-chatgpt-conversations:list", (_, input) =>
-    codexService.listComposerChatGptConversations(parseComposerChatGptConversationQuery(input)),
-  );
   registerHandle("codex:composer-appshot:target", () => composerAppshotService.readTarget());
   registerHandle("codex:composer-appshot:capture", (_, input) => {
     if (

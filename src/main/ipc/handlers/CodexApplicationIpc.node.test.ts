@@ -11,6 +11,7 @@ import { CodexConnection } from "../../codex-application/CodexConnection";
 import { emptyAccountSnapshot } from "../../codex-application/CodexAccountState";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
+import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { live } from "./CodexApplicationIpc";
@@ -65,6 +66,10 @@ it.effect("registers application channels directly against their owning modules"
       listApps: Effect.succeed([]),
       listServerStatuses: Effect.die("unused"),
     });
+    const externalSuggestions = ComposerExternalSuggestions.of({
+      listSites: Effect.succeed({ available: false, sites: [] }),
+      listChatGptConversations: () => Effect.succeed({ available: false, conversations: [] }),
+    });
     const connection = CodexConnection.of({
       read: Effect.succeed({ status: "connected", retries: 0 }),
     });
@@ -101,6 +106,7 @@ it.effect("registers application channels directly against their owning modules"
             Layer.succeed(CodexAccount, account),
             Layer.succeed(CodexConnection, connection),
             Layer.succeed(ComposerCatalog, composer),
+            Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
             Layer.succeed(CodexToolRuntime, tools),
           ),
         ),
