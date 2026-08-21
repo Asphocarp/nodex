@@ -69,6 +69,7 @@ import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
+import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
   ComputerUseRuntime,
@@ -87,7 +88,6 @@ import {
 import {
   ComputerUseSettingsRuntime,
   live as computerUseSettingsRuntimeLive,
-  makeComputerUseSettingsRuntimeAdapter,
 } from "../host-runtime/ComputerUseSettingsRuntime";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import {
@@ -306,9 +306,21 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const computerUseSettings = makeComputerUseSettingsRuntimeAdapter(
-          Context.get(computerUseSettingsContext, ComputerUseSettingsRuntime),
-          callbacks,
+        const computerUseSettings = Context.get(
+          computerUseSettingsContext,
+          ComputerUseSettingsRuntime,
+        );
+        yield* Layer.buildWithScope(
+          ComputerUseSettingsIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(ComputerUseSettingsRuntime, computerUseSettings),
+              ),
+            ),
+          ),
+          runtimeScope,
         );
         const providerCredentialsContext = yield* Layer.buildWithScope(
           ProviderCredentials.fromStore(providerCredentialStore),
@@ -444,7 +456,6 @@ export const live: Layer.Layer<
             const composition = createMainServiceComposition({
               agentProviderRuntime,
               browserSidebarService,
-              computerUseSettings,
               composerCatalog,
               desktopTools,
               preferences,

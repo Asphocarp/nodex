@@ -16,7 +16,6 @@ import {
   type ComputerUseSettingsSnapshot,
   type ComputerUseSoundMode,
 } from "../../shared/computer-use-settings";
-import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import type { ComputerUseRuntimeResult } from "../codex/computer-use-runtime";
 import { DesktopToolRuntime } from "./DesktopToolRuntime";
 import { RemoteHostedPipRuntime } from "./RemoteHostedPipRuntime";
@@ -408,30 +407,6 @@ export const live: Layer.Layer<
     });
   }),
 );
-
-export interface ComputerUseSettingsRuntimeAdapter {
-  readonly getSnapshot: () => Promise<ComputerUseSettingsSnapshot>;
-  readonly removeAppApproval: (bundleIdentifier: string) => Promise<ComputerUseSettingsSnapshot>;
-  readonly removeMessageApproval: (chatGuid: string) => Promise<ComputerUseSettingsSnapshot>;
-  readonly setAlwaysHidePictureInPicture: (value: boolean) => Promise<ComputerUseSettingsSnapshot>;
-  readonly setLockedUseEnabled: (value: boolean) => Promise<ComputerUseSettingsSnapshot>;
-  readonly setSoundMode: (value: ComputerUseSoundMode) => Promise<ComputerUseSettingsSnapshot>;
-}
-
-export const makeComputerUseSettingsRuntimeAdapter = (
-  runtime: ComputerUseSettingsRuntime["Service"],
-  callbacks: ScopedCallbackRuntime["Service"],
-): ComputerUseSettingsRuntimeAdapter => ({
-  getSnapshot: () => callbacks.runPromise(runtime.getSnapshot),
-  removeAppApproval: (bundleIdentifier) =>
-    callbacks.runPromise(runtime.removeAppApproval(bundleIdentifier)),
-  removeMessageApproval: (chatGuid) =>
-    callbacks.runPromise(runtime.removeMessageApproval(chatGuid)),
-  setAlwaysHidePictureInPicture: (value) =>
-    callbacks.runPromise(runtime.setAlwaysHidePictureInPicture(value)),
-  setLockedUseEnabled: (value) => callbacks.runPromise(runtime.setLockedUseEnabled(value)),
-  setSoundMode: (value) => callbacks.runPromise(runtime.setSoundMode(value)),
-});
 
 export const testLayer = (
   ports: ComputerUseSettingsPorts,

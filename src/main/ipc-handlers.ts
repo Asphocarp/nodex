@@ -292,8 +292,7 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const { browserSidebarService, codexService, computerUseSettings, remoteHostedPip } =
-  getMainServiceComposition();
+const { browserSidebarService, codexService, remoteHostedPip } = getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
@@ -2951,36 +2950,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("browser-use-policy-update-origin-rule", async (event, input) => {
     requireTrustedAppRendererSender(event, "Browser Use origin policy update");
     return await getBrowserProfileServices().usePolicyStore.updateOriginRule(input);
-  });
-  registerHandle("computer-use-settings-get", async (event) => {
-    requireTrustedAppRendererSender(event, "Computer Use settings");
-    return await computerUseSettings.getSnapshot();
-  });
-  registerHandle("computer-use-settings-remove-app-approval", async (event, bundleIdentifier) => {
-    requireTrustedAppRendererSender(event, "Computer Use app approval update");
-    return await computerUseSettings.removeAppApproval(bundleIdentifier);
-  });
-  registerHandle("computer-use-settings-remove-message-approval", async (event, chatGuid) => {
-    requireTrustedAppRendererSender(event, "Computer Use message approval update");
-    return await computerUseSettings.removeMessageApproval(chatGuid);
-  });
-  registerHandle("computer-use-settings-set-always-hide-pip", async (event, alwaysHide) => {
-    requireTrustedAppRendererSender(event, "Computer Use picture-in-picture setting");
-    if (typeof alwaysHide !== "boolean") {
-      throw new Error("Computer Use picture-in-picture setting is invalid");
-    }
-    return await computerUseSettings.setAlwaysHidePictureInPicture(alwaysHide);
-  });
-  registerHandle("computer-use-settings-set-locked-use", async (event, enabled) => {
-    requireTrustedAppRendererSender(event, "Computer Use Locked Use setting");
-    if (typeof enabled !== "boolean") {
-      throw new Error("Computer Use Locked Use setting is invalid");
-    }
-    return await computerUseSettings.setLockedUseEnabled(enabled);
-  });
-  registerHandle("computer-use-settings-set-sound-mode", async (event, soundMode) => {
-    requireTrustedAppRendererSender(event, "Computer Use sound setting");
-    return await computerUseSettings.setSoundMode(soundMode);
   });
   registerHandle("browser-annotation-capture-evidence", async (event, rawInput) => {
     requireTrustedAppRendererSender(event, "Browser annotation evidence");
