@@ -316,11 +316,6 @@ interface TestableCodexService {
     requestId: string | number,
     answers: Record<string, string[]>,
   ) => Promise<boolean>;
-  setProjectPermissionMode: (
-    projectId: string | null,
-    mode: CodexPermissionMode,
-  ) => Promise<CodexPermissionState>;
-  getCustomPermissionModeDescription: (projectId: string | null) => Promise<string>;
   runScheduledAutomationNow: (
     input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
     rendererClientId?: string | null,
@@ -1456,6 +1451,11 @@ function createUserInputAutoResolutionTestClock() {
   };
 }
 
+const permissionStateByTestService = new WeakMap<
+  object,
+  Map<string | null, CodexPermissionState>
+>();
+
 function createService(options?: {
   runtimeStateHome?: string;
   inactiveRendererOwnerRetentionMs?: number;
@@ -1490,6 +1490,30 @@ function createService(options?: {
     clearTimeout?: (timer: unknown) => void;
   };
 }): TestableCodexService {
+  const permissionStateByScope = new Map<string | null, CodexPermissionState>();
+  const defaultPermissionState = (
+    workspaceRoots: readonly string[] = [],
+  ): CodexPermissionState => ({
+    mode: "auto",
+    effectivePreset: "auto",
+    availableModes: ["auto", "full-access", "custom"],
+    approvalPolicy: "on-request",
+    approvalsReviewer: "user",
+    sandboxMode: "workspace-write",
+    sandbox:
+      workspaceRoots.length === 0
+        ? null
+        : {
+            type: "workspaceWrite",
+            writableRoots: [...workspaceRoots],
+            networkAccess: false,
+            excludeTmpdirEnvVar: false,
+            excludeSlashTmp: false,
+          },
+    autoReviewAvailable: true,
+    configTarget: { source: "none", filePath: null },
+    customDescription: null,
+  });
   let managedWorktreeSettings: ManagedWorktreeSettings = options?.managedWorktreeSettings ?? {
     worktreeRoot: null,
     autoDeleteEnabled: true,
@@ -1570,6 +1594,37 @@ function createService(options?: {
       turnStarted: async () => undefined,
     },
     preferences: { current: () => "friendly" },
+    permissions: {
+      snapshot: async (projectId) =>
+        permissionStateByScope.get(projectId) ?? defaultPermissionState(),
+      resolve: async (input) => {
+        const current =
+          permissionStateByScope.get(input.projectId) ??
+          defaultPermissionState(input.workspaceRoots);
+        const state =
+          input.requestedMode === "full-access" && current.availableModes.includes("full-access")
+            ? {
+                ...current,
+                mode: "full-access" as const,
+                effectivePreset: "full-access" as const,
+                approvalPolicy: "never" as const,
+                sandboxMode: "danger-full-access" as const,
+                sandbox: { type: "dangerFullAccess" as const },
+              }
+            : input.requestedMode === "custom" && current.availableModes.includes("custom")
+              ? {
+                  ...current,
+                  mode: "custom" as const,
+                  effectivePreset: "custom" as const,
+                  approvalPolicy: null,
+                  sandboxMode: null,
+                  sandbox: null,
+                }
+              : current;
+        return { state, verifiedBuiltinFullAccess: false };
+      },
+      resolveAutomation: async (workspaceRoots) => defaultPermissionState(workspaceRoots),
+    },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
     serverRequestResponses: {
       respond: async (threadId, _requestId, occurrenceToken, response) =>
@@ -1611,6 +1666,7 @@ function createService(options?: {
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
     userInputAutoResolutionTimer: options?.userInputAutoResolutionTimer,
   }) as unknown as TestableCodexService;
+  permissionStateByTestService.set(service, permissionStateByScope);
   service.setAutomationModule(options?.automationModule ?? createTestAutomationModule());
   service.setProjectWorkspacePort(options?.projectWorkspace ?? createTestProjectWorkspace());
   service.setNodexAgentAuthorityPort(TEST_NODEX_AGENT_AUTHORITY);
@@ -5794,12 +5850,18 @@ function getRecordedItem(
   return null;
 }
 
+function installTestPermissionState(
+  service: unknown,
+  projectId: string | null,
+  state: CodexPermissionState,
+): void {
+  const stateByProject = permissionStateByTestService.get(service as object);
+  if (!stateByProject) throw new Error("Codex permission fixture was not installed");
+  stateByProject.set(projectId, state);
+}
+
 function installManualApprovalState(service: unknown, projectId: string): void {
-  const stateByProject = Reflect.get(service as object, "permissionStateByScope") as Map<
-    string,
-    CodexPermissionState
-  >;
-  stateByProject.set(projectId, {
+  installTestPermissionState(service, projectId, {
     mode: "auto",
     effectivePreset: "auto",
     availableModes: ["auto", "full-access", "custom"],
@@ -8397,9 +8459,8 @@ describe("codex-service startTurn", () => {
     }
   });
 
-  test("persists the projectless permission scope and applies it to the next turn", async () => {
-    const projectWorkspace = createTestProjectWorkspace();
-    const service = createService({ projectWorkspace });
+  test("applies the selected projectless permission scope to the next turn", async () => {
+    const service = createService();
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string | null; cwd: string | null } | null;
       markThreadAsActive: (threadId: string) => void;
@@ -8409,12 +8470,20 @@ describe("codex-service startTurn", () => {
       start: () => Promise<void>;
       request: (method: string, params: unknown) => Promise<unknown>;
     };
-    const config: Record<string, unknown> = {
-      sandbox_mode: "workspace-write",
-      approval_policy: "on-request",
-      approvals_reviewer: "user",
-    };
     const requests: Array<{ method: string; params: unknown }> = [];
+
+    installTestPermissionState(service, null, {
+      mode: "full-access",
+      effectivePreset: "full-access",
+      availableModes: ["auto", "full-access", "custom"],
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      sandboxMode: "danger-full-access",
+      sandbox: { type: "dangerFullAccess" },
+      autoReviewAvailable: true,
+      configTarget: { source: "none", filePath: null },
+      customDescription: null,
+    });
 
     serviceInternals.parseThreadRef = () => ({
       projectId: null,
@@ -8425,20 +8494,6 @@ describe("codex-service startTurn", () => {
     client.start = async () => undefined;
     client.request = async (method: string, params: unknown) => {
       requests.push({ method, params });
-      if (method === "config/read") {
-        return { config, origins: {} };
-      }
-      if (method === "configRequirements/read") {
-        return { requirements: null };
-      }
-      if (method === "config/batchWrite") {
-        const edits =
-          (params as { edits?: Array<{ keyPath?: string; value?: unknown }> }).edits ?? [];
-        for (const edit of edits) {
-          if (edit.keyPath) config[edit.keyPath] = edit.value;
-        }
-        return {};
-      }
       if (method === "turn/start") {
         return {
           turn: {
@@ -8452,10 +8507,6 @@ describe("codex-service startTurn", () => {
     };
 
     try {
-      const state = await service.setProjectPermissionMode(null, "full-access");
-      expect(state.mode).toBe("full-access");
-      expect(await projectWorkspace.readProjectlessPermissionMode()).toBe("full-access");
-
       const startedTurn = await service.startTurn("thread-projectless", "Use the selected mode");
       expect(startedTurn?.turnId).toBe("turn_projectless_full_access");
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
@@ -8463,48 +8514,6 @@ describe("codex-service startTurn", () => {
         approvalPolicy: "never",
         sandboxPolicy: { type: "dangerFullAccess" },
       });
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("does not persist a preset when its config write fails", async () => {
-    const projectWorkspace = createTestProjectWorkspace();
-    const service = createService({ projectWorkspace });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-
-    client.start = async () => undefined;
-    client.request = async (method: string) => {
-      if (method === "config/read") {
-        return {
-          config: {
-            sandbox_mode: "workspace-write",
-            approval_policy: "on-request",
-            approvals_reviewer: "user",
-          },
-          origins: {},
-        };
-      }
-      if (method === "configRequirements/read") {
-        return { requirements: null };
-      }
-      if (method === "config/batchWrite") {
-        throw new Error("config write failed");
-      }
-      throw new Error(`Unexpected app-server request: ${method}`);
-    };
-
-    try {
-      const state = await service.setProjectPermissionMode("project:one", "full-access");
-      expect(state.mode).toBe("auto");
-      expect(await projectWorkspace.readProjectPermissionMode("project:one")).toBeNull();
-      expect(
-        (Reflect.get(service as object, "verifiedPermissionModeByProject") as Map<string, unknown>)
-          .size,
-      ).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -8665,7 +8674,7 @@ describe("codex-service startTurn", () => {
       const startedTurn = await service.startTurn("thr_start", "Ship the fix");
       expect(startedTurn?.turnId).toBe("turn_retry");
       expect(requests.map((request) => request.method).join(",")).toBe(
-        "config/read,configRequirements/read,turn/start,thread/read,thread/resume,thread/goal/get,turn/start",
+        "turn/start,thread/read,thread/resume,thread/goal/get,turn/start",
       );
       expect(resumeOrder.join(",")).toBe("replay-after-hydration,turn-retry");
       const resumeRequest = requests.find((request) => request.method === "thread/resume");

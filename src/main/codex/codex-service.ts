@@ -209,6 +209,7 @@ import type {
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
+import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
@@ -272,10 +273,8 @@ import type { CodexAttachments } from "../codex-application/CodexAttachments";
 import type { ServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import {
-  buildPermissionModeConfigEdits,
   buildThreadPermissionOverrides,
   buildTurnPermissionOverrides,
-  resolveCodexPermissionState,
 } from "./codex-permission-resolver";
 import { reconcileCodexThreadTimestamps } from "./codex-thread-timestamps";
 import { resolveCodexThreadMaterializationOwner } from "./codex-thread-materialization-owner";
@@ -1067,12 +1066,6 @@ interface PendingPrivateServerRequest {
   reject: (reason?: unknown) => void;
 }
 
-interface CodexAutomationPermissionContext {
-  config: ConfigReadResponse["config"];
-  origins: ConfigReadResponse["origins"];
-  requirements: ConfigRequirementsReadResponse["requirements"];
-}
-
 interface PendingDynamicToolCall {
   request: CodexServerRequest & { method: "item/tool/call"; params: DynamicToolCallParams };
   nodexAuthority: FrozenNodexAgentTurnAuthority | null;
@@ -1409,6 +1402,7 @@ type CodexServiceOptions = {
   agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   composerCatalog: ComposerCatalogPromiseAdapter;
   preferences: Pick<CodexPreferences["Service"], "current">;
+  permissions: CodexPermissionsPromiseAdapter;
   client: CodexApplicationClient;
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
@@ -2604,6 +2598,7 @@ export class CodexService extends EventEmitter {
   private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter;
   private readonly preferences: Pick<CodexPreferences["Service"], "current">;
+  private readonly permissions: CodexPermissionsPromiseAdapter;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
   private readonly runtimeVersion: string | null;
@@ -2666,8 +2661,6 @@ export class CodexService extends EventEmitter {
     "Nodex Agent resource authority",
   );
 
-  private readonly permissionStateByScope = new Map<string | null, CodexPermissionState>();
-  private readonly verifiedPermissionModeByProject = new Map<string, CodexPermissionMode>();
   private readonly pendingApprovals = new PendingServerRequestRegistry<PendingApproval>();
   private readonly pendingUserInputs = new PendingServerRequestRegistry<PendingUserInput>();
   private readonly pendingMcpElicitations =
@@ -2832,6 +2825,7 @@ export class CodexService extends EventEmitter {
     this.agentProviderRuntime = options.agentProviderRuntime;
     this.composerCatalog = options.composerCatalog;
     this.preferences = options.preferences;
+    this.permissions = options.permissions;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.desktopTools = options.desktopTools;
@@ -7069,340 +7063,19 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private permissionStateMatchesSelectedMode(
-    state: CodexPermissionState,
-    mode: Exclude<CodexPermissionMode, "custom">,
-  ): boolean {
-    if (!state.availableModes.includes(mode)) return false;
-    if (mode === "full-access") {
-      return (
-        state.sandboxMode === "danger-full-access" &&
-        state.approvalPolicy === "never" &&
-        state.approvalsReviewer === "user"
-      );
-    }
-    if (mode === "guardian-approvals") {
-      return (
-        state.sandboxMode === "workspace-write" &&
-        state.approvalPolicy === "on-request" &&
-        state.approvalsReviewer === "auto_review"
-      );
-    }
-    return (
-      state.sandboxMode === "workspace-write" &&
-      state.approvalPolicy === "on-request" &&
-      state.approvalsReviewer === "user"
-    );
-  }
-
-  private async applyPersistedPermissionModeSelection(
-    projectId: string | null,
-    state: CodexPermissionState,
-    workspaceRoots: readonly string[],
-  ): Promise<CodexPermissionState> {
-    const selection = await this.readPersistedPermissionMode(projectId);
-    if (!selection) {
-      if (projectId !== null) {
-        this.verifiedPermissionModeByProject.delete(projectId);
-      }
-      return state;
-    }
-    if (projectId !== null && selection !== "full-access") {
-      this.verifiedPermissionModeByProject.delete(projectId);
-    }
-    if (selection === "custom") {
-      return this.buildFallbackPermissionState(selection, workspaceRoots, state);
-    }
-    if (!this.permissionStateMatchesSelectedMode(state, selection)) {
-      if (projectId !== null) {
-        this.verifiedPermissionModeByProject.delete(projectId);
-      }
-      return state;
-    }
-    if (projectId !== null && selection === "full-access") {
-      this.verifiedPermissionModeByProject.set(projectId, selection);
-    }
-    return this.buildFallbackPermissionState(selection, workspaceRoots, state);
-  }
-
-  private isVerifiedBuiltinFullAccess(
-    projectId: string | null,
-    state: CodexPermissionState,
-  ): boolean {
-    return (
-      projectId !== null &&
-      state.mode === "full-access" &&
-      this.verifiedPermissionModeByProject.get(projectId) === "full-access"
-    );
-  }
-
   private async readPermissionState(projectId: string | null): Promise<CodexPermissionState> {
-    const cached = this.permissionStateByScope.get(projectId);
-    if (cached) {
-      return cached;
-    }
-
-    const project = projectId === null ? null : await this.projectWorkspace.getProject(projectId);
-    const workspaceRoots =
-      project?.sources.map((source) => source.root).filter((root) => root.trim().length > 0) ?? [];
-
-    try {
-      await this.ensureClientReady();
-
-      const [configResult, requirementsResult] = await Promise.all([
-        this.client.request<"config/read", ConfigReadResponse>("config/read", {
-          includeLayers: true,
-        } satisfies ConfigReadParams),
-        this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>(
-          "configRequirements/read",
-          undefined,
-        ),
-      ]);
-
-      const resolvedState = resolveCodexPermissionState({
-        config: configResult.config,
-        origins: configResult.origins,
-        requirements: requirementsResult.requirements,
-        defaultUserConfigPath: path.join(this.runtimeStateHome, "config.toml"),
-        workspaceRoots,
-      });
-      const nextState = await this.applyPersistedPermissionModeSelection(
-        projectId,
-        resolvedState,
-        workspaceRoots,
-      );
-      this.permissionStateByScope.set(projectId, nextState);
-      return nextState;
-    } catch {
-      const fallbackState = this.buildFallbackPermissionState(
-        this.permissionStateByScope.get(projectId)?.mode ?? "auto",
-        workspaceRoots,
-        this.permissionStateByScope.get(projectId) ?? null,
-      );
-      this.permissionStateByScope.set(projectId, fallbackState);
-      return fallbackState;
-    }
+    return await this.permissions.snapshot(projectId);
   }
 
-  private buildFallbackPermissionState(
-    mode: CodexPermissionMode,
-    workspaceRoots: readonly string[],
-    previous: CodexPermissionState | null,
-  ): CodexPermissionState {
-    const configTarget = previous?.configTarget ?? {
-      source: "user" as const,
-      filePath: path.join(this.runtimeStateHome, "config.toml"),
-    };
-
-    if (mode === "custom") {
-      return {
-        mode: "custom",
-        effectivePreset: "custom",
-        availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
-        approvalPolicy: previous?.approvalPolicy ?? null,
-        approvalsReviewer: previous?.approvalsReviewer ?? "user",
-        sandboxMode: previous?.sandboxMode ?? null,
-        sandbox: previous?.sandbox ?? null,
-        autoReviewAvailable: previous?.autoReviewAvailable ?? false,
-        configTarget,
-        customDescription:
-          previous?.customDescription ?? "The agent will use its built-in permission defaults.",
-      };
-    }
-
-    const autoReviewAvailable = previous?.autoReviewAvailable ?? true;
-    const approvalsReviewer =
-      mode === "guardian-approvals" && autoReviewAvailable ? "auto_review" : "user";
-    const sandbox =
-      mode === "full-access"
-        ? { type: "dangerFullAccess" as const }
-        : workspaceRoots.length > 0
-          ? {
-              type: "workspaceWrite" as const,
-              writableRoots: [...workspaceRoots],
-              networkAccess:
-                previous?.sandbox?.type === "workspaceWrite"
-                  ? previous.sandbox.networkAccess
-                  : false,
-              excludeTmpdirEnvVar:
-                previous?.sandbox?.type === "workspaceWrite"
-                  ? previous.sandbox.excludeTmpdirEnvVar
-                  : false,
-              excludeSlashTmp:
-                previous?.sandbox?.type === "workspaceWrite"
-                  ? previous.sandbox.excludeSlashTmp
-                  : false,
-            }
-          : null;
-
-    return {
-      mode,
-      effectivePreset: mode === "guardian-approvals" && !autoReviewAvailable ? "auto" : mode,
-      availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
-      approvalPolicy: mode === "full-access" ? "never" : "on-request",
-      approvalsReviewer,
-      sandboxMode: mode === "full-access" ? "danger-full-access" : "workspace-write",
-      sandbox,
-      autoReviewAvailable,
-      configTarget,
-      customDescription:
-        previous?.customDescription ?? "The agent will use its built-in permission defaults.",
-    };
-  }
-
-  private resolvePermissionStateForRequest(
-    permissionState: CodexPermissionState,
+  private async resolvePermissionStateForRequest(
+    projectId: string | null,
     mode: CodexPermissionMode | undefined,
     workspaceRoots: readonly string[],
-  ): CodexPermissionState {
-    if (!mode || mode === permissionState.mode) {
-      return permissionState;
-    }
-    if (!permissionState.availableModes.includes(mode)) {
-      return permissionState;
-    }
-    // Per-request selection controls Codex execution. Nodex Library authority
-    // still requires the independently persisted and verified built-in preset.
-    return this.buildFallbackPermissionState(mode, workspaceRoots, permissionState);
-  }
-
-  private async readAutomationPermissionContext(): Promise<CodexAutomationPermissionContext | null> {
-    try {
-      await this.ensureClientReady();
-      const [configResult, requirementsResult] = await Promise.all([
-        this.client.request<"config/read", ConfigReadResponse>("config/read", {
-          includeLayers: true,
-        } satisfies ConfigReadParams),
-        this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>(
-          "configRequirements/read",
-          undefined,
-        ),
-      ]);
-      return {
-        config: configResult.config,
-        origins: configResult.origins,
-        requirements: requirementsResult.requirements,
-      };
-    } catch (error) {
-      this.logger.warn("Failed to load scheduled automation permission config", {
-        error,
-      });
-      return null;
-    }
-  }
-
-  private resolveAutomationPermissionState(
-    context: CodexAutomationPermissionContext | null,
-    workspaceRoots: string[],
-  ): CodexPermissionState {
-    if (!context) {
-      return this.buildFallbackPermissionState("auto", workspaceRoots, null);
-    }
-
-    return resolveCodexPermissionState({
-      config: context.config,
-      origins: context.origins,
-      requirements: context.requirements,
-      defaultUserConfigPath: path.join(this.runtimeStateHome, "config.toml"),
-      workspaceRoots,
-    });
-  }
-
-  private invalidatePermissionState(projectId: string | null): void {
-    this.permissionStateByScope.delete(projectId);
-    if (projectId !== null) {
-      this.verifiedPermissionModeByProject.delete(projectId);
-    }
-  }
-
-  private async readPersistedPermissionMode(
-    projectId: string | null,
-  ): Promise<CodexPermissionMode | null> {
-    return projectId === null
-      ? await this.projectWorkspace.readProjectlessPermissionMode()
-      : await this.projectWorkspace.readProjectPermissionMode(projectId);
-  }
-
-  private async setPersistedPermissionMode(
-    projectId: string | null,
-    mode: CodexPermissionMode,
-  ): Promise<void> {
-    if (projectId === null) {
-      await this.projectWorkspace.setProjectlessPermissionMode(mode);
-      return;
-    }
-    await this.projectWorkspace.setProjectPermissionMode(projectId, mode);
-  }
-
-  async getPermissionState(projectId: string | null): Promise<CodexPermissionState> {
-    return await this.readPermissionState(projectId);
-  }
-
-  async getCustomPermissionModeDescription(projectId: string | null): Promise<string> {
-    const state = await this.readPermissionState(projectId);
-    return state.customDescription ?? "The agent will use its built-in permission defaults.";
-  }
-
-  async setProjectPermissionMode(
-    projectId: string | null,
-    mode: CodexPermissionMode,
-  ): Promise<CodexPermissionState> {
-    const current = await this.readPermissionState(projectId);
-    if (!current.availableModes.includes(mode)) {
-      return current;
-    }
-
-    const edits = buildPermissionModeConfigEdits(mode);
-    if (edits.length === 0) {
-      await this.setPersistedPermissionMode(projectId, mode);
-      this.invalidatePermissionState(projectId);
-      return await this.readPermissionState(projectId);
-    }
-
-    const params: ConfigBatchWriteParams = {
-      edits,
-      filePath: current.configTarget.filePath,
-      reloadUserConfig: current.configTarget.source === "user",
-    };
-    try {
-      await this.client.request("config/batchWrite", params);
-    } catch {
-      return current;
-    }
-    try {
-      await this.setPersistedPermissionMode(projectId, mode);
-    } catch (error) {
-      this.invalidatePermissionState(projectId);
-      throw error;
-    }
-    this.invalidatePermissionState(projectId);
-    return await this.readPermissionState(projectId);
-  }
-
-  async setPermissionConfigValue(
-    projectId: string | null,
-    keyPath: string,
-    value: unknown,
-  ): Promise<CodexPermissionState> {
-    const current = await this.readPermissionState(projectId);
-    try {
-      await this.client.request("config/value/write", {
-        keyPath,
-        value,
-        filePath: current.configTarget.filePath,
-        reloadUserConfig: current.configTarget.source === "user",
-      });
-    } catch {
-      return current;
-    }
-    try {
-      await this.setPersistedPermissionMode(projectId, "custom");
-    } catch (error) {
-      this.invalidatePermissionState(projectId);
-      throw error;
-    }
-    this.invalidatePermissionState(projectId);
-    return await this.readPermissionState(projectId);
+  ): Promise<{
+    readonly state: CodexPermissionState;
+    readonly verifiedBuiltinFullAccess: boolean;
+  }> {
+    return await this.permissions.resolve({ projectId, requestedMode: mode, workspaceRoots });
   }
 
   async scanAgentImport(
@@ -7571,10 +7244,6 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "threadSummary", thread: summary });
     }
     await this.emitSidebarCatalogChangedForThread(thread.id, "host-message");
-  }
-
-  async getProjectPermissionMode(projectId: string | null): Promise<CodexPermissionMode> {
-    return (await this.readPermissionState(projectId)).mode;
   }
 
   async shutdown(): Promise<void> {
@@ -10812,13 +10481,16 @@ export class CodexService extends EventEmitter {
       collaborationMode: input.collaborationMode,
     };
     const actorProjectId = this.parseThreadRef(resumedThread.threadId)?.projectId ?? null;
-    const actorPermissionState =
-      actorProjectId && !input.permissions ? await this.readPermissionState(actorProjectId) : null;
+    const actorPermissionDecision =
+      actorProjectId && !input.permissions
+        ? await this.permissions.resolve({
+            projectId: actorProjectId,
+            workspaceRoots: [resumedThread.cwd],
+          })
+        : null;
     const authorityLaunch = await this.beginNodexAgentTurnAuthority(
       resumedThread.threadId,
-      actorPermissionState
-        ? this.isVerifiedBuiltinFullAccess(actorProjectId, actorPermissionState)
-        : false,
+      actorPermissionDecision?.verifiedBuiltinFullAccess ?? false,
     );
     let turnStart: TurnStartResponse;
     try {
@@ -10948,8 +10620,7 @@ export class CodexService extends EventEmitter {
   }
 
   private async resolveHeartbeatPermissionContext(cwd: string) {
-    const permissionContext = await this.readAutomationPermissionContext();
-    const permissionState = this.resolveAutomationPermissionState(permissionContext, [cwd]);
+    const permissionState = await this.permissions.resolveAutomation([cwd]);
     return {
       turnOverrides: buildTurnPermissionOverrides({
         permissionState,
@@ -11070,7 +10741,6 @@ export class CodexService extends EventEmitter {
       });
       managedWorktreePath = runLocation.managedWorktreePath;
       projectlessOutputDirectory = runLocation.projectlessOutputDirectory;
-      const permissionContext = await this.readAutomationPermissionContext();
       const threadWorkspaceRoots = runLocation.projectlessOutputDirectory
         ? []
         : runLocation.workspaceRoots;
@@ -11079,14 +10749,10 @@ export class CodexService extends EventEmitter {
         sourceCwd: input.cwd,
         runLocation,
       });
-      const threadPermissionState = this.resolveAutomationPermissionState(
-        permissionContext,
-        threadWorkspaceRoots,
-      );
-      const turnPermissionState = this.resolveAutomationPermissionState(
-        permissionContext,
-        turnWorkspaceRoots,
-      );
+      const [threadPermissionState, turnPermissionState] = await Promise.all([
+        this.permissions.resolveAutomation(threadWorkspaceRoots),
+        this.permissions.resolveAutomation(turnWorkspaceRoots),
+      ]);
       const threadPermissionOverrides = buildThreadPermissionOverrides({
         permissionState: threadPermissionState,
       });
@@ -16066,7 +15732,7 @@ export class CodexService extends EventEmitter {
 
     const projectContext = await this.requirePrimaryWorkspaceRoot(input.request.projectId);
     const sourceWorkspaceRoot = projectContext.primaryWorkspaceRoot;
-    const [startingState, destinationSnapshot, permissionState] = await Promise.all([
+    const [startingState, destinationSnapshot] = await Promise.all([
       input.request.worktreeStartingState
         ? Promise.resolve(input.request.worktreeStartingState)
         : resolveManagedWorktreeDefaultStartingState(sourceWorkspaceRoot, input.signal),
@@ -16079,15 +15745,15 @@ export class CodexService extends EventEmitter {
         projectlessOutputDirectory: null,
         projectlessWorkspaceBrowserRoot: null,
       }),
-      this.readPermissionState(input.request.projectId),
     ]);
     if (input.signal?.aborted) throw new Error("Request canceled");
 
-    const effectivePermissionState = this.resolvePermissionStateForRequest(
-      permissionState,
+    const permissionDecision = await this.resolvePermissionStateForRequest(
+      input.request.projectId,
       input.request.permissionMode,
       projectContext.workspaceRoots,
     );
+    const effectivePermissionState = permissionDecision.state;
     const collaborationMode = await this.buildCollaborationModePayload({
       ...(input.effectiveCollaborationMode
         ? { collaborationMode: input.effectiveCollaborationMode }
@@ -16450,12 +16116,12 @@ export class CodexService extends EventEmitter {
         throw new Error("Request canceled");
       };
       throwIfWorktreeStartCanceled();
-      const resolvedPermissionState = await this.readPermissionState(input.projectId);
-      const effectivePermissionState = this.resolvePermissionStateForRequest(
-        resolvedPermissionState,
+      const permissionDecision = await this.resolvePermissionStateForRequest(
+        input.projectId,
         input.permissionMode,
         runLocation.workspaceRoots,
       );
+      const effectivePermissionState = permissionDecision.state;
       const permissionMode = effectivePermissionState.mode;
       const turnPermissionOverrides = buildTurnPermissionOverrides({
         permissionState: effectivePermissionState,
@@ -16756,10 +16422,7 @@ export class CodexService extends EventEmitter {
           clientUserMessageId,
           canonicalParams: canonicalTurnParams,
           turnStartParams,
-          verifiedBuiltinFullAccess: this.isVerifiedBuiltinFullAccess(
-            input.projectId,
-            effectivePermissionState,
-          ),
+          verifiedBuiltinFullAccess: permissionDecision.verifiedBuiltinFullAccess,
           goalObjective: materializedGoalObjective,
           rawGoalDraft: input.threadGoalDraft ?? null,
           heartbeatAutomation: input.heartbeatAutomation,
@@ -16794,7 +16457,7 @@ export class CodexService extends EventEmitter {
       const startedTurn = await this.dispatchCanonicalOptimisticTurn({
         authorityLaunch: await this.beginNodexAgentTurnAuthority(
           link.threadId,
-          this.isVerifiedBuiltinFullAccess(input.projectId, effectivePermissionState),
+          permissionDecision.verifiedBuiltinFullAccess,
         ),
         canonicalParams: canonicalTurnParams,
         clientUserMessageId,
@@ -19845,14 +19508,14 @@ export class CodexService extends EventEmitter {
       }),
     };
     const projectId = this.parseThreadRef(threadId)?.projectId ?? null;
-    const permissionState = this.resolvePermissionStateForRequest(
-      await this.readPermissionState(projectId),
+    const permissionDecision = await this.resolvePermissionStateForRequest(
+      projectId,
       undefined,
       detail?.cwd ? [detail.cwd] : [],
     );
     const authorityLaunch = await this.beginNodexAgentTurnAuthority(
       threadId,
-      this.isVerifiedBuiltinFullAccess(projectId, permissionState),
+      permissionDecision.verifiedBuiltinFullAccess,
     );
     try {
       const response = await this.client.request<"turn/start", TurnStartResponse>(
@@ -20001,12 +19664,12 @@ export class CodexService extends EventEmitter {
       ? [threadCwd]
       : (projectRunContext?.workspaceRoots ??
         (fallbackWorkspacePath ? [fallbackWorkspacePath] : []));
-    const resolvedPermissionState = await this.readPermissionState(threadRef?.projectId ?? null);
-    const permissionState = this.resolvePermissionStateForRequest(
-      resolvedPermissionState,
+    const permissionDecision = await this.resolvePermissionStateForRequest(
+      threadRef?.projectId ?? null,
       overrides?.permissionMode,
       workspaceRoots,
     );
+    const permissionState = permissionDecision.state;
     const permissionMode = permissionState.mode;
     let turnPermissionOverrides = buildTurnPermissionOverrides({
       permissionState,
@@ -20045,7 +19708,7 @@ export class CodexService extends EventEmitter {
       }
       const authorityLaunch = await this.beginNodexAgentTurnAuthority(
         threadId,
-        this.isVerifiedBuiltinFullAccess(threadRef?.projectId ?? null, permissionState),
+        permissionDecision.verifiedBuiltinFullAccess,
       );
 
       this.logger.info("Starting Codex turn", {
@@ -23681,6 +23344,15 @@ export class CodexService extends EventEmitter {
     };
     await this.markThreadAsActive(threadId);
     this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
+    const permissionDecision =
+      input.projectSessionId && input.target.projectId && input.permissionSelection
+        ? await this.permissions.resolve({
+            projectId: input.target.projectId,
+            requestedMode:
+              input.permissionSelection.mode === "full-access" ? "full-access" : undefined,
+            workspaceRoots: input.target.workspaceRoots,
+          })
+        : null;
     const firstTurnPromise = this.dispatchDynamicCreateFirstTurn({
       ...(input.firstTurnAdditionalContext
         ? { additionalContext: input.firstTurnAdditionalContext }
@@ -23690,12 +23362,9 @@ export class CodexService extends EventEmitter {
       collaborationMode,
       cwd: effectiveCwd,
       inputItems: delegatedInput,
-      nodexBuiltinFullAccess: Boolean(
-        input.projectSessionId &&
-        input.target.projectId &&
+      nodexBuiltinFullAccess:
         input.permissionSelection?.mode === "full-access" &&
-        this.verifiedPermissionModeByProject.get(input.target.projectId) === "full-access",
-      ),
+        permissionDecision?.verifiedBuiltinFullAccess === true,
       ...(turnPermissionSelection
         ? { permissionOverrides: turnPermissionSelection.turnParams }
         : {}),

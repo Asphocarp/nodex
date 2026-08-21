@@ -77,6 +77,11 @@ import {
   live as codexPreferencesLive,
 } from "../codex-application/CodexPreferences";
 import {
+  CodexPermissions,
+  live as codexPermissionsLive,
+} from "../codex-application/CodexPermissions";
+import { makeCodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
+import {
   CodexAttachments,
   live as codexAttachmentsLive,
 } from "../codex-application/CodexAttachments";
@@ -100,6 +105,7 @@ import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as AutomationIpc from "../ipc/handlers/AutomationIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
+import * as CodexPermissionsIpc from "../ipc/handlers/CodexPermissionsIpc";
 import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
@@ -885,6 +891,31 @@ export const live: Layer.Layer<
         const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
+        const codexPermissionsContext = yield* Layer.buildWithScope(
+          codexPermissionsLive({ runtimeStateHome }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CoreModules, coreModules),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const codexPermissions = Context.get(codexPermissionsContext, CodexPermissions);
+        yield* Layer.buildWithScope(
+          CodexPermissionsIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexPermissions, codexPermissions),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -893,6 +924,7 @@ export const live: Layer.Layer<
               composerCatalog,
               desktopTools,
               preferences,
+              permissions: makeCodexPermissionsPromiseAdapter(codexPermissions, callbacks),
               attachments: attachments.legacy,
               serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
                 approvalCoordinator,

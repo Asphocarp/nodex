@@ -760,38 +760,6 @@ export const codexIpcLive = (
           codexService.setConversationUnreadState(conversationId, hasUnreadTurn),
       );
 
-      registerHandle(
-        "codex:permission:mode:set",
-        async (
-          _,
-          projectId: string | null,
-          mode: "auto" | "guardian-approvals" | "full-access" | "custom",
-        ) => {
-          return await codexService.setProjectPermissionMode(projectId, mode);
-        },
-      );
-
-      registerHandle("codex:permission:mode:get", async (_, projectId: string | null) => {
-        return await codexService.getProjectPermissionMode(projectId);
-      });
-
-      registerHandle("codex:permission:state:get", async (_, projectId: string | null) => {
-        return await codexService.getPermissionState(projectId);
-      });
-
-      registerHandle(
-        "codex:permission:config-value:set",
-        async (_, projectId: string | null, keyPath: string, value: unknown) => {
-          return await codexService.setPermissionConfigValue(projectId, keyPath, value);
-        },
-      );
-
-      registerHandle(
-        "codex:permission:custom-description:get",
-        async (_, projectId: string | null) => {
-          return await codexService.getCustomPermissionModeDescription(projectId);
-        },
-      );
       yield* Effect.all(registrations, { discard: true });
     }),
   );

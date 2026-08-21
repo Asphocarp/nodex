@@ -4,14 +4,12 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import type { CodexService } from "../../codex/codex-service";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
-import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
-import { codexIpcLive } from "../../ipc-handlers";
+import { CodexPermissions } from "../../codex-application/CodexPermissions";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
+import { live } from "./CodexPermissionsIpc";
 
-it.effect("owns the remaining Codex application ingress with the Main Scope", () =>
+it.effect("registers the permission ingress against its owning module", () =>
   Effect.gen(function* () {
     const channels = new Set<string>();
     const ipc = ElectronIpc.of({
@@ -24,21 +22,24 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         ),
       on: () => Effect.die("unused"),
     } as unknown as ElectronIpc["Service"]);
+    const permissions = CodexPermissions.of({
+      snapshot: () => Effect.die("unused"),
+      resolve: () => Effect.die("unused"),
+      resolveAutomation: () => Effect.die("unused"),
+      setMode: () => Effect.die("unused"),
+      setConfigValue: () => Effect.die("unused"),
+      customDescription: () => Effect.die("unused"),
+    });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      codexIpcLive({
-        codexService: {} as CodexService,
-        projectWorkspace: {} as DesktopProjectWorkspacePort,
-        rendererClientRouter: {} as RendererClientRouter,
-        terminalRuntime: { runAction: () => Promise.resolve() },
-      }).pipe(
+      live.pipe(
         Layer.provide(
           Layer.mergeAll(
+            Layer.succeed(CodexPermissions, permissions),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, {
               has: () => true,
-              resolveSessionId: () => "window-session",
             } as unknown as WindowRuntime["Service"]),
           ),
         ),
@@ -46,11 +47,13 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
       scope,
     );
 
-    assert.strictEqual(channels.size, 81);
-    assert.isTrue(channels.has("codex:threads:list"));
-    assert.isTrue(channels.has("codex:turn:start"));
-    assert.isFalse(channels.has("codex:permission:custom-description:get"));
-
+    assert.deepEqual([...channels].sort(), [
+      "codex:permission:config-value:set",
+      "codex:permission:custom-description:get",
+      "codex:permission:mode:get",
+      "codex:permission:mode:set",
+      "codex:permission:state:get",
+    ]);
     yield* Scope.close(scope, Exit.void);
     assert.strictEqual(channels.size, 0);
   }),
