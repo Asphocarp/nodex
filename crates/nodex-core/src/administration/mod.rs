@@ -8,6 +8,7 @@ mod tests;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, TryLockError};
+use std::time::Duration;
 
 use nodex_core_contracts::administration::{
     BackupRecord, MaintenanceTask, SchemaOwner, StoreAdministrationCommitValue,
@@ -47,6 +48,8 @@ const MAX_OPERATION_ID_BYTES: usize = 512;
 const MAX_LABEL_CHARS: usize = 512;
 const MAX_BACKUPS: usize = 200;
 const DEFAULT_BLOCK_RETENTION_COUNT: usize = 10_000;
+const BLOCK_RETENTION_SLICE_CANDIDATES: usize = 8;
+const BLOCK_RETENTION_SLICE_TARGET: Duration = Duration::from_millis(100);
 
 type StoreReplacementHook = Arc<dyn Fn(&str) -> Result<(), StoreError> + Send + Sync>;
 
@@ -658,6 +661,15 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no durable writer",
             ));
         };
+        let retention_readers = if tasks.contains(&MaintenanceTask::BlockRetention) {
+            Some(
+                self.readers
+                    .clone()
+                    .ok_or_else(|| unavailable("Store Administration Module has no readers"))?,
+            )
+        } else {
+            None
+        };
         let StoreAdministrationIntent::RunMaintenance {
             block_retention_count,
             ..
@@ -686,7 +698,6 @@ impl StoreAdministrationModule {
         let finish_context = context.clone();
         let operation_id = request.operation_id;
         let requested_store_epoch = request.store_epoch.0;
-        let tasks_for_write = tasks.clone();
         let block_retention_count = block_retention_count
             .as_ref()
             .map(|count| {
@@ -700,30 +711,149 @@ impl StoreAdministrationModule {
                 MaintenanceTask::IntegrityCheck | MaintenanceTask::ForeignKeyCheck
             )
         });
-        let result = writer.call(move |connection| {
-            assert_identity(connection, &profile_id, &library_id)?;
-            let store_epoch = read_store_epoch(connection)?;
-            if requested_store_epoch != store_epoch {
-                return Err(stale_store_epoch());
+        let preflight = {
+            let profile_id = profile_id.clone();
+            let library_id = library_id.clone();
+            let operation_id = operation_id.clone();
+            let request_hash = request_hash.clone();
+            let requested_store_epoch = requested_store_epoch.clone();
+            writer.call(move |connection| {
+                validate_maintenance_attempt(
+                    connection,
+                    &profile_id,
+                    &library_id,
+                    &requested_store_epoch,
+                )?;
+                replay_outcome(connection, &operation_id, &request_hash)
+            })
+        };
+        let result = match preflight {
+            Ok(Some(outcome)) => Ok(outcome),
+            Ok(None) => {
+                let mut task_result = Ok(());
+                for task in &tasks {
+                    if task_result.is_err() {
+                        break;
+                    }
+                    if *task == MaintenanceTask::BlockRetention {
+                        let retain_count =
+                            block_retention_count.unwrap_or(DEFAULT_BLOCK_RETENTION_COUNT);
+                        let planning_profile_id = profile_id.clone();
+                        let planning_library_id = library_id.clone();
+                        let planning_store_epoch = requested_store_epoch.clone();
+                        let readers = retention_readers
+                            .as_ref()
+                            .expect("Block retention readers were validated");
+                        let planned = readers.read_default(move |connection| {
+                            let transaction = connection.unchecked_transaction()?;
+                            validate_maintenance_attempt(
+                                &transaction,
+                                &planning_profile_id,
+                                &planning_library_id,
+                                &planning_store_epoch,
+                            )?;
+                            let plan = crate::document::plan_block_retention_pass(
+                                &transaction,
+                                retain_count,
+                            )?;
+                            transaction.commit()?;
+                            Ok(plan)
+                        });
+                        task_result = planned.and_then(|planned| {
+                            let mut cursor = 0;
+                            while cursor < planned.len() {
+                                let slice =
+                                    planned.slice_from(cursor, BLOCK_RETENTION_SLICE_CANDIDATES)?;
+                                let profile_id = profile_id.clone();
+                                let library_id = library_id.clone();
+                                let requested_store_epoch = requested_store_epoch.clone();
+                                let processed = writer.call(move |connection| {
+                                    validate_maintenance_attempt(
+                                        connection,
+                                        &profile_id,
+                                        &library_id,
+                                        &requested_store_epoch,
+                                    )?;
+                                    let result =
+                                        crate::document::run_bounded_block_retention_slice(
+                                            connection,
+                                            &slice,
+                                            retain_count,
+                                            BLOCK_RETENTION_SLICE_TARGET,
+                                        )?;
+                                    Ok(result.processed_candidates)
+                                })?;
+                                if processed == 0 {
+                                    return Err(StoreError::new(
+                                        StoreErrorCode::Internal,
+                                        "Block retention slice made no progress",
+                                        false,
+                                    ));
+                                }
+                                cursor = cursor.checked_add(processed).ok_or_else(|| {
+                                    StoreError::new(
+                                        StoreErrorCode::StoreCorrupt,
+                                        "Block retention cursor overflowed",
+                                        false,
+                                    )
+                                })?;
+                            }
+                            Ok(())
+                        });
+                    } else {
+                        let task = *task;
+                        let task_context = finish_context.clone();
+                        let profile_id = profile_id.clone();
+                        let library_id = library_id.clone();
+                        let requested_store_epoch = requested_store_epoch.clone();
+                        task_result = writer.call(move |connection| {
+                            validate_maintenance_attempt(
+                                connection,
+                                &profile_id,
+                                &library_id,
+                                &requested_store_epoch,
+                            )?;
+                            run_maintenance_task(connection, &task_context, task)
+                        });
+                    }
+                }
+                task_result.and_then(|()| {
+                    let profile_id = profile_id.clone();
+                    let library_id = library_id.clone();
+                    let finish_library_id = library_id.clone();
+                    let finish_context = finish_context.clone();
+                    let operation_id = operation_id.clone();
+                    let request_hash = request_hash.clone();
+                    let requested_store_epoch = requested_store_epoch.clone();
+                    let tasks = tasks.clone();
+                    writer.call(move |connection| {
+                        let store_epoch = validate_maintenance_attempt(
+                            connection,
+                            &profile_id,
+                            &library_id,
+                            &requested_store_epoch,
+                        )?;
+                        if let Some(outcome) =
+                            replay_outcome(connection, &operation_id, &request_hash)?
+                        {
+                            return Ok(outcome);
+                        }
+                        let committed_at = sqlite_now(connection)?;
+                        finish_maintenance(
+                            connection,
+                            &finish_library_id,
+                            &finish_context,
+                            &operation_id,
+                            &request_hash,
+                            &store_epoch,
+                            &tasks,
+                            &committed_at,
+                        )
+                    })
+                })
             }
-            if let Some(outcome) = replay_outcome(connection, &operation_id, &request_hash)? {
-                return Ok(outcome);
-            }
-            for task in &tasks_for_write {
-                run_maintenance_task(connection, &finish_context, *task, block_retention_count)?;
-            }
-            let committed_at = sqlite_now(connection)?;
-            finish_maintenance(
-                connection,
-                &library_id,
-                &finish_context,
-                &operation_id,
-                &request_hash,
-                &store_epoch,
-                &tasks_for_write,
-                &committed_at,
-            )
-        });
+            Err(error) => Err(error),
+        };
         match result {
             Ok(outcome) => {
                 if verifies_integrity && let Ok(mut state) = self.runtime.lock() {
@@ -1233,11 +1363,24 @@ fn finish_cleanup_operation(
     )
 }
 
+fn validate_maintenance_attempt(
+    connection: &Connection,
+    profile_id: &str,
+    library_id: &str,
+    requested_store_epoch: &str,
+) -> Result<String, StoreError> {
+    assert_identity(connection, profile_id, library_id)?;
+    let store_epoch = read_store_epoch(connection)?;
+    if requested_store_epoch != store_epoch {
+        return Err(stale_store_epoch());
+    }
+    Ok(store_epoch)
+}
+
 fn run_maintenance_task(
     connection: &mut Connection,
     context: &BoundModuleContext,
     task: MaintenanceTask,
-    block_retention_count: Option<usize>,
 ) -> Result<(), StoreError> {
     match task {
         MaintenanceTask::IntegrityCheck => {
@@ -1271,10 +1414,9 @@ fn run_maintenance_task(
             crate::document::prune_document_history_pass(connection)?;
         }
         MaintenanceTask::BlockRetention => {
-            crate::document::run_block_retention_pass(
-                connection,
-                block_retention_count.unwrap_or(DEFAULT_BLOCK_RETENTION_COUNT),
-            )?;
+            return Err(internal(
+                "Block retention must run through the sliced maintenance coordinator",
+            ));
         }
     }
     Ok(())

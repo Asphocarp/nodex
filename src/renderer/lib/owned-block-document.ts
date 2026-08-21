@@ -71,6 +71,8 @@ export type OwnedBlockDocumentErrorCode =
 export interface OwnedBlockDocumentErrorModel {
   readonly code: OwnedBlockDocumentErrorCode;
   readonly message: string;
+  readonly retryable?: boolean;
+  readonly retrying?: boolean;
 }
 
 interface OwnedBlockDocumentRequestModel {
@@ -106,7 +108,11 @@ export type RegisteredOwnedBlockDocumentModel =
 
 export type OwnedBlockDocumentQuerySnapshot =
   | { readonly status: "pending" }
-  | { readonly status: "error"; readonly error: unknown }
+  | {
+      readonly status: "error";
+      readonly error: unknown;
+      readonly retrying?: boolean;
+    }
   | {
       readonly status: "success";
       readonly data: ReadyPageBlockDocumentDescriptor;
@@ -114,7 +120,11 @@ export type OwnedBlockDocumentQuerySnapshot =
 
 export type RegisteredOwnedBlockDocumentQuerySnapshot =
   | { readonly status: "pending" }
-  | { readonly status: "error"; readonly error: unknown }
+  | {
+      readonly status: "error";
+      readonly error: unknown;
+      readonly retrying?: boolean;
+    }
   | {
       readonly status: "success";
       readonly data: ReadyRegisteredOwnedBlockDocumentDescriptor;
@@ -123,19 +133,22 @@ export type RegisteredOwnedBlockDocumentQuerySnapshot =
 export type OwnedDocumentDescriptorFetcher = (
   accessContext: ContentAccessContext,
   ownerBlockId: BlockId,
+  signal?: AbortSignal,
 ) => Promise<unknown>;
 
 export class OwnedBlockDocumentBoundaryError extends Error {
   readonly code: OwnedBlockDocumentErrorCode;
+  readonly retryable: boolean;
 
   constructor(
     code: OwnedBlockDocumentErrorCode,
     message: string,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { readonly retryable?: boolean },
   ) {
     super(message, options);
     this.name = "OwnedBlockDocumentBoundaryError";
     this.code = code;
+    this.retryable = options?.retryable ?? false;
   }
 }
 
@@ -146,6 +159,7 @@ export const unwrapOwnedBlockDocumentPreparationResult = (
   throw new OwnedBlockDocumentBoundaryError(
     result.error.code,
     result.error.message,
+    { retryable: result.error.retryable },
   );
 };
 
@@ -156,6 +170,7 @@ export const unwrapLibraryOwnedBlockDocumentPreparationResult = (
   throw new OwnedBlockDocumentBoundaryError(
     result.error.code,
     result.error.message,
+    { retryable: result.error.retryable },
   );
 };
 
@@ -392,9 +407,21 @@ export const fetchRegisteredOwnedBlockDocumentDescriptor = (
     validateRegisteredOwnedBlockDocumentDescriptor,
   );
 
-const toErrorModel = (error: unknown): OwnedBlockDocumentErrorModel => {
+const toErrorModel = (
+  error: unknown,
+  retrying = false,
+): OwnedBlockDocumentErrorModel => {
   if (error instanceof OwnedBlockDocumentBoundaryError) {
-    return { code: error.code, message: error.message };
+    return {
+      code: error.code,
+      message: error.retryable
+        ? retrying
+          ? "Core is busy. Retrying this Page…"
+          : "Core is busy. Try opening this Page again."
+        : error.message,
+      retryable: error.retryable,
+      retrying,
+    };
   }
   return {
     code: "fetch_failed",
@@ -425,7 +452,7 @@ export const makeOwnedBlockDocumentModel = (
     return {
       ...identity,
       status: "error",
-      error: toErrorModel(snapshot.error),
+      error: toErrorModel(snapshot.error, snapshot.retrying),
     };
   }
 
@@ -456,7 +483,7 @@ export const makeRegisteredOwnedBlockDocumentModel = (
     return {
       ...identity,
       status: "error",
-      error: toErrorModel(snapshot.error),
+      error: toErrorModel(snapshot.error, snapshot.retrying),
     };
   }
   return {

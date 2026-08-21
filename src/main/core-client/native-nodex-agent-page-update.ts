@@ -360,10 +360,13 @@ export class NativeNodexAgentPageUpdateRuntime {
       if (isToolError(commands)) {
         return envelope({ ok: false, error: commands }, operationId);
       }
-      const contentSnapshot = await this.runtime.rootClient.libraryRead({
-        kind: "page_content",
-        page_id: request.input.pageId,
-      });
+      const contentSnapshot = await this.runtime.rootClient.libraryRead(
+        {
+          kind: "page_content",
+          page_id: request.input.pageId,
+        },
+        { class: "background" },
+      );
       if (contentSnapshot.value.kind !== "page_content") {
         throw new Error("Core returned the wrong Agent Page content variant");
       }
@@ -399,13 +402,17 @@ export class NativeNodexAgentPageUpdateRuntime {
       );
       const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
       const client = this.runtime.clientForProject(request.projectId);
-      const snapshot = await client.documentRead(clientSessionId, {
-        kind: "prepare_agent_semantic_mutation",
-        operation_id: operationId,
-        store_epoch: request.authority.storeEpoch,
-        authorization,
-        mutation,
-      });
+      const snapshot = await client.documentRead(
+        clientSessionId,
+        {
+          kind: "prepare_agent_semantic_mutation",
+          operation_id: operationId,
+          store_epoch: request.authority.storeEpoch,
+          authorization,
+          mutation,
+        },
+        { class: "background" },
+      );
       if (snapshot.value.kind !== "agent_semantic_mutation_preparation") {
         throw new Error("Core returned the wrong Agent Page update preparation variant");
       }
@@ -523,7 +530,7 @@ export class NativeNodexAgentPageUpdateRuntime {
             },
             mutation: pending.mutation,
           },
-        });
+        }, { class: "background" });
       pending.committed = committed;
       return {
         ok: true,
@@ -612,10 +619,13 @@ export class NativeNodexAgentPageUpdateRuntime {
       throw new Error("Core Agent Page update omitted its semantic ETags");
     }
     const contentSnapshot = wantsMarkdown
-      ? await this.runtime.rootClient.libraryRead({
-          kind: "page_content",
-          page_id: request.input.pageId,
-        })
+      ? await this.runtime.rootClient.libraryRead(
+          {
+            kind: "page_content",
+            page_id: request.input.pageId,
+          },
+          { class: "background" },
+        )
       : null;
     const content = contentSnapshot?.value.kind === "page_content"
       && contentSnapshot.value.value.document_generation === committed.outcome.generation

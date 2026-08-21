@@ -1,6 +1,7 @@
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -8,7 +9,10 @@ use std::time::{Duration, Instant};
 use rusqlite::Connection;
 
 use super::metrics::{DurationMetric, DurationMetricSnapshot};
-use super::request_execution::query_control;
+use super::request_execution::{
+    RequestExecutionClass, RequestExecutionPhase, current_request_execution_class,
+    current_request_execution_observer, enter_request_execution_phase, query_control,
+};
 use super::sqlite::{
     DEFAULT_QUERY_BUDGET, QueryCancellation, StoreError, StoreErrorCode, open_reader, open_writer,
     optimize_query_planner_before_close, query_interrupted, with_mut_query_deadline,
@@ -18,19 +22,191 @@ use super::sqlite::{
 pub const DEFAULT_WRITER_QUEUE_CAPACITY: usize = 64;
 pub const DEFAULT_READ_CONNECTIONS: usize = 4;
 const READER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const WRITER_RESULT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const WRITER_PRIORITY_AGING_THRESHOLD: Duration = Duration::from_secs(2);
 static NEXT_WRITER_COMMAND_ID: AtomicU64 = AtomicU64::new(1);
 
 type WriterJob = Box<dyn FnOnce(&mut Connection) + Send + 'static>;
 
-enum WriterMessage {
-    Run(WriterJob),
-    Shutdown,
+struct QueuedWriterJob {
+    command_id: u64,
+    class: RequestExecutionClass,
+    enqueued_at: Instant,
+    deadline: Instant,
+    cancellation: QueryCancellation,
+    operation: WriterJob,
+}
+
+impl QueuedWriterJob {
+    fn interruption(&self, now: Instant) -> Option<bool> {
+        if self.cancellation.is_cancelled() {
+            return Some(true);
+        }
+        (now >= self.deadline).then_some(false)
+    }
 }
 
 #[derive(Clone)]
 struct WriterEndpoint {
-    sender: SyncSender<WriterMessage>,
-    queued_jobs: Arc<AtomicUsize>,
+    queue: Arc<WriterQueue>,
+}
+
+#[derive(Default)]
+struct WriterQueueState {
+    interactive: VecDeque<QueuedWriterJob>,
+    background: VecDeque<QueuedWriterJob>,
+    maintenance: VecDeque<QueuedWriterJob>,
+    prefer_interactive_after_aged_job: bool,
+    closed: bool,
+}
+
+struct WriterQueue {
+    capacity: usize,
+    aging_threshold: Duration,
+    state: Mutex<WriterQueueState>,
+    available: Condvar,
+}
+
+#[derive(Debug)]
+enum WriterQueuePushError {
+    Full,
+    Closed,
+    Interrupted(bool),
+}
+
+impl WriterQueue {
+    fn new(capacity: usize) -> Self {
+        Self::with_aging(capacity, WRITER_PRIORITY_AGING_THRESHOLD)
+    }
+
+    fn with_aging(capacity: usize, aging_threshold: Duration) -> Self {
+        Self {
+            capacity,
+            aging_threshold,
+            state: Mutex::new(WriterQueueState::default()),
+            available: Condvar::new(),
+        }
+    }
+
+    fn try_push(&self, job: QueuedWriterJob) -> Result<(), WriterQueuePushError> {
+        let Ok(mut state) = self.state.lock() else {
+            return Err(WriterQueuePushError::Closed);
+        };
+        if state.closed {
+            return Err(WriterQueuePushError::Closed);
+        }
+        let now = Instant::now();
+        Self::prune_interrupted_locked(&mut state, now);
+        if let Some(cancelled) = job.interruption(now) {
+            return Err(WriterQueuePushError::Interrupted(cancelled));
+        }
+        if Self::len_locked(&state) >= self.capacity {
+            return Err(WriterQueuePushError::Full);
+        }
+        match job.class {
+            RequestExecutionClass::Interactive => state.interactive.push_back(job),
+            RequestExecutionClass::Background => state.background.push_back(job),
+            RequestExecutionClass::Maintenance => state.maintenance.push_back(job),
+        }
+        self.available.notify_one();
+        Ok(())
+    }
+
+    fn recv(&self, shutdown: &AtomicBool) -> Option<QueuedWriterJob> {
+        let mut state = self.state.lock().ok()?;
+        loop {
+            if shutdown.load(Ordering::Acquire) || state.closed {
+                return None;
+            }
+            let now = Instant::now();
+            Self::prune_interrupted_locked(&mut state, now);
+            if let Some(job) = self.pop_next(&mut state, now) {
+                return Some(job);
+            }
+            state = self.available.wait(state).ok()?;
+        }
+    }
+
+    fn pop_next(&self, state: &mut WriterQueueState, now: Instant) -> Option<QueuedWriterJob> {
+        if state.prefer_interactive_after_aged_job {
+            state.prefer_interactive_after_aged_job = false;
+            if let Some(job) = state.interactive.pop_front() {
+                return Some(job);
+            }
+        }
+        let background_aged = state.background.front().is_some_and(|job| {
+            now.saturating_duration_since(job.enqueued_at) >= self.aging_threshold
+        });
+        let maintenance_aged = state.maintenance.front().is_some_and(|job| {
+            now.saturating_duration_since(job.enqueued_at) >= self.aging_threshold
+        });
+        if background_aged || maintenance_aged {
+            // Aging admits one lower-class job at a time. If interactive work
+            // arrived before it finishes, the next dequeue serves that work
+            // before promoting another aged job.
+            state.prefer_interactive_after_aged_job = true;
+            let choose_maintenance = match (state.background.front(), state.maintenance.front()) {
+                (Some(background), Some(maintenance)) => {
+                    maintenance_aged
+                        && (!background_aged || maintenance.enqueued_at <= background.enqueued_at)
+                }
+                (None, Some(_)) => true,
+                _ => false,
+            };
+            return if choose_maintenance {
+                state.maintenance.pop_front()
+            } else {
+                state.background.pop_front()
+            };
+        }
+        state
+            .interactive
+            .pop_front()
+            .or_else(|| state.background.pop_front())
+            .or_else(|| state.maintenance.pop_front())
+    }
+
+    fn len(&self) -> usize {
+        self.state.lock().map_or(0, |mut state| {
+            Self::prune_interrupted_locked(&mut state, Instant::now());
+            Self::len_locked(&state)
+        })
+    }
+
+    fn len_locked(state: &WriterQueueState) -> usize {
+        state.interactive.len() + state.background.len() + state.maintenance.len()
+    }
+
+    fn prune_interrupted_locked(state: &mut WriterQueueState, now: Instant) {
+        state
+            .interactive
+            .retain(|job| job.interruption(now).is_none());
+        state
+            .background
+            .retain(|job| job.interruption(now).is_none());
+        state
+            .maintenance
+            .retain(|job| job.interruption(now).is_none());
+    }
+
+    fn remove(&self, command_id: u64) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.interactive.retain(|job| job.command_id != command_id);
+        state.background.retain(|job| job.command_id != command_id);
+        state.maintenance.retain(|job| job.command_id != command_id);
+    }
+
+    fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+            state.interactive.clear();
+            state.background.clear();
+            state.maintenance.clear();
+        }
+        self.available.notify_all();
+    }
 }
 
 struct WriterGeneration {
@@ -41,15 +217,15 @@ struct WriterGeneration {
 
 impl WriterGeneration {
     fn start(path: &Path, queue_capacity: usize) -> Result<Self, StoreError> {
-        let (sender, receiver) = mpsc::sync_channel(queue_capacity);
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
-        let queued_jobs = Arc::new(AtomicUsize::new(0));
+        let queue = Arc::new(WriterQueue::new(queue_capacity));
         let shutdown = Arc::new(AtomicBool::new(false));
         let writer_shutdown = Arc::clone(&shutdown);
+        let writer_queue = Arc::clone(&queue);
         let path = path.to_owned();
         let join = thread::Builder::new()
             .name("nodex-sqlite-writer".to_owned())
-            .spawn(move || writer_loop(&path, receiver, ready_sender, &writer_shutdown))
+            .spawn(move || writer_loop(&path, &writer_queue, ready_sender, &writer_shutdown))
             .map_err(|error| {
                 StoreError::new(
                     StoreErrorCode::Internal,
@@ -65,10 +241,7 @@ impl WriterGeneration {
             )
         })??;
         Ok(Self {
-            endpoint: WriterEndpoint {
-                sender,
-                queued_jobs,
-            },
+            endpoint: WriterEndpoint { queue },
             join: Some(join),
             shutdown,
         })
@@ -76,7 +249,7 @@ impl WriterGeneration {
 
     fn shutdown(mut self) {
         self.shutdown.store(true, Ordering::Release);
-        let _ = self.endpoint.sender.try_send(WriterMessage::Shutdown);
+        self.endpoint.queue.close();
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
@@ -85,10 +258,17 @@ impl WriterGeneration {
 
 fn writer_loop(
     path: &Path,
-    receiver: Receiver<WriterMessage>,
+    queue: &WriterQueue,
     ready: SyncSender<Result<(), StoreError>>,
     shutdown: &AtomicBool,
 ) {
+    struct CloseQueueOnExit<'a>(&'a WriterQueue);
+    impl Drop for CloseQueueOnExit<'_> {
+        fn drop(&mut self) {
+            self.0.close();
+        }
+    }
+    let _close_queue_on_exit = CloseQueueOnExit(queue);
     let mut connection = match open_writer(path) {
         Ok(connection) => {
             let _ = ready.send(Ok(()));
@@ -100,13 +280,10 @@ fn writer_loop(
         }
     };
     while !shutdown.load(Ordering::Acquire) {
-        let Ok(message) = receiver.recv() else {
+        let Some(job) = queue.recv(shutdown) else {
             break;
         };
-        match message {
-            WriterMessage::Run(job) => job(&mut connection),
-            WriterMessage::Shutdown => break,
-        }
+        (job.operation)(&mut connection);
     }
     if let Err(error) = optimize_query_planner_before_close(&connection) {
         tracing::warn!(
@@ -431,9 +608,7 @@ impl RuntimeControl {
             .generation
             .as_ref()
             .and_then(|generation| generation.writer.as_ref())
-            .map_or(0, |writer| {
-                writer.endpoint.queued_jobs.load(Ordering::Acquire)
-            });
+            .map_or(0, |writer| writer.endpoint.queue.len());
         StoreRuntimeActivity {
             phase,
             active_writes: state.active_writes,
@@ -562,13 +737,13 @@ impl StoreWriter {
         operation: impl FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
     ) -> Result<T, StoreError> {
         let (deadline, cancellation) = query_control(budget, cancellation);
+        let class = current_request_execution_class();
+        let execution_observer = current_request_execution_observer();
+        let _writer_queue_phase = enter_request_execution_phase(RequestExecutionPhase::WriterQueue);
         let (endpoint, _lease) = self.control.acquire_writer()?;
         let started_at = Instant::now();
-        let writer_command_id = format!(
-            "writer:{}:{}",
-            std::process::id(),
-            NEXT_WRITER_COMMAND_ID.fetch_add(1, Ordering::Relaxed)
-        );
+        let command_id = NEXT_WRITER_COMMAND_ID.fetch_add(1, Ordering::Relaxed);
+        let writer_command_id = format!("writer:{}:{command_id}", std::process::id());
         let parent = tracing::Span::current();
         let command_span = tracing::debug_span!(
             parent: &parent,
@@ -577,18 +752,25 @@ impl StoreWriter {
         );
         let rejected_span = command_span.clone();
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
-        let queued_jobs = Arc::clone(&endpoint.queued_jobs);
         let runtime_metrics = Arc::clone(&self.control);
         let queued_at = Instant::now();
+        let job_cancellation = cancellation.clone();
+        let queued_cancellation = cancellation.clone();
+        let job_execution_observer = execution_observer.clone();
         let job = Box::new(move |connection: &mut Connection| {
             command_span.in_scope(|| {
-                queued_jobs.fetch_sub(1, Ordering::AcqRel);
+                if let Some(observer) = &job_execution_observer {
+                    observer.set_phase(RequestExecutionPhase::WriterExecution);
+                }
                 let queue_wait = queued_at.elapsed();
                 runtime_metrics.writer_queue_wait.record(queue_wait);
                 let queue_wait_ms = u64::try_from(queue_wait.as_millis()).unwrap_or(u64::MAX);
                 let operation_started_at = Instant::now();
+                // A caller can stop waiting before this queued tombstone reaches
+                // the writer. The shared cancellation makes that later dequeue
+                // a no-op instead of executing an expired domain operation.
                 let result =
-                    with_mut_query_deadline(connection, deadline, &cancellation, operation);
+                    with_mut_query_deadline(connection, deadline, &job_cancellation, operation);
                 let execution = operation_started_at.elapsed();
                 runtime_metrics.writer_execution.record(execution);
                 let duration_ms = u64::try_from(execution.as_millis()).unwrap_or(u64::MAX);
@@ -610,19 +792,25 @@ impl StoreWriter {
                 let _ = result_sender.send(result);
             });
         });
-        endpoint.queued_jobs.fetch_add(1, Ordering::AcqRel);
         endpoint
-            .sender
-            .try_send(WriterMessage::Run(job))
+            .queue
+            .try_push(QueuedWriterJob {
+                command_id,
+                class,
+                enqueued_at: queued_at,
+                deadline,
+                cancellation: queued_cancellation,
+                operation: job,
+            })
             .map_err(|error| {
-                endpoint.queued_jobs.fetch_sub(1, Ordering::AcqRel);
                 let error = match error {
-                    TrySendError::Full(_) => StoreError::new(
+                    WriterQueuePushError::Full => StoreError::new(
                         StoreErrorCode::WriterQueueFull,
                         "SQLite writer queue is full",
                         true,
                     ),
-                    TrySendError::Disconnected(_) => writer_closed(),
+                    WriterQueuePushError::Closed => writer_closed(),
+                    WriterQueuePushError::Interrupted(cancelled) => query_interrupted(cancelled),
                 };
                 rejected_span.in_scope(|| {
                     tracing::warn!(
@@ -633,15 +821,36 @@ impl StoreWriter {
                 });
                 error
             })?;
-        let result = result_receiver.recv().map_err(|_| {
-            StoreError::new(
-                StoreErrorCode::WriterClosed,
-                "SQLite writer stopped before returning a result",
-                true,
-            )
-        });
+        let result = loop {
+            if cancellation.is_cancelled() {
+                endpoint.queue.remove(command_id);
+                break Err(query_interrupted(true));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                endpoint.queue.remove(command_id);
+                break Err(query_interrupted(false));
+            }
+            match result_receiver.recv_timeout(remaining.min(WRITER_RESULT_POLL_INTERVAL)) {
+                Ok(result) => break result,
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    if cancellation.is_cancelled() {
+                        break Err(query_interrupted(true));
+                    }
+                    if Instant::now() >= deadline {
+                        break Err(query_interrupted(false));
+                    }
+                    break Err(StoreError::new(
+                        StoreErrorCode::WriterClosed,
+                        "SQLite writer stopped before returning a result",
+                        true,
+                    ));
+                }
+            }
+        };
         self.control.command_latency.record(started_at.elapsed());
-        result?
+        result
     }
 
     pub fn queued_job_count(&self) -> usize {
@@ -652,9 +861,7 @@ impl StoreWriter {
             .generation
             .as_ref()
             .and_then(|generation| generation.writer.as_ref())
-            .map_or(0, |writer| {
-                writer.endpoint.queued_jobs.load(Ordering::Acquire)
-            })
+            .map_or(0, |writer| writer.endpoint.queue.len())
     }
 }
 
@@ -729,7 +936,10 @@ impl StoreReaders {
     ) -> Result<T, StoreError> {
         let (deadline, cancellation) = query_control(budget, cancellation.clone());
         let (pool, _lease) = self.control.acquire_reader()?;
+        let checkout_phase = enter_request_execution_phase(RequestExecutionPhase::ReaderCheckout);
         let connection = pool.checkout(deadline, &cancellation)?;
+        drop(checkout_phase);
+        let _query_phase = enter_request_execution_phase(RequestExecutionPhase::ReaderQuery);
         let result = with_query_deadline(&connection, deadline, &cancellation, operation);
         pool.checkin(connection);
         result
@@ -810,14 +1020,159 @@ fn internal(message: impl Into<String>) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
     use std::thread;
 
     use tempfile::tempdir;
 
+    use crate::infrastructure::request_execution::{
+        RequestExecutionContext, within_request_execution,
+    };
     use crate::infrastructure::sqlite::with_immediate_transaction;
 
     use super::*;
+
+    fn queued_test_job(class: RequestExecutionClass, enqueued_at: Instant) -> QueuedWriterJob {
+        QueuedWriterJob {
+            command_id: NEXT_WRITER_COMMAND_ID.fetch_add(1, Ordering::Relaxed),
+            class,
+            enqueued_at,
+            deadline: enqueued_at + Duration::from_secs(60),
+            cancellation: QueryCancellation::new(),
+            operation: Box::new(|_| {}),
+        }
+    }
+
+    #[test]
+    fn writer_queue_prioritizes_interactive_work_until_lower_classes_age() {
+        let queue = WriterQueue::with_aging(8, Duration::from_secs(1));
+        let now = Instant::now();
+        queue
+            .try_push(queued_test_job(RequestExecutionClass::Maintenance, now))
+            .expect("maintenance queued");
+        queue
+            .try_push(queued_test_job(RequestExecutionClass::Background, now))
+            .expect("background queued");
+        queue
+            .try_push(queued_test_job(RequestExecutionClass::Interactive, now))
+            .expect("interactive queued");
+
+        let mut state = queue.state.lock().expect("writer queue");
+        assert_eq!(
+            queue.pop_next(&mut state, now).map(|job| job.class),
+            Some(RequestExecutionClass::Interactive)
+        );
+        assert_eq!(
+            queue
+                .pop_next(&mut state, now + Duration::from_secs(2))
+                .map(|job| job.class),
+            Some(RequestExecutionClass::Maintenance)
+        );
+        assert_eq!(
+            queue
+                .pop_next(&mut state, now + Duration::from_secs(2))
+                .map(|job| job.class),
+            Some(RequestExecutionClass::Background)
+        );
+    }
+
+    #[test]
+    fn each_aged_promotion_yields_back_to_queued_interactive_work() {
+        let queue = WriterQueue::with_aging(8, Duration::from_secs(1));
+        let now = Instant::now();
+        for _ in 0..2 {
+            queue
+                .try_push(queued_test_job(RequestExecutionClass::Maintenance, now))
+                .expect("maintenance queued");
+            queue
+                .try_push(queued_test_job(RequestExecutionClass::Interactive, now))
+                .expect("interactive queued");
+        }
+
+        let mut state = queue.state.lock().expect("writer queue");
+        let aged = now + Duration::from_secs(2);
+        assert_eq!(
+            queue.pop_next(&mut state, aged).map(|job| job.class),
+            Some(RequestExecutionClass::Maintenance)
+        );
+        assert_eq!(
+            queue.pop_next(&mut state, aged).map(|job| job.class),
+            Some(RequestExecutionClass::Interactive)
+        );
+        assert_eq!(
+            queue.pop_next(&mut state, aged).map(|job| job.class),
+            Some(RequestExecutionClass::Maintenance)
+        );
+        assert_eq!(
+            queue.pop_next(&mut state, aged).map(|job| job.class),
+            Some(RequestExecutionClass::Interactive)
+        );
+    }
+
+    #[test]
+    fn interactive_writer_runs_before_an_earlier_unaged_maintenance_job() {
+        let directory = tempdir().expect("store");
+        let path = directory.path().join("nodex.db");
+        let runtime = StoreWriterRuntime::start(&path, 4).expect("writer runtime");
+        let writer = runtime.handle();
+        let (entered_sender, entered_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
+        let blocker = {
+            let writer = writer.clone();
+            thread::spawn(move || {
+                writer.call(move |_| {
+                    entered_sender.send(()).expect("entered signal");
+                    release_receiver.recv().expect("release signal");
+                    Ok(())
+                })
+            })
+        };
+        entered_receiver.recv().expect("blocker entered");
+
+        let (order_sender, order_receiver) = mpsc::sync_channel(2);
+        let maintenance = {
+            let writer = writer.clone();
+            let order_sender = order_sender.clone();
+            thread::spawn(move || {
+                within_request_execution(
+                    RequestExecutionContext::new(
+                        RequestExecutionClass::Maintenance,
+                        QueryCancellation::new(),
+                        Instant::now() + Duration::from_secs(5),
+                    ),
+                    || {
+                        writer.call(move |_| {
+                            order_sender.send("maintenance").expect("order");
+                            Ok(())
+                        })
+                    },
+                )
+            })
+        };
+        while writer.queued_job_count() != 1 {
+            thread::yield_now();
+        }
+        let interactive = {
+            let writer = writer.clone();
+            thread::spawn(move || {
+                writer.call(move |_| {
+                    order_sender.send("interactive").expect("order");
+                    Ok(())
+                })
+            })
+        };
+        while writer.queued_job_count() != 2 {
+            thread::yield_now();
+        }
+        release_sender.send(()).expect("release blocker");
+
+        assert_eq!(order_receiver.recv().expect("first order"), "interactive");
+        assert_eq!(order_receiver.recv().expect("second order"), "maintenance");
+        assert!(blocker.join().expect("blocker join").is_ok());
+        assert!(maintenance.join().expect("maintenance join").is_ok());
+        assert!(interactive.join().expect("interactive join").is_ok());
+    }
 
     #[test]
     fn dedicated_writer_serializes_jobs_and_readers_are_query_only() {
@@ -902,6 +1257,118 @@ mod tests {
         release_sender.send(()).expect("release first");
         assert!(first.join().expect("first join").is_ok());
         assert!(second.join().expect("second join").is_ok());
+    }
+
+    #[test]
+    fn cancelled_queued_writer_releases_its_caller_without_late_execution() {
+        let directory = tempdir().expect("store");
+        let path = directory.path().join("nodex.db");
+        let runtime = StoreWriterRuntime::start(&path, 1).expect("writer runtime");
+        let writer = runtime.handle();
+        let (entered_sender, entered_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
+        let first_writer = writer.clone();
+        let first = thread::spawn(move || {
+            first_writer.call(move |_| {
+                entered_sender.send(()).expect("entered signal");
+                release_receiver.recv().expect("release signal");
+                Ok(())
+            })
+        });
+        entered_receiver.recv().expect("first job entered");
+
+        let cancellation = QueryCancellation::new();
+        let caller_cancellation = cancellation.clone();
+        let operation_ran = Arc::new(AtomicBool::new(false));
+        let operation_ran_in_job = Arc::clone(&operation_ran);
+        let queued_writer = writer.clone();
+        let (result_sender, result_receiver) = mpsc::sync_channel(1);
+        let queued = thread::spawn(move || {
+            let result = queued_writer.call_with_budget(
+                Duration::from_secs(5),
+                caller_cancellation,
+                move |_| {
+                    operation_ran_in_job.store(true, Ordering::Release);
+                    Ok(())
+                },
+            );
+            result_sender.send(result).expect("queued result");
+        });
+        while writer.queued_job_count() != 1 {
+            thread::yield_now();
+        }
+
+        cancellation.cancel();
+        let cancelled = result_receiver
+            .recv_timeout(Duration::from_millis(250))
+            .expect("cancelled caller released before the writer")
+            .expect_err("cancelled job");
+        assert_eq!(cancelled.code, StoreErrorCode::QueryCancelled);
+        assert!(!operation_ran.load(Ordering::Acquire));
+        assert_eq!(writer.queued_job_count(), 0);
+
+        let replacement_writer = writer.clone();
+        let replacement = thread::spawn(move || replacement_writer.call(|_| Ok("replacement")));
+        while writer.queued_job_count() != 1 {
+            thread::yield_now();
+        }
+
+        release_sender.send(()).expect("release first");
+        assert!(first.join().expect("first join").is_ok());
+        queued.join().expect("queued join");
+        assert_eq!(
+            replacement.join().expect("replacement join").unwrap(),
+            "replacement"
+        );
+        while writer.queued_job_count() != 0 {
+            thread::yield_now();
+        }
+        assert!(!operation_ran.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn queued_writer_reports_its_absolute_deadline_before_dequeue() {
+        let directory = tempdir().expect("store");
+        let path = directory.path().join("nodex.db");
+        let runtime = StoreWriterRuntime::start(&path, 2).expect("writer runtime");
+        let writer = runtime.handle();
+        let (entered_sender, entered_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
+        let first_writer = writer.clone();
+        let first = thread::spawn(move || {
+            first_writer.call(move |_| {
+                entered_sender.send(()).expect("entered signal");
+                release_receiver.recv().expect("release signal");
+                Ok(())
+            })
+        });
+        entered_receiver.recv().expect("first job entered");
+
+        let operation_ran = Arc::new(AtomicBool::new(false));
+        let operation_ran_in_job = Arc::clone(&operation_ran);
+        let queued_writer = writer.clone();
+        let expired = thread::spawn(move || {
+            queued_writer.call_with_budget(
+                Duration::from_millis(25),
+                QueryCancellation::new(),
+                move |_| {
+                    operation_ran_in_job.store(true, Ordering::Release);
+                    Ok(())
+                },
+            )
+        })
+        .join()
+        .expect("deadline caller join")
+        .expect_err("queued deadline");
+        assert_eq!(expired.code, StoreErrorCode::DeadlineExceeded);
+        assert_eq!(writer.queued_job_count(), 0);
+
+        release_sender.send(()).expect("release first");
+        assert!(first.join().expect("first join").is_ok());
+        while writer.queued_job_count() != 0 {
+            thread::yield_now();
+        }
+        assert!(!operation_ran.load(Ordering::Acquire));
     }
 
     #[test]

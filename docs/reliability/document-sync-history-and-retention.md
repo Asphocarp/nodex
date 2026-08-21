@@ -101,7 +101,20 @@ Deleted Block collection is closure-based and fail-closed. Core proves no live
 ownership, reference, history, recovery, Database, Session, schedule, relocation,
 or unknown foreign-key root before physical removal. The complete candidate
 rolls back if any constraint changes. Collected stable Block identities remain
-retired permanently and are never reused.
+retired permanently and are never reused. Each maintenance pass selects one
+global bound of the oldest tombstones after applying the per-Library keep policy;
+Library count cannot multiply a pass's in-memory candidate set.
+
+Current reference evidence comes from the exact generation/head/schema-fenced
+Document and Canvas projections written with authority. A pass parses current
+projections, retained versions, immutable audit rows, relocation rows, recovery
+artifacts, and extension foreign-key schema once on a consistent WAL reader
+snapshot, then intersects that immutable evidence with each candidate closure.
+The serialized writer never performs or repeats that full scan. Every writer
+slice requires the snapshot's LocalCommit head to remain current; an intervening
+product commit invalidates the pass and maintenance retries from a fresh
+snapshot. Missing, stale, unregistered, or invalid projection evidence retains
+the candidate; collection never falls back to Yjs or Canvas reconstruction.
 
 Canvas tombstone/file compaction runs only after the last committed surface
 closes and no pending/active copy remains. It pins a safety revision and rotates

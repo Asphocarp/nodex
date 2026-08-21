@@ -256,10 +256,22 @@ export interface CoreClientPort {
   ): Promise<ProjectionImpact>;
   databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult>;
-  workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot>;
-  workspaceApply(input: ProjectWorkspaceApplyInput): Promise<ProjectWorkspaceApplyResult>;
-  automationRead(read: AutomationRead): Promise<AutomationReadSnapshot>;
-  automationApply(input: AutomationApplyInput): Promise<AutomationApplyResult>;
+  workspaceRead(
+    read: ProjectWorkspaceRead,
+    options?: CoreRequestOptions,
+  ): Promise<ProjectWorkspaceReadSnapshot>;
+  workspaceApply(
+    input: ProjectWorkspaceApplyInput,
+    options?: CoreRequestOptions,
+  ): Promise<ProjectWorkspaceApplyResult>;
+  automationRead(
+    read: AutomationRead,
+    options?: CoreRequestOptions,
+  ): Promise<AutomationReadSnapshot>;
+  automationApply(
+    input: AutomationApplyInput,
+    options?: CoreRequestOptions,
+  ): Promise<AutomationApplyResult>;
   administrationRead(
     read: StoreAdministrationRead,
   ): Promise<StoreAdministrationReadSnapshot>;
@@ -269,8 +281,12 @@ export interface CoreClientPort {
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,
+    options?: CoreRequestOptions,
   ): Promise<OwnedDocumentReadSnapshot>;
-  documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentApplyResult>;
+  documentApply(
+    input: OwnedDocumentApplyInput,
+    options?: CoreRequestOptions,
+  ): Promise<OwnedDocumentApplyResult>;
   documentSync(input: DocumentSyncRequest): Promise<DocumentSyncResponse>;
   documentCanvasSync(input: CanvasSceneSyncRequest): Promise<CanvasSceneSyncResponse>;
   documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck>;

@@ -3253,6 +3253,7 @@ export class CodexService extends EventEmitter {
   private sidebarLastSuccessfulRefreshAt = 0;
   private sidebarFailureBackoffUntil = 0;
   private sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
+  private sidebarLastFailure: unknown = null;
   private sidebarNotificationSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private sidebarUseStateDbOnlyThreadList = true;
   private sidebarSnapshotRevision = 0;
@@ -5224,8 +5225,8 @@ export class CodexService extends EventEmitter {
 
   async synchronizeAutomationRuntime(): Promise<void> {
     const [definitions, inbox] = await Promise.all([
-      this.automationModule.listDefinitions(),
-      this.automationModule.readInbox(200),
+      this.automationModule.listDefinitions("background"),
+      this.automationModule.readInbox(200, "background"),
     ]);
     this.activeHeartbeatAutomationIdByThreadId.clear();
     for (const definition of definitions) {
@@ -8781,27 +8782,36 @@ export class CodexService extends EventEmitter {
     const now = Date.now();
     const isFresh = this.sidebarLastSuccessfulRefreshAt > 0
       && now - this.sidebarLastSuccessfulRefreshAt < SIDEBAR_THREAD_SYNC_STALE_MS;
-    if (policy === "stale" && isFresh) {
-      return logResult("stale-cache-hit", await this.buildWorkspaceSidebarSyncResult({
+    if (
+      policy === "stale"
+      && isFresh
+      && this.sidebarFailureBackoffUntil <= now
+    ) {
+      const cached = this.buildCachedWorkspaceSidebarSyncResult({
         includeArchived,
+        requireCurrentRevision: true,
         source: "core",
-        refreshed: false,
-        refreshedAt: this.sidebarLastSuccessfulRefreshAt,
-      }), {
-        cacheAgeMs: now - this.sidebarLastSuccessfulRefreshAt,
       });
+      if (cached) {
+        return logResult("fresh-cache-hit", cached, {
+          cacheAgeMs: now - this.sidebarLastSuccessfulRefreshAt,
+        });
+      }
     }
 
     const backoffActive = policy === "stale" && this.sidebarFailureBackoffUntil > now;
     if (backoffActive) {
-      return logResult("backoff", await this.buildWorkspaceSidebarSyncResult({
+      const cached = this.buildCachedWorkspaceSidebarSyncResult({
         includeArchived,
-        source: "core",
-        refreshed: false,
-        refreshedAt: this.sidebarLastSuccessfulRefreshAt,
-      }), {
-        backoffRemainingMs: this.sidebarFailureBackoffUntil - now,
+        requireCurrentRevision: false,
+        source: "stale-last-known",
       });
+      if (cached) {
+        return logResult("backoff-stale-last-known", cached, {
+          backoffRemainingMs: this.sidebarFailureBackoffUntil - now,
+        });
+      }
+      throw this.sidebarLastFailure ?? new Error("Core is busy while loading the sidebar");
     }
 
     if (this.sidebarSyncInFlight && this.sidebarSyncInFlightIncludeArchived === includeArchived) {
@@ -8836,9 +8846,6 @@ export class CodexService extends EventEmitter {
     try {
       const metadata = await this.refreshSidebarThreadsFromAppServer(input);
       const refreshedAt = Date.now();
-      this.sidebarLastSuccessfulRefreshAt = refreshedAt;
-      this.sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
-      this.sidebarFailureBackoffUntil = 0;
       const result = await this.buildWorkspaceSidebarSyncResult({
         includeArchived: input.includeArchived,
         source: "app-server",
@@ -8846,6 +8853,10 @@ export class CodexService extends EventEmitter {
         refreshedAt,
         metadata,
       });
+      this.sidebarLastSuccessfulRefreshAt = refreshedAt;
+      this.sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
+      this.sidebarFailureBackoffUntil = 0;
+      this.sidebarLastFailure = null;
       this.sidebarLastSuccessfulSyncGeneration = Math.max(
         this.sidebarLastSuccessfulSyncGeneration,
         input.generation,
@@ -8865,6 +8876,7 @@ export class CodexService extends EventEmitter {
       });
       return result;
     } catch (error) {
+      this.sidebarLastFailure = error;
       this.sidebarFailureBackoffUntil = Date.now() + this.sidebarFailureBackoffMs;
       this.sidebarFailureBackoffMs = Math.min(
         this.sidebarFailureBackoffMs * 2,
@@ -8874,12 +8886,12 @@ export class CodexService extends EventEmitter {
         reason: input.reason,
         error: error instanceof Error ? error.message : String(error),
       });
-      const result = await this.buildWorkspaceSidebarSyncResult({
+      const result = this.buildCachedWorkspaceSidebarSyncResult({
         includeArchived: input.includeArchived,
-        source: "core",
-        refreshed: false,
-        refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+        requireCurrentRevision: false,
+        source: "stale-last-known",
       });
+      if (!result) throw error;
       logDevRuntimeMetric("codex.sidebar.refresh", {
         outcome: "error",
         reason: input.reason,
@@ -8932,7 +8944,33 @@ export class CodexService extends EventEmitter {
 
   private invalidateSidebarSnapshotCache(): void {
     this.sidebarSnapshotRevision += 1;
-    this.sidebarSnapshotCacheByIncludeArchived.clear();
+  }
+
+  private buildCachedWorkspaceSidebarSyncResult(input: {
+    includeArchived: boolean;
+    requireCurrentRevision: boolean;
+    source: "core" | "stale-last-known";
+  }): CodexSidebarSyncResult | null {
+    const cached = this.sidebarSnapshotCacheByIncludeArchived.get(
+      input.includeArchived,
+    );
+    if (!cached) return null;
+    if (
+      input.requireCurrentRevision
+      && cached.revision !== this.sidebarSnapshotRevision
+    ) {
+      return null;
+    }
+    return {
+      snapshot: cached.snapshot,
+      source: input.source,
+      refreshed: false,
+      refreshedAt: this.sidebarLastSuccessfulRefreshAt,
+      changedProjectIds: [],
+      projectlessChanged: false,
+      materializedSessionIds: [],
+      failedThreadIds: [],
+    };
   }
 
   private async buildWorkspaceSidebarSyncResult(input: {
@@ -8960,6 +8998,7 @@ export class CodexService extends EventEmitter {
   private async buildBoundedWorkspaceSidebarSnapshot(
     includeArchived: boolean,
   ): Promise<CodexSidebarSnapshot> {
+    const revisionAtStart = this.sidebarSnapshotRevision;
     const overview = await this.projectWorkspace.readSidebarOverview(
       includeArchived,
     );
@@ -9029,11 +9068,11 @@ export class CodexService extends EventEmitter {
       pinnedThreadIds: items.map((item) => item.threadId),
       projectAssignments,
       projectlessThreadIds,
-      revision: this.sidebarSnapshotRevision,
+      revision: revisionAtStart,
       generatedAt: Date.now(),
     };
     this.sidebarSnapshotCacheByIncludeArchived.set(includeArchived, {
-      revision: this.sidebarSnapshotRevision,
+      revision: revisionAtStart,
       snapshot,
     });
     return snapshot;

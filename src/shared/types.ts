@@ -1393,7 +1393,7 @@ export type CodexSidebarRefreshPolicy = "read" | "stale" | "force";
 
 export interface CodexSidebarSyncResult {
   snapshot: CodexSidebarSnapshot;
-  source: "core" | "app-server";
+  source: "core" | "app-server" | "stale-last-known";
   refreshed: boolean;
   refreshedAt: number;
   changedProjectIds: string[];

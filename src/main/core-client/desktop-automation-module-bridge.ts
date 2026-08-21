@@ -29,7 +29,10 @@ import {
   type AutomationReadSnapshot,
   type CoreAuthorizedDeliveryAtom,
   type CoreClientPort,
+  type CoreRequestOptions,
 } from "./types";
+
+const BACKGROUND_CORE_REQUEST = { class: "background" } as const satisfies CoreRequestOptions;
 
 type CoreAutomationDefinition = Extract<
   AutomationReadSnapshot["value"],
@@ -101,10 +104,14 @@ export interface DesktopPageOccurrenceWindow {
   readonly nextCursor: string | null;
 }
 
+export type DesktopAutomationReadClass = "interactive" | "background";
+
 export interface DesktopAutomationModulePort {
   peekRunAutomationId?(threadId: string): string | null;
   peekActiveHeartbeatAutomationId?(threadId: string): string | null;
-  listDefinitions(): Promise<CodexScheduledAutomation[]>;
+  listDefinitions(
+    requestClass?: DesktopAutomationReadClass,
+  ): Promise<CodexScheduledAutomation[]>;
   getDefinition(id: string): Promise<CodexScheduledAutomation | null>;
   createDefinition(
     input: CodexScheduledAutomationCreateInput,
@@ -163,7 +170,10 @@ export interface DesktopAutomationModulePort {
   ): Promise<boolean>;
   deleteRun(threadId: string): Promise<boolean>;
   unarchiveRun(threadId: string): Promise<boolean>;
-  readInbox(limit?: number): Promise<CodexAutomationRunsInboxResponse>;
+  readInbox(
+    limit?: number,
+    requestClass?: DesktopAutomationReadClass,
+  ): Promise<CodexAutomationRunsInboxResponse>;
   setRunReadState(
     input: CodexAutomationRunReadStateInput,
   ): Promise<CodexAutomationInboxItem | null>;
@@ -539,11 +549,14 @@ const createCoreAutomationPort = (
     }
     return snapshot.value.item ?? null;
   };
-  const readRun = async (threadId: string): Promise<CoreAutomationRun | null> => {
+  const readRun = async (
+    threadId: string,
+    options?: CoreRequestOptions,
+  ): Promise<CoreAutomationRun | null> => {
     const snapshot = await client.automationRead({
       kind: "run",
       thread_id: threadId,
-    });
+    }, options);
     if (snapshot.value.kind !== "run") {
       throw new Error("Core returned a non-Run Automation read");
     }
@@ -552,14 +565,15 @@ const createCoreAutomationPort = (
   const applyRun = async (
     threadId: string,
     intent: (run: CoreAutomationRun) => Parameters<CoreClientPort["automationApply"]>[0]["intent"],
+    options?: CoreRequestOptions,
   ): Promise<CoreAutomationRun | null> => {
-    const run = await readRun(threadId);
+    const run = await readRun(threadId, options);
     if (!run) return null;
     const requestedIntent = intent(run);
     const committed = await client.automationApply({
       operationId: stableOperationId(`run:${threadId}`, requestedIntent),
       intent: requestedIntent,
-    });
+    }, options);
     return requireRun(committed, threadId);
   };
   const applyPageOccurrence = async (
@@ -597,12 +611,14 @@ const createCoreAutomationPort = (
         };
     return { success: true, commitCursor };
   };
-  const readActiveDefinitions = async (): Promise<CoreAutomationDefinition[]> => {
+  const readActiveDefinitions = async (
+    requestClass: DesktopAutomationReadClass = "interactive",
+  ): Promise<CoreAutomationDefinition[]> => {
     const snapshot = await client.automationRead({
       kind: "definitions",
       include_deleted: false,
       window: { after: null, first: 200 },
-    });
+    }, requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined);
     if (snapshot.value.kind !== "definitions") {
       throw new Error("Core returned a non-Definitions Automation read");
     }
@@ -615,8 +631,8 @@ const createCoreAutomationPort = (
   };
 
   return {
-    listDefinitions: async () =>
-      (await readActiveDefinitions()).map(mapDefinition),
+    listDefinitions: async (requestClass) =>
+      (await readActiveDefinitions(requestClass)).map(mapDefinition),
     getDefinition: async (id) => {
       const item = await readDefinition(id);
       return item ? mapDefinition(item) : null;
@@ -704,7 +720,7 @@ const createCoreAutomationPort = (
           not_before_ms: policy.notBefore ?? null,
           retry_within_ms: policy.retryWithinMs ?? null,
         },
-      });
+      }, BACKGROUND_CORE_REQUEST);
       return mapDefinition(requireDefinition(committed, id));
     },
     claimDueDefinitions: async (limit, leaseDurationMs) => {
@@ -715,7 +731,7 @@ const createCoreAutomationPort = (
           limit,
           lease_duration_ms: leaseDurationMs,
         },
-      });
+      }, BACKGROUND_CORE_REQUEST);
       const definitions = new Map(
         committed.outcome.definitions.map((item) => [
           item.automation_id,
@@ -740,7 +756,7 @@ const createCoreAutomationPort = (
       await client.automationApply({
         operationId: operationId(`complete-lease:${leaseId}`),
         intent: { kind: "complete_lease", lease_id: leaseId },
-      });
+      }, BACKGROUND_CORE_REQUEST);
     },
     failLease: async (leaseId, retryDelayMs, reasonCode) => {
       await client.automationApply({
@@ -751,13 +767,13 @@ const createCoreAutomationPort = (
           retry_delay_ms: retryDelayMs,
           reason_code: reasonCode,
         },
-      });
+      }, BACKGROUND_CORE_REQUEST);
     },
     settleInterruptedRuns: async () => {
       const committed = await client.automationApply({
         operationId: operationId("settle-interrupted-runs"),
         intent: { kind: "settle_interrupted_runs" },
-      });
+      }, BACKGROUND_CORE_REQUEST);
       return {
         archivedPendingCount:
           committed.outcome.run_bulk?.archived_pending_count ?? 0,
@@ -779,13 +795,13 @@ const createCoreAutomationPort = (
           thread_title: input.threadTitle ?? null,
           source_cwd: input.sourceCwd ?? null,
         },
-      });
+      }, BACKGROUND_CORE_REQUEST);
       return committed.outcome.runs.some((candidate) =>
         candidate.thread_id === input.threadId
       );
     },
     replacePendingRunThread: async (input) => {
-      const pending = await readRun(input.pendingThreadId);
+      const pending = await readRun(input.pendingThreadId, BACKGROUND_CORE_REQUEST);
       if (!pending) return false;
       const committed = await client.automationApply({
         operationId: operationId(
@@ -797,7 +813,7 @@ const createCoreAutomationPort = (
           thread_id: input.threadId,
           expected_revision: pending.run_revision,
         },
-      });
+      }, BACKGROUND_CORE_REQUEST);
       return committed.outcome.runs.some((candidate) =>
         candidate.thread_id === input.threadId
       );
@@ -808,7 +824,7 @@ const createCoreAutomationPort = (
         thread_id: threadId,
         expected_revision: current.run_revision,
         thread_title: threadTitle,
-      }))) !== null,
+      }), BACKGROUND_CORE_REQUEST)) !== null,
     completeRunForReview: async (input) =>
       (await applyRun(input.threadId, (current) => ({
         kind: "complete_run_for_review",
@@ -816,7 +832,7 @@ const createCoreAutomationPort = (
         expected_revision: current.run_revision,
         inbox_title: input.inboxTitle ?? null,
         inbox_summary: input.inboxSummary ?? null,
-      }))) !== null,
+      }), BACKGROUND_CORE_REQUEST)) !== null,
     setRunInboxItem: async (input) =>
       (await applyRun(input.threadId, (current) => ({
         kind: "set_run_inbox_item",
@@ -824,7 +840,7 @@ const createCoreAutomationPort = (
         expected_revision: current.run_revision,
         inbox_title: input.inboxTitle ?? null,
         inbox_summary: input.inboxSummary ?? null,
-      }))) !== null,
+      }), BACKGROUND_CORE_REQUEST)) !== null,
     acceptRun: async (threadId) =>
       (await applyRun(threadId, (current) => ({
         kind: "accept_run",
@@ -859,7 +875,7 @@ const createCoreAutomationPort = (
         thread_id: threadId,
         expected_revision: run.run_revision,
       }))) !== null,
-    readInbox: async (limit) => {
+    readInbox: async (limit, requestClass = "interactive") => {
       const requested = limit ?? 200;
       if (!Number.isInteger(requested) || requested < 1 || requested > 1_000) {
         throw new Error("Automation inbox limit must be between 1 and 1000");
@@ -874,7 +890,7 @@ const createCoreAutomationPort = (
             after,
             first: Math.min(200, requested - items.length),
           },
-        });
+        }, requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined);
         if (snapshot.value.kind !== "inbox") {
           throw new Error("Core returned a non-Inbox Automation read");
         }
@@ -1018,7 +1034,7 @@ const createCoreAutomationPort = (
           limit,
           lease_duration_ms: leaseDurationMs,
         },
-      });
+      }, BACKGROUND_CORE_REQUEST);
       return committed.outcome.reminder_leases.map((lease) => ({
         leaseId: lease.lease_id,
         projectId: lease.project_id,
@@ -1035,7 +1051,7 @@ const createCoreAutomationPort = (
       await client.automationApply({
         operationId: operationId(`complete-reminder:${leaseId}`),
         intent: { kind: "complete_reminder_lease", lease_id: leaseId },
-      });
+      }, BACKGROUND_CORE_REQUEST);
     },
     failReminderLease: async (leaseId, retryDelayMs, reasonCode) => {
       await client.automationApply({
@@ -1046,7 +1062,7 @@ const createCoreAutomationPort = (
           retry_delay_ms: retryDelayMs,
           reason_code: reasonCode,
         },
-      });
+      }, BACKGROUND_CORE_REQUEST);
     },
   };
 };
@@ -1064,7 +1080,8 @@ export const createDesktopAutomationModuleBridge = (
     return corePort;
   };
   return {
-    listDefinitions: async () => (await port()).listDefinitions(),
+    listDefinitions: async (requestClass) =>
+      (await port()).listDefinitions(requestClass),
     getDefinition: async (id) => (await port()).getDefinition(id),
     createDefinition: async (definition) =>
       (await port()).createDefinition(definition),
@@ -1097,7 +1114,8 @@ export const createDesktopAutomationModuleBridge = (
       (await port()).archiveRun(archiveInput, messages),
     deleteRun: async (threadId) => (await port()).deleteRun(threadId),
     unarchiveRun: async (threadId) => (await port()).unarchiveRun(threadId),
-    readInbox: async (limit) => (await port()).readInbox(limit),
+    readInbox: async (limit, requestClass) =>
+      (await port()).readInbox(limit, requestClass),
     setRunReadState: async (readInput) =>
       (await port()).setRunReadState(readInput),
     markAllRunsRead: async (readInput) =>

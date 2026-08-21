@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use axum::http::HeaderMap;
 use nodex_core::infrastructure::metrics::{DurationMetric, DurationMetricSnapshot};
 use nodex_core::infrastructure::request_execution::{
-    RequestExecutionContext, within_request_execution,
+    RequestExecutionClass, RequestExecutionContext, RequestExecutionPhase, within_request_execution,
 };
 use nodex_core::infrastructure::sqlite::QueryCancellation;
 use nodex_core_contracts::{CoreError, CoreErrorCode, CoreErrorRecovery};
@@ -45,6 +45,22 @@ fn default_deadline(class: RequestClass) -> Duration {
         RequestClass::Interactive => Duration::from_millis(INTERACTIVE_REQUEST_DEADLINE_MS),
         RequestClass::Background => Duration::from_millis(BACKGROUND_REQUEST_DEADLINE_MS),
         RequestClass::Maintenance => Duration::from_millis(MAINTENANCE_REQUEST_DEADLINE_MS),
+    }
+}
+
+fn execution_class(class: RequestClass) -> RequestExecutionClass {
+    match class {
+        RequestClass::Interactive => RequestExecutionClass::Interactive,
+        RequestClass::Background => RequestExecutionClass::Background,
+        RequestClass::Maintenance => RequestExecutionClass::Maintenance,
+    }
+}
+
+fn request_class_name(class: RequestClass) -> &'static str {
+    match class {
+        RequestClass::Interactive => "interactive",
+        RequestClass::Background => "background",
+        RequestClass::Maintenance => "maintenance",
     }
 }
 
@@ -156,6 +172,7 @@ impl RequestExecutor {
         T: Send + 'static,
     {
         let spec = RequestSpec::from_headers(connection_id, headers, default_class)?;
+        let started_at = Instant::now();
         let cancellation = QueryCancellation::new();
         let guard = self.register(&spec.key, &cancellation)?;
         if cancellation.is_cancelled() {
@@ -174,6 +191,14 @@ impl RequestExecutor {
         {
             Ok(permits) => permits,
             Err(error) => {
+                if error.code == CoreErrorCode::DeadlineExceeded {
+                    self.log_execution_deadline(
+                        &spec,
+                        started_at,
+                        started_at.elapsed(),
+                        RequestExecutionPhase::Admission,
+                    );
+                }
                 self.record_error(&error);
                 return Err(error);
             }
@@ -183,8 +208,15 @@ impl RequestExecutor {
             self.record_error(&error);
             return Err(error);
         }
-        self.metrics.admission_wait.record(admitted_at.elapsed());
-        let context = RequestExecutionContext::new(cancellation.clone(), spec.deadline);
+        let admission_wait = admitted_at.elapsed();
+        self.metrics.admission_wait.record(admission_wait);
+        let context = RequestExecutionContext::new(
+            execution_class(spec.class),
+            cancellation.clone(),
+            spec.deadline,
+        );
+        let execution_observer = context.observer();
+        let worker_observer = execution_observer.clone();
         let metrics = Arc::clone(&self.metrics);
         let request_span = tracing::Span::current();
         let mut worker = tokio::task::spawn_blocking(move || {
@@ -195,6 +227,7 @@ impl RequestExecutor {
             // span. Carry it explicitly so SQLite work remains correlated with
             // the request, operation, and receipt that caused it.
             let result = request_span.in_scope(|| within_request_execution(context, operation));
+            worker_observer.set_phase(RequestExecutionPhase::Response);
             metrics.execution_duration.record(started_at.elapsed());
             result
         });
@@ -203,13 +236,42 @@ impl RequestExecutor {
             let remaining = spec.deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 cancellation.cancel();
+                self.log_execution_deadline(
+                    &spec,
+                    started_at,
+                    admission_wait,
+                    execution_observer.phase(),
+                );
                 let error = deadline_exceeded();
                 self.record_error(&error);
                 return Err(error);
             }
             tokio::select! {
-                result = &mut worker => {
-                    let result = result.map_err(|error| worker_failed(&error.to_string()))?;
+                worker_result = &mut worker => {
+                    // The worker and the timer can become ready on the same
+                    // scheduler turn. Preserve the transported request
+                    // boundary instead of exposing whichever inner error won
+                    // that race (for example, a Store query deadline mapped by
+                    // a module adapter).
+                    if Instant::now() >= spec.deadline {
+                        cancellation.cancel();
+                        self.log_execution_deadline(
+                            &spec,
+                            started_at,
+                            admission_wait,
+                            execution_observer.phase(),
+                        );
+                        let error = deadline_exceeded();
+                        self.record_error(&error);
+                        return Err(error);
+                    }
+                    if cancellation.is_cancelled() {
+                        let error = cancelled();
+                        self.record_error(&error);
+                        return Err(error);
+                    }
+                    let result = worker_result
+                        .map_err(|error| worker_failed(&error.to_string()))?;
                     if let Err(error) = &result {
                         self.record_error(error);
                     }
@@ -217,6 +279,12 @@ impl RequestExecutor {
                 }
                 () = tokio::time::sleep(remaining) => {
                     cancellation.cancel();
+                    self.log_execution_deadline(
+                        &spec,
+                        started_at,
+                        admission_wait,
+                        execution_observer.phase(),
+                    );
                     let error = deadline_exceeded();
                     self.record_error(&error);
                     return Err(error);
@@ -285,6 +353,26 @@ impl RequestExecutor {
         }
     }
 
+    fn log_execution_deadline(
+        &self,
+        spec: &RequestSpec,
+        started_at: Instant,
+        admission_wait: Duration,
+        phase: RequestExecutionPhase,
+    ) {
+        let snapshot = self.snapshot();
+        tracing::warn!(
+            requestClass = request_class_name(spec.class),
+            budgetMs = u64::try_from(spec.budget.as_millis()).unwrap_or(u64::MAX),
+            elapsedMs = u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX),
+            admissionWaitMs = u64::try_from(admission_wait.as_millis()).unwrap_or(u64::MAX),
+            phase = phase.as_str(),
+            activeExecutions = snapshot.active,
+            queuedExecutions = snapshot.queued,
+            "Core request reached its semantic deadline"
+        );
+    }
+
     fn register(
         &self,
         key: &RequestKey,
@@ -342,6 +430,7 @@ struct RequestSpec {
     key: RequestKey,
     class: RequestClass,
     deadline: Instant,
+    budget: Duration,
 }
 
 impl RequestSpec {
@@ -384,6 +473,7 @@ impl RequestSpec {
             },
             class,
             deadline: Instant::now() + deadline_duration,
+            budget: deadline_duration,
         })
     }
 }
@@ -481,8 +571,43 @@ fn worker_failed(detail: &str) -> CoreError {
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
+    use std::thread;
+
+    use nodex_core::infrastructure::writer::StoreWriterRuntime;
+    use tempfile::tempdir;
 
     use super::*;
+
+    struct BlockedWriter {
+        release: Option<mpsc::SyncSender<()>>,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+
+    impl BlockedWriter {
+        fn release(mut self) {
+            self.release
+                .take()
+                .expect("release sender")
+                .send(())
+                .expect("release writer");
+            self.thread
+                .take()
+                .expect("blocker thread")
+                .join()
+                .expect("blocker join");
+        }
+    }
+
+    impl Drop for BlockedWriter {
+        fn drop(&mut self) {
+            if let Some(release) = self.release.take() {
+                let _ = release.send(());
+            }
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
 
     fn headers(request_id: &str, class: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -564,6 +689,83 @@ mod tests {
             worker.await.unwrap().unwrap_err().code,
             CoreErrorCode::Cancelled
         );
+    }
+
+    #[tokio::test]
+    async fn writer_deadline_releases_the_execution_permit_before_dequeue() {
+        let directory = tempdir().expect("store");
+        let runtime = StoreWriterRuntime::start(&directory.path().join("nodex.db"), 4)
+            .expect("writer runtime");
+        let writer = runtime.handle();
+        let (entered_sender, entered_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
+        let blocker_thread = {
+            let writer = writer.clone();
+            thread::spawn(move || {
+                writer
+                    .call(move |_| {
+                        entered_sender.send(()).expect("entered");
+                        release_receiver.recv().expect("released");
+                        Ok(())
+                    })
+                    .expect("blocking writer job")
+            })
+        };
+        let blocker = BlockedWriter {
+            release: Some(release_sender),
+            thread: Some(blocker_thread),
+        };
+        entered_receiver.recv().expect("writer blocked");
+
+        let executor = RequestExecutor::with_capacities(1, 1, 1, 8);
+        let deadline_headers = headers("writer-deadline", "interactive");
+        let timed_executor = executor.clone();
+        let timed_writer = writer.clone();
+        let timed = tokio::spawn(async move {
+            timed_executor
+                .execute(
+                    "connection",
+                    &deadline_headers,
+                    RequestClass::Interactive,
+                    move || {
+                        timed_writer
+                            .call(|_| Ok(()))
+                            .map_err(|error| worker_failed(&error.to_string()))
+                    },
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while writer.queued_job_count() != 1 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("deadline request queued at writer");
+        assert_eq!(
+            timed
+                .await
+                .expect("deadline task")
+                .expect_err("deadline")
+                .code,
+            CoreErrorCode::DeadlineExceeded,
+        );
+
+        let next = tokio::time::timeout(
+            Duration::from_millis(100),
+            executor.execute(
+                "connection",
+                &headers("after-writer-deadline", "interactive"),
+                RequestClass::Interactive,
+                || Ok("permit-released"),
+            ),
+        )
+        .await
+        .expect("cancelled writer worker released its execution permit")
+        .expect("next interactive request");
+        assert_eq!(next, "permit-released");
+
+        blocker.release();
     }
 
     #[tokio::test]

@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::block_materialization::dematerialize_block_tree;
 use crate::domain::rich_text::{RichTextItem, rich_text_to_delta};
+use crate::infrastructure::request_execution::check_request_interruption;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas_scene::{CanvasScene, parse_canvas_scene};
@@ -814,7 +815,11 @@ pub(super) fn read_document_version_retention_evidence(
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| corrupt("Document history row has invalid column types"))?;
     rows.into_iter()
-        .map(|row| {
+        .enumerate()
+        .map(|(index, row)| {
+            if index % 64 == 0 {
+                check_request_interruption()?;
+            }
             let document_id = row.document_id.clone();
             let decoded = decode_document_version(row)?;
             let mut block_ids = BTreeSet::new();

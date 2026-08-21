@@ -136,6 +136,7 @@ import type {
   DesktopProjectWorkspaceThread,
   DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
+import { dbNotifier } from "../local-store/notifier";
 
 interface TestableCodexService {
   on: {
@@ -2096,6 +2097,159 @@ test("keeps parent-linked child threads out of workspace sidebar snapshots", asy
     expect(snapshot.items.map((item) => item.threadId)).toEqual(["thread:root"]);
     expect(snapshot.projectlessThreadIds).toEqual(["thread:root"]);
     expect(snapshot.pinnedThreadIds).toEqual(["thread:root"]);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("returns the last-known sidebar without repeating a failed Core read", async () => {
+  const baseWorkspace = createTestProjectWorkspace();
+  await baseWorkspace.upsertThread("thread:cached-sidebar", {
+    projectId: null,
+    threadName: "Cached sidebar",
+    threadPreview: "Cached sidebar",
+  });
+  await baseWorkspace.setThreadPinned("thread:cached-sidebar", true);
+  let reads = 0;
+  let coreBusy = false;
+  const projectWorkspace = {
+    ...baseWorkspace,
+    readSidebarOverview: async (includeArchived: boolean) => {
+      reads += 1;
+      if (coreBusy) throw new Error("Core request deadline was exceeded");
+      return await baseWorkspace.readSidebarOverview(includeArchived);
+    },
+  } as DesktopProjectWorkspacePort;
+  const service = createService({ projectWorkspace });
+  const client = Reflect.get(service as object, "client") as {
+    start: () => Promise<void>;
+    request: (method: string) => Promise<unknown>;
+  };
+  client.start = async () => undefined;
+  client.request = async (method) => {
+    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
+    return { data: [], nextCursor: null };
+  };
+
+  try {
+    const initial = await service.syncSidebarThreadsDetailed({ policy: "read" });
+    expect(initial.snapshot.items.map((item) => item.threadId)).toEqual([
+      "thread:cached-sidebar",
+    ]);
+    coreBusy = true;
+
+    const degraded = await service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    });
+
+    expect(degraded.source).toBe("stale-last-known");
+    expect(degraded.snapshot.items.map((item) => item.threadId)).toEqual([
+      "thread:cached-sidebar",
+    ]);
+    expect(reads).toBe(2);
+  } finally {
+    await service.shutdown();
+  }
+});
+
+test("does not mask a sidebar invalidation that lands during a Core read", async () => {
+  const baseWorkspace = createTestProjectWorkspace();
+  await baseWorkspace.upsertThread("thread:before-invalidation", {
+    projectId: null,
+    threadName: "Before invalidation",
+    threadPreview: "Before invalidation",
+  });
+  await baseWorkspace.setThreadPinned("thread:before-invalidation", true);
+  let reads = 0;
+  let releaseFirstRead!: () => void;
+  let markFirstReadStarted!: () => void;
+  const firstReadStarted = new Promise<void>((resolve) => {
+    markFirstReadStarted = resolve;
+  });
+  const firstReadRelease = new Promise<void>((resolve) => {
+    releaseFirstRead = resolve;
+  });
+  const projectWorkspace = {
+    ...baseWorkspace,
+    readSidebarOverview: async (includeArchived: boolean) => {
+      reads += 1;
+      const overview = await baseWorkspace.readSidebarOverview(includeArchived);
+      if (reads === 1) {
+        markFirstReadStarted();
+        await firstReadRelease;
+      }
+      return overview;
+    },
+  } as DesktopProjectWorkspacePort;
+  const service = createService({ projectWorkspace });
+  const client = Reflect.get(service as object, "client") as {
+    start: () => Promise<void>;
+    request: (method: string) => Promise<unknown>;
+  };
+  client.start = async () => undefined;
+  client.request = async (method) => {
+    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
+    return { data: [], nextCursor: null };
+  };
+
+  try {
+    const initialSync = service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    });
+    await firstReadStarted;
+    await baseWorkspace.upsertThread("thread:after-invalidation", {
+      projectId: null,
+      threadName: "After invalidation",
+      threadPreview: "After invalidation",
+    });
+    await baseWorkspace.setThreadPinned("thread:after-invalidation", true);
+    dbNotifier.emit("project-sessions-changed");
+    releaseFirstRead();
+
+    const initial = await initialSync;
+    expect(initial.snapshot.items.map((item) => item.threadId)).toEqual([
+      "thread:before-invalidation",
+    ]);
+    const refreshed = await service.syncSidebarThreadsDetailed({ policy: "stale" });
+    expect(reads).toBe(2);
+    expect(refreshed.snapshot.items.map((item) => item.threadId)).toEqual([
+      "thread:before-invalidation",
+      "thread:after-invalidation",
+    ]);
+  } finally {
+    releaseFirstRead?.();
+    await service.shutdown();
+  }
+});
+
+test("propagates a cold-start Core busy failure instead of fabricating an empty sidebar", async () => {
+  let reads = 0;
+  const projectWorkspace = {
+    ...createTestProjectWorkspace(),
+    readSidebarOverview: async () => {
+      reads += 1;
+      throw new Error("Core request deadline was exceeded");
+    },
+  } as DesktopProjectWorkspacePort;
+  const service = createService({ projectWorkspace });
+  const client = Reflect.get(service as object, "client") as {
+    start: () => Promise<void>;
+    request: (method: string) => Promise<unknown>;
+  };
+  client.start = async () => undefined;
+  client.request = async (method) => {
+    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
+    return { data: [], nextCursor: null };
+  };
+
+  try {
+    await expect(service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    })).rejects.toThrow("Core request deadline was exceeded");
+    expect(reads).toBe(1);
   } finally {
     await service.shutdown();
   }

@@ -276,6 +276,10 @@ and the shared SQLite writer seams log:
 - Module operation/receipt correlation, including exact duplicate receipts
 - writer queue wait and command duration through a child span that survives the
   dedicated SQLite writer thread
+- semantic deadline records with the bounded request class, declared budget,
+  elapsed and admission-wait time, active/queued execution counts, and current
+  phase (`admission`, `module_cpu`, reader checkout/query, writer
+  queue/execution, or response)
 - actual `IMMEDIATE` transaction completion or rollback duration
 - committed event publication by Module and durable sequence
 - replay range and explicit resynchronization boundaries

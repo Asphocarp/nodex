@@ -108,6 +108,15 @@ Inline child agents remain descendants of one root Chat and open through the
 single read-only Subagents surface rather than becoming root Sessions. Summary
 presentation is defined in [Thread Summary Panel Behavior](thread-summary-panel-behavior.md).
 
+## Sidebar availability
+
+The sidebar keeps the last successful bounded Workspace snapshot while Core is
+temporarily busy. A failed refresh may therefore return that snapshot with
+stale provenance instead of replacing known Chats with an empty result. The
+next refresh remains eligible to reconcile canonical state. On a cold start,
+where no successful snapshot exists yet, a Core failure stays an explicit
+retryable failure; it is never converted into a successful empty sidebar.
+
 ## Browser, Computer Use, Files, and Terminal
 
 Browser pages, Computer Use, filesystem reads, and PTYs are Main-owned runtimes

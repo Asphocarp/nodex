@@ -1,19 +1,93 @@
 use std::cell::RefCell;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use super::sqlite::QueryCancellation;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RequestExecutionClass {
+    #[default]
+    Interactive,
+    Background,
+    Maintenance,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum RequestExecutionPhase {
+    Admission = 0,
+    #[default]
+    ModuleCpu = 1,
+    ReaderCheckout = 2,
+    ReaderQuery = 3,
+    WriterQueue = 4,
+    WriterExecution = 5,
+    Response = 6,
+}
+
+impl RequestExecutionPhase {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            0 => Self::Admission,
+            2 => Self::ReaderCheckout,
+            3 => Self::ReaderQuery,
+            4 => Self::WriterQueue,
+            5 => Self::WriterExecution,
+            6 => Self::Response,
+            _ => Self::ModuleCpu,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Admission => "admission",
+            Self::ModuleCpu => "module_cpu",
+            Self::ReaderCheckout => "reader_checkout",
+            Self::ReaderQuery => "reader_query",
+            Self::WriterQueue => "writer_queue",
+            Self::WriterExecution => "writer_execution",
+            Self::Response => "response",
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct RequestExecutionObserver {
+    phase: Arc<AtomicU8>,
+}
+
+impl RequestExecutionObserver {
+    pub fn phase(&self) -> RequestExecutionPhase {
+        RequestExecutionPhase::from_u8(self.phase.load(Ordering::Acquire))
+    }
+
+    pub fn set_phase(&self, phase: RequestExecutionPhase) {
+        self.phase.store(phase as u8, Ordering::Release);
+    }
+}
+
 #[derive(Clone)]
 pub struct RequestExecutionContext {
+    class: RequestExecutionClass,
     cancellation: QueryCancellation,
     deadline: Instant,
+    observer: RequestExecutionObserver,
 }
 
 impl RequestExecutionContext {
-    pub fn new(cancellation: QueryCancellation, deadline: Instant) -> Self {
+    pub fn new(
+        class: RequestExecutionClass,
+        cancellation: QueryCancellation,
+        deadline: Instant,
+    ) -> Self {
         Self {
+            class,
             cancellation,
             deadline,
+            observer: RequestExecutionObserver {
+                phase: Arc::new(AtomicU8::new(RequestExecutionPhase::ModuleCpu as u8)),
+            },
         }
     }
 
@@ -23,6 +97,48 @@ impl RequestExecutionContext {
 
     pub fn deadline(&self) -> Instant {
         self.deadline
+    }
+
+    pub fn observer(&self) -> RequestExecutionObserver {
+        self.observer.clone()
+    }
+}
+
+pub fn current_request_execution_class() -> RequestExecutionClass {
+    CURRENT.with(|current| {
+        current
+            .borrow()
+            .last()
+            .map_or(RequestExecutionClass::Interactive, |context| context.class)
+    })
+}
+
+pub(crate) fn current_request_execution_observer() -> Option<RequestExecutionObserver> {
+    CURRENT.with(|current| {
+        current
+            .borrow()
+            .last()
+            .map(|context| context.observer.clone())
+    })
+}
+
+pub(crate) fn enter_request_execution_phase(
+    phase: RequestExecutionPhase,
+) -> Option<RequestExecutionPhaseGuard> {
+    let observer = current_request_execution_observer()?;
+    let previous = observer.phase();
+    observer.set_phase(phase);
+    Some(RequestExecutionPhaseGuard { observer, previous })
+}
+
+pub(crate) struct RequestExecutionPhaseGuard {
+    observer: RequestExecutionObserver,
+    previous: RequestExecutionPhase,
+}
+
+impl Drop for RequestExecutionPhaseGuard {
+    fn drop(&mut self) {
+        self.observer.set_phase(self.previous);
     }
 }
 
@@ -113,8 +229,16 @@ mod tests {
         let request_deadline = Instant::now() + Duration::from_secs(2);
 
         within_request_execution(
-            RequestExecutionContext::new(request_cancellation.clone(), request_deadline),
+            RequestExecutionContext::new(
+                RequestExecutionClass::Background,
+                request_cancellation.clone(),
+                request_deadline,
+            ),
             || {
+                assert_eq!(
+                    current_request_execution_class(),
+                    RequestExecutionClass::Background
+                );
                 let (deadline, combined) =
                     query_control(Duration::from_secs(10), explicit_cancellation.clone());
                 assert_eq!(deadline, request_deadline);
@@ -125,13 +249,21 @@ mod tests {
 
         let (_, independent) = query_control(Duration::from_secs(10), explicit_cancellation);
         assert!(!independent.is_cancelled());
+        assert_eq!(
+            current_request_execution_class(),
+            RequestExecutionClass::Interactive
+        );
     }
 
     #[test]
     fn transported_request_deadline_replaces_the_direct_store_fallback() {
         let request_deadline = Instant::now() + Duration::from_secs(20);
         within_request_execution(
-            RequestExecutionContext::new(QueryCancellation::new(), request_deadline),
+            RequestExecutionContext::new(
+                RequestExecutionClass::Interactive,
+                QueryCancellation::new(),
+                request_deadline,
+            ),
             || {
                 let (deadline, _) =
                     query_control(Duration::from_secs(10), QueryCancellation::new());
@@ -145,6 +277,7 @@ mod tests {
         let cancellation = QueryCancellation::new();
         within_request_execution(
             RequestExecutionContext::new(
+                RequestExecutionClass::Interactive,
                 cancellation.clone(),
                 Instant::now() + Duration::from_secs(2),
             ),
@@ -160,7 +293,11 @@ mod tests {
         );
 
         within_request_execution(
-            RequestExecutionContext::new(QueryCancellation::new(), Instant::now()),
+            RequestExecutionContext::new(
+                RequestExecutionClass::Interactive,
+                QueryCancellation::new(),
+                Instant::now(),
+            ),
             || {
                 assert_eq!(
                     check_request_interruption()

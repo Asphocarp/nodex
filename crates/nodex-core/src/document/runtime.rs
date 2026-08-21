@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -18,6 +20,11 @@ use super::{
 const DEFAULT_MAX_DOCUMENTS: usize = 64;
 const DEFAULT_MAX_STATE_BYTES: usize = 64 * 1024 * 1024;
 static RECONSTRUCTION_DURATION: OnceLock<DurationMetric> = OnceLock::new();
+
+#[cfg(test)]
+thread_local! {
+    static THREAD_RECONSTRUCTION_COUNT: Cell<u64> = const { Cell::new(0) };
+}
 
 pub(crate) struct DocumentRuntimeCache {
     entries: HashMap<String, CacheEntry>,
@@ -227,12 +234,19 @@ pub(crate) fn reconstruct_yjs_engine(
     connection: &Connection,
     head: &DocumentHeadRow,
 ) -> Result<YrsDocumentEngine, StoreError> {
+    #[cfg(test)]
+    THREAD_RECONSTRUCTION_COUNT.with(|count| count.set(count.get().saturating_add(1)));
     let started_at = Instant::now();
     let result = reconstruct_yjs_engine_inner(connection, head);
     RECONSTRUCTION_DURATION
         .get_or_init(DurationMetric::default)
         .record(started_at.elapsed());
     result
+}
+
+#[cfg(test)]
+pub(crate) fn thread_reconstruction_count() -> u64 {
+    THREAD_RECONSTRUCTION_COUNT.with(Cell::get)
 }
 
 /// Reconstructs a retained historical head for stale-update attribution.

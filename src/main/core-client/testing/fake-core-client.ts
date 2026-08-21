@@ -9,6 +9,7 @@ import type {
   CoreEventSubscription,
   CoreDocumentEventSubscription,
   CoreProjectionEventSubscription,
+  CoreRequestOptions,
   CoreStreamCheckpoint,
   DatabaseApplyInput,
   DatabaseApplyResult,
@@ -166,20 +167,26 @@ export const createFakeCoreHandshake = ({
 
 export class FakeCoreClient implements CoreClientPort {
   readonly automationReads: AutomationRead[] = [];
+  readonly automationReadOptions: Array<CoreRequestOptions | undefined> = [];
   readonly automationApplies: AutomationApplyInput[] = [];
+  readonly automationApplyOptions: Array<CoreRequestOptions | undefined> = [];
   readonly reads: LibraryRead[] = [];
   readonly applies: LibraryApplyInput[] = [];
   readonly databaseReads: DatabaseRead[] = [];
   readonly databaseApplies: DatabaseApplyInput[] = [];
   readonly workspaceReads: ProjectWorkspaceRead[] = [];
+  readonly workspaceReadOptions: Array<CoreRequestOptions | undefined> = [];
   readonly workspaceApplies: ProjectWorkspaceApplyInput[] = [];
+  readonly workspaceApplyOptions: Array<CoreRequestOptions | undefined> = [];
   readonly administrationReads: StoreAdministrationRead[] = [];
   readonly administrationApplies: StoreAdministrationApplyInput[] = [];
   readonly documentReads: Array<{
     readonly clientSessionId: string;
     readonly read: OwnedDocumentRead;
   }> = [];
+  readonly documentReadOptions: Array<CoreRequestOptions | undefined> = [];
   readonly documentApplies: OwnedDocumentApplyInput[] = [];
+  readonly documentApplyOptions: Array<CoreRequestOptions | undefined> = [];
   readonly documentSyncs: DocumentSyncRequest[] = [];
   readonly documentCanvasSyncs: CanvasSceneSyncRequest[] = [];
   readonly documentUpdateApplies: DocumentSyncApplyRequest[] = [];
@@ -316,15 +323,23 @@ export class FakeCoreClient implements CoreClientPort {
     return result;
   }
 
-  async automationRead(read: AutomationRead): Promise<AutomationReadSnapshot> {
+  async automationRead(
+    read: AutomationRead,
+    options?: CoreRequestOptions,
+  ): Promise<AutomationReadSnapshot> {
     this.automationReads.push(read);
+    this.automationReadOptions.push(options);
     const result = this.#automationReadResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Automation read");
     return result;
   }
 
-  async automationApply(input: AutomationApplyInput): Promise<AutomationApplyResult> {
+  async automationApply(
+    input: AutomationApplyInput,
+    options?: CoreRequestOptions,
+  ): Promise<AutomationApplyResult> {
     this.automationApplies.push(input);
+    this.automationApplyOptions.push(options);
     const result = this.#automationApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Automation apply");
     return result;
@@ -353,8 +368,10 @@ export class FakeCoreClient implements CoreClientPort {
 
   async workspaceRead(
     read: ProjectWorkspaceRead,
+    options?: CoreRequestOptions,
   ): Promise<ProjectWorkspaceReadSnapshot> {
     this.workspaceReads.push(read);
+    this.workspaceReadOptions.push(options);
     const result = this.#workspaceReadResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Project Workspace read");
     return result;
@@ -362,8 +379,10 @@ export class FakeCoreClient implements CoreClientPort {
 
   async workspaceApply(
     input: ProjectWorkspaceApplyInput,
+    options?: CoreRequestOptions,
   ): Promise<ProjectWorkspaceApplyResult> {
     this.workspaceApplies.push(input);
+    this.workspaceApplyOptions.push(options);
     const result = this.#workspaceApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Project Workspace apply");
     return result;
@@ -390,8 +409,10 @@ export class FakeCoreClient implements CoreClientPort {
   async documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,
+    options?: CoreRequestOptions,
   ): Promise<OwnedDocumentReadSnapshot> {
     this.documentReads.push({ clientSessionId, read });
+    this.documentReadOptions.push(options);
     const result = this.#documentReadResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Document read");
     return result;
@@ -399,8 +420,10 @@ export class FakeCoreClient implements CoreClientPort {
 
   async documentApply(
     input: OwnedDocumentApplyInput,
+    options?: CoreRequestOptions,
   ): Promise<OwnedDocumentApplyResult> {
     this.documentApplies.push(input);
+    this.documentApplyOptions.push(options);
     const result = this.#documentApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Document apply");
     return result;

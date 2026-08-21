@@ -358,14 +358,19 @@ export function PageStageSessionTab({
           );
         }
         if (documentModel.status === "error") {
+          const retrying = documentModel.error.retrying === true;
           return (
             <PageStageSessionNotice
-              title="Could not open page"
+              title={documentModel.error.retryable ? "Core is busy" : "Could not open page"}
               description={documentModel.error.message}
-              actionLabel="Retry"
-              onAction={() => {
-                void documentControls.reload();
-              }}
+              {...(!retrying
+                ? {
+                    actionLabel: "Retry",
+                    onAction: () => {
+                      void documentControls.reload();
+                    },
+                  }
+                : {})}
             />
           );
         }

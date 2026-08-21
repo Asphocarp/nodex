@@ -106,11 +106,14 @@ export async function readNativeFetch(
       request.callId ?? `nodex-agent:${request.tool}`,
       request.resourceAccess,
     );
-    const targetRead = await client.libraryRead({
-      kind: "agent_block_target",
-      block_id: request.input.id,
-      authorization,
-    });
+    const targetRead = await client.libraryRead(
+      {
+        kind: "agent_block_target",
+        block_id: request.input.id,
+        authorization,
+      },
+      { class: "background" },
+    );
     if (targetRead.value.kind !== "agent_block_target") {
       throw new Error("Core returned the wrong Agent Block target variant");
     }
@@ -159,6 +162,7 @@ export async function readNativeFetch(
         cursor: request.input.page?.cursor ?? null,
         limit: request.input.page?.limit ?? null,
       },
+      { class: "background" },
     );
     if (snapshotRead.value.kind !== "agent_semantic_snapshot") {
       throw new Error("Core returned the wrong Agent Document snapshot variant");
