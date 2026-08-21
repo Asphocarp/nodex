@@ -17,6 +17,7 @@ import {
   type ComputerUseSoundMode,
 } from "../../shared/computer-use-settings";
 import type { ComputerUseRuntimeResult } from "../codex/computer-use-runtime";
+import { MainConfig } from "../app/MainConfig";
 import { DesktopToolRuntime } from "./DesktopToolRuntime";
 import { RemoteHostedPipRuntime } from "./RemoteHostedPipRuntime";
 
@@ -365,10 +366,11 @@ const make = (
 export const live: Layer.Layer<
   ComputerUseSettingsRuntime,
   never,
-  DesktopToolRuntime | RemoteHostedPipRuntime
+  DesktopToolRuntime | MainConfig | RemoteHostedPipRuntime
 > = Layer.effect(
   ComputerUseSettingsRuntime,
   Effect.gen(function* () {
+    const config = yield* MainConfig;
     const desktopTools = yield* DesktopToolRuntime;
     const remoteHostedPip = yield* RemoteHostedPipRuntime;
     const exec = (
@@ -393,7 +395,7 @@ export const live: Layer.Layer<
         Effect.mapError((cause) => settingsError("computer-use-runtime", cause)),
       ),
       homeDirectory: homedir(),
-      platform: process.platform,
+      platform: config.platform as NodeJS.Platform,
       readLockedUseAllowed: desktopTools.readConfigRequirements.pipe(
         Effect.map(
           (response) => response.requirements?.computerUse?.allowLockedComputerUse === true,

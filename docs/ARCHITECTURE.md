@@ -183,8 +183,9 @@ Scope release stops admission and waits for already-admitted atomic writes; neit
 service nor `CodexService` may own a process-global write queue.
 
 Interactive login-shell discovery is owned once per Main or worktree-worker lifetime. The Main
-bootstrap snapshots its inherited environment into immutable configuration; host Modules do not
-read ambient `process.env`. The scoped shell-environment runtime coalesces discovery, and release
+bootstrap snapshots its inherited environment and process platform into immutable configuration;
+host Modules do not reread ambient `process.env` or `process.platform`. The scoped
+shell-environment runtime coalesces discovery, and release
 interrupts an active login-shell child and rejects later admission. Worker roots use an independent
 loader and close it with their own shutdown, so no cached environment crosses a process or Scope.
 

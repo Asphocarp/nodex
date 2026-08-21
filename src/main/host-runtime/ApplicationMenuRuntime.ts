@@ -64,6 +64,7 @@ export interface ApplicationMenuRuntimeOptions {
   readonly initialCommandKeymap: CommandKeymapState;
   readonly isPackaged: boolean;
   readonly native?: ApplicationMenuNativePort;
+  readonly platform: NodeJS.Platform;
   readonly requestNewWindow: () => void;
   readonly resourcesPath: string;
   readonly showMessage: (options: MessageBoxOptions) => Effect.Effect<MessageBoxReturnValue>;
@@ -188,7 +189,7 @@ export const live = (
         native.setDockMenu(native.buildFromTemplate(dockTemplate));
 
         const appTemplate: MenuItemConstructorOptions[] = [
-          ...(process.platform === "darwin"
+          ...(options.platform === "darwin"
             ? [
                 {
                   role: "appMenu",

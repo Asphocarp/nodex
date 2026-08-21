@@ -48,6 +48,7 @@ export class RemoteHostedPipRuntimeError extends Schema.TaggedError<RemoteHosted
 
 export interface RemoteHostedPipRuntimeOptions {
   readonly browserSidebarService: BrowserSidebarService;
+  readonly platform: NodeJS.Platform;
   readonly preferenceFilePath: string;
 }
 
@@ -129,7 +130,7 @@ export const live = (
               getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
               getWindowForSender: (sender) =>
                 BrowserWindow.fromWebContents(sender as Electron.WebContents),
-              isEnabled: () => process.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
+              isEnabled: () => options.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
               isThreadSurfacePresented: (threadId) =>
                 options.browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
               readAlwaysHide: () => preferences.readAlwaysHide(),

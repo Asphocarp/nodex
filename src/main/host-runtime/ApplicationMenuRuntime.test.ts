@@ -52,6 +52,7 @@ it.effect("owns native menus and refreshes commands without replacing the runtim
         initialCommandKeymap: createCommandKeymapState({}, "macOS"),
         isPackaged: true,
         native,
+        platform: "darwin",
         requestNewWindow: () => {
           newWindowCount += 1;
         },

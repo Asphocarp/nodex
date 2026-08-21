@@ -498,6 +498,7 @@ export const live: Layer.Layer<
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
             browserSidebarService,
+            platform: config.platform as NodeJS.Platform,
             preferenceFilePath: `${userDataPath}/remote-hosted-pip-preferences.json`,
           }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
           runtimeScope,
@@ -576,7 +577,7 @@ export const live: Layer.Layer<
         const computerUseSettingsContext = yield* Layer.buildWithScope(
           computerUseSettingsRuntimeLive.pipe(
             Layer.provide(
-              Layer.merge(
+              Layer.mergeAll(
                 Layer.succeed(
                   DesktopToolRuntime,
                   Context.get(desktopToolContext, DesktopToolRuntime),
@@ -585,6 +586,7 @@ export const live: Layer.Layer<
                   RemoteHostedPipRuntime,
                   Context.get(remoteHostedPipContext, RemoteHostedPipRuntime),
                 ),
+                Layer.succeed(MainConfig, config),
               ),
             ),
           ),
@@ -1403,6 +1405,7 @@ export const live: Layer.Layer<
             environmentPath: config.environmentPath ?? undefined,
             initialCommandKeymap: getCommandKeymapState(),
             isPackaged: config.isPackaged,
+            platform: config.platform as NodeJS.Platform,
             requestNewWindow: applicationWindows.requestNew,
             resourcesPath: config.resourcesPath,
             showMessage: desktop.showMessage,
