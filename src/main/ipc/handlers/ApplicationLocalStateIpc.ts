@@ -5,10 +5,7 @@ import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
 import { MainConfig } from "../../app/MainConfig";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
-import {
-  commitPersistedAtomMutation,
-  readPersistedAtomSnapshot,
-} from "../../local-store/persisted-atoms";
+import type { PersistedAtomStore } from "../../local-store/persisted-atoms";
 import { getLogger } from "../../logging/logger";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
@@ -26,7 +23,9 @@ type Handler<Channel extends keyof IpcApi> = (
 
 const diagnostics = getLogger({ subsystem: "renderer", component: "diagnostics" });
 
-export const live: Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =
+export const live = (options: {
+  readonly persistedAtoms: PersistedAtomStore;
+}): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
@@ -56,14 +55,16 @@ export const live: Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRu
         ),
       );
       yield* handle("persisted-atom:sync-request", (event) =>
-        authorize(event).pipe(Effect.andThen(Effect.sync(readPersistedAtomSnapshot))),
+        authorize(event).pipe(
+          Effect.andThen(Effect.sync(() => options.persistedAtoms.readSnapshot())),
+        ),
       );
       yield* handle("persisted-atom:update", (event, mutation) =>
         authorize(event).pipe(
           Effect.andThen(
             Effect.try({
               try: () => {
-                const persistedEvent = commitPersistedAtomMutation(
+                const persistedEvent = options.persistedAtoms.commitMutation(
                   mutation,
                   String(event.sender.id),
                 );

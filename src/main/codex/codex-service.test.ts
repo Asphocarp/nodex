@@ -138,6 +138,7 @@ import type {
   DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
 import { DatabaseNotifier } from "../local-store/notifier";
+import { PersistedAtomStore } from "../local-store/persisted-atoms";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
@@ -1677,6 +1678,9 @@ function createService(options?: {
       reject: async (threadId, _requestId, occurrenceToken, reason) =>
         completeResponse(threadId, occurrenceToken, { kind: "failure", reason }),
     },
+    persistedAtoms: new PersistedAtomStore(
+      path.join(runtimeStateHome, "persisted-atoms-test.json"),
+    ),
     sessionStore: new CodexSessionStore(),
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,

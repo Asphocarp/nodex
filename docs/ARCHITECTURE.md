@@ -182,6 +182,13 @@ serialization, and exposes the five renderer operations through a dedicated trus
 Scope release stops admission and waits for already-admitted atomic writes; neither the filesystem
 service nor `CodexService` may own a process-global write queue.
 
+Renderer persisted atoms and Codex client-thread identity aliases share one
+Main-owned `PersistedAtomStore`. The repository owns its in-memory projection
+and process-local event revision; renderer ingress and Codex application logic
+receive the same instance explicitly. Rebuilding the Main application owner
+reopens durable values from disk with a fresh delivery revision and never
+inherits a module cache or test path override.
+
 Interactive login-shell discovery is owned once per Main or worktree-worker lifetime. The Main
 bootstrap snapshots its inherited environment and process platform into immutable configuration;
 host Modules do not reread ambient `process.env` or `process.platform`. The scoped

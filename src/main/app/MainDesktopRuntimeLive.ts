@@ -237,6 +237,7 @@ import {
   getWindowRestoreSettings,
   updateCodexExecutionHostSettings,
 } from "../local-store/config";
+import { makePersistedAtomStore } from "../local-store/persisted-atoms";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
 import { getLogger } from "../logging/logger";
 import { ElectronApp } from "../platform/electron/ElectronApp";
@@ -1028,6 +1029,7 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
+        const persistedAtoms = makePersistedAtomStore(config.nodexHome);
         const codexSessionStore = new CodexSessionStore();
         yield* Scope.addFinalizer(
           runtimeScope,
@@ -1042,6 +1044,7 @@ export const live: Layer.Layer<
               desktopTools,
               preferences,
               permissions: makeCodexPermissionsPromiseAdapter(codexPermissions, callbacks),
+              persistedAtoms,
               attachments: attachments.legacy,
               serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
                 approvalCoordinator,
@@ -1301,7 +1304,7 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          ApplicationLocalStateIpc.live.pipe(
+          ApplicationLocalStateIpc.live({ persistedAtoms }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),

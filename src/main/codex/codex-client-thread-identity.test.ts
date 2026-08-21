@@ -9,35 +9,29 @@ import {
   resolveCodexThreadIdForClientThreadId,
   setCodexClientThreadIdentity,
 } from "./codex-client-thread-identity";
-import {
-  resetPersistedAtomStateForTests,
-  setPersistedAtomsPathOverrideForTests,
-  updatePersistedAtom,
-} from "../local-store/persisted-atoms";
+import { PersistedAtomStore } from "../local-store/persisted-atoms";
 
 const tempDirectories: string[] = [];
 
-function useTempPersistedAtoms(): void {
+function useTempPersistedAtoms(): PersistedAtomStore {
   const directory = mkdtempSync(join(tmpdir(), "nodex-client-thread-identity-"));
   tempDirectories.push(directory);
-  setPersistedAtomsPathOverrideForTests(join(directory, "persisted-atoms-v1.json"));
+  return new PersistedAtomStore(join(directory, "persisted-atoms-v1.json"));
 }
 
 describe("Codex client-thread identity", () => {
   afterEach(() => {
-    setPersistedAtomsPathOverrideForTests(null);
-    resetPersistedAtomStateForTests();
     for (const directory of tempDirectories.splice(0)) {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
   test("persists the exact conversation-scoped atom and resolves both directions", () => {
-    useTempPersistedAtoms();
+    const store = useTempPersistedAtoms();
     const clientThreadId = "client-new-thread:11111111-1111-4111-8111-111111111111";
 
     expect(
-      setCodexClientThreadIdentity({
+      setCodexClientThreadIdentity(store, {
         hostId: "local",
         threadId: "conversation with spaces",
         clientThreadId,
@@ -46,47 +40,53 @@ describe("Codex client-thread identity", () => {
     expect(codexClientThreadIdentityAtomKey("local", "conversation with spaces")).toBe(
       "thread-client-id-v1:local%3Aconversation%20with%20spaces",
     );
-    resetPersistedAtomStateForTests();
-    expect(getCodexClientThreadId("local", "conversation with spaces")).toBe(clientThreadId);
-    expect(resolveCodexThreadIdForClientThreadId("local", clientThreadId)).toBe(
+    const replacement = new PersistedAtomStore(
+      join(tempDirectories.at(-1)!, "persisted-atoms-v1.json"),
+    );
+    expect(getCodexClientThreadId(replacement, "local", "conversation with spaces")).toBe(
+      clientThreadId,
+    );
+    expect(resolveCodexThreadIdForClientThreadId(replacement, "local", clientThreadId)).toBe(
       "conversation with spaces",
     );
   });
 
   test("lists only current conversations and ignores invalid persisted client ids", () => {
-    useTempPersistedAtoms();
-    setCodexClientThreadIdentity({
+    const store = useTempPersistedAtoms();
+    setCodexClientThreadIdentity(store, {
       hostId: "local",
       threadId: "current",
       clientThreadId: "client-new-thread:current",
     });
-    setCodexClientThreadIdentity({
+    setCodexClientThreadIdentity(store, {
       hostId: "local",
       threadId: "stale",
       clientThreadId: "client-new-thread:stale",
     });
-    updatePersistedAtom({
+    store.update({
       key: codexClientThreadIdentityAtomKey("local", "invalid"),
       value: "not-a-client-thread",
     });
 
-    expect(JSON.stringify(listCodexClientThreadIdentities("local", ["current", "invalid"]))).toBe(
+    expect(
+      JSON.stringify(listCodexClientThreadIdentities(store, "local", ["current", "invalid"])),
+    ).toBe(
       '[{"hostId":"local","threadId":"current","clientThreadId":"client-new-thread:current"}]',
     );
-    expect(getCodexClientThreadId("local", "invalid")).toBe(null);
+    expect(getCodexClientThreadId(store, "local", "invalid")).toBe(null);
   });
 
   test("rejects blank identities and client ids outside the exact namespace", () => {
-    useTempPersistedAtoms();
+    const store = useTempPersistedAtoms();
     expect(
-      setCodexClientThreadIdentity({
+      setCodexClientThreadIdentity(store, {
         hostId: "local",
         threadId: "thread",
         clientThreadId: "thread",
       }),
     ).toBe(false);
     expect(
-      setCodexClientThreadIdentity({
+      setCodexClientThreadIdentity(store, {
         hostId: " ",
         threadId: "thread",
         clientThreadId: "client-new-thread:value",

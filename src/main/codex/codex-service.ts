@@ -569,6 +569,7 @@ import {
   resolveCodexThreadIdForClientThreadId,
   setCodexClientThreadIdentity,
 } from "./codex-client-thread-identity";
+import type { PersistedAtomStore } from "../local-store/persisted-atoms";
 import { makeCodexBackgroundProcessRecordId } from "../../shared/codex-background-processes";
 import {
   CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
@@ -1386,6 +1387,7 @@ type CodexServiceOptions = {
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
   serverRequestResponses: ServerRequestResponsesPromiseAdapter;
+  persistedAtoms: PersistedAtomStore;
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
@@ -2610,6 +2612,7 @@ export class CodexService extends EventEmitter {
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
+  private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts: CodexExecutionHostRegistry;
@@ -2825,6 +2828,7 @@ export class CodexService extends EventEmitter {
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.serverRequestResponses = options.serverRequestResponses;
+    this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
     this.inactiveRendererOwnerRetentionMs = Math.max(
       0,
@@ -7351,8 +7355,11 @@ export class CodexService extends EventEmitter {
     if (directSession) return directSession;
 
     const resolvedThreadId =
-      resolveCodexThreadIdForClientThreadId(CODEX_APP_LOCAL_HOST_ID, conversationId) ??
-      conversationId;
+      resolveCodexThreadIdForClientThreadId(
+        this.persistedAtoms,
+        CODEX_APP_LOCAL_HOST_ID,
+        conversationId,
+      ) ?? conversationId;
     const thread = await this.readWorkspaceThread(resolvedThreadId);
     if (!thread?.sessionId) return null;
     return await this.projectWorkspace.getProjectSession(thread.sessionId);
@@ -7361,7 +7368,7 @@ export class CodexService extends EventEmitter {
   private async resolveForkBrowserConversationId(conversationId: string): Promise<string> {
     return (
       (await this.resolveForkBrowserProjectSession(conversationId))?.id ??
-      getCodexClientThreadId(CODEX_APP_LOCAL_HOST_ID, conversationId) ??
+      getCodexClientThreadId(this.persistedAtoms, CODEX_APP_LOCAL_HOST_ID, conversationId) ??
       conversationId
     );
   }
@@ -7414,7 +7421,11 @@ export class CodexService extends EventEmitter {
     clientThreadId: string,
   ): CodexPendingWorktreeThreadResolution | null {
     const pendingResolution = this.pendingWorktreeRuntime.resolveThread(clientThreadId);
-    const threadId = resolveCodexThreadIdForClientThreadId(CODEX_APP_LOCAL_HOST_ID, clientThreadId);
+    const threadId = resolveCodexThreadIdForClientThreadId(
+      this.persistedAtoms,
+      CODEX_APP_LOCAL_HOST_ID,
+      clientThreadId,
+    );
     if (threadId) return { state: "succeeded", clientThreadId, threadId };
     return pendingResolution;
   }
@@ -7791,6 +7802,7 @@ export class CodexService extends EventEmitter {
     );
     const clientThreadIdByThreadId = new Map(
       listCodexClientThreadIdentities(
+        this.persistedAtoms,
         CODEX_APP_LOCAL_HOST_ID,
         tasks.map((task) => task.thread.threadId),
       ).map(({ threadId, clientThreadId }) => [threadId, clientThreadId] as const),
@@ -23163,7 +23175,7 @@ export class CodexService extends EventEmitter {
 
   private persistClientThreadIdentity(threadId: string, clientThreadId: string): void {
     if (
-      !setCodexClientThreadIdentity({
+      !setCodexClientThreadIdentity(this.persistedAtoms, {
         hostId: CODEX_APP_LOCAL_HOST_ID,
         threadId,
         clientThreadId,
