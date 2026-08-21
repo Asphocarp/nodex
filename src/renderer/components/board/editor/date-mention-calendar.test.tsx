@@ -1,5 +1,5 @@
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vite-plus/test";
 import { formatLocalDateAsIso } from "@/lib/data-source-property-date";
 import { render } from "@/test/dom";
 import { DateMentionCalendar } from "./date-mention-calendar";

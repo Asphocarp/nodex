@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { ThreadStageActions } from "../../../thread-stage-types";
 import { bindPendingRequestConversationActions } from "./pending-request-conversation-actions";
 

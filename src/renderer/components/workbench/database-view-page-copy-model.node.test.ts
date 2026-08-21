@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import type { DatabaseViewPageTarget } from "./database-view-page-actions";
 import { resolveDatabaseViewPageCopyRequest } from "./database-view-page-copy-model";
 
