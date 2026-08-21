@@ -583,6 +583,73 @@ test("keeps the canonical Board while grouping and dragging by Priority", async 
   );
 });
 
+test("opens an unopened Page with Enter from Command Palette", async ({}, testInfo) => {
+  test.setTimeout(60_000);
+  await withElectronScenario(
+    {
+      label: "board-dense-command-palette-page",
+      scenarioId: BOARD_DENSE_SCENARIO_ID,
+      onFailure: async ({ page, readRuntimeLogs }) => {
+        await testInfo.attach("runtime-logs-at-failure", {
+          body: Buffer.from(await readRuntimeLogs()),
+          contentType: "text/plain",
+        });
+        if (!page) return;
+        await testInfo.attach("renderer-at-failure", {
+          body: await page.screenshot({ fullPage: true }),
+          contentType: "image/png",
+        });
+      },
+    },
+    async ({ page, manifest }) => {
+      if (!manifest) throw new Error("board/dense did not materialize");
+
+      const rendererErrors: Error[] = [];
+      let resolveFirstRendererError!: (error: Error) => void;
+      const firstRendererError = new Promise<Error>((resolve) => {
+        resolveFirstRendererError = resolve;
+      });
+      page.on("pageerror", (error) => {
+        rendererErrors.push(error);
+        resolveFirstRendererError(error);
+      });
+      page.on("console", (message) => {
+        if (message.type() !== "error") return;
+        if (!/(?:Maximum update depth exceeded|Minified React error #185)/u.test(message.text())) {
+          return;
+        }
+        const error = new Error(message.text());
+        rendererErrors.push(error);
+        resolveFirstRendererError(error);
+      });
+
+      await focusBoardDenseUi(page, manifest);
+      const targetTab = page.getByRole("tab", { name: "Keep projection updates bounded" });
+      await expect(targetTab).toHaveCount(0);
+
+      await page.keyboard.press(primaryShortcut("P"));
+      const commandPalette = page.getByRole("dialog", { name: "Command palette" });
+      await expect(commandPalette).toBeVisible();
+      await page.locator('input[aria-label="Command palette search"]:visible').fill("causal");
+
+      const targetOption = page.getByRole("option", {
+        name: /Keep projection updates bounded/u,
+      });
+      await expect(targetOption).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("Enter");
+      await expect(commandPalette).toHaveCount(0);
+      await Promise.race([
+        expect(targetTab).toHaveAttribute("aria-selected", "true"),
+        firstRendererError.then((error) => Promise.reject(error)),
+      ]);
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
+      expect(rendererErrors).toEqual([]);
+    },
+  );
+});
+
 test("materializes and opens the authoritative board/dense environment", async ({}, testInfo) => {
   test.setTimeout(120_000);
   await withElectronScenario(

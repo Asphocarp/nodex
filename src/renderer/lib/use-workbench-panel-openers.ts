@@ -172,12 +172,15 @@ interface WorkbenchPanelOpenersInput {
     patch: WorkbenchTabUpdateInput,
   ) => WorkbenchTabProjection | null;
   readonly refreshProjectSessions: (projectId: string | null) => Promise<unknown>;
-  readonly openPageStage: (
+  /** Selects the target Project and queues Page navigation at the shell ingress boundary. */
+  readonly requestPageStageNavigation: (
     projectId: string,
     pageId: string,
     titleSnapshot?: string,
     options?: OpenPageStageOptions,
   ) => void;
+  /** Consumes a selected-Project request by materializing the Page in its Project Scene. */
+  readonly presentProjectScenePage: OpenPageTabHandler;
   readonly pendingPageDeepLinkOpen:
     | {
         readonly projectId: string;
@@ -207,7 +210,8 @@ export function useWorkbenchPanelOpeners({
   createSessionViewTab,
   updateTab,
   refreshProjectSessions,
-  openPageStage,
+  requestPageStageNavigation,
+  presentProjectScenePage,
   pendingPageDeepLinkOpen,
   onPageDeepLinkHandled,
 }: WorkbenchPanelOpenersInput) {
@@ -914,7 +918,7 @@ export function useWorkbenchPanelOpeners({
   const openPageTab = useCallback<OpenPageTabHandler>(
     async (projectId, pageId, titleSnapshot, options) => {
       if (!activeSession || activeSession.projectId === null) {
-        openPageStage(projectId, pageId, titleSnapshot, options);
+        requestPageStageNavigation(projectId, pageId, titleSnapshot, options);
         return;
       }
       const sessionProjectId = activeSession.projectId;
@@ -998,7 +1002,7 @@ export function useWorkbenchPanelOpeners({
       clearPanelPreviewTab,
       ensureActivePanelOpenWithoutRefresh,
       createSessionViewTab,
-      openPageStage,
+      requestPageStageNavigation,
       pinPreviewTab,
       previewTabsByPanel,
       refreshProjectSessions,
@@ -1060,7 +1064,7 @@ export function useWorkbenchPanelOpeners({
 
     let cancelled = false;
     void (async () => {
-      await openPageTab(
+      await presentProjectScenePage(
         pendingPageDeepLinkOpen.projectId,
         pendingPageDeepLinkOpen.pageId,
         undefined,
@@ -1075,7 +1079,7 @@ export function useWorkbenchPanelOpeners({
     return () => {
       cancelled = true;
     };
-  }, [activeProjectId, onPageDeepLinkHandled, openPageTab, pendingPageDeepLinkOpen]);
+  }, [activeProjectId, onPageDeepLinkHandled, pendingPageDeepLinkOpen, presentProjectScenePage]);
 
   return {
     openUserAttachmentImageEditor,

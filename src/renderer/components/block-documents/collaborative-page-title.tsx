@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -310,14 +311,17 @@ export function CollaborativePageTitle({
     return () => ownerDocument.removeEventListener("selectionchange", handleSelectionChange);
   }, []);
 
-  const setEditorRef = (node: HTMLDivElement | null): void => {
-    editorRef.current = node;
-    if (typeof forwardedRef === "function") {
-      forwardedRef(node);
-      return;
-    }
-    if (forwardedRef) forwardedRef.current = node;
-  };
+  const setEditorRef = useCallback(
+    (node: HTMLDivElement | null): void => {
+      editorRef.current = node;
+      if (typeof forwardedRef === "function") {
+        forwardedRef(node);
+        return;
+      }
+      if (forwardedRef) forwardedRef.current = node;
+    },
+    [forwardedRef],
+  );
 
   const applyEdit = (start: number, end: number, insertText: string): void => {
     const result = applyRichTitleTextEdit({

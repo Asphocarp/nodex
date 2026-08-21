@@ -1,5 +1,5 @@
 import { useDraggable, useDroppable, type Data } from "@dnd-kit/core";
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 
 import type { LibraryPlacementAnchor, LibraryWriteParent } from "../../../shared/library-module";
 import type { LibraryResourceTarget } from "../library/library-resource-actions";
@@ -105,15 +105,22 @@ export const useSidebarLibraryResourceDnd = (
       ...(input.nestParent ? { nestParent: input.nestParent } : {}),
     },
   });
+  const setDraggableNodeRef = draggable.setNodeRef;
+  const setDroppableNodeRef = droppable.setNodeRef;
+  const setNodeRef = useCallback(
+    (node: HTMLElement | null) => {
+      setDraggableNodeRef(node);
+      setDroppableNodeRef(node);
+    },
+    [setDraggableNodeRef, setDroppableNodeRef],
+  );
+
   return {
     attributes: draggable.attributes,
     listeners: draggable.listeners,
     isDragging: draggable.isDragging,
     isOver: droppable.isOver,
-    setNodeRef: (node: HTMLElement | null) => {
-      draggable.setNodeRef(node);
-      droppable.setNodeRef(node);
-    },
+    setNodeRef,
   };
 };
 
