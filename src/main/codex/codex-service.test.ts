@@ -139,6 +139,7 @@ import type {
 import { dbNotifier } from "../local-store/notifier";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
+import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
 
 interface TestableCodexService {
   on: {
@@ -895,6 +896,7 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
     cursors: [],
   }),
 };
+const MANAGED_WORKTREE_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
 
 const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
   source: "staged",
@@ -1405,7 +1407,8 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
   return port as unknown as DesktopProjectWorkspacePort;
 };
 
-afterAll(() => {
+afterAll(async () => {
+  await Promise.all(MANAGED_WORKTREE_TEST_HARNESS_RELEASES.map((close) => close()));
   if (PREVIOUS_TEST_NODEX_HOME === undefined) delete process.env.NODEX_HOME;
   else process.env.NODEX_HOME = PREVIOUS_TEST_NODEX_HOME;
   fs.rmSync(DEFAULT_TEST_LOCAL_STORE_ROOT, { recursive: true, force: true });
@@ -1550,6 +1553,8 @@ function createService(options?: {
     }),
     managedWorktrees: managedWorktreeSettingsPort,
   });
+  const managedWorktreeHarness = makeManagedWorktreeRuntimeTestHarness(executionHosts);
+  MANAGED_WORKTREE_TEST_HARNESS_RELEASES.push(managedWorktreeHarness.close);
   const configuredAttachmentsRoot =
     options?.resolveThreadGoalAttachmentsRoot?.() ?? DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT;
   if (typeof configuredAttachmentsRoot !== "string") {
@@ -1667,6 +1672,7 @@ function createService(options?: {
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
     executionHosts,
+    managedWorktrees: managedWorktreeHarness.adapter,
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,
@@ -1683,6 +1689,14 @@ function createService(options?: {
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
     userInputAutoResolutionTimer: options?.userInputAutoResolutionTimer,
   }) as unknown as TestableCodexService;
+  const shutdown = service.shutdown.bind(service);
+  service.shutdown = async () => {
+    try {
+      await shutdown();
+    } finally {
+      await managedWorktreeHarness.close();
+    }
+  };
   permissionStateByTestService.set(service, permissionStateByScope);
   service.setAutomationModule(options?.automationModule ?? createTestAutomationModule());
   service.setProjectWorkspacePort(options?.projectWorkspace ?? createTestProjectWorkspace());

@@ -269,10 +269,13 @@ commits the new host with cwd and runtime roots. SSH adapters are registered onl
 after health, worker-deployment, file-transfer, and app-server capabilities are
 ready; renderer and Core never receive SSH credentials or arbitrary commands.
 
-After creation, one Main-owned managed-worktree lifecycle Module coordinates
-inspection, snapshot policy, Environment cleanup, removal, restoration,
-ownership transfer, retention, and execution-location movement. The owning
-execution-host worker alone mutates Git, files, and scripts. Core Workspace
+After creation, `ManagedWorktreeRuntime` owns physical lifecycle routing,
+normalized single-flight removal, newborn protection, inspection, restoration,
+and ownership metadata. Its Scope owns in-flight worker operations, so Main
+shutdown interrupts them through the same worker cancellation channel. The
+owning execution-host worker alone mutates Git, files, and scripts. The
+application coordinator combines this physical lifecycle Interface with
+retention, Environment cleanup, and execution-location movement. Core Workspace
 atomically persists the durable host/cwd/worktree execution location but never
 inspects a repository or stores snapshot refs. Its lifecycle read publishes all
 managed-worktree consumers and Project protection roots at one projection

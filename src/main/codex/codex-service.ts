@@ -209,6 +209,7 @@ import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
+import type { ManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -640,7 +641,6 @@ import {
   type CodexThreadHandoffJournalEntry,
   type CodexThreadHandoffPhase,
 } from "./codex-thread-handoff-journal";
-import { CodexManagedWorktreeLifecycleService } from "./codex-managed-worktree-lifecycle";
 import {
   normalizeWorktreePathForIdentity,
   resolveManagedWorktreeId,
@@ -1421,6 +1421,7 @@ type CodexServiceOptions = {
   projectlessHomeDirectory?: () => string;
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   executionHosts: CodexExecutionHostRegistry;
+  managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
   browserTransferRuntime?: CodexForkBrowserRuntime;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
@@ -2618,7 +2619,7 @@ export class CodexService extends EventEmitter {
   private readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts: CodexExecutionHostRegistry;
-  private readonly managedWorktreeLifecycle: CodexManagedWorktreeLifecycleService;
+  private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadExecutionLocationService: CodexThreadExecutionLocationService;
   private readonly managedWorktreeInspectionByThreadId = new Map<
@@ -2854,9 +2855,7 @@ export class CodexService extends EventEmitter {
       options?.threadCodexConfigBuilder ?? (() => this.desktopTools.threadConfig());
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
-    this.managedWorktreeLifecycle = new CodexManagedWorktreeLifecycleService({
-      executionHosts: this.executionHosts,
-    });
+    this.managedWorktreeLifecycle = options.managedWorktrees;
     this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
       executionHosts: this.executionHosts,
       relayBaseRoot: path.join(this.runtimeStateHome, "handoffs"),
@@ -4497,7 +4496,7 @@ export class CodexService extends EventEmitter {
       });
   }
 
-  /** Test-only replacement seam while ManagedWorktreeRuntime is still extracted from this class. */
+  /** Test-only replacement seam for the execution host's worktree worker adapter. */
   setWorktreeWorkerPort(hostId: string, port: CodexWorktreeWorkerPort, managedRoot?: string): void {
     const current = this.executionHosts.getDescriptor(hostId);
     const effectiveManagedRoot = managedRoot ?? current?.managedRoot;
@@ -9566,7 +9565,7 @@ export class CodexService extends EventEmitter {
     >;
     let physicalByHost: Array<{
       readonly hostId: string;
-      readonly inventory: Awaited<ReturnType<CodexManagedWorktreeLifecycleService["list"]>>;
+      readonly inventory: Awaited<ReturnType<ManagedWorktreeRuntimePromiseAdapter["list"]>>;
     }>;
     try {
       [lifecycle, physicalByHost] = await Promise.all([

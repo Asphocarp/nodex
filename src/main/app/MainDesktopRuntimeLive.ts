@@ -86,6 +86,11 @@ import {
   live as executionHostRuntimeLive,
 } from "../codex-application/ExecutionHostRuntime";
 import {
+  ManagedWorktreeRuntime,
+  live as managedWorktreeRuntimeLive,
+} from "../codex-application/ManagedWorktreeRuntime";
+import { makeManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
+import {
   CodexAttachments,
   live as codexAttachmentsLive,
 } from "../codex-application/CodexAttachments";
@@ -918,6 +923,13 @@ export const live: Layer.Layer<
           runtimeScope,
         ).pipe(Effect.mapError((cause) => runtimeError("construct-execution-hosts", cause)));
         const executionHosts = Context.get(executionHostContext, ExecutionHostRuntime);
+        const managedWorktreeContext = yield* Layer.buildWithScope(
+          managedWorktreeRuntimeLive.pipe(
+            Layer.provide(Layer.succeed(ExecutionHostRuntime, executionHosts)),
+          ),
+          runtimeScope,
+        );
+        const managedWorktrees = Context.get(managedWorktreeContext, ManagedWorktreeRuntime);
         yield* Layer.buildWithScope(
           ExecutionHostIpc.live.pipe(
             Layer.provide(
@@ -974,6 +986,10 @@ export const live: Layer.Layer<
               runtime: codexRuntime,
               runtimeStateHome,
               executionHosts: executionHosts.registry,
+              managedWorktrees: makeManagedWorktreeRuntimePromiseAdapter(
+                managedWorktrees,
+                callbacks,
+              ),
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
                   callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),

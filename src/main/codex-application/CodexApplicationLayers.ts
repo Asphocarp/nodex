@@ -22,6 +22,10 @@ import {
   live as executionHostRuntimeLive,
   type ExecutionHostRuntimeOptions,
 } from "./ExecutionHostRuntime";
+import {
+  ManagedWorktreeRuntime,
+  live as managedWorktreeRuntimeLive,
+} from "./ManagedWorktreeRuntime";
 import { ThreadCatalog, live as threadCatalogLive } from "./ThreadCatalog";
 
 export type CodexRequestHandling =
@@ -45,7 +49,8 @@ export type CodexApplicationModules =
   | ThreadCatalog
   | ComposerCatalog
   | CodexAccount
-  | ExecutionHostRuntime;
+  | ExecutionHostRuntime
+  | ManagedWorktreeRuntime;
 
 /** Application-facing modules share the same Gateway and per-thread runtime map. */
 export const modulesLive = (
@@ -55,13 +60,17 @@ export const modulesLive = (
   CodexApplicationModules,
   ExecutionHostRuntimeError,
   CodexGateway | ConversationRuntimeMap
-> =>
-  Layer.mergeAll(
+> => {
+  const managedWorktrees = managedWorktreeRuntimeLive.pipe(
+    Layer.provideMerge(executionHostRuntimeLive(executionHosts)),
+  );
+  return Layer.mergeAll(
     conversationCommandsLive,
     connectionLive,
     threadCatalogLive,
     composerCatalogLive,
     accountLive(account),
-    executionHostRuntimeLive(executionHosts),
+    managedWorktrees,
     CodexApplicationEventRouter.live,
   );
+};
