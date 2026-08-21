@@ -6,7 +6,7 @@ import * as CodexError from "../errors.ts";
 import * as Shared from "./shared.ts";
 
 const decodeNestedNumberPayload = Schema.decodeUnknownEffect(
-  Schema.Struct({ profile: Schema.Struct({ token: Schema.Number }) }),
+  Schema.Struct({ profile: Schema.Struct({ token: Schema.Finite }) }),
 );
 const encodeUnknownJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -40,7 +40,7 @@ it.effect("preserves schema encode diagnostics", () =>
   Effect.gen(function* () {
     const error = yield* Shared.encodeOptionalPayload(
       "thread/start",
-      Schema.Number,
+      Schema.Finite,
       "not-a-number" as never,
     ).pipe(Effect.flip);
 

@@ -14,6 +14,7 @@ const generatedOrExternalPaths = [
   "packages/*/dist/**",
   "packages/codex-app-server-protocol/runtime-schemas/**",
   "packages/codex-app-server-protocol/src/**",
+  "packages/effect-codex-app-server/src/_generated/**",
   "packages/core-protocol/openapi.json",
   "packages/core-protocol/src/compatibility.generated.ts",
   "packages/core-protocol/src/generated.ts",
@@ -123,6 +124,11 @@ const singleOwnerEventHandlerFiles = [
 
 const toolingFixtureIgnorePatterns = new Set(["scripts/fixtures/tooling/**", "**/fixtures/**"]);
 const effectControlPlaneFiles = [
+  "packages/effect-codex-app-server/**/*.{ts,tsx}",
+  "src/main/app/**/*.{ts,tsx}",
+  "src/main/core-runtime/**/*.{ts,tsx}",
+  "src/main/codex-runtime/**/*.{ts,tsx}",
+  "src/main/platform/**/*.{ts,tsx}",
   "src/main/effect-control-plane/**/*.{ts,tsx}",
   "src/main/effect-adapters/**/*.{ts,tsx}",
   "src/main/main-program*.ts",
@@ -314,7 +320,13 @@ export default defineConfig({
         rules: effectRecommended.rules,
       },
       {
-        files: ["src/main/effect-adapters/**/*.{ts,tsx}", "scripts/effect-adapters/**/*.ts"],
+        files: [
+          "packages/effect-codex-app-server/src/_internal/**/*.{ts,tsx}",
+          "packages/effect-codex-app-server/scripts/**/*.ts",
+          "src/main/effect-adapters/**/*.{ts,tsx}",
+          "src/main/platform/**/*.{ts,tsx}",
+          "scripts/effect-adapters/**/*.ts",
+        ],
         rules: {
           ...effectRecommended.rules,
           // These app-owned adapters are the intentional Node/platform frontier.
