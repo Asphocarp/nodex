@@ -1504,6 +1504,18 @@ function createService(options?: {
       activatePlugin: async () => undefined,
       listSkills: async () => [],
     },
+    computerUseRuntime: {
+      current: () => ({
+        message: "Computer Use is unavailable in this fixture",
+        reason: "runtime-unavailable",
+        status: "unavailable",
+      }),
+      ensureReady: async () => ({
+        message: "Computer Use is unavailable in this fixture",
+        reason: "runtime-unavailable",
+        status: "unavailable",
+      }),
+    },
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome:

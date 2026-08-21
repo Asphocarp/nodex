@@ -4,6 +4,7 @@ import type { ResolvedCodexRuntime } from "./codex/codex-runtime";
 import type { CodexApplicationClient } from "./codex-runtime/CodexApplicationClient";
 import type { ComposerCatalogPromiseAdapter } from "./codex-application/ComposerCatalogPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "./codex-application/AgentProviderRuntimePromiseAdapter";
+import type { ComputerUseRuntimePromiseAdapter } from "./host-runtime/ComputerUseRuntime";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
@@ -11,11 +12,11 @@ export interface MainServiceComposition {
 }
 
 export interface MainServiceCompositionInput {
-  readonly locale: () => string;
   readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
   readonly composerCatalog: ComposerCatalogPromiseAdapter;
+  readonly computerUseRuntime: ComputerUseRuntimePromiseAdapter;
   readonly codexClient: CodexApplicationClient;
   readonly codexRuntime: ResolvedCodexRuntime;
 }
@@ -29,11 +30,11 @@ export function createMainServiceComposition(
   const browserSidebarService = new BrowserSidebarService();
   const codexService = new CodexService({
     browserTransferRuntime: browserSidebarService,
-    computerUseRuntimeConfig: () => ({ locale: input.locale() }),
     agentProviderRuntime: input.agentProviderRuntime,
     terminalRuntime: input.terminalRuntime,
     runtimeStateHome: input.runtimeStateHome,
     composerCatalog: input.composerCatalog,
+    computerUseRuntime: input.computerUseRuntime,
     client: input.codexClient,
     runtime: input.codexRuntime,
   });

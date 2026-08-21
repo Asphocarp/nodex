@@ -58,6 +58,11 @@ import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRu
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
+  ComputerUseRuntime,
+  live as computerUseRuntimeLive,
+  makeComputerUseRuntimePromiseAdapter,
+} from "../host-runtime/ComputerUseRuntime";
+import {
   activateMainServiceComposition,
   createMainServiceComposition,
 } from "../main-service-composition";
@@ -205,6 +210,20 @@ export const live: Layer.Layer<
           conversationCommandsContext,
           ConversationCommands,
         );
+        const computerUseContext = yield* Layer.buildWithScope(
+          computerUseRuntimeLive({
+            browserRuntime: codexRuntime.browserRuntime,
+            peerAuthorizationMode:
+              codexRuntime.source === "bundled" ? "packaged" : "development",
+            runtimeConfig: () => ({ locale }),
+            runtimeStateHome,
+          }),
+          runtimeScope,
+        );
+        const computerUseRuntime = makeComputerUseRuntimePromiseAdapter(
+          Context.get(computerUseContext, ComputerUseRuntime),
+          callbacks,
+        );
         const providerCredentialsContext = yield* Layer.buildWithScope(
           ProviderCredentials.fromStore(providerCredentialStore),
           runtimeScope,
@@ -335,9 +354,9 @@ export const live: Layer.Layer<
         const activation = yield* Effect.try({
           try: () => {
             const composition = createMainServiceComposition({
-              locale: () => locale,
               agentProviderRuntime,
               composerCatalog,
+              computerUseRuntime,
               codexClient: codexBridge,
               codexRuntime,
               runtimeStateHome,
