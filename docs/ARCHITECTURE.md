@@ -382,6 +382,14 @@ See [the Workbench shell specification](docs/product-specs/workbench-shell.md), 
 
 Electron's synchronous bootstrap configures the Profile paths, diagnostics, privileged schemes, isolated-run ownership, and single-instance lock before readiness. It does not construct process services. After `app.whenReady()`, the Main composition root acquires the desktop Layer graph directly; no dynamically imported lifecycle root or import-time process observer participates in startup. Failed acquisition releases everything already owned; normal and authority-driven quit use the same process Scope.
 
+Host settings are read from the canonical user TOML plus the current project
+overlay at the point of use. The settings adapter has no import-time cache or
+process-global revision: an explicit source identifies its CWD, environment and
+user home, so independent Profiles and test runtimes cannot inherit one
+another's configuration view. User mutations preserve unrelated TOML sections
+and publish a fully flushed sibling staging file with an atomic rename; readers
+therefore observe either the previous or the complete next document.
+
 The launcher selects a single Core candidate while holding the Profile lifetime lock, then proves authority with an authenticated handshake. Existing descriptors and PIDs are hints, not process identity. Core compatibility is evaluated across transport, event, Module contracts, artifact policy, and exact Store identity.
 
 Electron keeps one logical authority supervisor for its lifetime. A disconnected transport may recover by selecting another compatible Core generation for the same Store epoch; epoch or authority drift fails closed. Long-lived stream supervisors reconnect from their retained logical cursors or resource identities.

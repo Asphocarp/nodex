@@ -1,5 +1,16 @@
 import * as path from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { randomUUID } from "crypto";
 import { homedir } from "os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { resolveNodexHomePath } from "../nodex-home";
@@ -82,6 +93,18 @@ interface RootTomlConfig extends Record<string, unknown> {
   server?: ServerTomlConfig;
 }
 
+export interface LocalSettingsSource {
+  readonly cwd: string;
+  readonly environment: Readonly<NodeJS.ProcessEnv>;
+  readonly userHome: string;
+}
+
+const currentProcessSettingsSource = (): LocalSettingsSource => ({
+  cwd: process.cwd(),
+  environment: process.env,
+  userHome: process.env.HOME?.trim() || homedir(),
+});
+
 const BACKUP_AUTO_DEFAULT = false;
 const DATABASE_FILE_NAME = "nodex.db";
 const BACKUP_INTERVAL_DEFAULT = 6;
@@ -115,8 +138,8 @@ function readServerSection(configPath: string): ServerTomlConfig | null {
   }
 }
 
-function findProjectConfig(): string | null {
-  let dir = process.cwd();
+function findProjectConfig(source: LocalSettingsSource): string | null {
+  let dir = source.cwd;
   for (;;) {
     const candidate = path.join(dir, ".nodex", "config.toml");
     if (existsSync(candidate)) return candidate;
@@ -126,16 +149,16 @@ function findProjectConfig(): string | null {
   }
 }
 
-function loadServerTomlConfig(): ServerTomlConfig {
+function loadServerTomlConfig(source: LocalSettingsSource): ServerTomlConfig {
   const merged: ServerTomlConfig = {};
 
   // User-level (~/.nodex/config.toml)
-  const homeConfig = path.join(getHomeDir(), ".nodex", "config.toml");
+  const homeConfig = path.join(source.userHome, ".nodex", "config.toml");
   const homeServer = readServerSection(homeConfig);
   if (homeServer) Object.assign(merged, homeServer);
 
   // Project-level (CWD walk-up) overrides user-level
-  const projectConfig = findProjectConfig();
+  const projectConfig = findProjectConfig(source);
   if (projectConfig) {
     const projectServer = readServerSection(projectConfig);
     if (projectServer) Object.assign(merged, projectServer);
@@ -144,19 +167,13 @@ function loadServerTomlConfig(): ServerTomlConfig {
   return merged;
 }
 
-function loadUserServerTomlConfig(): ServerTomlConfig {
-  const homeConfig = path.join(getHomeDir(), ".nodex", "config.toml");
+function loadUserServerTomlConfig(source: LocalSettingsSource): ServerTomlConfig {
+  const homeConfig = path.join(source.userHome, ".nodex", "config.toml");
   return readServerSection(homeConfig) ?? {};
 }
 
-function getUserConfigPath(): string {
-  return path.join(getHomeDir(), ".nodex", "config.toml");
-}
-
-function getHomeDir(): string {
-  const envHome = process.env.HOME?.trim();
-  if (envHome) return envHome;
-  return homedir();
+function getUserConfigPath(source: LocalSettingsSource): string {
+  return path.join(source.userHome, ".nodex", "config.toml");
 }
 
 function readTomlConfig(configPath: string): RootTomlConfig {
@@ -178,35 +195,67 @@ function readTomlConfig(configPath: string): RootTomlConfig {
   }
 }
 
-function writeUserServerTomlConfig(nextServer: ServerTomlConfig): void {
-  const userConfigPath = getUserConfigPath();
-  const nextToml = readTomlConfig(userConfigPath);
-  nextToml.server = nextServer;
-
-  const configDirectory = path.dirname(userConfigPath);
+function writeTomlConfig(configPath: string, nextToml: RootTomlConfig): void {
+  const configDirectory = path.dirname(configPath);
   mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
+  const temporaryPath = path.join(
+    configDirectory,
+    `.${path.basename(configPath)}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  let descriptor: number | null = null;
+  try {
+    descriptor = openSync(temporaryPath, "wx", 0o600);
+    writeFileSync(descriptor, stringifyToml(nextToml as Record<string, unknown>), "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = null;
+    renameSync(temporaryPath, configPath);
+    try {
+      const directoryDescriptor = openSync(configDirectory, "r");
+      try {
+        fsyncSync(directoryDescriptor);
+      } finally {
+        closeSync(directoryDescriptor);
+      }
+    } catch {
+      // Directory fsync is unavailable on some host filesystems. The complete
+      // staged document has already replaced the canonical file atomically.
+    }
+  } catch (error) {
+    if (descriptor !== null) closeSync(descriptor);
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // The staging file may already have been published or never created.
+    }
+    throw error;
+  }
 }
 
-let userServerToml = loadUserServerTomlConfig();
-let serverToml = loadServerTomlConfig();
+function writeUserServerTomlConfig(
+  source: LocalSettingsSource,
+  nextServer: ServerTomlConfig,
+): void {
+  const userConfigPath = getUserConfigPath(source);
+  const nextToml = readTomlConfig(userConfigPath);
+  nextToml.server = nextServer;
+  writeTomlConfig(userConfigPath, nextToml);
+}
 
 // ─── Getters (resolution: env → TOML → default) ───
 
-export function getNodexHome(): string {
+export function getNodexHome(source = currentProcessSettingsSource()): string {
+  const serverToml = loadServerTomlConfig(source);
   return resolveNodexHomePath({
-    cwd: process.cwd(),
-    env: process.env,
-    userHome: getHomeDir(),
+    cwd: source.cwd,
+    env: source.environment,
+    userHome: source.userHome,
     configuredHome: serverToml.home,
   });
 }
 
-export function getDatabasePath(): string {
-  return path.join(getNodexHome(), DATABASE_FILE_NAME);
+export function getDatabasePath(source = currentProcessSettingsSource()): string {
+  return path.join(getNodexHome(source), DATABASE_FILE_NAME);
 }
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -400,29 +449,34 @@ function telemetrySettingsFromConfig(
   };
 }
 
-export function getBackupSettings(): BackupSettings {
+export function getBackupSettings(source = currentProcessSettingsSource()): BackupSettings {
+  const serverToml = loadServerTomlConfig(source);
+  const environment = source.environment;
   const fromToml = backupSettingsFromConfig(serverToml);
   const envOverrides = {
-    autoEnabled: process.env.NODEX_BACKUP_AUTO_ENABLED !== undefined,
-    intervalHours: process.env.NODEX_BACKUP_INTERVAL_HOURS !== undefined,
-    retentionCount: process.env.NODEX_BACKUP_RETENTION !== undefined,
+    autoEnabled: environment.NODEX_BACKUP_AUTO_ENABLED !== undefined,
+    intervalHours: environment.NODEX_BACKUP_INTERVAL_HOURS !== undefined,
+    retentionCount: environment.NODEX_BACKUP_RETENTION !== undefined,
   };
 
   return {
     autoEnabled: envOverrides.autoEnabled
-      ? parseBooleanEnv(process.env.NODEX_BACKUP_AUTO_ENABLED, fromToml.autoEnabled)
+      ? parseBooleanEnv(environment.NODEX_BACKUP_AUTO_ENABLED, fromToml.autoEnabled)
       : fromToml.autoEnabled,
     intervalHours: envOverrides.intervalHours
-      ? parseIntegerEnv(process.env.NODEX_BACKUP_INTERVAL_HOURS, fromToml.intervalHours, 1)
+      ? parseIntegerEnv(environment.NODEX_BACKUP_INTERVAL_HOURS, fromToml.intervalHours, 1)
       : fromToml.intervalHours,
     retentionCount: envOverrides.retentionCount
-      ? parseIntegerEnv(process.env.NODEX_BACKUP_RETENTION, fromToml.retentionCount, 0)
+      ? parseIntegerEnv(environment.NODEX_BACKUP_RETENTION, fromToml.retentionCount, 0)
       : fromToml.retentionCount,
     envOverrides,
   };
 }
 
-export function updateBackupSettings(input: UpdateBackupSettingsInput): BackupSettings {
+export function updateBackupSettings(
+  input: UpdateBackupSettingsInput,
+  source = currentProcessSettingsSource(),
+): BackupSettings {
   if (typeof input.autoEnabled !== "boolean") {
     throw new Error("autoEnabled must be a boolean");
   }
@@ -433,7 +487,7 @@ export function updateBackupSettings(input: UpdateBackupSettingsInput): BackupSe
     retentionCount: normalizeIntegerInput(input.retentionCount, 0, "retentionCount"),
   };
 
-  const userConfigPath = getUserConfigPath();
+  const userConfigPath = getUserConfigPath(source);
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
@@ -444,39 +498,38 @@ export function updateBackupSettings(input: UpdateBackupSettingsInput): BackupSe
 
   nextToml.server = nextServer;
 
-  const configDirectory = path.dirname(userConfigPath);
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
-
-  return getBackupSettings();
+  writeTomlConfig(userConfigPath, nextToml);
+  return getBackupSettings(source);
 }
 
-export function getHistorySettings(): HistorySettings {
+export function getHistorySettings(source = currentProcessSettingsSource()): HistorySettings {
+  const serverToml = loadServerTomlConfig(source);
+  const environment = source.environment;
   const fromToml =
     typeof serverToml.history_retention === "number"
       ? Math.max(0, serverToml.history_retention)
       : 1000;
   const envOverrides = {
-    retentionCount: process.env.NODEX_HISTORY_RETENTION !== undefined,
+    retentionCount: environment.NODEX_HISTORY_RETENTION !== undefined,
   };
 
   return {
     retentionCount: envOverrides.retentionCount
-      ? parseIntegerEnv(process.env.NODEX_HISTORY_RETENTION, fromToml, 0)
+      ? parseIntegerEnv(environment.NODEX_HISTORY_RETENTION, fromToml, 0)
       : fromToml,
     envOverrides,
   };
 }
 
-export function updateHistorySettings(input: UpdateHistorySettingsInput): HistorySettings {
+export function updateHistorySettings(
+  input: UpdateHistorySettingsInput,
+  source = currentProcessSettingsSource(),
+): HistorySettings {
   const nextSettings = {
     retentionCount: normalizeIntegerInput(input.retentionCount, 0, "retentionCount"),
   };
 
-  const userConfigPath = getUserConfigPath();
+  const userConfigPath = getUserConfigPath(source);
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
@@ -485,50 +538,53 @@ export function updateHistorySettings(input: UpdateHistorySettingsInput): Histor
 
   nextToml.server = nextServer;
 
-  const configDirectory = path.dirname(userConfigPath);
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
-
-  return getHistorySettings();
+  writeTomlConfig(userConfigPath, nextToml);
+  return getHistorySettings(source);
 }
 
-export function getDiagnosticsSettings(): DiagnosticsSettings {
+export function getDiagnosticsSettings(
+  source = currentProcessSettingsSource(),
+): DiagnosticsSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
+  const environmentSource = source.environment;
   const fromToml = diagnosticsSettingsFromConfig(userServerToml);
   const envOverrides = {
-    enabled: process.env.NODEX_SENTRY_ENABLED !== undefined,
-    dsn: process.env.SENTRY_DSN !== undefined,
-    environment: process.env.SENTRY_ENVIRONMENT !== undefined,
-    release: process.env.SENTRY_RELEASE !== undefined,
-    tracesSampleRate: process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE !== undefined,
-    replayEnabled: process.env.NODEX_SENTRY_REPLAY_ENABLED !== undefined,
-    replaysSessionSampleRate: process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE !== undefined,
-    replaysOnErrorSampleRate: process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE !== undefined,
+    enabled: environmentSource.NODEX_SENTRY_ENABLED !== undefined,
+    dsn: environmentSource.SENTRY_DSN !== undefined,
+    environment: environmentSource.SENTRY_ENVIRONMENT !== undefined,
+    release: environmentSource.SENTRY_RELEASE !== undefined,
+    tracesSampleRate: environmentSource.NODEX_SENTRY_TRACES_SAMPLE_RATE !== undefined,
+    replayEnabled: environmentSource.NODEX_SENTRY_REPLAY_ENABLED !== undefined,
+    replaysSessionSampleRate:
+      environmentSource.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE !== undefined,
+    replaysOnErrorSampleRate:
+      environmentSource.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE !== undefined,
   };
 
   const enabled = envOverrides.enabled
-    ? parseBooleanEnv(process.env.NODEX_SENTRY_ENABLED, fromToml.enabled)
+    ? parseBooleanEnv(environmentSource.NODEX_SENTRY_ENABLED, fromToml.enabled)
     : fromToml.enabled;
-  const dsnFromEnv = process.env.SENTRY_DSN?.trim() ?? "";
+  const dsnFromEnv = environmentSource.SENTRY_DSN?.trim() ?? "";
   const dsn = envOverrides.dsn ? dsnFromEnv : fromToml.dsn || (enabled ? DEFAULT_SENTRY_DSN : "");
-  const environmentFromEnv = process.env.SENTRY_ENVIRONMENT?.trim() ?? "";
+  const environmentFromEnv = environmentSource.SENTRY_ENVIRONMENT?.trim() ?? "";
   const environment =
     envOverrides.environment && environmentFromEnv ? environmentFromEnv : fromToml.environment;
-  const releaseFromEnv = process.env.SENTRY_RELEASE?.trim() ?? "";
+  const releaseFromEnv = environmentSource.SENTRY_RELEASE?.trim() ?? "";
   const release = envOverrides.release ? releaseFromEnv || null : fromToml.release;
   const tracesSampleRate = envOverrides.tracesSampleRate
     ? Math.min(
         1,
         Math.max(
           0,
-          parseNumberEnv(process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE, fromToml.tracesSampleRate),
+          parseNumberEnv(
+            environmentSource.NODEX_SENTRY_TRACES_SAMPLE_RATE,
+            fromToml.tracesSampleRate,
+          ),
         ),
       )
     : fromToml.tracesSampleRate;
   const replayEnabled = envOverrides.replayEnabled
-    ? parseBooleanEnv(process.env.NODEX_SENTRY_REPLAY_ENABLED, fromToml.replayEnabled)
+    ? parseBooleanEnv(environmentSource.NODEX_SENTRY_REPLAY_ENABLED, fromToml.replayEnabled)
     : fromToml.replayEnabled;
   const replaysSessionSampleRate = envOverrides.replaysSessionSampleRate
     ? Math.min(
@@ -536,7 +592,7 @@ export function getDiagnosticsSettings(): DiagnosticsSettings {
         Math.max(
           0,
           parseNumberEnv(
-            process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+            environmentSource.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
             fromToml.replaysSessionSampleRate,
           ),
         ),
@@ -548,7 +604,7 @@ export function getDiagnosticsSettings(): DiagnosticsSettings {
         Math.max(
           0,
           parseNumberEnv(
-            process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+            environmentSource.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
             fromToml.replaysOnErrorSampleRate,
           ),
         ),
@@ -570,6 +626,7 @@ export function getDiagnosticsSettings(): DiagnosticsSettings {
 
 export function updateDiagnosticsSettings(
   input: UpdateDiagnosticsSettingsInput,
+  source = currentProcessSettingsSource(),
 ): DiagnosticsSettings {
   if (typeof input.enabled !== "boolean") {
     throw new Error("enabled must be a boolean");
@@ -596,7 +653,7 @@ export function updateDiagnosticsSettings(
     throw new Error("replayEnabled must be a boolean");
   }
 
-  const userConfigPath = getUserConfigPath();
+  const userConfigPath = getUserConfigPath(source);
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer: ServerTomlConfig = {
     ...(nextToml.server ?? {}),
@@ -620,37 +677,36 @@ export function updateDiagnosticsSettings(
 
   nextToml.server = nextServer;
 
-  const configDirectory = path.dirname(userConfigPath);
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
-
-  return getDiagnosticsSettings();
+  writeTomlConfig(userConfigPath, nextToml);
+  return getDiagnosticsSettings(source);
 }
 
-export function getTelemetrySettings(): TelemetrySettings {
+export function getTelemetrySettings(source = currentProcessSettingsSource()): TelemetrySettings {
+  const userServerToml = loadUserServerTomlConfig(source);
+  const environmentSource = source.environment;
   const fromToml = telemetrySettingsFromConfig(userServerToml);
   const envOverrides = {
-    enabled: process.env.NODEX_TELEMETRY_ENABLED !== undefined,
-    clientKey: process.env.STATSIG_CLIENT_KEY !== undefined,
-    environment: process.env.STATSIG_ENVIRONMENT !== undefined,
-    autoCaptureEnabled: process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED !== undefined,
+    enabled: environmentSource.NODEX_TELEMETRY_ENABLED !== undefined,
+    clientKey: environmentSource.STATSIG_CLIENT_KEY !== undefined,
+    environment: environmentSource.STATSIG_ENVIRONMENT !== undefined,
+    autoCaptureEnabled: environmentSource.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED !== undefined,
   };
 
   const enabled = envOverrides.enabled
-    ? parseBooleanEnv(process.env.NODEX_TELEMETRY_ENABLED, fromToml.enabled)
+    ? parseBooleanEnv(environmentSource.NODEX_TELEMETRY_ENABLED, fromToml.enabled)
     : fromToml.enabled;
-  const clientKeyFromEnv = process.env.STATSIG_CLIENT_KEY?.trim() ?? "";
+  const clientKeyFromEnv = environmentSource.STATSIG_CLIENT_KEY?.trim() ?? "";
   const clientKey = envOverrides.clientKey
     ? clientKeyFromEnv
     : fromToml.clientKey || (enabled ? DEFAULT_STATSIG_CLIENT_KEY : "");
-  const environmentFromEnv = process.env.STATSIG_ENVIRONMENT?.trim() ?? "";
+  const environmentFromEnv = environmentSource.STATSIG_ENVIRONMENT?.trim() ?? "";
   const environment =
     envOverrides.environment && environmentFromEnv ? environmentFromEnv : fromToml.environment;
   const autoCaptureEnabled = envOverrides.autoCaptureEnabled
-    ? parseBooleanEnv(process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED, fromToml.autoCaptureEnabled)
+    ? parseBooleanEnv(
+        environmentSource.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED,
+        fromToml.autoCaptureEnabled,
+      )
     : fromToml.autoCaptureEnabled;
 
   return {
@@ -662,7 +718,10 @@ export function getTelemetrySettings(): TelemetrySettings {
   };
 }
 
-export function updateTelemetrySettings(input: UpdateTelemetrySettingsInput): TelemetrySettings {
+export function updateTelemetrySettings(
+  input: UpdateTelemetrySettingsInput,
+  source = currentProcessSettingsSource(),
+): TelemetrySettings {
   if (typeof input.enabled !== "boolean") {
     throw new Error("enabled must be a boolean");
   }
@@ -679,7 +738,7 @@ export function updateTelemetrySettings(input: UpdateTelemetrySettingsInput): Te
     autoCaptureEnabled: input.autoCaptureEnabled,
   };
 
-  const userConfigPath = getUserConfigPath();
+  const userConfigPath = getUserConfigPath(source);
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer: ServerTomlConfig = {
     ...(nextToml.server ?? {}),
@@ -695,17 +754,14 @@ export function updateTelemetrySettings(input: UpdateTelemetrySettingsInput): Te
 
   nextToml.server = nextServer;
 
-  const configDirectory = path.dirname(userConfigPath);
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
-
-  return getTelemetrySettings();
+  writeTomlConfig(userConfigPath, nextToml);
+  return getTelemetrySettings(source);
 }
 
-export function getThreadNotificationSettings(): ThreadNotificationSettings {
+export function getThreadNotificationSettings(
+  source = currentProcessSettingsSource(),
+): ThreadNotificationSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
   return threadNotificationSettingsFromConfig(userServerToml);
 }
 
@@ -713,7 +769,10 @@ function isCodexThreadDetailLevel(value: unknown): value is CodexThreadDetailLev
   return value === "STEPS_PROSE" || value === "STEPS_COMMANDS" || value === "STEPS_EXECUTION";
 }
 
-export function getCodexDeveloperInstructionSettings(): CodexDeveloperInstructionSettings {
+export function getCodexDeveloperInstructionSettings(
+  source = currentProcessSettingsSource(),
+): CodexDeveloperInstructionSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
   return {
     detailLevel: isCodexThreadDetailLevel(userServerToml.codex_thread_detail_level)
       ? userServerToml.codex_thread_detail_level
@@ -723,18 +782,20 @@ export function getCodexDeveloperInstructionSettings(): CodexDeveloperInstructio
 
 export function updateCodexDeveloperInstructionSettings(
   input: UpdateCodexDeveloperInstructionSettingsInput,
+  source = currentProcessSettingsSource(),
 ): CodexDeveloperInstructionSettings {
   if (!isCodexThreadDetailLevel(input.detailLevel)) {
     throw new Error("detailLevel must be one of STEPS_PROSE, STEPS_COMMANDS, or STEPS_EXECUTION");
   }
-  writeUserServerTomlConfig({
-    ...loadUserServerTomlConfig(),
+  writeUserServerTomlConfig(source, {
+    ...loadUserServerTomlConfig(source),
     codex_thread_detail_level: input.detailLevel,
   });
-  return getCodexDeveloperInstructionSettings();
+  return getCodexDeveloperInstructionSettings(source);
 }
 
-export function getCodexGitSettings(): CodexGitSettings {
+export function getCodexGitSettings(source = currentProcessSettingsSource()): CodexGitSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
   return {
     branchPrefix:
       typeof userServerToml.git_branch_prefix === "string"
@@ -751,9 +812,12 @@ export function getCodexGitSettings(): CodexGitSettings {
   };
 }
 
-export function updateCodexGitSettings(input: UpdateCodexGitSettingsInput): CodexGitSettings {
+export function updateCodexGitSettings(
+  input: UpdateCodexGitSettingsInput,
+  source = currentProcessSettingsSource(),
+): CodexGitSettings {
   const entries = Object.entries(input);
-  if (entries.length === 0) return getCodexGitSettings();
+  if (entries.length === 0) return getCodexGitSettings(source);
   const allowedKeys = new Set(["branchPrefix", "commitInstructions", "pullRequestInstructions"]);
   if (entries.some(([key]) => !allowedKeys.has(key))) {
     throw new Error("Unknown Git setting");
@@ -762,17 +826,20 @@ export function updateCodexGitSettings(input: UpdateCodexGitSettingsInput): Code
     throw new Error("Git setting values must be strings");
   }
 
-  const next = { ...loadUserServerTomlConfig() };
+  const next = { ...loadUserServerTomlConfig(source) };
   if (input.branchPrefix !== undefined) next.git_branch_prefix = input.branchPrefix;
   if (input.commitInstructions !== undefined)
     next.git_commit_instructions = input.commitInstructions;
   if (input.pullRequestInstructions !== undefined)
     next.git_pr_instructions = input.pullRequestInstructions;
-  writeUserServerTomlConfig(next);
-  return getCodexGitSettings();
+  writeUserServerTomlConfig(source, next);
+  return getCodexGitSettings(source);
 }
 
-export function getManagedWorktreeSettings(): ManagedWorktreeSettings {
+export function getManagedWorktreeSettings(
+  source = currentProcessSettingsSource(),
+): ManagedWorktreeSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
   return {
     worktreeRoot:
       typeof userServerToml.worktree_root === "string" && userServerToml.worktree_root.trim()
@@ -791,7 +858,8 @@ export function getManagedWorktreeSettings(): ManagedWorktreeSettings {
   };
 }
 
-export function getKnownManagedWorktreeRoots(): string[] {
+export function getKnownManagedWorktreeRoots(source = currentProcessSettingsSource()): string[] {
+  const userServerToml = loadUserServerTomlConfig(source);
   if (!Array.isArray(userServerToml.worktree_known_roots)) return [];
   return Array.from(
     new Set(
@@ -804,6 +872,7 @@ export function getKnownManagedWorktreeRoots(): string[] {
 
 export function updateManagedWorktreeSettings(
   input: UpdateManagedWorktreeSettingsInput,
+  source = currentProcessSettingsSource(),
 ): ManagedWorktreeSettings {
   const allowedKeys = new Set(["worktreeRoot", "autoDeleteEnabled", "autoDeleteLimit"]);
   if (Object.keys(input).some((key) => !allowedKeys.has(key))) {
@@ -825,7 +894,7 @@ export function updateManagedWorktreeSettings(
   ) {
     throw new Error("worktreeRoot must be a string or null");
   }
-  const next = { ...loadUserServerTomlConfig() };
+  const next = { ...loadUserServerTomlConfig(source) };
   if (input.worktreeRoot !== undefined) {
     const knownRoots = new Set(
       Array.isArray(next.worktree_known_roots)
@@ -848,11 +917,14 @@ export function updateManagedWorktreeSettings(
   if (input.autoDeleteLimit !== undefined) {
     next.worktree_auto_delete_limit = input.autoDeleteLimit;
   }
-  writeUserServerTomlConfig(next);
-  return getManagedWorktreeSettings();
+  writeUserServerTomlConfig(source, next);
+  return getManagedWorktreeSettings(source);
 }
 
-export function getCodexExecutionHostSettings(): CodexExecutionHostSettings {
+export function getCodexExecutionHostSettings(
+  source = currentProcessSettingsSource(),
+): CodexExecutionHostSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
   const hosts = Array.isArray(userServerToml.execution_hosts) ? userServerToml.execution_hosts : [];
   const sshHosts = hosts.map((candidate, index) => {
     try {
@@ -874,6 +946,7 @@ export function getCodexExecutionHostSettings(): CodexExecutionHostSettings {
 
 export function updateCodexExecutionHostSettings(
   input: UpdateCodexExecutionHostSettingsInput,
+  source = currentProcessSettingsSource(),
 ): CodexExecutionHostSettings {
   if (
     typeof input !== "object" ||
@@ -890,46 +963,56 @@ export function updateCodexExecutionHostSettings(
     if (identities.has(host.id)) throw new Error(`Duplicate SSH execution host id: ${host.id}`);
     identities.add(host.id);
   }
-  const next = { ...loadUserServerTomlConfig(), execution_hosts: normalized };
-  writeUserServerTomlConfig(next);
-  return getCodexExecutionHostSettings();
+  const next = { ...loadUserServerTomlConfig(source), execution_hosts: normalized };
+  writeUserServerTomlConfig(source, next);
+  return getCodexExecutionHostSettings(source);
 }
 
-export function getCommandKeybindingOverrides(): CommandKeybindingOverrides {
+export function getCommandKeybindingOverrides(
+  source = currentProcessSettingsSource(),
+): CommandKeybindingOverrides {
+  const userServerToml = loadUserServerTomlConfig(source);
   return normalizeCommandKeybindingOverrides(userServerToml.command_keybindings);
 }
 
-export function getCommandKeymapState(): CommandKeymapState {
-  return createCommandKeymapState(getCommandKeybindingOverrides());
+export function getCommandKeymapState(source = currentProcessSettingsSource()): CommandKeymapState {
+  return createCommandKeymapState(getCommandKeybindingOverrides(source));
 }
 
 export function updateCommandKeybinding(
   commandId: string,
   update: CommandKeybindingUpdate,
+  source = currentProcessSettingsSource(),
 ): CommandKeymapState {
-  const currentOverrides = getCommandKeybindingOverrides();
+  const currentOverrides = getCommandKeybindingOverrides(source);
   const nextOverrides = applyCommandKeybindingUpdate(currentOverrides, commandId, update);
-  writeCommandKeybindingOverrides(nextOverrides);
-  return getCommandKeymapState();
+  writeCommandKeybindingOverrides(source, nextOverrides);
+  return getCommandKeymapState(source);
 }
 
-export function resetCommandKeybindings(): CommandKeymapState {
-  writeCommandKeybindingOverrides({});
-  return getCommandKeymapState();
+export function resetCommandKeybindings(
+  source = currentProcessSettingsSource(),
+): CommandKeymapState {
+  writeCommandKeybindingOverrides(source, {});
+  return getCommandKeymapState(source);
 }
 
-function writeCommandKeybindingOverrides(overrides: CommandKeybindingOverrides): void {
-  const nextServer: ServerTomlConfig = { ...(loadUserServerTomlConfig() ?? {}) };
+function writeCommandKeybindingOverrides(
+  source: LocalSettingsSource,
+  overrides: CommandKeybindingOverrides,
+): void {
+  const nextServer: ServerTomlConfig = { ...loadUserServerTomlConfig(source) };
   if (Object.keys(overrides).length === 0) {
     delete nextServer.command_keybindings;
   } else {
     nextServer.command_keybindings = overrides;
   }
-  writeUserServerTomlConfig(nextServer);
+  writeUserServerTomlConfig(source, nextServer);
 }
 
 export function updateThreadNotificationSettings(
   input: UpdateThreadNotificationSettingsInput,
+  source = currentProcessSettingsSource(),
 ): ThreadNotificationSettings {
   if (input.turnMode !== "off" && input.turnMode !== "unfocused" && input.turnMode !== "always") {
     throw new Error("turnMode must be one of off, unfocused, or always");
@@ -947,7 +1030,7 @@ export function updateThreadNotificationSettings(
     questionsEnabled: input.questionsEnabled,
   };
 
-  const userConfigPath = getUserConfigPath();
+  const userConfigPath = getUserConfigPath(source);
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
@@ -958,25 +1041,22 @@ export function updateThreadNotificationSettings(
 
   nextToml.server = nextServer;
 
-  const configDirectory = path.dirname(userConfigPath);
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
-
-  return getThreadNotificationSettings();
+  writeTomlConfig(userConfigPath, nextToml);
+  return getThreadNotificationSettings(source);
 }
 
 export function getAppUpdateSettings(
   buildDefaultChannel: AppUpdateSettings["channel"] = "stable",
+  source = currentProcessSettingsSource(),
 ): AppUpdateSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
   return appUpdateSettingsFromConfig(userServerToml, buildDefaultChannel);
 }
 
 export function updateAppUpdateSettings(
   input: UpdateAppUpdateSettingsInput,
   buildDefaultChannel: AppUpdateSettings["channel"] = "stable",
+  source = currentProcessSettingsSource(),
 ): AppUpdateSettings {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     throw new Error("App update settings input must be an object");
@@ -998,7 +1078,7 @@ export function updateAppUpdateSettings(
     throw new Error("channel must be stable or nightly");
   }
 
-  const userConfigPath = getUserConfigPath();
+  const userConfigPath = getUserConfigPath(source);
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
@@ -1012,28 +1092,26 @@ export function updateAppUpdateSettings(
 
   nextToml.server = nextServer;
 
-  const configDirectory = path.dirname(userConfigPath);
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
-
-  return getAppUpdateSettings(buildDefaultChannel);
+  writeTomlConfig(userConfigPath, nextToml);
+  return getAppUpdateSettings(buildDefaultChannel, source);
 }
 
-export function getWindowRestoreSettings(): WindowRestoreSettings {
+export function getWindowRestoreSettings(
+  source = currentProcessSettingsSource(),
+): WindowRestoreSettings {
+  const userServerToml = loadUserServerTomlConfig(source);
   return windowRestoreSettingsFromConfig(userServerToml);
 }
 
 export function updateWindowRestoreSettings(
   input: UpdateWindowRestoreSettingsInput,
+  source = currentProcessSettingsSource(),
 ): WindowRestoreSettings {
   if (input.policy !== "all" && input.policy !== "last-window" && input.policy !== "none") {
     throw new Error("policy must be one of all, last-window, or none");
   }
 
-  const userConfigPath = getUserConfigPath();
+  const userConfigPath = getUserConfigPath(source);
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
@@ -1042,28 +1120,22 @@ export function updateWindowRestoreSettings(
 
   nextToml.server = nextServer;
 
-  const configDirectory = path.dirname(userConfigPath);
-  mkdirSync(configDirectory, { recursive: true });
-  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
-
-  userServerToml = loadUserServerTomlConfig();
-  serverToml = loadServerTomlConfig();
-
-  return getWindowRestoreSettings();
+  writeTomlConfig(userConfigPath, nextToml);
+  return getWindowRestoreSettings(source);
 }
 
-export function getBackupAutoEnabled(): boolean {
-  return getBackupSettings().autoEnabled;
+export function getBackupAutoEnabled(source = currentProcessSettingsSource()): boolean {
+  return getBackupSettings(source).autoEnabled;
 }
 
-export function getBackupIntervalHours(): number {
-  return getBackupSettings().intervalHours;
+export function getBackupIntervalHours(source = currentProcessSettingsSource()): number {
+  return getBackupSettings(source).intervalHours;
 }
 
-export function getBackupRetention(): number {
-  return getBackupSettings().retentionCount;
+export function getBackupRetention(source = currentProcessSettingsSource()): number {
+  return getBackupSettings(source).retentionCount;
 }
 
-export function getHistoryRetention(): number {
-  return getHistorySettings().retentionCount;
+export function getHistoryRetention(source = currentProcessSettingsSource()): number {
+  return getHistorySettings(source).retentionCount;
 }
