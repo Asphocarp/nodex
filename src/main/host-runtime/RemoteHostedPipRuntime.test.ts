@@ -49,3 +49,44 @@ it.effect("owns notification consumption and releases the native host with its S
     assert.strictEqual(disposed, 1);
   }),
 );
+
+it.effect("tracks Browser Use refresh signals only while its Scope is open", () =>
+  Effect.gen(function* () {
+    let listener: (() => void) | null = null;
+    let refreshed = 0;
+    const scope = yield* Scope.make();
+    yield* Layer.buildWithScope(
+      testLayer(
+        {
+          dispose: () => undefined,
+          getAlwaysHide: () => false,
+          handleBrowserUseStateSnapshot: async () => {
+            refreshed += 1;
+          },
+          handleCodexNotification: () => undefined,
+          handleDesktopMessageFromView: () => undefined,
+          isPrivacySettingsTerminationRequest: () => false,
+          setAlwaysHide: () => undefined,
+        },
+        Stream.empty,
+        (next) => {
+          listener = next;
+          return () => {
+            listener = null;
+          };
+        },
+      ),
+      scope,
+    );
+    yield* Effect.yieldNow;
+    assert.strictEqual(refreshed, 1);
+
+    const refresh = listener as (() => void) | null;
+    refresh?.();
+    yield* Effect.yieldNow;
+    assert.strictEqual(refreshed, 2);
+
+    yield* Scope.close(scope, Exit.void);
+    assert.isNull(listener);
+  }),
+);

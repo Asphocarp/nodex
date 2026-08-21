@@ -1,11 +1,12 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { BrowserWindow } from "electron";
 import type { CodexDesktopMessageFromView } from "../../shared/remote-hosted-pip";
-import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { safeBroadcastToWindows, safeSendToWebContents } from "../ipc-safe-send";
@@ -33,12 +34,17 @@ export class RemoteHostedPipRuntime extends Context.Service<
     readonly handleDesktopMessageFromView: (
       sender: Electron.WebContents,
       message: CodexDesktopMessageFromView,
-    ) => Effect.Effect<void>;
+    ) => Effect.Effect<void, RemoteHostedPipRuntimeError>;
     readonly isPrivacySettingsTerminationRequest: () => boolean;
-    readonly refresh: Effect.Effect<void>;
-    readonly setAlwaysHide: (value: boolean) => Effect.Effect<void>;
+    readonly refresh: Effect.Effect<void, RemoteHostedPipRuntimeError>;
+    readonly setAlwaysHide: (value: boolean) => Effect.Effect<void, RemoteHostedPipRuntimeError>;
   }
 >()("nodex/main/host-runtime/RemoteHostedPipRuntime") {}
+
+export class RemoteHostedPipRuntimeError extends Schema.TaggedError<RemoteHostedPipRuntimeError>()(
+  "RemoteHostedPipRuntimeError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
 
 export interface RemoteHostedPipRuntimeOptions {
   readonly browserSidebarService: BrowserSidebarService;
@@ -48,6 +54,7 @@ export interface RemoteHostedPipRuntimeOptions {
 const fromPort = (
   acquire: Effect.Effect<RemoteHostedPipPort>,
   notifications: Stream.Stream<unknown>,
+  subscribeBrowserUseState?: (listener: () => void) => () => void,
 ): Layer.Layer<RemoteHostedPipRuntime> =>
   Layer.effect(
     RemoteHostedPipRuntime,
@@ -61,13 +68,45 @@ const fromPort = (
         ),
         Effect.forkScoped,
       );
+      const refresh = Effect.tryPromise({
+        try: () => service.handleBrowserUseStateSnapshot(),
+        catch: (cause) => new RemoteHostedPipRuntimeError({ operation: "refresh", cause }),
+      });
+      if (subscribeBrowserUseState) {
+        const runRefresh = yield* FiberSet.makeRuntime<never, void, never>();
+        const listener = () => {
+          runRefresh(
+            refresh.pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Could not refresh Remote Hosted PiP state").pipe(
+                  Effect.annotateLogs({ error: String(error.cause) }),
+                ),
+              ),
+            ),
+          );
+        };
+        yield* Effect.acquireRelease(
+          Effect.sync(() => subscribeBrowserUseState(listener)),
+          (unsubscribe) => Effect.sync(unsubscribe),
+        );
+        listener();
+      }
       return RemoteHostedPipRuntime.of({
         getAlwaysHide: () => service.getAlwaysHide(),
         handleDesktopMessageFromView: (sender, message) =>
-          Effect.sync(() => service.handleDesktopMessageFromView(sender, message)),
+          Effect.try({
+            try: () => service.handleDesktopMessageFromView(sender, message),
+            catch: (cause) =>
+              new RemoteHostedPipRuntimeError({ operation: "desktop-message", cause }),
+          }),
         isPrivacySettingsTerminationRequest: () => service.isPrivacySettingsTerminationRequest(),
-        refresh: Effect.promise(() => service.handleBrowserUseStateSnapshot()),
-        setAlwaysHide: (value) => Effect.sync(() => service.setAlwaysHide(value)),
+        refresh,
+        setAlwaysHide: (value) =>
+          Effect.try({
+            try: () => service.setAlwaysHide(value),
+            catch: (cause) =>
+              new RemoteHostedPipRuntimeError({ operation: "set-always-hide", cause }),
+          }),
       });
     }),
   );
@@ -107,35 +146,17 @@ export const live = (
             event.kind === "notification" ? Result.succeed(event.value) : Result.fail(undefined),
           ),
         ),
+        (listener) => {
+          options.browserSidebarService.on("browserUseState", listener);
+          return () => options.browserSidebarService.removeListener("browserUseState", listener);
+        },
       );
     }),
   );
 
-export interface RemoteHostedPipRuntimeAdapter {
-  readonly getAlwaysHide: () => boolean;
-  readonly handleDesktopMessageFromView: (
-    sender: Electron.WebContents,
-    message: CodexDesktopMessageFromView,
-  ) => void;
-  readonly isPrivacySettingsTerminationRequest: () => boolean;
-  readonly refresh: () => Promise<void>;
-  readonly setAlwaysHide: (value: boolean) => Promise<void>;
-}
-
-export const makeRemoteHostedPipRuntimeAdapter = (
-  runtime: RemoteHostedPipRuntime["Service"],
-  callbacks: ScopedCallbackRuntime["Service"],
-): RemoteHostedPipRuntimeAdapter => ({
-  getAlwaysHide: runtime.getAlwaysHide,
-  handleDesktopMessageFromView: (sender, message) => {
-    callbacks.fork(runtime.handleDesktopMessageFromView(sender, message));
-  },
-  isPrivacySettingsTerminationRequest: runtime.isPrivacySettingsTerminationRequest,
-  refresh: () => callbacks.runPromise(runtime.refresh),
-  setAlwaysHide: (value) => callbacks.runPromise(runtime.setAlwaysHide(value)),
-});
-
 export const testLayer = (
   service: RemoteHostedPipPort,
   notifications: Stream.Stream<unknown> = Stream.empty,
-): Layer.Layer<RemoteHostedPipRuntime> => fromPort(Effect.succeed(service), notifications);
+  subscribeBrowserUseState?: (listener: () => void) => () => void,
+): Layer.Layer<RemoteHostedPipRuntime> =>
+  fromPort(Effect.succeed(service), notifications, subscribeBrowserUseState);

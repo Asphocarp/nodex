@@ -8,14 +8,12 @@ import type { DesktopToolRuntimePromiseAdapter } from "./host-runtime/DesktopToo
 import type { CodexPreferences } from "./codex-application/CodexPreferences";
 import type { CodexAttachments } from "./codex-application/CodexAttachments";
 import type { ServerRequestResponsesPromiseAdapter } from "./codex-application/ServerRequestResponsesPromiseAdapter";
-import type { RemoteHostedPipRuntimeAdapter } from "./host-runtime/RemoteHostedPipRuntime";
 import type { CodexWorktreeWorkerPort } from "./codex/codex-worktree-worker-port";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
   readonly codexService: CodexService;
   readonly desktopTools: DesktopToolRuntimePromiseAdapter;
-  readonly remoteHostedPip: RemoteHostedPipRuntimeAdapter;
 }
 
 export interface MainServiceCompositionInput {
@@ -27,7 +25,6 @@ export interface MainServiceCompositionInput {
   readonly composerCatalog: ComposerCatalogPromiseAdapter;
   readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   readonly preferences: Pick<CodexPreferences["Service"], "current">;
-  readonly remoteHostedPip: RemoteHostedPipRuntimeAdapter;
   readonly attachments: CodexAttachments["Service"]["legacy"];
   readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
   readonly codexClient: CodexApplicationClient;
@@ -60,7 +57,6 @@ export function createMainServiceComposition(
     browserSidebarService,
     codexService,
     desktopTools: input.desktopTools,
-    remoteHostedPip: input.remoteHostedPip,
   };
 }
 

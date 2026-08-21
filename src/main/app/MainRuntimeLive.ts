@@ -13,7 +13,7 @@ export class MainRuntime extends Context.Service<
   MainRuntime,
   {
     readonly start: Effect.Effect<void, MainRuntimeError>;
-    readonly prepareQuit: Effect.Effect<void, MainRuntimeError>;
+    readonly prepareQuit: Effect.Effect<"continue" | "defer", MainRuntimeError>;
     readonly handleBootstrapEvent: (
       event: BootstrapRuntimeEvent,
     ) => Effect.Effect<void, MainRuntimeError>;
@@ -22,7 +22,7 @@ export class MainRuntime extends Context.Service<
 
 export interface MainRuntimeHooks {
   readonly start: Effect.Effect<void, MainRuntimeError>;
-  readonly prepareQuit?: Effect.Effect<void, MainRuntimeError>;
+  readonly prepareQuit?: Effect.Effect<"continue" | "defer", MainRuntimeError>;
   readonly handleBootstrapEvent: (
     event: BootstrapRuntimeEvent,
   ) => Effect.Effect<void, MainRuntimeError>;
@@ -37,7 +37,7 @@ export const fromHooks = (hooks: MainRuntimeHooks): Layer.Layer<MainRuntime> =>
       if (hooks.release) yield* Effect.addFinalizer(() => hooks.release ?? Effect.void);
       return MainRuntime.of({
         start: hooks.start,
-        prepareQuit: hooks.prepareQuit ?? Effect.void,
+        prepareQuit: hooks.prepareQuit ?? Effect.succeed("continue"),
         handleBootstrapEvent: hooks.handleBootstrapEvent,
       });
     }),

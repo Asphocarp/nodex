@@ -4,10 +4,11 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { BootstrapRuntimeEvent } from "../bootstrap-events";
-import { ElectronApp } from "../platform/electron/ElectronApp";
+import { ElectronApp, type ElectronBeforeQuitDecision } from "../platform/electron/ElectronApp";
 import { program } from "./MainApp";
 import { testLayer as configLayer } from "./MainConfig";
 import { fromHooks, MainRuntimeError } from "./MainRuntimeLive";
@@ -132,6 +133,60 @@ it.effect("relaunches only after an authority-drift shutdown has released the ru
     yield* shutdown.request({ _tag: "AuthorityDriftRelaunch" });
     yield* Fiber.join(fiber);
     assert.deepEqual(events, ["ready", "release", "relaunch", "quit"]);
+    yield* Scope.close(foundationScope, Exit.void);
+  }),
+);
+
+it.effect("defers a system-owned quit without closing the Main runtime", () =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const started = yield* Deferred.make<void>();
+    const beforeQuit = yield* Ref.make<(() => ElectronBeforeQuitDecision) | null>(null);
+    const electron = Layer.succeed(
+      ElectronApp,
+      ElectronApp.of({
+        locale: Effect.succeed("en-US"),
+        userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
+        whenReady: Effect.void,
+        quit: Effect.sync(() => events.push("quit")),
+        relaunch: Effect.void,
+        exit: () => Effect.void,
+        onActivate: () => Effect.void,
+        onBeforeQuit: (handler) => Ref.set(beforeQuit, handler),
+        onOpenUrl: () => Effect.void,
+        onSecondInstance: () => Effect.void,
+        onWindowAllClosed: () => Effect.void,
+      }),
+    );
+    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(foundation, foundationScope);
+    const shutdown = Context.get(context, MainShutdown);
+    const runtimeLayer = fromHooks({
+      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+      prepareQuit: Effect.sync(() => {
+        events.push("defer");
+        return "defer" as const;
+      }),
+      handleBootstrapEvent: () => Effect.void,
+      release: Effect.sync(() => events.push("release")),
+    });
+    const fiber = yield* program({
+      initialEvents: [],
+      runtimeLayer,
+      runStartupGate: Effect.succeed("continue" as const),
+    }).pipe(Effect.provide(context), Effect.forkScoped);
+    yield* Deferred.await(started);
+
+    const handler = yield* Ref.get(beforeQuit);
+    const decision = handler?.();
+    assert.isTrue(decision?.preventDefault);
+    if (decision) yield* decision.task;
+    assert.deepEqual(events, ["defer"]);
+
+    yield* shutdown.request({ _tag: "UserQuit" });
+    yield* Fiber.join(fiber);
+    assert.deepEqual(events, ["defer", "release", "quit"]);
     yield* Scope.close(foundationScope, Exit.void);
   }),
 );

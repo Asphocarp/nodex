@@ -292,7 +292,7 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const { browserSidebarService, codexService, remoteHostedPip } = getMainServiceComposition();
+const { browserSidebarService, codexService } = getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
@@ -432,14 +432,6 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
   payload: IpcEvents[Channel],
 ): void {
   safeSendToWebContents(sender, channel, [payload]);
-}
-
-function refreshRemoteHostedPipState(): void {
-  void remoteHostedPip.refresh().catch((error) => {
-    ipcPayloadLogger.warn("Could not resolve remote hosted PIP Thread state", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
 }
 
 function buildNativeContextMenuTemplate(
@@ -582,7 +574,6 @@ function ensureBrowserSidebarEventBridge(): void {
     broadcastIpcEvent("browser-sidebar-local-servers", snapshot),
   );
   browserSidebarService.on("browserUseState", (snapshot) => {
-    refreshRemoteHostedPipState();
     sendFilteredBrowserUseStateToWindows(snapshot);
   });
   browserSidebarService.on("browserUseViewport", (event) =>
@@ -654,7 +645,6 @@ function ensureBrowserSidebarEventBridge(): void {
   browserSidebarService.on("destroyWebview", (event) =>
     sendBrowserEventToViewScope("browser-sidebar-destroy-webview", event.browserViewScopeId, event),
   );
-  refreshRemoteHostedPipState();
 }
 
 function ensureBrowserGuestBridge(): void {
@@ -1328,10 +1318,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
     rendererDiagnosticsLogger.info(input.message, input.fields);
   });
-  registerHandle("codex-desktop:message-from-view", (event, message) => {
-    remoteHostedPip.handleDesktopMessageFromView(event.sender, message);
-  });
-
   registerHandle("codex:renderer-client:id", (event) => resolveRendererClientId(event));
   registerHandle(
     "codex:renderer-client:response",

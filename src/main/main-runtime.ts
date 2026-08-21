@@ -233,8 +233,7 @@ const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
-const { browserSidebarService, codexService, desktopTools, remoteHostedPip } =
-  getMainServiceComposition();
+const { browserSidebarService, codexService, desktopTools } = getMainServiceComposition();
 
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
@@ -2286,10 +2285,6 @@ function registerRuntimeLifecycleHandlers(requestShutdown?: () => Promise<void>)
   runtimeLifecycleHandlersRegistered = true;
 
   app.on("before-quit", (event) => {
-    if (remoteHostedPip.isPrivacySettingsTerminationRequest()) {
-      event.preventDefault();
-      return;
-    }
     if (runtimeShutdownCompleted) return;
     event.preventDefault();
     if (runtimeQuitContinuationStarted) return;

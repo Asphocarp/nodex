@@ -52,8 +52,12 @@ export const program = <R>(options: MainAppOptions<R>) =>
       preventDefault: !quitAllowed,
       task: quitAllowed
         ? Effect.void
-        : (activeRuntime?.prepareQuit ?? Effect.void).pipe(
-            Effect.andThen(shutdown.request({ _tag: "UserQuit" })),
+        : (activeRuntime?.prepareQuit ?? Effect.succeed("continue" as const)).pipe(
+            Effect.flatMap((decision) =>
+              decision === "defer"
+                ? Effect.void
+                : shutdown.request({ _tag: "UserQuit" }).pipe(Effect.asVoid),
+            ),
             Effect.asVoid,
             Effect.orDie,
           ),

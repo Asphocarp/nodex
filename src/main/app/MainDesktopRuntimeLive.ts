@@ -71,6 +71,7 @@ import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRu
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
+import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
   ComputerUseRuntime,
@@ -84,7 +85,6 @@ import {
 import {
   RemoteHostedPipRuntime,
   live as remoteHostedPipRuntimeLive,
-  makeRemoteHostedPipRuntimeAdapter,
 } from "../host-runtime/RemoteHostedPipRuntime";
 import {
   ComputerUseSettingsRuntime,
@@ -148,6 +148,7 @@ export const live: Layer.Layer<
     const locale = yield* electron.locale;
     const userDataPath = yield* electron.userDataPath;
     let controller: MainRuntimeController | null = null;
+    let isPrivacySettingsTerminationRequest: (() => boolean) | null = null;
     let started = false;
 
     const requireController = (
@@ -243,9 +244,19 @@ export const live: Layer.Layer<
           }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
           runtimeScope,
         );
-        const remoteHostedPip = makeRemoteHostedPipRuntimeAdapter(
-          Context.get(remoteHostedPipContext, RemoteHostedPipRuntime),
-          callbacks,
+        const remoteHostedPip = Context.get(remoteHostedPipContext, RemoteHostedPipRuntime);
+        isPrivacySettingsTerminationRequest = remoteHostedPip.isPrivacySettingsTerminationRequest;
+        yield* Layer.buildWithScope(
+          RemoteHostedPipIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(RemoteHostedPipRuntime, remoteHostedPip),
+              ),
+            ),
+          ),
+          runtimeScope,
         );
         const conversationCommandsContext = yield* Layer.buildWithScope(
           conversationCommandsLive.pipe(
@@ -484,7 +495,6 @@ export const live: Layer.Layer<
               composerCatalog,
               desktopTools,
               preferences,
-              remoteHostedPip,
               attachments: attachments.legacy,
               serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
                 approvalCoordinator,
@@ -701,11 +711,13 @@ export const live: Layer.Layer<
     return MainRuntime.of({
       start,
       prepareQuit: requireController("prepare-quit").pipe(
-        Effect.andThen((runtime) =>
-          Effect.tryPromise({
-            try: () => runtime.prepareQuit(),
-            catch: (cause) => runtimeError("prepare-quit", cause),
-          }),
+        Effect.flatMap((runtime) =>
+          isPrivacySettingsTerminationRequest?.() === true
+            ? Effect.succeed("defer" as const)
+            : Effect.tryPromise({
+                try: () => runtime.prepareQuit(),
+                catch: (cause) => runtimeError("prepare-quit", cause),
+              }).pipe(Effect.as("continue" as const)),
         ),
       ),
       handleBootstrapEvent: (event) =>
