@@ -26,7 +26,6 @@ import {
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
 import { getMainServiceComposition } from "./main-service-composition";
 import {
-  getAppUpdateSettings,
   getBackupSettings,
   getCommandKeymapState,
   getCodexDeveloperInstructionSettings,
@@ -40,7 +39,6 @@ import {
   updateCommandKeybinding,
   updateCodexDeveloperInstructionSettings,
   updateCodexGitSettings,
-  updateAppUpdateSettings,
   updateBackupSettings,
   updateDiagnosticsSettings,
   updateHistorySettings,
@@ -146,7 +144,6 @@ import type {
   WindowSessionNewWindowRequest,
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
-import type { UpdateAppUpdateSettingsInput } from "../shared/types";
 import { WorkbenchSceneSnapshotSchema } from "../shared/schemas/workbench-scene";
 import { readThirdPartyNotices } from "./third-party-notices";
 import type {
@@ -192,8 +189,6 @@ import {
   updateGhPr,
 } from "./github-pr-service";
 import type {
-  AppUpdateSettings,
-  AppUpdateStatus,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
   CodexConversationThreadSettingsPatch,
@@ -501,11 +496,6 @@ interface RegisterIpcHandlersOptions {
     input: WindowSessionSaveLayoutInput,
   ) => WindowSessionBootstrap;
   onUpdateWindowSessionBounds?: (webContentsId: number, bounds: WindowSessionBounds) => void;
-  onGetAppUpdateStatus?: () => AppUpdateStatus;
-  onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
-  onInstallAppUpdate?: () => boolean | Promise<boolean>;
-  onGetAppUpdateSettings?: () => AppUpdateSettings;
-  onUpdateAppUpdateSettings?: (input: UpdateAppUpdateSettingsInput) => Promise<AppUpdateSettings>;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
   onHeartbeatAutomationsEnabledChanged?: (
@@ -1994,18 +1984,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     },
   );
 
-  registerHandle(
-    "settings:app-updates:get",
-    () => options.onGetAppUpdateSettings?.() ?? getAppUpdateSettings(),
-  );
-
-  registerHandle(
-    "settings:app-updates:update",
-    async (_, input) =>
-      await (options.onUpdateAppUpdateSettings?.(input) ??
-        Promise.resolve(updateAppUpdateSettings(input))),
-  );
-
   registerHandle("settings:window-restore:get", () => getWindowRestoreSettings());
 
   registerHandle("settings:window-restore:update", (_, input) =>
@@ -2031,54 +2009,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   registerHandle("global-dictation-capture-fn-hotkey", () => null);
-
-  registerHandle(
-    "app:update:status",
-    () =>
-      options.onGetAppUpdateStatus?.() ??
-      ({
-        status: "unsupported",
-        supported: false,
-        currentVersion: app.getVersion(),
-        availableVersion: null,
-        releaseName: null,
-        releaseDate: null,
-        releaseNotes: null,
-        progressPercent: null,
-        transferredBytes: null,
-        totalBytes: null,
-        checkedAt: null,
-        message: "App updates are unavailable.",
-        channel: "stable",
-        buildDefaultChannel: "stable",
-        channelChangeAllowed: false,
-      } satisfies AppUpdateStatus),
-  );
-
-  registerHandle(
-    "app:update:check",
-    async () =>
-      options.onCheckForAppUpdate?.() ??
-      ({
-        status: "unsupported",
-        supported: false,
-        currentVersion: app.getVersion(),
-        availableVersion: null,
-        releaseName: null,
-        releaseDate: null,
-        releaseNotes: null,
-        progressPercent: null,
-        transferredBytes: null,
-        totalBytes: null,
-        checkedAt: null,
-        message: "App updates are unavailable.",
-        channel: "stable",
-        buildDefaultChannel: "stable",
-        channelChangeAllowed: false,
-      } satisfies AppUpdateStatus),
-  );
-
-  registerHandle("app:update:install", () => options.onInstallAppUpdate?.() ?? false);
 
   registerHandle("shell:open-file-link", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),

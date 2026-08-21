@@ -26,11 +26,7 @@ import {
   RETRY_CORE_AUTHORITY_CHANNEL,
   type CoreAuthorityStatus,
 } from "../shared/core-authority-status";
-import type {
-  AppUpdateStatus,
-  TerminalRunActionRequest,
-  TerminalSessionSnapshot,
-} from "../shared/types";
+import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import { dbNotifier } from "./local-store/notifier";
@@ -40,14 +36,12 @@ import { getMainServiceComposition } from "./main-service-composition";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
 import { McpAppSandboxHost } from "./mcp-app/mcp-app-sandbox-host";
 import {
-  getAppUpdateSettings,
   getBackupSettings,
   getCommandKeymapState,
   getHistorySettings,
   getNodexHome,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
-  updateAppUpdateSettings,
 } from "./local-store/config";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import {
@@ -75,8 +69,6 @@ import type {
   WindowSessionSaveLayoutInput,
 } from "../shared/window-session";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
-import { AppUpdateService } from "./app-update-service";
-import { createPackagedMacAppUpdater } from "./sparkle-mac-app-updater";
 import { closeWindowsBeforeRuntimeShutdown } from "./runtime-quit-coordinator";
 import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
 import {
@@ -231,7 +223,7 @@ let appInitializationStep: AppInitializationStep = { phase: "opening" };
 let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
-let appUpdateService: AppUpdateService | null = null;
+let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let appPermissionHandlersRegistered = false;
 let browserPermissionHandlersRegistered = false;
@@ -364,26 +356,6 @@ function applyElectronWindowBackdrop(window: BrowserWindow, force = false): void
       windowId: window.id,
     });
   }
-}
-
-function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
-  return {
-    status: "unsupported",
-    supported: false,
-    currentVersion: app.getVersion(),
-    availableVersion: null,
-    releaseName: null,
-    releaseDate: null,
-    releaseNotes: null,
-    progressPercent: null,
-    transferredBytes: null,
-    totalBytes: null,
-    checkedAt: null,
-    message: "App updates are only available in packaged macOS builds.",
-    channel: "stable",
-    buildDefaultChannel: "stable",
-    channelChangeAllowed: false,
-  };
 }
 
 function getLastFocusedWindow(): BrowserWindow | null {
@@ -629,7 +601,7 @@ function configureApplicationMenus(commandKeymapState = getCommandKeymapState())
               {
                 label: "Check for Updates…",
                 click: () => {
-                  void appUpdateService?.checkForUpdates("manual");
+                  void appUpdateRuntime?.check();
                 },
               },
               ...buildNodexSetupMenuItems({
@@ -796,10 +768,6 @@ export function publishCoreAuthorityProcessExit(event: CoreAuthorityProcessExit)
   });
 }
 
-function broadcastAppUpdateStatus(status: AppUpdateStatus): void {
-  broadcastToWindows("app:update-status", status);
-}
-
 function toRendererCoreAuthorityStatus(state: CoreAuthorityState): CoreAuthorityStatus {
   if (state.kind === "ready") return { kind: "ready" };
   if (state.kind === "recovering") {
@@ -854,15 +822,11 @@ function publishCoreAuthorityStatus(state: CoreAuthorityState): void {
 }
 
 function maybeStartAutomaticAppUpdateChecks(): void {
-  if (!appUpdateService) {
-    return;
-  }
-
+  if (!appUpdateRuntime) return;
   if (appInitializationStep.phase !== "done" || openWindows.size === 0) {
     return;
   }
-
-  appUpdateService.maybeStartAutomaticChecks();
+  void appUpdateRuntime.startAutomaticChecks();
 }
 
 function registerInitializationIpcHandlers(): void {
@@ -1571,7 +1535,7 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     });
     syncMacWindowTitle(window);
     applyElectronWindowBackdrop(window, true);
-    const appUpdateStatus = appUpdateService?.getStatus();
+    const appUpdateStatus = appUpdateRuntime?.currentStatus();
     if (appUpdateStatus) {
       safeSendToWindow(window, "app:update-status", [appUpdateStatus]);
     }
@@ -1864,7 +1828,7 @@ async function initializeDesktopApp(
     authorityAndServicesMs: Math.round(performance.now() - initializationStartedAt),
     servicesMs: Math.round(performance.now() - servicesStartedAt),
   });
-  maybeStartAutomaticAppUpdateChecks();
+  await appUpdateRuntime?.markApplicationReady();
 }
 
 async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void> {
@@ -2028,6 +1992,12 @@ function startRuntimeScheduledAutomationScheduler(): void {
 }
 
 export interface MainRuntimeStartupContext {
+  appUpdateRuntime: {
+    readonly check: () => Promise<unknown>;
+    readonly currentStatus: () => import("../shared/types").AppUpdateStatus;
+    readonly markApplicationReady: () => Promise<void>;
+    readonly startAutomaticChecks: () => Promise<void>;
+  };
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
@@ -2104,6 +2074,7 @@ function beginMainRuntimeShutdown(): void {
   runtimeShutdownStarted = true;
   rendererHostReadyForWindows = false;
   appQuitRequested = true;
+  appUpdateRuntime = null;
   logger.info("Nodex before-quit");
   scopedProjectionLiveSupervisor?.stop();
   scopedProjectionLiveSupervisor = null;
@@ -2194,14 +2165,6 @@ function shutdownMainRuntime(): Promise<void> {
     disposeManagedAssetProtocol = null;
     disposeAppRendererProtocol?.();
     disposeAppRendererProtocol = null;
-    await settleRuntimeShutdownStep(
-      "App updater",
-      async () => {
-        await appUpdateService?.dispose();
-        appUpdateService = null;
-      },
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
     await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
@@ -2300,6 +2263,7 @@ function registerRuntimeLifecycleHandlers(requestShutdown?: () => Promise<void>)
 export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
+  appUpdateRuntime = context.appUpdateRuntime;
   if (context.manageElectronLifecycle !== false) {
     registerRuntimeLifecycleHandlers(context.requestShutdown);
   }
@@ -2332,43 +2296,6 @@ export async function runMainAppStartup(
     app.dock?.setIcon(appDockIcon);
   }
   windowSessionState = new WindowSessionState(app.getPath("userData"));
-  const packagedMacAppUpdater = (() => {
-    if (!app.isPackaged || process.platform !== "darwin") return null;
-    if (process.arch !== "arm64" && process.arch !== "x64") return null;
-    try {
-      return createPackagedMacAppUpdater({
-        applicationBundlePath: resolve(process.resourcesPath, "..", ".."),
-        architecture: process.arch,
-        resourcesPath: process.resourcesPath,
-      });
-    } catch (error) {
-      logger.error("Packaged Sparkle runtime is invalid", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  })();
-  appUpdateService = new AppUpdateService({
-    currentVersion: app.getVersion(),
-    isInApplicationsFolder:
-      process.platform !== "darwin" ||
-      typeof app.isInApplicationsFolder !== "function" ||
-      app.isInApplicationsFolder(),
-    isPackaged: app.isPackaged,
-    logger,
-    platform: process.platform,
-    updater: packagedMacAppUpdater,
-    initialSettings: getAppUpdateSettings(
-      packagedMacAppUpdater?.getBuildDefaultChannel() ?? "stable",
-    ),
-    persistSettings: (input) =>
-      updateAppUpdateSettings(input, packagedMacAppUpdater?.getBuildDefaultChannel() ?? "stable"),
-  });
-  appUpdateService.onStatusChange((status) => {
-    broadcastAppUpdateStatus(status);
-  });
-  appUpdateService.initialize();
-
   setAppInitializationStep({ phase: "opening" });
   const dataAuthority = context.dataAuthority;
   desktopDataAuthorityStartup = dataAuthority;
@@ -2556,20 +2483,6 @@ export async function runMainAppStartup(
     },
     resolveWindowSessionId: (webContentsId) =>
       windowSessionState?.getSessionIdForWindow(webContentsId) ?? null,
-    onGetAppUpdateStatus: () =>
-      appUpdateService?.getStatus() ?? resolveUnsupportedAppUpdateStatus(),
-    onCheckForAppUpdate: async () =>
-      await (appUpdateService?.checkForUpdates("manual") ??
-        Promise.resolve(resolveUnsupportedAppUpdateStatus())),
-    onInstallAppUpdate: async () =>
-      await (appUpdateService?.installUpdateAndRestart() ?? Promise.resolve(false)),
-    onGetAppUpdateSettings: () => appUpdateService?.getSettings() ?? getAppUpdateSettings(),
-    onUpdateAppUpdateSettings: async (input) => {
-      const settings = await (appUpdateService?.updateSettings(input) ??
-        Promise.resolve(updateAppUpdateSettings(input)));
-      maybeStartAutomaticAppUpdateChecks();
-      return settings;
-    },
     onCommandKeybindingsChanged: (state) => {
       configureApplicationMenus(state);
     },

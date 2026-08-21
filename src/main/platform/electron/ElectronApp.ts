@@ -21,6 +21,7 @@ export class ElectronApp extends Context.Service<
   {
     readonly appPath: Effect.Effect<string>;
     readonly downloadsPath: Effect.Effect<string>;
+    readonly isInApplicationsFolder: Effect.Effect<boolean>;
     readonly locale: Effect.Effect<string>;
     readonly userDataPath: Effect.Effect<string>;
     readonly whenReady: Effect.Effect<void, ElectronAppError>;
@@ -64,6 +65,9 @@ export const live: Layer.Layer<ElectronApp, never, ScopedCallbackRuntime> = Laye
     return ElectronApp.of({
       appPath: Effect.sync(() => app.getAppPath()),
       downloadsPath: Effect.sync(() => app.getPath("downloads")),
+      isInApplicationsFolder: Effect.sync(
+        () => typeof app.isInApplicationsFolder !== "function" || app.isInApplicationsFolder(),
+      ),
       locale: Effect.sync(() => app.getLocale()),
       userDataPath: Effect.sync(() => app.getPath("userData")),
       whenReady: Effect.tryPromise({

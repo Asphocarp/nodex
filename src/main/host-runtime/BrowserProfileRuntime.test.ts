@@ -58,6 +58,7 @@ it.effect("owns Browser Profile services and the download session listener", () 
                   ElectronApp.of({
                     appPath: Effect.succeed(root),
                     downloadsPath: Effect.succeed(`${root}/downloads`),
+                    isInApplicationsFolder: Effect.succeed(true),
                     locale: Effect.succeed("en-US"),
                     userDataPath: Effect.succeed(`${root}/user-data`),
                     whenReady: Effect.void,

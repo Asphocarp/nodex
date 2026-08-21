@@ -68,6 +68,7 @@ import { CodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
+import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
@@ -108,6 +109,7 @@ import {
   BrowserSidebarRuntime,
   live as browserSidebarRuntimeLive,
 } from "../host-runtime/BrowserSidebarRuntime";
+import { AppUpdateRuntime, live as appUpdateRuntimeLive } from "../host-runtime/AppUpdateRuntime";
 import {
   activateMainServiceComposition,
   createMainServiceComposition,
@@ -260,6 +262,32 @@ export const live: Layer.Layer<
         );
         const browserSidebar = Context.get(browserSidebarContext, BrowserSidebarRuntime);
         const browserSidebarService = browserSidebar.browser;
+        const appUpdateContext = yield* Layer.buildWithScope(
+          appUpdateRuntimeLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronApp, electron),
+                Layer.succeed(ElectronWindowHost, windowHost),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const appUpdates = Context.get(appUpdateContext, AppUpdateRuntime);
+        yield* Layer.buildWithScope(
+          AppUpdateIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(AppUpdateRuntime, appUpdates),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
             browserSidebarService,
@@ -750,6 +778,12 @@ export const live: Layer.Layer<
           Effect.tryPromise({
             try: () =>
               module.runMainAppStartup({
+                appUpdateRuntime: {
+                  check: () => callbacks.runPromise(appUpdates.check),
+                  currentStatus: appUpdates.currentStatus,
+                  markApplicationReady: () => callbacks.runPromise(appUpdates.markApplicationReady),
+                  startAutomaticChecks: () => callbacks.runPromise(appUpdates.startAutomaticChecks),
+                },
                 dataAuthority: Promise.resolve(dataAuthority),
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
