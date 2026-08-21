@@ -7,7 +7,6 @@ import {
   nativeImage,
   nativeTheme,
   screen,
-  session as electronSession,
   shell,
   systemPreferences,
   type MenuItemConstructorOptions,
@@ -81,8 +80,7 @@ import {
   type WorkbenchCommandInvocation,
 } from "../shared/workbench-commands";
 import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
-import { isAllowedBrowserExternalUrl, isAllowedBrowserNavigationUrl } from "../shared/browser-url";
-import { shouldGrantBrowserPermission } from "./browser/browser-session-permissions";
+import { isAllowedBrowserExternalUrl } from "../shared/browser-url";
 import {
   consumePendingBrowserWebviewAttachment,
   decideBrowserWebviewAttachment,
@@ -118,7 +116,6 @@ import {
 } from "./application-menu";
 import { installCliCommand } from "./cli-command-installer";
 import { runAgentSkillSetup } from "./agent-skill-setup";
-import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   createCoreProjectWorkspaceAdapter,
   createDesktopDatabaseModuleBridge,
@@ -191,8 +188,6 @@ let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
 let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
-let appPermissionHandlersRegistered = false;
-let browserPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
@@ -1146,50 +1141,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
   });
   mcpAppSandboxHost.installForOwner();
   const pendingBrowserWebviewAttachments = new Map<number, BrowserAuthorizedAttachment>();
-  if (!appPermissionHandlersRegistered) {
-    const electronSession = window.webContents.session;
-    electronSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
-      return shouldGrantAppRendererPermission({
-        permission,
-        webContentsType: webContents?.getType() ?? null,
-        isMainFrame: details.isMainFrame,
-      });
-    });
-    electronSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-      callback(
-        shouldGrantAppRendererPermission({
-          permission,
-          webContentsType: webContents.getType(),
-          isMainFrame: details.isMainFrame,
-        }),
-      );
-    });
-    appPermissionHandlersRegistered = true;
-  }
-  if (!browserPermissionHandlersRegistered) {
-    const browserSession = electronSession.fromPartition(BROWSER_SIDEBAR_PARTITION);
-    browserSession.setPermissionCheckHandler((_webContents, permission, _origin, details) =>
-      shouldGrantBrowserPermission({
-        permission,
-        isMainFrame: details.isMainFrame,
-      }),
-    );
-    browserSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-      callback(
-        shouldGrantBrowserPermission({
-          permission,
-          isMainFrame: details.isMainFrame,
-        }),
-      );
-    });
-    browserSession.webRequest.onBeforeRequest((details, callback) => {
-      const shouldBlockTopFrame =
-        details.resourceType === "mainFrame" && !isAllowedBrowserNavigationUrl(details.url);
-      callback({ cancel: shouldBlockTopFrame });
-    });
-    browserPermissionHandlersRegistered = true;
-  }
-
   // Open external links in the system browser
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isAllowedBrowserExternalUrl(url)) {
