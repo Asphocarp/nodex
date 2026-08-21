@@ -381,12 +381,6 @@ export const codexIpcLive = (
       registerHandle("worktrees:settings:update", (_, input) =>
         codexService.updateManagedWorktreeSettings(input),
       );
-      registerHandle("worktrees:execution-hosts:get", () =>
-        codexService.getCodexExecutionHostSettings(),
-      );
-      registerHandle("worktrees:execution-hosts:update", (_, input) =>
-        codexService.updateCodexExecutionHostSettings(input),
-      );
       registerHandle("worktrees:thread:availability", (_, threadId: string) =>
         codexService.inspectThreadManagedWorktree(threadId),
       );

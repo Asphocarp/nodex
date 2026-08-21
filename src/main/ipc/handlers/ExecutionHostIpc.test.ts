@@ -2,16 +2,17 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
+import type { CodexSshExecutionHostConfig } from "../../../shared/types";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import type { CodexService } from "../../codex/codex-service";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
-import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
-import { codexIpcLive } from "../../ipc-handlers";
+import { ExecutionHostRuntime } from "../../codex-application/ExecutionHostRuntime";
+import { CodexExecutionHostRegistry } from "../../codex/codex-execution-host-registry";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
+import { live } from "./ExecutionHostIpc";
 
-it.effect("owns the remaining Codex application ingress with the Main Scope", () =>
+it.effect("registers execution host settings ingress against its owning module", () =>
   Effect.gen(function* () {
     const channels = new Set<string>();
     const ipc = ElectronIpc.of({
@@ -24,21 +25,26 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         ),
       on: () => Effect.die("unused"),
     } as unknown as ElectronIpc["Service"]);
+    const activeSshHosts = yield* SubscriptionRef.make<
+      ReadonlyMap<string, CodexSshExecutionHostConfig>
+    >(new Map());
+    const executionHosts = ExecutionHostRuntime.of({
+      registry: new CodexExecutionHostRegistry(),
+      activeSshHosts,
+      settings: Effect.succeed({ sshHosts: [] }),
+      reconcile: () => Effect.void,
+      updateSettings: () => Effect.succeed({ sshHosts: [] }),
+    });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      codexIpcLive({
-        codexService: {} as CodexService,
-        projectWorkspace: {} as DesktopProjectWorkspacePort,
-        rendererClientRouter: {} as RendererClientRouter,
-        terminalRuntime: { runAction: () => Promise.resolve() },
-      }).pipe(
+      live.pipe(
         Layer.provide(
           Layer.mergeAll(
+            Layer.succeed(ExecutionHostRuntime, executionHosts),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, {
               has: () => true,
-              resolveSessionId: () => "window-session",
             } as unknown as WindowRuntime["Service"]),
           ),
         ),
@@ -46,12 +52,10 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
       scope,
     );
 
-    assert.strictEqual(channels.size, 79);
-    assert.isTrue(channels.has("codex:threads:list"));
-    assert.isTrue(channels.has("codex:turn:start"));
-    assert.isFalse(channels.has("codex:permission:custom-description:get"));
-    assert.isFalse(channels.has("worktrees:execution-hosts:update"));
-
+    assert.deepEqual([...channels].sort(), [
+      "worktrees:execution-hosts:get",
+      "worktrees:execution-hosts:update",
+    ]);
     yield* Scope.close(scope, Exit.void);
     assert.strictEqual(channels.size, 0);
   }),

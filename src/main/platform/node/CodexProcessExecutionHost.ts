@@ -1,0 +1,67 @@
+/* oxlint-disable effecttsgo/process-env-in-effect -- Process environment materialization is a Node child-process adapter boundary. */
+import { delimiter as pathDelimiter } from "node:path";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import type { CodexAppServerClientOptions } from "../../codex-runtime/CodexApplicationClient";
+import { live as sessionLive } from "../../codex-runtime/CodexAppServerSession";
+import type { CodexExecutionHostConfig } from "../../codex-runtime/CodexEndpointMap";
+import { codexRuntimeError } from "../../codex-runtime/CodexRuntimeError";
+
+const withSearchPath = (
+  env: Readonly<Record<string, string | undefined>>,
+  entries: readonly string[],
+): Readonly<Record<string, string | undefined>> => {
+  const inherited = env.PATH?.split(pathDelimiter).filter(Boolean) ?? [];
+  return { ...env, PATH: [...new Set([...entries, ...inherited])].join(pathDelimiter) };
+};
+
+const initializeParams = (options: CodexAppServerClientOptions) => ({
+  clientInfo: options.clientInfo ?? { name: "nodex", title: "Nodex", version: "0.0.0" },
+  capabilities: {
+    experimentalApi: true,
+    extensions: { "openai/form": {} },
+    requestAttestation: false,
+  },
+});
+
+/** Converts an external process launch description into an Effect-owned Codex endpoint. */
+export const makeCodexProcessExecutionHost = (
+  hostId: string,
+  options: CodexAppServerClientOptions,
+): CodexExecutionHostConfig => {
+  const resolveEnv = () =>
+    Effect.tryPromise({
+      try: () =>
+        options.resolveEnv === undefined
+          ? Promise.resolve(options.env ?? process.env)
+          : Promise.resolve(options.resolveEnv()),
+      catch: (cause) =>
+        codexRuntimeError({
+          operation: "session.resolve-environment",
+          reason: "spawn",
+          retryable: false,
+          hostId,
+          cause,
+        }),
+    }).pipe(Effect.map((env) => withSearchPath(env, options.additionalSearchPaths ?? [])));
+
+  return {
+    kind: hostId === "local" ? "local" : "remote",
+    hostId,
+    sessionLayer: (generation) =>
+      sessionLive({
+        hostId,
+        generation,
+        command: options.binaryPath ?? "codex",
+        args: options.args ?? ["app-server", "--listen", "stdio://"],
+        env: {},
+        resolveEnv,
+        forceTermination: "2 seconds",
+        initializeParams: initializeParams(options),
+        initializeTimeout: Duration.millis(options.initializeTimeoutMs ?? 20_000),
+        ...(options.expectedCodexHome === undefined
+          ? {}
+          : { expectedCodexHome: options.expectedCodexHome }),
+      }),
+  };
+};

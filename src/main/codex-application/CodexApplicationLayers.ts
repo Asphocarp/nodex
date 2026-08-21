@@ -16,7 +16,12 @@ import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
-import { ExecutionHostRuntime, live as executionHostRuntimeLive } from "./ExecutionHostRuntime";
+import {
+  ExecutionHostRuntime,
+  type ExecutionHostRuntimeError,
+  live as executionHostRuntimeLive,
+  type ExecutionHostRuntimeOptions,
+} from "./ExecutionHostRuntime";
 import { ThreadCatalog, live as threadCatalogLive } from "./ThreadCatalog";
 
 export type CodexRequestHandling =
@@ -45,13 +50,18 @@ export type CodexApplicationModules =
 /** Application-facing modules share the same Gateway and per-thread runtime map. */
 export const modulesLive = (
   account: CodexAccountOptions,
-): Layer.Layer<CodexApplicationModules, never, CodexGateway | ConversationRuntimeMap> =>
+  executionHosts: ExecutionHostRuntimeOptions,
+): Layer.Layer<
+  CodexApplicationModules,
+  ExecutionHostRuntimeError,
+  CodexGateway | ConversationRuntimeMap
+> =>
   Layer.mergeAll(
     conversationCommandsLive,
     connectionLive,
     threadCatalogLive,
     composerCatalogLive,
     accountLive(account),
-    executionHostRuntimeLive,
+    executionHostRuntimeLive(executionHosts),
     CodexApplicationEventRouter.live,
   );

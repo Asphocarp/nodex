@@ -253,6 +253,14 @@ request, progress, terminal result, and cancellation retain the same operation
 identity across the boundary. A worker crash fails its in-flight requests and
 the host adapter may start a fresh worker for later requests.
 
+`ExecutionHostRuntime` is the sole owner of execution-host settings and remote
+host activation. Each enabled SSH host is one keyed Scope containing its health
+probe, deployed worker channel, file-transfer adapter, Codex endpoint, and host
+capability association. Removing or changing the configuration invalidates that
+Scope; Main shutdown closes every remaining host through the same release path.
+The local worktree worker remains owned by `HostWorkerRuntime`; execution-host
+state owns only its registry association and never closes the borrowed worker.
+
 Thread-scoped app-server requests are routed from the same Core-backed execution
 host projection. Global account and configuration requests remain local. A
 cross-host handoff is the only pre-commit exception: Main explicitly addresses

@@ -189,8 +189,6 @@ import type {
   ManagedWorktreeAvailability,
   ManagedWorktreeRestoreResult,
   ManagedWorktreeSettings,
-  CodexExecutionHostSettings,
-  UpdateCodexExecutionHostSettingsInput,
   Project,
   ProjectArchiveBlocker,
   ProjectSession,
@@ -451,11 +449,9 @@ import {
   getCodexDeveloperInstructionSettings,
   getCodexGitSettings,
   getKnownManagedWorktreeRoots,
-  getCodexExecutionHostSettings,
   getManagedWorktreeSettings,
   getNodexHome,
   updateManagedWorktreeSettings,
-  updateCodexExecutionHostSettings,
 } from "../local-store/config";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
@@ -625,11 +621,7 @@ import type {
   CodexWorktreeWorkerPort,
   CodexWorktreeWorkerPreparedHandoff,
 } from "./codex-worktree-worker-port";
-import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-operation";
 import { CodexExecutionHostRegistry } from "./codex-execution-host-registry";
-import { CodexLocalExecutionHostFileTransfer } from "./codex-execution-host-file-transfer";
-import { CodexRemoteWorktreeWorkerPort } from "./codex-remote-worktree-worker-port";
-import { CodexSshExecutionHostTransport } from "./codex-ssh-execution-host";
 import { CodexCrossHostThreadHandoffService } from "./codex-cross-host-thread-handoff";
 import {
   evaluateCodexThreadHandoffCapability,
@@ -1428,8 +1420,7 @@ type CodexServiceOptions = {
   ) => Promise<NonNullable<ThreadStartParams["config"]> | null>;
   projectlessHomeDirectory?: () => string;
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
-  worktreeWorkerPort?: CodexWorktreeWorkerPort;
-  remoteWorktreeWorkerBundlePath?: string;
+  executionHosts: CodexExecutionHostRegistry;
   browserTransferRuntime?: CodexForkBrowserRuntime;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
@@ -2626,11 +2617,7 @@ export class CodexService extends EventEmitter {
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
-  private readonly executionHosts = new CodexExecutionHostRegistry();
-  private readonly localExecutionHostFileTransfer: CodexLocalExecutionHostFileTransfer;
-  private readonly sshExecutionHostTransports = new Map<string, CodexSshExecutionHostTransport>();
-  private readonly sshExecutionHostWorkers = new Map<string, CodexRemoteWorktreeWorkerPort>();
-  private readonly remoteWorktreeWorkerBundlePath: string;
+  private readonly executionHosts: CodexExecutionHostRegistry;
   private readonly managedWorktreeLifecycle: CodexManagedWorktreeLifecycleService;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadExecutionLocationService: CodexThreadExecutionLocationService;
@@ -2837,9 +2824,7 @@ export class CodexService extends EventEmitter {
         refreshSessionProcessMetrics: async () => undefined,
       } satisfies CodexTerminalRuntimePort);
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
-    this.remoteWorktreeWorkerBundlePath = path.resolve(
-      options.remoteWorktreeWorkerBundlePath ?? path.join(__dirname, "remote-worktree-worker.cjs"),
-    );
+    this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.serverRequestResponses = options.serverRequestResponses;
     this.inactiveRendererOwnerRetentionMs = Math.max(
@@ -2869,51 +2854,6 @@ export class CodexService extends EventEmitter {
       options?.threadCodexConfigBuilder ?? (() => this.desktopTools.threadConfig());
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
-    const localManagedRoot =
-      this.managedWorktreeSettingsPort.read().worktreeRoot ??
-      path.resolve(getNodexHome(), "worktrees");
-    const localKnownManagedRoots = [
-      path.resolve(getNodexHome(), "worktrees"),
-      ...this.managedWorktreeSettingsPort.listKnownRoots(),
-    ];
-    const localWorktreeWorker =
-      options?.worktreeWorkerPort ??
-      createInProcessCodexWorktreeWorkerPort({
-        hostId: CODEX_APP_LOCAL_HOST_ID,
-        loadBaseEnvironment: this.loadWorktreeSetupBaseEnvironment,
-      });
-    this.localExecutionHostFileTransfer = new CodexLocalExecutionHostFileTransfer({
-      hostId: CODEX_APP_LOCAL_HOST_ID,
-      stagingRoot: path.join(this.runtimeStateHome, "handoffs"),
-      allowedReadRoots: [this.runtimeStateHome, localManagedRoot, ...localKnownManagedRoots],
-    });
-    this.executionHosts.register({
-      hostId: CODEX_APP_LOCAL_HOST_ID,
-      displayName: CODEX_APP_LOCAL_HOST_DISPLAY_NAME ?? "Local",
-      kind: "local",
-      nodexHome: getNodexHome(),
-      codexHome: this.runtimeStateHome,
-      managedRoot: localManagedRoot,
-      handoffStagingRoot: path.join(this.runtimeStateHome, "handoffs"),
-      knownManagedRoots: localKnownManagedRoots,
-      worktreeWorker: localWorktreeWorker,
-      fileTransfer: this.localExecutionHostFileTransfer,
-      capabilities: [
-        "create",
-        "list",
-        "inspect",
-        "snapshot",
-        "remove",
-        "restore",
-        "set-owner",
-        "prepare-handoff",
-        "rollback-handoff",
-        "cleanup-handoff",
-        "export-handoff",
-        "import-handoff",
-        "cleanup-transfer-handoff",
-      ],
-    });
     this.managedWorktreeLifecycle = new CodexManagedWorktreeLifecycleService({
       executionHosts: this.executionHosts,
     });
@@ -4557,27 +4497,28 @@ export class CodexService extends EventEmitter {
       });
   }
 
-  /** Main owns host worker lifecycles; tests may keep the local in-process default. */
+  /** Test-only replacement seam while ManagedWorktreeRuntime is still extracted from this class. */
   setWorktreeWorkerPort(hostId: string, port: CodexWorktreeWorkerPort, managedRoot?: string): void {
-    const effectiveManagedRoot = managedRoot ?? this.executionHosts.requireManagedRoot(hostId);
+    const current = this.executionHosts.getDescriptor(hostId);
+    const effectiveManagedRoot = managedRoot ?? current?.managedRoot;
+    if (!effectiveManagedRoot) throw new Error(`Execution host is unavailable: ${hostId}`);
+    const fileTransfer = this.executionHosts.hasFileTransfer(hostId)
+      ? this.executionHosts.requireFileTransfer(hostId)
+      : undefined;
     this.executionHosts.register({
       hostId,
-      displayName:
-        hostId === CODEX_APP_LOCAL_HOST_ID
-          ? (CODEX_APP_LOCAL_HOST_DISPLAY_NAME ?? "Local")
-          : hostId,
+      displayName: current?.displayName ?? hostId,
       kind: hostId === CODEX_APP_LOCAL_HOST_ID ? "local" : "ssh",
+      nodexHome: current?.nodexHome,
+      codexHome: current?.codexHome,
       managedRoot: effectiveManagedRoot,
-      ...(hostId === CODEX_APP_LOCAL_HOST_ID
-        ? { handoffStagingRoot: path.join(this.runtimeStateHome, "handoffs") }
-        : {}),
+      handoffStagingRoot: current?.handoffStagingRoot,
       ...(hostId === CODEX_APP_LOCAL_HOST_ID
         ? { knownManagedRoots: this.managedWorktreeSettingsPort.listKnownRoots() }
         : {}),
+      repositoryRoots: current?.repositoryRoots,
       worktreeWorker: port,
-      ...(hostId === CODEX_APP_LOCAL_HOST_ID
-        ? { fileTransfer: this.localExecutionHostFileTransfer }
-        : {}),
+      ...(fileTransfer ? { fileTransfer } : {}),
       capabilities: [
         "create",
         "list",
@@ -4596,103 +4537,8 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  getCodexExecutionHostSettings(): CodexExecutionHostSettings {
-    return getCodexExecutionHostSettings();
-  }
-
-  async updateCodexExecutionHostSettings(
-    input: UpdateCodexExecutionHostSettingsInput,
-  ): Promise<CodexExecutionHostSettings> {
-    const settings = updateCodexExecutionHostSettings(input);
-    await this.reconcileCodexExecutionHosts(settings);
+  handleExecutionHostTopologyChanged(): void {
     this.invalidateSidebarSnapshotCache();
-    return settings;
-  }
-
-  async reconcileCodexExecutionHosts(
-    settings: CodexExecutionHostSettings = getCodexExecutionHostSettings(),
-  ): Promise<void> {
-    const desired = new Map(
-      settings.sshHosts.filter((host) => host.enabled).map((host) => [host.id, host]),
-    );
-    const stale = [...this.sshExecutionHostTransports.keys()].filter((hostId) => {
-      const next = desired.get(hostId);
-      const current = this.sshExecutionHostTransports.get(hostId);
-      return !next || JSON.stringify(current?.config) !== JSON.stringify(next);
-    });
-    for (const hostId of stale) await this.removeSshExecutionHost(hostId);
-
-    const errors: Error[] = [];
-    for (const config of desired.values()) {
-      if (this.sshExecutionHostTransports.has(config.id)) continue;
-      try {
-        const transport = new CodexSshExecutionHostTransport({
-          config,
-          workerBundlePath: this.remoteWorktreeWorkerBundlePath,
-        });
-        const health = await transport.ensureReady();
-        const worker = new CodexRemoteWorktreeWorkerPort({
-          hostId: config.id,
-          openWorker: async () => await transport.openWorktreeWorker(),
-          onInfrastructureError: (error) => {
-            this.logger.error("Remote worktree worker failed", {
-              hostId: config.id,
-              error: error.message,
-            });
-          },
-        });
-        this.client.registerProcessHost(config.id, transport.appServerClientOptions());
-        this.executionHosts.register({
-          hostId: config.id,
-          displayName: config.displayName,
-          kind: "ssh",
-          nodexHome: path.posix.join(health.home, ".nodex"),
-          codexHome: health.codexHome,
-          managedRoot: config.managedRoot,
-          handoffStagingRoot: path.posix.join(health.codexHome, "nodex-handoffs"),
-          repositoryRoots: config.repositoryRoots,
-          worktreeWorker: worker,
-          fileTransfer: transport,
-          capabilities: [
-            "create",
-            "list",
-            "inspect",
-            "snapshot",
-            "remove",
-            "restore",
-            "set-owner",
-            "prepare-handoff",
-            "rollback-handoff",
-            "cleanup-handoff",
-            "export-handoff",
-            "import-handoff",
-            "cleanup-transfer-handoff",
-          ],
-        });
-        this.sshExecutionHostTransports.set(config.id, transport);
-        this.sshExecutionHostWorkers.set(config.id, worker);
-      } catch (error) {
-        await this.removeSshExecutionHost(config.id);
-        errors.push(
-          new Error(
-            `Could not activate SSH execution host ${config.displayName}: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-        );
-      }
-    }
-    if (errors.length > 0)
-      throw new AggregateError(errors, "One or more SSH execution hosts are unavailable");
-  }
-
-  private async removeSshExecutionHost(hostId: string): Promise<void> {
-    const worker = this.sshExecutionHostWorkers.get(hostId);
-    this.sshExecutionHostWorkers.delete(hostId);
-    this.sshExecutionHostTransports.delete(hostId);
-    this.executionHosts.unregister(hostId, worker);
-    await Promise.allSettled([
-      worker?.shutdown() ?? Promise.resolve(),
-      this.client.unregister(hostId),
-    ]);
   }
 
   async synchronizeAutomationRuntime(): Promise<void> {
@@ -7349,11 +7195,6 @@ export class CodexService extends EventEmitter {
     }
     this.pendingDynamicToolCalls.clear();
 
-    await Promise.allSettled(
-      [...this.sshExecutionHostWorkers.values()].map((worker) => worker.shutdown()),
-    );
-    this.sshExecutionHostWorkers.clear();
-    this.sshExecutionHostTransports.clear();
     await this.client.dispose();
   }
 

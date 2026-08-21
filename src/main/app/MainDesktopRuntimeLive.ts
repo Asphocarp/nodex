@@ -82,6 +82,10 @@ import {
 } from "../codex-application/CodexPermissions";
 import { makeCodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import {
+  ExecutionHostRuntime,
+  live as executionHostRuntimeLive,
+} from "../codex-application/ExecutionHostRuntime";
+import {
   CodexAttachments,
   live as codexAttachmentsLive,
 } from "../codex-application/CodexAttachments";
@@ -107,6 +111,7 @@ import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
 import * as CodexPermissionsIpc from "../ipc/handlers/CodexPermissionsIpc";
 import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
+import * as ExecutionHostIpc from "../ipc/handlers/ExecutionHostIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
@@ -199,10 +204,14 @@ import { resolveInitialProjectProjectsDirectory } from "../initial-project/initi
 import { resolveInitialProjectJournalPath } from "../initial-project/initial-project-journal-store";
 import {
   getBackupSettings,
+  getCodexExecutionHostSettings,
   getCommandKeymapState,
   getHistorySettings,
+  getKnownManagedWorktreeRoots,
+  getManagedWorktreeSettings,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
+  updateCodexExecutionHostSettings,
 } from "../local-store/config";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
 import { getLogger } from "../logging/logger";
@@ -891,6 +900,37 @@ export const live: Layer.Layer<
         const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
+        const executionHostContext = yield* Layer.buildWithScope(
+          executionHostRuntimeLive({
+            runtimeStateHome,
+            nodexHome: config.nodexHome,
+            remoteWorktreeWorkerBundlePath: `${__dirname}/remote-worktree-worker.cjs`,
+            localWorktreeWorker: hostWorkers.worktree,
+            settings: {
+              read: getCodexExecutionHostSettings,
+              update: updateCodexExecutionHostSettings,
+            },
+            managedWorktrees: {
+              read: getManagedWorktreeSettings,
+              listKnownRoots: getKnownManagedWorktreeRoots,
+            },
+          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          runtimeScope,
+        ).pipe(Effect.mapError((cause) => runtimeError("construct-execution-hosts", cause)));
+        const executionHosts = Context.get(executionHostContext, ExecutionHostRuntime);
+        yield* Layer.buildWithScope(
+          ExecutionHostIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(ExecutionHostRuntime, executionHosts),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const codexPermissionsContext = yield* Layer.buildWithScope(
           codexPermissionsLive({ runtimeStateHome }).pipe(
             Layer.provide(
@@ -933,7 +973,7 @@ export const live: Layer.Layer<
               client: codexBridge,
               runtime: codexRuntime,
               runtimeStateHome,
-              worktreeWorkerPort: hostWorkers.worktree,
+              executionHosts: executionHosts.registry,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
                   callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
@@ -959,6 +999,13 @@ export const live: Layer.Layer<
               ),
             ),
           ),
+        );
+        yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
+          Stream.runForEach(() =>
+            Effect.sync(() => codexService.handleExecutionHostTopologyChanged()),
+          ),
+          Effect.forkIn(runtimeScope),
+          Effect.asVoid,
         );
         yield* Layer.buildWithScope(
           codexRendererProjectionRuntimeLive({
@@ -1473,10 +1520,8 @@ export const live: Layer.Layer<
         });
         const initializationFiber = yield* initialize.pipe(Effect.forkIn(runtimeScope));
 
-        yield* Effect.tryPromise({
-          try: () => codexService.reconcileCodexExecutionHosts(),
-          catch: (cause) => runtimeError("reconcile-execution-hosts", cause),
-        }).pipe(
+        yield* executionHosts.reconcile().pipe(
+          Effect.mapError((cause) => runtimeError("reconcile-execution-hosts", cause)),
           Effect.catch((error) =>
             Effect.sync(() =>
               applicationLogger.warn("Some configured SSH execution hosts are unavailable", {

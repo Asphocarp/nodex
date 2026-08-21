@@ -1,7 +1,5 @@
-/* oxlint-disable effecttsgo/async-function, effecttsgo/global-date, effecttsgo/node-builtin-import, effecttsgo/process-env-in-effect -- This is the single Promise/EventEmitter adapter for the legacy Electron application surface. */
+/* oxlint-disable effecttsgo/async-function, effecttsgo/global-date, effecttsgo/node-builtin-import -- This is the single Promise/EventEmitter adapter for the legacy Electron application surface. */
 import { EventEmitter } from "node:events";
-import { delimiter as pathDelimiter } from "node:path";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -23,24 +21,16 @@ import {
   type CodexServerRequest,
 } from "./CodexApplicationClient";
 import { parseCodexAppServerMessage } from "../codex/codex-app-server-message-parser";
-import { live as sessionLive } from "./CodexAppServerSession";
 import { CodexEndpointMap } from "./CodexEndpointMap";
 import type { CodexEndpointConnection, CodexEndpointEvent } from "./CodexEventHub";
 import { CodexGateway } from "./CodexGateway";
-import { codexRuntimeError, CodexRuntimeError } from "./CodexRuntimeError";
+import { CodexRuntimeError } from "./CodexRuntimeError";
+import { makeCodexProcessExecutionHost } from "../platform/node/CodexProcessExecutionHost";
 
 const directThreadId = (params: unknown): string | null => {
   if (typeof params !== "object" || params === null || Array.isArray(params)) return null;
   const threadId = (params as { readonly threadId?: unknown }).threadId;
   return typeof threadId === "string" && threadId.trim().length > 0 ? threadId.trim() : null;
-};
-
-const withSearchPath = (
-  env: Readonly<Record<string, string | undefined>>,
-  entries: readonly string[],
-): Readonly<Record<string, string | undefined>> => {
-  const inherited = env.PATH?.split(pathDelimiter).filter(Boolean) ?? [];
-  return { ...env, PATH: [...new Set([...entries, ...inherited])].join(pathDelimiter) };
 };
 
 const isRequestError = Schema.is(CodexAppServerRequestError);
@@ -70,15 +60,6 @@ const requestHandlerError = (error: unknown, method: string): CodexAppServerRequ
     { method, operation: "handle-request", cause: error },
   );
 };
-
-const initializeParams = (options: CodexAppServerClientOptions) => ({
-  clientInfo: options.clientInfo ?? { name: "nodex", title: "Nodex", version: "0.0.0" },
-  capabilities: {
-    experimentalApi: true,
-    extensions: { "openai/form": {} },
-    requestAttestation: false,
-  },
-});
 
 /**
  * Temporary outer-boundary adapter while Codex application state moves to Effect Modules.
@@ -243,43 +224,7 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
 
   registerProcessHost(hostId: string, options: CodexAppServerClientOptions): void {
     const gateway = this.#requireGateway();
-    const resolveEnv = () =>
-      Effect.tryPromise({
-        try: async () =>
-          withSearchPath(
-            options.resolveEnv === undefined
-              ? (options.env ?? process.env)
-              : await options.resolveEnv(),
-            options.additionalSearchPaths ?? [],
-          ),
-        catch: (cause) =>
-          codexRuntimeError({
-            operation: "session.resolve-environment",
-            reason: "spawn",
-            retryable: false,
-            hostId,
-            cause,
-          }),
-      });
-    const registration = gateway.reconcileHost({
-      kind: hostId === gateway.localHostId ? "local" : "remote",
-      hostId,
-      sessionLayer: (generation) =>
-        sessionLive({
-          hostId,
-          generation,
-          command: options.binaryPath ?? "codex",
-          args: options.args ?? ["app-server", "--listen", "stdio://"],
-          env: {},
-          resolveEnv,
-          forceTermination: "2 seconds",
-          initializeParams: initializeParams(options),
-          initializeTimeout: Duration.millis(options.initializeTimeoutMs ?? 20_000),
-          ...(options.expectedCodexHome === undefined
-            ? {}
-            : { expectedCodexHome: options.expectedCodexHome }),
-        }),
-    });
+    const registration = gateway.reconcileHost(makeCodexProcessExecutionHost(hostId, options));
     this.#connectionByHost.set(hostId.trim(), { status: "disconnected", retries: 0 });
     const fiber = this.#callbacks.fork(registration);
     if (fiber === null) throw new Error("Main runtime is closing");

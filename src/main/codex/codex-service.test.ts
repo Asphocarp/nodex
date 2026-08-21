@@ -138,6 +138,7 @@ import type {
 } from "../core-client/project-workspace-adapter";
 import { dbNotifier } from "../local-store/notifier";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
+import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
 
 interface TestableCodexService {
   on: {
@@ -1519,6 +1520,36 @@ function createService(options?: {
     autoDeleteEnabled: true,
     autoDeleteLimit: 15,
   };
+  const managedWorktreeSettingsPort = {
+    read: () => managedWorktreeSettings,
+    update: (input: {
+      readonly worktreeRoot?: string | null;
+      readonly autoDeleteEnabled?: boolean;
+      readonly autoDeleteLimit?: number;
+    }) => {
+      managedWorktreeSettings = {
+        worktreeRoot:
+          input.worktreeRoot === undefined
+            ? managedWorktreeSettings.worktreeRoot
+            : input.worktreeRoot,
+        autoDeleteEnabled: input.autoDeleteEnabled ?? managedWorktreeSettings.autoDeleteEnabled,
+        autoDeleteLimit: input.autoDeleteLimit ?? managedWorktreeSettings.autoDeleteLimit,
+      };
+      return managedWorktreeSettings;
+    },
+    listKnownRoots: () => [],
+  };
+  const runtimeStateHome =
+    options?.runtimeStateHome ?? path.join(DEFAULT_TEST_LOCAL_STORE_ROOT, "agent");
+  const executionHosts = makeLocalExecutionHostRegistry({
+    runtimeStateHome,
+    nodexHome: DEFAULT_TEST_LOCAL_STORE_ROOT,
+    localWorktreeWorker: createInProcessCodexWorktreeWorkerPort({
+      hostId: "local",
+      loadBaseEnvironment: options?.loadWorktreeSetupBaseEnvironment,
+    }),
+    managedWorktrees: managedWorktreeSettingsPort,
+  });
   const configuredAttachmentsRoot =
     options?.resolveThreadGoalAttachmentsRoot?.() ?? DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT;
   if (typeof configuredAttachmentsRoot !== "string") {
@@ -1634,29 +1665,15 @@ function createService(options?: {
     },
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
-    runtimeStateHome:
-      options?.runtimeStateHome ?? path.join(DEFAULT_TEST_LOCAL_STORE_ROOT, "agent"),
+    runtimeStateHome,
+    executionHosts,
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,
     supportsChatGptApps: options?.supportsChatGptApps,
     projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
-    managedWorktreeSettingsPort: {
-      read: () => managedWorktreeSettings,
-      update: (input) => {
-        managedWorktreeSettings = {
-          worktreeRoot:
-            input.worktreeRoot === undefined
-              ? managedWorktreeSettings.worktreeRoot
-              : input.worktreeRoot,
-          autoDeleteEnabled: input.autoDeleteEnabled ?? managedWorktreeSettings.autoDeleteEnabled,
-          autoDeleteLimit: input.autoDeleteLimit ?? managedWorktreeSettings.autoDeleteLimit,
-        };
-        return managedWorktreeSettings;
-      },
-      listKnownRoots: () => [],
-    },
+    managedWorktreeSettingsPort,
     threadCodexConfigBuilder: options?.threadCodexConfigBuilder,
     projectlessHomeDirectory:
       options?.projectlessHomeDirectory ?? (() => DEFAULT_TEST_LOCAL_STORE_ROOT),
