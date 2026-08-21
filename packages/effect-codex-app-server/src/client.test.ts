@@ -49,8 +49,11 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
         const client = yield* CodexClient.CodexAppServerClient;
 
         yield* client
-          .handleServerRequestFallback((method, payload) =>
-            Ref.update(userInputRequests, (current) => [...current, { method, payload }]).pipe(
+          .handleServerRequestFallback((method, payload, requestId) =>
+            Ref.update(userInputRequests, (current) => [
+              ...current,
+              { method, payload, requestId },
+            ]).pipe(
               Effect.as({
                 answers: {
                   approved: {
@@ -107,6 +110,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
       assert.deepEqual(yield* Ref.get(userInputRequests), [
         {
           method: "item/tool/requestUserInput",
+          requestId: 10_000,
           payload: {
             isBlocking: true,
             itemId: "item-approval-1",

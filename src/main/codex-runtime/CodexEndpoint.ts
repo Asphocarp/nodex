@@ -93,8 +93,8 @@ export const live = (
             );
             const session = Context.get(context, CodexAppServerSession);
             yield* session.client
-              .handleServerRequestFallback((method, params) =>
-                serverRequests.handle(hostId, currentGeneration, method, params),
+              .handleServerRequestFallback((method, params, requestId) =>
+                serverRequests.handle(hostId, currentGeneration, requestId, method, params),
               )
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
             yield* session.client.raw.notifications.pipe(

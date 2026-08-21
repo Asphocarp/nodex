@@ -13,6 +13,7 @@ export class CodexServerRequestRuntime extends Context.Service<
     readonly handle: (
       hostId: string,
       generation: number,
+      requestId: string | number,
       method: ServerRequestMethod,
       params: unknown,
     ) => Effect.Effect<unknown, CodexAppServerError>;
@@ -22,7 +23,7 @@ export class CodexServerRequestRuntime extends Context.Service<
 export const unhandled: Layer.Layer<CodexServerRequestRuntime> = Layer.succeed(
   CodexServerRequestRuntime,
   CodexServerRequestRuntime.of({
-    handle: (_hostId, _generation, method) =>
+    handle: (_hostId, _generation, _requestId, method) =>
       Effect.fail(CodexAppServerRequestError.methodNotFound(method)),
   }),
 );

@@ -70,6 +70,7 @@ export class CodexAppServerClient extends Context.Service<
       handler: (
         method: CodexRpc.ServerRequestMethod,
         params: unknown,
+        requestId: string | number,
       ) => Effect.Effect<unknown, CodexError.CodexAppServerError>,
     ) => Effect.Effect<void, never, Scope.Scope>;
     readonly handleUnknownServerNotification: (
@@ -102,6 +103,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
     | ((
         method: CodexRpc.ServerRequestMethod,
         params: unknown,
+        requestId: string | number,
       ) => Effect.Effect<unknown, CodexError.CodexAppServerError>)
     | undefined;
   let unknownNotificationHandler:
@@ -186,7 +188,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
       const fallback = serverRequestFallback;
       const handler =
         requestHandlers.get(method) ??
-        (fallback ? (params: unknown) => fallback(method, params) : undefined);
+        (fallback ? (params: unknown) => fallback(method, params, request.id) : undefined);
 
       return decodeOptionalPayload(method, payloadSchema, request.params).pipe(
         Effect.flatMap((decoded) => runHandler(handler, decoded, method)),
