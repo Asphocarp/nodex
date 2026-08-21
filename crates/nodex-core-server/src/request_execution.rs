@@ -247,8 +247,31 @@ impl RequestExecutor {
                 return Err(error);
             }
             tokio::select! {
-                result = &mut worker => {
-                    let result = result.map_err(|error| worker_failed(&error.to_string()))?;
+                worker_result = &mut worker => {
+                    // The worker and the timer can become ready on the same
+                    // scheduler turn. Preserve the transported request
+                    // boundary instead of exposing whichever inner error won
+                    // that race (for example, a Store query deadline mapped by
+                    // a module adapter).
+                    if Instant::now() >= spec.deadline {
+                        cancellation.cancel();
+                        self.log_execution_deadline(
+                            &spec,
+                            started_at,
+                            admission_wait,
+                            execution_observer.phase(),
+                        );
+                        let error = deadline_exceeded();
+                        self.record_error(&error);
+                        return Err(error);
+                    }
+                    if cancellation.is_cancelled() {
+                        let error = cancelled();
+                        self.record_error(&error);
+                        return Err(error);
+                    }
+                    let result = worker_result
+                        .map_err(|error| worker_failed(&error.to_string()))?;
                     if let Err(error) = &result {
                         self.record_error(error);
                     }
@@ -555,6 +578,37 @@ mod tests {
 
     use super::*;
 
+    struct BlockedWriter {
+        release: Option<mpsc::SyncSender<()>>,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+
+    impl BlockedWriter {
+        fn release(mut self) {
+            self.release
+                .take()
+                .expect("release sender")
+                .send(())
+                .expect("release writer");
+            self.thread
+                .take()
+                .expect("blocker thread")
+                .join()
+                .expect("blocker join");
+        }
+    }
+
+    impl Drop for BlockedWriter {
+        fn drop(&mut self) {
+            if let Some(release) = self.release.take() {
+                let _ = release.send(());
+            }
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
+
     fn headers(request_id: &str, class: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(REQUEST_ID_HEADER, request_id.parse().unwrap());
@@ -645,15 +699,21 @@ mod tests {
         let writer = runtime.handle();
         let (entered_sender, entered_receiver) = mpsc::sync_channel(1);
         let (release_sender, release_receiver) = mpsc::sync_channel(1);
-        let blocker = {
+        let blocker_thread = {
             let writer = writer.clone();
             thread::spawn(move || {
-                writer.call(move |_| {
-                    entered_sender.send(()).expect("entered");
-                    release_receiver.recv().expect("released");
-                    Ok(())
-                })
+                writer
+                    .call(move |_| {
+                        entered_sender.send(()).expect("entered");
+                        release_receiver.recv().expect("released");
+                        Ok(())
+                    })
+                    .expect("blocking writer job")
             })
+        };
+        let blocker = BlockedWriter {
+            release: Some(release_sender),
+            thread: Some(blocker_thread),
         };
         entered_receiver.recv().expect("writer blocked");
 
@@ -706,8 +766,7 @@ mod tests {
         .expect("next interactive request");
         assert_eq!(next, "permit-released");
 
-        release_sender.send(()).expect("release writer");
-        assert!(blocker.join().expect("blocker join").is_ok());
+        blocker.release();
     }
 
     #[tokio::test]
