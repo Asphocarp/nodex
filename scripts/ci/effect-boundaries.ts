@@ -59,7 +59,7 @@ function isEffectRuntimeBoundary(path: string): boolean {
   return (
     path === "src/main/app/MainEntry.ts" ||
     path === "src/main/effect-control-plane/runtime.ts" ||
-    path === "scripts/effect-control-plane/runtime.ts"
+    path === "scripts/isolated-run-supervisor.ts"
   );
 }
 

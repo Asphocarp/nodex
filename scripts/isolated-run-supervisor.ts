@@ -1,11 +1,8 @@
 import path from "node:path";
+import { Effect } from "effect";
 
-import { resolveIsolatedRunSupervisorDependencies } from "./effect-adapters/isolated-run-live";
-import {
-  IsolatedRunFailure,
-  superviseIsolatedRunEffect,
-} from "./effect-control-plane/isolated-run";
-import { runScriptControlPlanePromise } from "./effect-control-plane/runtime";
+import { resolveIsolatedRunSupervisorDependencies } from "./isolated-run/NodeIsolatedRun";
+import { IsolatedRunFailure, superviseIsolatedRunEffect } from "./isolated-run/IsolatedRun";
 import type { SuperviseIsolatedRunInput, SupervisedRunResult } from "./isolated-run-contract";
 
 export type {
@@ -41,7 +38,9 @@ export function superviseIsolatedRun(
   const repositoryRoot = requireAbsolutePath(input.repositoryRoot, "Repository root");
   const dependencies = resolveIsolatedRunSupervisorDependencies(input.dependencies);
   const runId = dependencies.generateRunId();
-  return runScriptControlPlanePromise(
+  // This exported script boundary is invoked exactly once by the dev launcher.
+  // oxlint-disable-next-line effecttsgo/no-run-promise -- one-shot script entry seam
+  return Effect.runPromise(
     superviseIsolatedRunEffect({
       dependencies,
       nodexHome,

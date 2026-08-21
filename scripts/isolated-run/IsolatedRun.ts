@@ -1,4 +1,4 @@
-import { Data, Deferred, Effect, Queue, Ref, Result } from "effect";
+import { Data, Deferred, Effect, FiberSet, Queue, Ref, Result } from "effect";
 import { acquireIsolatedRunLease } from "../../src/main/core-client/isolated-run-ownership";
 import { cleanupIsolatedCore, type IsolatedCoreCleanupStatus } from "../isolated-core-cleanup";
 import type {
@@ -289,11 +289,12 @@ export const superviseIsolatedRunEffect = (input: {
       });
       const signalWorker = Effect.forever(processNextSignal);
 
+      const runCallback = yield* FiberSet.makeRuntime();
       const handleSigint = (): void => {
-        Queue.offerUnsafe(signalQueue, "SIGINT");
+        runCallback(Queue.offer(signalQueue, "SIGINT"));
       };
       const handleSigterm = (): void => {
-        Queue.offerUnsafe(signalQueue, "SIGTERM");
+        runCallback(Queue.offer(signalQueue, "SIGTERM"));
       };
       yield* Effect.acquireRelease(
         trySync(() => {

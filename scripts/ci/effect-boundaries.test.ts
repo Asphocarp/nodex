@@ -42,6 +42,7 @@ describe("Effect architecture boundaries", () => {
     );
     expect(codes("src/main/app/MainEntry.ts", "run-promise.ts")).toEqual([]);
     expect(codes("src/main/effect-control-plane/runtime.ts", "run-promise.ts")).toEqual([]);
+    expect(codes("scripts/isolated-run-supervisor.ts", "run-promise.ts")).toEqual([]);
     expect(codes("src/main/app/MainEntry.test.ts", "run-promise.ts")).toEqual([]);
   });
 });

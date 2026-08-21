@@ -5,7 +5,7 @@ import {
   terminateForegroundProcessGroup,
   type IsolatedProcessGroup,
   type IsolatedRunClock,
-} from "./isolated-run";
+} from "./IsolatedRun";
 
 it.effect("escalates a foreground process group against the control-plane clock", ({ expect }) =>
   Effect.gen(function* () {
