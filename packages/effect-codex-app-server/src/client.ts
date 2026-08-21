@@ -60,6 +60,12 @@ export class CodexAppServerClient extends Context.Service<
         payload: CodexRpc.ServerNotificationParamsByMethod[M],
       ) => Effect.Effect<void, CodexError.CodexAppServerError>,
     ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly handleServerNotificationFallback: (
+      handler: (
+        method: CodexRpc.ServerNotificationMethod,
+        params: unknown,
+      ) => Effect.Effect<void, CodexError.CodexAppServerError>,
+    ) => Effect.Effect<void, never, Scope.Scope>;
     readonly handleUnknownServerRequest: (
       handler: (
         method: string,
@@ -105,6 +111,12 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
         params: unknown,
         requestId: string | number,
       ) => Effect.Effect<unknown, CodexError.CodexAppServerError>)
+    | undefined;
+  let serverNotificationFallback:
+    | ((
+        method: CodexRpc.ServerNotificationMethod,
+        params: unknown,
+      ) => Effect.Effect<void, CodexError.CodexAppServerError>)
     | undefined;
   let unknownNotificationHandler:
     | ((method: string, params: unknown) => Effect.Effect<void, CodexError.CodexAppServerError>)
@@ -161,13 +173,21 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
     const handlers = notificationHandlers.get(notification.method) ?? [];
 
     if (schema) {
+      const method = notification.method as CodexRpc.ServerNotificationMethod;
+      const fallback = serverNotificationFallback;
       return decodeNotificationPayload(
-        notification.method,
+        method,
         schema as Schema.Codec<unknown, unknown>,
         notification.params,
       ).pipe(
         Effect.flatMap((decoded) =>
-          Effect.forEach(handlers, (handler) => handler(decoded), { discard: true }),
+          Effect.forEach(
+            fallback === undefined
+              ? handlers
+              : [...handlers, (payload: unknown) => fallback(method, payload)],
+            (handler) => handler(decoded),
+            { discard: true },
+          ),
         ),
         Effect.ignore,
       );
@@ -280,6 +300,16 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
             notificationHandlers.set(method, next);
           }),
       ).pipe(Effect.asVoid),
+    handleServerNotificationFallback: (handler) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          serverNotificationFallback = handler;
+        }),
+        () =>
+          Effect.sync(() => {
+            if (serverNotificationFallback === handler) serverNotificationFallback = undefined;
+          }),
+      ),
     handleUnknownServerRequest: (handler) =>
       Effect.acquireRelease(
         Effect.sync(() => {

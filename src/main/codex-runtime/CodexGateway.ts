@@ -38,6 +38,7 @@ export interface CodexGatewayOptions {
 export class CodexGateway extends Context.Service<
   CodexGateway,
   {
+    readonly localHostId: string;
     readonly events: Stream.Stream<CodexEndpointEvent>;
     readonly requestLocal: <M extends ClientRequestMethod>(
       method: M,
@@ -131,6 +132,7 @@ export const live = (
       );
 
       return CodexGateway.of({
+        localHostId: endpoints.localHostId,
         events,
         requestLocal: (method, params) => requestOnHost(endpoints.localHostId, method, params),
         requestOnHost,

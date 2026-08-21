@@ -97,17 +97,16 @@ export const live = (
                 serverRequests.handle(hostId, currentGeneration, requestId, method, params),
               )
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
-            yield* session.client.raw.notifications.pipe(
-              Stream.runForEach((value) =>
+            yield* session.client
+              .handleServerNotificationFallback((method, params) =>
                 eventHub.publish({
                   kind: "notification",
                   hostId,
                   generation: currentGeneration,
-                  value,
+                  value: { method, params },
                 }),
-              ),
-              Effect.forkIn(attemptScope),
-            );
+              )
+              .pipe(Effect.provideService(Scope.Scope, attemptScope));
             yield* session.client.raw.requests.pipe(
               Stream.runForEach((value) =>
                 eventHub.publish({

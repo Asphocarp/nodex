@@ -40,6 +40,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
     Effect.gen(function* () {
       const userInputRequests = yield* Ref.make<Array<unknown>>([]);
       const messageDeltas = yield* Ref.make<Array<unknown>>([]);
+      const fallbackNotifications = yield* Ref.make<Array<unknown>>([]);
       const handle = yield* makeHandle();
       const scope = yield* Scope.make();
       const clientLayer = CodexClient.layerChildProcess(handle);
@@ -68,6 +69,11 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
         yield* client
           .handleServerNotification("item/agentMessage/delta", (payload) =>
             Ref.update(messageDeltas, (current) => [...current, payload]),
+          )
+          .pipe(Effect.provideService(Scope.Scope, scope));
+        yield* client
+          .handleServerNotificationFallback((method, payload) =>
+            Ref.update(fallbackNotifications, (current) => [...current, { method, payload }]),
           )
           .pipe(Effect.provideService(Scope.Scope, scope));
 
@@ -138,6 +144,17 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
           itemId: "item-1",
           threadId: "thread-1",
           turnId: "turn-1",
+        },
+      ]);
+      assert.deepEqual(yield* Ref.get(fallbackNotifications), [
+        {
+          method: "item/agentMessage/delta",
+          payload: {
+            delta: "Mock server is ready.",
+            itemId: "item-1",
+            threadId: "thread-1",
+            turnId: "turn-1",
+          },
         },
       ]);
     }),
