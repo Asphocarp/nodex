@@ -28,7 +28,8 @@ The observable result is a renderer suite that preserves or strengthens behavior
 - [x] (2026-08-21 05:56Z) Update the row-by-row audit ledger with the owning Module, retained DOM contract, before/after median, and exact replacement coverage for all 37 items.
 - [x] (2026-08-21 06:40Z) Run targeted tests, final lint/typecheck, three stable-tree JSON timing samples, and the local full renderer suite (318 files, 2,484 tests, warning-clean).
 - [x] (2026-08-21 07:09Z) Run final-head PR CI ([32456863611](https://github.com/junyudev/nodex/actions/runs/32456863611)) and an explicit `full=true` matrix ([32456932816](https://github.com/junyudev/nodex/actions/runs/32456932816)); both required gates and every selected job passed.
-- [x] (2026-08-21 07:09Z) Rebase all 10 commits onto `origin/main` at `c63cab6d`, verify patch-equivalent range-diff, confirm zero review threads, and leave PR #72 non-draft, clean, and mergeable.
+- [x] (2026-08-21 07:09Z) Rebase all 10 commits onto `origin/main` at `c63cab6d`, verify patch-equivalent range-diff, confirm the initial review had zero threads, and leave PR #72 non-draft, clean, and mergeable.
+- [x] (2026-08-21 07:27Z) Address both actionable final-review threads with a neutral instant-Motion Workbench boundary and awaited low-level state-changing events; pass 43 focused tests, three 944-test audit samples, typecheck, lint, and the warning-clean full renderer suite (318 files, 2,488 tests).
 
 ## Surprises & Discoveries
 
@@ -39,11 +40,11 @@ The observable result is a renderer suite that preserves or strengthens behavior
 - Observation: GitHub-hosted runner CPU time varies materially even for the same source tree.
   Evidence: complete renderer samples on the existing PR tree ranged from 226.46s to 315.31s; therefore acceptance uses three-sample medians and reports the range.
 - Observation: The cross-file cost owner was Motion timeline settlement, not thirty-seven unrelated timers.
-  Evidence: making Motion timelines instant without changing the default accessibility preference cut the final 37-item median aggregate to 61.88s while explicit full-motion and reduced-motion lifecycle tests continued to opt in.
+  Evidence: making Motion timelines instant without changing the default accessibility preference cut the final 37-item median aggregate to 51.32s while explicit full-motion and reduced-motion lifecycle tests continued to opt in.
 - Observation: Reduced-motion testing exposed a production focus race that full-motion exit timing had hidden.
   Evidence: request-card next-question focus failed until reduced-motion `AnimatePresence` used synchronous mounting; the explicit outgoing wait-mode contract still passes with motion enabled.
 - Observation: Three-sample validation found that Page Create's portalled-picker test only synthesized click and did not exercise real pointer ordering.
-  Evidence: after using pointer down/up/click, the complete file passed ten consecutive runs (140/140) and all three restarted final 37-file samples passed 943/943.
+  Evidence: after using pointer down/up/click, the complete file passed ten consecutive runs (140/140); the review-corrected final 37-file samples passed 944/944 in all three runs.
 
 ## Decision Log
 
@@ -62,7 +63,7 @@ The observable result is a renderer suite that preserves or strengthens behavior
 
 ## Outcomes & Retrospective
 
-All 35 slow files and two exceptional single tests have a row-by-row disposition in the local audit ledger. Pure settings, request-context, copy-payload, and interrupted-resume rules moved behind production Modules; heavy calendar/editor children and settled Motion use deterministic seams; four presentation-only assertions were removed; and six efficient P3 suites were explicitly accepted after measurement. The final three JSON samples each passed 37 files and 943 tests, with a 61.88s median aggregate and a 33.14s Workbench-nine median. After rebasing onto the latest main, the local full renderer suite passed 318 files and 2,487 tests without act, Motion, missing-key, or undefined-query warnings. Final-head PR CI and the explicit full matrix both passed; no review threads remain.
+All 35 slow files and two exceptional single tests have a row-by-row disposition in the local audit ledger. Pure settings, request-context, copy-payload, and interrupted-resume rules moved behind production Modules; heavy calendar/editor children and settled Motion use deterministic seams; four presentation-only assertions were removed; and six efficient P3 suites were explicitly accepted after measurement. The review-corrected final three JSON samples each passed 37 files and 944 tests, with a 51.32s median aggregate and a 27.29s Workbench-nine median. The final local full renderer suite passed 318 files and 2,488 tests without act, Motion, missing-key, or undefined-query warnings. Both final review findings now have explicit behavioral coverage at their owning boundary.
 
 ## Context and Orientation
 

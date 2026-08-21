@@ -2036,8 +2036,11 @@ export function appendMockNfmEditor(container: HTMLElement): { root: HTMLElement
   return { root, content };
 }
 
-function installMotionPreferenceMatchMediaForTest(reducedMotion: boolean) {
-  const restoreMatchMedia = installMotionPreferenceForTest(reducedMotion);
+function installMotionPreferenceMatchMediaForTest(
+  reducedMotion: boolean,
+  options: { readonly skipAnimations?: boolean } = {},
+) {
+  const restoreMatchMedia = installMotionPreferenceForTest(reducedMotion, options);
   initPrefersReducedMotion();
 
   return () => {
@@ -2054,7 +2057,11 @@ export function installMotionEnabledMatchMediaForTest() {
   return installMotionPreferenceMatchMediaForTest(false);
 }
 
-let restoreDefaultReducedMotion: (() => void) | null = null;
+export function installInstantMotionMatchMediaForTest() {
+  return installMotionPreferenceMatchMediaForTest(false, { skipAnimations: true });
+}
+
+let restoreDefaultInstantMotion: (() => void) | null = null;
 
 export function renderWorkbench({
   projects = [makeProject()],
@@ -3598,10 +3605,11 @@ export function installTerminalEventApiMock(): TerminalEventListenerMap {
 }
 
 beforeEach(() => {
-  restoreDefaultReducedMotion?.();
-  // Shell behavior tests assert settled product state. Avoid keeping Motion's
-  // exit trees and timers alive unless a test explicitly owns that contract.
-  restoreDefaultReducedMotion = installReducedMotionMatchMediaForTest();
+  restoreDefaultInstantMotion?.();
+  // Shell behavior tests assert settled product state without impersonating a
+  // user's accessibility preference. Motion contracts opt into live timelines;
+  // reduced-motion contracts set that preference explicitly.
+  restoreDefaultInstantMotion = installInstantMotionMatchMediaForTest();
   terminalSessionStore.disposeEventSubscriptions();
   resetDatabaseRowDetailStoreForTests();
   resetPageDetailStoreForTests();
@@ -3674,8 +3682,8 @@ beforeEach(() => {
 
 afterEach(() => {
   terminalSessionStore.disposeEventSubscriptions();
-  restoreDefaultReducedMotion?.();
-  restoreDefaultReducedMotion = null;
+  restoreDefaultInstantMotion?.();
+  restoreDefaultInstantMotion = null;
 });
 
 export async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {

@@ -156,7 +156,10 @@ describe("local-conversation request cards", () => {
         </NodexTooltipProvider>,
       );
 
-      fireEvent.click(view.getByRole("radio", { name: "3" }));
+      await act(async () => {
+        fireEvent.click(view.getByRole("radio", { name: "3" }));
+        await Promise.resolve();
+      });
 
       await waitFor(() => {
         const input = view.getByPlaceholderText("Type your answer");
@@ -185,7 +188,10 @@ describe("local-conversation request cards", () => {
       </NodexTooltipProvider>,
     );
 
-    fireEvent.click(view.getByRole("button", { name: "Next question" }));
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Next question" }));
+      await Promise.resolve();
+    });
 
     await waitFor(() => {
       expect(document.activeElement).toBe(view.getByRole("radio", { name: "Approve" }));
@@ -220,9 +226,15 @@ describe("local-conversation request cards", () => {
       );
       const outgoingOption = view.getByRole("radio", { name: "3" });
 
-      fireEvent.click(view.getByRole("button", { name: "Next question" }));
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Next question" }));
+        await Promise.resolve();
+      });
       expect(draftChanges).toHaveLength(1);
-      fireEvent.click(outgoingOption);
+      await act(async () => {
+        fireEvent.click(outgoingOption);
+        await Promise.resolve();
+      });
       expect(draftChanges).toHaveLength(1);
 
       await waitFor(() => {

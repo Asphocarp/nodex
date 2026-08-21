@@ -3,6 +3,7 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { getBoardProjectStore } from "@/lib/board-store";
+import { MotionGlobalConfig } from "motion";
 import { LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY } from "./local-environment-selection";
 import { type CodexSidebarThreadItem } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
@@ -11,6 +12,11 @@ import { getConnectedThreadStagePropsByThreadId, getLastThreadStageActions, getM
 import type { ProjectSession } from "./workbench-testkit/workbench-shell-fixtures";
 
 describe("workbench session shell / sidebar-core", () => {
+  test("settles Motion without impersonating reduced-motion preferences", () => {
+    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(false);
+    expect(MotionGlobalConfig.skipAnimations).toBe(true);
+  });
+
   test("loads project sessions and renders the Database View DB tab", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();

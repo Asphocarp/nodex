@@ -1,4 +1,4 @@
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { render } from "../../test/dom";
@@ -51,7 +51,7 @@ describe("BrowserTabFavicon", () => {
       .toBeNull();
   });
 
-  test("falls back to the globe when a favicon fails", () => {
+  test("falls back to the globe when a favicon fails", async () => {
     const view = render(
       <BrowserTabFaviconFrame
         faviconUrl="https://example.com/broken.ico"
@@ -61,13 +61,16 @@ describe("BrowserTabFavicon", () => {
     const image = view.container.querySelector("img");
     if (!image) throw new Error("Expected favicon image");
 
-    fireEvent.error(image);
+    await act(async () => {
+      fireEvent.error(image);
+      await Promise.resolve();
+    });
 
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("svg")).not.toBeNull();
   });
 
-  test("retains the completed favicon until its clip transition finishes", () => {
+  test("retains the completed favicon until its clip transition finishes", async () => {
     const restoreMatchMedia = installMotionPreferenceForTest(false);
     try {
       const view = render(
@@ -99,7 +102,10 @@ describe("BrowserTabFavicon", () => {
       );
       if (!clip) throw new Error("Expected favicon clip frame");
 
-      fireEvent.transitionEnd(clip, { propertyName: "clip-path" });
+      await act(async () => {
+        fireEvent.transitionEnd(clip, { propertyName: "clip-path" });
+        await Promise.resolve();
+      });
 
       expect(view.container.querySelector("img")).toBeNull();
     } finally {
