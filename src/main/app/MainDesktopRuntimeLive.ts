@@ -87,6 +87,7 @@ import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
+import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
 import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
@@ -1012,6 +1013,20 @@ export const live: Layer.Layer<
           applicationSchedulerContext,
           ApplicationSchedulerRuntime,
         );
+        yield* Layer.buildWithScope(
+          ApplicationSettingsIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ApplicationMenuRuntime, applicationMenus),
+                Layer.succeed(ApplicationSchedulerRuntime, applicationSchedulers),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
 
         const terminalDependencies = Layer.mergeAll(
           Layer.succeed(ElectronIpc, ipc),
@@ -1088,7 +1103,6 @@ export const live: Layer.Layer<
           Effect.tryPromise({
             try: () =>
               module.runMainAppStartup({
-                applicationMenus,
                 applicationWindows,
                 applicationSchedulers,
                 automationModule,

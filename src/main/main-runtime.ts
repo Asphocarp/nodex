@@ -154,9 +154,6 @@ async function initializeDesktopApp(
 }
 
 export interface MainRuntimeStartupContext {
-  applicationMenus: {
-    readonly refresh: (state: import("../shared/command-keybindings").CommandKeymapState) => void;
-  };
   applicationWindows: ApplicationWindowRuntime["Service"];
   applicationSchedulers: ApplicationSchedulerRuntime["Service"];
   automationModule: DesktopAutomationModulePort;
@@ -352,7 +349,6 @@ export async function runMainAppStartup(
     codexService,
     gitWorkerHost: context.gitWorkerHost,
     storeAdministration,
-    onBackupSettingsChanged: context.applicationSchedulers.configureBackup,
     onStoreRestored,
     documentSync,
     projectWorkspace,
@@ -370,9 +366,6 @@ export async function runMainAppStartup(
       });
     },
     resolveWindowSessionId: context.applicationWindows.resolveSessionId,
-    onCommandKeybindingsChanged: (state) => {
-      context.applicationMenus.refresh(state);
-    },
     terminalRuntime: context.terminalRuntime,
   });
 

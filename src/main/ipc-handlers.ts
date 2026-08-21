@@ -27,27 +27,6 @@ import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
 import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
 import {
-  getBackupSettings,
-  getCommandKeymapState,
-  getCodexDeveloperInstructionSettings,
-  getCodexGitSettings,
-  getDiagnosticsSettings,
-  getHistorySettings,
-  getTelemetrySettings,
-  getThreadNotificationSettings,
-  getWindowRestoreSettings,
-  resetCommandKeybindings,
-  updateCommandKeybinding,
-  updateCodexDeveloperInstructionSettings,
-  updateCodexGitSettings,
-  updateBackupSettings,
-  updateDiagnosticsSettings,
-  updateHistorySettings,
-  updateTelemetrySettings,
-  updateThreadNotificationSettings,
-  updateWindowRestoreSettings,
-} from "./local-store/config";
-import {
   materializeCanvasImage,
   materializeLocalResource,
   readManagedAssetImage,
@@ -140,7 +119,6 @@ import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { IpcApi, IpcEvents } from "../shared/ipc-api";
 import { WorkbenchSceneSnapshotSchema } from "../shared/schemas/workbench-scene";
-import { readThirdPartyNotices } from "./third-party-notices";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -192,10 +170,6 @@ import type {
   CodexThreadStartForSessionInput,
   CodexTurnStartOptions,
 } from "../shared/types";
-import {
-  COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
-  type CommandKeymapState,
-} from "../shared/command-keybindings";
 import { safeBroadcastToWindows, safeSendToWebContents } from "./ipc-safe-send";
 import {
   approximateJsonPayloadBytes,
@@ -469,22 +443,11 @@ const omitProjectScope = <Request extends { readonly projectId: string }>(
   return unscoped;
 };
 
-function broadcastCommandKeymapState(state: CommandKeymapState): void {
-  safeBroadcastToWindows(BrowserWindow.getAllWindows(), COMMAND_KEYBINDINGS_CHANGED_CHANNEL, [
-    state,
-  ]);
-}
-
-function refreshBrowserSidebarCommandAccelerators(): void {
-  // Browser sidebar shortcut registration is renderer-owned in Nodex today.
-}
-
 interface RegisterIpcHandlersOptions {
   browserSidebarService: BrowserSidebarService;
   codexService: CodexService;
   gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
-  onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
   onHeartbeatAutomationsEnabledChanged?: (
     input: CodexHeartbeatAutomationsEnabledChangedInput,
@@ -527,7 +490,6 @@ interface RegisterIpcHandlersOptions {
   >;
   automationModule?: DesktopAutomationModulePort;
   storeAdministration?: DesktopStoreAdministrationPort;
-  onBackupSettingsChanged?: (settings: ReturnType<typeof getBackupSettings>) => void;
   onStoreRestored?: () => void;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
@@ -1916,51 +1878,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     onStoreRestored: options.onStoreRestored,
   });
 
-  registerHandle("settings:backup:get", () => getBackupSettings());
-
-  registerHandle("settings:backup:update", (_, input) => {
-    const settings = updateBackupSettings(input);
-    options.onBackupSettingsChanged?.(settings);
-    return settings;
-  });
-
-  registerHandle("settings:history:get", () => getHistorySettings());
-
-  registerHandle("settings:history:update", (_, input) => updateHistorySettings(input));
-
-  registerHandle("settings:diagnostics:get", () => getDiagnosticsSettings());
-
-  registerHandle("settings:diagnostics:update", (_, input) => updateDiagnosticsSettings(input));
-
-  registerHandle("settings:telemetry:get", () => getTelemetrySettings());
-
-  registerHandle("settings:telemetry:update", (_, input) => updateTelemetrySettings(input));
-
-  registerHandle("settings:thread-notifications:get", () => getThreadNotificationSettings());
-
-  registerHandle("settings:thread-notifications:update", (_, input) =>
-    updateThreadNotificationSettings(input),
-  );
-
-  registerHandle("settings:codex-developer:get", () => getCodexDeveloperInstructionSettings());
-
-  registerHandle("settings:codex-developer:update", (_, input) =>
-    updateCodexDeveloperInstructionSettings(input),
-  );
-
-  registerHandle("settings:git:get", () => getCodexGitSettings());
-
-  registerHandle("settings:git:update", (_, input) => updateCodexGitSettings(input));
-
-  registerHandle("settings:third-party-notices:get", () =>
-    readThirdPartyNotices({
-      appPath: app.getAppPath(),
-      cwd: process.cwd(),
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-    }),
-  );
-
   registerHandle(
     "native-context-menu:show",
     async (event, items: NativeContextMenuItem[], menuOptions?: NativeContextMenuOptions) => {
@@ -1968,32 +1885,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
       return await showNativeContextMenu(window, items, menuOptions);
     },
   );
-
-  registerHandle("settings:window-restore:get", () => getWindowRestoreSettings());
-
-  registerHandle("settings:window-restore:update", (_, input) =>
-    updateWindowRestoreSettings(input),
-  );
-
-  registerHandle("codex-command-keymap-state", () => getCommandKeymapState());
-
-  registerHandle("set-codex-command-keybinding", (_, commandId, update) => {
-    const state = updateCommandKeybinding(commandId, update);
-    refreshBrowserSidebarCommandAccelerators();
-    options.onCommandKeybindingsChanged?.(state);
-    broadcastCommandKeymapState(state);
-    return state;
-  });
-
-  registerHandle("reset-codex-command-keybindings", () => {
-    const state = resetCommandKeybindings();
-    refreshBrowserSidebarCommandAccelerators();
-    options.onCommandKeybindingsChanged?.(state);
-    broadcastCommandKeymapState(state);
-    return state;
-  });
-
-  registerHandle("global-dictation-capture-fn-hotkey", () => null);
 
   registerHandle("shell:open-file-link", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),
