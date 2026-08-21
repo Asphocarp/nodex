@@ -87,6 +87,7 @@ import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
+import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
@@ -894,6 +895,19 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
+        yield* Layer.buildWithScope(
+          ApplicationWindowIpc.live().pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ApplicationWindowRuntime, applicationWindows),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const deepLinkContext = yield* Layer.buildWithScope(
           deepLinkRuntimeLive({
             focusWindow: applicationWindows.focusLast,

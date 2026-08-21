@@ -139,12 +139,6 @@ import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { IpcApi, IpcEvents } from "../shared/ipc-api";
-import type {
-  WindowSessionBootstrap,
-  WindowSessionBounds,
-  WindowSessionNewWindowRequest,
-  WindowSessionSaveLayoutInput,
-} from "../shared/window-session";
 import { WorkbenchSceneSnapshotSchema } from "../shared/schemas/workbench-scene";
 import { readThirdPartyNotices } from "./third-party-notices";
 import type {
@@ -490,13 +484,6 @@ interface RegisterIpcHandlersOptions {
   codexService: CodexService;
   gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
-  onCreateWindow?: (sourceWebContentsId: number, request: WindowSessionNewWindowRequest) => void;
-  onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
-  onSaveWindowSessionLayout?: (
-    webContentsId: number,
-    input: WindowSessionSaveLayoutInput,
-  ) => WindowSessionBootstrap;
-  onUpdateWindowSessionBounds?: (webContentsId: number, bounds: WindowSessionBounds) => void;
   onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
   rendererClientRouter?: RendererClientRouter;
   onHeartbeatAutomationsEnabledChanged?: (
@@ -1974,10 +1961,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
     }),
   );
 
-  registerHandle("electron-window:focus:get", (event) => {
-    return BrowserWindow.fromWebContents(event.sender)?.isFocused() ?? false;
-  });
-
   registerHandle(
     "native-context-menu:show",
     async (event, items: NativeContextMenuItem[], menuOptions?: NativeContextMenuOptions) => {
@@ -2160,36 +2143,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   );
 
   registerHandle("open-file", (_, target, openerId) => openFileLinkTarget(target, openerId));
-
-  registerHandle("window:show-emoji-panel", () => {
-    if (process.platform !== "darwin") return false;
-    app.showEmojiPanel();
-    return true;
-  });
-
-  registerHandle("window:new", (event, request: WindowSessionNewWindowRequest = {}) => {
-    if (!options.onCreateWindow) return false;
-    options.onCreateWindow(event.sender.id, request);
-    return true;
-  });
-
-  registerHandle("window-sessions:bootstrap", (event) => {
-    if (!options.onBootstrapWindowSession) {
-      throw new Error("Window session state is unavailable");
-    }
-    return options.onBootstrapWindowSession(event.sender.id);
-  });
-
-  registerHandle("window-sessions:save-layout", (event, input: WindowSessionSaveLayoutInput) => {
-    if (!options.onSaveWindowSessionLayout) {
-      throw new Error("Window session state is unavailable");
-    }
-    return options.onSaveWindowSessionLayout(event.sender.id, input);
-  });
-
-  registerHandle("window-sessions:update-bounds", (event, bounds: WindowSessionBounds) => {
-    options.onUpdateWindowSessionBounds?.(event.sender.id, bounds);
-  });
 
   registerHandle("git:repository:identity", (_, cwd: string) => {
     return readGitRepositoryIdentity(cwd);

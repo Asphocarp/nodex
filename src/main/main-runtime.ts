@@ -369,12 +369,6 @@ export async function runMainAppStartup(
         rendererClientId,
       });
     },
-    onCreateWindow: (sourceWebContentsId, request) => {
-      context.applicationWindows.openForRequest(sourceWebContentsId, request);
-    },
-    onBootstrapWindowSession: context.applicationWindows.bootstrap,
-    onSaveWindowSessionLayout: context.applicationWindows.saveLayout,
-    onUpdateWindowSessionBounds: context.applicationWindows.updateBounds,
     resolveWindowSessionId: context.applicationWindows.resolveSessionId,
     onCommandKeybindingsChanged: (state) => {
       context.applicationMenus.refresh(state);
