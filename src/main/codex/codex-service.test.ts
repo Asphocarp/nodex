@@ -1681,6 +1681,7 @@ function createService(options?: {
     client: new TestCodexApplicationClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
+    nodexAgentDynamicService: null,
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
     projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,

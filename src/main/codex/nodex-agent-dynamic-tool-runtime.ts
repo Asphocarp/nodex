@@ -9,18 +9,12 @@ import {
   NodexAgentDynamicToolFailure,
   type NodexAgentDynamicExecutionContext,
 } from "../agent-tools/dynamic-service-core";
-import { NodexAgentV3DynamicService } from "../agent-tools/dynamic-service-v3";
+import type { NodexAgentV3DynamicService } from "../agent-tools/dynamic-service-v3";
 import { DynamicToolRegistryError } from "./dynamic-tool-registry";
 import {
   buildNodexAgentV3DynamicToolCatalog,
   validateNodexAgentV3DynamicToolCall,
 } from "./nodex-dynamic-tool-registry";
-
-let activeNodexAgentV3DynamicService: NodexAgentV3DynamicService | null = null;
-
-export function configureNodexAgentV3DynamicService(service: NodexAgentV3DynamicService): void {
-  activeNodexAgentV3DynamicService = service;
-}
 
 function buildFailure(
   code: ToolFailure["error"]["code"],
@@ -70,6 +64,7 @@ export function buildNodexAgentDynamicToolSpecs() {
 export async function executeNodexAgentDynamicToolCall(
   params: DynamicToolCallParams,
   input: {
+    readonly service: NodexAgentV3DynamicService | null;
     readonly toolsetRevision: number | null;
     readonly authority: FrozenNodexAgentTurnAuthority | null;
     readonly access: NodexAgentAccess;
@@ -99,7 +94,7 @@ export async function executeNodexAgentDynamicToolCall(
   }
 
   try {
-    const service = activeNodexAgentV3DynamicService;
+    const service = input.service;
     if (!service) {
       validateNodexAgentV3DynamicToolCall({
         toolsetRevision: input.toolsetRevision,

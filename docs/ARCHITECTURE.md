@@ -188,6 +188,11 @@ read ambient `process.env`. The scoped shell-environment runtime coalesces disco
 interrupts an active login-shell child and rejects later admission. Worker roots use an independent
 loader and close it with their own shutdown, so no cached environment crosses a process or Scope.
 
+Nodex Agent dynamic tools receive their Core-backed registry explicitly from the Main composition
+root. The protocol validator remains a pure helper and can report stale catalogs before a registry
+is available, but production execution never discovers authority through a module setter or
+import-time active-service slot.
+
 Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0047](adr/0047-effect-control-plane-and-runtime-boundaries.md) defines the current frontier while the whole-Main kernel ADR is completed.
 
 Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).

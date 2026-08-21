@@ -544,6 +544,7 @@ import {
   buildNodexAgentDynamicToolSpecs,
   executeNodexAgentDynamicToolCall,
 } from "./nodex-agent-dynamic-tool-runtime";
+import type { NodexAgentV3DynamicService } from "../agent-tools/dynamic-service-v3";
 import {
   buildCodexAppDynamicToolFailure,
   buildCodexAppDynamicToolSuccess,
@@ -1388,6 +1389,7 @@ type CodexServiceOptions = {
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
+  nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   inactiveRendererOwnerRetentionMs?: number;
   inactiveRendererOwnerMaxRetained?: number;
   inactiveRendererOwnerRetryMs?: number;
@@ -2583,6 +2585,7 @@ export class CodexService extends EventEmitter {
   private readonly permissions: CodexPermissionsPromiseAdapter;
   private readonly agentImportCoordinator: AgentImportCoordinator;
   private readonly runtimeStateHome: string;
+  private readonly nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   private readonly runtimeVersion: string | null;
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly inactiveRendererOwnerRetentionMs: number;
@@ -2818,6 +2821,7 @@ export class CodexService extends EventEmitter {
         refreshSessionProcessMetrics: async () => undefined,
       } satisfies CodexTerminalRuntimePort);
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
+    this.nodexAgentDynamicService = options.nodexAgentDynamicService;
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.serverRequestResponses = options.serverRequestResponses;
@@ -23286,6 +23290,7 @@ export class CodexService extends EventEmitter {
     const taskResourceAccess = authority && broker ? broker.getTaskAccess(authority) : undefined;
 
     return await executeNodexAgentDynamicToolCall(params, {
+      service: this.nodexAgentDynamicService,
       toolsetRevision,
       authority,
       access,

@@ -44,7 +44,6 @@ import { createDesktopNodexAgentResourceAuthorityPort } from "../core-client/des
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
 import { CodexSessionStore } from "../codex/codex-session-store";
-import { configureNodexAgentV3DynamicService } from "../codex/nodex-agent-dynamic-tool-runtime";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import {
@@ -958,6 +957,12 @@ export const live: Layer.Layer<
         const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
+        const nodexAgentDynamicService = createDesktopNodexAgentV3DynamicService({
+          authority: legacyDataAuthority,
+          projectWorkspace,
+          databaseModule,
+          documentSync,
+        });
         const executionHostContext = yield* Layer.buildWithScope(
           executionHostRuntimeLive({
             runtimeStateHome,
@@ -1044,6 +1049,7 @@ export const live: Layer.Layer<
               client: codexBridge,
               runtime: codexRuntime,
               runtimeStateHome,
+              nodexAgentDynamicService,
               loadWorktreeSetupBaseEnvironment: () =>
                 callbacks.runPromise(worktreeShellEnvironment.load),
               executionHosts: executionHosts.registry,
@@ -1526,14 +1532,6 @@ export const live: Layer.Layer<
           projectWorkspace
             .getProjectSession(sessionId)
             .then((session) => session?.projectId ?? null),
-        );
-        configureNodexAgentV3DynamicService(
-          createDesktopNodexAgentV3DynamicService({
-            authority: dataAuthorityPromise,
-            projectWorkspace,
-            databaseModule,
-            documentSync,
-          }),
         );
         codexService.setNodexAgentAuthorizationBroker(
           new NodexAgentAuthorizationBroker({

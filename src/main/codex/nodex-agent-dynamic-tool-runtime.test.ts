@@ -47,6 +47,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
         arguments: {},
       },
       {
+        service: null,
         toolsetRevision: null,
         authority: null,
         access,
@@ -75,6 +76,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
         arguments: { blockId: "card-old" },
       },
       {
+        service: null,
         toolsetRevision: NODEX_APP_V2_TOOLSET_REVISION,
         authority: null,
         access,
@@ -101,6 +103,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
         arguments: {},
       },
       {
+        service: null,
         toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         authority: null,
         access,
