@@ -27,8 +27,8 @@ The observable result is a renderer suite that preserves or strengthens behavior
 - [x] (2026-08-21 05:56Z) Re-measure and explicitly accept the efficient P3 suites without speculative refactors: `local-conversation-thread-composer-speed`, `database-view-surface`, `local-conversation-store`, `app-shell-tabs`, `browser-sidebar-panel`, and `local-conversation-block-leaves`.
 - [x] (2026-08-21 05:56Z) Update the row-by-row audit ledger with the owning Module, retained DOM contract, before/after median, and exact replacement coverage for all 37 items.
 - [x] (2026-08-21 06:40Z) Run targeted tests, final lint/typecheck, three stable-tree JSON timing samples, and the local full renderer suite (318 files, 2,484 tests, warning-clean).
-- [ ] Run PR CI and an explicit GitHub full matrix.
-- [ ] Rebase onto `origin/main` if it advances, resolve every review thread, and leave PR #72 non-draft, clean, and confidently mergeable.
+- [x] (2026-08-21 07:09Z) Run final-head PR CI ([32456863611](https://github.com/junyudev/nodex/actions/runs/32456863611)) and an explicit `full=true` matrix ([32456932816](https://github.com/junyudev/nodex/actions/runs/32456932816)); both required gates and every selected job passed.
+- [x] (2026-08-21 07:09Z) Rebase all 10 commits onto `origin/main` at `c63cab6d`, verify patch-equivalent range-diff, confirm zero review threads, and leave PR #72 non-draft, clean, and mergeable.
 
 ## Surprises & Discoveries
 
@@ -62,7 +62,7 @@ The observable result is a renderer suite that preserves or strengthens behavior
 
 ## Outcomes & Retrospective
 
-All 35 slow files and two exceptional single tests now have a row-by-row disposition in the local audit ledger. Pure settings, request-context, copy-payload, and interrupted-resume rules moved behind production Modules; heavy calendar/editor children and settled Motion use deterministic seams; four presentation-only assertions were removed; and six efficient P3 suites were explicitly accepted after measurement. The final three JSON samples each passed 37 files and 943 tests, with a 61.88s median aggregate and a 33.14s Workbench-nine median. The local full renderer suite passed 318 files and 2,484 tests without act, Motion, missing-key, or undefined-query warnings. GitHub PR/full-matrix validation remains before the plan is complete.
+All 35 slow files and two exceptional single tests have a row-by-row disposition in the local audit ledger. Pure settings, request-context, copy-payload, and interrupted-resume rules moved behind production Modules; heavy calendar/editor children and settled Motion use deterministic seams; four presentation-only assertions were removed; and six efficient P3 suites were explicitly accepted after measurement. The final three JSON samples each passed 37 files and 943 tests, with a 61.88s median aggregate and a 33.14s Workbench-nine median. After rebasing onto the latest main, the local full renderer suite passed 318 files and 2,487 tests without act, Motion, missing-key, or undefined-query warnings. Final-head PR CI and the explicit full matrix both passed; no review threads remain.
 
 ## Context and Orientation
 
